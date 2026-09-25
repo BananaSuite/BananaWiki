@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.custom_role_edit.title_create') if is_create else t('admin.custom_role_edit.title_edit', name=role_name) }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ t('admin.custom_role_edit.heading_create') if is_create else t('admin.custom_role_edit.heading_edit', name=role_name) }}</h1>
+</div>
+<p class="u-o70-mb15">
+    {% if is_create %}
+    {{ t('admin.custom_role_edit.intro_create') }}
+    {% else %}
+    {{ t('admin.custom_role_edit.intro_edit', count=role.user_count if role else 0) }}
+    {% endif %}
+</p>
+
+<form method="POST" id="customRoleForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <!-- Role Metadata -->
+    <div class="settings-section u-mb15">
+        <h3>{{ t('admin.custom_role_edit.role_details') }}</h3>
+        <div class="form-group">
+            <label>{{ t('admin.custom_role_edit.name_label') }}</label>
+            <input type="text" name="name" class="input" value="{{ role_name }}"
+                   required maxlength="100" placeholder="{{ t('admin.custom_role_edit.name_placeholder') }}">
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.badges.description') }}</label>
+            <textarea name="description" class="input" rows="2" maxlength="500"
+                      placeholder="{{ t('admin.custom_role_edit.description_placeholder') }}">{{ role_description }}</textarea>
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.custom_role_edit.base_role') }}</label>
+            <select name="base_role" class="input" id="base-role-select">
+                <option value="user" {% if base_role == 'user' %}selected{% endif %}>
+                    {{ t('admin.custom_role_edit.base_member') }}
+                </option>
+                <option value="editor" {% if base_role == 'editor' %}selected{% endif %}>
+                    {{ t('admin.custom_role_edit.base_editor') }}
+                </option>
+            </select>
+            <p class="u-o60 u-mt04" style="font-size: .85em;">
+                {{ t('admin.custom_role_edit.base_role_hint') }}
+            </p>
+        </div>
+    </div>
+
+    <!-- Permission Categories -->
+    {% for category_key, category in permissions.items() %}
+    <div class="settings-section u-mb15">
+        <h3>{{ category.label }}</h3>
+        <div class="xs-793ad122">
+            {% for perm in category.permissions %}
+            {% set perm_key = perm[0] %}
+            {% set perm_label = perm[1] %}
+            {% set perm_desc = perm[2] %}
+            <label class="xs-c5f61a20">
+                <input class="xs-e3c59263" type="checkbox" name="permissions" value="{{ perm_key }}"
+                       {% if perm_key in enabled_permissions %}checked{% endif %}
+                       {% if perm_key == 'page.view_deindexed' %}
+                       data-perm-action="view-deindexed"
+                       {% elif perm_key.endswith('.edit_all') or perm_key.endswith('.create') or perm_key.endswith('.delete') %}
+                       data-perm-action="edit-perm"
+                       {% endif %}>
+                <div class="u-flex-1">
+                    <div class="xs-1e29eefb">{{ perm_label }}</div>
+                    <div class="xs-72eb6394">{{ perm_desc }}</div>
+                </div>
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+
+    <!-- Category Access Settings -->
+    <div class="settings-section u-mb15">
+        <h3>{{ t('admin.custom_role_edit.category_access') }}</h3>
+        <p class="xs-e8fa4c85">
+            {{ t('admin.custom_role_edit.category_access_intro') }}
+        </p>
+
+        <!-- Read Access -->
+        <div class="xs-a25a4a37">
+            <h4 class="u-mb08">{{ t('admin.custom_role_edit.read_access') }}</h4>
+            <div class="form-group">
+                <label class="u-flex-center-06-ptr">
+                    <input type="radio" name="read_restricted" value="0"
+                           id="read-unrestricted"
+                           {% if not read_restricted %}checked{% endif %}>
+                    <span>{{ t('admin.custom_role_edit.read_all')|safe }}{# <strong>All categories</strong>: can view pages in all categories #}</span>
+                </label>
+            </div>
+            <div class="form-group">
+                <label class="u-flex-center-06-ptr">
+                    <input type="radio" name="read_restricted" value="1"
+                           id="read-restricted"
+                           {% if read_restricted %}checked{% endif %}>
+                    <span>{{ t('admin.custom_role_edit.specific_only')|safe }}{# <strong>Specific categories only</strong> #}</span>
+                </label>
+            </div>
+            <div id="read-category-panel" class="u-mt1{% if not read_restricted %} u-disabled{% endif %}">
+                {% if all_categories %}
+                <div class="xs-78966148">
+                    {% for cat in all_categories %}
+                    <label class="u-flex-center-05-ptr u-fw-normal">
+                        <input type="checkbox" name="read_category_ids" value="{{ cat.id }}"
+                               {% if cat.id in read_allowed_categories %}checked{% endif %}>
+                        {{ cat.name }}
+                    </label>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="xs-a61a1f4c">{{ t('admin.custom_role_edit.no_categories') }}</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Write Access -->
+        <div class="xs-75d6db1b" id="write-access-section">
+            <h4 class="u-mb08">{{ t('admin.custom_role_edit.write_access') }}</h4>
+            <div class="form-group">
+                <label class="u-flex-center-06-ptr">
+                    <input type="radio" name="write_restricted" value="0"
+                           id="write-unrestricted"
+                           {% if not write_restricted %}checked{% endif %}>
+                    <span>{{ t('admin.custom_role_edit.write_all')|safe }}{# <strong>All categories</strong>: can edit pages in all categories #}</span>
+                </label>
+            </div>
+            <div class="form-group">
+                <label class="u-flex-center-06-ptr">
+                    <input type="radio" name="write_restricted" value="1"
+                           id="write-restricted"
+                           {% if write_restricted %}checked{% endif %}>
+                    <span>{{ t('admin.custom_role_edit.specific_only')|safe }}{# <strong>Specific categories only</strong> #}</span>
+                </label>
+            </div>
+            <div id="write-category-panel" class="u-mt1{% if not write_restricted %} u-disabled{% endif %}">
+                {% if all_categories %}
+                <div class="xs-78966148">
+                    {% for cat in all_categories %}
+                    <label class="u-flex-center-05-ptr u-fw-normal">
+                        <input type="checkbox" name="write_category_ids" value="{{ cat.id }}"
+                               data-perm-action="write-cat"
+                               {% if cat.id in write_allowed_categories %}checked{% endif %}>
+                        {{ cat.name }}
+                    </label>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="xs-a61a1f4c">{{ t('admin.custom_role_edit.no_categories') }}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn">{{ t('admin.custom_role_edit.create_role') if is_create else t('admin.custom_role_edit.save_changes') }}</button>
+        <a href="{{ url_for('admin_roles') }}" class="btn btn-outline">{{ t('common.cancel') }}</a>
+    </div>
+</form>
+
+{% if not is_create and role %}
+<!-- User Assignment Section -->
+<div class="settings-section u-mt2">
+    <h3>{{ t('admin.custom_role_edit.assigned_users', count=role_users|length) }}</h3>
+    {% if role_users %}
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>{{ t('admin.contributions.col.user') }}</th>
+                <th>{{ t('admin.custom_role_edit.base_role') }}</th>
+                <th>{{ t('admin.custom_role_edit.action_col') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in role_users %}
+            <tr>
+                <td>{{ u.username }}</td>
+                <td>{{ u.role }}</td>
+                <td>
+                    <form method="POST" action="{{ url_for('admin_role_unassign_user', role_id=role.id) }}"
+                          class="u-d-inline"
+                          data-confirm="{{ t('admin.custom_role_edit.unassign_confirm') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="user_id" value="{{ u.id }}">
+                        <button class="btn btn-sm btn-outline">{{ t('common.remove') }}</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="u-o60">{{ t('admin.custom_role_edit.no_users') }}</p>
+    {% endif %}
+
+    <div class="u-mt1">
+        <h4>{{ t('admin.custom_role_edit.add_user') }}</h4>
+        <form method="POST" action="{{ url_for('admin_role_assign_user', role_id=role.id) }}" class="u-flex-row-1">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <select name="user_id" class="input" style="max-width: 300px;">
+                <option value="">{{ t('admin.temporary.select_user') }}</option>
+                {% for u in all_users %}
+                {% if u.role not in ('admin', 'owner') %}
+                <option value="{{ u.id }}">{{ u.username }} ({{ u.role }})</option>
+                {% endif %}
+                {% endfor %}
+            </select>
+            <button class="btn">{{ t('admin.checkouts.assign') }}</button>
+        </form>
+    </div>
+</div>
+
+<!-- Danger Zone -->
+<div class="settings-section u-mt2" style="border-color: #c0392b;">
+    <h3 style="color: #c0392b;">{{ t('admin.edit_badge.danger_zone') }}</h3>
+    <p class="u-o70">{{ t('admin.custom_role_edit.delete_intro', count=role.user_count) }}</p>
+    <form method="POST" action="{{ url_for('admin_delete_role', role_id=role.id) }}"
+          data-confirm="{{ t('admin.custom_role_edit.delete_confirm') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+            <label>{{ t('admin.custom_role_edit.replacement_role') }}</label>
+            <select name="replacement_role_id" class="input" style="max-width: 300px;">
+                <option value="">{{ t('admin.custom_role_edit.auto_select') }}</option>
+            </select>
+        </div>
+        <button class="btn" style="background: #c0392b;">
+            {{ t('admin.custom_role_edit.delete_role') }}
+        </button>
+    </form>
+</div>
+{% endif %}
+
+<script nonce="{{ csp_nonce }}">
+function toggleReadCategoryPanel() {
+    var restricted = document.getElementById('read-restricted').checked;
+    var panel = document.getElementById('read-category-panel');
+    if (restricted) {
+        panel.style.opacity = '1';
+        panel.style.pointerEvents = 'auto';
+    } else {
+        panel.style.opacity = '.4';
+        panel.style.pointerEvents = 'none';
+    }
+}
+
+function toggleWriteCategoryPanel() {
+    var restricted = document.getElementById('write-restricted');
+    if (!restricted) return;
+    var panel = document.getElementById('write-category-panel');
+    if (restricted.checked) {
+        panel.style.opacity = '1';
+        panel.style.pointerEvents = 'auto';
+    } else {
+        panel.style.opacity = '.4';
+        panel.style.pointerEvents = 'none';
+    }
+}
+
+function toggleWriteAccessVisibility() {
+    var base = document.getElementById('base-role-select').value;
+    var section = document.getElementById('write-access-section');
+    if (section) {
+        section.style.display = base === 'editor' ? '' : 'none';
+    }
+}
+
+function syncWriteCategoryToRead(writeCheckbox) {
+    if (!writeCheckbox.checked) return;
+    var readCheckboxes = document.querySelectorAll('input[name="read_category_ids"]');
+    for (var i = 0; i < readCheckboxes.length; i++) {
+        if (readCheckboxes[i].value === writeCheckbox.value) {
+            readCheckboxes[i].checked = true;
+            break;
+        }
+    }
+}
+
+function syncAllWriteCategoriesToRead() {
+    var writeCheckboxes = document.querySelectorAll('input[name="write_category_ids"]:checked');
+    for (var i = 0; i < writeCheckboxes.length; i++) {
+        syncWriteCategoryToRead(writeCheckboxes[i]);
+    }
+}
+
+function handleViewDeindexedChange(checkbox) {
+    if (checkbox.checked) {
+        var viewAllCheckbox = document.querySelector('input[value="page.view_all"]');
+        if (viewAllCheckbox) viewAllCheckbox.checked = true;
+    }
+}
+
+function handleEditPermissionChange(checkbox) {
+    if (checkbox.checked) {
+        if (checkbox.value === 'page.edit_all' || checkbox.value === 'page.create') {
+            var viewCheckbox = document.querySelector('input[value="page.view_all"]');
+            if (viewCheckbox) viewCheckbox.checked = true;
+        }
+    }
+}
+
+// Initialize
+toggleWriteAccessVisibility();
+syncAllWriteCategoriesToRead();
+
+// Event listeners
+document.getElementById('base-role-select').addEventListener('change', toggleWriteAccessVisibility);
+document.querySelectorAll('[data-perm-action="view-deindexed"]').forEach(function(cb) {
+    cb.addEventListener('change', function() { handleViewDeindexedChange(this); });
+});
+document.querySelectorAll('[data-perm-action="edit-perm"]').forEach(function(cb) {
+    cb.addEventListener('change', function() { handleEditPermissionChange(this); });
+});
+['read-unrestricted','read-restricted'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('change', toggleReadCategoryPanel);
+});
+['write-unrestricted','write-restricted'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('change', toggleWriteCategoryPanel);
+});
+document.querySelectorAll('[data-perm-action="write-cat"]').forEach(function(cb) {
+    cb.addEventListener('change', function() { syncWriteCategoryToRead(this); });
+});
+</script>
+{% endblock %}

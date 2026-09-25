@@ -1,0 +1,327 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.custom_page_edit.title_edit') if mode == "edit" else t('admin.custom_page_edit.title_create') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<form method="post" enctype="multipart/form-data" id="customPageForm">
+    <div class="page-header">
+        <h1>{{ t('admin.custom_page_edit.heading_edit') if mode == "edit" else t('admin.custom_page_edit.heading_create') }}</h1>
+    </div>
+    <p class="u-mb1"><a href="{{ url_for('admin_custom_pages') }}">{{ t('admin.custom_page_edit.back') }}</a></p>
+
+    <div class="settings-section xs-b995c83d">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    {# Core fields #}
+    <div class="form-group u-mb1">
+        <label for="path"><strong>{{ t('admin.custom_page_edit.url_path') }}</strong></label>
+        <input type="text" id="path" name="path" class="input u-ff-mono"
+               value="{{ page.path if page else '' }}"
+               placeholder="{{ t('admin.custom_page_edit.url_path_placeholder') }}" required>
+        <small class="u-o60">{{ t('admin.custom_page_edit.url_path_hint')|safe }}{# Must start with <code>/</code>. Supports nesting: <code>/a/b/c</code> #}</small>
+    </div>
+
+    <div class="form-group u-mb1">
+        <label for="title"><strong>{{ t('admin.audit.col.title') }}</strong></label>
+        <input type="text" id="title" name="title" class="input"
+               value="{{ page.title if page else '' }}" placeholder="{{ t('admin.custom_page_edit.title_placeholder') }}">
+    </div>
+
+    <div class="form-group u-mb1">
+        <label for="content_type"><strong>{{ t('admin.custom_pages.col.type') }}</strong></label>
+        <select id="content_type" name="content_type" class="input">
+            {% set group_labels = {
+                'markup': t('admin.custom_page_edit.group.markup'),
+                'data': t('admin.custom_page_edit.group.data'),
+                'media': t('admin.custom_page_edit.group.media'),
+                'files': t('admin.custom_page_edit.group.files'),
+                'embed': t('admin.custom_page_edit.group.embed'),
+                'misc': t('admin.custom_page_edit.group.misc')
+            } %}
+            {% for group_key, type_keys in content_type_groups.items() %}
+            <optgroup label="{{ group_labels.get(group_key, group_key) }}">
+                {% for key in type_keys %}
+                {% if key in content_types %}
+                <option value="{{ key }}" {% if page and page.content_type == key %}selected{% endif %}>{{ content_types[key] }}</option>
+                {% endif %}
+                {% endfor %}
+            </optgroup>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="form-group u-mb1">
+        <label class="u-flex-center-05-ptr u-fw-normal">
+            <input type="checkbox" name="is_published" value="1"
+                   {% if not page or page.is_published %}checked{% endif %}>
+            {{ t('admin.custom_page_edit.published') }}
+        </label>
+    </div>
+
+    {# Meta description #}
+    <div id="field-meta" class="form-group u-mb1">
+        <label for="meta_description"><strong>{{ t('admin.custom_page_edit.meta_description') }}</strong></label>
+        <input type="text" id="meta_description" name="meta_description" class="input"
+               value="{{ page.meta_description if page else '' }}" placeholder="{{ t('admin.custom_page_edit.meta_placeholder') }}">
+    </div>
+
+    {# Content field #}
+    <div id="field-content" class="form-group u-mb1">
+        <label for="content"><strong>{{ t('admin.announcements.content') }}</strong></label>
+        <textarea id="content" name="content" class="input u-ff-mono-085"
+                  rows="12">{{ page.content if page else '' }}</textarea>
+    </div>
+
+    {# CSS field #}
+    <div id="field-css" class="form-group u-mb1">
+        <label for="css"><strong>{{ t('admin.custom_page_edit.css_styles') }}</strong></label>
+        <textarea id="css" name="css" class="input u-ff-mono-085"
+                  rows="6">{{ page.css if page else '' }}</textarea>
+    </div>
+
+    {# JS field #}
+    <div id="field-js" class="form-group u-mb1">
+        <label for="js"><strong>{{ t('admin.custom_page_edit.javascript') }}</strong></label>
+        <textarea id="js" name="js" class="input u-ff-mono-085"
+                  rows="6">{{ page.js if page else '' }}</textarea>
+    </div>
+
+    {# Redirect fields #}
+    <div id="field-redirect" class="form-group u-mb1">
+        <label for="redirect_url"><strong>{{ t('admin.custom_page_edit.redirect_url') }}</strong></label>
+        <input type="url" id="redirect_url" name="redirect_url" class="input"
+               value="{{ page.redirect_url if page else '' }}" placeholder="{{ t('admin.custom_page_edit.redirect_placeholder') }}">
+        <small class="u-muted">{{ t('admin.custom_page_edit.redirect_hint')|safe }}{# Use a relative path (e.g. <code>/wiki/page-slug</code>) for internal redirects. External URLs will redirect visitors away from this site. #}</small>
+        <div class="u-mt05">
+            <label for="redirect_code"><strong>{{ t('admin.custom_page_edit.redirect_code') }}</strong></label>
+            <select id="redirect_code" name="redirect_code" class="input xs-681b15ff">
+                <option value="302" {% if page and page.redirect_code == 302 %}selected{% endif %}>{{ t('admin.custom_page_edit.code_302') }}</option>
+                <option value="301" {% if page and page.redirect_code == 301 %}selected{% endif %}>{{ t('admin.custom_page_edit.code_301') }}</option>
+            </select>
+        </div>
+    </div>
+
+    {# Iframe & Page Embed fields #}
+    <div id="field-iframe" class="form-group u-mb1">
+        <label for="iframe_url"><strong>{{ t('admin.custom_page_edit.embed_url') }}</strong></label>
+        <input type="url" id="iframe_url" name="iframe_url" class="input"
+               value="{{ page.iframe_url if page else '' }}" placeholder="https://example.com">
+        <small class="u-o60">{{ t('admin.custom_page_edit.embed_url_hint') }}</small>
+
+        <div class="u-mt075">
+            <label for="iframe_height"><strong>{{ t('admin.custom_page_edit.height') }}</strong></label>
+            <input type="text" id="iframe_height" name="iframe_height" class="input xs-aad64e1e"
+                   value="{{ page.iframe_height if page else '600px' }}"
+                   placeholder="{{ t('admin.custom_page_edit.height_placeholder') }}">
+            <small class="xs-16bbef5d">{{ t('admin.custom_page_edit.height_hint')|safe }}{# CSS value, e.g. <code>600px</code>, <code>80vh</code>, <code>100%</code> #}</small>
+        </div>
+
+        <div class="u-mt075">
+            <label for="iframe_allow"><strong>{{ t('admin.custom_page_edit.allow') }}</strong></label>
+            <input type="text" id="iframe_allow" name="iframe_allow" class="input"
+                   value="{{ page.iframe_allow if page else '' }}"
+                   placeholder="fullscreen; autoplay; clipboard-write">
+            <small class="u-o60">{{ t('admin.custom_page_edit.allow_hint')|safe }}{# Space-separated list of <a class="btn u-o80" href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Permissions-Policy" target="_blank">permissions policy</a> features. Leave blank for defaults. #}</small>
+        </div>
+
+        <div class="u-mt075">
+            <label for="iframe_sandbox"><strong>{{ t('admin.custom_page_edit.sandbox') }}</strong></label>
+            <input type="text" id="iframe_sandbox" name="iframe_sandbox" class="input"
+                   value="{{ page.iframe_sandbox if page else '' }}"
+                   placeholder="allow-scripts allow-same-origin allow-popups">
+            <small class="u-o60">{{ t('admin.custom_page_edit.sandbox_hint')|safe }}{# Space-separated <a class="btn u-o80" href="https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#sandbox" target="_blank">sandbox tokens</a>. Leave blank to disable sandboxing. #}</small>
+        </div>
+    </div>
+
+    {# YouTube Video fields #}
+    <div id="field-youtube" class="form-group u-mb1">
+        <label for="video_url_yt"><strong>{{ t('admin.custom_page_edit.youtube_url') }}</strong></label>
+        <input type="text" id="video_url_yt" name="video_url" class="input"
+               value="{{ page.video_url if page else '' }}"
+               placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ  or  dQw4w9WgXcQ">
+        <small class="u-o60">
+            {{ t('admin.custom_page_edit.youtube_hint')|safe }}{# Accepts full YouTube URLs (<code>youtube.com/watch?v=…</code>, <code>youtu.be/…</code>, <code>youtube.com/shorts/…</code>) or a bare 11-character video ID. #}
+        </small>
+
+        <div class="xs-2e054339">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="video_autoplay" value="1"
+                       {% if page and page.video_autoplay %}checked{% endif %}>
+                {{ t('admin.custom_page_edit.autoplay_muted') }}
+            </label>
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="video_controls" value="1"
+                       {% if not page or page.video_controls %}checked{% endif %}>
+                {{ t('admin.custom_page_edit.show_controls') }}
+            </label>
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="video_loop" value="1"
+                       {% if page and page.video_loop %}checked{% endif %}>
+                {{ t('admin.custom_page_edit.loop') }}
+            </label>
+        </div>
+    </div>
+
+    {# Hosted Video fields #}
+    <div id="field-video" class="form-group u-mb1">
+        <p class="xs-f4be4375">
+            {{ t('admin.custom_page_edit.video_upload_hint', max_size=max_video_size_mb)|safe }}{# Upload a video file (MP4, WebM, OGG recommended). Maximum size: <strong>{max_size} MB</strong> (configurable in Admin → Settings when this plugin is active). #}
+        </p>
+
+        <div class="xs-46c76f04">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="video_autoplay" value="1"
+                       {% if page and page.video_autoplay %}checked{% endif %}>
+                {{ t('admin.custom_page_edit.autoplay') }}
+            </label>
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="video_controls" value="1"
+                       {% if not page or page.video_controls %}checked{% endif %}>
+                {{ t('admin.custom_page_edit.show_controls') }}
+            </label>
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="video_loop" value="1"
+                       {% if page and page.video_loop %}checked{% endif %}>
+                {{ t('admin.custom_page_edit.loop') }}
+            </label>
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="video_muted" value="1"
+                       {% if page and page.video_muted %}checked{% endif %}>
+                {{ t('admin.custom_page_edit.muted') }}
+            </label>
+        </div>
+    </div>
+
+    {# Code language field #}
+    <div id="field-code-lang" class="form-group u-mb1">
+        <label for="code_language"><strong>{{ t('admin.custom_page_edit.code_language') }}</strong></label>
+        <input type="text" id="code_language" name="code_language" class="input"
+               value="{{ page.code_language if page else 'text' }}" placeholder="{{ t('admin.custom_page_edit.code_language_placeholder') }}">
+    </div>
+
+    {# Links JSON field #}
+    <div id="field-links" class="form-group u-mb1">
+        <label for="links_json"><strong>{{ t('admin.custom_page_edit.links_json') }}</strong></label>
+        <textarea id="links_json" name="links_json" class="input u-ff-mono-085"
+                  rows="6"
+                  placeholder='[{"title":"Example","url":"https://example.com","description":"A link"}]'>{{ page.links_json if page else '[]' }}</textarea>
+        <small class="u-o60">{{ t('admin.custom_page_edit.links_json_hint')|safe }}{# JSON array of objects with <code>title</code>, <code>url</code>, and optional <code>description</code>. #}</small>
+    </div>
+
+    {# File upload #}
+    <div id="field-file" class="form-group u-mb1">
+        <label for="file"><strong>{{ t('admin.custom_page_edit.upload_file') }}</strong></label>
+        <input type="file" id="file" name="file" class="input">
+        <small class="u-o60">{{ t('admin.custom_page_edit.upload_file_hint') }}</small>
+    </div>
+
+    {# Existing files (edit mode) #}
+    {% if mode == "edit" and files %}
+    <div class="form-group u-mb1">
+        <label><strong>{{ t('admin.custom_page_edit.existing_files') }}</strong></label>
+        <table class="admin-table xs-1c62bd7a">
+            <thead><tr><th>{{ t('admin.custom_page_edit.col.name') }}</th><th>{{ t('admin.custom_page_edit.col.size') }}</th><th>{{ t('admin.custom_pages.col.type') }}</th><th>{{ t('admin.custom_role_edit.action_col') }}</th></tr></thead>
+            <tbody>
+            {% for f in files %}
+            <tr>
+                <td>
+                    {% if f.mime_type and f.mime_type.startswith('video/') %}
+                    {{ t('admin.custom_page_edit.tag.video') }}
+                    {% elif f.mime_type and f.mime_type.startswith('image/') %}
+                    {{ t('admin.custom_page_edit.tag.image') }}
+                    {% else %}
+                    {{ t('admin.custom_page_edit.tag.file') }}
+                    {% endif %}
+                    {{ f.original_name }}
+                </td>
+                <td>
+                    {% if f.file_size >= 1048576 %}
+                    {{ "%.1f"|format(f.file_size / 1048576) }} MB
+                    {% else %}
+                    {{ "%.1f"|format(f.file_size / 1024) }} KB
+                    {% endif %}
+                </td>
+                <td><code>{{ f.mime_type }}</code></td>
+                <td>
+                    <a href="{{ url_for('custom_page_file_download', file_id=f.id, filename=f.original_name) }}"
+                       target="_blank" class="btn btn-outline xs-28ee9a29">{{ t('admin.custom_page_edit.view') }}</a>
+                    <form class="u-d-inline" method="post" action="{{ url_for('admin_custom_page_file_delete', file_id=f.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn xs-13d30f50"
+                                data-confirm="{{ t('admin.custom_page_edit.delete_file_confirm') }}" data-confirm-label="{{ t('common.remove') }}">{{ t('common.remove') }}</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    </div>
+    <div class="form-actions">
+        <button type="submit" class="btn">{{ t('admin.custom_role_edit.save_changes') if mode == "edit" else t('admin.custom_page_edit.create_page') }}</button>
+        <a href="{{ url_for('admin_custom_pages') }}" class="btn btn-outline">{{ t('common.cancel') }}</a>
+    </div>
+</form>
+
+<script nonce="{{ csp_nonce }}">
+(function () {
+    // Fields mapping: content_type -> which field groups to show
+    // Keys: content, css, js, redirect, iframe, youtube, video, codeLang, links, file, meta
+    var FIELDS = {
+        redirect:      {content:0, css:0, js:0, redirect:1, iframe:0, youtube:0, video:0, codeLang:0, links:0, file:0, meta:0},
+        html:          {content:1, css:0, js:0, redirect:0, iframe:0, youtube:0, video:0, codeLang:0, links:0, file:0, meta:1},
+        html_styled:   {content:1, css:1, js:0, redirect:0, iframe:0, youtube:0, video:0, codeLang:0, links:0, file:0, meta:1},
+        html_full:     {content:1, css:1, js:1, redirect:0, iframe:0, youtube:0, video:0, codeLang:0, links:0, file:0, meta:1},
+        markdown:      {content:1, css:1, js:0, redirect:0, iframe:0, youtube:0, video:0, codeLang:0, links:0, file:0, meta:1},
+        wiki_page:     {content:1, css:0, js:0, redirect:0, iframe:0, youtube:0, video:0, codeLang:0, links:0, file:0, meta:1},
+        plain_text:    {content:1, css:0, js:0, redirect:0, iframe:0, youtube:0, video:0, codeLang:0, links:0, file:0, meta:0},
+        json_content:  {content:1, css:0, js:0, redirect:0, iframe:0, youtube:0, video:0, codeLang:0, links:0, file:0, meta:0},
+        xml_content:   {content:1, css:0, js:0, redirect:0, iframe:0, youtube:0, video:0, codeLang:0, links:0, file:0, meta:0},
+        image:         {content:0, css:0, js:0, redirect:0, iframe:0, youtube:0, video:0, codeLang:0, links:0, file:1, meta:0},
+        image_page:    {content:0, css:0, js:0, redirect:0, iframe:0, youtube:0, video:0, codeLang:0, links:0, file:1, meta:1},
+        youtube_video: {content:0, css:0, js:0, redirect:0, iframe:0, youtube:1, video:0, codeLang:0, links:0, file:0, meta:1},
+        video_hosted:  {content:0, css:0, js:0, redirect:0, iframe:0, youtube:0, video:1, codeLang:0, links:0, file:1, meta:1},
+        file_download: {content:0, css:0, js:0, redirect:0, iframe:0, youtube:0, video:0, codeLang:0, links:0, file:1, meta:0},
+        file_listing:  {content:0, css:0, js:0, redirect:0, iframe:0, youtube:0, video:0, codeLang:0, links:0, file:1, meta:1},
+        iframe_embed:  {content:0, css:0, js:0, redirect:0, iframe:1, youtube:0, video:0, codeLang:0, links:0, file:0, meta:1},
+        page_embed:    {content:0, css:0, js:0, redirect:0, iframe:1, youtube:0, video:0, codeLang:0, links:0, file:0, meta:1},
+        link_list:     {content:0, css:0, js:0, redirect:0, iframe:0, youtube:0, video:0, codeLang:0, links:1, file:0, meta:1},
+        code_snippet:  {content:1, css:0, js:0, redirect:0, iframe:0, youtube:0, video:0, codeLang:1, links:0, file:0, meta:1}
+    };
+
+    var ID_MAP = {
+        content:  'field-content',
+        css:      'field-css',
+        js:       'field-js',
+        redirect: 'field-redirect',
+        iframe:   'field-iframe',
+        youtube:  'field-youtube',
+        video:    'field-video',
+        codeLang: 'field-code-lang',
+        links:    'field-links',
+        file:     'field-file',
+        meta:     'field-meta'
+    };
+
+    function toggleFields() {
+        var ct = document.getElementById('content_type').value;
+        var show = FIELDS[ct] || {};
+        Object.keys(ID_MAP).forEach(function (key) {
+            var el = document.getElementById(ID_MAP[key]);
+            if (el) el.style.display = show[key] ? '' : 'none';
+        });
+    }
+
+    document.getElementById('content_type').addEventListener('change', toggleFields);
+    toggleFields();
+
+    // Auto-check "muted" when autoplay is checked for youtube (YouTube requires it)
+    var ytAutoplay = document.querySelector('#field-youtube input[name="video_autoplay"]');
+    if (ytAutoplay) {
+        ytAutoplay.addEventListener('change', function () {
+            // No explicit muted field for YouTube. The embed param handles it
+        });
+    }
+})();
+</script>
+{% endblock %}

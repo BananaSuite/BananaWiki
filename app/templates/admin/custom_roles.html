@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.custom_roles.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('admin.custom_roles.title') }}</h1>
+<p class="u-o70-mb15">
+    {{ t('admin.custom_roles.intro') }}
+</p>
+
+<div class="settings-section u-mb15">
+    <div class="u-flex-row-1">
+        <a href="{{ url_for('admin_create_role') }}" class="btn">{{ t('admin.custom_roles.create') }}</a>
+        <a href="{{ url_for('admin_users') }}" class="btn btn-outline">{{ t('admin.custom_roles.back_to_users') }}</a>
+    </div>
+</div>
+
+{% if roles %}
+<table class="admin-table">
+    <thead>
+        <tr>
+            <th>{{ t('common.name') }}</th>
+            <th>{{ t('admin.custom_roles.col.base_role') }}</th>
+            <th>{{ t('common.description') }}</th>
+            <th>{{ t('admin.custom_roles.col.users') }}</th>
+            <th>{{ t('admin.custom_roles.col.created') }}</th>
+            <th>{{ t('common.actions') }}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in roles %}
+        <tr>
+            <td><strong>{{ r.name }}</strong></td>
+            <td>
+                <span class="badge badge-{{ r.base_role }}">
+                    {{ t('admin.custom_roles.base.editor') if r.base_role == 'editor' else t('admin.custom_roles.base.member') }}
+                </span>
+            </td>
+            <td class="u-o70">{{ r.description or '-' }}</td>
+            <td>{{ r.user_count }}</td>
+            <td>{{ time_ago(r.created_at) }}</td>
+            <td>
+                <a href="{{ url_for('admin_edit_role', role_id=r.id) }}" class="btn btn-sm btn-outline">{{ t('common.edit') }}</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="settings-section">
+    <p class="u-o60">{{ t('admin.custom_roles.empty') }}</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,2043 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.settings.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<form method="POST" enctype="multipart/form-data">
+    <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <h1 style="margin:0">{{ t('admin.settings.title') }}</h1>
+        <button type="submit" class="btn">{{ t('admin.settings.save') }}</button>
+    </div>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="settings-nav" id="settings-nav">
+        <button type="button" class="settings-nav-btn active" data-group="general">{{ t('admin.settings.tab.general') }}</button>
+        <button type="button" class="settings-nav-btn" data-group="appearance">{{ t('admin.settings.tab.appearance') }}</button>
+        <button type="button" class="settings-nav-btn" data-group="security">{{ t('admin.settings.tab.security') }}</button>
+        <button type="button" class="settings-nav-btn" data-group="content">{{ t('admin.settings.tab.content') }}</button>
+        <button type="button" class="settings-nav-btn" data-group="features">{{ t('admin.settings.tab.features') }}</button>
+        <button type="button" class="settings-nav-btn" data-group="integrations">{{ t('admin.settings.tab.integrations') }}</button>
+        <button type="button" class="settings-nav-btn" data-group="advanced">{{ t('admin.settings.tab.advanced') }}</button>
+    </div>
+
+    <div class="settings-section" data-settings-group="general">
+        <h3>{{ t('admin.settings.general') }}</h3>
+        <div class="form-group">
+            <label>{{ t('admin.settings.site_name') }}</label>
+            <input type="text" name="site_name" value="{{ settings.site_name }}" class="input u-mw300" data-tour-id="admin-site-name">
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.settings.time_zone') }}</label>
+            <select name="timezone" class="input u-mw300">
+                {% for tz in timezones %}
+                <option value="{{ tz }}"{% if tz == settings.timezone %} selected{% endif %}>{{ tz }}</option>
+                {% endfor %}
+            </select>
+            <small class="u-hint">
+                {{ t('admin.settings.time_zone_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.settings.site_language') }}</label>
+            <select name="interface_language" class="input u-mw220">
+                {% for code, label in available_interface_languages.items() %}
+                <option value="{{ code }}"{% if settings.get('interface_language', 'en') == code %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <small class="u-hint">
+                {{ t('admin.settings.site_language_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.settings.fallback_language') }}</label>
+            <select name="interface_language_fallback" class="input u-mw220">
+                {% for code, label in builtin_interface_languages.items() %}
+                <option value="{{ code }}"{% if settings.get('interface_language_fallback', 'en') == code %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <small class="u-hint">
+                {{ t('admin.settings.fallback_language_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <a class="btn btn-outline" href="{{ url_for('admin_languages') }}">
+                {{ t('admin.settings.manage_languages') }}
+            </a>
+            <small class="u-hint u-block u-mt05">
+                {{ t('admin.settings.manage_languages_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="new_user_intro_enabled" value="1"{% if settings.get('new_user_intro_enabled') %} checked{% endif %}>
+                Show the visual introduction to newly-created users on first login
+            </label>
+            <small class="u-hint">
+                Disabled by default. Turn this on when newly-created users should see the first-login guided tour.
+                <a href="{{ url_for('onboarding_intro', preview=1) }}">Preview introduction</a>
+                {% if not settings.get('onboarding_replay_disabled', 0) %}
+                · <a href="{{ url_for('onboarding_setup') }}">Run setup again</a>
+                {% endif %}
+            </small>
+        </div>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="onboarding_replay_disabled" value="1"{% if settings.get('onboarding_replay_disabled', 0) %} checked{% endif %}>
+                Prevent users from replaying the intro and admins from rerunning setup
+            </label>
+            <small class="u-hint">
+                Off by default, so everyone can retake the guided tour later. Turn it on when onboarding should only happen once.
+            </small>
+        </div>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="intro_role_switching_enabled" value="1"{% if settings.get('intro_role_switching_enabled', 1) %} checked{% endif %}>
+                Let intro users preview other role perspectives
+            </label>
+            <small class="u-hint">
+                This only changes the read-only tour perspective. It never grants admin or editor permissions.
+            </small>
+            {% set intro_switch_roles = (settings.get('intro_role_switching_roles') or 'user,editor,admin').split(',') %}
+            <div class="intro-role-options">
+                <label class="intro-role-option">
+                    <input type="checkbox" name="intro_role_switching_roles" value="user"{% if 'user' in intro_switch_roles %} checked{% endif %}>
+                    <span>Users</span>
+                </label>
+                <label class="intro-role-option">
+                    <input type="checkbox" name="intro_role_switching_roles" value="editor"{% if 'editor' in intro_switch_roles %} checked{% endif %}>
+                    <span>Editors</span>
+                </label>
+                <label class="intro-role-option">
+                    <input type="checkbox" name="intro_role_switching_roles" value="admin"{% if 'admin' in intro_switch_roles %} checked{% endif %}>
+                    <span>Admins</span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-section" data-settings-group="appearance">
+        <h3>{{ t('admin.settings.theme_defaults') }}</h3>
+        <p class="a11y-hint u-mb08">{{ t('admin.settings.theme_defaults_intro') }}</p>
+        <div class="form-group">
+            <label>{{ t('admin.settings.default_theme_mode') }}</label>
+            <select name="default_theme_mode" class="input u-mw220">
+                <option value="dark"{% if settings.default_theme_mode != 'light' %} selected{% endif %}>{{ t('admin.settings.theme_dark') }}</option>
+                <option value="light"{% if settings.default_theme_mode == 'light' %} selected{% endif %}>{{ t('admin.settings.theme_light') }}</option>
+            </select>
+            <small class="u-hint">
+                {{ t('admin.settings.default_theme_mode_hint') }}
+            </small>
+        </div>
+        <h4 class="xs-3d6b61a8">{{ t('admin.settings.dark_theme_colors') }}</h4>
+        <div class="settings-color-preview" id="admin-color-preview"></div>
+        <div class="color-group">
+            <label class="color-group-label">{{ t('admin.settings.color_background') }}</label>
+            <input type="color" name="bg_color" value="{{ settings.bg_color }}"
+                   data-swatch="prev-bg" class="color-hex-picker">
+            <input type="text" value="{{ settings.bg_color }}" class="input u-w7r-mono">
+        </div>
+        <div class="color-group">
+            <label class="color-group-label">{{ t('admin.settings.color_text') }}</label>
+            <input type="color" name="text_color" value="{{ settings.text_color }}"
+                   data-swatch="prev-text" class="color-hex-picker">
+            <input type="text" value="{{ settings.text_color }}" class="input u-w7r-mono">
+        </div>
+        <div class="color-group">
+            <label class="color-group-label">{{ t('admin.settings.color_primary') }}</label>
+            <input type="color" name="primary_color" value="{{ settings.primary_color }}"
+                   data-swatch="prev-primary" class="color-hex-picker">
+            <input type="text" value="{{ settings.primary_color }}" class="input u-w7r-mono">
+        </div>
+        <div class="color-group">
+            <label class="color-group-label">{{ t('admin.settings.color_secondary') }}</label>
+            <input type="color" name="secondary_color" value="{{ settings.secondary_color }}"
+                   data-swatch="prev-secondary" class="color-hex-picker">
+            <input type="text" value="{{ settings.secondary_color }}" class="input u-w7r-mono">
+        </div>
+        <div class="color-group">
+            <label class="color-group-label">{{ t('admin.settings.color_accent') }}</label>
+            <input type="color" name="accent_color" value="{{ settings.accent_color }}"
+                   data-swatch="prev-accent" class="color-hex-picker">
+            <input type="text" value="{{ settings.accent_color }}" class="input u-w7r-mono">
+        </div>
+        <div class="color-group">
+            <label class="color-group-label">{{ t('admin.settings.color_sidebar') }}</label>
+            <input type="color" name="sidebar_color" value="{{ settings.sidebar_color }}"
+                   data-swatch="prev-sidebar" class="color-hex-picker">
+            <input type="text" value="{{ settings.sidebar_color }}" class="input u-w7r-mono">
+        </div>
+        <h4 class="xs-cdad5dea">{{ t('admin.settings.light_theme_colors') }}</h4>
+        <div class="color-group">
+            <label class="color-group-label">{{ t('admin.settings.color_background') }}</label>
+            <input type="color" name="light_bg_color" value="{{ settings.light_bg_color }}" class="color-hex-picker">
+            <input type="text" value="{{ settings.light_bg_color }}" class="input u-w7r-mono">
+        </div>
+        <div class="color-group">
+            <label class="color-group-label">{{ t('admin.settings.color_text') }}</label>
+            <input type="color" name="light_text_color" value="{{ settings.light_text_color }}" class="color-hex-picker">
+            <input type="text" value="{{ settings.light_text_color }}" class="input u-w7r-mono">
+        </div>
+        <div class="color-group">
+            <label class="color-group-label">{{ t('admin.settings.color_primary') }}</label>
+            <input type="color" name="light_primary_color" value="{{ settings.light_primary_color }}" class="color-hex-picker">
+            <input type="text" value="{{ settings.light_primary_color }}" class="input u-w7r-mono">
+        </div>
+        <div class="color-group">
+            <label class="color-group-label">{{ t('admin.settings.color_secondary') }}</label>
+            <input type="color" name="light_secondary_color" value="{{ settings.light_secondary_color }}" class="color-hex-picker">
+            <input type="text" value="{{ settings.light_secondary_color }}" class="input u-w7r-mono">
+        </div>
+        <div class="color-group">
+            <label class="color-group-label">{{ t('admin.settings.color_accent') }}</label>
+            <input type="color" name="light_accent_color" value="{{ settings.light_accent_color }}" class="color-hex-picker">
+            <input type="text" value="{{ settings.light_accent_color }}" class="input u-w7r-mono">
+        </div>
+        <div class="color-group">
+            <label class="color-group-label">{{ t('admin.settings.color_sidebar') }}</label>
+            <input type="color" name="light_sidebar_color" value="{{ settings.light_sidebar_color }}" class="color-hex-picker">
+            <input type="text" value="{{ settings.light_sidebar_color }}" class="input u-w7r-mono">
+        </div>
+        <h4 class="xs-cdad5dea">{{ t('admin.settings.theme_transfer') }}</h4>
+        <div class="form-group">
+            <a class="btn btn-outline" href="{{ url_for('admin_theme_export') }}">
+                {{ t('admin.settings.theme_export') }}
+            </a>
+            <small class="u-hint u-block u-mt05">
+                {{ t('admin.settings.theme_export_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label for="theme-file-input">{{ t('admin.settings.theme_import') }}</label>
+            <input id="theme-file-input" type="file" name="theme_file" accept=".bwtheme" class="input u-mw420" form="theme-import-form">
+            <button type="submit" class="btn btn-outline u-mt05" form="theme-import-form">
+                {{ t('admin.settings.theme_import_button') }}
+            </button>
+            <small class="u-hint u-block u-mt05">
+                {{ t('admin.settings.theme_import_hint') }}
+            </small>
+        </div>
+    </div>
+
+    <div class="settings-section" data-settings-group="appearance">
+        <h3>{{ t('admin.settings.favicon') }}</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="favicon_enabled" value="1"{% if settings.favicon_enabled %} checked{% endif %}>
+                {{ t('admin.settings.favicon_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.favicon_enable_hint') }}
+            </small>
+        </div>
+        <div id="favicon-options">
+            <div class="form-group">
+                <span>{{ t('admin.settings.favicon_current_selection') }}:</span>
+                <div class="favicon-current-badge" id="favicon-current-badge">
+                    {% set current_type = settings.favicon_type or 'yellow' %}
+                    {% if current_type == 'custom' and settings.favicon_custom %}
+                    <img class="u-img-pixelated" src="{{ url_for('static', filename='favicons/' + settings.favicon_custom) }}">
+                    <span id="favicon-current-name">{{ settings.favicon_custom | replace('custom_', '') | truncate(20) }}</span>
+                    {% else %}
+                    <img class="u-img-pixelated" src="{{ url_for('static', filename='favicons/banana_' + current_type + '.png') }}">
+                    <span id="favicon-current-name">{{ current_type | capitalize }} {{ t('admin.settings.favicon_banana_suffix') }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="form-group">
+                <label>{{ t('admin.settings.favicon_library') }}</label>
+                <div class="favicon-grid" id="favicon-grid">
+                    {% for preset in favicon_types %}
+                    {% set preset_selected = (settings.favicon_type != 'custom' and settings.favicon_type == preset) or (settings.favicon_type == 'custom' and (not settings.favicon_custom or not settings.favicon_custom.startswith('custom_')) and loop.first) %}
+                    <div class="favicon-card{% if settings.favicon_type != 'custom' and settings.favicon_type == preset %} favicon-card-selected{% endif %}{% if settings.favicon_type == 'custom' and (not settings.favicon_custom or not settings.favicon_custom.startswith('custom_')) and loop.first %} favicon-card-selected{% endif %}"
+                         data-type="{{ preset }}" data-custom="" role="button" tabindex="0"
+                         aria-pressed="{{ 'true' if preset_selected else 'false' }}">
+                        <div class="favicon-card-img">
+                            <img src="{{ url_for('static', filename='favicons/banana_' + preset + '.png') }}" alt="{{ preset }}">
+                        </div>
+                        <div class="favicon-card-label">{{ preset | capitalize }}</div>
+                        <div class="favicon-card-badge">{{ t('admin.settings.favicon_badge_default') }}</div>
+                        {% if settings.favicon_type == preset %}
+                        <div class="favicon-card-check">✓</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    {% for fname in favicon_order_list %}
+                    {% set custom_selected = settings.favicon_type == 'custom' and settings.favicon_custom == fname %}
+                    <div class="favicon-card favicon-card-custom{% if settings.favicon_type == 'custom' and settings.favicon_custom == fname %} favicon-card-selected{% endif %}"
+                         data-type="custom" data-custom="{{ fname }}"
+                         draggable="true" role="button" tabindex="0"
+                         aria-pressed="{{ 'true' if custom_selected else 'false' }}">
+                        <div class="favicon-card-img">
+                            <img src="{{ url_for('static', filename='favicons/' + fname) }}" alt="{{ fname }}">
+                        </div>
+                        <div class="favicon-card-label">{{ fname | replace('custom_', '') | truncate(15, True, '...') }}</div>
+                        <div class="favicon-card-badge favicon-card-badge-custom">{{ t('admin.settings.favicon_badge_custom') }}</div>
+                        {% if settings.favicon_type == 'custom' and settings.favicon_custom == fname %}
+                        <div class="favicon-card-check">✓</div>
+                        {% endif %}
+                        <button type="button" class="favicon-card-del" data-favicon-delete data-filename="{{ fname }}" title="{{ t('admin.settings.favicon_delete') }}">✕</button>
+                        <span class="favicon-card-drag">⠿</span>
+                    </div>
+                    {% endfor %}
+                    <div class="favicon-card favicon-card-add" data-favicon-upload-trigger role="button" tabindex="0">
+                        <div class="favicon-card-img favicon-card-add-icon">+</div>
+                        <div class="favicon-card-label">{{ t('admin.settings.favicon_upload') }}</div>
+                    </div>
+                </div>
+                <input type="file" id="favicon-upload-input" accept=".png,.jpg,.jpeg,.ico,.gif,.webp" class="u-d-none">
+                <div id="favicon-upload-msg" class="u-d-none u-mt05 u-fs-085"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-section" data-settings-group="features">
+        <h3>Visual Page Builder</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="page_builder_enabled" value="1"
+                       {% if settings.get('page_builder_enabled') %}checked{% endif %}
+                       {% if config.FORBID_PAGE_BUILDER %}disabled{% endif %}>
+                Enable the drag-and-drop page builder
+            </label>
+            {% if config.FORBID_PAGE_BUILDER %}
+            <small class="u-hint">This hosting platform requires approval before the builder can be enabled. The hosting account owner can request access from the instance page.</small>
+            {% else %}
+            <small class="u-hint">A core, block-based editor for text, images, YouTube videos, buttons, callouts, lists, and columns. It is disabled by default and never permits custom HTML, CSS, or JavaScript.</small>
+            {% endif %}
+        </div>
+        <div class="form-group">
+            <label for="page-builder-access">Who can build pages</label>
+            <select id="page-builder-access" name="page_builder_access" class="input u-mw300">
+                <option value="admin" {% if settings.get('page_builder_access', 'admin') == 'admin' %}selected{% endif %}>Administrators only</option>
+                <option value="editor" {% if settings.get('page_builder_access') == 'editor' %}selected{% endif %}>Editors and administrators</option>
+                <option value="user" {% if settings.get('page_builder_access') == 'user' %}selected{% endif %}>All signed-in users</option>
+            </select>
+            <small class="u-hint">This grants publishing access through the builder. Existing category visibility, page protection, and active reservations are still enforced.</small>
+        </div>
+        {% if config.FORBID_PUBLIC_BUILDER_PAGES %}
+        <small class="u-hint">Builder pages cannot be released to anonymous visitors on this hosted instance. They remain available to signed-in wiki users.</small>
+        {% endif %}
+    </div>
+
+    <div class="settings-section" data-settings-group="security">
+        <h3>{{ t('admin.settings.maintenance_mode') }}</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="maintenance_mode" value="1"{% if settings.maintenance_mode %} checked{% endif %}>
+                {{ t('admin.settings.maintenance_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.maintenance_enable_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.settings.maintenance_message') }}</label>
+            <textarea name="maintenance_message" class="input xs-d4af0a19" rows="4"
+                      placeholder="{{ t('admin.settings.maintenance_message_placeholder') }}">{{ settings.maintenance_message }}</textarea>
+            <small class="u-hint">
+                {{ t('admin.settings.maintenance_message_hint') }}
+            </small>
+        </div>
+    </div>
+
+    <div class="settings-section" data-settings-group="security">
+        <h3>{{ t('admin.settings.session_limit') }}</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="session_limit_enabled" value="1"{% if settings.session_limit_enabled %} checked{% endif %}>
+                {{ t('admin.settings.session_limit_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.session_limit_hint') }}
+            </small>
+        </div>
+    </div>
+
+    <div class="settings-section" data-settings-group="security">
+        <h3>{{ t('admin.settings.auto_mass_logout') }}</h3>
+        <p class="u-section-note">
+            {{ t('admin.settings.auto_mass_logout_intro') }}
+        </p>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="auto_logout_enabled" value="1"
+                       id="auto-logout-enabled"
+                       {% if settings.auto_logout_enabled %}checked{% endif %}>
+                {{ t('admin.settings.auto_logout_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.auto_logout_enable_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.settings.logout_hour') }}</label>
+            <input type="number" name="auto_logout_hour" class="input xs-ff65788c"
+                   min="0" max="23"
+                   value="{{ settings.auto_logout_hour if settings.auto_logout_hour is not none else 0 }}">
+            <small class="u-hint">
+                {{ t('admin.settings.logout_hour_hint') }}
+            </small>
+        </div>
+    </div>
+
+    {% if enabled_plugins.get('attachments') %}
+    <div class="settings-section" data-settings-group="content">
+        <h3>{{ t('admin.settings.upload_settings') }}</h3>
+        <p class="a11y-hint u-mb08">
+            {{ t('admin.settings.upload_settings_intro') }}
+        </p>
+        <div class="form-group">
+            <label>{{ t('admin.settings.upload_mode') }}</label>
+            <select name="upload_mode" class="input u-mw300" id="upload-mode-select">
+                <option value="whitelist"{% if settings.upload_mode == 'whitelist' %} selected{% endif %}>{{ t('admin.settings.upload_mode_whitelist') }}</option>
+                <option value="blacklist"{% if settings.upload_mode == 'blacklist' %} selected{% endif %}>{{ t('admin.settings.upload_mode_blacklist') }}</option>
+                <option value="allow_all"{% if not settings.upload_mode or settings.upload_mode == 'allow_all' %} selected{% endif %}>{{ t('admin.settings.upload_mode_allow_all') }}</option>
+            </select>
+            <small class="u-hint">
+                {{ t('admin.settings.upload_mode_hint')|safe }}{# Whitelist/Blacklist/Allow all hint #}
+            </small>
+        </div>
+        <div class="form-group u-d-none" id="upload-whitelist-group"{% if settings.upload_mode and settings.upload_mode != 'whitelist' %}{% endif %}>
+            <label>{{ t('admin.settings.upload_allowed') }}</label>
+            <input type="text" name="upload_whitelist" class="input u-mw600"
+                   value="{{ settings.upload_whitelist or '' }}"
+                   placeholder="{{ t('admin.settings.upload_allowed_placeholder') }}">
+            <small class="u-hint">
+                {{ t('admin.settings.upload_allowed_hint')|safe }}{# Enter extensions without dots, separated by commas (e.g. pdf, docx, png, mp4). Leave empty to use the built-in default set. #}
+            </small>
+        </div>
+        <div class="form-group u-d-none" id="upload-blacklist-group"{% if settings.upload_mode != 'blacklist' %}{% endif %}>
+            <label>{{ t('admin.settings.upload_blocked') }}</label>
+            <input type="text" name="upload_blacklist" class="input u-mw600"
+                   value="{{ settings.upload_blacklist or '' }}"
+                   placeholder="{{ t('admin.settings.upload_blocked_placeholder') }}">
+            <small class="u-hint">
+                {{ t('admin.settings.upload_blocked_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.settings.upload_max_size') }}</label>
+            <input type="number" name="upload_max_size_mb" class="input u-mw150" value="{{ settings.upload_max_size_mb if settings.upload_max_size_mb else 100 }}"
+                   min="1" max="2048">
+            <small class="u-hint">
+                {{ t('admin.settings.upload_max_size_hint') }}
+            </small>
+        </div>
+    </div>
+    {% endif %}
+
+
+    {% if enabled_plugins.get('kanban') %}
+    <div class="settings-section" data-settings-group="features">
+        <h3>{{ t('admin.settings.kanban_board') }}</h3>
+        <div class="form-group">
+            <label>{{ t('admin.settings.kanban_view_access') }}</label>
+            <select name="kanban_access" class="input u-mw250">
+                <option value="admin"{% if settings.kanban_access == 'admin' or not settings.kanban_access %} selected{% endif %}>{{ t('admin.settings.access_admins_only') }}</option>
+                <option value="editor"{% if settings.kanban_access == 'editor' %} selected{% endif %}>{{ t('admin.settings.access_admins_editors')|safe }}{# Admins &amp; Editors #}</option>
+                <option value="all"{% if settings.kanban_access == 'all' %} selected{% endif %}>{{ t('admin.settings.access_all_users') }}</option>
+            </select>
+            <small class="u-hint">
+                {{ t('admin.settings.kanban_view_access_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.settings.kanban_write_access') }}</label>
+            <select name="kanban_write_access" class="input u-mw250">
+                <option value="admin"{% if settings.kanban_write_access == 'admin' or not settings.kanban_write_access %} selected{% endif %}>{{ t('admin.settings.access_admins_only') }}</option>
+                <option value="editor"{% if settings.kanban_write_access == 'editor' %} selected{% endif %}>{{ t('admin.settings.access_admins_editors')|safe }}{# Admins &amp; Editors #}</option>
+                <option value="all"{% if settings.kanban_write_access == 'all' %} selected{% endif %}>{{ t('admin.settings.access_all_users') }}</option>
+            </select>
+            <small class="u-hint">
+                {{ t('admin.settings.kanban_write_access_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="kanban_public_access_enabled" value="1"{% if settings.get('kanban_public_access_enabled') %} checked{% endif %}>
+                {{ t('admin.settings.kanban_public_access_enable') }}
+            </label>
+            <small class="form-hint">
+                {{ t('admin.settings.kanban_public_access_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="kanban_open_access" value="1"{% if settings.get('kanban_open_access') %} checked{% endif %}>
+                {{ t('admin.settings.kanban_open_access_enable') }}
+            </label>
+            <small class="form-hint">
+                {{ t('admin.settings.kanban_open_access_hint') }}
+            </small>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if enabled_plugins.get('tts') %}
+    <div class="settings-section" data-settings-group="features">
+        <h3>{{ t('admin.settings.tts') }}</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="tts_page_panel_enabled" value="1"{% if settings.tts_page_panel_enabled %} checked{% endif %}>
+                {{ t('admin.settings.tts_panel_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.tts_panel_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.settings.tts_generation_mode') }}</label>
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="radio" name="tts_generation_mode" value="on_demand"{% if not settings.tts_auto_generate_enabled %} checked{% endif %}>
+                {{ t('admin.settings.tts_mode_on_demand') }}
+            </label>
+            <small class="u-hint u-ml3">
+                {{ t('admin.settings.tts_mode_on_demand_hint') }}
+            </small>
+            <label class="u-flex-center-05-ptr u-fw-normal u-mt05">
+                <input type="radio" name="tts_generation_mode" value="auto_save"{% if settings.tts_auto_generate_enabled %} checked{% endif %}>
+                {{ t('admin.settings.tts_mode_auto_save') }}
+            </label>
+            <small class="u-hint u-ml3">
+                {{ t('admin.settings.tts_mode_auto_save_hint') }}
+            </small>
+            <div class="u-mt05">
+                <a class="btn btn-sm btn-outline" href="{{ url_for('admin_tts_status') }}">
+                    {{ t('admin.settings.tts_status_link') }}
+                </a>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="tts_public_access_enabled" value="1"{% if settings.tts_public_access_enabled %} checked{% endif %}>
+                {{ t('admin.settings.tts_public_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.tts_public_hint') }}
+            </small>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0.5rem">
+            <small class="u-hint u-o70">
+                {{ t('admin.settings.tts_languages_all_hint') }}
+            </small>
+        </div>
+
+        {# Performance mode #}
+        <div class="form-group">
+            <label>{{ t('admin.settings.tts_performance_mode') }}</label>
+            <select name="tts_performance_mode" class="input u-mw200">
+                <option value="fast"{% if settings.get('tts_performance_mode') == 'fast' %} selected{% endif %}>
+                    {{ t('admin.settings.tts_perf_fast') }}
+                </option>
+                <option value="auto"{% if settings.get('tts_performance_mode', 'auto') == 'auto' %} selected{% endif %}>
+                    {{ t('admin.settings.tts_perf_auto') }}
+                </option>
+                <option value="balanced"{% if settings.get('tts_performance_mode') == 'balanced' %} selected{% endif %}>
+                    {{ t('admin.settings.tts_perf_balanced') }}
+                </option>
+            </select>
+            <small class="u-hint">
+                {{ t('admin.settings.tts_performance_mode_hint') }}
+            </small>
+        </div>
+
+        {# Remote GPU (advanced) #}
+        {# Hosted tenants must never choose an arbitrary server-side URL.  The
+           GPU server then comes only from the server environment, so the stored
+           values are ignored and not shown (the token prefix would leak). #}
+        {% set gpu_managed_by_platform = tts_gpu_managed_by_host %}
+        <details class="u-mt1"{% if settings.get('tts_gpu_enabled') and not gpu_managed_by_platform %} open{% endif %}>
+            <summary class="u-fw-bold" style="cursor:pointer">
+                {{ t('admin.settings.tts_gpu_advanced') }}
+            </summary>
+            <div style="padding:0.5rem 0 0 1rem">
+                {% if gpu_managed_by_platform %}
+                <div class="form-group">
+                    <small class="u-hint u-o70" style="display:block;margin-bottom:0.5rem">
+                        {{ t('admin.settings.tts_gpu_platform_managed') }}
+                    </small>
+                </div>
+                {% else %}
+                <div class="form-group">
+                    <label class="u-flex-center-05-ptr u-fw-normal">
+                        <input type="checkbox" name="tts_gpu_enabled" value="1"{% if settings.get('tts_gpu_enabled') %} checked{% endif %}>
+                        {{ t('admin.settings.tts_gpu_enable') }}
+                    </label>
+                    <small class="u-hint">
+                        {{ t('admin.settings.tts_gpu_enable_hint') }}
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label>{{ t('admin.settings.tts_gpu_url') }}</label>
+                    <input type="text" name="tts_gpu_url" class="input u-mw400"
+                           value="{{ settings.get('tts_gpu_url') or '' }}"
+                           placeholder="http://100.x.x.x:8787">
+                    <small class="u-hint">
+                        {{ t('admin.settings.tts_gpu_url_hint') }}
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label>{{ t('admin.settings.tts_gpu_auth_token') }}</label>
+                    <input type="password" name="tts_gpu_auth_token" class="input u-mw400"
+                           value="{% if settings.get('tts_gpu_auth_token') %}{{ settings.tts_gpu_auth_token[:8] }}...{% endif %}"
+                           placeholder="sk-...">
+                    <small class="u-hint">
+                        {{ t('admin.settings.tts_gpu_auth_token_hint') }}
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label>{{ t('admin.settings.tts_gpu_timeout') }}</label>
+                    <input type="number" name="tts_gpu_timeout" class="input u-mw120"
+                           value="{{ settings.get('tts_gpu_timeout') or 120 }}"
+                           min="10" max="600">
+                    <small class="u-hint">
+                        {{ t('admin.settings.tts_gpu_timeout_hint') }}
+                    </small>
+                </div>
+                {% endif %}
+            </div>
+        </details>
+    </div>
+    <script nonce="{{ csp_nonce }}">
+    </script>
+    {% endif %}
+
+    {% if enabled_plugins.get('canvas') %}
+    <div class="settings-section" data-settings-group="features">
+        <h3>{{ t('admin.settings.canvas') }}</h3>
+        <div class="form-group">
+            <label>{{ t('admin.settings.canvas_view_access') }}</label>
+            <select name="canvas_access" class="input u-mw250">
+                <option value="admin"{% if settings.canvas_access == 'admin' or not settings.canvas_access %} selected{% endif %}>{{ t('admin.settings.access_admins_only') }}</option>
+                <option value="editor"{% if settings.canvas_access == 'editor' %} selected{% endif %}>{{ t('admin.settings.access_admins_editors')|safe }}{# Admins &amp; Editors #}</option>
+                <option value="all"{% if settings.canvas_access == 'all' %} selected{% endif %}>{{ t('admin.settings.access_all_users') }}</option>
+            </select>
+            <small class="u-hint">
+                {{ t('admin.settings.canvas_view_access_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.settings.canvas_write_access') }}</label>
+            <select name="canvas_write_access" class="input u-mw250">
+                <option value="admin"{% if settings.canvas_write_access == 'admin' or not settings.canvas_write_access %} selected{% endif %}>{{ t('admin.settings.access_admins_only') }}</option>
+                <option value="editor"{% if settings.canvas_write_access == 'editor' %} selected{% endif %}>{{ t('admin.settings.access_admins_editors')|safe }}{# Admins &amp; Editors #}</option>
+                <option value="all"{% if settings.canvas_write_access == 'all' %} selected{% endif %}>{{ t('admin.settings.access_all_users') }}</option>
+            </select>
+            <small class="u-hint">
+                {{ t('admin.settings.canvas_write_access_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="canvas_open_access" value="1"{% if settings.get('canvas_open_access') %} checked{% endif %}>
+                {{ t('admin.settings.canvas_open_access_enable') }}
+            </label>
+            <small class="form-hint">
+                {{ t('admin.settings.canvas_open_access_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="canvas_public_access_enabled" value="1"{% if settings.get('canvas_public_access_enabled') %} checked{% endif %}>
+                {{ t('admin.settings.canvas_public_access_enable') }}
+            </label>
+            <small class="form-hint">
+                {{ t('admin.settings.canvas_public_access_hint') }}
+            </small>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if enabled_plugins.get('assessments') %}
+    <div class="settings-section" data-settings-group="features">
+        <h3>{{ t('admin.settings.assessments') }}</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="assessment_points_badge_enabled" value="1"{% if settings.assessment_points_badge_enabled %} checked{% endif %}>
+                {{ t('admin.settings.assessment_points_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.assessment_points_hint') }}
+            </small>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if enabled_plugins.get('custom_pages') %}
+    <div class="settings-section" data-settings-group="features">
+        <h3>{{ t('admin.settings.custom_pages') }}</h3>
+        <div class="form-group">
+            <label>{{ t('admin.settings.max_video_size') }}</label>
+            <input type="number" name="custom_pages_max_video_size_mb" class="input u-w120" value="{{ settings.custom_pages_max_video_size_mb if settings.custom_pages_max_video_size_mb is defined else 100 }}"
+                   min="1" max="2048">
+            <small class="u-hint">
+                {{ t('admin.settings.max_video_size_hint')|safe }}{# Maximum file size for directly hosted videos uploaded via Custom Pages. Applies to the Hosted Video content type. Valid range: 1–2048 MB. #}
+            </small>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if enabled_plugins.get('page_governance') %}
+    <div class="settings-section" data-settings-group="content">
+        <h3>{{ t('admin.settings.page_governance') }}</h3>
+        <p class="u-hint u-mb1">
+            {{ t('admin.settings.page_governance_hint') }}
+        </p>
+
+        <div class="u-inset-panel">
+            <h4 class="u-mt0-mb1-fs1-o90">{{ t('admin.settings.page_protection') }}</h4>
+            <div class="form-group">
+                <label class="u-flex-center-05-ptr u-fw-normal">
+                    <input type="checkbox" name="page_protection_enabled" value="1"{% if settings.page_protection_enabled %} checked{% endif %}>
+                    {{ t('admin.settings.page_protection_enable') }}
+                </label>
+                <small class="u-hint">
+                    {{ t('admin.settings.page_protection_hint') }}
+                </small>
+            </div>
+        </div>
+
+        <div class="u-inset-panel">
+            <h4 class="u-mt0-mb1-fs1-o90">{{ t('admin.settings.page_reservations') }}</h4>
+            <div class="form-group">
+                <label class="u-flex-center-05-ptr u-fw-normal">
+                    <input type="checkbox" name="page_reservations_enabled" value="1"{% if settings.page_reservations_enabled %} checked{% endif %}>
+                    {{ t('admin.settings.page_reservations_enable') }}
+                </label>
+                <small class="u-hint">
+                    {{ t('admin.settings.page_reservations_hint') }}
+                </small>
+            </div>
+            <div class="form-group u-ml15">
+                <label>{{ t('admin.settings.reservation_timeout') }}</label>
+                <input type="number" name="page_reservation_duration_hours" class="input u-mw150" value="{{ settings.page_reservation_duration_hours if settings.page_reservation_duration_hours is defined else 48 }}"
+                       min="1" max="8760">
+                <small class="u-hint">
+                    {{ t('admin.settings.reservation_timeout_hint') }}
+                </small>
+            </div>
+            <div class="form-group u-ml15">
+                <label>{{ t('admin.settings.reservation_cooldown') }}</label>
+                <input type="number" name="page_reservation_cooldown_hours" class="input u-mw150" value="{{ settings.page_reservation_cooldown_hours if settings.page_reservation_cooldown_hours is defined else 24 }}"
+                       min="0" max="8760">
+                <small class="u-hint">
+                    {{ t('admin.settings.reservation_cooldown_hint') }}
+                </small>
+            </div>
+            <div class="form-group u-ml15">
+                <label>{{ t('admin.settings.reservation_quota_default') }}</label>
+                <input type="number" name="default_reserved_pages_quota" class="input u-mw150" value="{{ settings.default_reserved_pages_quota if settings.default_reserved_pages_quota is defined else 5 }}"
+                       min="1" max="1000">
+                <small class="u-hint">
+                    {{ t('admin.settings.reservation_quota_default_hint') }}
+                </small>
+            </div>
+            <div class="form-group u-ml15">
+                <label>{{ t('admin.settings.reservation_quota_auto_approve_max') }}</label>
+                <input type="number" name="reservation_quota_auto_approve_max" class="input u-mw150"
+                       value="{{ settings.get('reservation_quota_auto_approve_max', 0) }}" min="0" max="1000000">
+                <small class="u-hint">
+                    {{ t('admin.settings.reservation_quota_auto_approve_max_hint') }}
+                </small>
+            </div>
+        </div>
+
+        <div class="u-inset-panel">
+            <h4 class="u-mt0-mb1-fs1-o90">{{ t('admin.settings.contribution_approval') }}</h4>
+            <div class="form-group">
+                <label class="u-flex-center-05-ptr u-fw-normal">
+                    <input type="checkbox" name="contribution_approval_enabled" value="1"{% if settings.contribution_approval_enabled %} checked{% endif %}>
+                    {{ t('admin.settings.contribution_approval_enable') }}
+                </label>
+                <small class="u-hint">
+                    {{ t('admin.settings.contribution_approval_hint') }}
+                </small>
+            </div>
+            <div class="form-group u-ml15">
+                <label>{{ t('admin.settings.contribution_quota_default') }}</label>
+                <input type="number" name="default_contribution_quota" class="input u-mw150" value="{{ settings.default_contribution_quota if settings.default_contribution_quota is defined else 5 }}"
+                       min="1" max="1000">
+                <small class="u-hint">
+                    {{ t('admin.settings.contribution_quota_default_hint') }}
+                </small>
+            </div>
+            <div class="form-group u-ml15">
+                <label>{{ t('admin.settings.contribution_quota_auto_approve_max') }}</label>
+                <input type="number" name="contribution_quota_auto_approve_max" class="input u-mw150"
+                       value="{{ settings.get('contribution_quota_auto_approve_max', 0) }}" min="0" max="1000000">
+                <small class="u-hint">
+                    {{ t('admin.settings.contribution_quota_auto_approve_max_hint') }}
+                </small>
+            </div>
+            {% if settings.contribution_approval_enabled %}
+            <div class="form-group u-ml15">
+                <a href="{{ url_for('admin_contributions') }}" class="btn btn-sm">{{ t('admin.settings.manage_pending_contributions') }}</a>
+            </div>
+            {% endif %}
+            <div class="form-group u-ml15">
+                <label>{{ t('admin.settings.quota_request_cooldown') }}</label>
+                <input type="number" name="quota_request_cooldown_hours" class="input u-mw150"
+                       value="{{ settings.get('quota_request_cooldown_hours', 0) }}" min="0" max="8760">
+                <small class="u-hint">
+                    {{ t('admin.settings.quota_request_cooldown_hint') }}
+                </small>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="settings-section" data-settings-group="content">
+        <h3>{{ t('admin.settings.draft_expiration') }}</h3>
+        <div class="form-group">
+            <label>{{ t('admin.settings.draft_expiration_hours') }}</label>
+            <input type="number" name="draft_expiration_hours" class="input u-mw150" value="{{ settings.draft_expiration_hours if settings.draft_expiration_hours is defined else 0 }}"
+                   min="0" max="8760">
+            <small class="u-hint">
+                {{ t('admin.settings.draft_expiration_hint') }}
+            </small>
+        </div>
+    </div>
+
+    {% if enabled_plugins.get('chat') %}
+    <div class="settings-section" data-settings-group="integrations">
+        <h3>{{ t('admin.settings.chat_settings') }}</h3>
+
+        <!-- Global Chat Settings -->
+        <div class="u-inset-panel">
+            <h4 class="u-mt0-mb1-fs1-o90">{{ t('admin.settings.global_chat_settings') }}</h4>
+
+            <div class="form-group">
+                <label>{{ t('admin.settings.max_message_length') }}</label>
+                <input type="number" name="chat_max_message_length" class="input u-mw150" value="{{ settings.chat_max_message_length if settings.chat_max_message_length else 5000 }}"
+                       min="100" max="50000">
+                <small class="u-hint">
+                    {{ t('admin.settings.max_message_length_hint') }}
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="chat_attachments_enabled" value="1"
+                           {% if settings.chat_attachments_enabled is not defined or settings.chat_attachments_enabled %}checked{% endif %}>
+                    {{ t('admin.settings.chat_attachments_enable') }}
+                </label>
+                <small class="u-hint">
+                    {{ t('admin.settings.chat_attachments_hint') }}
+                </small>
+            </div>
+
+            <div class="form-group u-ml15{% if settings.chat_attachments_enabled is defined and not settings.chat_attachments_enabled %} u-o50{% endif %}" id="attachment-settings-group">
+                <label>{{ t('admin.settings.max_attachment_size') }}</label>
+                <input type="number" name="chat_max_attachment_size_mb" class="input u-mw150" value="{{ settings.chat_max_attachment_size_mb if settings.chat_max_attachment_size_mb else 5 }}"
+                       min="1" max="100"
+                       {% if settings.chat_attachments_enabled is defined and not settings.chat_attachments_enabled %}disabled{% endif %}>
+                <small class="u-hint">
+                    {{ t('admin.settings.max_attachment_size_hint') }}
+                </small>
+            </div>
+
+            <div class="form-group u-ml15{% if settings.chat_attachments_enabled is defined and not settings.chat_attachments_enabled %} u-o50{% endif %}">
+                <label>{{ t('admin.settings.daily_attachment_limit') }}</label>
+                <input type="number" name="chat_attachments_per_day_limit" class="input u-mw150" value="{{ settings.chat_attachments_per_day_limit if settings.chat_attachments_per_day_limit else 10 }}"
+                       min="1" max="1000"
+                       {% if settings.chat_attachments_enabled is defined and not settings.chat_attachments_enabled %}disabled{% endif %}>
+                <small class="u-hint">
+                    {{ t('admin.settings.daily_attachment_limit_hint') }}
+                </small>
+            </div>
+        </div>
+
+        <!-- Chat Cleanup Schedule -->
+        <div class="u-inset-panel">
+            <h4 class="u-mt0-mb1-fs1-o90">{{ t('admin.settings.chat_cleanup') }}</h4>
+
+            <div class="form-group">
+                <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="chat_cleanup_enabled" value="1"
+                           {% if settings.chat_cleanup_enabled %}checked{% endif %}>
+                    {{ t('admin.settings.chat_cleanup_enable') }}
+                </label>
+                <small class="u-hint">
+                    {{ t('admin.settings.chat_cleanup_hint') }}
+                </small>
+            </div>
+
+            <div class="form-group u-ml15">
+                <label>{{ t('admin.settings.cleanup_frequency') }}</label>
+                <input type="number" name="chat_cleanup_frequency_days" class="input u-mw150" value="{{ settings.chat_cleanup_frequency_days if settings.chat_cleanup_frequency_days else 7 }}"
+                       min="1" max="365">
+                <small class="u-hint">
+                    {{ t('admin.settings.cleanup_frequency_hint') }}
+                </small>
+            </div>
+
+            <div class="form-group u-ml15">
+                <label>{{ t('admin.settings.cleanup_hour') }}</label>
+                <input type="number" name="chat_cleanup_hour" class="input u-mw150" value="{{ settings.chat_cleanup_hour if settings.chat_cleanup_hour is not none else 3 }}"
+                       min="0" max="23">
+                <small class="u-hint">
+                    {{ t('admin.settings.cleanup_hour_hint') }}
+                </small>
+            </div>
+        </div>
+
+        <!-- Direct Message (DM) Settings -->
+        <div class="u-inset-panel">
+            <h4 class="u-mt0-mb1-fs1-o90">{{ t('admin.settings.dm_settings') }}</h4>
+
+            <div class="form-group">
+                <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="chat_dm_enabled" value="1"
+                           {% if settings.chat_dm_enabled is not defined or settings.chat_dm_enabled %}checked{% endif %}>
+                    {{ t('admin.settings.dm_enable') }}
+                </label>
+                <small class="u-hint">
+                    {{ t('admin.settings.dm_enable_hint') }}
+                </small>
+            </div>
+
+            <div id="dm-settings-container"{% if settings.chat_dm_enabled is defined and not settings.chat_dm_enabled %} class="u-o50"{% endif %}>
+                <div class="form-group u-ml15">
+                    <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="chat_allow_dm_creation" value="1"
+                               {% if settings.chat_allow_dm_creation is not defined or settings.chat_allow_dm_creation %}checked{% endif %}
+                               {% if settings.chat_dm_enabled is defined and not settings.chat_dm_enabled %}disabled{% endif %}>
+                        {{ t('admin.settings.dm_allow_creation') }}
+                    </label>
+                    <small class="u-hint">
+                        {{ t('admin.settings.dm_allow_creation_hint') }}
+                    </small>
+                </div>
+
+                {# Auto-clear toggles: cleanup scheduler is part of the chat plugin. #}
+                <div class="form-group u-ml15">
+                    <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="chat_dm_auto_clear_messages" value="1"
+                               {% if settings.chat_dm_auto_clear_messages %}checked{% endif %}
+                               {% if settings.chat_dm_enabled is defined and not settings.chat_dm_enabled %}disabled{% endif %}>
+                        {{ t('admin.settings.dm_auto_clear') }}
+                    </label>
+                    <small class="u-hint">
+                        {{ t('admin.settings.dm_auto_clear_hint') }}
+                    </small>
+                </div>
+
+                <div class="form-group u-ml3{% if not settings.chat_dm_auto_clear_messages %} u-o50{% endif %}" id="dm-message-retention-group">
+                    <label>{{ t('admin.settings.dm_message_retention') }}</label>
+                    <input type="number" name="chat_dm_message_retention_days" class="input u-mw150" value="{{ settings.chat_dm_message_retention_days if settings.chat_dm_message_retention_days else 0 }}"
+                           min="1" max="3650"
+                           {% if not settings.chat_dm_auto_clear_messages or (settings.chat_dm_enabled is defined and not settings.chat_dm_enabled) %}disabled{% endif %}>
+                    <small class="u-hint">
+                        {{ t('admin.settings.dm_message_retention_hint') }}
+                    </small>
+                </div>
+
+                <div class="form-group u-ml15">
+                    <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="chat_dm_auto_clear_attachments" value="1"
+                               {% if settings.chat_dm_auto_clear_attachments %}checked{% endif %}
+                               {% if settings.chat_dm_enabled is defined and not settings.chat_dm_enabled %}disabled{% endif %}>
+                        {{ t('admin.settings.dm_auto_clear_attachments') }}
+                    </label>
+                    <small class="u-hint">
+                        {{ t('admin.settings.dm_auto_clear_attachments_hint') }}
+                    </small>
+                </div>
+
+                <div class="form-group u-ml3{% if not settings.chat_dm_auto_clear_attachments %} u-o50{% endif %}" id="dm-attachment-retention-group">
+                    <label>{{ t('admin.settings.dm_attachment_retention') }}</label>
+                    <input type="number" name="chat_dm_attachment_retention_days" class="input u-mw150" value="{{ settings.chat_dm_attachment_retention_days if settings.chat_dm_attachment_retention_days else 7 }}"
+                           min="1" max="3650"
+                           {% if not settings.chat_dm_auto_clear_attachments or (settings.chat_dm_enabled is defined and not settings.chat_dm_enabled) %}disabled{% endif %}>
+                    <small class="u-hint">
+                        {{ t('admin.settings.dm_attachment_retention_hint') }}
+                    </small>
+                </div>
+            </div>
+        </div>
+
+    </div>
+    {% endif %}
+
+    {% if enabled_plugins.get('chat') %}
+    <div class="settings-section" data-settings-group="integrations">
+        <h3>{{ t('admin.settings.group_chat_settings') }}</h3>
+
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="chat_group_enabled" value="1"
+                       {% if settings.chat_group_enabled is not defined or settings.chat_group_enabled %}checked{% endif %}>
+                {{ t('admin.settings.group_chat_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.group_chat_hint') }}
+            </small>
+        </div>
+
+        <div id="group-settings-container"{% if settings.chat_group_enabled is defined and not settings.chat_group_enabled %} class="u-o50"{% endif %}>
+            <div class="form-group u-ml15">
+                <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="chat_allow_group_creation" value="1"
+                           {% if settings.chat_allow_group_creation is not defined or settings.chat_allow_group_creation %}checked{% endif %}
+                           {% if settings.chat_group_enabled is defined and not settings.chat_group_enabled %}disabled{% endif %}>
+                    {{ t('admin.settings.group_allow_creation') }}
+                </label>
+                <small class="u-hint">
+                    {{ t('admin.settings.group_allow_creation_hint') }}
+                </small>
+            </div>
+
+            {# Auto-clear toggles: cleanup scheduler is part of the chat plugin. #}
+            <div class="form-group u-ml15">
+                <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="chat_group_auto_clear_messages" value="1"
+                           {% if settings.chat_group_auto_clear_messages %}checked{% endif %}
+                           {% if settings.chat_group_enabled is defined and not settings.chat_group_enabled %}disabled{% endif %}>
+                    {{ t('admin.settings.group_auto_clear') }}
+                </label>
+                <small class="u-hint">
+                    {{ t('admin.settings.group_auto_clear_hint') }}
+                </small>
+            </div>
+
+            <div class="form-group u-ml3{% if not settings.chat_group_auto_clear_messages %} u-o50{% endif %}" id="group-message-retention-group">
+                <label>{{ t('admin.settings.group_message_retention') }}</label>
+                <input type="number" name="chat_group_message_retention_days" class="input u-mw150" value="{{ settings.chat_group_message_retention_days if settings.chat_group_message_retention_days else 0 }}"
+                       min="1" max="3650"
+                       {% if not settings.chat_group_auto_clear_messages or (settings.chat_group_enabled is defined and not settings.chat_group_enabled) %}disabled{% endif %}>
+                <small class="u-hint">
+                    {{ t('admin.settings.group_message_retention_hint') }}
+                </small>
+            </div>
+
+            <div class="form-group u-ml15">
+                <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="chat_group_auto_clear_attachments" value="1"
+                           {% if settings.chat_group_auto_clear_attachments %}checked{% endif %}
+                           {% if settings.chat_group_enabled is defined and not settings.chat_group_enabled %}disabled{% endif %}>
+                    {{ t('admin.settings.group_auto_clear_attachments') }}
+                </label>
+                <small class="u-hint">
+                    {{ t('admin.settings.group_auto_clear_attachments_hint') }}
+                </small>
+            </div>
+
+            <div class="form-group u-ml3{% if not settings.chat_group_auto_clear_attachments %} u-o50{% endif %}" id="group-attachment-retention-group">
+                <label>{{ t('admin.settings.group_attachment_retention') }}</label>
+                <input type="number" name="chat_group_attachment_retention_days" class="input u-mw150" value="{{ settings.chat_group_attachment_retention_days if settings.chat_group_attachment_retention_days else 7 }}"
+                       min="1" max="3650"
+                       {% if not settings.chat_group_auto_clear_attachments or (settings.chat_group_enabled is defined and not settings.chat_group_enabled) %}disabled{% endif %}>
+                <small class="u-hint">
+                    {{ t('admin.settings.group_attachment_retention_hint') }}
+                </small>
+            </div>
+        </div>
+
+        {% if enabled_plugins.get('user_profiles') %}
+        <div class="u-inset-panel">
+            <h4 class="u-mt0-mb1-fs1-o90">{{ t('admin.settings.profile_group_badges') }}</h4>
+            <div class="form-group">
+                <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="profile_group_badges_enabled" value="1"
+                           {% if settings.get('profile_group_badges_enabled') %}checked{% endif %}>
+                    {{ t('admin.settings.profile_group_badges_enable') }}
+                </label>
+                <small class="u-hint">
+                    {{ t('admin.settings.profile_group_badges_hint') }}
+                </small>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if enabled_plugins.get('user_profiles') %}
+    <div class="settings-section" data-settings-group="features">
+        <h3>{{ t('admin.settings.user_profiles') }}</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="profile_contribution_chart_enabled" value="1"
+                       {% if settings.get('profile_contribution_chart_enabled', 1) %}checked{% endif %}>
+                {{ t('admin.settings.profile_chart_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.profile_chart_hint') }}
+            </small>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="settings-section" data-settings-group="features">
+        <h3>{{ t('admin.settings.pdf_export') }}</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="pdf_export_enabled" value="1"{% if settings.pdf_export_enabled %} checked{% endif %}>
+                {{ t('admin.settings.pdf_export_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.pdf_export_hint')|safe }}{# When enabled, users with the Export Pages as PDF permission can download wiki pages and page history revisions as PDF files. The permission is disabled for all roles by default and must be granted individually through the custom permissions system. #}
+            </small>
+        </div>
+    </div>
+
+    <div class="settings-section" data-settings-group="features">
+        <h3>{{ t('admin.settings.markdown_export') }}</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="markdown_export_enabled" value="1"{% if settings.markdown_export_enabled %} checked{% endif %}>
+                {{ t('admin.settings.markdown_export_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.markdown_export_hint')|safe }}{# When enabled, editors can download wiki pages as .md files with YAML front-matter. #}
+            </small>
+        </div>
+    </div>
+
+    <div class="settings-section" data-settings-group="features">
+        <h3>{{ t('admin.settings.contributor_leaderboard') }}</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="contributor_leaderboard_enabled" value="1"{% if settings.contributor_leaderboard_enabled %} checked{% endif %}>
+                {{ t('admin.settings.contributor_leaderboard_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.contributor_leaderboard_hint') }}
+            </small>
+        </div>
+    </div>
+
+    {% set sidebar_app_ids = ['reservations','chats','groups','kanban','leaderboard','canvas'] %}
+    {% set sidebar_app_labels = {'reservations':'Reservations','chats':'Chats','groups':'Groups','kanban':t('nav.kanban'),'leaderboard':'Leaderboard','canvas':t('nav.canvas')} %}
+    {% set sidebar_app_checks = {'reservations': enabled_plugins.page_governance, 'chats': enabled_plugins.chat, 'groups': enabled_plugins.chat, 'kanban': enabled_plugins.kanban, 'leaderboard': settings.contributor_leaderboard_enabled, 'canvas': enabled_plugins.canvas} %}
+    {% set enabled_app_ids = [] %}
+    {% for app_id in sidebar_app_ids %}{% if sidebar_app_checks.get(app_id) %}{% set _ = enabled_app_ids.append(app_id) %}{% endif %}{% endfor %}
+    <div class="settings-section" data-settings-group="features">
+        <h3>{{ t('admin.settings.sidebar_apps_order') }}</h3>
+        <div class="form-group">
+            <small class="u-hint" style="display:block;margin-bottom:.5rem">
+                {{ t('admin.settings.sidebar_apps_order_hint') }}
+            </small>
+            <div id="sidebar-app-order-list" class="u-flex u-flex-col u-gap02" style="max-width:400px">
+                {% set current_order = (settings.sidebar_apps_order or 'reservations,chats,groups,kanban,leaderboard,canvas').split(',') %}
+                {% for app_id in current_order %}{% if app_id in enabled_app_ids %}
+                <div class="sidebar-app-order-item" data-app-id="{{ app_id }}" style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--card-bg,#1e1e2e);border:1px solid var(--border,#2e2e3e);border-radius:6px;cursor:grab">
+                    <span style="opacity:.4;font-size:.8rem;cursor:grab">⠿</span>
+                    <span>{{ sidebar_app_labels.get(app_id, app_id) }}</span>
+                </div>
+                {% endif %}{% endfor %}
+            </div>
+            <input type="hidden" name="sidebar_apps_order" id="sidebar-apps-order-input" value="{{ settings.sidebar_apps_order or 'reservations,chats,groups,kanban,leaderboard,canvas' }}">
+            <div style="margin-top:8px;display:flex;gap:6px">
+                <button type="button" class="btn btn-sm btn-outline" id="sidebar-app-reset-order">{{ t('admin.settings.reset_order') }}</button>
+            </div>
+        </div>
+        <script nonce="{{ csp_nonce }}">
+        (function(){
+            var list = document.getElementById('sidebar-app-order-list');
+            var input = document.getElementById('sidebar-apps-order-input');
+            var resetBtn = document.getElementById('sidebar-app-reset-order');
+            if (!list || !input) return;
+
+            function syncOrder() {
+                var ids = [];
+                list.querySelectorAll('.sidebar-app-order-item').forEach(function(el) {
+                    ids.push(el.getAttribute('data-app-id'));
+                });
+                input.value = ids.join(',');
+            }
+
+            // Simple up/down move via click handlers (drag-and-drop too complex for this scope)
+            list.querySelectorAll('.sidebar-app-order-item').forEach(function(item, idx) {
+                var upBtn = document.createElement('button');
+                upBtn.type = 'button';
+                upBtn.className = 'btn-icon-tiny';
+                upBtn.textContent = '▲';
+                upBtn.title = 'Move up';
+                upBtn.style.marginLeft = 'auto';
+                upBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var prev = item.previousElementSibling;
+                    if (prev) {
+                        list.insertBefore(item, prev);
+                        syncOrder();
+                    }
+                });
+
+                var downBtn = document.createElement('button');
+                downBtn.type = 'button';
+                downBtn.className = 'btn-icon-tiny';
+                downBtn.textContent = '▼';
+                downBtn.title = 'Move down';
+                downBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var next = item.nextElementSibling;
+                    if (next) {
+                        list.insertBefore(next, item);
+                        syncOrder();
+                    }
+                });
+
+                // Insert before the drag handle (first child)
+                item.insertBefore(upBtn, item.firstChild);
+                item.insertBefore(downBtn, item.firstChild);
+            });
+
+            if (resetBtn) {
+                resetBtn.addEventListener('click', function() {
+                    var defaultOrder = 'reservations,chats,groups,kanban,leaderboard,canvas';
+                    input.value = defaultOrder;
+                    var ids = defaultOrder.split(',');
+                    var items = {};
+                    list.querySelectorAll('.sidebar-app-order-item').forEach(function(el) {
+                        items[el.getAttribute('data-app-id')] = el;
+                    });
+                    // Clear and re-append in default order
+                    ids.forEach(function(id) {
+                        if (items[id]) list.appendChild(items[id]);
+                    });
+                });
+            }
+        })();
+        </script>
+    </div>
+
+
+    <div class="settings-section" data-settings-group="features">
+        <h3>{{ t('admin.settings.login_app_selector') }}</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="login_app_selector" value="1"{% if settings.get('login_app_selector') %} checked{% endif %}>
+                {{ t('admin.settings.login_app_selector_enable') }}
+            </label>
+            <small class="form-hint">
+                {{ t('admin.settings.login_app_selector_hint') }}
+            </small>
+        </div>
+    </div>
+
+
+
+    <div class="settings-section" data-settings-group="security">
+        <h3>{{ t('admin.settings.public_access') }}</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="public_mode" value="1"{% if settings.get('public_mode') %} checked{% endif %} id="public-mode-checkbox"{% if config.FORBID_PUBLIC_MODE %} disabled{% endif %}>
+                {{ t('admin.settings.public_mode_enable') }}
+            </label>
+            {% if config.FORBID_PUBLIC_MODE %}<small class="u-hint">The hosting platform has disabled public mode for this trial wiki. Contact a platform administrator if public access is required.</small>{% endif %}
+            <small class="u-hint">
+                {{ t('admin.settings.public_mode_hint')|safe }}{# When enabled, the wiki is publicly accessible without authentication. Visitors can read pages but cannot create, edit, or delete anything. Users still need to sign in for full access. This is not recommended for normal operation: BananaWiki is designed as a private, invite-only wiki. Use this only for special or temporary cases. #}
+            </small>
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.settings.public_mode_until') }}</label>
+            <input type="datetime-local" name="public_mode_until" class="input"
+                   value="{{ settings.get('public_mode_until', '')|replace('T', 'T') if settings.get('public_mode_until') else '' }}">
+            <small class="u-hint">
+                {{ t('admin.settings.public_mode_until_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="public_mode_show_message" value="1"{% if settings.get('public_mode_show_message') %} checked{% endif %}>
+                {{ t('admin.settings.public_mode_show_message') }}
+            </label>
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.settings.public_mode_message') }}</label>
+            <textarea name="public_mode_message" class="input xs-d4af0a19" rows="3"
+                      placeholder="{{ t('admin.settings.public_mode_placeholder') }}">{{ settings.get('public_mode_message', '') }}</textarea>
+        </div>
+    </div>
+
+    <div class="settings-section" data-settings-group="security">
+        <h3>{{ t('admin.settings.open_signup') }}</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="open_signup" value="1"{% if settings.get('open_signup') %} checked{% endif %} id="open-signup-checkbox">
+                {{ t('admin.settings.open_signup_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.open_signup_hint')|safe }}{# When enabled, new users can create accounts without needing an invite code. Existing users are not affected. This is not recommended for normal operation: BananaWiki is designed as a private, invite-only wiki. Use this only for special or temporary cases (e.g. onboarding events, open enrolment periods). #}
+            </small>
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.settings.open_signup_until') }}</label>
+            <input type="datetime-local" name="open_signup_until" class="input"
+                   value="{{ settings.get('open_signup_until', '')|replace('T', 'T') if settings.get('open_signup_until') else '' }}">
+            <small class="u-hint">
+                {{ t('admin.settings.open_signup_until_hint') }}
+            </small>
+        </div>
+    </div>
+
+    <div class="settings-section" data-settings-group="security">
+        <h3>{{ t('admin.settings.activation_approval') }}</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="approval_required" value="1"{% if settings.get('approval_required') %} checked{% endif %} id="approval-required-checkbox">
+                {{ t('admin.settings.approval_required_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.approval_required_hint')|safe }}{# When enabled, new users can sign up freely but their accounts will remain locked until an admin approves them. Denied accounts are automatically deleted after the configured timeout. #}
+            </small>
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.settings.approval_denied_timeout') }}</label>
+            <input type="number" name="approval_denied_timeout_hours" class="input u-mw150"
+                   value="{{ settings.get('approval_denied_timeout_hours', 24) }}" min="1" max="8760">
+            <small class="u-hint">
+                {{ t('admin.settings.approval_denied_timeout_hint') }}
+            </small>
+        </div>
+        <div class="form-group">
+            <label>{{ t('admin.settings.approval_pending_timeout') }}</label>
+            <input type="number" name="approval_pending_timeout_hours" class="input u-mw150"
+                   value="{{ settings.get('approval_pending_timeout_hours', 0) }}" min="0" max="8760">
+            <small class="u-hint">
+                {{ t('admin.settings.approval_pending_timeout_hint') }}
+            </small>
+        </div>
+    </div>
+
+    <div class="settings-section" data-settings-group="security">
+        <h3>{{ t('admin.settings.suspended_account_deletion') }}</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="suspended_account_deletion_enabled" value="1"{% if settings.get('suspended_account_deletion_enabled') %} checked{% endif %}>
+                {{ t('admin.settings.suspended_account_deletion_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.suspended_account_deletion_hint') }}
+            </small>
+        </div>
+    </div>
+
+    <div class="settings-section" data-settings-group="security">
+        <h3>{{ t('admin.settings.bot_protection') }}</h3>
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="bot_protection_enabled" value="1"{% if settings.get('bot_protection_enabled', 1) %} checked{% endif %}>
+                {{ t('admin.settings.bot_protection_enable') }}
+            </label>
+            <small class="u-hint">
+                {{ t('admin.settings.bot_protection_hint')|safe }}{# When enabled, the login, sign-up, and setup forms include a hidden honeypot field and a timing check. Automated bots that fill hidden fields or submit forms too quickly are silently rejected. No external service is used. Recommended: keep this enabled. #}
+            </small>
+        </div>
+    </div>
+</form>
+
+<form class="u-d-none" id="restore-favicon-form" method="POST" action="{{ url_for('admin_restore_favicon', preset='yellow') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+</form>
+
+<form class="u-d-none" id="theme-import-form" method="POST" action="{{ url_for('admin_theme_import') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+</form>
+
+
+{% if settings.page_protection_enabled %}
+<div class="settings-section u-mt2" data-settings-group="content">
+    <h3>{{ t('admin.settings.protected_pages') }}</h3>
+    {% if protected_pages %}
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>{{ t('admin.settings.col_page') }}</th>
+                <th>{{ t('admin.settings.col_protected_by') }}</th>
+                <th>{{ t('admin.settings.col_admin_unlock') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in protected_pages %}
+            <tr>
+                <td><a href="{{ url_for('view_page', slug=p.slug) }}">{{ p.title }}</a></td>
+                <td>{{ p.protected_by_username or t('admin.settings.deleted_user') }}{# [deleted user] #}</td>
+                <td>
+                    {% if current_user and current_user.id == p.protected_by %}
+                    <form method="POST" action="{{ url_for('admin_request_page_protection_unlock', page_id=p.id) }}" class="u-d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-outline">{{ t('admin.settings.remove_now') }}</button>
+                    </form>
+                    {% elif p.protection_unlock_requested_at %}
+                        {% if p.unlock_ready %}
+                        <form method="POST" action="{{ url_for('admin_force_page_protection_unlock', page_id=p.id) }}" class="u-d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button class="btn btn-sm btn-danger">{{ t('admin.settings.force_unlock') }}</button>
+                        </form>
+                        {% else %}
+                        <span class="u-hint">{{ t('admin.settings.available_in', when=time_ago(p.unlock_ready_at)) }}</span>
+                        {% endif %}
+                        {% if p.unlock_requested_by_username %}
+                        <div class="u-hint">{{ t('admin.settings.requested_by', user=p.unlock_requested_by_username) }}</div>
+                        {% endif %}
+                    {% else %}
+                    <form method="POST" action="{{ url_for('admin_request_page_protection_unlock', page_id=p.id) }}" class="u-d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-outline">{{ t('admin.settings.request_unlock') }}</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="u-hint">{{ t('admin.settings.no_protected_pages') }}</p>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="settings-section u-mt2" data-settings-group="advanced">
+    <h3>{{ t('admin.settings.wiki_docs') }}</h3>
+    <p class="u-section-note">
+        {{ t('admin.settings.wiki_docs_intro')|safe }}{# Spawn a BananaWiki category with built-in documentation pages. If documentation already exists, it will be deleted and recreated with fresh content. #}
+    </p>
+    <form class="xs-9093a165" method="POST" action="{{ url_for('admin_spawn_docs') }}" id="docs-spawn-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% set docs_default = settings.get('interface_language', 'en') if settings.get('interface_language', 'en') in builtin_interface_languages else settings.get('interface_language_fallback', 'en') %}
+        <select name="docs_language" id="docs-language-select" class="input u-mw220">
+            {% for code, label in builtin_interface_languages.items() %}
+            <option value="{{ code }}"{% if docs_default == code %} selected{% endif %}>{{ t('admin.settings.docs_lang', language=label) }}</option>
+            {% endfor %}
+        </select>
+        <label class="u-flex-center-05-ptr u-fw-normal">
+            <input type="checkbox" name="simplified" id="docs-simplified-checkbox" value="1">
+            <span class="u-fs-09">{{ t('admin.settings.docs_simplified') }}</span>
+        </label>
+        <button type="submit" class="btn btn-outline">
+            {% if settings.docs_category_id %}{{ t('admin.settings.docs_respawn') }}{% else %}{{ t('admin.settings.docs_spawn') }}{% endif %}
+        </button>
+        <a id="docs-download-link" href="{{ url_for('admin_download_docs') }}" class="btn btn-outline u-ml05">
+            {{ t('admin.settings.docs_download_zip') }}
+        </a>
+    </form>
+    <p class="u-hint u-mt05">
+        {{ t('admin.settings.docs_download_zip_hint') }}
+    </p>
+    <script nonce="{{ csp_nonce }}">
+    (function () {
+        var link = document.getElementById('docs-download-link');
+        var lang = document.getElementById('docs-language-select');
+        var simple = document.getElementById('docs-simplified-checkbox');
+        if (!link || !lang) return;
+        var base = link.getAttribute('href');
+        function refresh() {
+            var params = [];
+            if (lang.value) params.push('docs_language=' + encodeURIComponent(lang.value));
+            if (simple && simple.checked) params.push('simplified=1');
+            link.setAttribute('href', base + (params.length ? '?' + params.join('&') : ''));
+        }
+        lang.addEventListener('change', refresh);
+        if (simple) simple.addEventListener('change', refresh);
+        refresh();
+    })();
+    </script>
+    {% if enabled_plugins.get('deletion_slowdown') %}
+    <form class="u-mt08" method="POST" action="{{ url_for('admin_docs_settings') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="u-flex-center-05-ptr u-fw-normal">
+            <input type="checkbox" name="docs_bypass_deletion_slowdown" value="1"
+                   {% if settings.docs_bypass_deletion_slowdown %}checked{% endif %}>
+            <span class="u-fs-09">{{ t('admin.settings.docs_bypass_slowdown') }}</span>
+        </label>
+        <small class="xs-29f32b0a">
+            {{ t('admin.settings.docs_bypass_slowdown_hint') }}
+        </small>
+        <button type="submit" class="btn btn-outline u-fs-085">{{ t('admin.settings.save_docs_settings') }}</button>
+    </form>
+    {% endif %}
+</div>
+
+<div class="settings-section u-mt2" data-settings-group="advanced">
+    <h3>{{ t('admin.settings.site_migration') }}</h3>
+    <p class="u-section-note">
+        {{ t('admin.settings.site_migration_intro') }}
+    </p>
+    <a href="{{ url_for('admin_migration') }}" class="btn btn-outline">{{ t('admin.settings.go_to_migration') }}</a>
+    <p class="u-section-note">
+        Managed servers also support optional encrypted backups to a private GitHub or Forgejo repository.
+        The server administrator configures <code>bananawiki backups</code> and saves the recovery key offline.
+        See <code>docs/backups.md</code> in the application source. Telegram backup delivery is retired.
+    </p>
+</div>
+
+<div class="settings-section u-mt2" data-settings-group="advanced">
+    <h3>{{ t('admin.settings.server_restart') }}</h3>
+    <p class="u-section-note">
+        {{ t('admin.settings.server_restart_intro', seconds=server_restart_cooldown_seconds) }}
+    </p>
+    <form method="POST" action="{{ url_for('admin_restart_server') }}"
+          onsubmit="return confirm('{{ t('admin.settings.server_restart_confirm')|e }}');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-outline">
+            {{ t('admin.settings.server_restart_button') }}
+        </button>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+// Upload mode toggle
+(function() {
+    var modeSelect = document.getElementById('upload-mode-select');
+    var whitelistGroup = document.getElementById('upload-whitelist-group');
+    var blacklistGroup = document.getElementById('upload-blacklist-group');
+    function applyUploadMode(val) {
+        if (whitelistGroup) whitelistGroup.style.display = val === 'whitelist' ? '' : 'none';
+        if (blacklistGroup) blacklistGroup.style.display = val === 'blacklist' ? '' : 'none';
+    }
+    if (modeSelect) {
+        modeSelect.addEventListener('change', function() { applyUploadMode(this.value); });
+        applyUploadMode(modeSelect.value);
+    }
+})();
+
+function toggleFaviconEnabled(cb) {
+}
+
+function setFaviconMessage(message, isError) {
+    var msgEl = document.getElementById('favicon-upload-msg');
+    if (!msgEl) return;
+    msgEl.textContent = message || '';
+    msgEl.className = message
+        ? 'u-mt05 u-fs-085' + (isError ? ' flash-error' : '')
+        : 'u-d-none';
+}
+
+function getFaviconStaticBase() {
+    return '{{ url_for("static", filename="favicons/") }}';
+}
+
+function getFaviconDisplayName(filename) {
+    return (filename || '').replace('custom_', '').substring(0, 15);
+}
+
+function updateFaviconSelection(type, customFilename) {
+    var staticBase = getFaviconStaticBase();
+    var badge = document.getElementById('favicon-current-badge');
+    var grid = document.getElementById('favicon-grid');
+    if (!badge || !grid) return;
+
+    if (type === 'custom' && customFilename) {
+        badge.innerHTML = '<img class="u-img-pixelated" src="' + staticBase + customFilename + '"> <span id="favicon-current-name">' + customFilename.replace('custom_', '').substring(0, 20) + '</span>';
+    } else {
+        badge.innerHTML = '<img class="u-img-pixelated" src="' + staticBase + 'banana_' + type + '.png"> <span id="favicon-current-name">' + type.charAt(0).toUpperCase() + type.slice(1) + ' Banana</span>';
+    }
+
+    var cards = grid.querySelectorAll('.favicon-card');
+    for (var i = 0; i < cards.length; i++) {
+        var card = cards[i];
+        var check = card.querySelector('.favicon-card-check');
+        if (check) check.remove();
+        card.classList.remove('favicon-card-selected');
+        if (card.hasAttribute('data-type')) card.setAttribute('aria-pressed', 'false');
+        var cardType = card.getAttribute('data-type');
+        var cardCustom = card.getAttribute('data-custom');
+        if (type === cardType && (type !== 'custom' || customFilename === cardCustom)) {
+            card.classList.add('favicon-card-selected');
+            card.setAttribute('aria-pressed', 'true');
+            var chk = document.createElement('div');
+            chk.className = 'favicon-card-check';
+            chk.textContent = '\u2713';
+            card.appendChild(chk);
+        }
+    }
+}
+
+function addCustomFaviconCard(filename) {
+    var grid = document.getElementById('favicon-grid');
+    var uploadCard = grid ? grid.querySelector('[data-favicon-upload-trigger]') : null;
+    if (!grid || !uploadCard || !filename) return null;
+
+    var customCards = grid.querySelectorAll('.favicon-card[data-type="custom"]');
+    var existing = null;
+    for (var i = 0; i < customCards.length; i++) {
+        if (customCards[i].getAttribute('data-custom') === filename) {
+            existing = customCards[i];
+            break;
+        }
+    }
+    if (existing) return existing;
+
+    var card = document.createElement('div');
+    card.className = 'favicon-card favicon-card-custom';
+    card.setAttribute('data-type', 'custom');
+    card.setAttribute('data-custom', filename);
+    card.setAttribute('draggable', 'true');
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('aria-pressed', 'false');
+    card.innerHTML =
+        '<div class="favicon-card-img"><img src="' + getFaviconStaticBase() + filename + '" alt="' + filename + '"></div>' +
+        '<div class="favicon-card-label">' + getFaviconDisplayName(filename) + '</div>' +
+        '<div class="favicon-card-badge favicon-card-badge-custom">{{ t('admin.settings.favicon_badge_custom') }}</div>' +
+        '<button type="button" class="favicon-card-del" data-favicon-delete data-filename="' + filename + '" title="{{ t('admin.settings.favicon_delete') }}">✕</button>' +
+        '<span class="favicon-card-drag">⠿</span>';
+    grid.insertBefore(card, uploadCard);
+    return card;
+}
+
+function selectFavicon(type, customFilename) {
+    var grid = document.getElementById('favicon-grid');
+    if (!grid) return;
+
+    fetch('{{ url_for("admin_favicon_select") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()},
+        body: JSON.stringify({favicon_type: type, favicon_custom: customFilename})
+    }).then(function(r) {
+        if (!r.ok || r.redirected) throw new Error('select failed');
+        return r.json();
+    }).then(function(data) {
+        if (!data.ok) throw new Error('select failed');
+        setFaviconMessage('', false);
+        updateFaviconSelection(type, customFilename);
+    }).catch(function() {
+        setFaviconMessage('Selection failed. Please reload, sign in again, and try once more.', true);
+    });
+}
+
+function uploadFavicon(input) {
+    if (!input.files || !input.files[0]) return;
+    var file = input.files[0];
+    var msgEl = document.getElementById('favicon-upload-msg');
+    if (msgEl) { msgEl.textContent = 'Uploading...'; msgEl.className = 'u-mt05 u-fs-085'; }
+
+    var fd = new FormData();
+    fd.append('file', file);
+    fd.append('csrf_token', getCsrfToken());
+
+    fetch('{{ url_for("admin_favicon_upload") }}', {
+        method: 'POST',
+        body: fd
+    }).then(function(r) {
+        if (!r.ok || r.redirected) throw new Error('upload failed');
+        return r.json();
+    }).then(function(data) {
+        if (!data.ok) {
+            if (msgEl) { msgEl.textContent = 'Upload failed.'; msgEl.className = 'u-mt05 u-fs-085 flash-error'; }
+            return;
+        }
+        addCustomFaviconCard(data.filename);
+        updateFaviconSelection('custom', data.filename);
+        if (msgEl) { msgEl.textContent = 'Uploaded and selected.'; msgEl.className = 'u-mt05 u-fs-085'; }
+    }).catch(function() {
+        if (msgEl) { msgEl.textContent = 'Upload failed.'; msgEl.className = 'u-mt05 u-fs-085 flash-error'; }
+    });
+    input.value = '';
+}
+
+function deleteFavicon(filename) {
+    if (!confirm('Delete this custom favicon?')) return;
+    fetch('{{ url_for("admin_favicon_delete") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()},
+        body: JSON.stringify({filename: filename})
+    }).then(function(r) {
+        if (!r.ok || r.redirected) throw new Error('delete failed');
+        return r.json();
+    }).then(function(data) {
+        if (!data.ok) throw new Error('delete failed');
+        var grid = document.getElementById('favicon-grid');
+        var card = null;
+        var customCards = grid ? grid.querySelectorAll('.favicon-card[data-type="custom"]') : [];
+        for (var i = 0; i < customCards.length; i++) {
+            if (customCards[i].getAttribute('data-custom') === filename) {
+                card = customCards[i];
+                break;
+            }
+        }
+        var wasSelected = card && card.classList.contains('favicon-card-selected');
+        if (card) card.remove();
+        if (data.fallback_type || wasSelected) {
+            updateFaviconSelection(data.fallback_type || 'yellow', '');
+        }
+        setFaviconMessage('Deleted.', false);
+    }).catch(function() {
+        setFaviconMessage('Delete failed. Please reload, sign in again, and try once more.', true);
+    });
+}
+
+// CSP-compliant favicon picker controls. The page uses a strict script-src,
+// so inline onclick/onchange attributes are intentionally avoided here.
+(function() {
+    var grid = document.getElementById('favicon-grid');
+    var uploadInput = document.getElementById('favicon-upload-input');
+
+    function openUploadPicker() {
+        if (uploadInput) uploadInput.click();
+    }
+
+    function selectCard(card) {
+        if (!card) return;
+        selectFavicon(card.getAttribute('data-type'), card.getAttribute('data-custom') || '');
+    }
+
+    if (grid) {
+        grid.addEventListener('click', function(e) {
+            var deleteBtn = e.target.closest('[data-favicon-delete]');
+            if (deleteBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                deleteFavicon(deleteBtn.getAttribute('data-filename') || '');
+                return;
+            }
+
+            if (e.target.closest('.favicon-card-drag')) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+
+            if (e.target.closest('[data-favicon-upload-trigger]')) {
+                e.preventDefault();
+                openUploadPicker();
+                return;
+            }
+
+            var card = e.target.closest('.favicon-card[data-type]');
+            if (card && grid.contains(card)) {
+                e.preventDefault();
+                selectCard(card);
+            }
+        });
+
+        grid.addEventListener('keydown', function(e) {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            var uploadTrigger = e.target.closest('[data-favicon-upload-trigger]');
+            var card = e.target.closest('.favicon-card[data-type]');
+            if (uploadTrigger || card) {
+                e.preventDefault();
+                if (uploadTrigger) {
+                    openUploadPicker();
+                } else {
+                    selectCard(card);
+                }
+            }
+        });
+    }
+
+    if (uploadInput) {
+        uploadInput.addEventListener('change', function() {
+            uploadFavicon(uploadInput);
+        });
+    }
+})();
+
+// Drag-and-drop reorder for custom favicons
+(function() {
+    var grid = document.getElementById('favicon-grid');
+    if (!grid) return;
+
+    var dragSrc = null;
+
+    grid.addEventListener('dragstart', function(e) {
+        var card = e.target.closest('.favicon-card-custom');
+        if (!card) { e.preventDefault(); return; }
+        dragSrc = card;
+        card.classList.add('favicon-card-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', '');
+    });
+
+    grid.addEventListener('dragend', function(e) {
+        var card = e.target.closest('.favicon-card-custom');
+        if (card) card.classList.remove('favicon-card-dragging');
+    });
+
+    grid.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        var card = e.target.closest('.favicon-card-custom');
+        if (!card || card === dragSrc) return;
+        var rect = card.getBoundingClientRect();
+        var midY = rect.top + rect.height / 2;
+        if (e.clientY < midY) {
+            grid.insertBefore(dragSrc, card);
+        } else {
+            grid.insertBefore(dragSrc, card.nextSibling);
+        }
+    });
+
+    grid.addEventListener('drop', function(e) {
+        e.preventDefault();
+        // Save new order
+        var cards = grid.querySelectorAll('.favicon-card-custom');
+        var order = [];
+        for (var i = 0; i < cards.length; i++) {
+            var c = cards[i];
+            if (c.getAttribute('data-custom')) order.push(c.getAttribute('data-custom'));
+        }
+        if (order.length === 0) return;
+        fetch('{{ url_for("admin_favicon_reorder") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()},
+            body: JSON.stringify({order: order})
+        }).then(function(r) { return r.json(); }).then(function(data) {
+            if (data.ok) {
+                var dropOver = grid.querySelectorAll('.favicon-card-drop-over');
+                for (var j = 0; j < dropOver.length; j++) dropOver[j].classList.remove('favicon-card-drop-over');
+            }
+        }).catch(function() {});
+    });
+})();
+
+// Chat settings auto-clear toggles
+(function() {
+    // Global attachment settings
+    var attachmentsEnabledCheckbox = document.querySelector('input[name="chat_attachments_enabled"]');
+    var attachmentSettingsGroup = document.getElementById('attachment-settings-group');
+    var maxSizeInput = document.querySelector('input[name="chat_max_attachment_size_mb"]');
+    var attachmentLimitInput = document.querySelector('input[name="chat_attachments_per_day_limit"]');
+
+    if (attachmentsEnabledCheckbox) {
+        attachmentsEnabledCheckbox.addEventListener('change', function() {
+            var enabled = this.checked;
+            if (attachmentSettingsGroup) {
+                attachmentSettingsGroup.style.opacity = enabled ? '1' : '.5';
+            }
+            if (maxSizeInput) maxSizeInput.disabled = !enabled;
+            if (attachmentLimitInput) attachmentLimitInput.disabled = !enabled;
+        });
+    }
+
+    // DM Settings
+    var dmEnabledCheckbox = document.querySelector('input[name="chat_dm_enabled"]');
+    var dmSettingsContainer = document.getElementById('dm-settings-container');
+    var dmAllowCreationCheckbox = document.querySelector('input[name="chat_allow_dm_creation"]');
+    var dmMsgCheckbox = document.querySelector('input[name="chat_dm_auto_clear_messages"]');
+    var dmMsgInput = document.querySelector('input[name="chat_dm_message_retention_days"]');
+    var dmMsgGroup = document.getElementById('dm-message-retention-group');
+    var dmAttCheckbox = document.querySelector('input[name="chat_dm_auto_clear_attachments"]');
+    var dmAttInput = document.querySelector('input[name="chat_dm_attachment_retention_days"]');
+    var dmAttGroup = document.getElementById('dm-attachment-retention-group');
+
+    if (dmEnabledCheckbox) {
+        dmEnabledCheckbox.addEventListener('change', function() {
+            var enabled = this.checked;
+            if (dmSettingsContainer) {
+                dmSettingsContainer.style.opacity = enabled ? '1' : '.5';
+            }
+            if (dmAllowCreationCheckbox) dmAllowCreationCheckbox.disabled = !enabled;
+            if (dmMsgCheckbox) dmMsgCheckbox.disabled = !enabled;
+            if (dmAttCheckbox) dmAttCheckbox.disabled = !enabled;
+            if (!enabled) {
+                if (dmMsgInput) dmMsgInput.disabled = true;
+                if (dmAttInput) dmAttInput.disabled = true;
+            } else {
+                if (dmMsgInput && dmMsgCheckbox) dmMsgInput.disabled = !dmMsgCheckbox.checked;
+                if (dmAttInput && dmAttCheckbox) dmAttInput.disabled = !dmAttCheckbox.checked;
+            }
+        });
+    }
+
+    if (dmMsgCheckbox && dmMsgInput && dmMsgGroup) {
+        dmMsgCheckbox.addEventListener('change', function() {
+            var parentEnabled = !dmEnabledCheckbox || dmEnabledCheckbox.checked;
+            dmMsgInput.disabled = !this.checked || !parentEnabled;
+            dmMsgGroup.style.opacity = this.checked ? '1' : '.5';
+        });
+    }
+
+    if (dmAttCheckbox && dmAttInput && dmAttGroup) {
+        dmAttCheckbox.addEventListener('change', function() {
+            var parentEnabled = !dmEnabledCheckbox || dmEnabledCheckbox.checked;
+            dmAttInput.disabled = !this.checked || !parentEnabled;
+            dmAttGroup.style.opacity = this.checked ? '1' : '.5';
+        });
+    }
+
+    // Group Settings
+    var groupEnabledCheckbox = document.querySelector('input[name="chat_group_enabled"]');
+    var groupSettingsContainer = document.getElementById('group-settings-container');
+    var groupAllowCreationCheckbox = document.querySelector('input[name="chat_allow_group_creation"]');
+    var groupMsgCheckbox = document.querySelector('input[name="chat_group_auto_clear_messages"]');
+    var groupMsgInput = document.querySelector('input[name="chat_group_message_retention_days"]');
+    var groupMsgGroup = document.getElementById('group-message-retention-group');
+    var groupAttCheckbox = document.querySelector('input[name="chat_group_auto_clear_attachments"]');
+    var groupAttInput = document.querySelector('input[name="chat_group_attachment_retention_days"]');
+    var groupAttGroup = document.getElementById('group-attachment-retention-group');
+
+    if (groupEnabledCheckbox) {
+        groupEnabledCheckbox.addEventListener('change', function() {
+            var enabled = this.checked;
+            if (groupSettingsContainer) {
+                groupSettingsContainer.style.opacity = enabled ? '1' : '.5';
+            }
+            if (groupAllowCreationCheckbox) groupAllowCreationCheckbox.disabled = !enabled;
+            if (groupMsgCheckbox) groupMsgCheckbox.disabled = !enabled;
+            if (groupAttCheckbox) groupAttCheckbox.disabled = !enabled;
+            if (!enabled) {
+                if (groupMsgInput) groupMsgInput.disabled = true;
+                if (groupAttInput) groupAttInput.disabled = true;
+            } else {
+                if (groupMsgInput && groupMsgCheckbox) groupMsgInput.disabled = !groupMsgCheckbox.checked;
+                if (groupAttInput && groupAttCheckbox) groupAttInput.disabled = !groupAttCheckbox.checked;
+            }
+        });
+    }
+
+    if (groupMsgCheckbox && groupMsgInput && groupMsgGroup) {
+        groupMsgCheckbox.addEventListener('change', function() {
+            var parentEnabled = !groupEnabledCheckbox || groupEnabledCheckbox.checked;
+            groupMsgInput.disabled = !this.checked || !parentEnabled;
+            groupMsgGroup.style.opacity = this.checked ? '1' : '.5';
+        });
+    }
+
+    if (groupAttCheckbox && groupAttInput && groupAttGroup) {
+        groupAttCheckbox.addEventListener('change', function() {
+            var parentEnabled = !groupEnabledCheckbox || groupEnabledCheckbox.checked;
+            groupAttInput.disabled = !this.checked || !parentEnabled;
+            groupAttGroup.style.opacity = this.checked ? '1' : '.5';
+        });
+    }
+})();
+
+// Color preview strip
+function syncAdminColor(input, swatchId) {
+    var swatch = document.getElementById(swatchId);
+    if (swatch) swatch.style.background = input.value;
+}
+
+(function initColorPreview() {
+    var preview = document.getElementById('admin-color-preview');
+    if (!preview) return;
+    var _t = window._t || function(k) { return k; };
+    var _hasT = !!window._t;
+    var swatches = [
+        { id: 'prev-bg', input: 'bg_color', label: _hasT ? _t('js.color.label.background') : 'Background' },
+        { id: 'prev-text', input: 'text_color', label: _hasT ? _t('js.color.label.text') : 'Text' },
+        { id: 'prev-primary', input: 'primary_color', label: _hasT ? _t('js.color.label.primary') : 'Primary' },
+        { id: 'prev-secondary', input: 'secondary_color', label: _hasT ? _t('js.color.label.secondary') : 'Secondary' },
+        { id: 'prev-accent', input: 'accent_color', label: _hasT ? _t('js.color.label.accent') : 'Accent' },
+        { id: 'prev-sidebar', input: 'sidebar_color', label: _hasT ? _t('js.color.label.sidebar') : 'Sidebar' },
+    ];
+    swatches.forEach(function(s) {
+        var inp = document.querySelector('input[name="' + s.input + '"]');
+        var el = document.createElement('span');
+        el.id = s.id;
+        el.className = 'settings-color-swatch';
+        el.title = s.label;
+        el.style.background = inp ? inp.value : '#000';
+        preview.appendChild(el);
+    });
+})();
+
+// Unsaved-changes guard
+(function () {
+    var form = document.querySelector('form[method="POST"][enctype]');
+    if (!form) return;
+    var dirty = false;
+    function markDirty(e) {
+        if (e.target && e.target.form && e.target.form !== form) return;
+        dirty = true;
+    }
+    form.addEventListener('input', markDirty);
+    form.addEventListener('change', markDirty);
+    form.addEventListener('submit', function () { dirty = false; });
+    window.addEventListener('beforeunload', function (e) {
+        if (dirty) { e.preventDefault(); e.returnValue = ''; }
+    });
+})();
+
+// Color pair sync via event delegation
+document.querySelectorAll('.color-group').forEach(function(group) {
+    var colorInput = group.querySelector('input[type="color"]');
+    var textInput = group.querySelector('input[type="text"]');
+    if (!colorInput || !textInput) return;
+    var swatchId = colorInput.getAttribute('data-swatch');
+
+    colorInput.addEventListener('input', function() {
+        textInput.value = this.value;
+        if (swatchId) syncAdminColor(this, swatchId);
+    });
+
+    textInput.addEventListener('input', function() {
+        colorInput.value = this.value;
+        if (swatchId) syncAdminColor(colorInput, swatchId);
+    });
+
+    textInput.addEventListener('change', function() {
+        colorInput.value = this.value;
+        if (swatchId) syncAdminColor(colorInput, swatchId);
+    });
+});
+
+
+
+// Toggle buttons (token / user-id fields)
+document.querySelectorAll('[data-toggle]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var target = document.getElementById(this.getAttribute('data-toggle'));
+        if (target) target.style.display = window.getComputedStyle(target).display === 'none' ? 'block' : 'none';
+    });
+});
+
+// Docs spawn confirmation
+var docsSpawnForm = document.getElementById('docs-spawn-form');
+if (docsSpawnForm) {
+    docsSpawnForm.addEventListener('submit', function(e) {
+        if (!confirm('This will {% if settings.docs_category_id %}replace the existing{% else %}create{% endif %} documentation category. Continue?')) {
+            e.preventDefault();
+        }
+    });
+}
+
+// Settings sub-menu navigation
+(function initSettingsNav() {
+    var nav = document.getElementById('settings-nav');
+    if (!nav) return;
+    var buttons = nav.querySelectorAll('.settings-nav-btn');
+    var sections = document.querySelectorAll('[data-settings-group]');
+
+    function groupHasSections(group) {
+        for (var i = 0; i < sections.length; i++) {
+            if (sections[i].getAttribute('data-settings-group') === group) return true;
+        }
+        return false;
+    }
+
+    // Hide tab buttons whose group has no rendered sections (e.g. when all
+    // plugins providing those sections are disabled). This avoids showing a
+    // tab that opens a fully empty pane.
+    buttons.forEach(function(btn) {
+        if (!groupHasSections(btn.getAttribute('data-group'))) {
+            btn.classList.add('u-d-none');
+        }
+    });
+
+    function groupVisible(group) {
+        var btn = nav.querySelector('.settings-nav-btn[data-group="' + group + '"]');
+        return !!btn && !btn.classList.contains('u-d-none');
+    }
+
+    function firstVisibleGroup() {
+        for (var i = 0; i < buttons.length; i++) {
+            if (!buttons[i].classList.contains('u-d-none')) {
+                return buttons[i].getAttribute('data-group');
+            }
+        }
+        return null;
+    }
+
+    function showGroup(group) {
+        sections.forEach(function(s) {
+            s.style.display = s.getAttribute('data-settings-group') === group ? '' : 'none';
+        });
+        buttons.forEach(function(b) {
+            b.classList.toggle('active', b.getAttribute('data-group') === group);
+        });
+    }
+
+    buttons.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            showGroup(this.getAttribute('data-group'));
+        });
+    });
+
+    var initial = groupVisible('general') ? 'general' : firstVisibleGroup();
+    if (initial) showGroup(initial);
+})();
+</script>
+{% endblock %}

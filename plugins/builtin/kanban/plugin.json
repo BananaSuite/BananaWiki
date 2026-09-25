@@ -1,0 +1,9 @@
+{
+    "id": "kanban",
+    "name": "Kanban Board",
+    "version": "1.0.0",
+    "author": "BananaWiki",
+    "description": "Built-in kanban board for task and ticket management with drag-and-drop columns",
+    "builtin": true,
+    "bananawiki_api_version": "1.0"
+}

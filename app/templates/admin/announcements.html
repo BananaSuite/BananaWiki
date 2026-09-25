@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.announcements.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ t('admin.announcements.title') }}</h1>
+</div>
+
+<div class="settings-section">
+    <h3>{{ t('admin.announcements.create') }}</h3>
+    <form method="POST" action="{{ url_for('admin_create_announcement') }}" id="createAnnouncementForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+            <label>{{ t('admin.announcements.content_label') }}</label>
+            <textarea name="content" class="input" rows="4" required maxlength="2000"
+                      placeholder="{{ t('admin.announcements.content_placeholder') }}"></textarea>
+        </div>
+        <div class="u-flex-row-1">
+            <div class="form-group">
+                <label>{{ t('admin.announcements.color') }}</label>
+                <select name="color" class="input input-sm">
+                    <option value="orange">{{ t('admin.announcements.color.orange') }}</option>
+                    <option value="red">{{ t('admin.announcements.color.red') }}</option>
+                    <option value="yellow">{{ t('admin.announcements.color.yellow') }}</option>
+                    <option value="blue">{{ t('admin.announcements.color.blue') }}</option>
+                    <option value="green">{{ t('admin.announcements.color.green') }}</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>{{ t('admin.announcements.text_size') }}</label>
+                <select name="text_size" class="input input-sm">
+                    <option value="normal">{{ t('admin.announcements.size.normal') }}</option>
+                    <option value="small">{{ t('admin.announcements.size.small') }}</option>
+                    <option value="large">{{ t('admin.announcements.size.large') }}</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>{{ t('admin.announcements.show_to') }}</label>
+                <select name="visibility" class="input input-sm">
+                    <option value="both">{{ t('admin.announcements.visibility.both') }}</option>
+                    <option value="logged_in">{{ t('admin.announcements.visibility.logged_in') }}</option>
+                    <option value="logged_out">{{ t('admin.announcements.visibility.logged_out') }}</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>{{ t('admin.announcements.audience', default='User audience') }}</label>
+                <select name="audience_mode" class="input input-sm js-ann-audience-mode">
+                    <option value="all">{{ t('admin.announcements.audience.all', default='All matching users') }}</option>
+                    <option value="allowlist">{{ t('admin.announcements.audience.allowlist', default='Only selected users') }}</option>
+                    <option value="denylist">{{ t('admin.announcements.audience.denylist', default='Everyone except selected users') }}</option>
+                </select>
+            </div>
+            <div class="form-group js-ann-audience-users u-d-none">
+                <label>{{ t('admin.announcements.users', default='Users') }}</label>
+                <select name="audience_user_ids" class="input" multiple size="6">
+                    {% for target_user in users %}
+                    <option value="{{ target_user.id }}">{{ target_user.username }}</option>
+                    {% endfor %}
+                </select>
+                <small>{{ t('admin.announcements.users_hint', default='Hold Ctrl or Command to select multiple users.') }}</small>
+            </div>
+            <div class="form-group">
+                <label>{{ t('admin.announcements.expires_at') }}</label>
+                <input type="datetime-local" name="expires_at" class="input input-sm">
+            </div>
+            <div class="form-group">
+                <label>{{ t('admin.announcements.options') }}</label>
+                <label class="u-flex-center-05-ptr u-fw-normal u-fs-085 u-o85">
+                    <input type="checkbox" name="not_removable" value="1" checked>
+                    <span>{{ t('admin.announcements.not_removable_full') }}</span>
+                </label>
+                <label class="u-flex-center-05-ptr u-fw-normal u-fs-085 u-o85">
+                    <input type="checkbox" name="show_countdown" value="1" checked>
+                    <span>{{ t('admin.announcements.show_countdown_full') }}</span>
+                </label>
+            </div>
+            <div class="form-group">
+                <label class="u-flex-center-05-ptr u-fw-normal u-fs-085 u-o85">
+                    <input type="checkbox" name="custom_colors" value="1" class="js-ann-custom-colors">
+                    <span>{{ t('admin.announcements.custom_colors', default='Use custom colors') }}</span>
+                </label>
+                <div class="js-ann-custom-fields u-d-none">
+                    <label>{{ t('admin.announcements.background_color', default='Background') }}
+                        <input type="color" name="custom_background" value="#24304f">
+                    </label>
+                    <label>{{ t('admin.announcements.text_color', default='Text') }}
+                        <input type="color" name="custom_text_color" value="#ffffff">
+                    </label>
+                </div>
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn">{{ t('admin.announcements.create_button') }}</button>
+        </div>
+    </form>
+</div>
+
+{% if announcements %}
+<h2 class="xs-642fde28">{{ t('admin.announcements.existing') }}</h2>
+{% for ann in announcements %}
+<style nonce="{{ csp_nonce }}">.ann-section-{{ ann.id }}{border-left:4px solid var(--ann-{{ ann.color }}-border, var(--primary))}</style>
+<div class="settings-section ann-section-{{ ann.id }}">
+    <div class="xs-e3af0366">
+        <div class="u-flex-1-min0">
+            <div class="xs-4f8c13e6">
+                #{{ ann.id }} · {{ ann.color }}{% if ann.custom_background %} ({{ ann.custom_background }}){% endif %} · {{ ann.text_size }} · {{ t('admin.announcements.show_label') }} {{ ann.visibility }}
+                · {{ ann.audience_mode }}{% if ann.audience_usernames %}: {{ ann.audience_usernames }}{% endif %}
+                {% if ann.expires_at %} · {{ t('admin.announcements.expires_label') }} {{ format_datetime(ann.expires_at) }}{% endif %}
+                {% if not ann.is_active %} · <span class="xs-3fef13a1">{{ t('admin.announcements.inactive') }}</span>{% endif %}
+                {% if ann.not_removable %} · {{ t('admin.announcements.not_removable') }}{% endif %}
+                {% if ann.show_countdown %} · {{ t('admin.announcements.countdown') }}{% endif %}
+                · {{ t('admin.announcements.by_label') }} {{ ann.creator_name }} · {{ time_ago(ann.created_at) }}
+            </div>
+            <div class="wiki-content u-fs-09">{{ ann.content | render_md }}</div>
+        </div>
+        <div class="xs-a834cd91">
+            <button class="btn btn-sm btn-outline js-toggle-edit"
+                    data-ann-id="{{ ann.id }}">{{ t('common.edit') }}</button>
+            <form method="POST"
+                  action="{{ url_for('admin_delete_announcement', ann_id=ann.id) }}"
+                  data-confirm="{{ t('admin.announcements.delete_confirm') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-danger">{{ t('common.delete') }}</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="xs-256a62f2" id="edit-form-{{ ann.id }}">
+        <form method="POST" action="{{ url_for('admin_edit_announcement', ann_id=ann.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label>{{ t('admin.announcements.content_short') }}</label>
+                <textarea name="content" class="input" rows="4" required maxlength="2000">{{ ann.content }}</textarea>
+            </div>
+            <div class="u-flex-row-1">
+                <div class="form-group">
+                    <label>{{ t('admin.announcements.color') }}</label>
+                    <select name="color" class="input input-sm">
+                        {% for c in ['orange','red','yellow','blue','green'] %}
+                        <option value="{{ c }}" {% if ann.color == c %}selected{% endif %}>{{ t('admin.announcements.color.' + c) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>{{ t('admin.announcements.audience', default='User audience') }}</label>
+                    <select name="audience_mode" class="input input-sm js-ann-audience-mode">
+                        {% for mode in ['all', 'allowlist', 'denylist'] %}
+                        <option value="{{ mode }}" {% if ann.audience_mode == mode %}selected{% endif %}>{{ t('admin.announcements.audience.' + mode) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group js-ann-audience-users {% if ann.audience_mode == 'all' %}u-d-none{% endif %}">
+                    <label>{{ t('admin.announcements.users', default='Users') }}</label>
+                    <select name="audience_user_ids" class="input" multiple size="6">
+                        {% for target_user in users %}
+                        <option value="{{ target_user.id }}" {% if target_user.id in announcement_target_ids[ann.id] %}selected{% endif %}>{{ target_user.username }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>{{ t('admin.announcements.text_size') }}</label>
+                    <select name="text_size" class="input input-sm">
+                        {% for s in ['small','normal','large'] %}
+                        <option value="{{ s }}" {% if ann.text_size == s %}selected{% endif %}>{{ t('admin.announcements.size.' + s) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>{{ t('admin.announcements.show_to') }}</label>
+                    <select name="visibility" class="input input-sm">
+                        <option value="both" {% if ann.visibility == 'both' %}selected{% endif %}>{{ t('admin.announcements.visibility.both') }}</option>
+                        <option value="logged_in" {% if ann.visibility == 'logged_in' %}selected{% endif %}>{{ t('admin.announcements.visibility.logged_in_short') }}</option>
+                        <option value="logged_out" {% if ann.visibility == 'logged_out' %}selected{% endif %}>{{ t('admin.announcements.visibility.logged_out_short') }}</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>{{ t('admin.announcements.expires_at') }}</label>
+                    <input type="datetime-local" name="expires_at" class="input input-sm u-w200"
+                           value="{{ format_datetime_local_input(ann.expires_at) }}">
+                </div>
+                <div class="form-group">
+                    <label>{{ t('admin.announcements.active') }}</label>
+                    <label class="u-flex-center-05-ptr u-fw-normal u-o85 u-fs-085">
+                        <input type="checkbox" name="is_active" value="1"
+                               {% if ann.is_active %}checked{% endif %}>
+                        <span>{{ t('admin.announcements.active') }}</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label class="u-flex-center-05-ptr u-fw-normal u-fs-085 u-o85">
+                        <input type="checkbox" name="custom_colors" value="1" class="js-ann-custom-colors"
+                               {% if ann.custom_background %}checked{% endif %}>
+                        <span>{{ t('admin.announcements.custom_colors', default='Use custom colors') }}</span>
+                    </label>
+                    <div class="js-ann-custom-fields {% if not ann.custom_background %}u-d-none{% endif %}">
+                        <label>{{ t('admin.announcements.background_color', default='Background') }}
+                            <input type="color" name="custom_background" value="{{ ann.custom_background or '#24304f' }}">
+                        </label>
+                        <label>{{ t('admin.announcements.text_color', default='Text') }}
+                            <input type="color" name="custom_text_color" value="{{ ann.custom_text_color or '#ffffff' }}">
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>{{ t('admin.announcements.options') }}</label>
+                    <label class="u-flex-center-05-ptr u-fw-normal u-fs-085 u-o85">
+                        <input type="checkbox" name="not_removable" value="1"
+                               {% if ann.not_removable %}checked{% endif %}>
+                        <span>{{ t('admin.announcements.not_removable_short') }}</span>
+                    </label>
+                    <label class="u-flex-center-05-ptr u-fw-normal u-fs-085 u-o85">
+                        <input type="checkbox" name="show_countdown" value="1"
+                               {% if ann.show_countdown %}checked{% endif %}>
+                        <span>{{ t('admin.announcements.show_countdown_short') }}</span>
+                    </label>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-sm">{{ t('common.save') }}</button>
+                <button type="button" class="btn btn-sm btn-outline js-toggle-edit"
+                        data-ann-id="{{ ann.id }}">{{ t('common.cancel') }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<p class="xs-0a461564">{{ t('admin.announcements.empty') }}</p>
+{% endif %}
+
+{% endblock %}
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+function toggleEditForm(id) {
+    var el = document.getElementById('edit-form-' + id);
+    if (el) el.style.display = window.getComputedStyle(el).display === 'none' ? 'block' : 'none';
+}
+document.querySelectorAll('.js-toggle-edit').forEach(function(btn) {
+    btn.addEventListener('click', function() { toggleEditForm(this.dataset.annId); });
+});
+document.querySelectorAll('form').forEach(function(form) {
+    var audienceMode = form.querySelector('.js-ann-audience-mode');
+    var audienceUsers = form.querySelector('.js-ann-audience-users');
+    if (audienceMode && audienceUsers) {
+        audienceMode.addEventListener('change', function() {
+            audienceUsers.classList.toggle('u-d-none', audienceMode.value === 'all');
+        });
+    }
+    var customToggle = form.querySelector('.js-ann-custom-colors');
+    var customFields = form.querySelector('.js-ann-custom-fields');
+    if (customToggle && customFields) {
+        customToggle.addEventListener('change', function() {
+            customFields.classList.toggle('u-d-none', !customToggle.checked);
+        });
+    }
+});
+</script>
+{% endblock %}

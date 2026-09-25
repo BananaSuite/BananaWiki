@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ t('wiki.announcement.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ t('wiki.announcement.title') }}</h1>
+</div>
+<div class="announcement-full announcement-color-{{ ann.color }}"
+     data-announcement-background="{{ ann.custom_background or '' }}"
+     data-announcement-text="{{ ann.custom_text_color or '' }}">
+    <div class="wiki-content announcement-size-{{ ann.text_size }}">
+        {{ content_html | safe }}
+    </div>
+    {% if ann.expires_at %}
+    <div class="xs-aaa62a92">
+        {{ t('wiki.announcement.expires_at', date=format_datetime(ann.expires_at)) }}
+    </div>
+    {% endif %}
+</div>
+<div class="u-mt15">
+    <a href="{{ url_for('home') }}" class="btn btn-outline btn-sm">{{ t('common.back') }}</a>
+</div>
+{% endblock %}

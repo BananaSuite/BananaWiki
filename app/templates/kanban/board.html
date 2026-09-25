@@ -1,0 +1,3301 @@
+{% extends "base.html" %}
+{% block title %}{{ board.title }} | {{ t('kanban.label') }} | {{ settings.site_name }}{% endblock %}
+
+{% block content %}
+<div class="kanban-board-page">
+    <div class="kanban-board-header">
+        <div class="u-flex-1-min0">
+            <div class="xs-8c49e7d1">
+                <a href="{{ url_for('kanban_list') }}" class="btn btn-sm btn-outline">{{ t('kanban.board.back_boards') }}</a>
+                <h1 class="xs-b3c1d7a1" id="board-title">{{ board.title }}</h1>
+            </div>
+            {% if board.description %}
+            <p class="xs-a7c22f08" id="board-desc">{{ board.description }}</p>
+            {% endif %}
+            <small class="u-o50-fs085">{{ t('kanban.board.owner_label') }} {{ creator_username }}</small>
+        </div>
+        {% if can_write %}
+        <div class="xs-143bb0f8">
+            {% if is_owner %}
+            <button class="btn btn-sm btn-outline js-board-settings">⚙ {{ t('kanban.board.settings') }}</button>
+            {% endif %}
+            <button class="btn btn-sm btn-outline js-open-modal" data-modal="edit-board-modal">{{ t('kanban.board.edit_board') }}</button>
+            <a href="{{ url_for('kanban_export_board', board_id=board.id) }}" class="btn btn-sm btn-outline">{{ t('canvas.view.export') }}</a>
+            <a href="{{ url_for('kanban_board_history', board_id=board.id) }}" class="btn btn-sm btn-outline">{{ t('kanban.board.history') }}</a>
+            <button class="btn btn-sm btn-outline" id="toggle-activity-log">{{ t('kanban.board.activity') }}</button>
+            <button class="btn btn-sm btn-outline" id="toggle-bulk-select" type="button" aria-pressed="false">{{ t('kanban.board.bulk_select') }}</button>
+            {% if is_owner %}
+            <button class="btn btn-sm btn-outline xs-70fe1bbb js-open-modal" data-modal="delete-board-modal">{{ t('kanban.board.delete_board') }}</button>
+            {% endif %}
+        </div>
+        {% elif is_owner %}
+        <div class="xs-143bb0f8">
+            <button class="btn btn-sm btn-outline js-board-settings">⚙ {{ t('kanban.board.settings') }}</button>
+        </div>
+        {% endif %}
+        <button class="btn btn-sm btn-outline" id="kanban-print" title="{{ t('canvas.view.print_title') }}">{{ t('canvas.view.print') }}</button>
+    </div>
+
+    <div id="activity-log-panel" class="kanban-activity-panel" style="display:none">
+        <div class="kanban-activity-header">
+            <strong>{{ t('kanban.board.activity_log') }}</strong>
+            <button class="btn btn-sm btn-outline" id="close-activity-log">✕</button>
+        </div>
+        <div id="activity-log-entries" class="kanban-activity-entries">
+            <p class="u-o60">{{ t('common.loading') }}</p>
+        </div>
+    </div>
+
+    {% if can_write %}
+    <!-- Bulk action toolbar (sits above the columns so it stays visible while
+         scrolling the board horizontally; hidden until bulk-select mode is
+         active via the `u-d-none` class). -->
+    <div id="kanban-bulk-toolbar" class="kanban-bulk-toolbar u-d-none" role="region" aria-label="{{ t('kanban.board.bulk_select') }}">
+        <div class="kanban-bulk-summary">
+            <label class="kanban-bulk-select-all-wrap" title="{{ t('kanban.board.bulk_select_all') }}">
+                <input type="checkbox" id="kanban-bulk-select-all">
+            </label>
+            <span id="kanban-bulk-summary-text">{{ t('kanban.board.bulk_no_selection') }}</span>
+        </div>
+        <div class="kanban-bulk-actions">
+            <button type="button" class="btn btn-sm btn-primary" id="kanban-bulk-assign-btn">{{ t('kanban.board.bulk_assign') }}</button>
+            <button type="button" class="btn btn-sm btn-outline" id="kanban-bulk-priority-btn">{{ t('kanban.board.bulk_priority') }}</button>
+            <button type="button" class="btn btn-sm btn-outline" id="kanban-bulk-move-btn">{{ t('kanban.board.bulk_move') }}</button>
+            <button type="button" class="btn btn-sm btn-outline" id="kanban-bulk-due-btn">{{ t('kanban.board.bulk_due_date') }}</button>
+            <button type="button" class="btn btn-sm btn-outline" id="kanban-bulk-color-btn">{{ t('kanban.board.bulk_color') }}</button>
+            <button type="button" class="btn btn-sm btn-outline xs-70fe1bbb" id="kanban-bulk-delete-tickets-btn">{{ t('kanban.board.bulk_delete_tickets') }}</button>
+            <button type="button" class="btn btn-sm btn-outline xs-70fe1bbb" id="kanban-bulk-delete-cols-btn">{{ t('kanban.board.bulk_delete_columns') }}</button>
+            <button type="button" class="btn btn-sm btn-outline" id="kanban-bulk-clear-btn">{{ t('kanban.board.bulk_clear') }}</button>
+            <button type="button" class="btn btn-sm btn-outline" id="kanban-bulk-cancel-btn">{{ t('common.cancel') }}</button>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="kanban-columns-container" id="kanban-columns" data-board-id="{{ board.id }}">
+        {% for col in columns %}
+        <div class="kanban-column" data-column-id="{{ col.id }}">
+            <div class="kanban-column-header">
+                {% if can_write %}<span class="kanban-column-drag-handle" draggable="true" title="{{ t('kanban.board.drag_column') }}">⠿</span>{% endif %}
+                <span class="kanban-column-title" {% if can_write %}contenteditable="true" data-original="{{ col.title }}"{% endif %}>{{ col.title }}</span>
+                <span class="kanban-column-count">{{ col.tickets|length }}</span>
+                {% if can_write %}
+                <button class="kanban-column-menu-btn js-col-menu" title="{{ t('kanban.board.column_options') }}">⋮</button>
+                <div class="kanban-column-menu u-d-none">
+                    <button data-col-id="{{ col.id }}" class="btn js-delete-col">{{ t('kanban.board.delete_column') }}</button>
+                </div>
+                {% endif %}
+            </div>
+            {% if can_write %}
+            <div class="kanban-add-ticket">
+                <button class="kanban-add-ticket-btn js-show-quick-add" data-col-id="{{ col.id }}">+ {{ t('kanban.board.add_ticket') }}</button>
+                <div class="kanban-quick-add u-d-none" data-column-id="{{ col.id }}">
+                    <input type="text" class="input kanban-quick-add-input" placeholder="{{ t('kanban.board.ticket_title_placeholder') }}" maxlength="10000">
+                    <div class="u-flex-03-mt03">
+                        <button class="btn btn-sm btn-primary js-quick-add" data-col-id="{{ col.id }}">{{ t('groups.add') }}</button>
+                        <button class="btn btn-sm btn-outline js-hide-quick-add">{{ t('common.cancel') }}</button>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            <div class="kanban-tickets" data-column-id="{{ col.id }}">
+                {% for ticket in col.tickets %}
+                <div class="kanban-ticket" data-ticket-id="{{ ticket.id }}" draggable="{{ 'true' if can_write else 'false' }}">
+                    {% if ticket.color and ticket.color is hex_color %}
+                    <div class="kanban-ticket-color-bar" style="background:{{ ticket.color }}"></div>
+                    {% endif %}
+                    <div class="kanban-ticket-priority kanban-priority-{{ ticket.priority }}"></div>
+                    <div class="kanban-ticket-title">{{ ticket.title }}</div>
+                    <div class="kanban-ticket-meta">
+                        {% if ticket.priority == 'critical' %}
+                        <span class="kanban-ticket-badge kanban-badge-critical">{{ t('kanban.priority.critical') }}</span>
+                        {% elif ticket.priority == 'high' %}
+                        <span class="kanban-ticket-badge kanban-badge-high">{{ t('kanban.priority.high') }}</span>
+                        {% elif ticket.priority == 'low' %}
+                        <span class="kanban-ticket-badge kanban-badge-low">{{ t('kanban.priority.low') }}</span>
+                        {% endif %}
+                        {% if ticket.due_date %}
+                        <span class="kanban-ticket-badge kanban-badge-due">{{ t('kanban.board.due_label') }} {{ ticket.due_date }}</span>
+                        {% endif %}
+                        {% if ticket.labels %}
+                            {% for label in ticket.labels %}
+                            <span class="kanban-ticket-badge kanban-badge-label">+{{ label }}</span>
+                            {% endfor %}
+                        {% endif %}
+                        {% if ticket.assignees %}
+                            {% for a in ticket.assignees %}
+                            <span class="kanban-ticket-badge kanban-badge-assigned">@{{ a.username }}</span>
+                            {% endfor %}
+                        {% elif ticket.assigned_to_username %}
+                        <span class="kanban-ticket-badge kanban-badge-assigned">@{{ ticket.assigned_to_username }}</span>
+                        {% endif %}
+                        {% if ticket.attachment_count and ticket.attachment_count > 0 %}
+                        <span class="kanban-ticket-badge kanban-badge-attachment" title="{{ ticket.attachment_count }} attachment(s)">{{ ticket.attachment_count }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+
+        {% if can_write %}
+        <div class="kanban-column kanban-add-column">
+            <button class="kanban-add-column-btn js-show-add-col">+ {{ t('kanban.board.add_column') }}</button>
+            <div class="kanban-add-column-form u-d-none">
+                <input type="text" class="input" id="new-column-title" placeholder="{{ t('kanban.board.column_title_placeholder') }}" maxlength="10000">
+                <div class="u-flex-03-mt03">
+                    <button class="btn btn-sm btn-primary js-add-col">{{ t('groups.add') }}</button>
+                    <button class="btn btn-sm btn-outline js-hide-add-col">{{ t('common.cancel') }}</button>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if can_write %}
+<!-- Bulk assign modal -->
+<div id="kanban-bulk-assign-modal" class="kanban-modal-overlay u-d-none">
+    <div class="kanban-modal">
+        <div class="kanban-modal-header">
+            <h2 class="u-m0">{{ t('kanban.board.bulk_assign_title') }}</h2>
+            <button type="button" class="btn kanban-modal-close js-bulk-modal-close" data-bulk-modal="kanban-bulk-assign-modal">&times;</button>
+        </div>
+        <div class="form-group">
+            <p class="u-fs-085 u-o70" id="kanban-bulk-assign-summary"></p>
+            <div class="kanban-assignee-menu-options" id="kanban-bulk-assign-options">
+                {% for u in users_list %}
+                <label class="kanban-assignee-option">
+                    <input type="checkbox" class="kanban-bulk-assign-checkbox" value="{{ u.id }}">
+                    <span>{{ u.username }}</span>
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="u-flex-col-end-1">
+            <button type="button" class="btn btn-outline" id="kanban-bulk-assign-clear">{{ t('kanban.board.unassigned') }}</button>
+            <button type="button" class="btn btn-outline js-bulk-modal-close" data-bulk-modal="kanban-bulk-assign-modal">{{ t('common.cancel') }}</button>
+            <button type="button" class="btn btn-primary" id="kanban-bulk-assign-save">{{ t('common.save') }}</button>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk priority modal -->
+<div id="kanban-bulk-priority-modal" class="kanban-modal-overlay u-d-none">
+    <div class="kanban-modal">
+        <div class="kanban-modal-header">
+            <h2 class="u-m0">{{ t('kanban.board.bulk_priority_title') }}</h2>
+            <button type="button" class="btn kanban-modal-close js-bulk-modal-close" data-bulk-modal="kanban-bulk-priority-modal">&times;</button>
+        </div>
+        <div class="form-group">
+            <label>{{ t('kanban.board.priority_label') }}</label>
+            <select id="kanban-bulk-priority-select" class="input">
+                <option value="low">{{ t('kanban.priority.low') }}</option>
+                <option value="medium" selected>{{ t('kanban.priority.medium') }}</option>
+                <option value="high">{{ t('kanban.priority.high') }}</option>
+                <option value="critical">{{ t('kanban.priority.critical') }}</option>
+            </select>
+        </div>
+        <div class="u-flex-col-end-1">
+            <button type="button" class="btn btn-outline js-bulk-modal-close" data-bulk-modal="kanban-bulk-priority-modal">{{ t('common.cancel') }}</button>
+            <button type="button" class="btn btn-primary" id="kanban-bulk-priority-save">{{ t('common.save') }}</button>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk move modal -->
+<div id="kanban-bulk-move-modal" class="kanban-modal-overlay u-d-none">
+    <div class="kanban-modal">
+        <div class="kanban-modal-header">
+            <h2 class="u-m0">{{ t('kanban.board.bulk_move_title') }}</h2>
+            <button type="button" class="btn kanban-modal-close js-bulk-modal-close" data-bulk-modal="kanban-bulk-move-modal">&times;</button>
+        </div>
+        <div class="form-group">
+            <label>{{ t('kanban.board.bulk_move_target') }}</label>
+            <select id="kanban-bulk-move-select" class="input">
+                {% for col in columns %}
+                <option value="{{ col.id }}">{{ col.title }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="u-flex-col-end-1">
+            <button type="button" class="btn btn-outline js-bulk-modal-close" data-bulk-modal="kanban-bulk-move-modal">{{ t('common.cancel') }}</button>
+            <button type="button" class="btn btn-primary" id="kanban-bulk-move-save">{{ t('common.save') }}</button>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk due date modal -->
+<div id="kanban-bulk-due-modal" class="kanban-modal-overlay u-d-none">
+    <div class="kanban-modal">
+        <div class="kanban-modal-header">
+            <h2 class="u-m0">{{ t('kanban.board.bulk_due_date_title') }}</h2>
+            <button type="button" class="btn kanban-modal-close js-bulk-modal-close" data-bulk-modal="kanban-bulk-due-modal">&times;</button>
+        </div>
+        <div class="form-group">
+            <label>{{ t('kanban.board.due_date') }}</label>
+            <input type="date" id="kanban-bulk-due-input" class="input">
+        </div>
+        <div class="u-flex-col-end-1">
+            <button type="button" class="btn btn-outline" id="kanban-bulk-due-clear">{{ t('kanban.board.clear') }}</button>
+            <button type="button" class="btn btn-outline js-bulk-modal-close" data-bulk-modal="kanban-bulk-due-modal">{{ t('common.cancel') }}</button>
+            <button type="button" class="btn btn-primary" id="kanban-bulk-due-save">{{ t('common.save') }}</button>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk color modal -->
+<div id="kanban-bulk-color-modal" class="kanban-modal-overlay u-d-none">
+    <div class="kanban-modal">
+        <div class="kanban-modal-header">
+            <h2 class="u-m0">{{ t('kanban.board.bulk_color_title') }}</h2>
+            <button type="button" class="btn kanban-modal-close js-bulk-modal-close" data-bulk-modal="kanban-bulk-color-modal">&times;</button>
+        </div>
+        <div class="form-group">
+            <label>{{ t('kanban.board.color_label') }}</label>
+            <div class="xs-dd478b45">
+                <button type="button" class="kanban-color-btn xs-5df3b33a js-bulk-color" data-color="" title="{{ t('kanban.color.none') }}">✕</button>
+                <button type="button" class="kanban-color-btn xs-d134cca6 js-bulk-color" data-color="#e91e63" title="{{ t('kanban.color.red') }}"></button>
+                <button type="button" class="kanban-color-btn xs-b5e96c80 js-bulk-color" data-color="#ff9800" title="{{ t('kanban.color.orange') }}"></button>
+                <button type="button" class="kanban-color-btn xs-6d642cfe js-bulk-color" data-color="#ffeb3b" title="{{ t('kanban.color.yellow') }}"></button>
+                <button type="button" class="kanban-color-btn xs-839e2dc6 js-bulk-color" data-color="#4caf50" title="{{ t('kanban.color.green') }}"></button>
+                <button type="button" class="kanban-color-btn xs-602756f3 js-bulk-color" data-color="#2196f3" title="{{ t('kanban.color.blue') }}"></button>
+                <button type="button" class="kanban-color-btn xs-45301bb0 js-bulk-color" data-color="#9c27b0" title="{{ t('kanban.color.purple') }}"></button>
+            </div>
+        </div>
+        <div class="u-flex-col-end-1">
+            <button type="button" class="btn btn-outline js-bulk-modal-close" data-bulk-modal="kanban-bulk-color-modal">{{ t('common.cancel') }}</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Ticket Detail Modal -->
+<div id="ticket-detail-modal" class="kanban-modal-overlay u-d-none">
+    <div class="kanban-modal kanban-modal-lg">
+        <div class="kanban-modal-header">
+            <h2 class="u-m0" id="ticket-detail-title"{% if can_write %} contenteditable="true"{% endif %}></h2>
+            <button class="btn kanban-modal-close js-close-ticket">&times;</button>
+        </div>
+        <div id="ticket-detail-body">
+            <div class="kanban-ticket-detail-grid">
+                <div class="kanban-ticket-detail-main">
+                    <!-- Tabs -->
+                    <div class="kanban-ticket-tabs xs-1d50c244">
+                        <button class="kanban-tab-btn kanban-tab-active" data-tab="description">{{ t('common.description') }}</button>
+                        <button class="kanban-tab-btn" data-tab="attachments">{{ t('kanban.board.attachments') }}</button>
+                        <button class="kanban-tab-btn" data-tab="history">{{ t('common.history') }}</button>
+                        <button class="kanban-tab-btn" data-tab="comments">{{ t('kanban.board.comments') }}</button>
+                    </div>
+
+                    <!-- Description tab -->
+                    <div id="ticket-tab-description">
+                        <div id="ticket-detail-desc-display" class="kanban-ticket-desc-display"></div>
+                        {% if can_write %}
+                        <div class="u-d-none" id="ticket-detail-desc-edit">
+                            <textarea id="ticket-edit-description" class="input" rows="6" maxlength="10000" placeholder="{{ t('kanban.board.describe_ticket') }}"></textarea>
+                            <div class="xs-a0860709">
+                                <button class="btn btn-sm btn-outline js-cancel-desc">{{ t('kanban.board.done') }}</button>
+                                <label class="kanban-img-upload-btn" title="{{ t('kanban.board.insert_image') }}">
+                                    {{ t('canvas.view.image') }}
+                                    <input class="u-d-none js-desc-image" type="file" accept="image/*">
+                                </label>
+                                <span class="u-fs-075 u-o60" id="desc-save-status"></span>
+                            </div>
+                        </div>
+                        <button class="btn btn-sm btn-outline u-mt05" id="ticket-edit-desc-btn">{{ t('kanban.board.edit_description') }}</button>
+                        {% endif %}
+                    </div>
+
+                    <!-- Attachments tab -->
+                    <div class="u-d-none" id="ticket-tab-attachments">
+                        {% if can_write %}
+                        <div class="u-mb08">
+                            <label class="btn btn-sm btn-outline xs-19182bcc">
+                                {{ t('kanban.board.upload_attachment') }}
+                                <input class="u-d-none js-ticket-att-input" type="file" id="ticket-attachment-input">
+                            </label>
+                            <small class="xs-16a08086">{{ t('kanban.board.max_5mb') }}</small>
+                        </div>
+                        {% endif %}
+                        <div class="xs-0c6d04af" id="ticket-attachments-list">
+                            <span class="u-o50-fs085">{{ t('common.loading') }}</span>
+                        </div>
+                    </div>
+
+                    <!-- History tab -->
+                    <div class="u-d-none" id="ticket-tab-history">
+                        <div id="ticket-history-list">
+                            <span class="u-o50-fs085">{{ t('common.loading') }}</span>
+                        </div>
+                        <!-- History diff viewer -->
+                        <div class="u-d-none-mt08" id="ticket-history-diff">
+                            <button class="btn btn-sm btn-outline u-mb05 js-back-history">{{ t('kanban.board.back_to_history') }}</button>
+                            <div id="ticket-history-diff-content" class="wiki-content u-fs-085"></div>
+                        </div>
+                    </div>
+
+                    <!-- Comments tab -->
+                    <div class="u-d-none" id="ticket-tab-comments">
+                        <div class="xs-ec5f3c3c" id="ticket-comments-list">
+                            <span class="u-o50-fs085">{{ t('common.loading') }}</span>
+                        </div>
+                        <div class="xs-7243d181">
+                            <textarea id="ticket-new-comment" class="input" rows="3" maxlength="2000" placeholder="{{ t('kanban.board.write_comment') }}"></textarea>
+                            <div class="xs-6059b3f2">
+                                <label class="kanban-img-upload-btn" title="{{ t('kanban.board.insert_image') }}">
+                                    {{ t('canvas.view.image') }}
+                                    <input class="u-d-none js-comment-image" type="file" accept="image/*">
+                                </label>
+                                <button class="btn btn-sm btn-primary js-submit-comment">{{ t('kanban.board.post_comment') }}</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="kanban-ticket-detail-sidebar">
+                    <div class="kanban-ticket-meta-item">
+                        <label>{{ t('kanban.board.priority_label') }}</label>
+                        {% if can_write %}
+                        <select id="ticket-detail-priority" class="input input-sm">
+                            <option value="low">{{ t('kanban.priority.low') }}</option>
+                            <option value="medium">{{ t('kanban.priority.medium') }}</option>
+                            <option value="high">{{ t('kanban.priority.high') }}</option>
+                            <option value="critical">{{ t('kanban.priority.critical') }}</option>
+                        </select>
+                        {% else %}
+                        <span id="ticket-detail-priority-text"></span>
+                        {% endif %}
+                    </div>
+                    <div class="kanban-ticket-meta-item">
+                        <label>{{ t('kanban.board.assigned_to') }}</label>
+                        {% if can_write %}
+                        <div class="kanban-assignee-picker">
+                            <div id="ticket-detail-assignees-list" class="kanban-assignee-pills"></div>
+                            <button type="button" id="ticket-detail-assignees-btn" class="btn btn-sm btn-outline">{{ t('kanban.board.edit_assignees') }}</button>
+                            <div id="ticket-detail-assignees-menu" class="kanban-assignee-menu u-d-none">
+                                <div class="kanban-assignee-menu-options">
+                                    {% for u in users_list %}
+                                    <label class="kanban-assignee-option">
+                                        <input type="checkbox" class="kanban-assignee-checkbox" value="{{ u.id }}">
+                                        <span>{{ u.username }}</span>
+                                    </label>
+                                    {% endfor %}
+                                </div>
+                                <div class="kanban-assignee-menu-actions">
+                                    <button type="button" id="ticket-detail-assignees-clear" class="btn btn-sm btn-outline">{{ t('kanban.board.unassigned') }}</button>
+                                    <button type="button" id="ticket-detail-assignees-save" class="btn btn-sm btn-primary">{{ t('common.save') }}</button>
+                                </div>
+                            </div>
+                            <!-- Hidden legacy single-select kept for tests/scripts/back-compat -->
+                            <select id="ticket-detail-assigned" class="u-d-none" aria-hidden="true" tabindex="-1">
+                                <option value="">{{ t('kanban.board.unassigned') }}</option>
+                                {% for u in users_list %}
+                                <option value="{{ u.id }}">{{ u.username }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% else %}
+                        <span id="ticket-detail-assigned-text"></span>
+                        {% endif %}
+                    </div>
+                    <div class="kanban-ticket-meta-item">
+                        <label>{{ t('kanban.board.created_by') }}</label>
+                        <span id="ticket-detail-created-by"></span>
+                    </div>
+                    <div class="kanban-ticket-meta-item">
+                        <label>{{ t('kanban.board.created') }}</label>
+                        <span id="ticket-detail-created-at"></span>
+                    </div>
+                    <div class="kanban-ticket-meta-item">
+                        <label>{{ t('kanban.board.due_date') }}</label>
+                        {% if can_write %}
+                        <input type="date" id="ticket-detail-due-date" class="input input-sm">
+                        <button class="btn btn-sm btn-outline xs-ca2a98f9 js-clear-due-date">{{ t('kanban.board.clear') }}</button>
+                        {% else %}
+                        <span id="ticket-detail-due-date-text"></span>
+                        {% endif %}
+                    </div>
+                    <div class="kanban-ticket-meta-item">
+                        <label>{{ t('kanban.board.labels') }}</label>
+                        {% if can_write %}
+                        <input type="text" id="ticket-detail-labels" class="input input-sm" maxlength="300" placeholder="+frontend +bug">
+                        <small class="u-hint">{{ t('kanban.board.labels_hint') }}</small>
+                        {% else %}
+                        <span id="ticket-detail-labels-text"></span>
+                        {% endif %}
+                    </div>
+                    <div class="kanban-ticket-meta-item">
+                        <label>{{ t('kanban.board.color_label') }}</label>
+                        {% if can_write %}
+                        <div class="xs-dd478b45">
+                            <button class="kanban-color-btn xs-5df3b33a js-ticket-color" data-color="" title="{{ t('kanban.color.none') }}">✕</button>
+                            <button class="kanban-color-btn xs-d134cca6 js-ticket-color" data-color="#e91e63" title="{{ t('kanban.color.red') }}"></button>
+                            <button class="kanban-color-btn xs-b5e96c80 js-ticket-color" data-color="#ff9800" title="{{ t('kanban.color.orange') }}"></button>
+                            <button class="kanban-color-btn xs-6d642cfe js-ticket-color" data-color="#ffeb3b" title="{{ t('kanban.color.yellow') }}"></button>
+                            <button class="kanban-color-btn xs-839e2dc6 js-ticket-color" data-color="#4caf50" title="{{ t('kanban.color.green') }}"></button>
+                            <button class="kanban-color-btn xs-602756f3 js-ticket-color" data-color="#2196f3" title="{{ t('kanban.color.blue') }}"></button>
+                            <button class="kanban-color-btn xs-45301bb0 js-ticket-color" data-color="#9c27b0" title="{{ t('kanban.color.purple') }}"></button>
+                        </div>
+                        {% else %}
+                        <span id="ticket-detail-color-text"></span>
+                        {% endif %}
+                    </div>
+                    {% if can_write %}
+                    <div class="xs-2206311c">
+                        <button class="btn btn-sm btn-outline xs-101de3b4 js-delete-ticket">{{ t('kanban.board.delete_ticket') }}</button>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if can_write %}
+<!-- Edit Board Modal -->
+<div id="edit-board-modal" class="kanban-modal-overlay u-d-none">
+    <div class="kanban-modal">
+        <div class="kanban-modal-header">
+            <h2 class="u-m0">{{ t('kanban.board.edit_board') }}</h2>
+            <button class="btn kanban-modal-close js-close-overlay">&times;</button>
+        </div>
+        <form method="POST" action="{{ url_for('kanban_edit_board', board_id=board.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label>{{ t('kanban.list.board_title') }}</label>
+                <input type="text" name="title" class="input" value="{{ board.title }}" maxlength="10000" required>
+            </div>
+            <div class="form-group">
+                <label>{{ t('common.description') }}</label>
+                <textarea name="description" class="input" rows="3" maxlength="10000">{{ board.description }}</textarea>
+            </div>
+            <div class="u-flex-col-end-1">
+                <button type="button" class="btn btn-outline js-close-overlay">{{ t('common.cancel') }}</button>
+                <button type="submit" class="btn btn-primary">{{ t('common.save_changes') }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Delete Board Modal -->
+<div id="delete-board-modal" class="kanban-modal-overlay u-d-none">
+    <div class="kanban-modal">
+        <div class="kanban-modal-header">
+            <h2 class="u-m0">{{ t('kanban.board.delete_board') }}</h2>
+            <button class="btn kanban-modal-close js-close-overlay">&times;</button>
+        </div>
+        <p>{{ t('kanban.board.delete_confirm_pre') }} <strong>{{ board.title }}</strong>{{ t('kanban.board.delete_confirm_post') }}</p>
+        <form method="POST" action="{{ url_for('kanban_delete_board', board_id=board.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="u-flex-col-end-1">
+                <button type="button" class="btn btn-outline js-close-overlay">{{ t('common.cancel') }}</button>
+                <button type="submit" class="btn btn-primary xs-2ac3a24a">{{ t('kanban.board.delete_board') }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if is_owner %}
+<!-- Board Settings Modal (Sharing & Visibility): form-based -->
+<div id="board-settings-modal" class="kanban-modal-overlay u-d-none">
+    <div class="kanban-modal kanban-modal-lg">
+        <div class="kanban-modal-header">
+            <h2 class="u-m0">{{ t('kanban.board.board_settings') }}</h2>
+            <button class="btn kanban-modal-close js-close-settings">&times;</button>
+        </div>
+        <div class="canvas-share-section">
+            <!-- Owner info -->
+            <p class="u-fs-085 u-o70">{{ t('kanban.board.board_owner_label') }} <strong>{{ creator_username }}</strong></p>
+
+            <!-- Visibility -->
+            <h3>{{ t('kanban.board.visibility') }}</h3>
+            <p class="u-fs-085 u-o70 u-mb08">{{ t('kanban.board.visibility_help')|safe }}{# Controls who can see this board. Use <strong>Shared</strong> to restrict access to specific users or roles listed below. #}</p>
+            <form method="POST" action="{{ url_for('kanban_board_share', board_id=board.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="set_visibility">
+                <div class="form-group">
+                    <select name="visibility" class="input u-mw300">
+                        <option value="public"{% if board.visibility == 'public' %} selected{% endif %}>{{ t('kanban.board.vis_public') }}</option>
+                        <option value="shared"{% if board.visibility == 'shared' %} selected{% endif %}>{{ t('canvas.view.vis_shared') }}</option>
+                        <option value="private"{% if board.visibility == 'private' or not board.visibility %} selected{% endif %}>{{ t('canvas.view.vis_private') }}</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-sm btn-primary">{{ t('canvas.view.update_visibility') }}</button>
+            </form>
+
+            <!-- Current Permissions -->
+            <h3>{{ t('canvas.view.current_perms') }}</h3>
+            {% if shares %}
+            <table class="table-mini">
+                <thead><tr><th>{{ t('canvas.view.col_target') }}</th><th>{{ t('kanban.board.col_access') }}</th><th></th></tr></thead>
+                <tbody>
+                {% for s in shares %}
+                <tr>
+                    <td>{% if s.share_type == 'user' %}{{ share_user_names.get(s.target, t('js.kanban.unknown_user')) }}{% elif s.share_type == 'role' %}{{ s.target }}{% endif %}</td>
+                    <td>{{ s.access_level }}</td>
+                    <td>
+                        <form method="POST" action="{{ url_for('kanban_board_share', board_id=board.id) }}" class="u-d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            {% if s.share_type == 'user' %}
+                            <input type="hidden" name="action" value="remove_user">
+                            <input type="hidden" name="user_id" value="{{ s.target }}">
+                            {% else %}
+                            <input type="hidden" name="action" value="remove_role">
+                            <input type="hidden" name="role" value="{{ s.target }}">
+                            {% endif %}
+                            <button type="submit" class="btn btn-sm btn-danger-outline">{{ t('common.remove') }}</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="u-fs-085 u-o70">{{ t('kanban.board.no_perms') }}</p>
+            {% endif %}
+
+            <!-- Add User Share -->
+            <h3>{{ t('canvas.view.add_user_perm') }}</h3>
+            <form method="POST" action="{{ url_for('kanban_board_share', board_id=board.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="add_user">
+                <div class="form-group">
+                    <select name="user_id" class="input">
+                        <option value="">{{ t('canvas.view.select_user') }}</option>
+                        {% for u in share_users_list %}
+                        <option value="{{ u.id }}">{{ u.username }} ({{ u.role }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <select name="access_level" class="input">
+                        <option value="view">{{ t('kanban.board.access_view_only') }}</option>
+                        <option value="write">{{ t('kanban.board.access_view_write') }}</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-sm btn-primary">{{ t('canvas.view.add_user') }}</button>
+            </form>
+
+            <!-- Add Role Share -->
+            <h3>{{ t('canvas.view.add_role_perm') }}</h3>
+            <form method="POST" action="{{ url_for('kanban_board_share', board_id=board.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="add_role">
+                <div class="form-group">
+                    <select name="role" class="input">
+                        {% if kanban_access == 'all' %}<option value="user">{{ t('canvas.view.role_user') }}</option>{% endif %}
+                        {% if kanban_access in ('editor', 'all') %}<option value="editor">{{ t('canvas.view.role_editor') }}</option>{% endif %}
+                        <option value="admin">{{ t('canvas.view.role_admin') }}</option>
+                    </select>
+                    <small class="u-hint">{{ t('kanban.board.role_hint') }}</small>
+                </div>
+                <div class="form-group">
+                    <select name="access_level" class="input">
+                        <option value="view">{{ t('kanban.board.access_view_only') }}</option>
+                        <option value="write">{{ t('kanban.board.access_view_write') }}</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-sm btn-primary">{{ t('canvas.view.add_role') }}</button>
+            </form>
+
+            <!-- Transfer Ownership -->
+            <h3>{{ t('canvas.view.transfer_ownership') }}</h3>
+            <p class="u-hint">{{ t('kanban.board.transfer_hint') }}</p>
+            <form method="POST" action="{{ url_for('kanban_board_share', board_id=board.id) }}" data-confirm="{{ t('kanban.board.transfer_confirm') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="transfer_ownership">
+                <div class="form-group">
+                    <select name="user_id" class="input" required>
+                        <option value="">{{ t('canvas.view.select_new_owner') }}</option>
+                        {% for u in share_users_list %}
+                        {% if u.id != board.created_by %}
+                        <option value="{{ u.id }}">{{ u.username }} ({{ u.role }})</option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-sm btn-danger-outline">{{ t('canvas.view.transfer_ownership') }}</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script nonce="{{ csp_nonce }}">
+(function() {
+    var boardId = {{ board.id }};
+    var csrfToken = '{{ csrf_token() }}';
+    var canWrite = {{ 'true' if can_write else 'false' }};
+    var currentTicketId = null;
+    var draggedColumn = null;
+
+    /* Per-tab identifier so the server can omit our own writes from
+       /sync.  Failing back to a random string keeps older browsers
+       without crypto.randomUUID working. */
+    var kanbanSession = (function () {
+        try {
+            if (window.crypto && window.crypto.randomUUID) {
+                return window.crypto.randomUUID();
+            }
+        } catch (_e) { /* ignore */ }
+        return 'ks-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    })();
+    var kanbanLastSeq = 0;
+    var kanbanSyncTimer = null;
+    var kanbanSyncInFlight = false;
+    var KANBAN_SYNC_POLL_MS = 3000;
+
+    function escHtml(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    function api(url, method, data) {
+        var opts = {
+            method: method || 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+                'X-Kanban-Session': kanbanSession
+            }
+        };
+        if (data) opts.body = JSON.stringify(data);
+        return fetch(url, opts).then(function(r) {
+            return r.json().then(function(d) { return {status: r.status, data: d}; })
+                .catch(function() { return {status: r.status, data: {error: (window._t && window._t('js.kanban.invalid_response')) || 'Invalid response'}}; });
+        });
+    }
+
+    /* Realtime sync banner: shown when another tab/user changes the board.
+       Clicking it reloads the board.  Auto-reload is opt-out so an active
+       editor can keep their input intact instead of losing the field. */
+    function showKanbanSyncBanner(count) {
+        var b = document.getElementById('kanban-sync-banner');
+        if (!b) {
+            b = document.createElement('button');
+            b.id = 'kanban-sync-banner';
+            b.type = 'button';
+            b.className = 'kanban-sync-banner';
+            b.style.position = 'fixed';
+            b.style.left = '50%';
+            b.style.bottom = '24px';
+            b.style.transform = 'translateX(-50%)';
+            b.style.padding = '8px 16px';
+            b.style.borderRadius = '999px';
+            b.style.background = '#2563eb';
+            b.style.color = '#fff';
+            b.style.border = 'none';
+            b.style.cursor = 'pointer';
+            b.style.zIndex = '1000';
+            b.style.fontSize = '14px';
+            b.style.boxShadow = '0 4px 12px rgba(0,0,0,.2)';
+            b.addEventListener('click', function() { location.reload(); });
+            document.body.appendChild(b);
+        }
+        var label = (window._t && window._t('js.kanban.board_updated')) ||
+                    'Board updated by another user: click to refresh';
+        b.textContent = label + (count > 1 ? ' (' + count + ')' : '');
+        b.style.display = 'block';
+    }
+
+    function scheduleKanbanSync() {
+        if (kanbanSyncTimer) clearTimeout(kanbanSyncTimer);
+        kanbanSyncTimer = setTimeout(runKanbanSync, KANBAN_SYNC_POLL_MS);
+    }
+
+    function runKanbanSync() {
+        if (document.hidden) { scheduleKanbanSync(); return; }
+        if (kanbanSyncInFlight) { scheduleKanbanSync(); return; }
+        kanbanSyncInFlight = true;
+        fetch('/api/kanban/' + boardId + '/sync?since=' +
+              encodeURIComponent(kanbanLastSeq), {
+            headers: {'X-Kanban-Session': kanbanSession}
+        }).then(function(r) { return r.json(); }).then(function(res) {
+            kanbanSyncInFlight = false;
+            if (res && typeof res.seq === 'number') {
+                kanbanLastSeq = Math.max(kanbanLastSeq, res.seq);
+            }
+            if (res && Array.isArray(res.events) && res.events.length) {
+                showKanbanSyncBanner(res.events.length);
+            }
+            scheduleKanbanSync();
+        }).catch(function() {
+            kanbanSyncInFlight = false;
+            scheduleKanbanSync();
+        });
+    }
+
+    /* Initialise the sync cursor at the current head so we only surface
+       events that happen after the page loaded; otherwise every reload
+       would immediately show a stale banner. */
+    fetch('/api/kanban/' + boardId + '/sync?since=0', {
+        headers: {'X-Kanban-Session': kanbanSession}
+    }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res && typeof res.seq === 'number') kanbanLastSeq = res.seq;
+        scheduleKanbanSync();
+    }).catch(function() { scheduleKanbanSync(); });
+
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) {
+            if (kanbanSyncTimer) clearTimeout(kanbanSyncTimer);
+            kanbanSyncTimer = setTimeout(runKanbanSync, 200);
+        }
+    });
+
+    // -- Toast notification for save feedback --
+    function showKanbanToast(msg, isError) {
+        var el = document.getElementById('kanban-toast');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'kanban-toast';
+            el.className = 'kanban-toast';
+            var closeBtn = document.createElement('button');
+            closeBtn.type = 'button';
+            closeBtn.className = 'kanban-toast-close';
+            closeBtn.setAttribute('aria-label', (window._t && window._t('js.kanban.dismiss_message')) || 'Dismiss message');
+            closeBtn.textContent = 'x';
+            closeBtn.addEventListener('click', function() {
+                el.classList.remove('kanban-toast-visible');
+            });
+            el.appendChild(closeBtn);
+            document.body.appendChild(el);
+        }
+        var msgSpan = el.querySelector('.kanban-toast-msg');
+        if (!msgSpan) {
+            msgSpan = document.createElement('span');
+            msgSpan.className = 'kanban-toast-msg';
+            el.insertBefore(msgSpan, el.querySelector('.kanban-toast-close'));
+        }
+        msgSpan.textContent = msg;
+        el.classList.toggle('kanban-toast-error', !!isError);
+        // Force reflow so re-triggering the same toast restarts the animation
+        el.classList.remove('kanban-toast-visible');
+        void el.offsetWidth;
+        el.classList.add('kanban-toast-visible');
+    }
+
+    // -- Update column task counts in headers --
+    function updateColumnCounts() {
+        document.querySelectorAll('.kanban-tickets').forEach(function(container) {
+            var count = container.querySelectorAll('.kanban-ticket').length;
+            var column = container.closest('.kanban-column');
+            if (column) {
+                var countEl = column.querySelector('.kanban-column-count');
+                if (countEl) countEl.textContent = count;
+            }
+        });
+    }
+
+    function normalizeTicketLabels(labels) {
+        if (Array.isArray(labels)) {
+            return labels.map(function(label) { return String(label || '').replace(/^\+/, '').trim(); })
+                .filter(function(label, idx, arr) { return label && arr.indexOf(label) === idx; });
+        }
+        return String(labels || '')
+            .split(/[\s,]+/)
+            .map(function(label) { return label.replace(/^\+/, '').trim(); })
+            .filter(function(label, idx, arr) { return label && arr.indexOf(label) === idx; });
+    }
+
+    function priorityLabelText(priority) {
+        switch ((priority || 'medium').toLowerCase()) {
+            case 'critical': return 'Critical';
+            case 'high': return 'High';
+            case 'low': return 'Low';
+            default: return 'Medium';
+        }
+    }
+
+    function rebuildTicketCard(card, ticket) {
+        if (!card || !ticket) return;
+        var safeColor = /^#[0-9a-fA-F]{6}$/.test(ticket.color || '') ? ticket.color : '';
+        var titleEl = card.querySelector('.kanban-ticket-title');
+        if (titleEl && ticket.title != null) titleEl.textContent = ticket.title;
+        var indicator = card.querySelector('.kanban-ticket-priority');
+        if (indicator) indicator.className = 'kanban-ticket-priority kanban-priority-' + ((ticket.priority || 'medium').toLowerCase());
+        var colorBar = card.querySelector('.kanban-ticket-color-bar');
+        if (safeColor) {
+            if (!colorBar) {
+                colorBar = document.createElement('div');
+                colorBar.className = 'kanban-ticket-color-bar';
+                card.insertBefore(colorBar, card.firstChild);
+            }
+            colorBar.style.background = safeColor;
+        } else if (colorBar) {
+            colorBar.remove();
+        }
+        var meta = card.querySelector('.kanban-ticket-meta');
+        if (!meta) {
+            meta = document.createElement('div');
+            meta.className = 'kanban-ticket-meta';
+            card.appendChild(meta);
+        }
+        var attachmentBadge = meta.querySelector('.kanban-badge-attachment');
+        var attachmentCount = typeof ticket.attachment_count === 'number'
+            ? ticket.attachment_count
+            : (attachmentBadge ? (parseInt(attachmentBadge.textContent || '0', 10) || 0) : 0);
+        var bulkCheckbox = meta.querySelector('.kanban-bulk-checkbox-wrap');
+        meta.innerHTML = '';
+        var priority = (ticket.priority || 'medium').toLowerCase();
+        if (priority !== 'medium') {
+            var priBadge = document.createElement('span');
+            priBadge.className = 'kanban-ticket-badge kanban-badge-' + priority;
+            priBadge.textContent = priorityLabelText(priority);
+            meta.appendChild(priBadge);
+        }
+        if (ticket.due_date) {
+            var dueBadge = document.createElement('span');
+            dueBadge.className = 'kanban-ticket-badge kanban-badge-due';
+            dueBadge.textContent = 'Due: ' + ticket.due_date;
+            meta.appendChild(dueBadge);
+        }
+        normalizeTicketLabels(ticket.labels).forEach(function(label) {
+            var labelBadge = document.createElement('span');
+            labelBadge.className = 'kanban-ticket-badge kanban-badge-label';
+            labelBadge.textContent = '+' + label;
+            meta.appendChild(labelBadge);
+        });
+        var assignees = Array.isArray(ticket.assignees) && ticket.assignees.length
+            ? ticket.assignees
+            : (ticket.assigned_to_username ? [{id: ticket.assigned_to, username: ticket.assigned_to_username}] : []);
+        assignees.forEach(function(assignee) {
+            var badge = document.createElement('span');
+            badge.className = 'kanban-ticket-badge kanban-badge-assigned';
+            badge.textContent = '@' + assignee.username;
+            meta.appendChild(badge);
+        });
+        if (attachmentCount > 0) {
+            var attBadge = document.createElement('span');
+            attBadge.className = 'kanban-ticket-badge kanban-badge-attachment';
+            attBadge.title = attachmentCount + ' attachment(s)';
+            attBadge.textContent = attachmentCount;
+            meta.appendChild(attBadge);
+        }
+        if (bulkCheckbox) meta.appendChild(bulkCheckbox);
+    }
+
+    // -- Column title inline edit --
+    if (canWrite) {
+        document.querySelectorAll('.kanban-column-title[contenteditable]').forEach(function(el) {
+            el.addEventListener('blur', function() {
+                var newTitle = el.textContent.trim();
+                var origTitle = el.getAttribute('data-original');
+                if (!newTitle || newTitle === origTitle) {
+                    el.textContent = origTitle;
+                    return;
+                }
+                var colId = el.closest('.kanban-column').dataset.columnId;
+                api('/api/kanban/columns/' + colId, 'PUT', {title: newTitle}).then(function(r) {
+                    if (r.status === 200) el.setAttribute('data-original', newTitle);
+                    else el.textContent = origTitle;
+                });
+            });
+            el.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); el.blur(); }
+                if (e.key === 'Escape') { el.textContent = el.getAttribute('data-original'); el.blur(); }
+            });
+        });
+    }
+
+    // -- Column menu --
+    window.toggleColumnMenu = function(btn) {
+        var menu = btn.nextElementSibling;
+        menu.style.display = window.getComputedStyle(menu).display === 'none' ? 'block' : 'none';
+    };
+    document.addEventListener('click', function(e) {
+        if (!e.target.classList.contains('kanban-column-menu-btn')) {
+            document.querySelectorAll('.kanban-column-menu').forEach(function(m) { m.style.display = 'none'; });
+        }
+    });
+
+    // -- Delete column --
+    window.deleteColumn = function(colId, btn) {
+        bwConfirm((window._t && window._t('js.kanban.delete_column_confirm')) || 'Delete this column and all its tickets?', function() {
+            api('/api/kanban/columns/' + colId, 'DELETE').then(function(r) {
+                if (r.status === 200) {
+                    btn.closest('.kanban-column').remove();
+                }
+            });
+        });
+    };
+
+    // -- Add column --
+    window.showAddColumn = function() {
+        document.querySelector('.kanban-add-column-btn').style.display = 'none';
+        document.querySelector('.kanban-add-column-form').style.display = 'block';
+        document.getElementById('new-column-title').focus();
+    };
+    window.hideAddColumn = function() {
+        document.querySelector('.kanban-add-column-btn').style.display = 'block';
+        document.querySelector('.kanban-add-column-form').style.display = 'none';
+        document.getElementById('new-column-title').value = '';
+    };
+    window.addColumn = function() {
+        var title = document.getElementById('new-column-title').value.trim();
+        if (!title) return;
+        api('/api/kanban/' + boardId + '/columns', 'POST', {title: title}).then(function(r) {
+            if (r.status === 201) location.reload();
+        });
+    };
+
+    // -- Quick add ticket --
+    window.showQuickAddTicket = function(colId, btn) {
+        var wrap = btn.nextElementSibling;
+        btn.style.display = 'none';
+        wrap.style.display = 'block';
+        wrap.querySelector('input').focus();
+    };
+    window.hideQuickAddTicket = function(btn) {
+        var wrap = btn.closest('.kanban-quick-add');
+        wrap.style.display = 'none';
+        wrap.previousElementSibling.style.display = 'block';
+        wrap.querySelector('input').value = '';
+    };
+    var _quickAddLock = {};
+    window.quickAddTicket = function(colId, btn) {
+        if (_quickAddLock[colId]) return;
+        _quickAddLock[colId] = true;
+        var wrap = btn.closest('.kanban-quick-add');
+        var input = wrap.querySelector('input');
+        var title = input.value.trim();
+        if (!title) { _quickAddLock[colId] = false; return; }
+        api('/api/kanban/columns/' + colId + '/tickets', 'POST', {title: title}).then(function(r) {
+            _quickAddLock[colId] = false;
+            if (r.status === 201) {
+                input.value = '';
+                // Hide the quick-add form and show the add button again
+                wrap.style.display = 'none';
+                wrap.previousElementSibling.style.display = 'block';
+                // Append the new card to the column without full page reload
+                var ticketsContainer = document.querySelector('.kanban-tickets[data-column-id="' + colId + '"]');
+                if (ticketsContainer) {
+                    var card = document.createElement('div');
+                    card.className = 'kanban-ticket';
+                    card.setAttribute('data-ticket-id', r.data.id);
+                    card.setAttribute('draggable', 'true');
+                    var priDiv = document.createElement('div');
+                    priDiv.className = 'kanban-ticket-priority kanban-priority-medium';
+                    var titleDiv = document.createElement('div');
+                    titleDiv.className = 'kanban-ticket-title';
+                    titleDiv.textContent = r.data.title || title;
+                    var metaDiv = document.createElement('div');
+                    metaDiv.className = 'kanban-ticket-meta';
+                    card.appendChild(priDiv);
+                    card.appendChild(titleDiv);
+                    card.appendChild(metaDiv);
+                    rebuildTicketCard(card, r.data);
+                    ticketsContainer.appendChild(card);
+                }
+                updateColumnCounts();
+                showKanbanToast((window._t && window._t('js.kanban.ticket_created')) || 'Ticket created');
+            } else {
+                showKanbanToast(r.data.error || (window._t && window._t('js.kanban.failed_to_create_ticket')) || 'Failed to create ticket', true);
+            }
+        }).catch(function() {
+            _quickAddLock[colId] = false;
+        });
+    };
+    // Quick-add input: Enter submits, Shift+Enter inserts a newline so
+    // long ticket titles can span multiple lines.
+    document.querySelectorAll('.kanban-quick-add-input').forEach(function(input) {
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                var colId = this.closest('.kanban-quick-add').dataset.columnId;
+                window.quickAddTicket(parseInt(colId), this);
+            } else if (e.key === 'Enter' && e.shiftKey) {
+                // Plain <input type="text"> does not accept newlines, but
+                // the field may be swapped to a <textarea> via the bulk
+                // helper below.  Let the browser insert the newline.
+                if (input.tagName !== 'TEXTAREA') {
+                    e.preventDefault();
+                    var start = input.selectionStart || input.value.length;
+                    var end = input.selectionEnd || input.value.length;
+                    input.value = input.value.slice(0, start) + '\n' + input.value.slice(end);
+                    input.selectionStart = input.selectionEnd = start + 1;
+                    // Convert to a textarea on the fly so the newline is
+                    // actually visible / editable from here on.
+                    try {
+                        var ta = document.createElement('textarea');
+                        ta.className = input.className + ' kanban-quick-add-textarea';
+                        ta.placeholder = input.placeholder;
+                        ta.maxLength = input.maxLength;
+                        ta.value = input.value;
+                        ta.rows = 2;
+                        input.parentNode.replaceChild(ta, input);
+                        ta.focus();
+                        ta.selectionStart = ta.selectionEnd = start + 1;
+                        ta.addEventListener('keydown', function(ev) {
+                            if (ev.key === 'Enter' && !ev.shiftKey) {
+                                ev.preventDefault();
+                                var col = ta.closest('.kanban-quick-add').dataset.columnId;
+                                window.quickAddTicket(parseInt(col), ta);
+                            }
+                        });
+                    } catch (_) { /* ignore */ }
+                }
+            }
+        });
+    });
+
+    // -- Ticket detail modal --
+    window.openTicketDetail = function(ticketId) {
+        currentTicketId = ticketId;
+        // Immediately reset visible state to prevent stale data flashing
+        document.getElementById('ticket-detail-title').textContent = (window._t && window._t('js.kanban.loading')) || 'Loading…';
+        var descDisplay = document.getElementById('ticket-detail-desc-display');
+        descDisplay.innerHTML = '<em class="xs-ec59b4b8">Loading…</em>';
+        descDisplay.style.display = '';
+        if (canWrite) {
+            document.getElementById('ticket-edit-description').value = '';
+            document.getElementById('ticket-detail-desc-edit').style.display = 'none';
+            document.getElementById('ticket-edit-desc-btn').style.display = '';
+        }
+        // Reset comment textarea
+        var commentTa = document.getElementById('ticket-new-comment');
+        if (commentTa) commentTa.value = '';
+        var labelsInput = document.getElementById('ticket-detail-labels');
+        if (labelsInput) labelsInput.value = '';
+        var labelsText = document.getElementById('ticket-detail-labels-text');
+        if (labelsText) labelsText.textContent = '';
+        // Show the modal immediately (with loading state)
+        document.getElementById('ticket-detail-modal').style.display = 'flex';
+        // Reset to description tab on open
+        switchTicketTab('description', document.querySelector('.kanban-tab-btn[data-tab="description"]'));
+        api('/api/kanban/tickets/' + ticketId, 'GET').then(function(r) {
+            if (r.status !== 200) return;
+            var t = r.data;
+            var titleEl = document.getElementById('ticket-detail-title');
+            titleEl.textContent = t.title;
+            titleEl.setAttribute('data-original', t.title);
+            descDisplay.innerHTML = t.description_html || '<em class="u-o50">' + escHtml((window._t && window._t('js.kanban.no_description')) || 'No description') + '</em>';
+            var priorityEl = document.getElementById('ticket-detail-priority');
+            if (priorityEl && priorityEl.tagName === 'SELECT') {
+                priorityEl.value = t.priority;
+            } else {
+                var ptEl = document.getElementById('ticket-detail-priority-text');
+                if (ptEl) ptEl.textContent = t.priority.charAt(0).toUpperCase() + t.priority.slice(1);
+            }
+            var assignedEl = document.getElementById('ticket-detail-assigned');
+            if (assignedEl && assignedEl.tagName === 'SELECT') {
+                assignedEl.value = t.assigned_to || '';
+            } else {
+                var atEl = document.getElementById('ticket-detail-assigned-text');
+                if (atEl) {
+                    if (t.assignees && t.assignees.length) {
+                        atEl.textContent = t.assignees.map(function(a) { return '@' + a.username; }).join(', ');
+                    } else {
+                        atEl.textContent = t.assigned_to_username || (window._t && window._t('js.kanban.unassigned')) || 'Unassigned';
+                    }
+                }
+            }
+            // Multi-assignee picker
+            var pillsEl = document.getElementById('ticket-detail-assignees-list');
+            if (pillsEl) {
+                pillsEl.textContent = '';
+                var assignees = (t.assignees && t.assignees.length) ? t.assignees : (
+                    t.assigned_to_username
+                        ? [{id: t.assigned_to, username: t.assigned_to_username}]
+                        : []
+                );
+                if (!assignees.length) {
+                    var none = document.createElement('span');
+                    none.className = 'kanban-assignee-empty';
+                    none.textContent = (window._t && window._t('js.kanban.unassigned')) || 'Unassigned';
+                    pillsEl.appendChild(none);
+                } else {
+                    assignees.forEach(function(a) {
+                        var pill = document.createElement('span');
+                        pill.className = 'kanban-assignee-pill';
+                        pill.textContent = '@' + a.username;
+                        pillsEl.appendChild(pill);
+                    });
+                }
+                // Sync the checkbox menu state
+                var picked = {};
+                assignees.forEach(function(a) { picked[a.id] = true; });
+                document.querySelectorAll('.kanban-assignee-checkbox').forEach(function(cb) {
+                    cb.checked = !!picked[cb.value];
+                });
+            }
+            document.getElementById('ticket-detail-created-by').textContent = t.created_by_username || (window._t && window._t('js.kanban.unknown_user')) || 'Unknown';
+            document.getElementById('ticket-detail-created-at').textContent = t.created_at || '';
+            // Due date
+            var dueDateEl = document.getElementById('ticket-detail-due-date');
+            if (dueDateEl && dueDateEl.tagName === 'INPUT') {
+                dueDateEl.value = t.due_date || '';
+            } else {
+                var ddText = document.getElementById('ticket-detail-due-date-text');
+                if (ddText) ddText.textContent = t.due_date || (window._t && window._t('js.kanban.none_placeholder')) || 'None';
+            }
+            var labelsInput = document.getElementById('ticket-detail-labels');
+            if (labelsInput && labelsInput.tagName === 'INPUT') {
+                labelsInput.value = normalizeTicketLabels(t.labels).map(function(label) { return '+' + label; }).join(' ');
+            } else {
+                var labelsText = document.getElementById('ticket-detail-labels-text');
+                if (labelsText) {
+                    var labelText = normalizeTicketLabels(t.labels).map(function(label) { return '+' + label; }).join(', ');
+                    labelsText.textContent = labelText || ((window._t && window._t('js.kanban.none_placeholder')) || 'None');
+                }
+            }
+            // Color label (validate hex to prevent XSS)
+            var colorText = document.getElementById('ticket-detail-color-text');
+            var safeColor = /^#[0-9a-fA-F]{6}$/.test(t.color || '') ? t.color : '';
+            if (colorText) {
+                if (safeColor) {
+                    var swatch = document.createElement('span');
+                    swatch.style.cssText = 'display:inline-block;width:16px;height:16px;border-radius:2px;background:' + safeColor;
+                    colorText.textContent = '';
+                    colorText.appendChild(swatch);
+                } else { colorText.textContent = (window._t && window._t('js.kanban.none_placeholder')) || 'None'; }
+            }
+            document.querySelectorAll('.kanban-color-btn').forEach(function(b) {
+                b.style.outline = b.dataset.color === safeColor ? '2px solid var(--text-color)' : 'none';
+            });
+            if (canWrite) {
+                document.getElementById('ticket-edit-description').value = t.description || '';
+            }
+            rebuildTicketCard(document.querySelector('.kanban-ticket[data-ticket-id="' + ticketId + '"]'), t);
+        });
+    };
+    window.closeTicketDetail = function() {
+        // Flush any pending description auto-save BEFORE clearing state so that
+        // edits made just before closing are not silently discarded.
+        if (_descSaveTimer && currentTicketId) {
+            clearTimeout(_descSaveTimer);
+            _descSaveTimer = null;
+            if (!_descSaving) {
+                var pendingDesc = document.getElementById('ticket-edit-description').value;
+                // Fire-and-forget save; we don't delay closing for the response.
+                api('/api/kanban/tickets/' + currentTicketId, 'PUT', {description: pendingDesc});
+            }
+        }
+        document.getElementById('ticket-detail-modal').style.display = 'none';
+        // Fully reset all state to prevent stale data on next open
+        document.getElementById('ticket-detail-title').textContent = '';
+        var descDisplay = document.getElementById('ticket-detail-desc-display');
+        descDisplay.innerHTML = '';
+        descDisplay.style.display = '';
+        if (canWrite) {
+            document.getElementById('ticket-edit-description').value = '';
+            document.getElementById('ticket-detail-desc-edit').style.display = 'none';
+            document.getElementById('ticket-edit-desc-btn').style.display = '';
+        }
+        // Reset tabs and tab content
+        document.querySelectorAll('.kanban-tab-btn').forEach(function(b) { b.classList.remove('kanban-tab-active'); });
+        ['description','attachments','history','comments'].forEach(function(t) {
+            var el = document.getElementById('ticket-tab-' + t);
+            if (el) el.style.display = 'none';
+        });
+        // Reset comments list and textarea
+        var commentsList = document.getElementById('ticket-comments-list');
+        if (commentsList) commentsList.innerHTML = '';
+        var commentTa = document.getElementById('ticket-new-comment');
+        if (commentTa) commentTa.value = '';
+        // Reset history
+        var historyList = document.getElementById('ticket-history-list');
+        if (historyList) historyList.innerHTML = '';
+        var historyDiff = document.getElementById('ticket-history-diff');
+        if (historyDiff) historyDiff.style.display = 'none';
+        // Reset attachments
+        var attachmentsList = document.getElementById('ticket-attachments-list');
+        if (attachmentsList) attachmentsList.innerHTML = '';
+        var labelsInput = document.getElementById('ticket-detail-labels');
+        if (labelsInput) labelsInput.value = '';
+        var labelsText = document.getElementById('ticket-detail-labels-text');
+        if (labelsText) labelsText.textContent = '';
+        currentTicketId = null;
+    };
+
+    // -- Tab switching --
+    window.switchTicketTab = function(tab, btn) {
+        ['description','attachments','history','comments'].forEach(function(t) {
+            var el = document.getElementById('ticket-tab-' + t);
+            if (el) el.style.display = t === tab ? 'block' : 'none';
+        });
+        document.querySelectorAll('.kanban-tab-btn').forEach(function(b) {
+            b.classList.remove('kanban-tab-active');
+        });
+        if (btn) btn.classList.add('kanban-tab-active');
+        if (tab === 'attachments') loadAttachments();
+        if (tab === 'history') loadHistory();
+        if (tab === 'comments') loadComments();
+    };
+
+    // -- Attachments --
+    window.loadAttachments = function() {
+        if (!currentTicketId) return;
+        api('/api/kanban/tickets/' + currentTicketId + '/attachments', 'GET').then(function(r) {
+            var list = document.getElementById('ticket-attachments-list');
+            if (!list) return;
+
+            // Update badge on board
+            var card = document.querySelector('.kanban-ticket[data-ticket-id="' + currentTicketId + '"]');
+            if (card) {
+                var meta = card.querySelector('.kanban-ticket-meta');
+                if (meta) {
+                    var oldBadge = meta.querySelector('.kanban-badge-attachment');
+                    if (oldBadge) oldBadge.remove();
+                    if (r.data && r.data.length > 0) {
+                        var badge = document.createElement('span');
+                        badge.className = 'kanban-ticket-badge kanban-badge-attachment';
+                        badge.title = r.data.length + ' attachment(s)';
+                        badge.textContent = r.data.length;
+                        meta.appendChild(badge);
+                    }
+                }
+            }
+
+            if (r.status !== 200 || !r.data.length) {
+                list.innerHTML = '<span class="u-o50-fs085">No attachments yet.</span>';
+                return;
+            }
+            list.innerHTML = r.data.map(function(a) {
+                var safeId = parseInt(a.id);
+                var safeName = escHtml(a.original_name);
+                var safeSize = Math.round(a.file_size / 1024);
+                var delBtn = canWrite ? '<button class="btn btn-sm btn-outline xs-ca0b7adf js-del-att" data-att-id="' + safeId + '">✕</button>' : '';
+                return '<div class="xs-23981ff9">' +
+                    '<span class="xs-4c22e1cd">' + safeName + ' <small class="u-o50">(' + safeSize + ' KB)</small></span>' +
+                    '<a href="/api/kanban/attachments/' + safeId + '/download" class="btn btn-sm btn-outline u-fs075-p2-8" download>⬇ Download</a>' +
+                    delBtn + '</div>';
+            }).join('');
+        });
+    };
+    window.uploadTicketAttachment = function(input) {
+        if (!input.files.length || !currentTicketId) return;
+        var formData = new FormData();
+        formData.append('file', input.files[0]);
+        fetch('/api/kanban/tickets/' + currentTicketId + '/attachments', {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrfToken},
+            body: formData
+        }).then(function(r) {
+            input.value = '';
+            if (r.ok) {
+                loadAttachments();
+            } else {
+                r.json().then(function(d) {
+                    showKanbanToast(d.error || ((window._t && window._t('js.kanban.upload_failed')) || 'Upload failed.'), true);
+                }).catch(function() {
+                    showKanbanToast(((window._t && window._t('js.kanban.upload_failed')) || 'Upload failed.'), true);
+                });
+            }
+        }).catch(function() {
+            showKanbanToast(((window._t && window._t('js.kanban.upload_failed')) || 'Upload failed.'), true);
+        });
+    };
+    window.deleteAttachment = function(attachmentId) {
+        bwConfirm((window._t && window._t('js.kanban.delete_attachment_confirm')) || 'Delete this attachment?', function() {
+            api('/api/kanban/attachments/' + attachmentId, 'DELETE').then(function(r) {
+                if (r.status === 200) loadAttachments();
+            });
+        });
+    };
+
+    // -- History --
+    window.loadHistory = function() {
+        if (!currentTicketId) return;
+        api('/api/kanban/tickets/' + currentTicketId + '/history', 'GET').then(function(r) {
+            var list = document.getElementById('ticket-history-list');
+            if (!list) return;
+            document.getElementById('ticket-history-diff').style.display = 'none';
+            if (r.status !== 200 || !r.data.length) {
+                list.innerHTML = '<span class="u-o50-fs085">' + escHtml((window._t && window._t('js.kanban.no_description_history')) || 'No description history yet.') + '</span>';
+                return;
+            }
+            list.innerHTML = r.data.map(function(e) {
+                var safeId = parseInt(e.id);
+                var safeName = escHtml(e.editor_name || (window._t && window._t('js.kanban.unknown_user')) || 'Unknown');
+                return '<div class="xs-a1a5f824">' +
+                    '<span class="u-flex-1">' + safeName + ': ' + (e.created_at || '') + '</span>' +
+                    '<button class="btn btn-sm btn-outline u-fs075-p2-8 js-view-history" data-entry-id="' + safeId + '">' + escHtml((window._t && window._t('js.kanban.view_diff')) || 'View Diff') + '</button></div>';
+            }).join('');
+        });
+    };
+    window.viewHistoryEntry = function(entryId) {
+        api('/api/kanban/history/' + entryId, 'GET').then(function(r) {
+            if (r.status !== 200) return;
+            var d = r.data;
+            document.getElementById('ticket-history-list').style.display = 'none';
+            var diffEl = document.getElementById('ticket-history-diff');
+            diffEl.style.display = 'block';
+            document.getElementById('ticket-history-diff-content').innerHTML =
+                '<p class="xs-4d566ff4">Changed by ' + escHtml(d.editor_name || '') + ' at ' + escHtml(d.created_at || '') + '</p>' +
+                d.diff_html;
+        });
+    };
+    // Fix back button to restore history list
+    (function() {
+        var backBtn = document.querySelector('#ticket-history-diff button');
+        if (backBtn) backBtn.addEventListener('click', function() {
+            document.getElementById('ticket-history-diff').style.display = 'none';
+            document.getElementById('ticket-history-list').style.display = '';
+        });
+    })();
+
+    // -- Comments --
+    window.loadComments = function() {
+        if (!currentTicketId) return;
+        api('/api/kanban/tickets/' + currentTicketId + '/comments', 'GET').then(function(r) {
+            var list = document.getElementById('ticket-comments-list');
+            if (!list) return;
+            if (r.status !== 200 || !r.data.length) {
+                list.innerHTML = '<span class="u-o50-fs085">' + escHtml((window._t && window._t('js.kanban.no_comments_yet')) || 'No comments yet. Be the first!') + '</span>';
+                return;
+            }
+            list.innerHTML = r.data.map(function(c) {
+                var safeId = parseInt(c.id);
+                var safeName = escHtml(c.author_name || (window._t && window._t('js.kanban.unknown_user')) || 'Unknown');
+                var editBtn = c.can_edit ? '<button class="btn btn-sm btn-outline u-fs075-p2-8 js-edit-comment" data-comment-id="' + safeId + '">' + (window._t ? window._t('js.common.edit') : 'Edit') + '</button>' : '';
+                var delBtn = c.can_delete ? '<button class="btn btn-sm btn-outline xs-4e6dccea js-del-comment" data-comment-id="' + safeId + '">' + (window._t ? window._t('js.common.delete') : 'Delete') + '</button>' : '';
+                return '<div class="kanban-comment xs-5f6618d2" data-comment-id="' + safeId + '">' +
+                    '<div class="xs-2444766a">' +
+                    '<strong class="u-fs-085">' + safeName + '</strong>' +
+                    '<small class="u-o50">' + (c.created_at || '') + '</small>' +
+                    '<div class="xs-90562658">' + editBtn + delBtn + '</div></div>' +
+                    '<div class="comment-body wiki-content xs-58180d3d">' + (c.content_html || '') + '</div>' +
+                    '<div class="comment-edit u-d-none"><textarea class="input comment-edit-ta u-fs-085" rows="3" maxlength="2000">' + escHtml(c.content) + '</textarea>' +
+                    '<div class="u-flex-03-mt03"><button class="btn btn-sm btn-primary u-fs-075 js-save-comment" data-comment-id="' + safeId + '">' + (window._t ? window._t('js.common.save') : 'Save') + '</button><button class="btn btn-sm btn-outline u-fs-075 js-cancel-comment" data-comment-id="' + safeId + '">' + (window._t ? window._t('js.common.cancel') : 'Cancel') + '</button></div></div>' +
+                    '</div>';
+            }).join('');
+        });
+    };
+    window.submitComment = function() {
+        var ta = document.getElementById('ticket-new-comment');
+        var content = ta.value.trim();
+        if (!content) return;
+        api('/api/kanban/tickets/' + currentTicketId + '/comments', 'POST', {content: content}).then(function(r) {
+            if (r.status === 201) { ta.value = ''; loadComments(); }
+        });
+    };
+    window.editComment = function(commentId, btn) {
+        var container = btn.closest('.kanban-comment');
+        container.querySelector('.comment-body').style.display = 'none';
+        container.querySelector('.comment-edit').style.display = 'block';
+    };
+    window.cancelEditComment = function(commentId) {
+        var container = document.querySelector('.kanban-comment[data-comment-id="' + commentId + '"]');
+        container.querySelector('.comment-body').style.display = '';
+        container.querySelector('.comment-edit').style.display = 'none';
+    };
+    window.saveComment = function(commentId) {
+        var container = document.querySelector('.kanban-comment[data-comment-id="' + commentId + '"]');
+        var content = container.querySelector('.comment-edit-ta').value.trim();
+        if (!content) return;
+        api('/api/kanban/comments/' + commentId, 'PUT', {content: content}).then(function(r) {
+            if (r.status === 200) loadComments();
+        });
+    };
+    window.deleteComment = function(commentId) {
+        bwConfirm((window._t && window._t('js.kanban.delete_comment_confirm')) || 'Delete this comment?', function() {
+            api('/api/kanban/comments/' + commentId, 'DELETE').then(function(r) {
+                if (r.status === 200) loadComments();
+            });
+        });
+    };
+
+    // -- Edit description (with auto-save) --
+    var _descSaveTimer = null;
+    var _descSaving = false;
+    var _descStatusEl = null;
+
+    function setDescStatus(msg) {
+        if (!_descStatusEl) _descStatusEl = document.getElementById('desc-save-status');
+        if (_descStatusEl) _descStatusEl.textContent = msg;
+    }
+
+    window.editDescription = function() {
+        document.getElementById('ticket-detail-desc-display').style.display = 'none';
+        document.getElementById('ticket-edit-desc-btn').style.display = 'none';
+        document.getElementById('ticket-detail-desc-edit').style.display = 'block';
+        setDescStatus('');
+    };
+    window.cancelEditDescription = function() {
+        /* "Done": flush any pending auto-save before closing, then refresh */
+        var _closeDescEdit = function() {
+            document.getElementById('ticket-detail-desc-display').style.display = '';
+            document.getElementById('ticket-edit-desc-btn').style.display = '';
+            document.getElementById('ticket-detail-desc-edit').style.display = 'none';
+            openTicketDetail(currentTicketId);
+        };
+        if (_descSaveTimer) {
+            clearTimeout(_descSaveTimer);
+            _descSaveTimer = null;
+            /* Save then close when the save completes */
+            _descSaving = false; /* allow save to proceed */
+            setDescStatus('Saving…');
+            var desc = document.getElementById('ticket-edit-description').value;
+            api('/api/kanban/tickets/' + currentTicketId, 'PUT', {description: desc}).then(function(r) {
+                _descSaving = false;
+                _closeDescEdit();
+            });
+        } else {
+            _closeDescEdit();
+        }
+    };
+    window.saveTicketDescription = function() {
+        if (_descSaving) return;
+        _descSaving = true;
+        setDescStatus('Saving…');
+        var desc = document.getElementById('ticket-edit-description').value;
+        api('/api/kanban/tickets/' + currentTicketId, 'PUT', {description: desc}).then(function(r) {
+            _descSaving = false;
+            if (r.status === 200) {
+                setDescStatus((window._t && window._t('js.kanban.saved')) || 'Saved');
+                /* Update card description snippet on the board */
+                var card = document.querySelector('.kanban-ticket[data-ticket-id="' + currentTicketId + '"]');
+                if (card) {
+                    var descEl = card.querySelector('.kanban-ticket-desc');
+                    if (descEl) descEl.textContent = desc ? desc.substring(0, 80) : '';
+                }
+            } else {
+                setDescStatus((window._t && window._t('js.kanban.error_saving')) || 'Error saving');
+                showKanbanToast(r.data.error || (window._t && window._t('js.kanban.failed_to_save')) || 'Failed to save', true);
+            }
+        });
+    };
+    window.scheduleDescSave = function() {
+        if (_descSaveTimer) clearTimeout(_descSaveTimer);
+        setDescStatus('Unsaved changes…');
+        _descSaveTimer = setTimeout(function() {
+            _descSaveTimer = null;
+            saveTicketDescription();
+        }, 1500);
+    }
+
+    // -- Update priority --
+    window.updateTicketPriority = function() {
+        var val = document.getElementById('ticket-detail-priority').value;
+        api('/api/kanban/tickets/' + currentTicketId, 'PUT', {priority: val}).then(function(r) {
+            if (r.status === 200) {
+                showKanbanToast((window._t && window._t('js.kanban.priority_updated')) || 'Priority updated');
+                // Update the ticket card priority indicator on the board
+                var card = document.querySelector('.kanban-ticket[data-ticket-id="' + currentTicketId + '"]');
+                if (card) {
+                    var indicator = card.querySelector('.kanban-ticket-priority');
+                    if (indicator) {
+                        indicator.className = 'kanban-ticket-priority kanban-priority-' + val;
+                    }
+                    // Update priority badge
+                    var meta = card.querySelector('.kanban-ticket-meta');
+                    if (meta) {
+                        var oldBadge = meta.querySelector('.kanban-badge-critical,.kanban-badge-high,.kanban-badge-low');
+                        if (oldBadge) oldBadge.remove();
+                        if (val !== 'medium') {
+                            var badge = document.createElement('span');
+                            badge.className = 'kanban-ticket-badge kanban-badge-' + val;
+                            badge.textContent = val.charAt(0).toUpperCase() + val.slice(1);
+                            meta.insertBefore(badge, meta.firstChild);
+                        }
+                    }
+                }
+            } else {
+                showKanbanToast(r.data.error || (window._t && window._t('js.kanban.failed_to_update')) || 'Failed to update', true);
+            }
+        });
+    };
+
+    // -- Update assigned --
+    window.updateTicketAssigned = function() {
+        var sel = document.getElementById('ticket-detail-assigned');
+        var val = sel.value;
+        var username = (sel.selectedIndex >= 0 && sel.options[sel.selectedIndex]) ? sel.options[sel.selectedIndex].text : '';
+        api('/api/kanban/tickets/' + currentTicketId, 'PUT', {assigned_to: val || null}).then(function(r) {
+            if (r.status === 200) {
+                showKanbanToast((window._t && window._t('js.kanban.assignee_updated')) || 'Assignee updated');
+                var card = document.querySelector('.kanban-ticket[data-ticket-id="' + currentTicketId + '"]');
+                if (card) {
+                    var meta = card.querySelector('.kanban-ticket-meta');
+                    if (meta) {
+                        var oldBadge = meta.querySelector('.kanban-badge-assigned');
+                        if (oldBadge) oldBadge.remove();
+                        if (val && username && username !== 'Unassigned') {
+                            var badge = document.createElement('span');
+                            badge.className = 'kanban-ticket-badge kanban-badge-assigned';
+                            badge.textContent = '\uD83D\uDC64 ' + username;
+                            meta.appendChild(badge);
+                        }
+                    }
+                }
+            } else {
+                showKanbanToast(r.data.error || (window._t && window._t('js.kanban.failed_to_update')) || 'Failed to update', true);
+            }
+        });
+    };
+
+    // -- Save multi-assignees --
+    window.saveTicketAssignees = function() {
+        if (!currentTicketId) return;
+        var ids = [];
+        document.querySelectorAll('.kanban-assignee-checkbox').forEach(function(cb) {
+            if (cb.checked) ids.push(cb.value);
+        });
+        var assigneesMenu = document.getElementById('ticket-detail-assignees-menu');
+        api('/api/kanban/tickets/' + currentTicketId, 'PUT', {assignees: ids}).then(function(r) {
+            if (r.status === 200) {
+                showKanbanToast((window._t && window._t('js.kanban.assignees_updated')) || 'Assignees updated');
+                if (assigneesMenu) assigneesMenu.classList.add('u-d-none');
+                // Re-fetch the ticket so pills + card badges refresh
+                api('/api/kanban/tickets/' + currentTicketId, 'GET').then(function(rr) {
+                    if (rr.status !== 200) return;
+                    var t = rr.data;
+                    // Update pill list inside modal
+                    var pillsEl = document.getElementById('ticket-detail-assignees-list');
+                    if (pillsEl) {
+                        pillsEl.textContent = '';
+                        if (!t.assignees || !t.assignees.length) {
+                            var none = document.createElement('span');
+                            none.className = 'kanban-assignee-empty';
+                            none.textContent = (window._t && window._t('js.kanban.unassigned')) || 'Unassigned';
+                            pillsEl.appendChild(none);
+                        } else {
+                            t.assignees.forEach(function(a) {
+                                var pill = document.createElement('span');
+                                pill.className = 'kanban-assignee-pill';
+                                pill.textContent = '@' + a.username;
+                                pillsEl.appendChild(pill);
+                            });
+                        }
+                    }
+                    // Sync hidden legacy select for any code reading it
+                    var hidden = document.getElementById('ticket-detail-assigned');
+                    if (hidden) hidden.value = t.assigned_to || '';
+                    // Update card badges in the column
+                    var card = document.querySelector('.kanban-ticket[data-ticket-id="' + currentTicketId + '"]');
+                    rebuildTicketCard(card, t);
+                });
+            } else {
+                showKanbanToast(r.data.error || (window._t && window._t('js.kanban.failed_to_update')) || 'Failed to update', true);
+            }
+        });
+    };
+
+    // -- Update due date --
+    window.updateTicketDueDate = function() {
+        var val = document.getElementById('ticket-detail-due-date').value;
+        api('/api/kanban/tickets/' + currentTicketId, 'PUT', {due_date: val || null}).then(function(r) {
+            if (r.status === 200) {
+                showKanbanToast(window._t ? window._t(val ? 'js.kanban.due_date_updated' : 'js.kanban.due_date_cleared') : (val ? 'Due date updated' : 'Due date cleared'));
+                var card = document.querySelector('.kanban-ticket[data-ticket-id="' + currentTicketId + '"]');
+                if (card) {
+                    var meta = card.querySelector('.kanban-ticket-meta');
+                    if (meta) {
+                        var oldBadge = meta.querySelector('.kanban-badge-due');
+                        if (oldBadge) oldBadge.remove();
+                        if (val) {
+                            var badge = document.createElement('span');
+                            badge.className = 'kanban-ticket-badge kanban-badge-due';
+                            badge.textContent = '\uD83D\uDCC5 ' + val;
+                            // Insert after priority badge if present
+                            var priBadge = meta.querySelector('.kanban-badge-critical,.kanban-badge-high,.kanban-badge-low');
+                            if (priBadge && priBadge.nextSibling) {
+                                meta.insertBefore(badge, priBadge.nextSibling);
+                            } else if (priBadge) {
+                                meta.appendChild(badge);
+                            } else {
+                                meta.insertBefore(badge, meta.firstChild);
+                            }
+                        }
+                    }
+                }
+            } else {
+                showKanbanToast(r.data.error || (window._t && window._t('js.kanban.failed_to_update')) || 'Failed to update', true);
+            }
+        });
+    };
+    window.clearTicketDueDate = function() {
+        document.getElementById('ticket-detail-due-date').value = '';
+        api('/api/kanban/tickets/' + currentTicketId, 'PUT', {due_date: null}).then(function(r) {
+            if (r.status === 200) {
+                showKanbanToast((window._t && window._t('js.kanban.due_date_cleared')) || 'Due date cleared');
+                var card = document.querySelector('.kanban-ticket[data-ticket-id="' + currentTicketId + '"]');
+                if (card) {
+                    var meta = card.querySelector('.kanban-ticket-meta');
+                    if (meta) {
+                        var oldBadge = meta.querySelector('.kanban-badge-due');
+                        if (oldBadge) oldBadge.remove();
+                    }
+                }
+            }
+        });
+    };
+
+    window.updateTicketLabels = function() {
+        var input = document.getElementById('ticket-detail-labels');
+        if (!input || !currentTicketId) return;
+        var labels = normalizeTicketLabels(input.value);
+        api('/api/kanban/tickets/' + currentTicketId, 'PUT', {labels: labels}).then(function(r) {
+            if (r.status !== 200) {
+                showKanbanToast(r.data.error || (window._t && window._t('js.kanban.failed_to_update')) || 'Failed to update', true);
+                return;
+            }
+            input.value = labels.map(function(label) { return '+' + label; }).join(' ');
+            showKanbanToast((window._t && window._t('js.kanban.labels_updated')) || 'Labels updated');
+            api('/api/kanban/tickets/' + currentTicketId, 'GET').then(function(rr) {
+                if (rr.status !== 200) return;
+                rebuildTicketCard(document.querySelector('.kanban-ticket[data-ticket-id="' + currentTicketId + '"]'), rr.data);
+            });
+        });
+    };
+
+    // -- Update color label --
+    window.updateTicketColor = function(color) {
+        api('/api/kanban/tickets/' + currentTicketId, 'PUT', {color: color}).then(function(r) {
+            if (r.status === 200) {
+                showKanbanToast((window._t && window._t('js.kanban.color_updated')) || 'Color updated');
+                document.querySelectorAll('.kanban-color-btn').forEach(function(b) {
+                    b.style.outline = b.dataset.color === color ? '2px solid var(--text-color)' : 'none';
+                });
+                // Update the ticket card on the board for immediate visual persistence
+                var card = document.querySelector('.kanban-ticket[data-ticket-id="' + currentTicketId + '"]');
+                if (card) {
+                    var safeColor = /^#[0-9a-fA-F]{6}$/.test(color) ? color : '';
+                    // Update top color bar
+                    var colorBar = card.querySelector('.kanban-ticket-color-bar');
+                    if (safeColor) {
+                        if (!colorBar) {
+                            colorBar = document.createElement('div');
+                            colorBar.className = 'kanban-ticket-color-bar';
+                            card.insertBefore(colorBar, card.firstChild);
+                        }
+                        colorBar.style.background = safeColor;
+                    } else if (colorBar) {
+                        colorBar.remove();
+                    }
+                }
+            } else {
+                showKanbanToast(r.data.error || (window._t && window._t('js.kanban.failed_to_update')) || 'Failed to update', true);
+            }
+        });
+    };
+
+    // -- Delete ticket --
+    window.deleteCurrentTicket = function() {
+        bwConfirm((window._t && window._t('js.kanban.delete_ticket_confirm')) || 'Delete this ticket?', function() {
+            api('/api/kanban/tickets/' + currentTicketId, 'DELETE').then(function(r) {
+                if (r.status === 200) {
+                    closeTicketDetail();
+                    location.reload();
+                }
+            });
+        });
+    };
+
+    // -- Drag and drop --
+    if (canWrite) {
+        var draggedTicket = null;
+
+        var scrollIntervals = {
+            horizontal: null,
+            vertical: null
+        };
+
+        // Walk up from el to find the nearest ancestor that actually scrolls
+        // on the y axis. .kanban-tickets has no overflow of its own; the page
+        // scroll happens on <main class="content">, so calling scrollTop on
+        // the column body is a no-op. Falls back to the document scrolling
+        // element so we always have something to scroll.
+        function getVerticalScrollParent(el) {
+            var node = el && el.parentElement;
+            while (node && node !== document.body && node !== document.documentElement) {
+                var style = null;
+                try { style = window.getComputedStyle(node); } catch (_e) { /* detached node */ }
+                if (style) {
+                    var oy = style.overflowY;
+                    if ((oy === 'auto' || oy === 'scroll') && node.scrollHeight > node.clientHeight) {
+                        return node;
+                    }
+                }
+                node = node.parentElement;
+            }
+            return document.scrollingElement || document.documentElement;
+        }
+
+        function startAutoScroll(container, x, y, isHorizontal) {
+            var axis = isHorizontal ? 'horizontal' : 'vertical';
+
+            // For the vertical axis the caller usually passes .kanban-tickets,
+            // which is not itself scrollable. Resolve to the real scroll
+            // ancestor so the page actually moves while the ticket is being
+            // dragged near the top/bottom edge.
+            if (!isHorizontal) {
+                container = getVerticalScrollParent(container);
+            }
+            if (!container) return;
+
+            var isViewport = (container === document.scrollingElement
+                || container === document.documentElement
+                || container === document.body);
+            var rect = isViewport
+                ? { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth }
+                : container.getBoundingClientRect();
+
+            // Threshold widens with the scroll area but never exceeds ~120px,
+            // which is a comfortable target zone near the viewport edge.
+            var maxThreshold = 120;
+            var threshold = isHorizontal
+                ? Math.min(maxThreshold, Math.max(40, (rect.right - rect.left) / 4))
+                : Math.min(maxThreshold, Math.max(40, (rect.bottom - rect.top) / 4));
+
+            var direction = 0;
+            var distance = 0;
+            if (isHorizontal) {
+                if (x < rect.left + threshold) { direction = -1; distance = (rect.left + threshold) - x; }
+                else if (x > rect.right - threshold) { direction = 1; distance = x - (rect.right - threshold); }
+            } else {
+                if (y < rect.top + threshold) { direction = -1; distance = (rect.top + threshold) - y; }
+                else if (y > rect.bottom - threshold) { direction = 1; distance = y - (rect.bottom - threshold); }
+            }
+
+            if (direction !== 0) {
+                // Proximity-based speed: gentle near the threshold, fast near
+                // the very edge so very long lists can be traversed quickly
+                // without forcing the user to hold the cursor outside the
+                // viewport.
+                var minSpeed = 4;
+                var maxSpeed = 32;
+                var ratio = Math.min(1, Math.max(0, distance / threshold));
+                var speed = minSpeed + (maxSpeed - minSpeed) * ratio;
+
+                var current = scrollIntervals[axis];
+                if (current && current.container === container) {
+                    current.direction = direction;
+                    current.speed = speed;
+                    return;
+                }
+                stopAutoScroll(axis);
+                var state = { id: 0, direction: direction, speed: speed, container: container };
+                scrollIntervals[axis] = state;
+                state.id = setInterval(function() {
+                    if (isHorizontal) state.container.scrollLeft += state.direction * state.speed;
+                    else state.container.scrollTop += state.direction * state.speed;
+                }, 16);
+            } else {
+                stopAutoScroll(axis);
+            }
+        }
+
+        function stopAutoScroll(axis) {
+            if (axis) {
+                if (scrollIntervals[axis]) {
+                    clearInterval(scrollIntervals[axis].id);
+                    scrollIntervals[axis] = null;
+                }
+            } else {
+                stopAutoScroll('horizontal');
+                stopAutoScroll('vertical');
+            }
+        }
+        var dragPlaceholder = document.createElement('div');
+        dragPlaceholder.className = 'kanban-ticket-placeholder';
+
+
+        document.addEventListener('dragstart', function(e) {
+            if (!e.target.classList.contains('kanban-ticket')) return;
+            draggedTicket = e.target;
+            e.target.classList.add('kanban-ticket-dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', e.target.dataset.ticketId);
+        });
+        document.addEventListener('dragend', function(e) {
+            stopAutoScroll();
+            if (!draggedTicket) return;
+            draggedTicket.classList.remove('kanban-ticket-dragging');
+            if (dragPlaceholder.parentNode) dragPlaceholder.parentNode.removeChild(dragPlaceholder);
+            draggedTicket = null;
+        });
+
+        // Document-level dragover keeps auto-scroll alive even when the
+        // cursor strays outside any single column (e.g. while sweeping
+        // toward the bottom of a tall list). The per-column dragover below
+        // still owns placeholder positioning and drop preventDefault.
+        document.addEventListener('dragover', function(e) {
+            if (!draggedTicket || draggedColumn) return;
+            var hoverCol = e.target && e.target.closest ? e.target.closest('.kanban-column') : null;
+            var ticketsEl = hoverCol ? hoverCol.querySelector('.kanban-tickets')
+                                     : (draggedTicket && draggedTicket.closest('.kanban-tickets'));
+            startAutoScroll(ticketsEl || document.scrollingElement, e.clientX, e.clientY, false);
+            var cols = document.getElementById('kanban-columns');
+            if (cols) startAutoScroll(cols, e.clientX, e.clientY, true);
+        });
+        // Attach dragover to the entire kanban-column so users can drop
+        // anywhere within the column, not just precisely over the tickets area.
+        document.querySelectorAll('.kanban-column').forEach(function(col) {
+            var container = col.querySelector('.kanban-tickets');
+            if (!container) return;
+            col.addEventListener('dragover', function(e) {
+                if (draggedColumn) return; // Column drag in progress: ignore ticket logic
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                var afterEl = getDragAfterElement(container, e.clientY);
+                if (afterEl) {
+                    container.insertBefore(dragPlaceholder, afterEl);
+                } else {
+                    container.appendChild(dragPlaceholder);
+                }
+                startAutoScroll(container, e.clientX, e.clientY, false);
+                startAutoScroll(columnsContainer, e.clientX, e.clientY, true);
+            });
+            col.addEventListener('drop', function(e) {
+                e.preventDefault();
+                if (!draggedTicket) return;
+                var colId = parseInt(container.dataset.columnId);
+                var ticketId = parseInt(draggedTicket.dataset.ticketId);
+                // Capture original column and position BEFORE moving the DOM element
+                var origTicketContainer = draggedTicket.closest('.kanban-tickets');
+                var originalColId = origTicketContainer ? parseInt(origTicketContainer.dataset.columnId) : colId;
+                var originalNextSibling = draggedTicket.nextElementSibling;
+                if (dragPlaceholder.parentNode) {
+                    container.insertBefore(draggedTicket, dragPlaceholder);
+                    dragPlaceholder.parentNode.removeChild(dragPlaceholder);
+                } else {
+                    container.appendChild(draggedTicket);
+                }
+                // Collect new order
+                var tickets = container.querySelectorAll('.kanban-ticket');
+                var order = [];
+                tickets.forEach(function(t) { order.push(parseInt(t.dataset.ticketId)); });
+                if (originalColId !== colId) {
+                    // Ticket moved to a different column: persist the column change first
+                    var sortIdx = order.indexOf(ticketId);
+                    api('/api/kanban/tickets/' + ticketId + '/move', 'POST', {column_id: colId, sort_order: sortIdx}).then(function(moveRes) {
+                        if (moveRes.status === 200) {
+                            api('/api/kanban/columns/' + colId + '/tickets/reorder', 'POST', {order: order});
+                            updateColumnCounts();
+                        } else {
+                            // Roll back: restore ticket to original position
+                            if (origTicketContainer) {
+                                if (originalNextSibling) {
+                                    origTicketContainer.insertBefore(draggedTicket, originalNextSibling);
+                                } else {
+                                    origTicketContainer.appendChild(draggedTicket);
+                                }
+                            }
+                            updateColumnCounts();
+                            showKanbanToast(moveRes.data.error || (window._t && window._t('js.kanban.failed_to_move_ticket')) || 'Failed to move ticket', true);
+                        }
+                    });
+                } else {
+                    api('/api/kanban/columns/' + colId + '/tickets/reorder', 'POST', {order: order});
+                }
+            });
+            col.addEventListener('dragleave', function(e) {
+                // Remove placeholder when leaving the column entirely
+                if (!col.contains(e.relatedTarget) && dragPlaceholder.parentNode) {
+                    dragPlaceholder.parentNode.removeChild(dragPlaceholder);
+                }
+                stopAutoScroll();
+            });
+        });
+
+        // Uses absolute distance to the closest ticket centre instead of the
+        // previous "above-only" algorithm.  This means the user only needs to
+        // move the cursor roughly perpendicular to the target row rather than
+        // having to hover precisely over it, which is much more forgiving.
+        function getDragAfterElement(container, y) {
+            var elements = Array.from(container.querySelectorAll('.kanban-ticket:not(.kanban-ticket-dragging)'));
+            var closest = null;
+            var closestDist = Number.POSITIVE_INFINITY;
+            elements.forEach(function(el) {
+                var box = el.getBoundingClientRect();
+                var center = box.top + box.height / 2;
+                var dist = Math.abs(y - center);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closest = el;
+                }
+            });
+            // If closest exists and cursor is above its center, place before it;
+            // otherwise place after (return null to append).
+            if (closest) {
+                var box = closest.getBoundingClientRect();
+                if (y < box.top + box.height / 2) {
+                    return closest;
+                }
+                return closest.nextElementSibling;
+            }
+            return null;
+        }
+    }
+
+    // Enter key for new column input
+    var newColInput = document.getElementById('new-column-title');
+    if (newColInput) {
+        newColInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); addColumn(); }
+        });
+    }
+
+    // -- Board Settings (sharing / visibility: form-based) --
+    window.openBoardSettings = function() {
+        document.getElementById('board-settings-modal').style.display = 'flex';
+    };
+    window.closeBoardSettings = function() {
+        document.getElementById('board-settings-modal').style.display = 'none';
+    };
+
+    // -- Markdown image upload helpers --
+    // Upload a File via the kanban attachment endpoint and invoke callback
+    // with the rendered markdown image string.  ``source`` may be either a
+    // File object (drag-and-drop / paste) or an <input type="file">.
+    function uploadImageToTicket(source, callback) {
+        if (!currentTicketId) return;
+        var file = null;
+        var inputEl = null;
+        if (source && typeof source.tagName === 'string'
+            && source.tagName === 'INPUT' && source.type === 'file') {
+            inputEl = source;
+            if (!inputEl.files || !inputEl.files.length) return;
+            file = inputEl.files[0];
+        } else if (source instanceof File) {
+            file = source;
+        }
+        if (!file) return;
+        var formData = new FormData();
+        formData.append('file', file);
+        fetch('/api/kanban/tickets/' + currentTicketId + '/attachments', {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrfToken},
+            body: formData
+        }).then(function(r) { return r.json().then(function(d) { return {status: r.status, data: d}; }); })
+        .then(function(r) {
+            if (inputEl) inputEl.value = '';
+            if (r.status === 201) {
+                var name = (r.data.name || file.name || 'image')
+                    .replace(/[[\]<>`()!]/g, '').substring(0, 80);
+                var mdImg = '![' + name + '](/api/kanban/attachments/' + r.data.id + '/download)';
+                callback(mdImg);
+            } else if (r.data && r.data.error) {
+                showKanbanToast(r.data.error, true);
+            } else {
+                showKanbanToast(((window._t && window._t('js.kanban.upload_failed')) || 'Upload failed.'), true);
+            }
+        }).catch(function() {
+            showKanbanToast(((window._t && window._t('js.kanban.upload_failed')) || 'Upload failed.'), true);
+        });
+    }
+
+    // Insert text at the textarea's caret, preserving undo history when
+    // possible via execCommand('insertText').
+    function _kanbanInsertAtCaret(ta, text) {
+        if (!ta) return;
+        ta.focus();
+        var inserted = false;
+        try {
+            inserted = document.execCommand && document.execCommand('insertText', false, text);
+        } catch (e) { inserted = false; }
+        if (!inserted) {
+            var pos = ta.selectionStart != null ? ta.selectionStart : ta.value.length;
+            var endPos = ta.selectionEnd != null ? ta.selectionEnd : pos;
+            ta.value = ta.value.substring(0, pos) + text + ta.value.substring(endPos);
+            var caret = pos + text.length;
+            ta.selectionStart = ta.selectionEnd = caret;
+            ta.dispatchEvent(new Event('input', {bubbles: true}));
+        }
+    }
+
+    function _bwExtractImages(dt) {
+        if (typeof window.bwExtractImageFiles === 'function') {
+            return window.bwExtractImageFiles(dt);
+        }
+        return [];
+    }
+    function _bwHasImages(dt) {
+        if (typeof window.bwHasImageFiles === 'function') {
+            return window.bwHasImageFiles(dt);
+        }
+        return false;
+    }
+
+    // Wire drag-and-drop + paste image handlers on a markdown textarea so
+    // dropping or pasting an image uploads it as a ticket attachment and
+    // inserts the markdown reference at the caret.
+    //
+    // Exposed on ``window`` so the CSP-safe event-wiring IIFE further down
+    // this file can reach it after page load.
+    window._wireKanbanImageDropPaste = function(ta) {
+        if (!ta || ta._bwImagePasteWired) return;
+        ta._bwImagePasteWired = true;
+
+        ta.addEventListener('dragover', function(e) {
+            if (!_bwHasImages(e.dataTransfer)) return;
+            e.preventDefault();
+            ta.classList.add('kanban-drop-over');
+        });
+        ta.addEventListener('dragleave', function() {
+            ta.classList.remove('kanban-drop-over');
+        });
+        ta.addEventListener('drop', function(e) {
+            var imgs = _bwExtractImages(e.dataTransfer);
+            if (!imgs.length) return;
+            e.preventDefault();
+            ta.classList.remove('kanban-drop-over');
+            imgs.forEach(function(file) {
+                uploadImageToTicket(file, function(md) { _kanbanInsertAtCaret(ta, md); });
+            });
+        });
+        ta.addEventListener('paste', function(e) {
+            var imgs = _bwExtractImages(e.clipboardData);
+            if (!imgs.length) return;
+            e.preventDefault();
+            imgs.forEach(function(file) {
+                uploadImageToTicket(file, function(md) { _kanbanInsertAtCaret(ta, md); });
+            });
+        });
+    };
+
+    window.insertDescriptionImage = function(input) {
+        uploadImageToTicket(input, function(mdImg) {
+            var ta = document.getElementById('ticket-edit-description');
+            _kanbanInsertAtCaret(ta, mdImg);
+        });
+    };
+    window.insertCommentImage = function(input) {
+        uploadImageToTicket(input, function(mdImg) {
+            var ta = document.getElementById('ticket-new-comment');
+            _kanbanInsertAtCaret(ta, mdImg);
+        });
+    };
+
+    // -- Ticket title inline edit --
+    if (canWrite) {
+        var titleEl = document.getElementById('ticket-detail-title');
+        titleEl.addEventListener('blur', function() {
+            var newTitle = titleEl.textContent.trim();
+            var origTitle = titleEl.getAttribute('data-original') || '';
+            if (!newTitle || newTitle === origTitle) {
+                titleEl.textContent = origTitle;
+                return;
+            }
+            api('/api/kanban/tickets/' + currentTicketId, 'PUT', {title: newTitle}).then(function(r) {
+                if (r.status === 200) {
+                    showKanbanToast((window._t && window._t('js.kanban.title_updated')) || 'Title updated');
+                    api('/api/kanban/tickets/' + currentTicketId, 'GET').then(function(rr) {
+                        var nextTitle = newTitle;
+                        if (rr.status === 200) {
+                            nextTitle = rr.data.title || newTitle;
+                            rebuildTicketCard(document.querySelector('.kanban-ticket[data-ticket-id="' + currentTicketId + '"]'), rr.data);
+                            var labelsInput = document.getElementById('ticket-detail-labels');
+                            if (labelsInput) labelsInput.value = normalizeTicketLabels(rr.data.labels).map(function(label) { return '+' + label; }).join(' ');
+                        }
+                        titleEl.textContent = nextTitle;
+                        titleEl.setAttribute('data-original', nextTitle);
+                        var card = document.querySelector('.kanban-ticket[data-ticket-id="' + currentTicketId + '"]');
+                        if (card) {
+                            var cardTitle = card.querySelector('.kanban-ticket-title');
+                            if (cardTitle) cardTitle.textContent = nextTitle;
+                        }
+                    });
+                } else {
+                    showKanbanToast(r.data.error || (window._t && window._t('js.kanban.failed_to_update')) || 'Failed to update', true);
+                    titleEl.textContent = origTitle;
+                }
+            });
+        });
+        titleEl.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); titleEl.blur(); }
+            if (e.key === 'Escape') { titleEl.textContent = titleEl.getAttribute('data-original') || ''; titleEl.blur(); }
+        });
+    }
+
+    // -- Column drag and drop reordering --
+    if (canWrite) {
+        var colPlaceholder = document.createElement('div');
+        colPlaceholder.className = 'kanban-column-placeholder';
+        var columnsContainer = document.getElementById('kanban-columns');
+
+        document.querySelectorAll('.kanban-column-drag-handle').forEach(function(handle) {
+            handle.addEventListener('dragstart', function(e) {
+                draggedColumn = handle.closest('.kanban-column');
+                if (!draggedColumn) return;
+                draggedColumn.classList.add('kanban-column-dragging');
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/kanban-column', draggedColumn.dataset.columnId);
+                // Stop ticket drag from interfering
+                e.stopPropagation();
+            });
+            handle.addEventListener('dragend', function() {
+                stopAutoScroll();
+                if (draggedColumn) {
+                    draggedColumn.classList.remove('kanban-column-dragging');
+                }
+                if (colPlaceholder.parentNode) colPlaceholder.parentNode.removeChild(colPlaceholder);
+                draggedColumn = null;
+            });
+        });
+
+        columnsContainer.addEventListener('dragover', function(e) {
+            if (!draggedColumn) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            var afterCol = getColumnDragAfterElement(columnsContainer, e.clientX);
+            if (afterCol) {
+                columnsContainer.insertBefore(colPlaceholder, afterCol);
+            } else {
+                // Insert before the add-column element if it exists
+                var addCol = columnsContainer.querySelector('.kanban-add-column');
+                if (addCol) {
+                    columnsContainer.insertBefore(colPlaceholder, addCol);
+                } else {
+                    columnsContainer.appendChild(colPlaceholder);
+                }
+            }
+            startAutoScroll(columnsContainer, e.clientX, e.clientY, true);
+        });
+
+        columnsContainer.addEventListener('drop', function(e) {
+            if (!draggedColumn) return;
+            e.preventDefault();
+            if (colPlaceholder.parentNode) {
+                columnsContainer.insertBefore(draggedColumn, colPlaceholder);
+                colPlaceholder.parentNode.removeChild(colPlaceholder);
+            }
+            draggedColumn.classList.remove('kanban-column-dragging');
+            // Collect new column order
+            var cols = columnsContainer.querySelectorAll('.kanban-column[data-column-id]');
+            var order = [];
+            cols.forEach(function(c) { order.push(parseInt(c.dataset.columnId)); });
+            api('/api/kanban/' + boardId + '/columns/reorder', 'POST', {order: order});
+            draggedColumn = null;
+        });
+
+        // -- Touch-based drag and drop for mobile --
+        var touchDraggedTicket = null;
+        var touchDraggedColumn = null;
+        var touchStartX = 0, touchStartY = 0;
+        var touchDragActivated = false;
+        var touchDragGhost = null;
+
+        // Long-press duration (ms) before ticket drag activates.
+        // Below this, taps open the detail modal and scrolls pass through.
+        var TOUCH_LONG_PRESS_MS = 300;
+
+        // Max finger movement (px) allowed before the long-press is
+        // cancelled (assumed to be a scroll gesture).
+        var TOUCH_SCROLL_CANCEL = 20;
+
+        function createTouchGhost(ticket) {
+            var ghost = ticket.cloneNode(true);
+            ghost.classList.remove('kanban-ticket-dragging');
+            ghost.className = 'kanban-ticket-ghost';
+            ghost.style.width = ticket.offsetWidth + 'px';
+            document.body.appendChild(ghost);
+            return ghost;
+        }
+
+        function updateTouchGhost(ghost, x, y) {
+            if (!ghost) return;
+            ghost.style.left = (x - ghost.offsetWidth / 2) + 'px';
+            ghost.style.top = (y - ghost.offsetHeight - 20) + 'px';
+        }
+
+        function removeTouchGhost() {
+            if (touchDragGhost && touchDragGhost.parentNode) {
+                touchDragGhost.parentNode.removeChild(touchDragGhost);
+            }
+            touchDragGhost = null;
+        }
+
+        document.addEventListener('touchstart', function(e) {
+            var ticket = e.target.closest('.kanban-ticket');
+            var handle = e.target.closest('.kanban-column-drag-handle');
+
+            if (ticket && !e.target.closest('button') && !e.target.closest('input') && !e.target.closest('select')) {
+                touchDraggedTicket = ticket;
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+                touchDragActivated = false;
+                // Long-press timeout: only activate drag after the user
+                // holds still for TOUCH_LONG_PRESS_MS. Quick touches
+                // (taps) and scrolls are not affected.
+                ticket._touchTimeout = setTimeout(function() {
+                    touchDragActivated = true;
+                    touchDraggedTicket.classList.add('kanban-ticket-dragging');
+                    touchDragGhost = createTouchGhost(touchDraggedTicket);
+                }, TOUCH_LONG_PRESS_MS);
+            } else if (handle) {
+                touchDraggedColumn = handle.closest('.kanban-column');
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+                touchDragActivated = false;
+                if (touchDraggedColumn) {
+                    touchDraggedColumn.classList.add('kanban-column-dragging');
+                }
+            }
+        }, {passive: true});
+
+        document.addEventListener('touchmove', function(e) {
+            if (!touchDraggedTicket && !touchDraggedColumn) return;
+
+            var x = e.touches[0].clientX;
+            var y = e.touches[0].clientY;
+            var dx = x - touchStartX;
+            var dy = y - touchStartY;
+
+            if (!touchDragActivated) {
+                // Before the long-press fires, finger movement means the
+                // user is scrolling: cancel the drag entirely once the
+                // finger passes the scroll-cancel threshold so scrolls
+                // pass through without interference.
+                if (touchDraggedTicket && touchDraggedTicket._touchTimeout) {
+                    if (Math.abs(dx) > TOUCH_SCROLL_CANCEL || Math.abs(dy) > TOUCH_SCROLL_CANCEL) {
+                        clearTimeout(touchDraggedTicket._touchTimeout);
+                        delete touchDraggedTicket._touchTimeout;
+                        touchDraggedTicket = null;
+                    }
+                }
+                return;
+            }
+
+            e.preventDefault();
+
+            if (touchDraggedTicket) {
+                // elementsFromPoint is more reliable on mobile (unlike
+                // elementFromPoint which can fail during scrolling or
+                // return our own ghost/placeholder).
+                var points = document.elementsFromPoint
+                    ? document.elementsFromPoint(x, y)
+                    : [document.elementFromPoint(x, y)];
+                var container = null;
+                for (var i = 0; i < points.length; i++) {
+                    var candidate = points[i].closest('.kanban-tickets[data-column-id]');
+                    if (candidate) { container = candidate; break; }
+                }
+
+                if (container) {
+                    var afterEl = getDragAfterElement(container, y);
+                    if (afterEl) {
+                        container.insertBefore(dragPlaceholder, afterEl);
+                    } else {
+                        container.appendChild(dragPlaceholder);
+                    }
+                }
+
+                updateTouchGhost(touchDragGhost, x, y);
+                startAutoScroll(container || document.scrollingElement, x, y, false);
+                startAutoScroll(columnsContainer, x, y, true);
+            } else if (touchDraggedColumn) {
+                // Column drag handle: activate after a small movement
+                // threshold so taps on the handle don't trigger a drag.
+                if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+                touchDragActivated = true;
+                var afterCol = getColumnDragAfterElement(columnsContainer, x);
+                if (afterCol) {
+                    columnsContainer.insertBefore(colPlaceholder, afterCol);
+                } else {
+                    var addCol = columnsContainer.querySelector('.kanban-add-column');
+                    if (addCol) columnsContainer.insertBefore(colPlaceholder, addCol);
+                    else columnsContainer.appendChild(colPlaceholder);
+                }
+                startAutoScroll(columnsContainer, x, y, true);
+            }
+        }, {passive: false});
+
+        document.addEventListener('touchend', function(e) {
+            stopAutoScroll();
+            removeTouchGhost();
+
+            if (touchDraggedTicket) {
+                if (touchDraggedTicket._touchTimeout) {
+                    clearTimeout(touchDraggedTicket._touchTimeout);
+                    delete touchDraggedTicket._touchTimeout;
+                }
+                touchDraggedTicket.classList.remove('kanban-ticket-dragging');
+                if (touchDragActivated && dragPlaceholder.parentNode) {
+                    var container = dragPlaceholder.parentNode;
+                    var colId = parseInt(container.dataset.columnId);
+                    var ticketId = parseInt(touchDraggedTicket.dataset.ticketId);
+                    var origTicketContainer = touchDraggedTicket.closest('.kanban-tickets');
+                    var originalColId = origTicketContainer ? parseInt(origTicketContainer.dataset.columnId) : colId;
+                    var originalNextSibling = touchDraggedTicket.nextElementSibling;
+
+                    container.insertBefore(touchDraggedTicket, dragPlaceholder);
+                    dragPlaceholder.parentNode.removeChild(dragPlaceholder);
+
+                    var tickets = container.querySelectorAll('.kanban-ticket');
+                    var order = [];
+                    tickets.forEach(function(t) { order.push(parseInt(t.dataset.ticketId)); });
+
+                    if (originalColId !== colId) {
+                        var sortIdx = order.indexOf(ticketId);
+                        api('/api/kanban/tickets/' + ticketId + '/move', 'POST', {column_id: colId, sort_order: sortIdx}).then(function(moveRes) {
+                            if (moveRes.status === 200) {
+                                api('/api/kanban/columns/' + colId + '/tickets/reorder', 'POST', {order: order});
+                                updateColumnCounts();
+                            } else {
+                                if (origTicketContainer) {
+                                    if (originalNextSibling) origTicketContainer.insertBefore(touchDraggedTicket, originalNextSibling);
+                                    else origTicketContainer.appendChild(touchDraggedTicket);
+                                }
+                                updateColumnCounts();
+                                showKanbanToast(moveRes.data.error || (window._t && window._t('js.kanban.failed_to_move_ticket')) || 'Failed to move ticket', true);
+                            }
+                        });
+                    } else {
+                        api('/api/kanban/columns/' + colId + '/tickets/reorder', 'POST', {order: order});
+                    }
+                }
+                touchDraggedTicket = null;
+                touchDragActivated = false;
+            } else if (touchDraggedColumn) {
+                touchDraggedColumn.classList.remove('kanban-column-dragging');
+                if (touchDragActivated && colPlaceholder.parentNode) {
+                    columnsContainer.insertBefore(touchDraggedColumn, colPlaceholder);
+                    colPlaceholder.parentNode.removeChild(colPlaceholder);
+                    var cols = columnsContainer.querySelectorAll('.kanban-column[data-column-id]');
+                    var order = [];
+                    cols.forEach(function(c) { order.push(parseInt(c.dataset.columnId)); });
+                    api('/api/kanban/' + boardId + '/columns/reorder', 'POST', {order: order});
+                }
+                touchDraggedColumn = null;
+                touchDragActivated = false;
+            }
+        });
+
+        function getColumnDragAfterElement(container, x) {
+            var elements = Array.from(container.querySelectorAll('.kanban-column[data-column-id]:not(.kanban-column-dragging)'));
+            var closest = null;
+            var closestDist = Number.POSITIVE_INFINITY;
+            elements.forEach(function(el) {
+                var box = el.getBoundingClientRect();
+                var center = box.left + box.width / 2;
+                var dist = Math.abs(x - center);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closest = el;
+                }
+            });
+            if (closest) {
+                var box = closest.getBoundingClientRect();
+                if (x < box.left + box.width / 2) {
+                    return closest;
+                }
+                return closest.nextElementSibling;
+            }
+            return null;
+        }
+    }
+})();
+
+/* ── CSP-safe event wiring (replaces inline handlers) ────────────── */
+(function() {
+    // Open modals
+    document.querySelectorAll('.js-open-modal').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var m = document.getElementById(this.dataset.modal);
+            if (m) m.style.display = 'flex';
+        });
+    });
+    // Close overlays (× and Cancel buttons)
+    document.querySelectorAll('.js-close-overlay').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var o = this.closest('.kanban-modal-overlay');
+            if (o) o.style.display = 'none';
+        });
+    });
+    // Close overlays on background click (edit/delete modals)
+    ['edit-board-modal','delete-board-modal'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('click', function(e) { if (e.target === this) this.style.display = 'none'; });
+    });
+    // Board settings (form-based modal, just show/hide)
+    document.querySelectorAll('.js-board-settings').forEach(function(btn) {
+        btn.addEventListener('click', function() { openBoardSettings(); });
+    });
+    document.querySelectorAll('.js-close-settings').forEach(function(btn) {
+        btn.addEventListener('click', function() { closeBoardSettings(); });
+    });
+    var settingsModal = document.getElementById('board-settings-modal');
+    if (settingsModal) settingsModal.addEventListener('click', function(e) { if (e.target === this) closeBoardSettings(); });
+
+    // Ticket detail modal
+    var detailModal = document.getElementById('ticket-detail-modal');
+    if (detailModal) detailModal.addEventListener('click', function(e) { if (e.target === this) closeTicketDetail(); });
+    document.querySelectorAll('.js-close-ticket').forEach(function(btn) {
+        btn.addEventListener('click', closeTicketDetail);
+    });
+
+    // Ticket clicks (open detail)
+    document.addEventListener('click', function(e) {
+        var ticket = e.target.closest('.kanban-ticket[data-ticket-id]');
+        if (ticket && !e.target.closest('button') && !e.target.closest('input')) {
+            openTicketDetail(Number(ticket.dataset.ticketId));
+        }
+    });
+
+    // Column menu
+    document.addEventListener('click', function(e) {
+        var menuBtn = e.target.closest('.js-col-menu');
+        if (menuBtn) { toggleColumnMenu(menuBtn); return; }
+        var delCol = e.target.closest('.js-delete-col');
+        if (delCol) { deleteColumn(Number(delCol.dataset.colId), delCol); return; }
+    });
+
+    // Quick add ticket
+    document.addEventListener('click', function(e) {
+        var showBtn = e.target.closest('.js-show-quick-add');
+        if (showBtn) { showQuickAddTicket(Number(showBtn.dataset.colId), showBtn); return; }
+        var addBtn = e.target.closest('.js-quick-add');
+        if (addBtn) { quickAddTicket(Number(addBtn.dataset.colId), addBtn); return; }
+        var hideBtn = e.target.closest('.js-hide-quick-add');
+        if (hideBtn) { hideQuickAddTicket(hideBtn); return; }
+    });
+
+    // Add column
+    var showAddColBtn = document.querySelector('.js-show-add-col');
+    if (showAddColBtn) showAddColBtn.addEventListener('click', showAddColumn);
+    var addColBtn = document.querySelector('.js-add-col');
+    if (addColBtn) addColBtn.addEventListener('click', addColumn);
+    var hideColBtn = document.querySelector('.js-hide-add-col');
+    if (hideColBtn) hideColBtn.addEventListener('click', hideAddColumn);
+
+    // Ticket detail tabs
+    document.querySelectorAll('.kanban-tab-btn[data-tab]').forEach(function(btn) {
+        btn.addEventListener('click', function() { switchTicketTab(this.dataset.tab, this); });
+    });
+
+    // Description edit
+    var editDescBtn = document.getElementById('ticket-edit-desc-btn');
+    if (editDescBtn) editDescBtn.addEventListener('click', editDescription);
+    var cancelDescBtn = document.querySelector('.js-cancel-desc');
+    if (cancelDescBtn) cancelDescBtn.addEventListener('click', cancelEditDescription);
+    var descTextarea = document.getElementById('ticket-edit-description');
+    if (descTextarea) {
+        descTextarea.addEventListener('input', scheduleDescSave);
+        if (typeof window._wireKanbanImageDropPaste === 'function') {
+            window._wireKanbanImageDropPaste(descTextarea);
+        }
+    }
+    var descImageInput = document.querySelector('.js-desc-image');
+    if (descImageInput) descImageInput.addEventListener('change', function() { insertDescriptionImage(this); });
+
+    // Attachments
+    var attInput = document.querySelector('.js-ticket-att-input');
+    if (attInput) attInput.addEventListener('change', function() { uploadTicketAttachment(this); });
+
+    // History back
+    var backHistBtn = document.querySelector('.js-back-history');
+    if (backHistBtn) backHistBtn.addEventListener('click', function() {
+        document.getElementById('ticket-history-diff').style.display = 'none';
+        document.getElementById('ticket-history-list').style.display = '';
+    });
+
+    // Comment submit & image
+    var submitCommentBtn = document.querySelector('.js-submit-comment');
+    if (submitCommentBtn) submitCommentBtn.addEventListener('click', submitComment);
+    var commentImageInput = document.querySelector('.js-comment-image');
+    if (commentImageInput) commentImageInput.addEventListener('change', function() { insertCommentImage(this); });
+    var commentTextarea = document.getElementById('ticket-new-comment');
+    if (commentTextarea && typeof window._wireKanbanImageDropPaste === 'function') {
+        window._wireKanbanImageDropPaste(commentTextarea);
+    }
+
+    // Sidebar controls
+    var prioritySel = document.getElementById('ticket-detail-priority');
+    if (prioritySel) prioritySel.addEventListener('change', updateTicketPriority);
+    var assignedSel = document.getElementById('ticket-detail-assigned');
+    if (assignedSel) assignedSel.addEventListener('change', updateTicketAssigned);
+
+    // Multi-assignee picker wiring (popover with checkbox list)
+    var assigneesBtn = document.getElementById('ticket-detail-assignees-btn');
+    var assigneesMenu = document.getElementById('ticket-detail-assignees-menu');
+    var assigneesSaveBtn = document.getElementById('ticket-detail-assignees-save');
+    var assigneesClearBtn = document.getElementById('ticket-detail-assignees-clear');
+    if (assigneesBtn && assigneesMenu) {
+        assigneesBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            assigneesMenu.classList.toggle('u-d-none');
+        });
+        document.addEventListener('click', function(e) {
+            if (!assigneesMenu.classList.contains('u-d-none')
+                && !assigneesMenu.contains(e.target)
+                && e.target !== assigneesBtn) {
+                assigneesMenu.classList.add('u-d-none');
+            }
+        });
+    }
+    if (assigneesClearBtn) {
+        assigneesClearBtn.addEventListener('click', function() {
+            document.querySelectorAll('.kanban-assignee-checkbox').forEach(function(cb) {
+                cb.checked = false;
+            });
+        });
+    }
+    if (assigneesSaveBtn) {
+        assigneesSaveBtn.addEventListener('click', saveTicketAssignees);
+    }
+    var dueDateInput = document.getElementById('ticket-detail-due-date');
+    if (dueDateInput) dueDateInput.addEventListener('change', updateTicketDueDate);
+    var labelsInput = document.getElementById('ticket-detail-labels');
+    if (labelsInput) {
+        labelsInput.addEventListener('change', updateTicketLabels);
+        labelsInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                updateTicketLabels();
+            }
+        });
+    }
+    var clearDueBtn = document.querySelector('.js-clear-due-date');
+    if (clearDueBtn) clearDueBtn.addEventListener('click', clearTicketDueDate);
+    document.querySelectorAll('.js-ticket-color').forEach(function(btn) {
+        btn.addEventListener('click', function() { updateTicketColor(this.dataset.color); });
+    });
+    var deleteTicketBtn = document.querySelector('.js-delete-ticket');
+    if (deleteTicketBtn) deleteTicketBtn.addEventListener('click', deleteCurrentTicket);
+
+    // Event delegation for dynamically-generated content
+    document.addEventListener('click', function(e) {
+        var delAtt = e.target.closest('.js-del-att');
+        if (delAtt) { deleteAttachment(Number(delAtt.dataset.attId)); return; }
+        var viewHist = e.target.closest('.js-view-history');
+        if (viewHist) { viewHistoryEntry(Number(viewHist.dataset.entryId)); return; }
+        var editCmt = e.target.closest('.js-edit-comment');
+        if (editCmt) { editComment(Number(editCmt.dataset.commentId), editCmt); return; }
+        var delCmt = e.target.closest('.js-del-comment');
+        if (delCmt) { deleteComment(Number(delCmt.dataset.commentId)); return; }
+        var saveCmt = e.target.closest('.js-save-comment');
+        if (saveCmt) { saveComment(Number(saveCmt.dataset.commentId)); return; }
+        var cancelCmt = e.target.closest('.js-cancel-comment');
+        if (cancelCmt) { cancelEditComment(Number(cancelCmt.dataset.commentId)); return; }
+    });
+})();
+
+/* ── Bulk select / bulk actions ────────────── */
+(function() {
+    var toggleBtn = document.getElementById('toggle-bulk-select');
+    var toolbar = document.getElementById('kanban-bulk-toolbar');
+    var summaryEl = document.getElementById('kanban-bulk-summary-text');
+    var columnsContainer = document.getElementById('kanban-columns');
+    if (!toggleBtn || !toolbar || !columnsContainer) return;
+    var boardId = columnsContainer.dataset.boardId;
+    // Match the existing pattern used by the main board IIFE above.
+    var csrfToken = '{{ csrf_token() }}';
+
+    var active = false;
+    var selectedTickets = new Set();
+    var selectedColumns = new Set();
+    var bulkDomObserver = null;
+    var bulkDomTimer = null;
+
+    function postJson(url, body) {
+        return fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+            body: JSON.stringify(body || {})
+        }).then(function(r) {
+            return r.json().then(function(d) { return {status: r.status, data: d}; })
+                .catch(function() { return {status: r.status, data: {}}; });
+        });
+    }
+
+    function toast(msg, isError) {
+        if (typeof window.showKanbanToast === 'function') {
+            window.showKanbanToast(msg, isError);
+        } else if (isError) {
+            try { console.error(msg); } catch (_) { /* noop */ }
+        }
+    }
+
+    function tr(key, fallback) {
+        return (window._t && window._t(key)) || fallback;
+    }
+
+    function ensureCheckbox(parent, kind, id) {
+        if (parent.querySelector('.kanban-bulk-checkbox[data-kind="' + kind + '"]')) return;
+        var label = document.createElement('label');
+        label.className = 'kanban-bulk-checkbox-wrap';
+        label.setAttribute('aria-label', tr('kanban.board.bulk_select_item', 'Select for bulk action'));
+        var input = document.createElement('input');
+        input.type = 'checkbox';
+        input.className = 'kanban-bulk-checkbox';
+        input.dataset.kind = kind;
+        input.dataset.id = String(id);
+        input.setAttribute('aria-checked', 'false');
+        input.addEventListener('click', function(e) { e.stopPropagation(); });
+        label.appendChild(input);
+        parent.appendChild(label);
+    }
+
+    function ensureCheckboxesForColumn(col) {
+        var header = col.querySelector('.kanban-column-header');
+        if (header) ensureCheckbox(header, 'column', col.dataset.columnId);
+        col.querySelectorAll('.kanban-ticket[data-ticket-id]').forEach(function(ticket) {
+            ensureCheckbox(ticket, 'ticket', ticket.dataset.ticketId);
+        });
+    }
+
+    function ensureAllCheckboxes() {
+        columnsContainer.querySelectorAll('.kanban-column[data-column-id]').forEach(ensureCheckboxesForColumn);
+    }
+
+    function removeAllCheckboxes() {
+        // Tear every per-ticket / per-column checkbox wrapper out of the DOM
+        // so pressing the toggle a second time fully restores the read-mode
+        // board UI.  ensureCheckbox() guards against duplicates, so the next
+        // activation rebuilds them cleanly.
+        columnsContainer.querySelectorAll('.kanban-bulk-checkbox-wrap').forEach(function(wrap) {
+            wrap.parentNode.removeChild(wrap);
+        });
+    }
+
+    function syncCheckboxes() {
+        columnsContainer.querySelectorAll('.kanban-bulk-checkbox').forEach(function(cb) {
+            var id = parseInt(cb.dataset.id, 10);
+            var checked = false;
+            if (cb.dataset.kind === 'ticket') checked = selectedTickets.has(id);
+            else if (cb.dataset.kind === 'column') checked = selectedColumns.has(id);
+            cb.checked = checked;
+            cb.setAttribute('aria-checked', checked ? 'true' : 'false');
+            // Highlight selected tickets visually
+            if (cb.dataset.kind === 'ticket') {
+                var ticket = cb.closest('.kanban-ticket');
+                if (ticket) ticket.classList.toggle('kanban-ticket-selected', checked);
+            }
+        });
+    }
+
+    function ticketIdsInColumn(columnId) {
+        var col = columnsContainer.querySelector('.kanban-column[data-column-id="' + columnId + '"]');
+        if (!col) return [];
+        return Array.from(col.querySelectorAll('.kanban-ticket[data-ticket-id]')).map(function(ticket) {
+            return parseInt(ticket.dataset.ticketId, 10);
+        }).filter(function(id) { return !Number.isNaN(id); });
+    }
+
+    var _bulkDebounceTimer = null;
+    function _debouncedSync() {
+        if (_bulkDebounceTimer) clearTimeout(_bulkDebounceTimer);
+        _bulkDebounceTimer = setTimeout(function() {
+            _bulkDebounceTimer = null;
+            syncCheckboxes();
+            updateSummary();
+        }, 30);
+    }
+
+    function onCheckboxChange(kind, id, checked) {
+        var n = parseInt(id, 10);
+        if (Number.isNaN(n)) return;
+        if (kind === 'ticket') {
+            if (checked) selectedTickets.add(n); else selectedTickets.delete(n);
+            // Update parent column checkbox state based on whether every
+            // ticket in that column is now selected.
+            var ticketEl = columnsContainer.querySelector('.kanban-ticket[data-ticket-id="' + n + '"]');
+            var colEl = ticketEl ? ticketEl.closest('.kanban-column[data-column-id]') : null;
+            if (colEl) {
+                var colId = parseInt(colEl.dataset.columnId, 10);
+                var allTickets = ticketIdsInColumn(colId);
+                var allSelected = allTickets.length > 0 && allTickets.every(function(tid) {
+                    return selectedTickets.has(tid);
+                });
+                var colCb = colEl.querySelector('.kanban-bulk-checkbox[data-kind="column"]');
+                if (colCb) {
+                    colCb.checked = allSelected;
+                    colCb.setAttribute('aria-checked', allSelected ? 'true' : 'false');
+                }
+                // If the column was previously fully checked and a ticket is
+                // now unchecked, remove the column from the set.
+                // If the column was unchecked and all tickets are now checked,
+                // add the column to the set.
+                if (allSelected) {
+                    selectedColumns.add(colId);
+                } else {
+                    selectedColumns.delete(colId);
+                }
+            }
+            _debouncedSync();
+        } else if (kind === 'column') {
+            if (checked) selectedColumns.add(n); else selectedColumns.delete(n);
+            // Selecting a column should also select every ticket inside it;
+            // deselecting the column releases the auto-selected tickets so
+            // toggling never leaves stray ticket selections behind.
+            ticketIdsInColumn(n).forEach(function(tid) {
+                if (checked) selectedTickets.add(tid); else selectedTickets.delete(tid);
+            });
+            syncCheckboxes();
+        }
+        updateSummary();
+    }
+
+    function updateSummary() {
+        pruneSelection();
+        var t = selectedTickets.size;
+        var c = selectedColumns.size;
+        if (!t && !c) {
+            summaryEl.textContent = tr('kanban.board.bulk_no_selection', 'No selection');
+            var sac = document.getElementById('kanban-bulk-select-all');
+            if (sac) { sac.checked = false; sac.indeterminate = false; }
+            return;
+        }
+        var parts = [];
+        if (t) parts.push(t + ' ' + (t === 1
+            ? tr('kanban.board.bulk_count_ticket', 'ticket')
+            : tr('kanban.board.bulk_count_tickets', 'tickets')));
+        if (c) parts.push(c + ' ' + (c === 1
+            ? tr('kanban.board.bulk_count_column', 'column')
+            : tr('kanban.board.bulk_count_columns', 'columns')));
+        summaryEl.textContent = tr('kanban.board.bulk_selected', 'Selected') + ': ' + parts.join(', ');
+
+        // Sync "select all" checkbox state
+        var sac = document.getElementById('kanban-bulk-select-all');
+        if (sac) {
+            var totalTickets = columnsContainer.querySelectorAll('.kanban-ticket[data-ticket-id]').length;
+            sac.checked = totalTickets > 0 && t === totalTickets;
+            sac.indeterminate = t > 0 && t < totalTickets;
+        }
+    }
+
+    function _currentTicketIdSet() {
+        var ids = new Set();
+        columnsContainer.querySelectorAll('.kanban-ticket[data-ticket-id]').forEach(function(ticket) {
+            var id = parseInt(ticket.dataset.ticketId, 10);
+            if (!Number.isNaN(id)) ids.add(id);
+        });
+        return ids;
+    }
+
+    function _currentColumnIdSet() {
+        var ids = new Set();
+        columnsContainer.querySelectorAll('.kanban-column[data-column-id]').forEach(function(col) {
+            var id = parseInt(col.dataset.columnId, 10);
+            if (!Number.isNaN(id)) ids.add(id);
+        });
+        return ids;
+    }
+
+    function pruneSelection() {
+        var liveTickets = _currentTicketIdSet();
+        var liveColumns = _currentColumnIdSet();
+        selectedTickets.forEach(function(id) {
+            if (!liveTickets.has(id)) selectedTickets.delete(id);
+        });
+        selectedColumns.forEach(function(id) {
+            if (!liveColumns.has(id)) selectedColumns.delete(id);
+        });
+    }
+
+    function stopBulkDomObserver() {
+        if (bulkDomObserver) {
+            bulkDomObserver.disconnect();
+            bulkDomObserver = null;
+        }
+        if (bulkDomTimer) {
+            clearTimeout(bulkDomTimer);
+            bulkDomTimer = null;
+        }
+    }
+
+    function startBulkDomObserver() {
+        if (bulkDomObserver || typeof MutationObserver === 'undefined') return;
+        bulkDomObserver = new MutationObserver(function() {
+            if (!active) return;
+            if (bulkDomTimer) clearTimeout(bulkDomTimer);
+            bulkDomTimer = setTimeout(function() {
+                bulkDomTimer = null;
+                ensureAllCheckboxes();
+                pruneSelection();
+                syncCheckboxes();
+                updateSummary();
+            }, 50);
+        });
+        bulkDomObserver.observe(columnsContainer, {childList: true, subtree: true});
+    }
+
+    function setActive(state) {
+        active = !!state;
+        toggleBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        document.body.classList.toggle('kanban-bulk-mode', active);
+        // Belt-and-braces hide: toggle the utility class for the styled
+        // hidden state and also clear/set the `hidden` attribute + inline
+        // `display` so the toolbar disappears even if a stray CSS rule
+        // (e.g. a plugin stylesheet) would otherwise win against the
+        // class-based hide.
+        toolbar.classList.toggle('u-d-none', !active);
+        if (active) {
+            toolbar.removeAttribute('hidden');
+            toolbar.style.removeProperty('display');
+            try {
+                ensureAllCheckboxes();
+                startBulkDomObserver();
+                pruneSelection();
+                syncCheckboxes();
+                updateSummary();
+            } catch (err) {
+                try { console.error('Bulk-select activation failed:', err); } catch (_) { /* noop */ }
+            }
+        } else {
+            stopBulkDomObserver();
+            toolbar.setAttribute('hidden', '');
+            toolbar.style.display = 'none';
+            // Tear down the per-card checkboxes so re-pressing the toggle
+            // fully reverts the board to its read-mode UI.  Without this,
+            // ensureCheckbox()'s duplicate-guard would keep the existing
+            // checkboxes on the DOM, leaving the selectors visible even
+            // when bulk mode is supposedly off.
+            try { removeAllCheckboxes(); } catch (_) { /* noop */ }
+        }
+    }
+
+    function clearSelection() {
+        selectedTickets.clear();
+        selectedColumns.clear();
+        syncCheckboxes();
+        updateSummary();
+    }
+
+    function exitMode() {
+        // Always close the toolbar first, even if the helper calls below
+        // throw, otherwise a transient error in clearSelection() (e.g.
+        // missing DOM nodes after a re-render) could leave the bulk
+        // toolbar stuck on-screen.
+        try {
+            setActive(false);
+        } finally {
+            try { clearSelection(); } catch (_) { /* noop */ }
+        }
+    }
+
+    toggleBtn.addEventListener('click', function() {
+
+    });
+
+    var clearBtn = document.getElementById('kanban-bulk-clear-btn');
+    if (clearBtn) clearBtn.addEventListener('click', clearSelection);
+    var cancelBtn = document.getElementById('kanban-bulk-cancel-btn');
+    if (cancelBtn) cancelBtn.addEventListener('click', exitMode);
+
+    // Delegated change handler for bulk checkboxes: handles dynamically added
+    // checkboxes without needing per-element listeners.
+    columnsContainer.addEventListener('change', function(e) {
+        var cb = e.target.closest('.kanban-bulk-checkbox');
+        if (!cb) return;
+        var kind = cb.dataset.kind;
+        var id = parseInt(cb.dataset.id, 10);
+        if (!Number.isNaN(id)) {
+            onCheckboxChange(kind, id, cb.checked);
+        }
+    });
+
+    // "Select all" checkbox in the toolbar header
+    var selectAllCb = document.getElementById('kanban-bulk-select-all');
+    if (selectAllCb) {
+        selectAllCb.addEventListener('change', function() {
+            var checked = this.checked;
+            if (checked) {
+                columnsContainer.querySelectorAll('.kanban-ticket[data-ticket-id]').forEach(function(ticket) {
+                    var id = parseInt(ticket.dataset.ticketId, 10);
+                    if (!Number.isNaN(id)) selectedTickets.add(id);
+                });
+                columnsContainer.querySelectorAll('.kanban-column[data-column-id]').forEach(function(col) {
+                    var id = parseInt(col.dataset.columnId, 10);
+                    if (!Number.isNaN(id)) selectedColumns.add(id);
+                });
+            } else {
+                selectedTickets.clear();
+                selectedColumns.clear();
+            }
+            syncCheckboxes();
+            updateSummary();
+        });
+    }
+
+    // -- Modal helpers --
+    function openModal(id) {
+        var m = document.getElementById(id);
+        if (m) m.style.display = 'flex';
+    }
+    function closeModal(id) {
+        var m = document.getElementById(id);
+        if (m) m.style.display = 'none';
+    }
+    document.querySelectorAll('.js-bulk-modal-close').forEach(function(btn) {
+        btn.addEventListener('click', function() { closeModal(this.dataset.bulkModal); });
+    });
+    ['kanban-bulk-assign-modal','kanban-bulk-priority-modal','kanban-bulk-move-modal',
+     'kanban-bulk-due-modal','kanban-bulk-color-modal'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('click', function(e) { if (e.target === this) closeModal(id); });
+    });
+
+    function ticketIdsArray() { return Array.from(selectedTickets); }
+    function columnIdsArray() { return Array.from(selectedColumns); }
+
+    function postBulkTickets(payload) {
+        return postJson('/api/kanban/' + boardId + '/tickets/bulk', payload);
+    }
+    function postBulkColumns(payload) {
+        return postJson('/api/kanban/' + boardId + '/columns/bulk', payload);
+    }
+
+    function ensureTicketsSelected() {
+        if (!selectedTickets.size) {
+            toast(tr('kanban.board.bulk_no_tickets_selected', 'No tickets selected'), true);
+            return false;
+        }
+        return true;
+    }
+    function ensureColumnsSelected() {
+        if (!selectedColumns.size) {
+            toast(tr('kanban.board.bulk_no_columns_selected', 'No columns selected'), true);
+            return false;
+        }
+        return true;
+    }
+
+    // -- Bulk assign --
+    var assignBtn = document.getElementById('kanban-bulk-assign-btn');
+    if (assignBtn) assignBtn.addEventListener('click', function() {
+        if (!ensureTicketsSelected()) return;
+        document.querySelectorAll('.kanban-bulk-assign-checkbox').forEach(function(cb) { cb.checked = false; });
+        var summary = document.getElementById('kanban-bulk-assign-summary');
+        if (summary) summary.textContent = tr('kanban.board.bulk_assign_target', 'Pick the users to assign to all selected tickets.');
+        openModal('kanban-bulk-assign-modal');
+    });
+    var assignClear = document.getElementById('kanban-bulk-assign-clear');
+    if (assignClear) assignClear.addEventListener('click', function() {
+        document.querySelectorAll('.kanban-bulk-assign-checkbox').forEach(function(cb) { cb.checked = false; });
+    });
+    var assignSave = document.getElementById('kanban-bulk-assign-save');
+    if (assignSave) assignSave.addEventListener('click', function() {
+        if (!ensureTicketsSelected()) return;
+        var assignees = [];
+        document.querySelectorAll('.kanban-bulk-assign-checkbox:checked').forEach(function(cb) {
+            assignees.push(cb.value);
+        });
+        postBulkTickets({action: 'assign', ticket_ids: ticketIdsArray(), assignees: assignees}).then(function(r) {
+            if (r.status === 200) {
+                closeModal('kanban-bulk-assign-modal');
+                toast(tr('kanban.board.bulk_assign_done', 'Assignees updated'));
+                location.reload();
+            } else {
+                toast(r.data.error || tr('kanban.board.bulk_failed', 'Bulk action failed'), true);
+            }
+        });
+    });
+
+    // -- Bulk priority --
+    var prioBtn = document.getElementById('kanban-bulk-priority-btn');
+    if (prioBtn) prioBtn.addEventListener('click', function() {
+        if (!ensureTicketsSelected()) return;
+        openModal('kanban-bulk-priority-modal');
+    });
+    var prioSave = document.getElementById('kanban-bulk-priority-save');
+    if (prioSave) prioSave.addEventListener('click', function() {
+        if (!ensureTicketsSelected()) return;
+        var sel = document.getElementById('kanban-bulk-priority-select');
+        var priority = sel ? sel.value : 'medium';
+        postBulkTickets({action: 'priority', ticket_ids: ticketIdsArray(), priority: priority}).then(function(r) {
+            if (r.status === 200) {
+                closeModal('kanban-bulk-priority-modal');
+                toast(tr('kanban.board.bulk_priority_done', 'Priority updated'));
+                location.reload();
+            } else {
+                toast(r.data.error || tr('kanban.board.bulk_failed', 'Bulk action failed'), true);
+            }
+        });
+    });
+
+    // -- Bulk move --
+    var moveBtn = document.getElementById('kanban-bulk-move-btn');
+    if (moveBtn) moveBtn.addEventListener('click', function() {
+        if (!ensureTicketsSelected()) return;
+        openModal('kanban-bulk-move-modal');
+    });
+    var moveSave = document.getElementById('kanban-bulk-move-save');
+    if (moveSave) moveSave.addEventListener('click', function() {
+        if (!ensureTicketsSelected()) return;
+        var sel = document.getElementById('kanban-bulk-move-select');
+        var colId = sel ? parseInt(sel.value, 10) : NaN;
+        if (Number.isNaN(colId)) {
+            toast(tr('kanban.board.bulk_move_pick', 'Pick a target column'), true);
+            return;
+        }
+        postBulkTickets({action: 'move', ticket_ids: ticketIdsArray(), column_id: colId}).then(function(r) {
+            if (r.status === 200) {
+                closeModal('kanban-bulk-move-modal');
+                toast(tr('kanban.board.bulk_move_done', 'Tickets moved'));
+                location.reload();
+            } else {
+                toast(r.data.error || tr('kanban.board.bulk_failed', 'Bulk action failed'), true);
+            }
+        });
+    });
+
+    // -- Bulk due date --
+    var dueBtn = document.getElementById('kanban-bulk-due-btn');
+    if (dueBtn) dueBtn.addEventListener('click', function() {
+        if (!ensureTicketsSelected()) return;
+        openModal('kanban-bulk-due-modal');
+    });
+    var dueClear = document.getElementById('kanban-bulk-due-clear');
+    if (dueClear) dueClear.addEventListener('click', function() {
+        var input = document.getElementById('kanban-bulk-due-input');
+        if (input) input.value = '';
+    });
+    var dueSave = document.getElementById('kanban-bulk-due-save');
+    if (dueSave) dueSave.addEventListener('click', function() {
+        if (!ensureTicketsSelected()) return;
+        var input = document.getElementById('kanban-bulk-due-input');
+        var due = input ? input.value : '';
+        postBulkTickets({action: 'due_date', ticket_ids: ticketIdsArray(), due_date: due}).then(function(r) {
+            if (r.status === 200) {
+                closeModal('kanban-bulk-due-modal');
+                toast(tr('kanban.board.bulk_due_date_done', 'Due date updated'));
+                location.reload();
+            } else {
+                toast(r.data.error || tr('kanban.board.bulk_failed', 'Bulk action failed'), true);
+            }
+        });
+    });
+
+    // -- Bulk color --
+    var colorBtn = document.getElementById('kanban-bulk-color-btn');
+    if (colorBtn) colorBtn.addEventListener('click', function() {
+        if (!ensureTicketsSelected()) return;
+        openModal('kanban-bulk-color-modal');
+    });
+    document.querySelectorAll('.js-bulk-color').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            if (!ensureTicketsSelected()) return;
+            var color = this.dataset.color || '';
+            postBulkTickets({action: 'color', ticket_ids: ticketIdsArray(), color: color}).then(function(r) {
+                if (r.status === 200) {
+                    closeModal('kanban-bulk-color-modal');
+                    toast(tr('kanban.board.bulk_color_done', 'Color updated'));
+                    location.reload();
+                } else {
+                    toast(r.data.error || tr('kanban.board.bulk_failed', 'Bulk action failed'), true);
+                }
+            });
+        });
+    });
+
+    // -- Bulk delete tickets --
+    var delTicketsBtn = document.getElementById('kanban-bulk-delete-tickets-btn');
+    if (delTicketsBtn) delTicketsBtn.addEventListener('click', function() {
+        if (!ensureTicketsSelected()) return;
+        var msg = tr('kanban.board.bulk_delete_tickets_confirm',
+            'Delete the selected tickets? This cannot be undone.');
+        var run = function() {
+            postBulkTickets({action: 'delete', ticket_ids: ticketIdsArray()}).then(function(r) {
+                if (r.status === 200) {
+                    toast(tr('kanban.board.bulk_delete_tickets_done', 'Tickets deleted'));
+                    location.reload();
+                } else {
+                    toast(r.data.error || tr('kanban.board.bulk_failed', 'Bulk action failed'), true);
+                }
+            });
+        };
+        if (typeof window.bwConfirm === 'function') window.bwConfirm(msg, run);
+        else if (window.confirm(msg)) run();
+    });
+
+    // -- Bulk delete columns --
+    var delColsBtn = document.getElementById('kanban-bulk-delete-cols-btn');
+    if (delColsBtn) delColsBtn.addEventListener('click', function() {
+        if (!ensureColumnsSelected()) return;
+        var msg = tr('kanban.board.bulk_delete_columns_confirm',
+            'Delete the selected columns and all their tickets? This cannot be undone.');
+        var run = function() {
+            postBulkColumns({action: 'delete', column_ids: columnIdsArray()}).then(function(r) {
+                if (r.status === 200) {
+                    toast(tr('kanban.board.bulk_delete_columns_done', 'Columns deleted'));
+                    location.reload();
+                } else {
+                    toast(r.data.error || tr('kanban.board.bulk_failed', 'Bulk action failed'), true);
+                }
+            });
+        };
+        if (typeof window.bwConfirm === 'function') window.bwConfirm(msg, run);
+        else if (window.confirm(msg)) run();
+    });
+
+    // While bulk-select is active, swallow plain ticket clicks so the detail
+    // modal does not pop open whenever the user clicks anywhere on a card.
+    columnsContainer.addEventListener('click', function(e) {
+        if (!active) return;
+        var ticket = e.target.closest('.kanban-ticket[data-ticket-id]');
+        if (!ticket) return;
+        if (e.target.closest('.kanban-bulk-checkbox-wrap')) return;
+        if (e.target.closest('button') || e.target.closest('input')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var id = parseInt(ticket.dataset.ticketId, 10);
+        if (Number.isNaN(id)) return;
+        var cb = ticket.querySelector('.kanban-bulk-checkbox[data-kind="ticket"]');
+        var nowChecked = !selectedTickets.has(id);
+        if (cb) cb.checked = nowChecked;
+        onCheckboxChange('ticket', id, nowChecked);
+    }, true);
+})();
+
+/* ── Activity log ────────────── */
+(function() {
+    var toggleBtn = document.getElementById('toggle-activity-log');
+    var closeBtn = document.getElementById('close-activity-log');
+    var panel = document.getElementById('activity-log-panel');
+    var entriesEl = document.getElementById('activity-log-entries');
+    if (!toggleBtn || !panel) return;
+    var boardId = document.getElementById('kanban-columns').dataset.boardId;
+
+    function formatActivityDate(raw) {
+        // Activity log timestamps are stored as UTC ISO strings.  Some legacy
+        // rows are naive ("2025-01-02T03:04:05"), modern rows include an
+        // explicit "+00:00" offset.  We normalise both forms before parsing
+        // and fall back to the raw string instead of "Invalid Date" if the
+        // value is missing or unparseable.
+        if (!raw) return '';
+        var s = String(raw);
+        var hasTz = /([zZ]|[+\-]\d{2}:?\d{2})$/.test(s);
+        var iso = hasTz ? s : s + 'Z';
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return s;
+        return d.toLocaleString();
+    }
+
+    function loadActivity() {
+        entriesEl.innerHTML = '<p class="u-o60">Loading…</p>';
+        fetch('/api/kanban/' + boardId + '/activity')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.entries || !data.entries.length) {
+                    entriesEl.innerHTML = '<p class="u-o60">No activity yet.</p>';
+                    return;
+                }
+                var html = '';
+                var div = document.createElement('div');
+                function esc(s) { div.textContent = s; return div.innerHTML; }
+                data.entries.forEach(function(e) {
+                    var who = esc(e.username || (window._t && window._t('js.kanban.system_user')) || 'System');
+                    var when = formatActivityDate(e.created_at);
+                    html += '<div class="kanban-activity-entry">'
+                        + '<span class="kanban-activity-who">' + who + '</span> '
+                        + '<span class="kanban-activity-detail">' + esc(e.details || e.action) + '</span>'
+                        + '<span class="kanban-activity-when">' + esc(when) + '</span>'
+                        + '</div>';
+                });
+                entriesEl.innerHTML = html;
+            })
+            .catch(function() { entriesEl.innerHTML = '<p class="u-o60">' + escHtml((window._t && window._t('js.kanban.failed_to_load_activity')) || 'Failed to load activity.') + '</p>'; });
+    }
+
+    function toggleActivityLog() {
+        if (panel.style.display === 'none') {
+            panel.style.display = 'block';
+            loadActivity();
+        } else {
+            panel.style.display = 'none';
+        }
+    }
+    toggleBtn.addEventListener('click', toggleActivityLog);
+    if (closeBtn) closeBtn.addEventListener('click', function() { panel.style.display = 'none'; });
+
+    var kanbanPrintBtn = document.getElementById('kanban-print');
+    if (kanbanPrintBtn) kanbanPrintBtn.addEventListener('click', function() { window.print(); });
+})();
+</script>
+<style nonce="{{ csp_nonce }}">
+.kanban-activity-panel { background: var(--secondary); border: 1px solid var(--accent); border-radius: 8px; padding: 12px; margin-bottom: 12px; max-height: 300px; overflow-y: auto; }
+.kanban-activity-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.kanban-activity-entry { padding: 4px 0; border-bottom: 1px solid var(--border-color); font-size: 0.85rem; display: flex; flex-wrap: wrap; gap: 4px; }
+.kanban-activity-who { font-weight: 600; }
+.kanban-activity-detail { flex: 1; }
+.kanban-activity-when { opacity: 0.5; font-size: 0.78rem; }
+/* Bulk select toolbar + per-card checkboxes.
+   The hidden state uses a *more specific* `.kanban-bulk-toolbar.u-d-none`
+   selector below so the bulk toolbar disappears reliably when JS toggles
+   the `u-d-none` class.  Without that override the inline `display: flex`
+   rule (parsed after `style.css`, equal specificity) would otherwise win
+   and keep the toolbar visible. */
+.kanban-bulk-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 60;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin: 0 0 12px;
+    background: var(--secondary);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+.kanban-bulk-toolbar.u-d-none,
+.kanban-bulk-toolbar[hidden] {
+    display: none !important;
+}
+.kanban-bulk-summary { font-weight: 600; flex: 1 1 auto; min-width: 160px; display: flex; align-items: center; gap: 6px; }
+.kanban-bulk-select-all-wrap { display: inline-flex; align-items: center; cursor: pointer; }
+.kanban-bulk-select-all-wrap input[type="checkbox"] { width: 18px; height: 18px; }
+.kanban-bulk-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.kanban-bulk-checkbox-wrap {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 6px;
+    cursor: pointer;
+}
+.kanban-bulk-mode .kanban-ticket { cursor: pointer; }
+.kanban-bulk-mode .kanban-ticket .kanban-bulk-checkbox-wrap {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: var(--secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 3px;
+    z-index: 5;
+    box-shadow: 0 1px 3px rgba(0,0,0,.3);
+    transition: border-color .15s, background .15s;
+}
+.kanban-bulk-mode .kanban-ticket .kanban-bulk-checkbox-wrap:hover {
+    border-color: var(--primary);
+    background: rgba(143,160,212,.15);
+}
+.kanban-bulk-mode .kanban-ticket .kanban-bulk-checkbox-wrap input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+}
+.kanban-bulk-mode .kanban-ticket.kanban-ticket-selected {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 1px var(--primary);
+}
+.kanban-bulk-mode .kanban-ticket { position: relative; }
+.kanban-bulk-mode .kanban-column-header .kanban-bulk-checkbox-wrap {
+    margin-right: 4px;
+    display: inline-flex;
+    align-items: center;
+}
+.kanban-bulk-mode .kanban-column-header .kanban-bulk-checkbox-wrap input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+}
+
+/* ── Mobile (≤768px) tweaks for activity-log + bulk-select ──
+   These rules live in this inline style block (rather than in
+   style.css) on purpose: the inline block is parsed *after*
+   style.css, so without these the desktop `.kanban-activity-panel`
+   /  `.kanban-bulk-toolbar` rules just above would override the
+   mobile media query. */
+@media (max-width: 768px) {
+    .kanban-activity-panel {
+        max-height: 50vh;
+        padding: 8px;
+    }
+    .kanban-bulk-toolbar {
+        padding: 8px 10px;
+        gap: 8px;
+    }
+    .kanban-bulk-summary {
+        flex: 1 1 100%;
+        font-size: 0.92rem;
+    }
+    .kanban-bulk-actions {
+        width: 100%;
+    }
+}
+</style>
+{% endblock %}

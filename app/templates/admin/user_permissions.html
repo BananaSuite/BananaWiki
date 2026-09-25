@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.user_permissions.title_short') }} | {{ target.username }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ t('admin.user_permissions.heading', user=target.username) }}</h1>
+</div>
+<p class="u-o70-mb15">
+    {{ t('admin.user_permissions.intro', user=target.username, role=role_label)|safe }}{# Configure detailed permissions for <strong>{user}</strong> ({role}). #}
+    {% if target.role == 'editor' %}
+    {{ t('admin.user_permissions.intro_editor') }}
+    {% else %}
+    {{ t('admin.user_permissions.intro_user') }}
+    {% endif %}
+</p>
+
+<form method="POST" id="permissionsForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <!-- Permission Categories -->
+    {% for category_key, category in permissions.items() %}
+    <div class="settings-section u-mb15">
+        <h3>{{ category.label }}</h3>
+        <div class="xs-793ad122">
+            {% for perm in category.permissions %}
+            {% set perm_key = perm[0] %}
+            {% set perm_label = perm[1] %}
+            {% set perm_desc = perm[2] %}
+            <label class="xs-c5f61a20">
+                <input class="xs-e3c59263" type="checkbox" name="permissions" value="{{ perm_key }}"
+                       {% if perm_key in enabled_permissions %}checked{% endif %}
+                       {% if perm_key == 'page.view_deindexed' %}
+                       data-perm-action="view-deindexed"
+                       {% elif perm_key.endswith('.edit_all') or perm_key.endswith('.create') or perm_key.endswith('.delete') %}
+                       data-perm-action="edit-perm"
+                       {% endif %}>
+                <div class="u-flex-1">
+                    <div class="xs-1e29eefb">{{ perm_label }}</div>
+                    <div class="xs-72eb6394">{{ perm_desc }}</div>
+                </div>
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+
+    <!-- Category Access Settings -->
+    <div class="settings-section u-mb15">
+        <h3>{{ t('admin.user_permissions.category_access') }}</h3>
+        <p class="xs-e8fa4c85">
+            {{ t('admin.user_permissions.category_access_intro', user=target.username) }}
+        </p>
+
+        <!-- Read Access -->
+        <div class="xs-a25a4a37">
+            <h4 class="u-mb08">{{ t('admin.custom_role_edit.read_access') }}</h4>
+            <div class="form-group">
+                <label class="u-flex-center-06-ptr">
+                    <input type="radio" name="read_restricted" value="0"
+                           id="read-unrestricted"
+                           {% if not read_restricted %}checked{% endif %}>
+                    <span>{{ t('admin.custom_role_edit.read_all')|safe }}{# <strong>All categories</strong>: can view pages in all categories #}</span>
+                </label>
+            </div>
+            <div class="form-group">
+                <label class="u-flex-center-06-ptr">
+                    <input type="radio" name="read_restricted" value="1"
+                           id="read-restricted"
+                           {% if read_restricted %}checked{% endif %}>
+                    <span>{{ t('admin.user_permissions.read_specific')|safe }}{# <strong>Specific categories only</strong>: can only view selected categories #}</span>
+                </label>
+            </div>
+
+            <div id="read-category-panel" class="u-mt1{% if not read_restricted %} u-disabled{% endif %}">
+                {% if all_categories %}
+                <div class="xs-78966148">
+                    {% for cat in all_categories %}
+                    <label class="u-flex-center-05-ptr u-fw-normal">
+                        <input type="checkbox" name="read_category_ids" value="{{ cat.id }}"
+                               {% if cat.id in read_allowed_categories %}checked{% endif %}>
+                        {{ cat.name }}
+                    </label>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="xs-a61a1f4c">{{ t('admin.custom_role_edit.no_categories') }}</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Write Access (only for editors) -->
+        {% if target.role == 'editor' %}
+        <div class="xs-75d6db1b">
+            <h4 class="u-mb08">{{ t('admin.custom_role_edit.write_access') }}</h4>
+            <div class="form-group">
+                <label class="u-flex-center-06-ptr">
+                    <input type="radio" name="write_restricted" value="0"
+                           id="write-unrestricted"
+                           {% if not write_restricted %}checked{% endif %}>
+                    <span>{{ t('admin.custom_role_edit.write_all')|safe }}{# <strong>All categories</strong>: can edit pages in all categories #}</span>
+                </label>
+            </div>
+            <div class="form-group">
+                <label class="u-flex-center-06-ptr">
+                    <input type="radio" name="write_restricted" value="1"
+                           id="write-restricted"
+                           {% if write_restricted %}checked{% endif %}>
+                    <span>{{ t('admin.user_permissions.write_specific')|safe }}{# <strong>Specific categories only</strong>: can only edit in selected categories #}</span>
+                </label>
+            </div>
+
+            <div id="write-category-panel" class="u-mt1{% if not write_restricted %} u-disabled{% endif %}">
+                {% if all_categories %}
+                <div class="xs-78966148">
+                    {% for cat in all_categories %}
+                    <label class="u-flex-center-05-ptr u-fw-normal">
+                        <input type="checkbox" name="write_category_ids" value="{{ cat.id }}"
+                               data-perm-action="write-cat"
+                               {% if cat.id in write_allowed_categories %}checked{% endif %}>
+                        {{ cat.name }}
+                    </label>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="xs-a61a1f4c">{{ t('admin.custom_role_edit.no_categories') }}</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn">{{ t('admin.user_permissions.save') }}</button>
+        <a href="{{ url_for('admin_users') }}" class="btn btn-outline">{{ t('common.cancel') }}</a>
+    </div>
+</form>
+
+<script nonce="{{ csp_nonce }}">
+function toggleReadCategoryPanel() {
+    var restricted = document.getElementById('read-restricted').checked;
+    var panel = document.getElementById('read-category-panel');
+    if (restricted) {
+        panel.style.opacity = '1';
+        panel.style.pointerEvents = 'auto';
+    } else {
+        panel.style.opacity = '.4';
+        panel.style.pointerEvents = 'none';
+    }
+}
+
+function toggleWriteCategoryPanel() {
+    var restricted = document.getElementById('write-restricted').checked;
+    var panel = document.getElementById('write-category-panel');
+    if (restricted) {
+        panel.style.opacity = '1';
+        panel.style.pointerEvents = 'auto';
+    } else {
+        panel.style.opacity = '.4';
+        panel.style.pointerEvents = 'none';
+    }
+}
+
+function syncWriteCategoryToRead(writeCheckbox) {
+    // This is intentionally one-way: removing write access should not clear
+    // separately granted read access.
+    if (!writeCheckbox.checked) {
+        return;
+    }
+
+    var readCheckboxes = document.querySelectorAll('input[name="read_category_ids"]');
+    for (var i = 0; i < readCheckboxes.length; i++) {
+        if (readCheckboxes[i].value === writeCheckbox.value) {
+            readCheckboxes[i].checked = true;
+            break;
+        }
+    }
+}
+
+function syncAllWriteCategoriesToRead() {
+    var writeCheckboxes = document.querySelectorAll('input[name="write_category_ids"]:checked');
+    for (var i = 0; i < writeCheckboxes.length; i++) {
+        syncWriteCategoryToRead(writeCheckboxes[i]);
+    }
+}
+
+// Auto-enable "View All Pages" when "View Deindexed Pages" is enabled
+function handleViewDeindexedChange(checkbox) {
+    if (checkbox.checked) {
+        var viewAllCheckbox = document.querySelector('input[value="page.view_all"]');
+        if (viewAllCheckbox) {
+            viewAllCheckbox.checked = true;
+        }
+    }
+}
+
+// Auto-enable view permission when edit permission is enabled
+function handleEditPermissionChange(checkbox) {
+    if (checkbox.checked) {
+        // For page.edit_all, enable page.view_all
+        if (checkbox.value === 'page.edit_all') {
+            var viewCheckbox = document.querySelector('input[value="page.view_all"]');
+            if (viewCheckbox) viewCheckbox.checked = true;
+        }
+        // For page.create, enable page.view_all
+        if (checkbox.value === 'page.create') {
+            var viewCheckbox = document.querySelector('input[value="page.view_all"]');
+            if (viewCheckbox) viewCheckbox.checked = true;
+        }
+    }
+}
+
+syncAllWriteCategoriesToRead();
+document.querySelectorAll('[data-perm-action="view-deindexed"]').forEach(function(cb) {
+    cb.addEventListener('change', function() { handleViewDeindexedChange(this); });
+});
+document.querySelectorAll('[data-perm-action="edit-perm"]').forEach(function(cb) {
+    cb.addEventListener('change', function() { handleEditPermissionChange(this); });
+});
+['read-unrestricted','read-restricted'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('change', toggleReadCategoryPanel);
+});
+['write-unrestricted','write-restricted'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('change', toggleWriteCategoryPanel);
+});
+document.querySelectorAll('[data-perm-action="write-cat"]').forEach(function(cb) {
+    cb.addEventListener('change', function() { syncWriteCategoryToRead(this); });
+});
+</script>
+{% endblock %}

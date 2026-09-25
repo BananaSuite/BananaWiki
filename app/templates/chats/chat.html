@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{{ t('chats.chat.title', user=other_user.username) }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+{% set message_word = t('chats.message') if message_state.message_count == 1 else t('chats.messages') %}
+{% set attachment_word = t('chats.attachment') if clear_attachment_count == 1 else t('chats.attachments') %}
+{% set clear_prompt = t('chats.clear_confirm', count=message_state.message_count, message_word=message_word, attachments=clear_attachment_count, attachment_word=attachment_word) %}
+<div class="chat-shell">
+<div class="chat-header">
+    <a href="{{ url_for('chat_list') }}" class="btn btn-sm btn-outline">{{ t('chats.back') }}</a>
+    <h1>{{ t('chats.chat.heading', user=other_user.username) }}</h1>
+    <div class="chat-header-actions">
+        <a href="{{ url_for('chat_export', chat_id=chat.id) }}" class="btn btn-sm btn-outline">{{ t('chats.export') }}</a>
+        <form method="POST" action="{{ url_for('chat_clear', chat_id=chat.id) }}" class="chat-toolbar-form" data-confirm="{{ clear_prompt }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline btn-danger-subtle">{{ t('chats.clear_chat') }}</button>
+        </form>
+    </div>
+</div>
+
+{% if show_cleanup_banner %}
+<div class="chat-status-banner js-dismissible-banner" data-dismiss-key="dm-cleanup-{{ chat.id }}">
+    <button type="button" class="btn chat-status-dismiss" aria-label="{{ t('chats.dismiss_cleanup_dm') }}">×</button>
+    <div>
+    <strong>{{ t('chats.auto_cleanup_runs', when=time_until_next_chat_cleanup()) }}</strong><br>
+    <small>{{ t('chats.last_cleanup', when=time_since_last_chat_cleanup()) }}</small>
+    </div>
+</div>
+{% endif %}
+
+<div class="chat-messages" id="chat-messages" data-chat-poll-url="{{ url_for('chat_messages_partial', chat_id=chat.id) }}"
+     data-latest-message-id="{{ message_state.latest_message_id }}" data-message-count="{{ message_state.message_count }}"
+     data-chat-state-token="{{ message_state.state_token }}"
+     data-chat-poll-interval="2500">
+    {% include "chats/_messages.html" %}
+</div>
+
+<form method="POST" action="{{ url_for('chat_send', chat_id=chat.id) }}" class="chat-input-form" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="chat-input-row">
+        <textarea name="content" class="input chat-input" placeholder="{{ t('chats.input_placeholder') }}" required rows="2" maxlength="{{ settings.chat_max_message_length or 5000 }}"></textarea>
+        <button type="submit" class="btn chat-send-btn">{{ t('chats.send') }}</button>
+    </div>
+    {% if not settings or settings.chat_attachments_enabled %}
+    <div class="chat-input-file">
+        <label class="btn btn-sm btn-outline">
+            {{ t('chats.attach_file') }}
+            <input class="u-d-none js-chat-file-input" type="file" name="attachment">
+            <span></span>
+        </label>
+        <small>{{ t('chats.attach_limits', mb=(settings.chat_max_attachment_size_mb or 5), per_day=(settings.chat_attachments_per_day_limit or 10)) }}</small>
+    </div>
+    {% endif %}
+</form>
+</div>
+{% endblock %}
+{% block scripts %}
+{% if not settings or settings.chat_attachments_enabled %}
+<script nonce="{{ csp_nonce }}">
+document.querySelectorAll('.js-chat-file-input').forEach(function(input) {
+    input.addEventListener('change', function() {
+        var span = this.closest('label').querySelector('span');
+        if (span) span.textContent = this.files[0] ? this.files[0].name : (window._t ? window._t('chats.attach_short') : 'Attach');
+    });
+});
+</script>
+{% endif %}
+{% endblock %}

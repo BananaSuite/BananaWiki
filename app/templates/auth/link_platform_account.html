@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="{{ current_language|default('en') }}" data-theme="{{ effective_theme_mode|default('dark') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Link Platform Account | {{ settings.site_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=asset_version|default('dev')) }}">
+    {% if settings.favicon_enabled %}
+      {% if settings.favicon_type == 'custom' and settings.favicon_custom %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/' + settings.favicon_custom) }}">
+      {% elif settings.favicon_type != 'custom' %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/banana_' + settings.favicon_type + '.png') }}">
+      {% endif %}
+    {% endif %}
+    <style nonce="{{ csp_nonce }}">:root{--primary:{{ theme_primary|default(settings.primary_color) }};--secondary:{{ theme_secondary|default(settings.secondary_color) }};--accent:{{ theme_accent|default(settings.accent_color) }};--text:{{ theme_text|default(settings.text_color) }};--sidebar:{{ theme_sidebar|default(settings.sidebar_color) }};--bg:{{ theme_bg|default(settings.bg_color) }}}</style>
+</head>
+<body class="u-flex-column u-min-vh-100">
+    {% include "auth/_topbar.html" %}
+    {% include "_announcements_bar.html" %}
+    <main class="auth-container" id="main-content" tabindex="-1">
+        <div class="auth-box">
+            <h1>{{ settings.site_name }}</h1>
+            <p class="subtitle">Platform Account Linking</p>
+            {% with messages = dedupe_flashed_messages(get_flashed_messages(with_categories=true)) %}
+            {% if messages %}
+            <div class="flash-messages">
+                {% for category, message in messages %}
+                <div class="flash flash-{{ category }}" role="alert">
+                    <span class="flash-message">{{ message }}</span>
+                    <button type="button" class="btn flash-close" aria-label="Dismiss">x</button>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            {% if already_linked %}
+            <div class="card" style="padding:1rem;margin-bottom:1rem;">
+                <p>Your wiki account is linked to the hosting platform account <strong>{{ linked_username }}</strong>.</p>
+                <p class="muted" style="font-size:0.9rem;">
+                    You can sign in using "Log in with Platform Account" on the login page.
+                </p>
+            </div>
+            <form method="POST" action="{{ url_for('platform_oauth_unlink_account') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="form-group">
+                    <label for="unlink-password">Confirm your password to unlink</label>
+                    <input type="password" id="unlink-password" name="password" class="input" required autocomplete="current-password">
+                </div>
+                <div class="form-actions">
+                    <a href="{{ url_for('settings') }}" class="btn btn-outline">Back to Settings</a>
+                    <button type="submit" class="btn btn-danger">Unlink Account</button>
+                </div>
+            </form>
+            {% else %}
+            <div class="card" style="padding:1rem;margin-bottom:1rem;">
+                <p>
+                    Link your wiki account to your hosting platform account so you can sign in
+                    using "Log in with Platform Account" on future visits.
+                </p>
+            </div>
+            <form method="POST" action="{{ url_for('platform_oauth_link_account') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="form-group">
+                    <label for="link-password">Confirm your wiki password to proceed</label>
+                    <input type="password" id="link-password" name="password" class="input" required autocomplete="current-password">
+                </div>
+                <div class="form-actions">
+                    <a href="{{ url_for('settings') }}" class="btn btn-outline">Back to Settings</a>
+                    <button type="submit" class="btn btn-primary">Link Platform Account</button>
+                </div>
+            </form>
+            {% endif %}
+        </div>
+    </main>
+    <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% include "_source_link.html" %}
+</body>
+</html>

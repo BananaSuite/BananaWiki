@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block title %}{{ t('kanban.list.title') }} | {{ settings.site_name }}{% endblock %}
+
+{% block content %}
+<div class="kanban-list-page">
+    <div class="page-header xs-f18de1cf" data-tour-id="kanban-page">
+        <h1 class="u-m0">{{ t('kanban.list.title') }}</h1>
+        {% if can_write %}
+        <div class="u-flex-gap08">
+            <button class="btn btn-outline js-open-modal" data-modal="import-board-modal">{{ t('kanban.list.import') }}</button>
+            <button class="btn btn-primary js-open-modal" data-modal="create-board-modal" data-tour-id="kanban-new-board">+ {{ t('kanban.list.new') }}</button>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if boards %}
+    <div class="kanban-boards-grid" id="kanban-board-list">
+        {% for board in boards %}
+        <div class="kanban-board-card-wrapper" draggable="{{ 'true' if can_write else 'false' }}" data-board-id="{{ board.id }}">
+            {% if can_write %}
+            <div class="kanban-board-drag-handle" title="Drag to reorder">⠿</div>
+            {% endif %}
+            <a href="{{ url_for('kanban_board', board_id=board.id) }}" class="kanban-board-card">
+                <div class="kanban-board-card-title">{{ board.title }}
+                    {% if board.visibility is defined and board.visibility == 'private' %}
+                    <span class="xs-4f557a14">{{ t('canvas.list.private') }}</span>
+                    {% elif board.visibility is defined and board.visibility == 'shared' %}
+                    <span class="xs-fc3c17e9">{{ t('canvas.list.shared') }}</span>
+                    {% endif %}
+                </div>
+                {% if board.description %}
+                <div class="kanban-board-card-desc">{{ board.description[:120] }}{% if board.description|length > 120 %}…{% endif %}</div>
+                {% endif %}
+                <div class="kanban-board-card-meta">
+                    <span>{{ board.creator_username }}</span>
+                    <span>·</span>
+                    <span>{{ t('kanban.list.created', when=time_ago(board.created_at)) }}</span>
+                </div>
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="xs-c849cda1">
+        <p class="u-fs-12">{{ t('kanban.list.empty') }}</p>
+        {% if can_write %}
+        <p>{{ t('kanban.list.empty_help') }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+{% if can_write %}
+<!-- Create Board Modal -->
+<div id="create-board-modal" class="kanban-modal-overlay u-d-none">
+    <div class="kanban-modal">
+        <div class="kanban-modal-header">
+            <h2 class="u-m0">{{ t('kanban.list.create_modal_title') }}</h2>
+            <button class="btn kanban-modal-close js-close-overlay">&times;</button>
+        </div>
+        <form method="POST" action="{{ url_for('kanban_create_board') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label>{{ t('kanban.list.board_title') }}</label>
+                <input type="text" name="title" class="input" maxlength="10000" required autofocus>
+            </div>
+            <div class="form-group">
+                <label>{{ t('common.description_optional') }}</label>
+                <textarea name="description" class="input" rows="3" maxlength="10000"></textarea>
+            </div>
+            <div class="u-flex-col-end-1">
+                <button type="button" class="btn btn-outline js-close-overlay">{{ t('common.cancel') }}</button>
+                <button type="submit" class="btn btn-primary">{{ t('kanban.list.create_submit') }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Import Board Modal -->
+<div id="import-board-modal" class="kanban-modal-overlay u-d-none">
+    <div class="kanban-modal">
+        <div class="kanban-modal-header">
+            <h2 class="u-m0">{{ t('kanban.list.import') }}</h2>
+            <button class="btn kanban-modal-close js-close-overlay">&times;</button>
+        </div>
+        <form method="POST" action="{{ url_for('kanban_import_board') }}" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label>{{ t('kanban.list.import_file_label') }}</label>
+                <input type="file" name="import_file" class="input" accept=".json,.zip,application/json,application/zip" required>
+            </div>
+            <div class="u-flex-col-end-1">
+                <button type="button" class="btn btn-outline js-close-overlay">{{ t('common.cancel') }}</button>
+                <button type="submit" class="btn btn-primary">{{ t('kanban.list.import_submit') }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+(function() {
+    // Modal handlers
+    document.querySelectorAll('.js-open-modal').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var m = document.getElementById(this.dataset.modal);
+            if (m) m.style.display = 'flex';
+        });
+    });
+    document.querySelectorAll('.js-close-overlay').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var o = this.closest('.kanban-modal-overlay');
+            if (o) o.style.display = 'none';
+        });
+    });
+    document.querySelectorAll('.kanban-modal-overlay').forEach(function(overlay) {
+        overlay.addEventListener('click', function(e) {
+            if (e.target === this) this.style.display = 'none';
+        });
+    });
+
+    // Drag-and-drop reordering
+    var listEl = document.getElementById('kanban-board-list');
+    if (!listEl) return;
+    var canWrite = {{ 'true' if can_write else 'false' }};
+    if (!canWrite) return;
+
+    var dragSrcEl = null;
+    var items = listEl.querySelectorAll('.kanban-board-card-wrapper[draggable="true"]');
+
+    function handleDragStart(e) {
+        dragSrcEl = this;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/html', this.innerHTML);
+        this.classList.add('kanban-board-dragging');
+    }
+
+    function handleDragOver(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        this.classList.add('kanban-board-drag-over');
+    }
+
+    function handleDragLeave(e) {
+        this.classList.remove('kanban-board-drag-over');
+    }
+
+    function handleDrop(e) {
+        e.stopPropagation();
+        e.preventDefault();
+        this.classList.remove('kanban-board-drag-over');
+        if (dragSrcEl && dragSrcEl !== this) {
+            var parent = listEl;
+            var children = Array.from(parent.querySelectorAll('.kanban-board-card-wrapper[draggable="true"]'));
+            var srcIdx = children.indexOf(dragSrcEl);
+            var dstIdx = children.indexOf(this);
+            if (srcIdx < dstIdx) {
+                parent.insertBefore(dragSrcEl, this.nextSibling);
+            } else {
+                parent.insertBefore(dragSrcEl, this);
+            }
+            saveOrder();
+        }
+        dragSrcEl = null;
+    }
+
+    function handleDragEnd(e) {
+        this.classList.remove('kanban-board-dragging');
+        items.forEach(function(el) { el.classList.remove('kanban-board-drag-over'); });
+    }
+
+    items.forEach(function(item) {
+        item.addEventListener('dragstart', handleDragStart, false);
+        item.addEventListener('dragover', handleDragOver, false);
+        item.addEventListener('dragleave', handleDragLeave, false);
+        item.addEventListener('drop', handleDrop, false);
+        item.addEventListener('dragend', handleDragEnd, false);
+    });
+
+    function saveOrder() {
+        var ordered = Array.from(listEl.querySelectorAll('.kanban-board-card-wrapper[draggable="true"]'));
+        var boardIds = ordered.map(function(el) { return parseInt(el.dataset.boardId, 10); });
+        fetch('/api/kanban/board-order', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({board_ids: boardIds})
+        }).catch(function(err) { console.error('Failed to save board order', err); });
+    }
+
+    // Real-time sync: poll list_order_version every 3s (only relevant in open-access mode)
+    var lastVersion = {{ list_order_version }};
+    {% if open_access %}
+    setInterval(function() {
+        fetch('/api/kanban/list-order-version')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.list_order_version !== lastVersion) {
+                    lastVersion = data.list_order_version;
+                    location.reload();
+                }
+            }).catch(function() {});
+    }, 3000);
+    {% endif %}
+    // Also check on tab focus
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) {
+            fetch('/api/kanban/list-order-version')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.list_order_version !== lastVersion) {
+                        lastVersion = data.list_order_version;
+                        location.reload();
+                    }
+                }).catch(function() {});
+        }
+    });
+})();
+</script>
+{% endblock %}

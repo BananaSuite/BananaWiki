@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ page.title or t('custom_page.code.fallback_title') }}{# Code #} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+{% if page.title %}<h1>{{ page.title }}</h1>{% endif %}
+{% if page.meta_description %}<p class="u-o70-mb1">{{ page.meta_description }}</p>{% endif %}
+
+{% if page.code_language %}
+<p class="xs-af142e89">{{ t('custom_page.code.language') }} <code>{{ page.code_language }}</code></p>
+{% endif %}
+
+<pre class="xs-5cd52bc8"><code>{{ page.content }}</code></pre>
+{% endblock %}

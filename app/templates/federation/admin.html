@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block title %}Federation | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>Paired wikis</h1>
+<p>This wiki's stable ID: <code>{{ wiki_id }}</code></p>
+<p><a href="{{ url_for('federation_index') }}">Received pages</a> · <a href="{{ url_for('federation_sharing') }}">Share local pages</a></p>
+<p>Both administrators must add the other wiki's ID and HTTPS origin, using the same newly generated pairing key. Exchange it privately. Pairing alone shares no pages.</p>
+<form method="post" class="card">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="form-group"><label for="peer-name">Peer name</label><input class="input" id="peer-name" name="name" required maxlength="100"></div>
+  <div class="form-group"><label for="peer-id">Other wiki's ID</label><input class="input" id="peer-id" name="wiki_id" required maxlength="36"></div>
+  <div class="form-group"><label for="peer-url">Other wiki's HTTPS origin</label><input class="input" id="peer-url" type="url" name="base_url" placeholder="https://wiki.example.org" required maxlength="512"></div>
+  <div class="form-group"><label for="peer-secret">Pairing key (copy for the other administrator)</label><input class="input" id="peer-secret" name="secret" value="{{ new_secret }}" required minlength="64" maxlength="64" autocomplete="off" spellcheck="false"></div>
+  <div class="form-group"><label for="peer-category">Who may read received copies?</label><select class="input" id="peer-category" name="category"><option value="">Administrators only</option>{% for category in categories %}<option value="{{ category.id }}">Readers of {{ category.name }}</option>{% endfor %}</select></div>
+  <button class="btn btn-primary" type="submit">Pair wiki</button>
+</form>
+{% for peer in peers %}
+<section class="card">
+  <h2>{{ peer.name }}</h2><p><code>{{ peer.wiki_id }}</code>: {{ peer.base_url }}</p>
+  <p>Received sequence: {{ peer.last_sequence }}. {% if peer.last_success %}Last success: {{ peer.last_success | int }} (Unix time).{% else %}No successful synchronization yet.{% endif %}</p>
+  {% if peer.last_error %}<p role="status">{{ peer.last_error }} Retry after {{ peer.next_attempt | int }} (Unix time).</p>{% endif %}
+  <form method="post" action="{{ url_for('federation_sync', remote_id=peer.wiki_id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Sync if due</button></form>
+  <form method="post" action="{{ url_for('federation_delete', remote_id=peer.wiki_id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-danger" type="submit">Disconnect and delete local copies</button></form>
+</section>
+{% endfor %}
+<p>To rotate a key or change a peer's origin/audience, disconnect and pair again on both sides. The remote administrator may retain previously received content.</p>
+{% endblock %}

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="{{ current_language|default('en') }}" data-theme="{{ effective_theme_mode|default('dark') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ t('auth.account_suspended.title', default='Account Limited') }} | {{ settings.site_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=asset_version|default('dev')) }}">
+    {% if settings.favicon_enabled %}
+      {% if settings.favicon_type == 'custom' and settings.favicon_custom %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/' + settings.favicon_custom) }}">
+      {% elif settings.favicon_type != 'custom' %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/banana_' + settings.favicon_type + '.png') }}">
+      {% endif %}
+    {% endif %}
+    <style nonce="{{ csp_nonce }}">:root{--primary:{{ theme_primary|default(settings.primary_color) }};--secondary:{{ theme_secondary|default(settings.secondary_color) }};--accent:{{ theme_accent|default(settings.accent_color) }};--text:{{ theme_text|default(settings.text_color) }};--sidebar:{{ theme_sidebar|default(settings.sidebar_color) }};--bg:{{ theme_bg|default(settings.bg_color) }}}
+    .suspended-details{background:var(--secondary,#1e1e2c);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:1.25rem 1.5rem;margin:1rem 0;text-align:left}
+    .suspended-details dt{font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--color-muted,#888);margin-bottom:.25rem}
+    .suspended-details dd{margin:0 0 1rem;color:var(--text,#c8ccd8);font-size:.95rem;word-break:break-word}
+    .suspended-details dd:last-child{margin-bottom:0}
+    .suspended-delete{border-top:1px solid rgba(255,255,255,.08);margin-top:1.5rem;padding-top:1.5rem;text-align:left}
+    </style>
+</head>
+<body class="u-flex-column u-min-vh-100">
+    {% include "auth/_topbar.html" %}
+    {% include "_announcements_bar.html" %}
+    <main class="auth-container" id="main-content" tabindex="-1">
+        <div class="auth-box">
+            <h1>{{ settings.site_name }}</h1>
+            {% with messages = dedupe_flashed_messages(get_flashed_messages(with_categories=true)) %}
+            {% if messages %}
+            <div class="flash-messages">
+                {% for category, message in messages %}
+                <div class="flash flash-{{ category }}" role="alert">
+                    <span class="flash-message">{{ message }}</span>
+                    <button type="button" class="btn flash-close" aria-label="{{ t('common.dismiss_message') }}">x</button>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+            <div class="u-mt1 u-mb1" style="text-align:center;font-size:3rem;">
+                <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent,#7e9ada);display:inline-block;vertical-align:middle;">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+            </div>
+            <h2 style="text-align:center;">{{ t('auth.account_suspended.heading', default='There is an issue with your account') }}</h2>
+            <p style="text-align:center;color:var(--color-muted);">
+                {{ t('auth.account_suspended.message', default='Your account has been temporarily limited. Please review the details below.') }}
+            </p>
+
+            {% if reason or suspended_until or is_permanent %}
+            <dl class="suspended-details">
+                {% if reason %}
+                <dt>{{ t('auth.account_suspended.reason_label', default='Reason') }}</dt>
+                <dd>{{ reason }}</dd>
+                {% endif %}
+                {% if suspended_until %}
+                <dt>{{ t('auth.account_suspended.expiry_label', default='Access will be restored') }}</dt>
+                <dd>{{ suspended_until }}</dd>
+                {% elif is_permanent %}
+                <dt>{{ t('auth.account_suspended.duration_label', default='Duration') }}</dt>
+                <dd>{{ t('auth.account_suspended.permanent', default='This limitation is permanent.') }}</dd>
+                {% endif %}
+            </dl>
+            {% endif %}
+
+            <p style="text-align:center;color:var(--color-muted);font-size:.9rem;">
+                {{ t('auth.account_suspended.contact_admin', default='If you believe this is a mistake, please contact a site administrator.') }}
+            </p>
+
+            {% if can_delete_account %}
+            <div class="suspended-delete">
+                <h3>{{ t('account.settings.delete_account') }}</h3>
+                <p class="u-label-note-rev">{{ t('account.settings.delete_account_warning') }}</p>
+                <form method="POST" action="{{ url_for('suspended_delete_account') }}" data-confirm="{{ t('account.settings.delete_account_confirm') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="form-group">
+                        <label>{{ t('account.settings.enter_password_confirm') }}</label>
+                        <input type="password" name="password" class="input" maxlength="1024" required autocomplete="current-password">
+                    </div>
+                    <button type="submit" class="btn btn-danger">{{ t('account.settings.delete_my_account') }}</button>
+                </form>
+            </div>
+            {% endif %}
+
+            <div class="auth-link u-mt1">
+                <form method="POST" action="{{ url_for('logout') }}" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-outline">{{ t('auth.logout') }}</button>
+                </form>
+            </div>
+        </div>
+    </main>
+    <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script nonce="{{ csp_nonce }}">
+    document.querySelectorAll('form[method="POST"], form[method="post"]').forEach(function(form) {
+        if (!form.querySelector('input[name="csrf_token"]')) {
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'csrf_token';
+            input.value = getCsrfToken();
+            form.appendChild(input);
+        }
+    });
+    </script>
+{% include "_source_link.html" %}
+</body>
+</html>

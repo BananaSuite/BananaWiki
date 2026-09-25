@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ plugin.name }} | {{ t('admin.plugins.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('admin.plugins.delete_plugin_title', name=plugin.name) }}</h1>
+
+<p><a href="{{ url_for('admin_plugins') }}">{{ t('admin.plugin_detail.back') }}</a></p>
+
+<div class="settings-section" style="border-color: #e74c3c;">
+    {% if dependent_plugins %}
+    <h3>{{ t('admin.plugins.dependent_plugins_found') }}</h3>
+    <p>{{ t('admin.plugins.delete_dep_intro', name=plugin.name) }}</p>
+
+    <ul>
+    {% for eid, e_name in dependent_plugins %}
+        <li><strong>{{ e_name }}</strong> (<code>{{ eid }}</code>)</li>
+    {% endfor %}
+    </ul>
+
+    <p>{{ t('admin.plugins.delete_dep_extra') }}</p>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('admin_delete_plugin', plugin_id=plugin.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="confirm_delete_extended" value="1">
+        {% if not plugin.builtin %}
+        <p>{{ t('admin.plugins.delete_external_intro', default="Deleting removes the plugin's files and its entry in this list. Its pages stop answering at once, but code it has already run stays in memory until the wiki restarts. Restart the wiki before installing another version of the same plugin.") }}</p>
+
+        {# Dropping data is a separate choice, off unless ticked, and only the
+           tables listed here can be dropped: the server drops the ones that
+           are both listed and still belong to this plugin. #}
+        {% if data_tables %}
+        <div class="form-group">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="drop_data" value="1">
+                <span>{{ t('admin.plugins.drop_data_label', default="Also delete the plugin's data") }}</span>
+            </label>
+            <p class="xs-ba62232d">{{ t('admin.plugins.drop_data_tables', default='Only these tables are deleted, and only if the box is ticked. A copy of the database is saved first, and they can be recovered only from that copy or a backup:') }}</p>
+            <ul>
+            {% for table in data_tables %}
+                <li><code>{{ table }}</code><input type="hidden" name="data_table" value="{{ table }}"></li>
+            {% endfor %}
+            </ul>
+        </div>
+        {% else %}
+        <p class="xs-ba62232d">{{ t('admin.plugins.drop_data_none', default='This plugin has no database tables of its own, so there is no data to delete.') }}</p>
+        {% endif %}
+
+        <div class="form-group">
+            <label for="plugin-delete-password">{{ t('account.settings.confirm_password') }}</label>
+            <input type="password" id="plugin-delete-password" name="password" class="input u-mw340"
+                   required maxlength="1024" autocomplete="current-password" autofocus>
+        </div>
+        {% endif %}
+
+        <div class="xs-7a538e3d" style="margin-top: 1rem;">
+            <button type="submit" class="btn btn-danger">
+                {% if dependent_plugins %}{{ t('admin.plugins.delete_anyway') }}{% else %}{{ t('admin.plugin_detail.delete_label') }}{% endif %}
+            </button>
+            <a href="{{ url_for('admin_plugins') }}" class="btn btn-outline">{{ t('common.cancel') }}</a>
+        </div>
+    </form>
+</div>
+
+{% endblock %}

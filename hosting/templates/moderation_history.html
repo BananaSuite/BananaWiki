@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Moderation history{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('hosting_admin') }}">Back to platform administration</a></p>
+<h1>Moderation history</h1>
+<p>Account decisions and custom domain changes, newest first. Suspension details remain available on the account and instance management pages.</p>
+<div style="overflow-x:auto">
+<table class="table">
+  <thead><tr><th>Time (UTC)</th><th>Subject</th><th>Action</th><th>Administrator</th><th>Reason or domain</th></tr></thead>
+  <tbody>
+  {% for event in events %}
+    <tr><td>{{ event.created_at[:19] }}</td><td>{{ event.subject_type }} {{ event.subject_id }}</td><td>{{ event.action }}</td><td>{{ event.actor_name or event.actor_id or 'System' }}</td><td>{{ event.reason }}</td></tr>
+  {% else %}
+    <tr><td colspan="5">No decisions have been recorded.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

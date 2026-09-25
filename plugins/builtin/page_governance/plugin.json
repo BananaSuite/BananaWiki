@@ -1,0 +1,9 @@
+{
+    "id": "page_governance",
+    "name": "Page Governance",
+    "version": "1.0.0",
+    "author": "BananaWiki",
+    "description": "Editorial governance bundle: page reservations (check-out for exclusive editing), page protection (editor-locked pages with admin unlock delay), and contribution approval (proposed edits from read-only users).",
+    "builtin": true,
+    "bananawiki_api_version": "1.0"
+}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ plugin.name }} | {{ t('admin.plugins.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('admin.plugins.enable_plugin_title', name=plugin.name) }}</h1>
+
+<p><a href="{{ url_for('admin_plugins') }}">{{ t('admin.plugin_detail.back') }}</a></p>
+
+<div class="settings-section" style="border-color: #e67e22;">
+    <h3>{{ t('admin.plugins.dependencies_required') }}</h3>
+    <p>{{ t('admin.plugins.enable_dep_intro', name=plugin.name) }}</p>
+
+    <ul>
+    {% for dep_id, dep_name in missing_deps %}
+        <li><strong>{{ dep_name }}</strong> (<code>{{ dep_id }}</code>)</li>
+    {% endfor %}
+    </ul>
+
+    <div class="xs-7a538e3d" style="margin-top: 1rem;">
+        <form method="POST" action="{{ url_for('admin_enable_plugin', plugin_id=plugin.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="enable_deps" value="1">
+            <button type="submit" class="btn">{{ t('admin.plugins.enable_with_deps') }}</button>
+        </form>
+
+        <form method="POST" action="{{ url_for('admin_enable_plugin', plugin_id=plugin.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="force" value="1">
+            <button type="submit" class="btn btn-outline">{{ t('admin.plugins.enable_anyway') }}</button>
+        </form>
+
+        <a href="{{ url_for('admin_plugins') }}" class="btn btn-outline">{{ t('common.cancel') }}</a>
+    </div>
+</div>
+
+{% endblock %}

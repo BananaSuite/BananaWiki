@@ -1,0 +1,194 @@
+{% set setup_settings = settings or {} %}
+{% set etm = effective_theme_mode|default('dark') %}
+<!DOCTYPE html>
+<html lang="{{ current_language|default('en') }}" data-theme="{{ etm }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ t('auth.setup.title') }} | {{ setup_settings.get('site_name', 'BananaWiki') }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=asset_version|default('dev')) }}">
+    {% if setup_settings.get('favicon_enabled') %}
+      {% if setup_settings.get('favicon_type') == 'custom' and setup_settings.get('favicon_custom') %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/' + setup_settings.get('favicon_custom')) }}">
+      {% elif setup_settings.get('favicon_type') != 'custom' %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/banana_' + setup_settings.get('favicon_type', 'yellow') + '.png') }}">
+      {% endif %}
+    {% endif %}
+    <style nonce="{{ csp_nonce }}">:root{--primary:{{ theme_primary|default(setup_settings.get('light_primary_color') if etm == 'light' else setup_settings.get('primary_color', '#8fa0d4')) }};--secondary:{{ theme_secondary|default(setup_settings.get('light_secondary_color') if etm == 'light' else setup_settings.get('secondary_color', '#1e1e2c')) }};--accent:{{ theme_accent|default(setup_settings.get('light_accent_color') if etm == 'light' else setup_settings.get('accent_color', '#7e9ada')) }};--text:{{ theme_text|default(setup_settings.get('light_text_color') if etm == 'light' else setup_settings.get('text_color', '#c8ccd8')) }};--sidebar:{{ theme_sidebar|default(setup_settings.get('light_sidebar_color') if etm == 'light' else setup_settings.get('sidebar_color', '#1a1a24')) }};--bg:{{ theme_bg|default(setup_settings.get('light_bg_color') if etm == 'light' else setup_settings.get('bg_color', '#16161f')) }}}</style>
+</head>
+<body class="u-flex-column u-min-vh-100">
+    {% with auth_site_name = setup_settings.get('site_name', 'BananaWiki') %}{% include "auth/_topbar.html" %}{% endwith %}
+    <main class="auth-container" id="main-content" tabindex="-1">
+        <div class="auth-box">
+            <h1>{{ setup_settings.get('site_name', 'BananaWiki') }} {{ t('auth.setup.heading_suffix') }}</h1>
+            <p class="subtitle">{{ t('auth.setup.subtitle') }}</p>
+            {% with messages = dedupe_flashed_messages(get_flashed_messages(with_categories=true)) %}
+            {% if messages %}
+            <div class="flash-messages">
+                {% for category, message in messages %}
+                <div class="flash flash-{{ category }}" role="alert">
+                    <span class="flash-message">{{ message }}</span>
+                    <button type="button" class="btn flash-close" aria-label="{{ t('common.dismiss_message') }}">x</button>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+            <form method="POST">
+      {% if not setup_authorized() %}
+      <div class="form-group">
+        <label for="setup_token">Installation token</label>
+        <input id="setup_token" type="password" name="setup_token" class="input" autocomplete="off" required>
+        <small class="u-hint">Use the token from the installation command.</small>
+      </div>
+      {% endif %}
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <!-- Bot protection: timing token -->
+                <input type="hidden" name="_form_time" value="{{ bot_form_token }}">
+                <!-- Bot protection: honeypot (hidden from real users via CSS) -->
+                <div style="display:none!important;position:absolute;left:-9999px" aria-hidden="true" tabindex="-1">
+                    <label for="setup-website">{{ t('auth.honeypot.website') }}</label>
+                    <input type="text" id="setup-website" name="website" value="" autocomplete="off" tabindex="-1">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="auth.setup.interface_language">{{ t('auth.setup.interface_language') }}</label>
+                    <div class="setup-language-flags" role="radiogroup" aria-label="{{ t('auth.setup.interface_language') }}">
+                        {% for code, label in setup_interface_languages.items() %}
+                        {% set selected_lang = selected_setup_language|default(current_language|default('en')) %}
+                        <label class="setup-language-option">
+                            <input class="setup-language-radio" type="radio" name="interface_language" value="{{ code }}"{% if selected_lang == code %} checked{% endif %}>
+                            <span class="setup-language-card">
+                                <span class="setup-language-flag" aria-hidden="true">{{ code|upper }}</span>
+                                <span class="setup-language-label">{{ label }}</span>
+                            </span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    <small class="u-hint" data-i18n="auth.setup.interface_language_hint">
+                        {{ t('auth.setup.interface_language_hint') }}
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label data-i18n="auth.username">{{ t('auth.username') }}</label>
+                    <input type="text" name="username" class="input" required minlength="3" autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="auth.password">{{ t('auth.password') }}</label>
+                    <input type="password" name="password" class="input" required minlength="8" maxlength="1024" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="auth.signup.confirm_password">{{ t('auth.signup.confirm_password') }}</label>
+                    <input type="password" name="confirm_password" class="input" required minlength="8" maxlength="1024" autocomplete="new-password">
+                </div>
+                <div class="form-group u-mt1">
+                    <label class="u-flex-center-05-ptr u-fw-normal">
+                        <input type="checkbox" name="spawn_docs" value="1">
+                        <span data-i18n="auth.setup.spawn_docs">{{ t('auth.setup.spawn_docs') }}</span>
+                    </label>
+                    <small class="u-hint" data-i18n="auth.setup.spawn_docs_hint">
+                        {{ t('auth.setup.spawn_docs_hint')|safe }}
+                    </small>
+                </div>
+                <div class="form-group xs-1bb6baa3" id="docs-language-group">
+                    <label data-i18n="auth.setup.docs_language">{{ t('auth.setup.docs_language') }}</label>
+                    <select name="docs_language" class="input">
+                        {% for code, label in setup_docs_languages.items() %}
+                        <option value="{{ code }}"{% if selected_docs_language|default(selected_setup_language|default(current_language|default('en'))) == code %} selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <small class="u-hint" data-i18n="auth.setup.docs_language_hint">
+                        {{ t('auth.setup.docs_language_hint') }}
+                    </small>
+                </div>
+                <div class="form-group xs-1bb6baa3" id="simplified-docs-group">
+                    <label class="u-flex-center-05-ptr u-fw-normal">
+                        <input type="checkbox" name="simplified_docs" value="1" disabled>
+                        <span data-i18n="auth.setup.simplified_docs">{{ t('auth.setup.simplified_docs') }}</span>
+                    </label>
+                    <small class="u-hint" data-i18n="auth.setup.simplified_docs_hint">
+                        {{ t('auth.setup.simplified_docs_hint') }}
+                    </small>
+                </div>
+                <button type="submit" class="btn" data-i18n="auth.setup.submit">{{ t('auth.setup.submit') }}</button>
+            </form>
+        </div>
+    </main>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script nonce="{{ csp_nonce }}">
+(function() {
+    var spawnCheck = document.querySelector('input[name="spawn_docs"]');
+    var simpGroup = document.getElementById('simplified-docs-group');
+    var simpCheck = document.querySelector('input[name="simplified_docs"]');
+    var docsLangGroup = document.getElementById('docs-language-group');
+    var docsLangSelect = document.querySelector('select[name="docs_language"]');
+    var interfaceLangInputs = document.querySelectorAll('input[name="interface_language"]');
+    var docsLangTouched = false;
+
+    function syncSimplifiedDocsState() {
+        if (!spawnCheck || !simpGroup || !simpCheck) return;
+        var enabled = !!spawnCheck.checked;
+        simpGroup.style.display = enabled ? 'block' : 'none';
+        simpCheck.disabled = !enabled;
+        if (docsLangGroup && docsLangSelect) {
+            docsLangGroup.style.display = enabled ? 'block' : 'none';
+            docsLangSelect.disabled = !enabled;
+        }
+    }
+
+    function getInterfaceLanguageValue() {
+        for (var i = 0; i < interfaceLangInputs.length; i += 1) {
+            if (interfaceLangInputs[i].checked) return interfaceLangInputs[i].value;
+        }
+        return '';
+    }
+
+    function syncDocsLanguageFromInterface() {
+        if (!interfaceLangInputs.length || !docsLangSelect || docsLangTouched) return;
+        var selectedInterfaceLanguage = getInterfaceLanguageValue();
+        var option = docsLangSelect.querySelector('option[value="' + selectedInterfaceLanguage + '"]');
+        if (option) {
+            docsLangSelect.value = selectedInterfaceLanguage;
+        }
+    }
+
+    function switchSetupLanguage(lang) {
+        fetch('/api/translations/' + encodeURIComponent(lang), {
+            headers: { 'Accept': 'application/json' }
+        }).then(function(r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        }).then(function(data) {
+            var translations = data.translations || {};
+            document.querySelectorAll('[data-i18n]').forEach(function(el) {
+                var key = el.getAttribute('data-i18n');
+                if (key && translations[key]) {
+                    el.textContent = translations[key];
+                }
+            });
+            document.documentElement.lang = lang;
+        }).catch(function() {});
+    }
+
+    if (spawnCheck && simpGroup && simpCheck) {
+        syncSimplifiedDocsState();
+        syncDocsLanguageFromInterface();
+        spawnCheck.addEventListener('change', syncSimplifiedDocsState);
+    }
+    if (docsLangSelect) {
+        docsLangSelect.addEventListener('change', function() {
+            docsLangTouched = true;
+        });
+    }
+    if (interfaceLangInputs.length) {
+        for (var i = 0; i < interfaceLangInputs.length; i += 1) {
+            interfaceLangInputs[i].addEventListener('change', function() {
+                syncDocsLanguageFromInterface();
+                switchSetupLanguage(this.value);
+            });
+        }
+    }
+})();
+</script>
+{% include "_source_link.html" %}
+</body>
+</html>

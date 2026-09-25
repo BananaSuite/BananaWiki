@@ -1,0 +1,475 @@
+{% extends "base.html" %}
+{% block title %}{{ t('account.settings.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('account.settings.title') }}</h1>
+
+<div class="settings-section" data-tour-id="personal-settings-panel">
+    <h3>{{ t('account.settings.status') }}</h3>
+    <p>{{ t('account.settings.role_label') }} <span class="badge badge-{{ user.role }}">{{ user.role }}</span>{% if user.is_superuser %} <span class="badge" title="{{ t('account.settings.superuser_tooltip') }}">★ {{ t('account.settings.superuser') }}</span>{% endif %}</p>
+    <p class="xs-cae6c07f">{{ t('account.settings.member_since', when=time_ago(user.created_at)) }}</p>
+    {% if user.suspended %}
+    <div class="flash flash-error u-mb1">
+        {{ t('account.settings.your_account_is_suspended') }}
+        {% if user.role in ('admin', 'owner') %}
+        <form class="u-d-inline" method="POST" action="{{ url_for('user_settings') }}" style="margin-left:.5rem">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="self_unsuspend">
+            <button type="submit" class="btn btn-sm btn-outline" data-confirm="{{ t('account.settings.reactivate_own_account_confirm') }}">{{ t('account.settings.reactivate_own_account') }}</button>
+        </form>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if user_expiry and (user_expiry.show_countdown or user.role in ('admin', 'owner')) %}
+    <div class="xs-4103868b">
+        ⏳ <strong>{{ t('account.settings.scheduled_deletion') }}</strong>: {{ format_datetime(user_expiry.expires_at) }}
+        {% if not user_expiry.show_countdown and user.role in ('admin', 'owner') %}
+        <small class="u-o60">{{ t('account.settings.hidden_countdown') }}</small>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if role_expiry and (role_expiry.show_countdown or user.role in ('admin', 'owner')) %}
+    <div class="xs-30904ee3">
+        ⏳ <strong>{{ t('account.settings.role_reverts', role=role_expiry.original_role) }}</strong>: {{ format_datetime(role_expiry.expires_at) }}
+        {% if not role_expiry.show_countdown and user.role in ('admin', 'owner') %}
+        <small class="u-o60">{{ t('account.settings.hidden_countdown') }}</small>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if not settings.get('onboarding_replay_disabled', 0) %}
+    <div class="form-actions u-mt08">
+        <a class="btn btn-outline btn-sm" href="{{ url_for('onboarding_intro') }}">Retake guided tour</a>
+        {% if user.role in ('admin', 'owner') %}
+        <a class="btn btn-outline btn-sm" href="{{ url_for('onboarding_setup') }}">Run setup again</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<div class="settings-section" id="active-sessions">
+    <div class="session-section-header">
+        <div>
+            <h3>{{ t('account.settings.active_sessions') }}</h3>
+            <p class="session-section-copy">{{ t('account.settings.active_sessions_help') }}</p>
+        </div>
+        {% if active_sessions %}<span class="session-count">{{ active_sessions|length }}</span>{% endif %}
+    </div>
+    {% if active_sessions %}
+    <div class="session-list">
+        {% for login_session in active_sessions %}
+        <div class="session-card{% if login_session.is_current %} is-current{% endif %}">
+            <div class="session-card-main">
+                <div class="session-card-heading">
+                    <strong>{{ login_session.device_label }}</strong>
+                    {% if login_session.is_current %}<span class="session-badge session-badge-current">{{ t('account.settings.current_session') }}</span>{% endif %}
+                    {% if login_session.remember_me %}<span class="session-badge">{{ t('account.settings.remembered_session') }}</span>{% endif %}
+                </div>
+                <div class="session-meta">
+                    <span>{{ t('account.settings.last_active', when=time_ago(login_session.last_seen_at)) }}</span>
+                    <span>{{ t('account.settings.signed_in', when=format_datetime(login_session.created_at)) }}</span>
+                    {% if login_session.last_ip %}<span>{{ t('account.settings.ip_address', address=login_session.last_ip) }}</span>{% endif %}
+                    <span>{{ t('account.settings.auth_method', method=login_session.auth_method|replace('_', ' ')|title) }}</span>
+                </div>
+            </div>
+            <form class="session-card-action" method="POST" action="{{ url_for('revoke_active_session', session_id=login_session.id) }}" data-confirm="{{ t('account.settings.revoke_session_confirm') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline">{{ t('account.settings.revoke_session') }}</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    <form class="session-footer-action" method="POST" action="{{ url_for('logout_all_active_sessions') }}" data-confirm="{{ t('account.settings.logout_everywhere_confirm') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-danger">{{ t('account.settings.logout_everywhere') }}</button>
+    </form>
+    {% else %}
+    <p class="session-empty">{{ t('account.settings.no_active_sessions') }}</p>
+    {% endif %}
+</div>
+
+<div class="settings-section" id="session-history">
+    <div class="session-section-header">
+        <div>
+            <h3>{{ t('account.settings.session_history') }}</h3>
+            <p class="session-section-copy">{{ t('account.settings.session_history_help') }}</p>
+        </div>
+        {% if session_history %}
+        <form method="POST" action="{{ url_for('clear_session_history') }}" data-confirm="{{ t('account.settings.clear_session_history_confirm') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline">{{ t('account.settings.clear_session_history') }}</button>
+        </form>
+        {% endif %}
+    </div>
+    {% if session_history %}
+    <div class="session-list session-history-list">
+        {% for login_session in session_history %}
+        <div class="session-card is-history">
+            <div class="session-card-main">
+                <div class="session-card-heading">
+                    <strong>{{ login_session.device_label }}</strong>
+                    <span class="session-badge session-badge-{{ login_session.status }}">{% if login_session.status == 'ended' %}{{ t('account.settings.session_status_ended') }}{% else %}{{ t('account.settings.session_status_expired') }}{% endif %}</span>
+                </div>
+                <div class="session-meta">
+                    <span>{{ t('account.settings.signed_in', when=format_datetime(login_session.created_at)) }}</span>
+                    <span>{{ t('account.settings.session_ended', when=format_datetime(login_session.ended_at)) }}</span>
+                    {% if login_session.last_ip %}<span>{{ t('account.settings.ip_address', address=login_session.last_ip) }}</span>{% endif %}
+                    <span>{{ t('account.settings.auth_method', method=login_session.auth_method|replace('_', ' ')|title) }}</span>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="session-empty">{{ t('account.settings.no_session_history') }}</p>
+    {% endif %}
+</div>
+
+{% if not user.is_superuser %}
+<div class="settings-section">
+    <div class="u-flex-center-05 u-jc-between u-mb08">
+        <h3 class="u-m0">{{ t('account.settings.change_username') }}</h3>
+    </div>
+    <form method="POST" id="changeUsernameForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="change_username">
+        <div class="form-group">
+            <label>{{ t('account.settings.new_username') }}</label>
+            <input type="text" name="new_username" class="input" value="{{ user.username }}" required minlength="3">
+        </div>
+        <div class="form-group">
+            <label>{{ t('account.settings.current_password') }}</label>
+            <input type="password" name="password" class="input" required autocomplete="current-password">
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn">{{ t('account.settings.update_username') }}</button>
+        </div>
+    </form>
+</div>
+
+<div class="settings-section">
+    <div class="u-flex-center-05 u-jc-between u-mb08">
+        <h3 class="u-m0">{{ t('account.settings.change_password') }}</h3>
+    </div>
+    <form method="POST" id="changePasswordForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="change_password">
+        <div class="form-group">
+            <label>{{ t('account.settings.current_password') }}</label>
+            <input type="password" name="current_password" class="input" required autocomplete="current-password">
+        </div>
+        <div class="form-group">
+            <label>{{ t('account.settings.new_password') }}</label>
+            <input type="password" name="new_password" class="input" required minlength="8" maxlength="1024" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+            <label>{{ t('account.settings.confirm_new_password') }}</label>
+            <input type="password" name="confirm_password" class="input" required minlength="8" maxlength="1024" autocomplete="new-password">
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn">{{ t('account.settings.update_password') }}</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+{% if current_user.role in ('admin', 'owner') %}
+<div class="settings-section">
+    <div class="u-flex-center-05 u-jc-between u-mb08">
+        <h3 class="u-m0">{{ t('account.settings.owner_status') }}</h3>
+    </div>
+    <p class="u-label-note-rev">{% if current_user.role == 'owner' %}{{ t('account.settings.owner_status_on')|safe }}{% else %}{{ t('account.settings.owner_status_off')|safe }}{% endif %}</p>
+
+    <form method="POST" id="toggleOwnerForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="toggle_owner">
+        <div class="form-group">
+            <label>{{ t('account.settings.confirm_password') }}</label>
+            <input type="password" name="password" class="input" required autocomplete="current-password">
+        </div>
+        <div class="form-actions">
+            {% if current_user.role == 'owner' %}
+            <button type="submit" class="btn">{{ t('account.settings.demote_to_admin') }}</button>
+            {% else %}
+            <button type="submit" class="btn">{{ t('account.settings.become_owner') }}</button>
+            {% endif %}
+        </div>
+    </form>
+</div>
+{% endif %}
+
+{% if current_user.role in ('admin', 'owner') %}
+<div class="settings-section">
+    <h3>{{ t('account.settings.admin_ops') }}</h3>
+    <div class="xs-7a538e3d">
+        <a href="{{ url_for('admin_users') }}" class="btn btn-outline">{{ t('account.settings.op.manage_users') }}{% if pending_quota_count and pending_quota_count > 0 %} <span class="unread-badge">{{ pending_quota_count }}</span>{% endif %}</a>
+        <a href="{{ url_for('admin_settings') }}" class="btn btn-outline">{{ t('account.settings.op.site_settings') }}</a>
+        <a href="{{ url_for('admin_codes') }}" class="btn btn-outline">{{ t('account.settings.op.invite_codes') }}</a>
+        {% if enabled_plugins.announcements %}<a href="{{ url_for('admin_announcements') }}" class="btn btn-outline">{{ t('account.settings.op.announcements') }}</a>{% endif %}
+        {% if enabled_plugins.badges %}<a href="{{ url_for('admin_badges') }}" class="btn btn-outline">{{ t('account.settings.op.badges') }}</a>{% endif %}
+        {% if enabled_plugins.chat %}<a href="{{ url_for('admin_chats') }}" class="btn btn-outline">{{ t('account.settings.op.chat_monitor') }}</a>{% endif %}
+        {% if enabled_plugins.api_service and has_endpoint('admin_api_service') %}<a href="{{ url_for('admin_api_service') }}" class="btn btn-outline">{{ t('account.settings.api_service') }}</a>{% endif %}
+        {% if enabled_plugins.chat %}<a href="{{ url_for('admin_groups') }}" class="btn btn-outline">{{ t('account.settings.op.group_monitor') }}</a>{% endif %}
+        {% if enabled_plugins.page_governance and settings.page_reservations_enabled %}<a href="{{ url_for('admin_checkouts') }}" class="btn btn-outline">{{ t('account.settings.op.checkouts') }}</a>{% endif %}
+        {% if enabled_plugins.temporary_accounts %}<a href="{{ url_for('admin_temporary') }}" class="btn btn-outline">{{ t('account.settings.op.temporary_items') }}</a>{% endif %}
+        {% if enabled_plugins.deletion_slowdown %}<a href="{{ url_for('admin_pending_deletions') }}" class="btn btn-outline">{{ t('account.settings.op.pending_deletions') }}</a>{% endif %}
+        {% if settings.contribution_approval_enabled %}<a href="{{ url_for('admin_contributions') }}" class="btn btn-outline">{{ t('account.settings.op.contributions') }}</a>{% endif %}
+        <a href="{{ url_for('admin_plugins') }}" class="btn btn-outline">{{ t('account.settings.op.plugins') }}</a>
+        {% if enabled_plugins.custom_pages %}<a href="{{ url_for('admin_custom_pages') }}" class="btn btn-outline">{{ t('account.settings.op.custom_pages') }}</a>{% endif %}
+        <a href="{{ url_for('admin_migration') }}" class="btn btn-outline">{{ t('account.settings.op.migration') }}</a>
+        <a href="{{ url_for('admin_bulk_markdown') }}" class="btn btn-outline">{{ t('account.settings.op.bulk_markdown') }}</a>
+        <a href="{{ url_for('admin_bulk_manage') }}" class="btn btn-outline">{{ t('account.settings.bulk_manage') }}</a>
+
+    </div>
+</div>
+{% endif %}
+
+{% if enabled_plugins.drafts and current_user.role in ('editor', 'admin', 'owner') %}
+<div class="settings-section">
+    <h3>{{ t('account.settings.my_drafts') }}</h3>
+    <p class="u-label-note">{{ t('account.settings.my_drafts_help') }}</p>
+    <div id="draft-manager-list"><p class="u-section-caption">{{ t('account.settings.loading_drafts') }}</p></div>
+</div>
+{% endif %}
+
+{% if settings.contribution_approval_enabled and has_permission(current_user, 'contribution.propose') and not has_permission(current_user, 'page.edit_all') %}
+<div class="settings-section">
+    <h3>{{ t('account.settings.my_contributions') }}</h3>
+    <p class="u-label-note">{{ t('account.settings.my_contributions_help') }}</p>
+    <a href="{{ url_for('my_contributions') }}" class="btn btn-outline">{{ t('account.settings.view_my_contributions') }}</a>
+</div>
+{% endif %}
+
+<div class="settings-section">
+    <h3>{{ t('account.settings.customization') }}</h3>
+    <p class="u-label-note">{{ t('account.settings.customization_help')|safe }}{# Your current customization preferences (theme mode, text size, contrast, colors). Use the <strong>Customize</strong> button in the top bar to adjust these on any page. #}</p>
+    <button class="btn btn-outline" id="a11y-reset-account-btn">{{ t('account.settings.reset_customization') }}</button>
+    <p class="xs-8886dffd" id="a11y-reset-status"></p>
+</div>
+
+{% if enabled_plugins.user_data_export %}
+<div class="settings-section">
+    <h3>{{ t('account.settings.export_data') }}</h3>
+    <p class="u-label-note">{{ t('account.settings.export_data_help') }}</p>
+    <a href="{{ url_for('export_own_data') }}" class="btn btn-outline">{{ t('account.settings.download_data') }}</a>
+</div>
+{% endif %}
+
+{% if enabled_plugins.api_service and has_endpoint('settings_api_tokens') %}
+<div class="settings-section">
+    <h3>{{ t('account.settings.api_service') }}</h3>
+    <p class="u-label-note">{{ t('account.settings.api_service_description') }}</p>
+    <div class="form-actions">
+        <a href="{{ url_for('settings_api_tokens') }}" class="btn btn-outline">{{ t('account.settings.manage_api_tokens') }}</a>
+        <a href="{{ url_for('api_documentation') }}" class="btn btn-outline">{{ t('account.settings.api_documentation') }}</a>
+    </div>
+</div>
+{% endif %}
+
+{% if platform_oauth_enabled %}
+<div class="settings-section">
+    <h3>{{ t('account.settings.platform_oauth') }}</h3>
+    <p class="u-label-note">{{ t('account.settings.platform_oauth_help') }}</p>
+    <a href="{{ url_for('platform_oauth_link_account') }}" class="btn btn-outline">{{ t('account.settings.manage_platform_oauth') }}</a>
+</div>
+{% endif %}
+
+{% if enabled_plugins.assessments and settings.assessment_points_badge_enabled %}
+<div class="settings-section">
+    <h3>{{ t('account.assessment_points.title') }}</h3>
+    <p class="u-label-note">{{ t('account.settings.assessment_points_help') }}</p>
+    <a href="{{ url_for('user_assessment_points') }}" class="btn btn-outline">{{ t('account.settings.view_assessment_points') }}</a>
+</div>
+{% endif %}
+
+{% if enabled_plugins.page_governance and current_user and current_user.role in ('editor', 'admin', 'owner') %}
+<div class="settings-section">
+    <h3>{{ t('account.quota.title') }}</h3>
+    <p class="u-label-note">
+        {% if reservation_quota == -1 %}{{ t('account.settings.quota_unlimited')|safe }}{% elif reservation_quota == 1 %}{{ t('account.settings.quota_one', count=reservation_quota)|safe }}{% else %}{{ t('account.settings.quota_many', count=reservation_quota)|safe }}{% endif %}
+        {% if pending_quota_request %}
+        {% if pending_quota_request.requested_quota == -1 %}{{ t('account.settings.pending_quota_unlimited')|safe }}{% else %}{{ t('account.settings.pending_quota_amount', count=pending_quota_request.requested_quota)|safe }}{% endif %}
+        {% endif %}
+    </p>
+    <a href="{{ url_for('user_reservation_quota') }}" class="btn btn-outline">{% if current_user.role in ('admin', 'owner') %}{{ t('account.settings.manage_quota') }}{% else %}{{ t('account.settings.manage_quota_requests') }}{% endif %}</a>
+</div>
+{% endif %}
+
+{% if enabled_plugins.user_profiles %}
+<div class="settings-section" id="profile">
+    <h3>{{ t('account.settings.profile_page') }}</h3>
+    <p class="u-label-note">{{ t('account.settings.profile_moved') }}</p>
+    <a href="{{ url_for('user_profile', username=user.username) }}" class="btn btn-outline">{{ t('account.settings.manage_profile') }}</a>
+</div>
+{% endif %}
+
+{% if profile_group_badges_enabled and enabled_plugins.get('chat') and enabled_plugins.get('user_profiles') %}
+<div class="settings-section" id="profile-group-badges">
+    <h3>{{ t('account.settings.profile_group_badges') }}</h3>
+    <p class="u-label-note">
+        {{ t('account.settings.profile_group_badges_help') }}
+    </p>
+    {% if profile_group_settings %}
+    {% for grp in profile_group_settings %}
+    <div class="xs-16c0cc71">
+        <span class="xs-64616a10">{{ grp.group_name }}</span>
+        <form class="u-m0" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="toggle_group_badge">
+            <input type="hidden" name="group_id" value="{{ grp.group_id }}">
+            {% if grp.visible %}
+            <input type="hidden" name="visible" value="0">
+            <button type="submit" class="btn btn-sm btn-outline" title="{{ t('account.settings.hide_group_tooltip') }}">{{ t('account.settings.visible') }}</button>
+            {% else %}
+            <input type="hidden" name="visible" value="1">
+            <button type="submit" class="btn btn-sm" title="{{ t('account.settings.show_group_tooltip') }}">{{ t('account.settings.hidden') }}</button>
+            {% endif %}
+        </form>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="xs-ab7f5433">{{ t('account.settings.no_groups') }}</p>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if not user.is_superuser %}
+<div class="settings-section xs-bcba4ebb">
+    <div class="u-flex-center-05 u-jc-between u-mb08">
+        <h3 class="u-m0 xs-3ba12911">{{ t('account.settings.delete_account') }}</h3>
+    </div>
+    <p class="u-label-note-rev">{{ t('account.settings.delete_account_warning') }}</p>
+    <form method="POST" id="deleteAccountForm" data-confirm="{{ t('account.settings.delete_account_confirm') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="delete_account">
+        <div class="form-group">
+            <label>{{ t('account.settings.enter_password_confirm') }}</label>
+            <input type="password" name="password" class="input" required autocomplete="current-password">
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-danger">{{ t('account.settings.delete_my_account') }}</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+(function(){
+    var list = document.getElementById('sidebar-app-order-list');
+    var input = document.getElementById('sidebar-apps-order-input');
+    var resetBtn = document.getElementById('sidebar-app-reset-order');
+    if (!list || !input) return;
+
+    function syncOrder() {
+        var ids = [];
+        list.querySelectorAll('.sidebar-app-order-item').forEach(function(el) {
+            ids.push(el.getAttribute('data-app-id'));
+        });
+        input.value = ids.join(',');
+    }
+
+    list.querySelectorAll('.sidebar-app-order-item').forEach(function(item, idx) {
+        var upBtn = document.createElement('button');
+        upBtn.type = 'button';
+        upBtn.className = 'btn-icon-tiny';
+        upBtn.textContent = '\u25B2';
+        upBtn.title = 'Move up';
+        upBtn.style.marginLeft = 'auto';
+        upBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var prev = item.previousElementSibling;
+            if (prev) {
+                list.insertBefore(item, prev);
+                syncOrder();
+            }
+        });
+
+        var downBtn = document.createElement('button');
+        downBtn.type = 'button';
+        downBtn.className = 'btn-icon-tiny';
+        downBtn.textContent = '\u25BC';
+        downBtn.title = 'Move down';
+        downBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var next = item.nextElementSibling;
+            if (next) {
+                list.insertBefore(next, item);
+                syncOrder();
+            }
+        });
+
+        item.insertBefore(upBtn, item.firstChild);
+        item.insertBefore(downBtn, item.firstChild);
+    });
+
+    if (resetBtn) {
+        resetBtn.addEventListener('click', function() {
+            var defaultOrder = 'reservations,chats,groups,kanban,leaderboard,canvas';
+            input.value = defaultOrder;
+            var ids = defaultOrder.split(',');
+            var items = {};
+            list.querySelectorAll('.sidebar-app-order-item').forEach(function(el) {
+                items[el.getAttribute('data-app-id')] = el;
+            });
+            ids.forEach(function(id) {
+                if (items[id]) list.appendChild(items[id]);
+            });
+        });
+    }
+})();
+</script>
+{% if enabled_plugins.drafts and current_user.role in ('editor', 'admin', 'owner') %}
+<script nonce="{{ csp_nonce }}">
+    document.addEventListener('DOMContentLoaded', function() {
+        initDraftManager();
+    });
+</script>
+{% endif %}
+<script nonce="{{ csp_nonce }}">
+    document.addEventListener('DOMContentLoaded', function() {
+        var resetBtn = document.getElementById('a11y-reset-account-btn');
+        var status = document.getElementById('a11y-reset-status');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', function() {
+                bwConfirm((window._t && window._t('js.customization.reset_confirm')) || 'Reset all customization settings to default?', function() {
+                fetch('/api/accessibility/reset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+                    body: '{}'
+                }).then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d.ok) {
+                        if (status) { status.textContent = (window._t && window._t('js.customization.reset_success')) || 'Customization settings reset to default.'; status.style.display = ''; }
+                        // Apply defaults immediately if accessibility panel is loaded
+                        if (typeof applyA11yPrefs === 'function' && d.defaults) {
+                            _a11yPrefs = d.defaults;
+                            applyA11yPrefs(_a11yPrefs);
+                        }
+                    }
+                }).catch(function() {
+                    if (status) { status.textContent = (window._t && window._t('js.customization.reset_failed')) || 'Failed to reset settings.'; status.style.display = ''; }
+                });
+                });
+            });
+        }
+        document.querySelectorAll('.js-toggle-protected').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var el = document.getElementById(this.dataset.target);
+                if (el) el.style.display = window.getComputedStyle(el).display === 'none' ? 'block' : 'none';
+            });
+        });
+        var copyUserbotBtn = document.querySelector('.js-copy-userbot-token');
+        if (copyUserbotBtn) {
+            copyUserbotBtn.addEventListener('click', function() {
+                var tokenEl = document.getElementById('userbot-api-token');
+                if (!tokenEl) return;
+                navigator.clipboard.writeText(tokenEl.textContent.trim()).then(function() {
+                    bwShowFlash((window._t && window._t('js.userbot.api_key_copy_success')) || 'Userbot API key copied to clipboard!', 'success');
+                }).catch(function() {
+                    bwShowFlash((window._t && window._t('js.userbot.api_key_copy_failed')) || 'Automatic copy failed. Please copy the API key manually.', 'error');
+                });
+            });
+        }
+    });
+</script>
+{% endblock %}

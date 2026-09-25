@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.bulk.title', site_name=settings.site_name) }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ t('admin.bulk.heading') }}</h1>
+    <p class="u-section-note">{{ t('admin.bulk.description') }}</p>
+</div>
+
+<div class="settings-section">
+    <nav class="u-flex-gap08 u-mb1" aria-label="{{ t('admin.bulk.heading') }}">
+        <a href="#bulk-categories" class="btn btn-outline">{{ t('admin.bulk.categories', count=bulk_categories|length) }}</a>
+        <a href="#bulk-pages" class="btn btn-outline">{{ t('admin.bulk.pages', count=bulk_pages|length) }}</a>
+        <a href="#bulk-canvases" class="btn btn-outline">{{ t('admin.bulk.canvases', count=bulk_canvases|length) }}</a>
+        <a href="#bulk-kanban" class="btn btn-outline">{{ t('admin.bulk.kanban_boards', count=bulk_kanban_boards|length) }}</a>
+    </nav>
+
+    <!-- Categories -->
+    <section id="bulk-categories" class="settings-section">
+        <h2>{{ t('admin.bulk.wiki_categories') }}</h2>
+        <form method="POST" action="{{ url_for('admin_bulk_delete_categories') }}" data-bulk-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="u-flex-gap08 u-mb05">
+                <button type="button" class="btn btn-outline" data-bulk-select-all="bulk-cat">{{ t('admin.bulk.select_all') }}</button>
+                <button type="button" class="btn btn-outline" data-bulk-select-none="bulk-cat">{{ t('admin.bulk.select_none') }}</button>
+                <button type="submit" class="btn btn-danger" data-bulk-confirm="{{ t('admin.bulk.delete_categories_confirm') }}">{{ t('admin.bulk.delete_selected') }}</button>
+            </div>
+            {% if bulk_categories %}
+            <table class="data-table">
+                <thead>
+                    <tr><th><input type="checkbox" data-bulk-master="bulk-cat" aria-label="{{ t('admin.bulk.toggle_all') }}"></th><th>{{ t('admin.bulk.id') }}</th><th>{{ t('admin.bulk.name') }}</th></tr>
+                </thead>
+                <tbody>
+                    {% for cat in bulk_categories %}
+                    <tr>
+                        <td><input type="checkbox" name="ids" value="{{ cat.id }}" class="bulk-cat"></td>
+                        <td>{{ cat.id }}</td>
+                        <td>{{ cat.name }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="u-section-note">{{ t('admin.bulk.no_categories') }}</p>
+            {% endif %}
+        </form>
+    </section>
+
+    <!-- Pages -->
+    <section id="bulk-pages" class="settings-section">
+        <h2>{{ t('admin.bulk.wiki_pages') }}</h2>
+        <form method="POST" action="{{ url_for('admin_bulk_delete_pages') }}" data-bulk-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="u-flex-gap08 u-mb05">
+                <button type="button" class="btn btn-outline" data-bulk-select-all="bulk-page">{{ t('admin.bulk.select_all') }}</button>
+                <button type="button" class="btn btn-outline" data-bulk-select-none="bulk-page">{{ t('admin.bulk.select_none') }}</button>
+                <button type="submit" class="btn btn-danger" data-bulk-confirm="{{ t('admin.bulk.delete_pages_confirm') }}">{{ t('admin.bulk.delete_selected') }}</button>
+            </div>
+            {% if bulk_pages %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" data-bulk-master="bulk-page" aria-label="{{ t('admin.bulk.toggle_all') }}"></th>
+                        <th>{{ t('admin.bulk.id') }}</th><th>{{ t('admin.bulk.col_title') }}</th><th>{{ t('admin.bulk.slug') }}</th><th>{{ t('admin.bulk.category') }}</th><th>{{ t('admin.bulk.state') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for page in bulk_pages %}
+                    <tr>
+                        <td><input type="checkbox" name="ids" value="{{ page.id }}" class="bulk-page"></td>
+                        <td>{{ page.id }}</td>
+                        <td>{{ page.title }}</td>
+                        <td><code>{{ page.slug }}</code></td>
+                        <td>{{ page.category_name or '-' }}</td>
+                        <td>
+                            {% if page.pending_deletion %}<span class="badge badge-warning">{{ t('admin.bulk.pending_deletion') }}</span>{% endif %}
+                            {% if page.is_deindexed %}<span class="badge">{{ t('admin.bulk.deindexed') }}</span>{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="u-section-note">{{ t('admin.bulk.no_deletable_pages') }}</p>
+            {% endif %}
+        </form>
+    </section>
+
+    <!-- Canvases -->
+    <section id="bulk-canvases" class="settings-section">
+        <h2>{{ t('admin.bulk.canvases_heading') }}</h2>
+        <form method="POST" action="{{ url_for('admin_bulk_delete_canvases') }}" data-bulk-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="u-flex-gap08 u-mb05">
+                <button type="button" class="btn btn-outline" data-bulk-select-all="bulk-canvas">{{ t('admin.bulk.select_all') }}</button>
+                <button type="button" class="btn btn-outline" data-bulk-select-none="bulk-canvas">{{ t('admin.bulk.select_none') }}</button>
+                <button type="submit" class="btn btn-danger" data-bulk-confirm="{{ t('admin.bulk.delete_canvases_confirm') }}">{{ t('admin.bulk.delete_selected') }}</button>
+            </div>
+            {% if bulk_canvases %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" data-bulk-master="bulk-canvas" aria-label="{{ t('admin.bulk.toggle_all') }}"></th>
+                        <th>{{ t('admin.bulk.id') }}</th><th>{{ t('admin.bulk.col_title') }}</th><th>{{ t('admin.bulk.slug') }}</th><th>{{ t('admin.bulk.visibility') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in bulk_canvases %}
+                    <tr>
+                        <td><input type="checkbox" name="ids" value="{{ c.id }}" class="bulk-canvas"></td>
+                        <td>{{ c.id }}</td>
+                        <td>{{ c.title }}</td>
+                        <td><code>{{ c.slug }}</code></td>
+                        <td>{{ c.visibility }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="u-section-note">{{ t('admin.bulk.no_canvases') }}</p>
+            {% endif %}
+        </form>
+    </section>
+
+    <!-- Kanban boards -->
+    <section id="bulk-kanban" class="settings-section">
+        <h2>{{ t('admin.bulk.kanban_boards_heading') }}</h2>
+        <p class="u-section-note">{{ t('admin.bulk.kanban_boards_description') }}</p>
+        <form method="POST" action="{{ url_for('admin_bulk_delete_kanban_boards') }}" data-bulk-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="u-flex-gap08 u-mb05">
+                <button type="button" class="btn btn-outline" data-bulk-select-all="bulk-board">{{ t('admin.bulk.select_all') }}</button>
+                <button type="button" class="btn btn-outline" data-bulk-select-none="bulk-board">{{ t('admin.bulk.select_none') }}</button>
+                <button type="submit" class="btn btn-danger" data-bulk-confirm="{{ t('admin.bulk.delete_boards_confirm') }}">{{ t('admin.bulk.delete_selected') }}</button>
+            </div>
+            {% if bulk_kanban_boards %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" data-bulk-master="bulk-board" aria-label="{{ t('admin.bulk.toggle_all') }}"></th>
+                        <th>{{ t('admin.bulk.id') }}</th><th>{{ t('admin.bulk.col_title') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for b in bulk_kanban_boards %}
+                    <tr>
+                        <td><input type="checkbox" name="ids" value="{{ b.id }}" class="bulk-board"></td>
+                        <td>{{ b.id }}</td>
+                        <td>{{ b.title }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="u-section-note">{{ t('admin.bulk.no_kanban_boards') }}</p>
+            {% endif %}
+        </form>
+    </section>
+</div>
+
+<script nonce="{{ csp_nonce }}">
+(function() {
+    var _t = window._t || function(k) { return k; };
+    function setAll(cls, value) {
+        document.querySelectorAll('input.' + cls).forEach(function(cb) { cb.checked = value; });
+    }
+    document.querySelectorAll('[data-bulk-select-all]').forEach(function(btn) {
+        btn.addEventListener('click', function() { setAll(this.dataset.bulkSelectAll, true); });
+    });
+    document.querySelectorAll('[data-bulk-select-none]').forEach(function(btn) {
+        btn.addEventListener('click', function() { setAll(this.dataset.bulkSelectNone, false); });
+    });
+    document.querySelectorAll('[data-bulk-master]').forEach(function(cb) {
+        cb.addEventListener('change', function() { setAll(this.dataset.bulkMaster, this.checked); });
+    });
+    document.querySelectorAll('form[data-bulk-form]').forEach(function(form) {
+        form.addEventListener('submit', function(e) {
+            var btn = e.submitter || form.querySelector('button[type=submit]');
+            var prompt = btn && btn.dataset.bulkConfirm;
+            var hasSelection = !!form.querySelector('input[name=ids]:checked');
+            if (!hasSelection) {
+                e.preventDefault();
+                alert(_t('admin.bulk.nothing_selected'));
+                return;
+            }
+            if (prompt && !window.confirm(prompt)) e.preventDefault();
+        });
+    });
+})();
+</script>
+{% endblock %}

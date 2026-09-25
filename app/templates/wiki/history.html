@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}{{ t('wiki.history.title', title=page.title) }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('wiki.history.heading', title=page.title) }}</h1>
+<p class="u-mb1"><a href="{{ url_for('view_page', slug=page.slug) }}">{{ t('common.back_to_page') }}</a></p>
+
+{% if current_user and current_user.role in ('admin', 'owner') and history %}
+<div class="u-mb1">
+    <form method="POST" action="{{ url_for('clear_page_history', slug=page.slug) }}" data-confirm="{{ t('wiki.history.clear_confirm') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-danger">{{ t('wiki.history.clear_all') }}</button>
+    </form>
+</div>
+{% endif %}
+
+{% if history %}
+<table class="admin-table">
+    <thead>
+        <tr>
+            <th>{{ t('wiki.history.col.date') }}</th>
+            <th>{{ t('wiki.history.col.editor') }}</th>
+            <th>{{ t('wiki.history.col.summary') }}</th>
+            <th>{{ t('wiki.history.col.changes') }}</th>
+            <th>{{ t('common.actions') }}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for entry in history %}
+        <tr>
+            <td><span title="{{ format_datetime(entry.created_at) }}">{{ time_ago(entry.created_at) }}</span></td>
+            <td>
+                {% if entry.edited_by %}
+                {% if enabled_plugins.user_profiles and entry.username != 'the system' %}<a href="{{ url_for('user_profile', username=entry.username) }}" class="text-link">{{ entry.username }}</a>{% else %}{{ entry.username }}{% endif %}
+                {% else %}
+                <span class="xs-37eea5a1">{{ entry.username }}</span>
+                {% endif %}
+            </td>
+            <td>{{ entry.edit_message or '-' }}{% if entry.is_revert %} <span class="revert-badge">{{ t('wiki.history.revert_badge') }}</span>{% endif %}</td>
+            <td class="xs-4b3dd138">
+                {% set stats = diff_stats.get(entry.id) %}
+                {% if stats %}
+                    <span class="xs-3958a29f">+{{ stats.added }}</span>
+                    <span class="xs-2bd563f0">-{{ stats.deleted }}</span>
+                {% else %}
+                    <span class="xs-ec59b4b8">-</span>
+                {% endif %}
+            </td>
+            <td>
+                <a href="{{ url_for('view_history_entry', slug=page.slug, entry_id=entry.id) }}" class="btn btn-sm btn-outline">{{ t('common.view') }}</a>
+                {% if current_user and current_user.role in ('editor', 'admin', 'owner') %}
+                <form class="u-d-inline" method="POST" action="{{ url_for('revert_page', slug=page.slug, entry_id=entry.id) }}" data-confirm="{{ t('wiki.history.revert_confirm') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm">{{ t('wiki.history.revert') }}</button>
+                </form>
+                {% endif %}
+                {% if current_user and current_user.role in ('admin', 'owner') %}
+                <form class="u-d-inline" method="POST" action="{{ url_for('delete_history_entry', slug=page.slug, entry_id=entry.id) }}" data-confirm="{{ t('wiki.history.delete_entry_confirm') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-danger">{{ t('common.delete') }}</button>
+                </form>
+                <button class="btn btn-sm btn-outline js-transfer-toggle" data-target="transfer-{{ entry.id }}">{{ t('wiki.history.transfer') }}</button>
+                <div class="xs-c6a473a1" id="transfer-{{ entry.id }}">
+                    <form class="xs-6a459637" method="POST" action="{{ url_for('transfer_attribution', slug=page.slug, entry_id=entry.id) }}" data-confirm="{{ t('wiki.history.transfer_confirm') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <select name="new_user_id" class="input input-sm u-w160" required>
+                            <option value="">{{ t('wiki.history.select_user') }}</option>
+                            {% for u in all_users %}
+                            {% if u.id != entry.edited_by %}
+                            <option value="{{ u.id }}">{{ u.username }}</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-sm">{{ t('wiki.history.move_entry') }}</button>
+                    </form>
+                    {% if entry.edited_by %}
+                    <form class="xs-c2697a12" method="POST" action="{{ url_for('bulk_transfer_attribution', slug=page.slug) }}" data-confirm="{{ t('wiki.history.bulk_transfer_confirm') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="from_user_id" value="{{ entry.edited_by }}">
+                        <select name="new_user_id" class="input input-sm u-w160" required>
+                            <option value="">{{ t('wiki.history.select_user') }}</option>
+                            {% for u in all_users %}
+                            {% if u.id != entry.edited_by %}
+                            <option value="{{ u.id }}">{{ u.username }}</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-sm">{{ t('wiki.history.move_all_from', user=entry.username) }}</button>
+                    </form>
+                    {% endif %}
+                    <form class="u-mt03" method="POST" action="{{ url_for('deattribute_entry', slug=page.slug, entry_id=entry.id) }}" data-confirm="{{ t('wiki.history.deattribute_confirm') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-danger">{{ t('wiki.history.deattribute') }}</button>
+                    </form>
+                </div>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="u-o50">{{ t('wiki.history.empty') }}</p>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+document.querySelectorAll('.js-transfer-toggle').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var el = document.getElementById(this.dataset.target);
+        if (el) el.style.display = window.getComputedStyle(el).display === 'none' ? 'block' : 'none';
+    });
+});
+</script>
+{% endblock %}

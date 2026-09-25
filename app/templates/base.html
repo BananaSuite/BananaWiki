@@ -1,0 +1,223 @@
+{% set site_theme_mode = settings.default_theme_mode if settings.default_theme_mode in ('dark', 'light') else 'dark' %}
+{% set user_theme_mode = user_accessibility.theme_mode if user_accessibility and user_accessibility.theme_mode in ('dark', 'light') else 'default' %}
+{% set effective_theme_mode = user_theme_mode if user_theme_mode != 'default' else site_theme_mode %}
+{% if effective_theme_mode == 'light' %}
+    {% set theme_primary = settings.light_primary_color %}
+    {% set theme_secondary = settings.light_secondary_color %}
+    {% set theme_accent = settings.light_accent_color %}
+    {% set theme_text = settings.light_text_color %}
+    {% set theme_sidebar = settings.light_sidebar_color %}
+    {% set theme_bg = settings.light_bg_color %}
+{% else %}
+    {% set theme_primary = settings.primary_color %}
+    {% set theme_secondary = settings.secondary_color %}
+    {% set theme_accent = settings.accent_color %}
+    {% set theme_text = settings.text_color %}
+    {% set theme_sidebar = settings.sidebar_color %}
+    {% set theme_bg = settings.bg_color %}
+{% endif %}
+<!DOCTYPE html>
+<html lang="{{ current_language|default('en') }}"
+      data-site-lang="{{ site_default_language|default('en') }}"
+      data-interface-languages="{{ available_interface_languages.keys()|list|join(',') }}"
+      data-theme="{{ effective_theme_mode }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="color-scheme" content="{{ effective_theme_mode }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ settings.site_name }}{% endblock %}</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    {% if settings.favicon_enabled %}
+      {% if settings.favicon_type == 'custom' and settings.favicon_custom %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/' + settings.favicon_custom) }}">
+      {% elif settings.favicon_type != 'custom' %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/banana_' + settings.favicon_type + '.png') }}">
+      {% endif %}
+    {% endif %}
+    <style nonce="{{ csp_nonce }}">html{background:{{ theme_bg }}}</style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=asset_version|default('dev')) }}">
+    {% block head_extra %}{% endblock %}
+    <style nonce="{{ csp_nonce }}">
+        :root {
+            color-scheme: {{ effective_theme_mode }};
+            --primary: {{ theme_primary }};
+            --secondary: {{ theme_secondary }};
+            --accent: {{ theme_accent }};
+            --text: {{ theme_text }};
+            --sidebar: {{ theme_sidebar }};
+            --bg: {{ theme_bg }};
+            --bg-image: none;
+        }
+    </style>
+    {% if user_accessibility %}
+    <style id="a11y-style" nonce="{{ csp_nonce }}">
+        {% if user_accessibility.custom_bg %}:root { --bg: {{ user_accessibility.custom_bg }}; }{% endif %}
+        {% if user_accessibility.custom_text %}:root { --text: {{ user_accessibility.custom_text }}; }{% endif %}
+        {% if user_accessibility.custom_primary %}:root { --primary: {{ user_accessibility.custom_primary }}; }{% endif %}
+        {% if user_accessibility.custom_secondary %}:root { --secondary: {{ user_accessibility.custom_secondary }}; }{% endif %}
+        {% if user_accessibility.custom_accent %}:root { --accent: {{ user_accessibility.custom_accent }}; }{% endif %}
+        {% if user_accessibility.custom_sidebar %}:root { --sidebar: {{ user_accessibility.custom_sidebar }}; }{% endif %}
+        {% if user_accessibility.background_image %}:root { --bg-image: url("{{ url_for('static', filename='uploads/' ~ user_accessibility.background_image) }}"); }{% endif %}
+        {% if user_accessibility.content_max_width and user_accessibility.content_max_width > 0 %}:root { --content-max-width: {{ user_accessibility.content_max_width }}px; }{% endif %}
+        {% if user_accessibility.sidebar_width and user_accessibility.sidebar_width >= 180 and user_accessibility.sidebar_width <= 500 %}#sidebar { width: {{ user_accessibility.sidebar_width }}px; min-width: {{ user_accessibility.sidebar_width }}px; }{% endif %}
+        :root { --a11y-font-scale: {{ user_accessibility.font_scale }}; }
+        {% set lh_map = ['1', '1.222', '1.444'] %}
+        :root { --a11y-line-height-mul: {{ lh_map[user_accessibility.line_height | int] if user_accessibility.line_height | int < 3 else '1' }}; }
+        {% set ls_map = ['normal', '0.04em', '0.08em'] %}
+        :root { --a11y-letter-spacing: {{ ls_map[user_accessibility.letter_spacing | int] if user_accessibility.letter_spacing | int < 3 else 'normal' }}; }
+    </style>
+    {% endif %}
+    <style nonce="{{ csp_nonce }}">
+        @media(max-width:768px){
+            .input{padding:.55rem .7rem;font-size:1rem}
+            .settings-section,.contribution-section{overflow-x:auto}
+            .modal-content{max-height:90vh;overflow-y:auto}
+            .editor-container{min-height:300px;height:auto}
+        }
+        @media(max-width:520px){
+            .content{padding:.7rem}
+            .flash{padding:.4rem .65rem;padding-right:2rem;font-size:.8rem}
+        }
+    </style>
+</head>
+{% set _sem_keys = ['bold', 'italic', 'code', 'link', 'heading'] %}
+{% set _sem_classes = [] %}
+{% if user_accessibility %}
+    {% for _sk in _sem_keys %}
+        {% set _lvl = user_accessibility.get('semantic_' ~ _sk, 0) | int %}
+        {% if _lvl in (1, 2) %}
+            {% set _ = _sem_classes.append('a11y-sem-' ~ _sk ~ '-' ~ _lvl) %}
+        {% endif %}
+    {% endfor %}
+{% endif %}
+<body{% if user_accessibility and (user_accessibility.contrast > 0 or user_accessibility.reduce_motion or _sem_classes) %} class="{% if user_accessibility.contrast > 0 %}a11y-contrast-{{ user_accessibility.contrast }}{% endif %}{% if user_accessibility.reduce_motion %} a11y-reduce-motion{% endif %}{% if _sem_classes %} {{ _sem_classes | join(' ') }}{% endif %}"{% endif %}>
+    <script nonce="{{ csp_nonce }}">
+        (function () {
+            try {
+                if (window.matchMedia && window.matchMedia('(min-width: 769px)').matches
+                    && localStorage.getItem('bw-sidebar-collapsed') === '1') {
+                    document.body.classList.add('sidebar-collapsed');
+                }
+            } catch (e) {}
+        })();
+    </script>
+    <a class="skip-link" href="#main-content">{{ t('a11y.skip_main') }}</a>
+    {% include "layout/_topbar.html" %}
+    {% if impersonator %}
+    <div class="flash flash-warning" style="margin: 0; border-radius: 0; text-align: center; display: block; background: #f39c12; color: #000;">
+        <strong>{{ t('admin.impersonation_mode') }}</strong> {{ t('admin.impersonation_logged_in_as') }} <strong>{{ current_user.username }}</strong>. {{ t('admin.impersonation_started_by') }} <strong>{{ impersonator.username }}</strong>.
+        <form action="{{ url_for('admin_stop_impersonating') }}" method="POST" style="display: inline; margin-left: 10px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm" style="background: #000; color: #f39c12; border: none; font-weight: bold;">{{ t('admin.stop_impersonating') }}</button>
+        </form>
+    </div>
+    {% endif %}
+    {% include "_badge_notifications_bar.html" %}
+    {% include "_announcements_bar.html" %}
+    {% if current_user_birthday_today and not birthday_dismissed %}
+    <div class="birthday-mode-banner" id="birthday-mode-banner" aria-live="polite">
+        <span class="birthday-mode-spark" aria-hidden="true">✦</span>
+        <span>Happy birthday, {{ current_user.username }}!</span>
+        <span class="birthday-mode-spark" aria-hidden="true">✦</span>
+        <button type="button" class="birthday-dismiss-btn" id="birthday-dismiss-btn" title="Dismiss for today" aria-label="Dismiss birthday banner">&times;</button>
+    </div>
+    {% endif %}
+    {% if not current_user and public_mode_active and settings.get('public_mode_show_message') and settings.get('public_mode_message') %}
+    <div class="public-notice" aria-live="polite">
+        <span class="public-notice-text">{{ settings.public_mode_message }}</span>
+    </div>
+    {% endif %}
+    {# Hosting expiry warnings are shown on the hosting dashboard, not inside wikis #}
+
+    <div class="layout">
+        {% if current_user or public_mode_active %}
+    {% include "layout/_sidebar.html" %}
+        {% endif %}
+        <main class="content" id="main-content" tabindex="-1">
+            {% with messages = dedupe_flashed_messages(get_flashed_messages(with_categories=true)) %}
+            {% if messages %}
+            <div class="flash-messages">
+                {% for category, message in messages %}
+                <div class="flash flash-{{ category }}" role="alert">
+                    <span class="flash-message">{{ message }}</span>
+                    <button type="button" class="btn flash-close" aria-label="{{ t('common.dismiss_message') }}">x</button>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+            {% block content %}{% endblock %}
+            <footer class="source-notice"><a href="{{ source_code_url }}">{{ t('base.source_code') }} (AGPL v3)</a></footer>
+        </main>
+        {% if current_user %}
+        <div class="content-resize-handle" id="content-resize-handle" title="{{ t('base.content_resize_handle') }}"></div>
+        {% endif %}
+    </div>
+
+    {% if current_user and current_user.role in ('editor', 'admin', 'owner') %}
+    {% include "layout/_category_dialog.html" %}
+    {% endif %}
+
+    {% if current_user %}
+    {% include "layout/_customization.html" %}
+    {% endif %}
+
+    <!-- Confirmation Dialog -->
+    <div class="modal u-d-none" id="bw-confirm-modal" role="dialog" aria-modal="true">
+        <div class="modal-content">
+            <p class="xs-25978103" id="bw-confirm-message"></p>
+            <div class="form-actions">
+                <button type="button" class="btn btn-outline" id="bw-confirm-cancel">{{ t('common.cancel') }}</button>
+                <button type="button" class="btn btn-danger" id="bw-confirm-ok">{{ t('common.confirm') }}</button>
+            </div>
+        </div>
+    </div>
+
+    {% if guided_tour_state and guided_tour_state.active %}
+    <div class="live-tour" data-live-tour aria-live="polite">
+        <div class="live-tour-scrim" data-live-tour-scrim="top"></div>
+        <div class="live-tour-scrim" data-live-tour-scrim="right"></div>
+        <div class="live-tour-scrim" data-live-tour-scrim="bottom"></div>
+        <div class="live-tour-scrim" data-live-tour-scrim="left"></div>
+        <div class="live-tour-spotlight" data-live-tour-spotlight></div>
+        <section class="live-tour-popover" data-live-tour-popover role="dialog" aria-label="{{ t('onboarding.live_tour.aria') }}">
+            <div class="intro-tour-progress">
+                <span data-live-tour-count>{{ t('onboarding.live_tour.step_count', step=guided_tour_state.step_number, total=guided_tour_state.total_steps) }}</span>
+            </div>
+            <h2 data-live-tour-title>{{ guided_tour_state.title }}</h2>
+            <p data-live-tour-body>{{ guided_tour_state.body }}</p>
+            {% if guided_tour_state.is_role_preview %}
+            <p class="live-tour-preview-note">
+                {{ t('onboarding.live_tour.preview_note', tour_role=guided_tour_state.tour_role_label, real_role=guided_tour_state.real_role_label) }}
+            </p>
+            {% endif %}
+            <p class="live-tour-hint" data-live-tour-hint>{{ guided_tour_state.target_label }}</p>
+            {% if guided_tour_state.role_options and guided_tour_state.role_options|length > 1 %}
+            <div class="live-tour-role-switch" aria-label="{{ t('onboarding.live_tour.perspective') }}">
+                <span class="live-tour-role-switch-label">{{ t('onboarding.live_tour.perspective') }}</span>
+                {% for option in guided_tour_state.role_options %}
+                <form method="POST" action="{{ guided_tour_state.role_switch_url_base|replace('__ROLE__', option.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm{% if option.id != guided_tour_state.tour_role %} btn-outline{% endif %}"{% if option.id == guided_tour_state.tour_role %} aria-current="true"{% endif %}>
+                        {{ option.label }}
+                    </button>
+                </form>
+                {% endfor %}
+            </div>
+            {% endif %}
+            <div class="intro-tour-actions">
+                <button type="button" class="btn btn-sm btn-outline" data-live-tour-prev{% if guided_tour_state.is_first %} disabled{% endif %}>{{ t('common.back') }}</button>
+                <button type="button" class="btn btn-sm" data-live-tour-next>{% if guided_tour_state.is_last %}{{ t('onboarding.live_tour.finish') }}{% else %}{{ t('common.next') }}{% endif %}</button>
+                <button type="button" class="btn btn-sm btn-outline" data-live-tour-finish>{{ t('onboarding.live_tour.end_tour') }}</button>
+            </div>
+        </section>
+    </div>
+    <script nonce="{{ csp_nonce }}">
+    window.BW_LIVE_TOUR = {{ guided_tour_state|tojson }};
+    </script>
+    {% endif %}
+
+    {% include "layout/_scripts.html" %}
+    {% block scripts %}{% endblock %}
+</body>
+</html>

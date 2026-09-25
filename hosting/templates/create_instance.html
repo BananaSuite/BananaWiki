@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}{{ t('hosting.create.title') }} | {{ t('hosting.brand') }}{% endblock %}
+{% block content %}
+<div class="create-form">
+    <h2>{{ t('hosting.create.heading') }}</h2>
+    <form method="POST" action="{{ url_for('hosting_create_instance') }}" class="js-loading-form" data-loading-text="Provisioning your instance, please wait…">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+            <label for="subdomain">{{ t('hosting.create.instance_name') }}</label>
+            <div class="subdomain-input">
+                <input type="text" id="subdomain" name="subdomain" class="input" required autofocus
+                       pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"
+                       title="{{ t('hosting.create.instance_name_help') }}"
+                       placeholder="{{ t('hosting.create.instance_name_placeholder') }}">
+                {% if hosting_mode != 'port' %}
+                {% if instance_url_suffix %}
+                <span class="domain-suffix{% if selected_domain_mode == 'apex' %} u-d-none{% endif %}" id="domain-suffix-hosting">-{{ instance_url_suffix }}.{{ base_domain }}</span>
+                <span class="domain-suffix{% if selected_domain_mode != 'apex' %} u-d-none{% endif %}" id="domain-suffix-apex">.{{ base_domain }}</span>
+                {% else %}
+                <span class="domain-suffix">.{{ base_domain }}</span>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+
+        {% if account_is_admin and hosting_mode != 'port' and instance_url_suffix %}
+        <div class="form-group">
+            <label class="u-flex-row-08-aic u-label-inline">
+                <input type="checkbox" id="domain-mode-apex" name="domain_mode" value="apex"{% if selected_domain_mode == 'apex' %} checked{% endif %}>
+                <span>
+                    {{ t('hosting.create.use_apex_domain') }}
+                </span>
+            </label>
+            <p class="u-fs-085 u-o70 u-m0">
+                {{ t('hosting.create.use_apex_domain_help') }}
+            </p>
+        </div>
+        <script nonce="{{ csp_nonce }}">
+        (function () {
+            var apex = document.getElementById('domain-mode-apex');
+            var hostingSpan = document.getElementById('domain-suffix-hosting');
+            var apexSpan = document.getElementById('domain-suffix-apex');
+            if (!apex || !hostingSpan || !apexSpan) return;
+            function syncDomainMode() {
+                if (apex.checked) {
+                    hostingSpan.classList.add('u-d-none');
+                    apexSpan.classList.remove('u-d-none');
+                } else {
+                    hostingSpan.classList.remove('u-d-none');
+                    apexSpan.classList.add('u-d-none');
+                }
+            }
+            apex.addEventListener('change', function () {
+                syncDomainMode();
+            });
+            syncDomainMode();
+        })();
+        </script>
+        {% endif %}
+
+        <div class="form-group">
+            <label for="declared_use_case">Declared wiki use case</label>
+            <textarea id="declared_use_case" name="declared_use_case" class="input" rows="4" minlength="20" maxlength="2000" required placeholder="Explain what this wiki is for, who will use it, and what content it will contain."></textarea>
+            <p class="u-fs-085 u-o70 u-m0">Keep this accurate. A materially different actual use may lead to review or suspension.</p>
+        </div>
+        <div class="form-group">
+            <label class="u-flex-row-08-aic u-label-inline">
+                <input type="checkbox" name="compliance_declared" value="1" required>
+                <span>I agree to follow this hosting service's terms and acceptable-use rules.</span>
+            </label>
+        </div>
+
+        <div class="form-group">
+            <label class="u-flex-row-08-aic u-label-inline">
+                <input type="checkbox" id="set-admin-creds" name="set_admin_credentials" value="1" checked>
+                <span>
+                    {{ t('hosting.create.set_admin_credentials') }}
+                </span>
+            </label>
+        </div>
+
+        <div id="admin-creds-fields">
+            <div class="form-group">
+                <label for="admin_username">{{ t('hosting.create.admin_username') }}</label>
+                <input type="text" id="admin_username" name="admin_username" class="input"
+                       pattern="[a-zA-Z0-9_-]{3,30}"
+                       title="{{ t('hosting.create.admin_username_help') }}"
+                       placeholder="admin">
+            </div>
+            <div class="form-group">
+                <label for="admin_password">{{ t('hosting.create.admin_password') }}</label>
+                <input type="password" id="admin_password" name="admin_password" class="input" minlength="8">
+            </div>
+            <div class="form-group">
+                <label for="admin_confirm_password">{{ t('hosting.create.admin_confirm_password') }}</label>
+                <input type="password" id="admin_confirm_password" name="admin_confirm_password" class="input" minlength="8">
+            </div>
+        </div>
+
+        <script nonce="{{ csp_nonce }}">
+        (function () {
+            var checkbox = document.getElementById('set-admin-creds');
+            var fields = document.getElementById('admin-creds-fields');
+            if (!checkbox || !fields) return;
+            function sync() {
+                if (checkbox.checked) {
+                    fields.classList.remove('u-d-none');
+                } else {
+                    fields.classList.add('u-d-none');
+                }
+            }
+            checkbox.addEventListener('change', sync);
+            sync();
+        })();
+        </script>
+
+        <div class="form-group">
+            <label class="u-flex-row-08-aic u-label-inline">
+                <input type="checkbox" id="easy-wiki" name="easy_wiki" value="1">
+                <span>
+                    {{ t('hosting.create.easy_wiki') }}
+                </span>
+            </label>
+            <p class="u-fs-085 u-o70 u-m0">
+                {{ t('hosting.create.easy_wiki_help') }}
+            </p>
+        </div>
+
+        <div class="info-box">
+            <h4>{{ t('hosting.create.details') }}</h4>
+            <ul>
+                {% if account_is_admin %}
+                <li id="instance-duration-line">{{ t('hosting.create.duration_unlimited', default='Duration: <strong>∞</strong>')|safe }}</li>
+                <li id="instance-storage-line">{{ t('hosting.create.storage_unlimited', default='Storage: <strong>∞</strong>')|safe }}</li>
+                {% else %}
+                <li id="instance-duration-line" data-default="{{ t('hosting.create.duration', days=duration_days)|safe }}">{{ t('hosting.create.duration', days=duration_days)|safe }}</li>
+                <li id="instance-storage-line" data-default="{{ t('hosting.create.storage', mb=storage_limit_mb)|safe }}">{{ t('hosting.create.storage', mb=storage_limit_mb)|safe }}</li>
+                {% endif %}
+                <li>{{ t('hosting.create.uploads') }}</li>
+                {% if hosting_mode == 'port' %}
+                <li>{{ t('hosting.create.port_note') }}</li>
+                {% endif %}
+                <li>{{ t('hosting.create.export_note') }}</li>
+            </ul>
+        </div>
+
+        <button type="submit" class="btn btn-primary">{{ t('hosting.create.submit') }}</button>
+    </form>
+    <a href="{{ url_for('hosting_dashboard') }}" class="back-link">{{ t('hosting.create.back') }}</a>
+</div>
+{% endblock %}

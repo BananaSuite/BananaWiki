@@ -1,0 +1,24 @@
+<a class="skip-link" href="#main-content">{{ t('a11y.skip_main') }}</a>
+<header class="topbar auth-topbar">
+    <div class="topbar-left">
+        <a href="{{ url_for('home') }}" class="btn logo">{{ auth_site_name|default(settings.site_name, true) }}</a>
+    </div>
+    {% if current_user or request.endpoint not in ('setup', 'maintenance') %}
+    <nav class="topbar-right auth-topbar-actions" aria-label="{{ t('nav.account', default='Account') }}">
+        {% if current_user %}
+        <span class="user-info">{{ current_user.username }}</span>
+        <a href="{{ url_for('home') }}" class="btn btn-sm btn-outline">{{ t('nav.home') }}</a>
+        <form method="POST" action="{{ url_for('logout') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline">{{ t('nav.logout') }}</button>
+        </form>
+        {% else %}
+            {% if request.endpoint == 'login' %}
+        <a href="{{ url_for('signup') }}" class="btn btn-sm">{{ t('auth.signup.link') }}</a>
+            {% else %}
+        <a href="{{ url_for('login') }}" class="btn btn-sm">{{ t('nav.sign_in') }}</a>
+            {% endif %}
+        {% endif %}
+    </nav>
+    {% endif %}
+</header>

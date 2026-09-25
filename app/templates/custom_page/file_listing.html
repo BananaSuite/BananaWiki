@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ page.title or t('custom_page.file_listing.fallback_title') }}{# Files #} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+{% if page.title %}<h1>{{ page.title }}</h1>{% endif %}
+{% if page.meta_description %}<p class="u-o70">{{ page.meta_description }}</p>{% endif %}
+
+{% if files %}
+<table class="admin-table u-w100">
+    <thead>
+        <tr>
+            <th>{{ t('custom_page.file_listing.col.name') }}</th>
+            <th>{{ t('custom_page.file_listing.col.size') }}</th>
+            <th>{{ t('custom_page.file_listing.col.type') }}</th>
+            <th>{{ t('custom_page.file_listing.col.download') }}</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for f in files %}
+        <tr>
+            <td>{{ f.original_name }}</td>
+            <td>{{ "%.1f"|format(f.file_size / 1024) }} KB</td>
+            <td><code class="u-fs-08">{{ f.mime_type or t('custom_page.file_listing.unknown_type') }}{# unknown #}</code></td>
+            <td>
+                <a href="{{ url_for('custom_page_file_download', file_id=f.id, filename=f.original_name) }}"
+                   class="btn btn-outline u-fs-08">{{ t('custom_page.file_listing.download') }}</a>
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="u-o60">{{ t('custom_page.file_listing.empty') }}</p>
+{% endif %}
+{% endblock %}

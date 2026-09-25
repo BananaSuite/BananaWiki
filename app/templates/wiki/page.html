@@ -1,0 +1,957 @@
+{% extends "base.html" %}
+{% block title %}{{ page.title }} | {{ settings.site_name }}{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/page-actions.css', v=asset_version|default('dev')) }}">
+{% if page.builder_json %}<link rel="stylesheet" href="{{ url_for('static', filename='css/page_builder.css', v=asset_version|default('dev')) }}">{% endif %}
+{% endblock %}
+{% block content %}
+{% set _dtag_color = page.tag_custom_color if (page.tag_custom_color is hex_color) else '#4a90d9' %}
+<style nonce="{{ csp_nonce }}">.dtag-color{color:{{ _dtag_color }};background:{{ _dtag_color }}26}</style>
+{% set reservation_enabled = enabled_plugins.page_governance and settings.page_reservations_enabled and current_user and current_user.role in ('editor', 'admin', 'owner') %}
+{% set reservation_edit_locked = reservation_context.edit_locked if reservation_context else false %}
+{% set reservation_admin_override = reservation_context.admin_override if reservation_context else false %}
+{% set protection_enabled = settings.page_protection_enabled and current_user and current_user.role in ('editor', 'admin', 'owner') %}
+{% set protection_is_protected = protection_context.is_protected if protection_context else false %}
+{% set protection_edit_locked = protection_context.edit_locked if protection_context else false %}
+{% set protection_is_controller = protection_context.is_controller if protection_context else false %}
+{% if protection_edit_locked %}
+{% set destructive_button_title = t('wiki.page.protected_by', user=protection_context.protected_by_username) %}
+{% elif reservation_edit_locked %}
+{% set destructive_button_title = t('wiki.page.reserved_by', user=reservation_status.reserved_by_username) if reservation_status else t('wiki.page.reserved_by', user='') %}
+{% elif reservation_admin_override %}
+{% set destructive_button_title = t('wiki.page.admin_override_reserved_by', user=reservation_status.reserved_by_username) if reservation_status else t('wiki.page.admin_override_reserved_by', user='') %}
+{% else %}
+{% set destructive_button_title = '' %}
+{% endif %}
+{% if page.pending_deletion and current_user and current_user.role in ('admin', 'owner') %}
+<div class="page-header">
+    <h1>{{ page.title }}</h1>
+    <span class="pending-deletion-badge">{{ t('wiki.page.pending_deletion_badge') }}</span>
+</div>
+
+<div class="pending-deletion-banner">
+    <div class="pending-deletion-banner-content">
+        <strong>{{ t('wiki.page.pending_deletion_title') }}</strong>
+        <span>
+            {% if pending_deletion_info and pending_deletion_info.deleted_by_username %}{{ t('wiki.page.deleted_by_when', when=time_ago(page.pending_deletion_at), user=pending_deletion_info.deleted_by_username)|safe }}{% else %}{{ t('wiki.page.deleted_when', when=time_ago(page.pending_deletion_at)) }}{% endif %}.
+            {% if pending_deletion_info and pending_deletion_info.expires_at %}
+            {{ t('wiki.page.will_be_removed', when=time_ago(pending_deletion_info.expires_at)) }}
+            {% endif %}
+            {{ t('wiki.page.non_admin_cannot_see') }}
+        </span>
+    </div>
+    <form class="u-d-inline" method="POST" action="{{ url_for('admin_restore_pending_deletion', page_id=page.id) }}"
+          data-confirm="{{ t('wiki.page.restore_confirm', title=page.title) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-restore">{{ t('wiki.page.restore_page') }}</button>
+    </form>
+</div>
+
+<div class="wiki-content">
+    {{ content_html|safe }}
+</div>
+{{ render_slot("page.below_content", {"page": page, "user": current_user}) | safe }}
+
+{% if editor_info %}
+<div class="edit-info">
+    {{ t('wiki.page.last_edit_by') }} <strong>{% if enabled_plugins.user_profiles and editor_info.username != 'the system' %}<a class="xs-b5df2325" href="{{ url_for('user_profile', username=editor_info.username) }}">{{ editor_info.username }}</a>{% else %}{{ editor_info.username }}{% endif %}</strong> <span title="{{ editor_info.edited_at }}">{{ editor_info.time_ago }}</span>
+    {% if can_export_markdown %}· <a href="{{ url_for('export_page_markdown', slug=page.slug) }}">{{ t('wiki.edit.export_md') }}</a>{% endif %}
+    {% if can_export_pdf %}· <a href="{{ url_for('export_page_pdf', slug=page.slug) }}">{{ t('wiki.export_pdf') }}</a>{% endif %}
+    · <a href="#" onclick="window.print();return false;">{{ t('canvas.view.print') }}</a>
+</div>
+{% endif %}
+
+{% else %}
+<div class="page-header">
+    <h1>{{ page.title }}</h1>
+    {% if current_user and current_user.role in ('editor', 'admin', 'owner') %}
+    <div id="editing-indicator"
+         class="editing-indicator"
+         data-slug="{{ page.slug }}"
+         data-current-user="{{ current_user.username }}"
+         style="display:none">
+        <span class="editing-indicator-text"></span>
+    </div>
+    {% endif %}
+    {% if enabled_plugins.difficulty_tags and page.difficulty_tag == 'custom' and page.tag_custom_label %}
+    <span class="difficulty-tag dtag-color">{{ page.tag_custom_label }}</span>
+    {% elif enabled_plugins.difficulty_tags and page.difficulty_tag %}
+    <span class="difficulty-tag difficulty-tag-{{ page.difficulty_tag }}">{{ page.difficulty_tag|capitalize }}</span>
+    {% endif %}
+    {% if page.is_deindexed %}
+    <span class="deindexed-badge">{{ t('wiki.page.deindexed_badge') }}</span>
+    {% endif %}
+    {% if current_user and current_user.role in ('editor', 'admin', 'owner') %}
+    <div class="page-actions">
+        <a href="{{ url_for('edit_page', slug=page.slug) }}" class="btn btn-sm" title="{{ destructive_button_title or t('wiki.page.edit_page_tooltip') }}">{{ t('common.edit') }}</a>
+        {% if can_use_page_builder %}<a href="{{ url_for('page_builder', slug=page.slug) }}" class="btn btn-sm btn-outline">Visual builder</a>{% endif %}
+        <details class="page-action-menu" data-action-menu>
+            <summary class="btn btn-sm btn-outline">{{ t('common.more') }}</summary>
+            <div class="page-action-menu-items">
+        <button class="btn-icon js-open-modal" data-modal="titleModal" title="{{ destructive_button_title or t('wiki.page.edit_title_tooltip') }}">{{ t('wiki.page.edit_title') }}</button>
+        {% if enabled_plugins.difficulty_tags %}
+        <button class="btn-icon js-open-modal" data-modal="tagModal" title="{{ destructive_button_title or t('wiki.page.set_tag') }}">{{ t('wiki.page.tag') }}</button>
+        {% endif %}
+        {% if not page.is_home %}
+        <button class="btn btn-sm btn-outline js-open-modal" data-modal="moveModal">{{ t('wiki.page.move') }}</button>
+        <button class="btn btn-sm btn-outline js-open-modal" data-modal="renameSlugModal" title="{{ t('wiki.page.change_url_tooltip') }}">{{ t('wiki.page.url') }}</button>
+        <form class="u-d-inline" method="POST" action="{{ url_for('toggle_page_deindex', slug=page.slug) }}" data-confirm="{% if page.is_deindexed %}{{ t('wiki.page.reindex_confirm') }}{% else %}{{ t('wiki.page.deindex_confirm') }}{% endif %}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline">{% if page.is_deindexed %}{{ t('wiki.page.reindex') }}{% else %}{{ t('wiki.page.deindex') }}{% endif %}</button>
+        </form>
+        {% if protection_enabled %}
+            {% if protection_is_protected %}
+                {% if protection_is_controller %}
+                <form class="u-d-inline" method="POST" action="{{ url_for('update_page_protection', slug=page.slug) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="unprotect">
+                    <button class="btn btn-sm btn-outline">{{ t('wiki.page.unprotect') }}</button>
+                </form>
+                {% else %}
+                <span class="btn btn-sm btn-outline disabled" title="{{ t('wiki.page.protected_by', user=protection_context.protected_by_username) }}">{{ t('wiki.page.protected_label') }}</span>
+                {% endif %}
+            {% else %}
+            <form class="u-d-inline" method="POST" action="{{ url_for('update_page_protection', slug=page.slug) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="protect">
+                <button class="btn btn-sm btn-outline">{{ t('wiki.page.protect') }}</button>
+            </form>
+            {% endif %}
+        {% endif %}
+        {# Deleting needs page.delete on top of edit access; the route checks it too. #}
+        {% if has_permission(current_user, 'page.delete') %}
+        <form class="u-d-inline" method="POST" action="{{ url_for('delete_page_route', slug=page.slug) }}" data-confirm="{% if reservation_admin_override and reservation_status %}{{ t('wiki.page.delete_reserved_confirm', user=reservation_status.reserved_by_username) }}{% else %}{{ t('wiki.page.delete_confirm') }}{% endif %}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-danger">{{ t('common.delete') }}</button>
+        </form>
+        {% endif %}
+        {% endif %}
+        {% if current_user.role in ('admin', 'owner') and not page.is_home %}
+        <form class="u-d-inline" method="POST" action="{{ url_for('set_home_page_route', slug=page.slug) }}" data-confirm="{{ t('wiki.page.set_home_confirm') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline">{{ t('wiki.page.set_as_home') }}</button>
+        </form>
+        {% endif %}
+            </div>
+        </details>
+    </div>
+    {% else %}
+    {# Users without direct edit access: show Propose Edit when contribution system allows #}
+    {% if can_use_page_builder %}<a href="{{ url_for('page_builder', slug=page.slug) }}" class="btn btn-sm">Visual builder</a>{% endif %}
+    {% if user_can_propose %}
+    <a href="{{ url_for('propose_edit', slug=page.slug) }}" class="btn btn-sm">{{ t('wiki.page.propose_edit') }}</a>
+    {% endif %}
+    {% endif %}
+</div>
+
+{% if enabled_plugins.assessments and assessment %}
+<div class="u-mt8">
+    <a href="{{ url_for('take_assessment', slug=page.slug) }}" class="btn btn-sm">{{ t('wiki.page.take_assessment') }}</a>
+    {% if current_user and current_user.role in ('editor', 'admin', 'owner') %}
+    <a href="{{ url_for('manage_assessment', slug=page.slug) }}" class="btn btn-sm btn-outline">{{ t('wiki.page.manage_assessment') }}</a>
+    {% endif %}
+    {% if current_user and current_user.role in ('admin', 'owner') %}
+    <a href="{{ url_for('assessment_results', slug=page.slug) }}" class="btn btn-sm btn-outline">{{ t('wiki.page.view_results') }}</a>
+    {% endif %}
+</div>
+{% elif enabled_plugins.assessments and current_user and current_user.role in ('editor', 'admin', 'owner') %}
+<div class="u-mt8">
+    <a href="{{ url_for('manage_assessment', slug=page.slug) }}" class="btn btn-sm btn-outline">{{ t('wiki.page.add_assessment') }}</a>
+</div>
+{% endif %}
+
+{% if protection_enabled and protection_is_protected %}
+<div class="reservation-status reserved{% if protection_edit_locked %} reservation-status-warning{% endif %}">
+    <span class="reservation-icon"></span>
+    {% if protection_is_controller %}
+    <span class="reservation-text">{{ t('wiki.page.you_protected') }}</span>
+    {% else %}
+    <span class="reservation-text">{{ t('wiki.page.protected_by_user_long', user=protection_context.protected_by_username)|safe }}</span>
+    {% endif %}
+    {% if protection_context.unlock_requested_at %}
+    <div class="reservation-help">
+        {% if protection_context.unlock_requested_by_username %}{{ t('wiki.page.unlock_requested_by', user=protection_context.unlock_requested_by_username) }}{% else %}{{ t('wiki.page.unlock_requested') }}{% endif %}.
+        {% if protection_context.unlock_ready %}
+        {{ t('wiki.page.unlock_ready') }}
+        {% elif protection_context.unlock_ready_at %}
+        {{ t('wiki.page.unlock_ready_in', when=time_ago(protection_context.unlock_ready_at)) }}
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if page_expiry and (page_expiry.show_countdown or (current_user and current_user.role in ('admin', 'owner'))) %}
+<div class="xs-864e677b">
+    ⏳ <strong>{{ t('wiki.page.scheduled_for_deletion') }}</strong>: {{ t('wiki.page.expires_at', date=format_datetime(page_expiry.expires_at)) }}
+    {% if not page_expiry.show_countdown and current_user and current_user.role in ('admin', 'owner') %}
+    <small class="u-o60">{{ t('wiki.page.countdown_hidden') }}</small>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if user_contribution %}
+<div class="reservation-status{% if user_contribution.status == 'pending' %} reserved{% elif user_contribution.status == 'denied' %} reservation-status-warning{% endif %}">
+    {% if user_contribution.status == 'pending' %}
+    <span class="reservation-icon"></span>
+    <span class="reservation-text">{{ t('wiki.page.user_contrib_pending', when=time_ago(user_contribution.created_at)) }}</span>
+    <a href="{{ url_for('edit_contribution', slug=page.slug, contribution_id=user_contribution.id) }}" class="btn btn-sm btn-outline">{{ t('common.edit') }}</a>
+    <form class="u-d-inline" method="POST" action="{{ url_for('withdraw_contribution', slug=page.slug, contribution_id=user_contribution.id) }}" data-confirm="{{ t('wiki.contribution.withdraw_confirm') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-outline">{{ t('wiki.contribution.withdraw') }}</button>
+    </form>
+    {% elif user_contribution.status == 'denied' %}
+    <span class="reservation-icon"></span>
+    <span class="reservation-text">{% if user_contribution.review_reason %}{{ t('wiki.page.user_contrib_denied_with_reason', reason=user_contribution.review_reason) }}{% else %}{{ t('wiki.page.user_contrib_denied') }}{% endif %}.</span>
+    {% elif user_contribution.status == 'approved' %}
+    <span class="reservation-icon"></span>
+    <span class="reservation-text">{{ t('wiki.page.user_contrib_approved') }}</span>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="wiki-content">
+    {{ content_html|safe }}
+</div>
+{{ render_slot("page.below_content", {"page": page, "user": current_user}) | safe }}
+
+{% if editor_info %}
+<div class="edit-info">
+    {{ t('wiki.page.last_edit_by') }} <strong>{% if enabled_plugins.user_profiles %}<a class="xs-b5df2325" href="{{ url_for('user_profile', username=editor_info.username) }}">{{ editor_info.username }}</a>{% else %}{{ editor_info.username }}{% endif %}</strong> <span title="{{ editor_info.edited_at }}">{{ editor_info.time_ago }}</span>
+    {% if page_history_enabled %}· <a href="{{ url_for('page_history', slug=page.slug) }}">{{ t('wiki.page.view_history') }}</a>{% endif %}
+    {% if can_export_markdown %}· <a href="{{ url_for('export_page_markdown', slug=page.slug) }}">{{ t('wiki.edit.export_md') }}</a>{% endif %}
+    {% if can_export_pdf %}· <a href="{{ url_for('export_page_pdf', slug=page.slug) }}">{{ t('wiki.export_pdf') }}</a>{% endif %}
+    · <a href="#" id="wiki-print-btn" onclick="window.print();return false;">{{ t('canvas.view.print') }}</a>
+</div>
+{% else %}
+<div class="edit-info">
+    {% if page_history_enabled %}<a href="{{ url_for('page_history', slug=page.slug) }}">{{ t('wiki.page.view_history') }}</a> · {% endif %}
+    {% if can_export_markdown %}<a href="{{ url_for('export_page_markdown', slug=page.slug) }}">{{ t('wiki.edit.export_md') }}</a> · {% endif %}
+    {% if can_export_pdf %}<a href="{{ url_for('export_page_pdf', slug=page.slug) }}">{{ t('wiki.export_pdf') }}</a> · {% endif %}
+    <a href="#" onclick="window.print();return false;">{{ t('canvas.view.print') }}</a>
+</div>
+{% endif %}
+
+{% if reservation_enabled and reservation_status and not page.is_home %}
+<div class="reservation-panel">
+    <div class="reservation-panel-header">
+        <div>
+            <h3>{{ t('wiki.page.reservation_panel_title') }}</h3>
+            <p>
+                {{ t('wiki.page.reservation_panel_intro') }}
+            </p>
+        </div>
+        <a href="{{ url_for('reservation_directory') }}" class="btn btn-sm btn-outline">{{ t('wiki.page.view_reservation_directory') }}</a>
+    </div>
+    {% if reservation_status.is_reserved %}
+        <div class="reservation-status reserved{% if reservation_admin_override %} reservation-status-warning{% endif %}">
+            <span class="reservation-icon"></span>
+            {% if reservation_status.reserved_by == current_user.id %}
+                <span class="reservation-text">{{ t('wiki.page.you_reserved') }}</span>
+                <span class="reservation-expires">{{ t('wiki.reservations.expires', when=time_ago(reservation_status.expires_at)) }}</span>
+                <form method="POST" action="{{ url_for('release_page_reservation_route', slug=page.slug) }}" class="reservation-inline-form" data-confirm="{{ t('wiki.page.release_confirm') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-outline">{{ t('wiki.page.release_reservation') }}</button>
+                </form>
+            {% else %}
+                <span class="reservation-text">{{ t('wiki.page.reserved_by_user_long', user=reservation_status.reserved_by_username)|safe }}.</span>
+                <span class="reservation-expires">{{ t('wiki.reservations.expires', when=time_ago(reservation_status.expires_at)) }}</span>
+                {% if reservation_admin_override %}
+                <div class="reservation-help">
+                    {{ t('wiki.page.admin_override_help') }}
+                </div>
+                {% else %}
+                <div class="reservation-help">
+                    {{ t('wiki.page.destructive_blocked_help') }}
+                </div>
+                {% endif %}
+            {% endif %}
+        </div>
+    {% else %}
+        <div class="reservation-controls">
+            <form method="POST" action="{{ url_for('reserve_page_route', slug=page.slug) }}" class="reservation-inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm">{{ t('wiki.page.reserve_page') }}</button>
+            </form>
+            <div class="reservation-help">{{ t('wiki.page.reservation_help') }}</div>
+            {% if reservation_status.user_in_cooldown %}
+            <span class="cooldown-notice">{{ t('wiki.page.cooldown_available', when=time_ago(reservation_status.cooldown_until)) }}</span>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if enabled_plugins.attachments and attachments %}
+{# The attachment routes check these permissions too; hiding the controls
+   only spares users buttons that would answer 403. #}
+{% set can_view_attachments = has_permission(current_user, 'attachment.view') %}
+{% set can_delete_any_attachment = has_permission(current_user, 'attachment.delete_any') %}
+{% set can_delete_own_attachment = has_permission(current_user, 'attachment.delete_own') %}
+<div class="attachments-section">
+    <div class="attachments-header">
+        <span class="attachments-title">{{ t('wiki.page.attachments_count', count=attachments|length) }}</span>
+        {% if attachments|length > 1 and can_view_attachments %}
+        <a href="{{ url_for('download_all_attachments', slug=page.slug) }}" class="btn btn-sm btn-outline">{{ t('wiki.page.download_all') }}</a>
+        {% endif %}
+    </div>
+    <ul class="attachments-list">
+        {% for att in attachments %}
+        <li class="attachment-item">
+            <span class="attachment-name">{{ att.original_name }}</span>
+            <span class="attachment-meta">{{ (att.file_size / 1024)|round(1) }} KB</span>
+            {% if can_view_attachments %}
+            <a href="{{ url_for('download_attachment', slug=page.slug, attachment_id=att.id) }}" class="btn btn-sm btn-outline">{{ t('wiki.page.download') }}</a>
+            {% endif %}
+            {% if current_user and current_user.role in ('editor', 'admin', 'owner') and (can_delete_any_attachment or (can_delete_own_attachment and att.uploaded_by == current_user.id)) %}
+            <button class="btn btn-sm btn-danger-outline js-delete-att" data-att-id="{{ att.id }}">{{ t('common.delete') }}</button>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+{% if current_user and current_user.role in ('editor', 'admin', 'owner') %}
+<!-- Title edit modal -->
+<div class="modal u-d-none" id="titleModal">
+    <div class="modal-content">
+        <h3>{{ t('wiki.page.edit_title_modal') }}</h3>
+        <form method="POST" action="{{ url_for('edit_page_title', slug=page.slug) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label>{{ t('wiki.page.page_title_label') }}</label>
+                <input type="text" name="title" value="{{ page.title }}" class="input" required>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn">{{ t('common.save') }}</button>
+                <button type="button" class="btn btn-outline js-close-modal">{{ t('common.cancel') }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+<!-- Tag edit modal -->
+<div class="modal u-d-none" id="tagModal">
+    <div class="modal-content">
+        <h3>{{ t('wiki.page.set_tag_modal') }}</h3>
+        <form method="POST" action="{{ url_for('update_page_tag', slug=page.slug) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label>{{ t('wiki.page.difficulty_tag_label') }}</label>
+                <select name="difficulty_tag" class="input" id="tagModalSelect">
+                    <option value="" {% if not page.difficulty_tag %}selected{% endif %}>{{ t('wiki.difficulty.none') }}</option>
+                    <option value="beginner" {% if page.difficulty_tag == 'beginner' %}selected{% endif %}>{{ t('wiki.difficulty.beginner') }}</option>
+                    <option value="easy" {% if page.difficulty_tag == 'easy' %}selected{% endif %}>{{ t('wiki.difficulty.easy') }}</option>
+                    <option value="intermediate" {% if page.difficulty_tag == 'intermediate' %}selected{% endif %}>{{ t('wiki.difficulty.intermediate') }}</option>
+                    <option value="expert" {% if page.difficulty_tag == 'expert' %}selected{% endif %}>{{ t('wiki.difficulty.expert') }}</option>
+                    <option value="extra" {% if page.difficulty_tag == 'extra' %}selected{% endif %}>{{ t('wiki.difficulty.extra') }}</option>
+                    <option value="custom" {% if page.difficulty_tag == 'custom' %}selected{% endif %}>{{ t('wiki.difficulty.custom') }}</option>
+                </select>
+            </div>
+            <div class="custom-tag-fields{% if not page.difficulty_tag or page.difficulty_tag != 'custom' %} u-d-none{% endif %}" id="tagModalCustom">
+                <div class="form-group">
+                    <label>{{ t('wiki.difficulty.label') }}</label>
+                    <input type="text" name="tag_custom_label" id="tagModalLabel" class="input" maxlength="50" placeholder="{{ t('wiki.difficulty.label_placeholder') }}" value="{{ page.tag_custom_label or '' }}">
+                </div>
+                <div class="form-group">
+                    <label>{{ t('wiki.difficulty.color') }}</label>
+                    <div class="color-preset-grid" id="tagModalPresets"></div>
+                    <div class="xs-5dec52ca">
+                        <input type="color" class="color-hex-picker" id="tagModalColorPicker" value="{{ page.tag_custom_color or '#4a90d9' }}">
+                        <input type="text" name="tag_custom_color" class="input u-w7r-mono" id="tagModalColorHex" maxlength="7" placeholder="#4a90d9" value="{{ page.tag_custom_color or '#4a90d9' }}">
+                        <span class="difficulty-tag dtag-color" id="tagModalPreview">{{ t('wiki.page.preview') }}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn">{{ t('common.save') }}</button>
+                <button type="button" class="btn btn-outline js-close-modal">{{ t('common.cancel') }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+<!-- Move page modal -->
+{% if not page.is_home %}
+<div class="modal u-d-none" id="moveModal">
+    <div class="modal-content">
+        <h3>{{ t('wiki.page.move_modal') }}</h3>
+        <form method="POST" action="{{ url_for('move_page', slug=page.slug) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label>{{ t('wiki.reservations.col.category') }}</label>
+                <select name="category_id" class="input">
+                    <option value="" {% if not page.category_id %}selected{% endif %}>{{ t('wiki.create.uncategorized') }}</option>
+                    {% for cat in all_categories %}
+                    <option value="{{ cat.id }}" {% if page.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn">{{ t('wiki.category.move') }}</button>
+                <button type="button" class="btn btn-outline js-close-modal">{{ t('common.cancel') }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+<!-- Rename slug modal -->
+<div class="modal u-d-none" id="renameSlugModal">
+    <div class="modal-content">
+        <h3>{{ t('wiki.page.change_url_modal') }}</h3>
+        <p class="u-label-note">
+            {{ t('wiki.page.current_url_label') }}: <code>/page/{{ page.slug }}</code><br>
+            {{ t('wiki.page.url_links_updated') }}
+        </p>
+        <form method="POST" action="{{ url_for('rename_page_slug', slug=page.slug) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label>{{ t('wiki.page.new_url_slug') }}</label>
+                <input type="text" name="new_slug" class="input" required value="{{ page.slug }}" pattern="[a-zA-Z0-9_\- ]+" title="{{ t('wiki.page.slug_pattern_title') }}">
+                <p class="xs-76418dd1">{{ t('wiki.page.slug_hint') }}</p>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn">{{ t('wiki.page.update_url') }}</button>
+                <button type="button" class="btn btn-outline js-close-modal">{{ t('common.cancel') }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endif %}
+
+{% if prev_page or next_page %}
+<nav class="page-seq-nav">
+    {% if prev_page %}
+    <a href="{{ url_for('view_page', slug=prev_page.slug) }}" class="btn btn-outline page-seq-prev">← {{ prev_page.title }}</a>
+    {% else %}
+    <span></span>
+    {% endif %}
+    {% if next_page %}
+    <a href="{{ url_for('view_page', slug=next_page.slug) }}" class="btn btn-outline page-seq-next">{{ next_page.title }} →</a>
+    {% endif %}
+</nav>
+{% endif %}
+
+{% endif %}
+
+{% if current_user and page.last_edited_at %}
+<div id="page-sync"
+     data-slug="{{ page.slug }}"
+     data-edited-at="{{ page.last_edited_at }}"
+     data-interval="10000"
+     style="display:none"></div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{% if current_user and current_user.role in ('editor', 'admin', 'owner') %}
+<script nonce="{{ csp_nonce }}">
+function deleteAttachment(id, btn) {
+    bwConfirm((window._t && window._t('js.wiki_page.delete_attachment_confirm')) || 'Delete this attachment?', function() {
+        fetch('/api/attachments/' + id, {
+            method: 'DELETE',
+            headers: { 'X-CSRFToken': getCsrfToken() }
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.ok) {
+                var li = btn.closest('li');
+                if (li) li.remove();
+                var list = document.querySelector('.attachments-list');
+                if (list && !list.querySelector('li')) {
+                    var section = document.querySelector('.attachments-section');
+                    if (section) section.remove();
+                }
+            } else {
+                alert(d.error || (window._t && window._t('wiki.page.delete_attachment_failed')) || 'Failed to delete attachment.');
+            }
+        });
+    });
+}
+
+// ----- Custom tag color picker -----
+var COLOR_PRESETS = [
+    '#4a90d9','#5cb85c','#f0ad4e','#d9534f','#9b59b6',
+    '#e67e22','#1abc9c','#e91e63','#2c3e50','#795548',
+    '#00bcd4','#8bc34a','#ff5722','#3f51b5','#9e9e9e','#673ab7'
+];
+
+function buildPresets(gridId, pickerId, hexId, previewId, labelId) {
+    var grid = document.getElementById(gridId);
+    if (!grid) return;
+    COLOR_PRESETS.forEach(function(c) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'color-swatch';
+        btn.style.background = c;
+        btn.title = c;
+        btn.addEventListener('click', function() {
+            document.getElementById(hexId).value = c;
+            document.getElementById(pickerId).value = c;
+            updateTagPreview(previewId, c, labelId);
+        });
+        grid.appendChild(btn);
+    });
+}
+
+function syncColorInput(picker, hexId, previewId, labelId) {
+    document.getElementById(hexId).value = picker.value;
+    updateTagPreview(previewId, picker.value, labelId);
+}
+
+function syncColorPicker(hex, pickerId, previewId, labelId) {
+    var v = hex.value.trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+        document.getElementById(pickerId).value = v;
+        updateTagPreview(previewId, v, labelId);
+    }
+}
+
+function updateTagPreview(previewId, color, labelId) {
+    var p = document.getElementById(previewId);
+    if (!p) return;
+    p.style.color = color;
+    p.style.background = color + '26';
+    var lbl = document.getElementById(labelId);
+    var pv = (window._t && window._t('wiki.page.preview')) || 'Preview';
+    p.textContent = lbl ? (lbl.value || pv) : pv;
+}
+
+function toggleCustomTag(sel, customId) {
+    var custom = document.getElementById(customId);
+    if (custom) custom.style.display = sel.value === 'custom' ? 'block' : 'none';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    buildPresets('tagModalPresets','tagModalColorPicker','tagModalColorHex','tagModalPreview','tagModalLabel');
+    document.querySelectorAll('.js-open-modal').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var m = document.getElementById(this.dataset.modal);
+            if (m) m.style.display = 'flex';
+        });
+    });
+    document.querySelectorAll('.js-close-modal').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var m = this.closest('.modal');
+            if (m) m.style.display = 'none';
+        });
+    });
+    document.querySelectorAll('.js-delete-att').forEach(function(btn) {
+        btn.addEventListener('click', function() { deleteAttachment(Number(this.dataset.attId), this); });
+    });
+    var tagSel = document.getElementById('tagModalSelect');
+    if (tagSel) tagSel.addEventListener('change', function() { toggleCustomTag(this, 'tagModalCustom'); });
+    var tagLabel = document.getElementById('tagModalLabel');
+    if (tagLabel) tagLabel.addEventListener('input', function() {
+        updateTagPreview('tagModalPreview', document.getElementById('tagModalColorHex').value, 'tagModalLabel');
+    });
+    var tagColorPicker = document.getElementById('tagModalColorPicker');
+    if (tagColorPicker) tagColorPicker.addEventListener('input', function() {
+        syncColorInput(this, 'tagModalColorHex', 'tagModalPreview', 'tagModalLabel');
+    });
+    var tagColorHex = document.getElementById('tagModalColorHex');
+    if (tagColorHex) tagColorHex.addEventListener('input', function() {
+        syncColorPicker(this, 'tagModalColorPicker', 'tagModalPreview', 'tagModalLabel');
+    });
+});
+
+</script>
+{% endif %}
+
+<script nonce="{{ csp_nonce }}">
+(function() {
+    var syncEl = document.getElementById('page-sync');
+    if (!syncEl) return;
+    var slug = syncEl.getAttribute('data-slug');
+    var editedAt = syncEl.getAttribute('data-edited-at');
+    var intervalMs = parseInt(syncEl.getAttribute('data-interval') || '10000', 10);
+    if (!slug || !editedAt) return;
+    var stopped = false;
+    var bannerEl = null;
+    var autoRefreshTimer = null;
+
+    function removeBanner() {
+        if (bannerEl) {
+            bannerEl.remove();
+            bannerEl = null;
+        }
+        if (autoRefreshTimer) {
+            clearTimeout(autoRefreshTimer);
+            autoRefreshTimer = null;
+        }
+    }
+
+    function showUpdateBanner() {
+        if (bannerEl) return;
+        removeBanner();
+        bannerEl = document.createElement('div');
+        bannerEl.className = 'flash flash-info page-sync-banner';
+        bannerEl.setAttribute('role', 'alert');
+        var msg = document.createElement('span');
+        msg.className = 'flash-message';
+        msg.textContent = (window._t && window._t('js.wiki_page.updated')) || 'This page has been updated by another user.';
+        bannerEl.appendChild(msg);
+        var refreshBtn = document.createElement('button');
+        refreshBtn.className = 'btn btn-sm u-ml8';
+        refreshBtn.textContent = (window._t && window._t('js.wiki_page.refresh')) || 'Refresh';
+        refreshBtn.addEventListener('click', function() {
+            window.location.reload();
+        });
+        bannerEl.appendChild(refreshBtn);
+        var dismissBtn = document.createElement('button');
+        dismissBtn.type = 'button';
+        dismissBtn.className = 'flash-close';
+        dismissBtn.setAttribute('aria-label', (window._t && window._t('js.common.dismiss_message')) || 'Dismiss message');
+        dismissBtn.textContent = 'x';
+        dismissBtn.addEventListener('click', function() {
+            removeBanner();
+        });
+        bannerEl.appendChild(dismissBtn);
+        var container = document.querySelector('.flash-messages');
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'flash-messages';
+            var mainContent = document.getElementById('main-content') || document.querySelector('main.content') || document.body;
+            if (mainContent.firstChild) {
+                mainContent.insertBefore(container, mainContent.firstChild);
+            } else {
+                mainContent.appendChild(container);
+            }
+        }
+        container.appendChild(bannerEl);
+        // Auto-refresh after 30 seconds if user hasn't dismissed
+        autoRefreshTimer = setTimeout(function() {
+            window.location.reload();
+        }, 30000);
+    }
+
+    function poll() {
+        if (stopped || document.hidden) return;
+        fetch('/api/page/' + encodeURIComponent(slug) + '/sync?since=' + encodeURIComponent(editedAt))
+            .then(function(r) {
+                if (r.status === 403 || r.status === 404) {
+                    stopped = true;
+                    return null;
+                }
+                if (!r.ok) throw new Error('Sync poll failed');
+                return r.json();
+            })
+            .then(function(data) {
+                if (!data) return;
+                if (data.reload) {
+                    showUpdateBanner();
+                    return;
+                }
+                if (data.changed) {
+                    editedAt = data.last_edited_at || editedAt;
+                    showUpdateBanner();
+                }
+            })
+            .catch(function(err) {
+                if (typeof console !== 'undefined') {
+                    console.warn('Page sync poll failed, will retry:', err);
+                }
+            });
+    }
+
+    var pollHandle = window.setInterval(poll, intervalMs);
+    window.addEventListener('beforeunload', function() {
+        stopped = true;
+        window.clearInterval(pollHandle);
+        removeBanner();
+    }, { once: true });
+})();
+</script>
+
+<script nonce="{{ csp_nonce }}">
+(function() {
+    var indicator = document.getElementById('editing-indicator');
+    if (!indicator) return;
+    var slug = indicator.getAttribute('data-slug');
+    var currentUser = indicator.getAttribute('data-current-user');
+    var intervalMs = 8000;
+    var stopped = false;
+
+    function updateIndicator(editors) {
+        var textEl = indicator.querySelector('.editing-indicator-text');
+        if (!editors || editors.length === 0) {
+            indicator.style.display = 'none';
+            return;
+        }
+        var names = editors.filter(function(n) { return n !== currentUser; });
+        if (names.length === 0) {
+            indicator.style.display = 'none';
+            return;
+        }
+        var label;
+        if (names.length === 1) {
+            label = (window._t && window._t('js.wiki_page.editing_by_single')) ? window._t('js.wiki_page.editing_by_single', {user: names[0]}) : names[0] + ' is editing this page';
+        } else {
+            label = (window._t && window._t('js.wiki_page.editing_by_multi')) ? window._t('js.wiki_page.editing_by_multi', {users: names.join(', ')}) : names.join(', ') + ' are editing this page';
+        }
+        textEl.textContent = label;
+        indicator.style.display = 'flex';
+    }
+
+    function pollEditors() {
+        if (stopped || document.hidden) return;
+        fetch('/api/page/' + encodeURIComponent(slug) + '/editing/check')
+            .then(function(r) {
+                if (r.status === 403 || r.status === 404) { stopped = true; return null; }
+                if (!r.ok) throw new Error('Editing check failed');
+                return r.json();
+            })
+            .then(function(data) {
+                if (!data) return;
+                updateIndicator(data.editors || []);
+            })
+            .catch(function() {});
+    }
+
+    var pollHandle = window.setInterval(pollEditors, intervalMs);
+    pollEditors();
+    window.addEventListener('beforeunload', function() {
+        stopped = true;
+        window.clearInterval(pollHandle);
+    }, { once: true });
+})();
+</script>
+
+<script nonce="{{ csp_nonce }}">
+(function() {
+    var embeds = document.querySelectorAll('.bw-embed');
+    if (!embeds.length) return;
+    var SESSION_ID = crypto.randomUUID ? crypto.randomUUID() : ('s_' + Math.random().toString(36).slice(2));
+    var POLL_MS = 5000;
+    var stopped = false;
+
+    function esc(s) {
+        var d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    function tr(key, fallback) {
+        return (window._t && window._t(key)) || fallback;
+    }
+
+    function loadingHtml(key, fallback) {
+        return '<div class="bw-embed-loading">' + esc(tr(key, fallback)) + '</div>';
+    }
+
+    function renderKanbanEmbed(el, data) {
+        var body = el.querySelector('.bw-embed-body');
+        if (!body) return;
+        body.innerHTML = '';
+        var cols = data.columns || [];
+        cols.forEach(function(col) {
+            var colEl = document.createElement('div');
+            colEl.className = 'bw-embed-kanban-col';
+            var titleEl = document.createElement('div');
+            titleEl.className = 'bw-embed-kanban-col-title';
+            titleEl.textContent = col.title;
+            colEl.appendChild(titleEl);
+            (col.tickets || []).forEach(function(ticket) {
+                var tEl = document.createElement('div');
+                tEl.className = 'bw-embed-kanban-ticket';
+                var titleSpan = document.createElement('span');
+                titleSpan.className = 'bw-embed-kanban-ticket-title';
+                titleSpan.textContent = ticket.title;
+                tEl.appendChild(titleSpan);
+                if (ticket.priority && ticket.priority !== 'medium') {
+                    var pSpan = document.createElement('span');
+                    pSpan.className = 'bw-embed-kanban-ticket-priority bw-embed-kanban-ticket-priority-' + esc(ticket.priority);
+                    pSpan.textContent = ticket.priority;
+                    tEl.appendChild(pSpan);
+                }
+                if (ticket.color) {
+                    var colorBar = document.createElement('div');
+                    colorBar.className = 'bw-embed-kanban-ticket-color';
+                    colorBar.style.background = esc(ticket.color);
+                    tEl.appendChild(colorBar);
+                }
+                colEl.appendChild(tEl);
+            });
+            body.appendChild(colEl);
+        });
+        if (!cols.length) {
+            body.innerHTML = loadingHtml('js.wiki_page.embed_no_columns', 'No columns');
+        }
+    }
+
+    function renderCanvasEmbed(el, data) {
+        var body = el.querySelector('.bw-embed-body');
+        if (!body) return;
+        body.innerHTML = '';
+        var canvasData = data.data || {};
+        var nodes = canvasData.nodes || [];
+        var container = document.createElement('div');
+        container.className = 'bw-embed-canvas-view';
+        container.style.minHeight = '200px';
+        var maxX = 0, maxY = 0;
+        nodes.forEach(function(node) {
+            var nEl = document.createElement('div');
+            nEl.className = 'bw-embed-canvas-node' + (node.type === 'wiki_page' ? ' bw-embed-canvas-node-wiki' : '');
+            var label = node.label || node.display_text || node.type || '';
+            if (node.type === 'wiki_page' && node.page_slug) {
+                var a = document.createElement('a');
+                a.href = '/page/' + esc(node.page_slug);
+                a.target = '_blank';
+                a.textContent = label;
+                a.style.color = 'var(--accent)';
+                a.style.textDecoration = 'none';
+                nEl.appendChild(a);
+            } else {
+                nEl.textContent = label;
+            }
+            var x = node.x || 0;
+            var y = node.y || 0;
+            nEl.style.left = x + 'px';
+            nEl.style.top = y + 'px';
+            if (node.width) nEl.style.width = Math.min(node.width, 200) + 'px';
+            container.appendChild(nEl);
+            maxX = Math.max(maxX, x + (node.width || 150));
+            maxY = Math.max(maxY, y + (node.height || 40));
+        });
+        container.style.minHeight = (maxY + 60) + 'px';
+        container.style.minWidth = (maxX + 60) + 'px';
+        body.appendChild(container);
+        var link = document.createElement('a');
+        link.className = 'bw-embed-canvas-link';
+        link.href = '/canvas/' + esc(data.slug);
+        link.target = '_blank';
+        link.textContent = tr('js.wiki_page.embed_open_full_canvas', 'Open full canvas →');
+        body.appendChild(link);
+        if (!nodes.length) {
+            body.innerHTML = loadingHtml('js.wiki_page.embed_no_nodes', 'No nodes');
+        }
+    }
+
+    function initCanvasEmbed(el) {
+        var slug = el.getAttribute('data-embed-slug');
+        if (!slug) return;
+        var header = document.createElement('div');
+        header.className = 'bw-embed-header';
+        var badge = document.createElement('span');
+        badge.className = 'bw-embed-badge';
+        badge.textContent = tr('js.wiki_page.embed_canvas_label', 'Canvas');
+        header.appendChild(badge);
+        var titleSpan = document.createElement('span');
+        titleSpan.textContent = tr('js.wiki_page.embed_loading', 'Loading…');
+        header.appendChild(titleSpan);
+        var dot = document.createElement('span');
+        dot.className = 'bw-embed-sync-dot';
+        dot.title = tr('js.wiki_page.embed_live_updates_active', 'Live updates active');
+        header.appendChild(dot);
+        el.insertBefore(header, el.firstChild);
+        var body = document.createElement('div');
+        body.className = 'bw-embed-body';
+        body.innerHTML = loadingHtml('js.wiki_page.embed_loading_canvas', 'Loading canvas…');
+        el.appendChild(body);
+        var lastSeq = 0;
+        function loadCanvas() {
+            fetch('/api/embed/canvas/' + encodeURIComponent(slug))
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(data) {
+                    if (!data || data.error) {
+                        body.innerHTML = loadingHtml('js.wiki_page.embed_canvas_not_found', 'Canvas not found');
+                        return;
+                    }
+                    titleSpan.innerHTML = '<a href="/canvas/' + esc(data.slug) + '" target="_blank">' + esc(data.title) + '</a>';
+                    lastSeq = data.seq || 0;
+                    renderCanvasEmbed(el, data);
+                })
+                .catch(function() {
+                    body.innerHTML = loadingHtml('js.wiki_page.embed_failed_canvas', 'Failed to load canvas');
+                });
+        }
+        loadCanvas();
+        function pollSync() {
+            if (stopped || document.hidden) return;
+            fetch('/api/embed/canvas/' + encodeURIComponent(slug) + '/sync?since=' + lastSeq, {
+                headers: {'X-Canvas-Session': SESSION_ID}
+            })
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(res) {
+                    if (!res || !res.events || !res.events.length) return;
+                    lastSeq = res.seq || lastSeq;
+                    var hasSnapshot = res.events.some(function(e) { return e.op_type === 'snapshot'; });
+                    if (hasSnapshot) {
+                        loadCanvas();
+                    }
+                })
+                .catch(function() {});
+        }
+        var pollHandle = setInterval(pollSync, POLL_MS);
+        el._bwStop = function() { stopped = true; clearInterval(pollHandle); };
+    }
+
+    function initKanbanEmbed(el) {
+        var boardId = el.getAttribute('data-embed-board');
+        if (!boardId) return;
+        var header = document.createElement('div');
+        header.className = 'bw-embed-header';
+        var badge = document.createElement('span');
+        badge.className = 'bw-embed-badge';
+        badge.textContent = tr('js.wiki_page.embed_kanban_label', 'Kanban');
+        header.appendChild(badge);
+        var titleSpan = document.createElement('span');
+        titleSpan.textContent = tr('js.wiki_page.embed_loading', 'Loading…');
+        header.appendChild(titleSpan);
+        var dot = document.createElement('span');
+        dot.className = 'bw-embed-sync-dot';
+        dot.title = tr('js.wiki_page.embed_live_updates_active', 'Live updates active');
+        header.appendChild(dot);
+        el.insertBefore(header, el.firstChild);
+        var body = document.createElement('div');
+        body.className = 'bw-embed-body';
+        body.innerHTML = loadingHtml('js.wiki_page.embed_loading_board', 'Loading board…');
+        el.appendChild(body);
+        var lastSeq = 0;
+        function loadBoard() {
+            fetch('/api/embed/kanban/' + encodeURIComponent(boardId))
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(data) {
+                    if (!data || data.error) {
+                        body.innerHTML = loadingHtml('js.wiki_page.embed_board_not_found', 'Board not found');
+                        return;
+                    }
+                    titleSpan.innerHTML = '<a href="/kanban/' + esc(data.id) + '" target="_blank">' + esc(data.title) + '</a>';
+                    lastSeq = data.seq || 0;
+                    renderKanbanEmbed(el, data);
+                })
+                .catch(function() {
+                    body.innerHTML = loadingHtml('js.wiki_page.embed_failed_board', 'Failed to load board');
+                });
+        }
+        loadBoard();
+        function pollSync() {
+            if (stopped || document.hidden) return;
+            fetch('/api/embed/kanban/' + encodeURIComponent(boardId) + '/sync?since=' + lastSeq, {
+                headers: {'X-Kanban-Session': SESSION_ID}
+            })
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(res) {
+                    if (!res || !res.events || !res.events.length) return;
+                    lastSeq = res.seq || lastSeq;
+                    loadBoard();
+                })
+                .catch(function() {});
+        }
+        var pollHandle = setInterval(pollSync, POLL_MS);
+        el._bwStop = function() { stopped = true; clearInterval(pollHandle); };
+    }
+
+    embeds.forEach(function(el) {
+        var type = el.getAttribute('data-embed-type');
+        if (type === 'canvas') initCanvasEmbed(el);
+        else if (type === 'kanban') initKanbanEmbed(el);
+    });
+
+    window.addEventListener('beforeunload', function() {
+        stopped = true;
+        embeds.forEach(function(el) { if (el._bwStop) el._bwStop(); });
+    }, { once: true });
+})();
+</script>
+{% endblock %}

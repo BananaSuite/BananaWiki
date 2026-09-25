@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ page.title or t('custom_page.image_page.fallback_title') }}{# Image #} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<div class="u-text-center">
+    {% if page.title %}<h1>{{ page.title }}</h1>{% endif %}
+    {% if page.meta_description %}<p class="u-o70">{{ page.meta_description }}</p>{% endif %}
+    {% for f in files %}
+    <div class="xs-b98e736e">
+        <img class="xs-edda02dc" src="{{ url_for('custom_page_file_download', file_id=f.id, filename=f.original_name) }}"
+             alt="{{ f.original_name }}">
+        <p class="xs-76418dd1">{{ f.original_name }}</p>
+    </div>
+    {% endfor %}
+    {% if not files %}
+    <p class="u-o60">{{ t('custom_page.image_page.empty') }}</p>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ t('wiki.propose_edit.title', title=page.title) }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('wiki.propose_edit.heading', title=page.title) }}</h1>
+
+{% if other_contributions %}
+<div class="reservation-status reservation-status-warning u-mb1">
+    <span class="reservation-icon"></span>
+    <span class="reservation-text">
+        {{ t('wiki.propose_edit.other_contributions') }}
+        {% for c in other_contributions %}
+        <strong>{{ c.username }}</strong>{% if not loop.last %}, {% endif %}
+        {% endfor %}.
+        {{ t('wiki.propose_edit.may_conflict') }}
+    </span>
+</div>
+{% endif %}
+
+{% if other_drafts %}
+<div class="reservation-status reservation-status-warning u-mb1">
+    <span class="reservation-icon"></span>
+    <span class="reservation-text">
+        {{ t('wiki.propose_edit.other_drafts') }}
+        {% for d in other_drafts %}
+        <strong>{{ d.username }}</strong>{% if not loop.last %}, {% endif %}
+        {% endfor %}.
+    </span>
+</div>
+{% endif %}
+
+{% if protection_warning %}
+<div class="reservation-status reservation-status-warning u-mb1">
+    <span class="reservation-icon"></span>
+    <span class="reservation-text">{{ protection_warning }}</span>
+</div>
+{% endif %}
+
+{% if reservation_warning %}
+<div class="reservation-status reservation-status-warning u-mb1">
+    <span class="reservation-icon"></span>
+    <span class="reservation-text">{{ reservation_warning }}</span>
+</div>
+{% endif %}
+
+<form method="POST" action="{{ url_for('propose_edit', slug=page.slug) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="form-group">
+        <label for="propose-title">{{ t('common.title') }}</label>
+        <input type="text" name="title" id="propose-title" value="{{ page.title }}" class="input u-mw500">
+    </div>
+
+    <div class="form-group">
+        <label for="propose-content">{{ t('common.content') }}</label>
+        <textarea name="content" id="propose-content" class="editor-area" rows="20">{{ page.content }}</textarea>
+    </div>
+
+    <div class="form-group">
+        <label for="propose-reason">{{ t('wiki.contribution.reason') }} <span class="u-o50">{{ t('common.required_paren') }}</span></label>
+        <textarea name="reason" id="propose-reason" class="input u-mw500" rows="3" placeholder="{{ t('wiki.propose_edit.reason_placeholder') }}" required></textarea>
+    </div>
+
+    <div class="form-group">
+        <button type="submit" class="btn">{{ t('wiki.propose_edit.submit') }}</button>
+        <a href="{{ url_for('view_page', slug=page.slug) }}" class="btn btn-outline">{{ t('common.cancel') }}</a>
+    </div>
+</form>
+{% endblock %}

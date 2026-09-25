@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.account_merge.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ t('admin.account_merge.title') }}</h1>
+</div>
+
+<div class="settings-section">
+    <h3>{{ t('admin.account_merge.description') }}</h3>
+    <p class="xs-e2aa803a">{{ t('admin.account_merge.desc') }}</p>
+
+    <form method="POST" action="{{ url_for('admin_account_merge') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="form-group">
+            <label>{{ t('admin.account_merge.source') }}</label>
+            <input type="text" name="source_username" class="input" required placeholder="{{ t('admin.account_merge.username_placeholder') }}" value="{{ source_user.username if source_user else '' }}">
+            <small class="xs-e8a5b1d8">{{ t('admin.account_merge.source_hint') }}</small>
+        </div>
+
+        <div class="form-group">
+            <label>{{ t('admin.account_merge.target') }}</label>
+            <input type="text" name="target_username" class="input" required placeholder="{{ t('admin.account_merge.target_placeholder') }}" value="{{ target_user.username if target_user else '' }}">
+            <small class="xs-e8a5b1d8">{{ t('admin.account_merge.target_hint') }}</small>
+        </div>
+
+        <label class="u-flex-center-05-ptr u-fw-normal">
+            <input type="checkbox" name="delete_source" value="1" {% if delete_source %}checked{% endif %}>
+            <span>{{ t('admin.account_merge.delete_source') }}</span>
+        </label>
+
+        <div class="form-actions">
+            <button type="submit" name="action" value="preview" class="btn btn-outline">{{ t('admin.account_merge.preview') }}</button>
+            {% if preview %}
+            <button type="submit" name="action" value="execute" class="btn" style="background: var(--red,#e74c3c); color: #fff;" data-confirm="{{ t('admin.account_merge.confirm') }}">{{ t('admin.account_merge.execute') }}</button>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+{% if preview and preview_data %}
+<div class="settings-section">
+    <h3>{{ t('admin.account_merge.preview') }}</h3>
+    <p>{{ t('admin.account_merge.preview_desc', source=source_user.username|e, target=target_user.username|e)|safe }}</p>
+    <table class="admin-table" style="margin-top: 15px;">
+        <thead>
+            <tr>
+                <th>{{ t('admin.account_merge.item') }}</th>
+                <th>{{ t('admin.account_merge.count') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>{{ t('admin.account_merge.page_edits', default='Page edit history') }}</td>
+                <td>{{ preview_data.page_revisions }}</td>
+            </tr>
+            <tr>
+                <td>{{ t('admin.account_merge.drafts') }}</td>
+                <td>{{ preview_data.drafts }}</td>
+            </tr>
+            <tr>
+                <td>{{ t('admin.account_merge.canvas') }}</td>
+                <td>{{ preview_data.canvas_layouts }}</td>
+            </tr>
+            <tr>
+                <td>{{ t('admin.account_merge.kanban') }}</td>
+                <td>{{ preview_data.kanban_boards }}</td>
+            </tr>
+            <tr>
+                <td>{{ t('admin.account_merge.badges') }}</td>
+                <td>{{ preview_data.badges }}</td>
+            </tr>
+            <tr>
+                <td>{{ t('admin.account_merge.groups') }}</td>
+                <td>{{ preview_data.group_memberships }}</td>
+            </tr>
+            <tr>
+                <td>{{ t('admin.account_merge.assessments') }}</td>
+                <td>{{ preview_data.assessment_attempts }}</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<div class="settings-section">
+    <h3>{{ t('admin.account_merge.guide') }}</h3>
+    <ol style="line-height: 2; padding-left: 20px;">
+        <li>{{ t('admin.account_merge.step1', default='Select the source account (data to take) and target account (where data goes).') }}</li>
+        <li>{{ t('admin.account_merge.preview', default='Preview the transfer to see what data will be moved.') }}</li>
+        <li>{{ t('admin.account_merge.execute', default='Execute the merge. All data is transferred atomically.') }}</li>
+        <li>{{ t('admin.account_merge.after', default='The source account will be locked or deleted. The target account retains all data.') }}</li>
+    </ol>
+</div>
+{% endblock %}

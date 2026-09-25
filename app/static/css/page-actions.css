@@ -1,0 +1,42 @@
+.page-header h1 { min-width: 0; overflow-wrap: anywhere; }
+.page-actions { display: flex; align-items: center; gap: .5rem; margin-inline-start: auto; }
+.page-action-menu { position: relative; }
+.page-action-menu summary { list-style: none; cursor: pointer; min-height: 36px; }
+.page-action-menu summary::-webkit-details-marker { display: none; }
+.page-action-menu summary::after { content: '\2304'; margin-inline-start: .45rem; }
+.page-action-menu-items {
+    position: absolute;
+    inset-inline-end: 0;
+    top: calc(100% + .4rem);
+    z-index: 90;
+    width: 15rem;
+    max-width: calc(100vw - 2rem);
+    padding: .35rem;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: var(--bg);
+    box-shadow: 0 6px 20px #0003;
+}
+.page-action-menu-items form { display: block; margin: 0; }
+.page-action-menu-items :is(.btn, .btn-icon) {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 38px;
+    padding: .5rem .65rem;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text);
+    text-align: start;
+    font-size: .875rem;
+    font-weight: 400;
+}
+.page-action-menu-items :is(.btn, .btn-icon):hover { background: var(--sidebar); }
+.page-action-menu-items .btn-danger { color: #e67d87; }
+.page-action-menu-items .disabled { opacity: .65; }
+@media (max-width: 600px) {
+    .page-header h1 { flex-basis: 100%; margin-bottom: .2rem; }
+    .page-actions { margin-inline-start: 0; }
+    .page-action-menu-items { inset-inline-start: 0; inset-inline-end: auto; }
+}

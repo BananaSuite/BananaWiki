@@ -1,0 +1,41 @@
+{% set reservation = sidebar_reservations.get(p.id) %}
+<div class="nav-item-row" data-page-id="{{ p.id }}">
+    <a href="{{ url_for('view_page', slug=p.slug) }}" class="nav-item {% if page and page.id == p.id %}active{% endif %}{% if p.is_deindexed %} deindexed-nav-item{% endif %}{% if p.pending_deletion %} pending-deletion-nav-item{% endif %}{% if reservation and (reservation.is_reserved or reservation.user_in_cooldown) %} nav-item-with-icon{% endif %}">
+        {% if p.pending_deletion %}
+        <span class="sidebar-page-status-icons">
+            <span class="sidebar-pending-deletion-indicator" title="{{ t('wiki.page.pending_deletion') }}">
+                <svg class="sidebar-reservation-indicator-icon" aria-hidden="true" viewBox="0 0 16 16" focusable="false">
+                    <path fill="currentColor" d="M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75M6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25M4.496 6.675l.66 6.6a.25.25 0 0 0 .249.225h5.19a.25.25 0 0 0 .249-.225l.66-6.6a.75.75 0 0 1 1.492.15l-.66 6.6A1.75 1.75 0 0 1 10.595 15H5.405a1.75 1.75 0 0 1-1.741-1.575l-.66-6.6a.75.75 0 1 1 1.492-.15"/>
+                </svg>
+                <span class="sr-only">{{ t('wiki.page.pending_deletion') }}</span>
+            </span>
+        </span>
+        {% elif reservation and (reservation.is_reserved or reservation.user_in_cooldown) %}
+        <span class="sidebar-page-status-icons">
+            {% if reservation.is_reserved %}
+            <span class="sidebar-reservation-indicator{% if reservation.reserved_by_current_user %} sidebar-reservation-indicator-self{% endif %}" title="{{ reservation.reservation_label }}">
+                <svg class="sidebar-reservation-indicator-icon" aria-hidden="true" viewBox="0 0 16 16" focusable="false">
+                    <path fill="currentColor" d="M4 7V5.5a4 4 0 1 1 8 0V7a1.5 1.5 0 0 1 1.5 1.5v5A1.5 1.5 0 0 1 12 15H4a1.5 1.5 0 0 1-1.5-1.5v-5A1.5 1.5 0 0 1 4 7m1 0h6V5.5a3 3 0 1 0-6 0zm-1 1a.5.5 0 0 0-.5.5v5A.5.5 0 0 0 4 14h8a.5.5 0 0 0 .5-.5v-5A.5.5 0 0 0 12 8z"/>
+                </svg>
+                <span class="sr-only">{{ reservation.reservation_label }}</span>
+            </span>
+            {% endif %}
+            {% if reservation.user_in_cooldown %}
+            <span class="sidebar-reservation-indicator sidebar-reservation-indicator-cooldown" title="{{ reservation.cooldown_label }}">
+                <svg class="sidebar-reservation-indicator-icon" aria-hidden="true" viewBox="0 0 16 16" focusable="false">
+                    <path fill="currentColor" d="M8 1.25a.75.75 0 0 1 .75.75v2.19l1.55-1.56a.75.75 0 1 1 1.06 1.06L9.81 5.25H12a.75.75 0 0 1 0 1.5H9.81l1.56 1.55a.75.75 0 0 1-1.06 1.06L8.75 7.81V10a.75.75 0 0 1-1.5 0V7.81L5.7 9.37A.75.75 0 0 1 4.64 8.3L6.19 6.75H4a.75.75 0 0 1 0-1.5h2.19L4.64 3.7A.75.75 0 0 1 5.7 2.64l1.55 1.55V2A.75.75 0 0 1 8 1.25m0 9.5a.75.75 0 0 1 .75.75v.69a.75.75 0 0 1-1.5 0v-.69A.75.75 0 0 1 8 10.75m3.18.57a.75.75 0 0 1 1.03.27l.35.6a.75.75 0 1 1-1.3.75l-.35-.6a.75.75 0 0 1 .27-1.02m-6.36 0a.75.75 0 0 1 .27 1.02l-.35.6a.75.75 0 1 1-1.3-.75l.35-.6a.75.75 0 0 1 1.03-.27"/>
+                </svg>
+                <span class="sr-only">{{ reservation.cooldown_label }}</span>
+            </span>
+            {% endif %}
+        </span>
+        {% endif %}
+        <span class="nav-item-label">{% if p.pending_deletion %}<s>{{ p.title }}</s>{% elif p.is_deindexed %}<s>{{ p.title }}</s>{% else %}{{ p.title }}{% endif %}</span>
+    </a>
+    {% if current_user and current_user.role in ('editor', 'admin', 'owner') and not p.pending_deletion %}
+    <span class="page-order-btns">
+        <button class="btn-icon-tiny reorder-btn" data-dir="up" data-type="page" data-id="{{ p.id }}" data-cat="{{ p.category_id if p.category_id is not none else '' }}" title="{{ t('wiki.page.move_up') }}" aria-label="{{ t('wiki.page.move_up') }}">▲</button>
+        <button class="btn-icon-tiny reorder-btn" data-dir="down" data-type="page" data-id="{{ p.id }}" data-cat="{{ p.category_id if p.category_id is not none else '' }}" title="{{ t('wiki.page.move_down') }}" aria-label="{{ t('wiki.page.move_down') }}">▼</button>
+    </span>
+    {% endif %}
+</div>

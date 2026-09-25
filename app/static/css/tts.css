@@ -1,0 +1,339 @@
+.tts-panel {
+    background: var(--secondary);
+    color: var(--text);
+    border: 1px solid var(--border-color, rgba(127, 127, 127, .18));
+    border-radius: 6px;
+    padding: 1rem 1.1rem;
+    margin: 1.25rem 0 .75rem;
+    font-size: .9rem;
+    line-height: 1.4;
+    display: flex;
+    flex-direction: column;
+    gap: .75rem;
+    max-width: 100%;
+    box-sizing: border-box;
+    color-scheme: inherit;
+}
+
+.tts-panel-header {
+    display: flex;
+    align-items: center;
+    gap: .9rem;
+    min-width: 0;
+}
+
+.tts-panel-heading {
+    flex: 1 1 auto;
+    min-width: 12rem;
+}
+
+.tts-panel-title {
+    color: var(--text);
+    font-size: .95rem;
+    font-weight: 650;
+    line-height: 1.25;
+    margin: 0;
+    overflow-wrap: anywhere;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+.tts-panel-title::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 1px;
+    background: var(--primary);
+    opacity: .8;
+    flex-shrink: 0;
+}
+
+.tts-panel-controls {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    min-width: 0;
+}
+
+.tts-panel-controls .tts-meta {
+    white-space: nowrap;
+}
+
+.tts-speed-select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border-color, rgba(127, 127, 127, .25));
+    border-radius: 4px;
+    padding: .3rem .5rem;
+    min-width: 4.25rem;
+    font: inherit;
+    font-size: .84rem;
+    line-height: 1.25;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: border-color .15s;
+}
+
+.tts-speed-select:hover:not(:disabled),
+.tts-speed-select:focus-visible {
+    border-color: var(--accent);
+}
+
+.tts-speed-select:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--primary) 32%, transparent);
+    outline-offset: 1px;
+}
+
+.tts-speed-select:disabled {
+    cursor: not-allowed;
+    opacity: .55;
+}
+
+.tts-status {
+    color: var(--text);
+    font-size: .82rem;
+    min-height: 1.1em;
+    margin-top: .16rem;
+    opacity: .75;
+    padding: .2rem .6rem;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--bg) 50%, transparent);
+    display: inline-block;
+}
+
+.tts-status:empty {
+    display: none;
+}
+
+.tts-status[data-status="failed"] {
+    color: var(--danger, #d96d6d);
+    opacity: 1;
+    background: color-mix(in srgb, var(--danger, #d96d6d) 10%, transparent);
+}
+
+.tts-status[data-status="processing"],
+.tts-status[data-status="pending"] {
+    color: var(--accent);
+    opacity: 1;
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.tts-status[data-status="completed"] {
+    opacity: .78;
+}
+
+.tts-spinner {
+    display: inline-block;
+    width: .72em;
+    height: .72em;
+    border: 1.5px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: tts-spin .85s linear infinite;
+    margin-right: .4em;
+    vertical-align: -.05em;
+}
+
+@keyframes tts-spin {
+    to { transform: rotate(360deg); }
+}
+
+.tts-player {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: .65rem .75rem;
+    border-top: 1px solid var(--border-color, rgba(127, 127, 127, .15));
+    padding-top: .75rem;
+    max-width: 100%;
+}
+
+.tts-player audio,
+.tts-audio {
+    width: 100%;
+    min-width: 0;
+    height: 40px;
+    accent-color: var(--primary);
+    color-scheme: inherit;
+    border-radius: 8px;
+}
+
+.tts-actions {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+}
+
+.tts-generate-btn,
+.tts-actions .tts-download {
+    white-space: nowrap;
+}
+
+.tts-generate-btn {
+    background: var(--primary);
+    color: #0d0d14;
+    border: none;
+    border-radius: 4px;
+    padding: .4rem .85rem;
+    font-weight: 600;
+    font-size: .84rem;
+    cursor: pointer;
+    transition: opacity .15s;
+    font-family: inherit;
+}
+.tts-generate-btn:hover:not(:disabled) {
+    opacity: .9;
+}
+.tts-generate-btn:disabled {
+    cursor: not-allowed;
+    opacity: .5;
+}
+
+.tts-cancel-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text);
+    border-radius: 6px;
+    padding: .4rem .7rem;
+    font-size: .82rem;
+    cursor: pointer;
+    transition: border-color .15s, color .15s;
+    font-family: inherit;
+}
+.tts-cancel-btn:hover {
+    border-color: var(--danger, #d96d6d);
+    color: var(--danger, #d96d6d);
+}
+
+.tts-hidden {
+    display: none !important;
+}
+
+.tts-meta {
+    color: var(--text);
+    font-size: .78rem;
+    opacity: .6;
+}
+
+.tts-player .tts-meta {
+    grid-column: 1 / -1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    text-align: center;
+}
+
+/* Word-level highlighting while TTS audio plays.
+ *
+ * The plugin's init script wraps every word inside .wiki-content block
+ * elements in <span data-tts-segment>.  tts.js adds .is-current to the
+ * word currently being narrated.  Highlighting only activates after the
+ * user presses play and persists when paused or ended until page reload.
+ */
+[data-tts-segment] {
+    border-radius: 3px;
+    transition: background-color .12s ease;
+}
+
+span[data-tts-segment].is-current {
+    background: color-mix(in srgb, var(--primary, #8fa0d4) 28%, transparent);
+    border-radius: 3px;
+    padding: 0.05em 0.15em;
+    margin: 0 -0.15em;
+}
+
+/* ── Light-mode overrides ────────────────────────────────────────────
+ *
+ * The default rules above target the dark theme.  The light theme needs
+ * explicit overrides for:
+ *  - color-scheme on the panel + native <audio> / <select> controls
+ *  - border colors (dark-alpha instead of white-alpha)
+ *  - the speed selector's native dropdown appearance
+ *  - cancel-button hover state
+ */
+html[data-theme="light"] .tts-panel {
+    color-scheme: inherit;
+    border-color: rgba(32, 37, 52, .14);
+}
+
+html[data-theme="light"] .tts-player audio,
+html[data-theme="light"] .tts-audio {
+    color-scheme: inherit;
+}
+
+html[data-theme="light"] .tts-speed-select {
+    border-color: rgba(32, 37, 52, .22);
+}
+
+html[data-theme="light"] .tts-player {
+    border-top-color: rgba(32, 37, 52, .12);
+}
+
+html[data-theme="light"] .tts-cancel-btn {
+    border-color: rgba(32, 37, 52, .16);
+}
+
+html[data-theme="light"] .tts-generate-btn {
+    color: #fff;
+}
+
+@media (max-width: 640px) {
+    .tts-panel {
+        padding: .82rem .85rem;
+        border-radius: 10px;
+    }
+
+    .tts-panel-header {
+        align-items: stretch;
+        flex-direction: column;
+        gap: .6rem;
+    }
+
+    .tts-panel-heading {
+        min-width: 0;
+    }
+
+    .tts-panel-controls {
+        display: grid;
+        grid-template-columns: auto max-content max-content;
+        justify-content: start;
+        width: 100%;
+    }
+
+    .tts-panel-controls .tts-meta {
+        align-self: center;
+    }
+
+    .tts-player {
+        display: flex;
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .tts-actions,
+    .tts-actions .tts-download {
+        width: 100%;
+    }
+
+    .tts-actions .tts-download {
+        text-align: center;
+    }
+}
+
+@media (max-width: 380px) {
+    .tts-panel-controls {
+        grid-template-columns: 1fr max-content;
+    }
+
+    .tts-panel-controls .tts-meta,
+    .tts-generate-btn {
+        grid-column: 1 / -1;
+    }
+
+    .tts-generate-btn {
+        width: 100%;
+    }
+}

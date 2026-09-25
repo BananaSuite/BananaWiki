@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}{{ t('hosting.admin_import.title') }} | {{ t('hosting.brand') }}{% endblock %}
+{% block content %}
+<div class="create-form">
+    <h2>{{ t('hosting.admin_import.heading') }}</h2>
+    <p class="u-fs-085 u-o70">
+        {{ t('hosting.admin_import.intro') }}
+    </p>
+    <form method="POST"
+          action="{{ url_for('hosting_admin_import_instance') }}"
+          enctype="multipart/form-data"
+          class="js-loading-form"
+          data-loading-text="Importing wiki, this may take a moment…"
+          data-chunked-import-form
+          data-chunk-start-url="{{ url_for('hosting_admin_import_chunk_start') }}"
+          data-chunk-upload-url-template="{{ url_for('hosting_admin_import_chunk', upload_id='__UPLOAD_ID__') }}"
+          data-chunk-complete-url-template="{{ url_for('hosting_admin_import_chunk_complete', upload_id='__UPLOAD_ID__') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+            <label for="archive">{{ t('hosting.admin_import.archive') }}</label>
+            <input type="file" id="archive" name="archive" accept=".zip,application/zip" required>
+        </div>
+        <div class="form-group">
+            <label for="subdomain">{{ t('hosting.admin_import.target_subdomain') }}</label>
+            <div class="subdomain-input">
+                <input type="text" id="subdomain" name="subdomain" class="input" required
+                       pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"
+                       title="{{ t('hosting.create.instance_name_help') }}"
+                       placeholder="{{ t('hosting.create.instance_name_placeholder') }}">
+                {% if hosting_mode != 'port' %}
+                {% if instance_url_suffix %}
+                <span class="domain-suffix{% if selected_domain_mode == 'apex' %} u-d-none{% endif %}" id="domain-suffix-hosting">-{{ instance_url_suffix }}.{{ base_domain }}</span>
+                <span class="domain-suffix{% if selected_domain_mode != 'apex' %} u-d-none{% endif %}" id="domain-suffix-apex">.{{ base_domain }}</span>
+                {% else %}
+                <span class="domain-suffix">.{{ base_domain }}</span>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+        {% if hosting_mode != 'port' and instance_url_suffix %}
+        <div class="form-group">
+            <label class="u-flex-row-08-aic">
+                <input type="checkbox" id="domain-mode-apex" name="domain_mode" value="apex">
+                <span>{{ t('hosting.create.use_apex_domain') }}</span>
+            </label>
+            <p class="u-fs-085 u-o70 u-m0">
+                {{ t('hosting.create.use_apex_domain_help') }}
+            </p>
+        </div>
+        <script nonce="{{ csp_nonce }}">
+        (function () {
+            var apex = document.getElementById('domain-mode-apex');
+            var hostingSpan = document.getElementById('domain-suffix-hosting');
+            var apexSpan = document.getElementById('domain-suffix-apex');
+            if (!apex || !hostingSpan || !apexSpan) return;
+            function syncDomainMode() {
+                if (apex.checked) {
+                    hostingSpan.classList.add('u-d-none');
+                    apexSpan.classList.remove('u-d-none');
+                } else {
+                    hostingSpan.classList.remove('u-d-none');
+                    apexSpan.classList.add('u-d-none');
+                }
+            }
+            apex.addEventListener('change', function () {
+                syncDomainMode();
+            });
+            syncDomainMode();
+        })();
+        </script>
+        {% endif %}
+        <div class="import-progress u-d-none" id="import-progress" aria-live="polite">
+            <div class="import-progress-header">
+                <span id="import-progress-label">Preparing upload…</span>
+                <span id="import-progress-count"></span>
+            </div>
+            <div class="import-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <div class="import-progress-fill" id="import-progress-fill"></div>
+            </div>
+            <p class="form-hint" id="import-progress-detail"></p>
+        </div>
+        <button type="submit" class="btn btn-primary">{{ t('hosting.admin_import.submit') }}</button>
+    </form>
+    <a href="{{ url_for('hosting_admin') }}" class="back-link">{{ t('hosting.admin_import.back') }}</a>
+</div>
+<script nonce="{{ csp_nonce }}">
+(function () {
+    var form = document.querySelector('[data-chunked-import-form]');
+    if (!form || !window.fetch || !window.FormData || !window.File) return;
+
+    var fileInput = document.getElementById('archive');
+    var subdomainInput = document.getElementById('subdomain');
+    var apexInput = document.getElementById('domain-mode-apex');
+    var submitButton = form.querySelector('button[type="submit"]');
+    var progress = document.getElementById('import-progress');
+    var progressLabel = document.getElementById('import-progress-label');
+    var progressCount = document.getElementById('import-progress-count');
+    var progressFill = document.getElementById('import-progress-fill');
+    var progressBar = progress ? progress.querySelector('[role="progressbar"]') : null;
+    var progressDetail = document.getElementById('import-progress-detail');
+    var csrfInput = form.querySelector('input[name="csrf_token"]');
+
+    function setProgress(percent, label, count, detail) {
+        var bounded = Math.max(0, Math.min(100, percent || 0));
+        if (progress) progress.classList.remove('u-d-none');
+        if (progressFill) progressFill.style.width = bounded + '%';
+        if (progressBar) progressBar.setAttribute('aria-valuenow', String(Math.round(bounded)));
+        if (progressLabel) progressLabel.textContent = label || '';
+        if (progressCount) progressCount.textContent = count || '';
+        if (progressDetail) progressDetail.textContent = detail || '';
+    }
+
+    function showError(message) {
+        setProgress(0, 'Import failed', '', message || 'The upload could not be completed.');
+        if (submitButton) submitButton.disabled = false;
+    }
+
+    function requestJson(url, body) {
+        var options = {
+            method: 'POST',
+            credentials: 'same-origin'
+        };
+        if (body) options.body = body;
+        return fetch(url, options).then(function (resp) {
+            return resp.json().catch(function () {
+                return { ok: false, error: 'The server returned an unreadable response.' };
+            }).then(function (payload) {
+                if (!resp.ok || !payload.ok) {
+                    throw new Error(payload.error || 'The request failed.');
+                }
+                return payload;
+            });
+        });
+    }
+
+    function pollImportStatus(statusUrl) {
+        return new Promise(function (resolve, reject) {
+            function poll() {
+                fetch(statusUrl, {
+                    method: 'GET',
+                    credentials: 'same-origin'
+                }).then(function (resp) {
+                    return resp.json().catch(function () {
+                        return { ok: false, error: 'The server returned an unreadable response.' };
+                    }).then(function (payload) {
+                        if (!resp.ok || !payload.ok) {
+                            throw new Error(payload.error || 'The request failed.');
+                        }
+                        if (payload.state === 'complete') {
+                            resolve(payload);
+                            return;
+                        }
+                        if (payload.state === 'error') {
+                            reject(new Error(payload.error || 'The import failed.'));
+                            return;
+                        }
+                        var label = payload.state === 'assembling' ? 'Assembling archive…' : 'Importing wiki…';
+                        setProgress(97, label, '', payload.message || 'This can take a few minutes for very large archives.');
+                        window.setTimeout(poll, 2000);
+                    });
+                }).catch(reject);
+            }
+            poll();
+        });
+    }
+
+    form.addEventListener('submit', function (event) {
+        if (!fileInput || !fileInput.files || !fileInput.files.length) return;
+        event.preventDefault();
+
+        var file = fileInput.files[0];
+        var csrf = csrfInput ? csrfInput.value : '';
+        var startData = new FormData();
+        startData.append('csrf_token', csrf);
+        startData.append('filename', file.name);
+        startData.append('size', String(file.size));
+        startData.append('subdomain', subdomainInput ? subdomainInput.value : '');
+        startData.append('domain_mode', apexInput && apexInput.checked ? 'apex' : 'hosting');
+
+        if (submitButton) submitButton.disabled = true;
+        setProgress(0, 'Preparing upload…', '', file.name);
+
+        requestJson(form.dataset.chunkStartUrl, startData)
+            .then(function (start) {
+                var uploadId = start.upload_id;
+                var chunkSize = start.chunk_size;
+                var totalChunks = start.total_chunks;
+                var uploadUrl = form.dataset.chunkUploadUrlTemplate.replace('__UPLOAD_ID__', encodeURIComponent(uploadId));
+                var completeUrl = form.dataset.chunkCompleteUrlTemplate.replace('__UPLOAD_ID__', encodeURIComponent(uploadId));
+
+                var sequence = Promise.resolve();
+                for (var index = 0; index < totalChunks; index += 1) {
+                    (function (chunkIndex) {
+                        sequence = sequence.then(function () {
+                            var startByte = chunkIndex * chunkSize;
+                            var endByte = Math.min(file.size, startByte + chunkSize);
+                            var chunkData = new FormData();
+                            chunkData.append('csrf_token', csrf);
+                            chunkData.append('chunk_index', String(chunkIndex));
+                            chunkData.append('chunk', file.slice(startByte, endByte), file.name + '.part');
+                            setProgress(
+                                (chunkIndex / totalChunks) * 95,
+                                'Uploading archive…',
+                                (chunkIndex + 1) + ' / ' + totalChunks,
+                                file.name
+                            );
+                            return requestJson(uploadUrl, chunkData);
+                        });
+                    })(index);
+                }
+
+                return sequence.then(function () {
+                    var completeData = new FormData();
+                    completeData.append('csrf_token', csrf);
+                    setProgress(96, 'Starting import…', '', 'This can take a few minutes for very large archives.');
+                    return requestJson(completeUrl, completeData).then(function (started) {
+                        return pollImportStatus(started.status_url);
+                    });
+                });
+            })
+            .then(function (done) {
+                setProgress(100, 'Import complete', '', done.url || '');
+                window.location.href = done.redirect || "{{ url_for('hosting_admin') }}";
+            })
+            .catch(function (err) {
+                showError(err && err.message ? err.message : 'The upload could not be completed.');
+            });
+    });
+})();
+</script>
+{% endblock %}

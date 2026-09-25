@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ page.title or t('custom_page.video.fallback_title') }}{# Video #} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+{% if page.title %}<h1>{{ page.title }}</h1>{% endif %}
+{% if page.meta_description %}<p class="u-o70-mb1">{{ page.meta_description }}</p>{% endif %}
+
+{% if video_id and embed_url %}
+<div class="xs-78808ea2">
+    <iframe class="xs-a6ff6002"
+        src="{{ embed_url }}"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowfullscreen
+        loading="lazy"
+        referrerpolicy="strict-origin-when-cross-origin"
+        title="{{ page.title | e }}">
+    </iframe>
+</div>
+<p class="xs-09eba426">
+    <a class="u-o50" href="https://www.youtube.com/watch?v={{ video_id }}" target="_blank" rel="noopener noreferrer">
+        {{ t('custom_page.youtube.watch_on_yt') }}
+    </a>
+</p>
+{% else %}
+<div class="xs-d43bab2c">
+    <p class="u-o50">{{ t('custom_page.youtube.empty') }}</p>
+</div>
+{% endif %}
+{% endblock %}

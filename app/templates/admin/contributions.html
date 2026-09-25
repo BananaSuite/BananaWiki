@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.contributions.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('admin.contributions.title') }}</h1>
+<p class="xs-9879b7a2">
+    {{ t('admin.contributions.intro') }}
+</p>
+
+{% if conflicts %}
+<div class="settings-section">
+    <h2>{{ t('admin.contributions.conflicts') }}</h2>
+    <p class="u-o60">{{ t('admin.contributions.conflicts_intro') }}</p>
+    <ul>
+        {% for page_id, items in conflicts.items() %}
+        <li>
+            <strong>{{ items[0].page_title }}</strong>: {{ t('admin.contributions.conflict_count', count=items|length) }}:
+            {% for c in items %}
+            <a href="#contribution-{{ c.id }}">{{ c.username }}</a>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+<div class="settings-section">
+    <h2>{{ t('admin.contributions.pending', count=contributions|length) }}</h2>
+    {% if contributions %}
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>{{ t('admin.contributions.col.page') }}</th>
+                <th>{{ t('admin.contributions.col.contributor') }}</th>
+                <th>{{ t('admin.pending_deletions.col.deleted_by') if False else t('admin.contributions.col.reason') }}</th>
+                <th>{{ t('admin.contributions.col.submitted') }}</th>
+                <th>{{ t('common.actions') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for c in contributions %}
+            <tr id="contribution-{{ c.id }}">
+                <td>
+                    <a href="{{ url_for('view_page', slug=c.page_slug) }}">{{ c.page_title }}</a>
+                </td>
+                <td>{{ c.username }}</td>
+                <td>{{ c.reason[:100] }}{% if c.reason|length > 100 %}…{% endif %}</td>
+                <td title="{{ format_datetime(c.created_at) }}">{{ time_ago(c.created_at) }}</td>
+                <td>
+                    <details class="u-mb1">
+                        <summary class="btn btn-sm">{{ t('admin.contributions.preview') }}</summary>
+                        <div class="u-mt1 u-p1" style="border:1px solid var(--border-color);border-radius:var(--radius-sm);max-height:300px;overflow:auto;">
+                            <h4>{{ t('admin.contributions.title_label') }} {{ c.title }}</h4>
+                            <pre style="white-space:pre-wrap;word-break:break-word;font-size:0.85em;">{{ c.content[:2000] }}{% if c.content|length > 2000 %}\n{{ t('admin.contributions.truncated') }}{% endif %}</pre>
+                        </div>
+                    </details>
+                    <form class="u-d-inline" method="POST" action="{{ url_for('admin_approve_contribution', contribution_id=c.id) }}"
+                          data-confirm="{{ t('admin.contributions.approve_confirm', user=c.username, page=c.page_title) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="text" name="review_reason" placeholder="{{ t('admin.contributions.review_note_placeholder') }}" class="input u-mw200" maxlength="500">
+                        <button class="btn btn-sm">{{ t('admin.contributions.approve') }}</button>
+                    </form>
+                    <form class="u-d-inline" method="POST" action="{{ url_for('admin_deny_contribution', contribution_id=c.id) }}"
+                          data-confirm="{{ t('admin.contributions.deny_confirm', user=c.username) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="text" name="review_reason" placeholder="{{ t('admin.contributions.deny_reason_placeholder') }}" class="input u-mw200" maxlength="500">
+                        <button class="btn btn-sm btn-danger">{{ t('admin.contributions.deny') }}</button>
+                    </form>
+                    <details class="u-d-inline">
+                        <summary class="btn btn-sm btn-outline">{{ t('admin.contributions.set_quota') }}</summary>
+                        <form class="u-mt1" method="POST" action="{{ url_for('admin_set_contribution_quota', contribution_id=c.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="text" name="quota" placeholder="{{ t('admin.contributions.quota_placeholder') }}" class="input u-mw200">
+                            <button class="btn btn-sm">{{ t('admin.contributions.set') }}</button>
+                            <small class="u-o60">{{ t('admin.contributions.quota_hint') }}</small>
+                        </form>
+                    </details>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="u-o60">{{ t('admin.contributions.empty') }}</p>
+    {% endif %}
+</div>
+
+{% if quota_requests %}
+<div class="settings-section">
+    <h2>{{ t('admin.contributions.quota_requests', count=quota_requests|length) }}</h2>
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>{{ t('admin.contributions.col.user') }}</th>
+                <th>{{ t('admin.contributions.col.requested_quota') }}</th>
+                <th>{{ t('admin.contributions.col.reason') }}</th>
+                <th>{{ t('admin.contributions.col.submitted') }}</th>
+                <th>{{ t('common.actions') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in quota_requests %}
+            <tr>
+                <td>{{ r.username }}</td>
+                <td>{% if r.requested_quota == -1 %}{{ t('admin.contributions.unlimited') }}{% else %}{{ r.requested_quota }}{% endif %}</td>
+                <td>{{ r.reason[:100] }}{% if r.reason|length > 100 %}…{% endif %}</td>
+                <td title="{{ format_datetime(r.created_at) }}">{{ time_ago(r.created_at) }}</td>
+                <td>
+                    <form class="u-d-inline" method="POST" action="{{ url_for('admin_review_contribution_quota_request', request_id=r.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="approve">
+                        <input type="text" name="review_reason" class="input u-mw200" maxlength="1000" placeholder="{{ t('account.quota.review_reason_placeholder') }}">
+                        <button class="btn btn-sm">{{ t('admin.contributions.approve') }}</button>
+                    </form>
+                    <form class="u-d-inline" method="POST" action="{{ url_for('admin_review_contribution_quota_request', request_id=r.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="deny">
+                        <input type="text" name="review_reason" class="input u-mw200" maxlength="1000" placeholder="{{ t('account.quota.review_reason_placeholder') }}">
+                        <button class="btn btn-sm btn-danger">{{ t('admin.contributions.deny') }}</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

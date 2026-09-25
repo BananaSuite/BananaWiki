@@ -1,0 +1,8 @@
+{
+    "id": "hello_world",
+    "name": "Hello World",
+    "version": "1.0.0",
+    "author": "BananaWiki",
+    "description": "Minimal example plugin: one route, one template, one hook.",
+    "bananawiki_api_version": "1.0"
+}

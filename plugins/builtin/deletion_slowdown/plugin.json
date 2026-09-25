@@ -1,0 +1,9 @@
+{
+    "id": "deletion_slowdown",
+    "name": "Deletion Slowdown",
+    "version": "1.0.0",
+    "author": "BananaWiki",
+    "description": "Adds a 48-hour grace period before pages are permanently deleted. Admins can view and restore pending-deletion pages from Admin \u2192 Pending Deletions.",
+    "builtin": true,
+    "bananawiki_api_version": "1.0"
+}

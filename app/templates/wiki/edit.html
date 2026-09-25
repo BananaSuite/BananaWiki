@@ -1,0 +1,1162 @@
+{% extends "base.html" %}
+{% block title %}{{ t('wiki.edit.title_prefix') }} {{ page.title }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ t('wiki.edit.editing', title=page.title) }}</h1>
+    <span class="save-indicator" id="save-indicator"></span>
+</div>
+
+{% if enabled_plugins.drafts and draft and page.last_edited_at and page.last_edited_at > draft.updated_at %}
+<div class="draft-notice draft-notice-warning" id="stale-draft-notice">
+    ⚠ {{ t('wiki.edit.stale_draft') }}
+</div>
+{% elif enabled_plugins.drafts %}
+<div class="draft-notice draft-notice-warning u-d-none" id="stale-draft-notice"></div>
+{% endif %}
+
+{% if enabled_plugins.drafts and other_drafts %}
+<div class="draft-notice" id="other-drafts-notice" data-can-transfer="{{ '1' if current_user.role in ('admin', 'owner') else '0' }}">
+    {{ t('wiki.edit.other_drafts_warning') }}
+    {% for d in other_drafts %}
+    <strong>{{ d.username }}</strong> ({{ t('wiki.edit.updated_when', when=time_ago(d.updated_at)) }})
+    {% if current_user.role in ('admin', 'owner') %}
+    <button class="btn btn-sm js-transfer-draft" data-page-id="{{ page.id }}" data-user-id="{{ d.user_id | tojson }}">{{ t('wiki.edit.transfer_draft') }}</button>
+    {% endif %}
+    {% endfor %}
+</div>
+{% elif enabled_plugins.drafts %}
+<div class="draft-notice u-d-none" id="other-drafts-notice" data-can-transfer="{{ '1' if current_user.role in ('admin', 'owner') else '0' }}"></div>
+{% endif %}
+
+{% if enabled_plugins.drafts and draft %}
+<div class="draft-notice">
+    {{ t('wiki.edit.have_draft', when=time_ago(draft.updated_at)) }}
+    <button class="btn btn-sm btn-outline js-delete-draft" data-page-id="{{ page.id }}">{{ t('wiki.edit.discard_draft_lc') }}</button>
+</div>
+{% endif %}
+
+{% if enabled_plugins.page_governance %}
+{% if reservation_status and reservation_status.is_reserved and reservation_status.reserved_by == current_user.id %}
+<div class="reservation-notice">
+    <span class="reservation-icon"></span>
+    {{ t('wiki.edit.you_reserved_expires', when=time_ago(reservation_status.expires_at)) }}
+</div>
+{% elif reservation_context and reservation_context.admin_override %}
+<div class="draft-notice">
+    ⚠ {{ t('wiki.edit.reserved_until', user=reservation_status.reserved_by_username, when=format_datetime(reservation_status.expires_at))|safe }}
+    {{ t('wiki.edit.editing_as_admin') }}
+</div>
+{% endif %}
+{% endif %}
+
+<form method="POST" id="editForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-group">
+        <label>{{ t('wiki.page.page_title_label') }}</label>
+        <input type="text" name="title" id="edit-title" value="{{ draft.title if draft and draft.title else page.title }}" class="input u-mw500">
+    </div>
+    {% if enabled_plugins.difficulty_tags %}
+    <div class="form-group">
+        <label>{{ t('wiki.page.difficulty_tag_label') }}</label>
+        <select name="difficulty_tag" class="input u-mw220" id="editFormTagSelect">
+            <option value="" {% if not page.difficulty_tag %}selected{% endif %}>{{ t('wiki.difficulty.none') }}</option>
+            <option value="beginner" {% if page.difficulty_tag == 'beginner' %}selected{% endif %}>{{ t('wiki.difficulty.beginner') }}</option>
+            <option value="easy" {% if page.difficulty_tag == 'easy' %}selected{% endif %}>{{ t('wiki.difficulty.easy') }}</option>
+            <option value="intermediate" {% if page.difficulty_tag == 'intermediate' %}selected{% endif %}>{{ t('wiki.difficulty.intermediate') }}</option>
+            <option value="expert" {% if page.difficulty_tag == 'expert' %}selected{% endif %}>{{ t('wiki.difficulty.expert') }}</option>
+            <option value="extra" {% if page.difficulty_tag == 'extra' %}selected{% endif %}>{{ t('wiki.difficulty.extra') }}</option>
+            <option value="custom" {% if page.difficulty_tag == 'custom' %}selected{% endif %}>{{ t('wiki.difficulty.custom') }}</option>
+        </select>
+    </div>
+    {% endif %}
+    {% if not page.is_home %}
+    <div class="form-group">
+        <label>{{ t('wiki.reservations.col.category') }}</label>
+        <select name="category_id" class="input u-mw300">
+            <option value="" {% if not page.category_id %}selected{% endif %}>{{ t('wiki.create.uncategorized') }}</option>
+            {% for cat in all_categories %}
+            <option value="{{ cat.id }}" {% if page.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    {% endif %}
+    {% if enabled_plugins.difficulty_tags %}
+    <style nonce="{{ csp_nonce }}">.difficulty-tag-preview{color:{{ page.tag_custom_color or '#4a90d9' }};background:{{ page.tag_custom_color or '#4a90d9' }}26}</style>
+    <div class="custom-tag-fields{% if not page.difficulty_tag or page.difficulty_tag != 'custom' %} u-d-none{% endif %}" id="editFormCustomTag">
+        <div class="form-group">
+            <label>{{ t('wiki.difficulty.label') }}</label>
+            <input type="text" name="tag_custom_label" id="editFormLabel" class="input u-mw220" maxlength="50" placeholder="{{ t('wiki.difficulty.label_placeholder') }}" value="{{ page.tag_custom_label or '' }}">
+        </div>
+        <div class="form-group">
+            <label>{{ t('wiki.difficulty.color') }}</label>
+            <div class="color-preset-grid" id="editFormPresets"></div>
+            <div class="xs-5dec52ca">
+                <input type="color" class="color-hex-picker" id="editFormColorPicker" value="{{ page.tag_custom_color or '#4a90d9' }}">
+                <input type="text" name="tag_custom_color" class="input u-w7r-mono" id="editFormColorHex" maxlength="7" placeholder="#4a90d9" value="{{ page.tag_custom_color or '#4a90d9' }}">
+                <span class="difficulty-tag difficulty-tag-preview" id="editFormPreview">{{ t('wiki.page.preview') }}</span>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <input class="u-d-none" type="file" id="file-input" accept="image/*" multiple>
+    <!--
+        Import / Export row.  ``editor_required`` already guards the edit
+        page itself, so simply rendering the buttons here keeps them
+        hidden from read-only users.  The Import button replaces the
+        editor textarea contents client-side; the user still has to
+        click "Commit Changes" before anything is persisted.
+    -->
+    <div class="editor-io-row">
+        <label class="btn btn-sm btn-outline u-cursor-ptr" id="editor-import-btn">
+            {{ t('wiki.edit.import_md') }}
+            <input class="u-d-none" type="file" id="editor-import-input"
+                   accept=".md,.markdown,.txt,text/markdown,text/plain">
+        </label>
+        <span class="editor-io-status u-fs-085" id="editor-import-status" aria-live="polite"></span>
+    </div>
+    <div class="editor-hint-row" aria-label="{{ t('wiki.edit.markdown_hints_label') }}">
+        <span>{{ t('wiki.edit.markdown_hints_label') }}</span>
+        <code># {{ t('wiki.edit.hint_heading') }}</code>
+        <code>**{{ t('wiki.edit.hint_bold') }}**</code>
+        <code>- {{ t('wiki.edit.hint_list') }}</code>
+        <code>[{{ t('wiki.edit.hint_link') }}](url)</code>
+    </div>
+    <!--
+        Mobile-only Edit / Preview tab switcher.  On phones we can't usefully
+        show both panes side-by-side; the buttons toggle which pane gets the
+        full screen.  initEditorMobileTabs() in main.js wires them up and
+        decides whether to show this row based on viewport width.
+    -->
+    <div class="editor-mobile-tabs u-d-none" id="editor-mobile-tabs" role="tablist">
+        <button type="button" class="editor-mobile-tab" data-mobile-pane="edit" role="tab" aria-selected="true">{{ t('common.edit') }}</button>
+        <button type="button" class="editor-mobile-tab" data-mobile-pane="preview" role="tab" aria-selected="false">{{ t('wiki.page.preview') }}</button>
+    </div>
+    <div class="editor-container">
+        <!-- Editor pane -->
+        <div class="editor-pane">
+            <div class="editor-toolbar">
+                <button class="btn btn-sm btn-outline editor-toolbar-mark" type="button" data-fmt-before="**" data-fmt-after="**" title="{{ t('wiki.edit.tb.bold') }}" aria-label="{{ t('wiki.edit.tb.bold') }}"><strong>B</strong></button>
+                <button class="btn btn-sm btn-outline editor-toolbar-mark" type="button" data-fmt-before="*" data-fmt-after="*" title="{{ t('wiki.edit.tb.italic') }}" aria-label="{{ t('wiki.edit.tb.italic') }}"><em>I</em></button>
+                <button class="btn btn-sm btn-outline editor-toolbar-mark" type="button" data-fmt-before="~~" data-fmt-after="~~" title="{{ t('wiki.edit.tb.strike') }}" aria-label="{{ t('wiki.edit.tb.strike') }}"><s>S</s></button>
+                <span class="sep"></span>
+                <button class="btn btn-sm btn-outline" type="button" data-line-prefix="# " title="{{ t('wiki.edit.tb.h1') }}">H1</button>
+                <button class="btn btn-sm btn-outline" type="button" data-line-prefix="## " title="{{ t('wiki.edit.tb.h2') }}">H2</button>
+                <button class="btn btn-sm btn-outline" type="button" data-line-prefix="### " title="{{ t('wiki.edit.tb.h3') }}">H3</button>
+                <span class="sep"></span>
+                <button class="btn btn-sm btn-outline" type="button" data-line-prefix="- " title="{{ t('wiki.edit.tb.bullet') }}">•&nbsp;{{ t('wiki.edit.tb.list') }}</button>
+                <button class="btn btn-sm btn-outline" type="button" data-line-prefix="1. " title="{{ t('wiki.edit.tb.numbered') }}">1.&nbsp;{{ t('wiki.edit.tb.list') }}</button>
+                <button class="btn btn-sm btn-outline editor-toolbar-mark" type="button" data-action="outdent" title="{{ t('wiki.edit.tb.outdent') }}" aria-label="{{ t('wiki.edit.tb.outdent') }}">⇤</button>
+                <button class="btn btn-sm btn-outline editor-toolbar-mark" type="button" data-action="indent" title="{{ t('wiki.edit.tb.indent') }}" aria-label="{{ t('wiki.edit.tb.indent') }}">⇥</button>
+                <span class="sep"></span>
+                <button class="btn btn-sm btn-outline" type="button" data-fmt-before="&#10;```&#10;" data-fmt-after="&#10;```&#10;" title="{{ t('wiki.edit.tb.code') }}">{{ t('wiki.edit.tb.code') }}</button>
+                <button class="btn btn-sm btn-outline" type="button" data-fmt-before="`" data-fmt-after="`" title="{{ t('wiki.edit.tb.inline_code') }}">{{ t('wiki.edit.tb.inline_code') }}</button>
+                <button class="btn btn-sm btn-outline" type="button" data-action="insert-link" title="{{ t('wiki.edit.tb.link') }}">{{ t('wiki.edit.tb.link') }}</button>
+                <button class="btn btn-sm btn-outline" type="button" data-line-prefix="> " title="{{ t('wiki.edit.tb.quote') }}">{{ t('wiki.edit.tb.quote') }}</button>
+                <button class="btn btn-sm btn-outline editor-toolbar-mark" type="button" data-line-prefix="---" title="{{ t('wiki.edit.tb.hr') }}" aria-label="{{ t('wiki.edit.tb.hr') }}">─</button>
+                <span class="sep"></span>
+                <button class="btn btn-sm btn-outline" type="button" id="table-btn" title="{{ t('wiki.edit.tb.table') }}">{{ t('wiki.edit.tb.table') }}</button>
+                <span class="sep"></span>
+                <button class="btn btn-sm btn-outline" type="button" id="attach-btn" title="{{ t('wiki.edit.tb.attach_img_tooltip') }}">{{ t('wiki.edit.tb.attach_image') }}</button>
+                <button class="btn btn-sm btn-outline" type="button" id="replace-img-btn" title="{{ t('wiki.edit.tb.replace_img_tooltip') }}">{{ t('wiki.edit.tb.replace_image') }}</button>
+                <button class="btn btn-sm btn-outline" type="button" id="embed-video-btn" title="{{ t('wiki.edit.tb.embed_video_tooltip') }}">{{ t('wiki.edit.tb.embed_video') }}</button>
+                <span class="sep"></span>
+                <button class="btn btn-sm btn-outline" type="button" data-action="subscript" title="Subscript">X₂</button>
+                <button class="btn btn-sm btn-outline" type="button" data-action="superscript" title="Superscript">X²</button>
+                <span class="sep"></span>
+                <button class="btn btn-sm btn-outline" type="button" data-action="clear-formatting" title="Clear formatting">↺</button>
+                <button class="btn btn-sm btn-outline" type="button" data-action="fullscreen" title="Toggle full screen">⛶</button>
+            </div>
+            <div class="editor-statusbar" id="editor-statusbar">
+                <span id="editor-word-count">0 words</span>
+                <span class="editor-statusbar-sep"></span>
+                <span id="editor-char-count">0 chars</span>
+            </div>
+            <div class="drop-zone" id="drop-zone">{{ t('wiki.edit.drop_images') }}</div>
+            <textarea name="content" id="edit-content" class="editor-area">{{ draft.content if draft and draft.content else page.content }}</textarea>
+        </div>
+
+        <div class="editor-divider"></div>
+
+        <!-- Preview pane -->
+        <div class="preview-pane">
+            <div class="editor-pane-header">{{ t('wiki.page.preview') }}</div>
+            <div class="preview-content" id="preview-content"></div>
+        </div>
+    </div>
+
+    <!-- Table grid picker popup (positioned below the Table toolbar button) -->
+    <div class="table-grid-picker u-d-none" id="table-grid-picker">
+        <div class="table-grid-body" id="table-grid-body"></div>
+        <div class="table-grid-footer">
+            <span id="table-grid-size">1 × 1</span>
+        </div>
+    </div>
+
+    <!-- Table context toolbar (appears when cursor is inside a markdown table) -->
+    <div class="table-ctx-toolbar u-d-none" id="table-ctx-toolbar">
+        <button class="btn btn-sm btn-outline" type="button" data-table-action="insert-row-above" title="Insert row above">⬆</button>
+        <button class="btn btn-sm btn-outline" type="button" data-table-action="insert-row-below" title="Insert row below">⬇</button>
+        <span class="sep"></span>
+        <button class="btn btn-sm btn-outline" type="button" data-table-action="insert-col-left" title="Insert column left">⬅</button>
+        <button class="btn btn-sm btn-outline" type="button" data-table-action="insert-col-right" title="Insert column right">➡</button>
+        <span class="sep"></span>
+        <button class="btn btn-sm btn-outline" type="button" data-table-action="delete-row" title="Delete row">✕</button>
+        <button class="btn btn-sm btn-outline" type="button" data-table-action="delete-col" title="Delete column">✕</button>
+        <span class="sep"></span>
+        <button class="btn btn-sm btn-outline editor-toolbar-mark" type="button" data-table-action="delete-table" title="Delete table">🗑</button>
+    </div>
+
+    <!-- / command menu -->
+    <div class="cmd-menu u-d-none" id="cmd-menu">
+        <div class="cmd-menu-header">Quick insert</div>
+        <div class="cmd-menu-item" data-cmd="table" title="Insert a table"><span class="cmd-menu-icon">⊞</span> Table</div>
+        <div class="cmd-menu-item" data-cmd="h1" title="Heading 1"><span class="cmd-menu-icon">H1</span> Heading 1</div>
+        <div class="cmd-menu-item" data-cmd="h2" title="Heading 2"><span class="cmd-menu-icon">H2</span> Heading 2</div>
+        <div class="cmd-menu-item" data-cmd="h3" title="Heading 3"><span class="cmd-menu-icon">H3</span> Heading 3</div>
+        <div class="cmd-menu-item" data-cmd="code" title="Code block"><span class="cmd-menu-icon">{ }</span> Code Block</div>
+        <div class="cmd-menu-item" data-cmd="image" title="Insert image"><span class="cmd-menu-icon">🖼</span> Image</div>
+        <div class="cmd-menu-item" data-cmd="video" title="Embed video"><span class="cmd-menu-icon">▶</span> Video</div>
+        <div class="cmd-menu-item" data-cmd="link" title="Insert link"><span class="cmd-menu-icon">🔗</span> Link</div>
+        <div class="cmd-menu-item" data-cmd="bullet" title="Bullet list"><span class="cmd-menu-icon">•</span> Bullet List</div>
+        <div class="cmd-menu-item" data-cmd="numbered" title="Numbered list"><span class="cmd-menu-icon">1.</span> Numbered List</div>
+        <div class="cmd-menu-item" data-cmd="task" title="Task list"><span class="cmd-menu-icon">☑</span> Task List</div>
+        <div class="cmd-menu-item" data-cmd="quote" title="Blockquote"><span class="cmd-menu-icon">❝</span> Quote</div>
+        <div class="cmd-menu-item" data-cmd="hr" title="Horizontal rule"><span class="cmd-menu-icon">─</span> Horizontal Rule</div>
+    </div>
+
+    <div id="editor-resize-handle" class="editor-resize-handle"></div>
+
+    <div class="form-group u-mt1">
+        <label>{{ t('wiki.edit.summary_label') }}</label>
+        <input type="text" name="edit_message" class="input u-mw500" placeholder="{{ t('wiki.edit.summary_placeholder') }}">
+    </div>
+
+    {% if enabled_plugins.page_governance and settings.page_reservations_enabled and not page.is_home and reservation_status and not reservation_status.is_reserved and not reservation_status.get('user_in_cooldown') %}
+    <div class="form-group u-mt05">
+        <label class="u-flex-center-05-ptr u-fw-normal">
+            <input type="checkbox" name="reserve_after_commit" value="1">
+            <span>{{ t('wiki.edit.reserve_after_commit') }}</span>
+        </label>
+    </div>
+    {% endif %}
+
+    <div class="form-actions">
+        <button type="submit" class="btn">{{ t('wiki.edit.commit_changes') }}</button>
+        {% if enabled_plugins.drafts %}
+        <button type="button" class="btn btn-outline" id="save-draft-close" data-redirect="{% if page.is_home %}{{ url_for('home') }}{% else %}{{ url_for('view_page', slug=page.slug) }}{% endif %}">{{ t('wiki.edit.save_draft_close') }}</button>
+        <button type="button" class="btn btn-outline js-discard-draft" data-page-id="{{ page.id }}" data-redirect="{% if page.is_home %}{{ url_for('home') }}{% else %}{{ url_for('view_page', slug=page.slug) }}{% endif %}">{{ t('wiki.edit.discard_draft') }}</button>
+        {% else %}
+        <a href="{% if page.is_home %}{{ url_for('home') }}{% else %}{{ url_for('view_page', slug=page.slug) }}{% endif %}" class="btn btn-outline">{{ t('common.cancel') }}</a>
+        {% endif %}
+    </div>
+</form>
+
+<!-- Attachments section -->
+{% if enabled_plugins.attachments %}
+{# The attachment routes check these permissions too; hiding the controls
+   only spares users buttons that would answer 403. #}
+{% set can_upload_attachments = has_permission(current_user, 'attachment.upload') %}
+{% set can_view_attachments = has_permission(current_user, 'attachment.view') %}
+{% set can_delete_any_attachment = has_permission(current_user, 'attachment.delete_any') %}
+{% set can_delete_own_attachment = has_permission(current_user, 'attachment.delete_own') %}
+<div class="attachments-section u-mt2">
+    <div class="attachments-header">
+        <span class="attachments-title">{{ t('wiki.edit.attachments') }}</span>
+        {% if can_upload_attachments %}
+        <label class="btn btn-sm btn-outline u-cursor-ptr">
+            {{ t('wiki.edit.add_file') }}
+            <input class="u-d-none" type="file" id="attachment-file-input" multiple>
+        </label>
+        {% endif %}
+    </div>
+    {% if can_upload_attachments %}
+    <p class="attachments-hint">{{ t('wiki.edit.attachments_hint') }}</p>
+    {% endif %}
+    <ul class="attachments-list" id="attachments-list" data-can-view="{{ 1 if can_view_attachments else 0 }}" data-can-delete-own="{{ 1 if (can_delete_any_attachment or can_delete_own_attachment) else 0 }}">
+        {% for att in attachments %}
+        <li class="attachment-item" data-id="{{ att.id }}">
+            <span class="attachment-name">{{ att.original_name }}</span>
+            <span class="attachment-meta">{{ (att.file_size / 1024)|round(1) }} KB</span>
+            {% if can_view_attachments %}
+            <a href="{{ url_for('download_attachment', slug=page.slug, attachment_id=att.id) }}" class="btn btn-sm btn-outline">{{ t('wiki.page.download') }}</a>
+            {% endif %}
+            {% if can_delete_any_attachment or (can_delete_own_attachment and att.uploaded_by == current_user.id) %}
+            <button class="btn btn-sm btn-danger-outline js-delete-att-edit" data-att-id="{{ att.id }}">{{ t('common.delete') }}</button>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    <div id="attachment-upload-status"></div>
+</div>
+{% endif %}
+<!-- Image options modal -->
+<div class="modal u-d-none" id="image-options-modal">
+    <div class="modal-content">
+        <h3>{{ t('wiki.edit.img_modal.title') }}</h3>
+        <div class="xs-da712e62">
+            <img class="xs-7431a718" id="img-preview" src="" alt="">
+        </div>
+        <div class="form-group">
+            <label>{{ t('wiki.edit.img_modal.alt') }}</label>
+            <input type="text" id="img-alt-input" class="input" placeholder="{{ t('wiki.edit.img_modal.alt_placeholder') }}">
+        </div>
+        <div class="form-group">
+            <label>{{ t('wiki.edit.position') }}</label>
+            <div class="img-align-btns">
+                <button type="button" class="btn btn-sm img-align-btn active" data-align="none">{{ t('wiki.edit.align.inline') }}</button>
+                <button type="button" class="btn btn-sm btn-outline img-align-btn" data-align="left">{{ t('wiki.edit.align.float_left') }}</button>
+                <button type="button" class="btn btn-sm btn-outline img-align-btn" data-align="right">{{ t('wiki.edit.align.float_right') }}</button>
+                <button type="button" class="btn btn-sm btn-outline img-align-btn" data-align="center">{{ t('wiki.edit.align.center') }}</button>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>{{ t('wiki.edit.width_px') }}</label>
+            <input type="number" id="img-width-input" class="input u-mw140" placeholder="{{ t('wiki.edit.width_placeholder') }}" min="50" max="2000">
+        </div>
+        <div class="form-group">
+            <label>{{ t('wiki.edit.padding_px') }}</label>
+            <input type="number" id="img-padding-input" class="input u-mw140" placeholder="{{ t('wiki.edit.padding_placeholder') }}" min="0" max="200">
+        </div>
+        <div class="form-actions">
+            <button type="button" class="btn btn-outline" id="img-reset-btn">{{ t('wiki.edit.reset') }}</button>
+            <button type="button" class="btn" id="img-insert-btn">{{ t('wiki.edit.insert') }}</button>
+            <button type="button" class="btn btn-outline" id="img-cancel-btn">{{ t('common.cancel') }}</button>
+        </div>
+    </div>
+</div>
+<!-- Link insert modal -->
+<div class="modal u-d-none" id="link-modal">
+    <div class="modal-content">
+        <h3>{{ t('wiki.edit.link_modal.title') }}</h3>
+        <div class="form-group xs-f3037375">
+            <button type="button" class="btn btn-sm" id="link-tab-external" data-link-tab="external">{{ t('wiki.edit.link_modal.external') }}</button>
+            <button type="button" class="btn btn-sm btn-outline" id="link-tab-internal" data-link-tab="internal">{{ t('wiki.edit.link_modal.wiki_page') }}</button>
+        </div>
+        <div id="link-external-section">
+            <div class="form-group" id="link-text-group">
+                <label>{{ t('wiki.edit.link_modal.link_text') }}</label>
+                <input type="text" id="link-text-input" class="input" placeholder="{{ t('wiki.edit.link_modal.link_text_placeholder') }}">
+            </div>
+            <div class="form-group">
+                <label>{{ t('wiki.page.url') }}</label>
+                <input type="text" id="link-url-input" class="input" placeholder="https://example.com">
+            </div>
+            <div class="form-group">
+                <label class="u-flex-center-05-ptr u-fw-normal"><input type="checkbox" id="link-newtab" checked> {{ t('wiki.edit.link_modal.open_new_tab') }}</label>
+            </div>
+        </div>
+        <div class="u-d-none" id="link-internal-section">
+            <div class="form-group">
+                <label>{{ t('wiki.edit.link_modal.search_pages') }}</label>
+                <input type="text" id="link-page-search" class="input" placeholder="{{ t('wiki.edit.link_modal.search_placeholder') }}" autocomplete="off">
+                <div class="xs-dfefc13a" id="link-page-results"></div>
+            </div>
+            <div class="form-group" id="link-internal-text-group">
+                <label>{{ t('wiki.edit.link_modal.internal_text_label') }}</label>
+                <input type="text" id="link-internal-text" class="input" placeholder="{{ t('wiki.edit.link_modal.internal_text_placeholder') }}">
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="button" class="btn" id="link-insert-btn">{{ t('wiki.edit.insert') }}</button>
+            <button type="button" class="btn btn-outline" id="link-cancel-btn">{{ t('common.cancel') }}</button>
+        </div>
+    </div>
+</div>
+<!-- Replace Image modal -->
+<div class="modal u-d-none" id="replace-img-modal">
+    <div class="modal-content">
+        <h3>{{ t('wiki.edit.replace_modal.title') }}</h3>
+        <div class="form-group">
+            <label>{{ t('wiki.edit.replace_modal.select_image') }}</label>
+            <select id="replace-img-select" class="input">
+                <option value="">{{ t('wiki.edit.replace_modal.loading_images') }}</option>
+            </select>
+        </div>
+        <div class="xs-6a03244e">
+            <img class="xs-92acf5b8" id="replace-img-current-preview" src="" alt="">
+        </div>
+        <div class="form-group">
+            <label>{{ t('wiki.edit.replace_modal.upload') }}</label>
+            <label class="btn btn-sm btn-outline u-cursor-ptr">
+                {{ t('wiki.edit.replace_modal.choose_file') }}
+                <input class="u-d-none" type="file" id="replace-img-upload-input" accept="image/*">
+            </label>
+            <span class="xs-01e32bc2" id="replace-img-upload-name"></span>
+        </div>
+        <div class="xs-8ac22a9c">
+            <img class="xs-92acf5b8" id="replace-img-new-preview" src="" alt="">
+        </div>
+        <div class="xs-9333243c" id="replace-img-status"></div>
+        <div class="form-actions">
+            <button type="button" class="btn" id="replace-img-confirm-btn" disabled>{{ t('wiki.edit.replace') }}</button>
+            <button type="button" class="btn btn-outline" id="replace-img-cancel-btn">{{ t('common.cancel') }}</button>
+        </div>
+    </div>
+</div>
+<!-- Video Embed modal -->
+<div class="modal u-d-none" id="video-embed-modal">
+    <div class="modal-content">
+        <h3>{{ t('wiki.edit.video_modal.title') }}</h3>
+        <div class="form-group">
+            <label>{{ t('wiki.edit.video_modal.url') }}</label>
+            <input type="text" id="video-url-input" class="input" placeholder="https://www.youtube.com/watch?v=…">
+        </div>
+        <div class="form-group">
+            <label>{{ t('wiki.edit.position') }}</label>
+            <div class="img-align-btns">
+                <button type="button" class="btn btn-sm btn-outline video-align-btn" data-align="none">{{ t('wiki.edit.align.inline') }}</button>
+                <button type="button" class="btn btn-sm btn-outline video-align-btn" data-align="left">{{ t('wiki.edit.align.float_left') }}</button>
+                <button type="button" class="btn btn-sm btn-outline video-align-btn" data-align="right">{{ t('wiki.edit.align.float_right') }}</button>
+                <button type="button" class="btn btn-sm video-align-btn active" data-align="center">{{ t('wiki.edit.align.center') }}</button>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>{{ t('wiki.edit.width_px') }}</label>
+            <input type="number" id="video-width-input" class="input u-mw140" placeholder="{{ t('wiki.edit.video_modal.width_placeholder') }}" min="200" max="2000">
+        </div>
+        <div class="form-group">
+            <label>{{ t('wiki.edit.video_modal.aspect_ratio') }}</label>
+            <div class="img-align-btns">
+                <button type="button" class="btn btn-sm video-ratio-btn active" data-ratio="16:9">16:9</button>
+                <button type="button" class="btn btn-sm btn-outline video-ratio-btn" data-ratio="4:3">4:3</button>
+                <button type="button" class="btn btn-sm btn-outline video-ratio-btn" data-ratio="1:1">{{ t('wiki.edit.video_modal.square') }}</button>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>{{ t('wiki.edit.margin_px') }}</label>
+            <input type="number" id="video-margin-input" class="input u-mw140" placeholder="{{ t('wiki.edit.video_modal.margin_placeholder') }}" min="0" max="200">
+        </div>
+        <div class="form-group">
+            <label>{{ t('wiki.edit.video_modal.playback') }}</label>
+            <div style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:center">
+            <label class="u-flex-center-05-ptr u-fw-normal u-fw-normal u-fs-09"><input type="checkbox" id="video-autoplay-input"> {{ t('wiki.edit.video_modal.autoplay') }}</label>
+            <label class="u-flex-center-05-ptr u-fw-normal u-fw-normal u-fs-09"><input type="checkbox" id="video-controls-input" checked> {{ t('wiki.edit.video_modal.controls') }}</label>
+            <label class="u-flex-center-05-ptr u-fw-normal u-fw-normal u-fs-09"><input type="checkbox" id="video-loop-input"> {{ t('wiki.edit.video_modal.loop') }}</label>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>{{ t('wiki.edit.video_modal.preload') }}</label>
+            <div class="img-align-btns">
+                <button type="button" class="btn btn-sm btn-outline video-preload-btn" data-preload="none" title="{{ t('wiki.edit.video_modal.preload_none_tip') }}">{{ t('wiki.difficulty.none') }}</button>
+                <button type="button" class="btn btn-sm video-preload-btn active" data-preload="metadata" title="{{ t('wiki.edit.video_modal.preload_meta_tip') }}">{{ t('wiki.edit.video_modal.metadata') }}</button>
+                <button type="button" class="btn btn-sm btn-outline video-preload-btn" data-preload="auto" title="{{ t('wiki.edit.video_modal.preload_auto_tip') }}">{{ t('wiki.edit.video_modal.auto') }}</button>
+            </div>
+        </div>
+        <p class="xs-997b27e0">{{ t('wiki.edit.video_modal.help') }}</p>
+        <div class="form-actions">
+            <button type="button" class="btn btn-outline" id="video-reset-btn">{{ t('wiki.edit.reset') }}</button>
+            <button type="button" class="btn" id="video-insert-btn">{{ t('wiki.edit.insert') }}</button>
+            <button type="button" class="btn btn-outline" id="video-cancel-btn">{{ t('common.cancel') }}</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+    // Editing indicator heartbeat
+    (function() {
+        var heartbeatUrl = {{ url_for('editing_heartbeat', slug=page.slug)|tojson }};
+        var stopUrl = {{ url_for('editing_stop', slug=page.slug)|tojson }};
+        var csrfToken = {{ csrf_token()|tojson }};
+        var intervalMs = 8000;
+        var stopped = false;
+
+        function sendHeartbeat() {
+            if (stopped) return;
+            fetch(heartbeatUrl, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken}
+            }).catch(function() {});
+        }
+
+        function stopEditing() {
+            if (stopped) return;
+            stopped = true;
+            fetch(stopUrl, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+                keepalive: true
+            }).catch(function() {});
+        }
+
+        sendHeartbeat();
+        var heartbeatHandle = window.setInterval(sendHeartbeat, intervalMs);
+        window.addEventListener('beforeunload', stopEditing, { once: true });
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) stopEditing();
+            else { stopped = false; sendHeartbeat(); }
+        });
+    })();
+
+    document.addEventListener('DOMContentLoaded', function() {
+        {% if enabled_plugins.drafts %}
+        initAutosave({{ page.id }});
+        {% endif %}
+        var contentEl = document.getElementById('edit-content');
+        initImageUpload(contentEl);
+        initTableContextToolbar(contentEl);
+        if (typeof initEditorKeyboardShortcuts === 'function') {
+            initEditorKeyboardShortcuts(contentEl);
+        }
+        initPreview();
+        initEditorResize();
+        initEditorMobileTabs();
+        initMarkdownImport(contentEl);
+        initTableGridPicker(contentEl);
+        initCommandMenu(contentEl);
+        initAutoPairing(contentEl);
+        initEditorStats(contentEl);
+        initFullscreenToggle();
+    });
+
+    // -- Import .md / .txt file -------------------------------------------
+    // The button on its own only opens the OS file picker.  Once a file is
+    // chosen we POST it to the server, which parses the YAML front matter
+    // and returns ``{content, title}``.  We then populate the editor and
+    // (optionally) the title input, but we deliberately do NOT save: the
+    // user still has to press "Commit Changes" so they can preview the
+    // imported content first.
+    function initMarkdownImport(contentEl) {
+        var input = document.getElementById('editor-import-input');
+        var status = document.getElementById('editor-import-status');
+        var titleEl = document.getElementById('edit-title');
+        if (!input || !contentEl) return;
+
+        function setStatus(msg, isError) {
+            if (!status) return;
+            status.textContent = msg || '';
+            status.classList.toggle('editor-io-status-error', !!isError);
+        }
+
+        input.addEventListener('change', function() {
+            var file = this.files && this.files[0];
+            this.value = '';
+            if (!file) return;
+            // 1 MB matches the server-side ``_MAX_PAGE_CONTENT_LENGTH``.
+            var MAX = 1024 * 1024;
+            if (file.size > MAX) {
+                setStatus((window._t && window._t('js.wiki_edit.import_too_large')) ||
+                          'File exceeds the 1 MB limit.', true);
+                return;
+            }
+            setStatus((window._t && window._t('js.wiki_edit.importing', { name: file.name })) ||
+                      ('Importing ' + file.name + '…'), false);
+            var fd = new FormData();
+            fd.append('import_file', file);
+            fd.append('csrf_token', getCsrfToken());
+            fetch('{{ url_for("import_page_markdown", slug=page.slug) }}', {
+                method: 'POST',
+                headers: { 'X-CSRFToken': getCsrfToken() },
+                body: fd
+            })
+            .then(function(r) {
+                return r.json().then(function(d) { return { ok: r.ok, body: d }; });
+            })
+            .then(function(res) {
+                if (!res.ok || !res.body || typeof res.body.content !== 'string') {
+                    var err = (res.body && res.body.error) || 'error';
+                    setStatus(((window._t && window._t('js.wiki_edit.import_failed')) ||
+                                'Import failed') + ' (' + err + ')', true);
+                    return;
+                }
+                contentEl.value = res.body.content;
+                if (titleEl && res.body.title) {
+                    titleEl.value = res.body.title;
+                }
+                // Notify autosave/preview that the content changed.
+                contentEl.dispatchEvent(new Event('input', { bubbles: true }));
+                setStatus((window._t && window._t('js.wiki_edit.import_ready')) ||
+                          'Imported. Review and click "Commit Changes" to save.', false);
+            })
+            .catch(function() {
+                setStatus((window._t && window._t('js.wiki_edit.import_failed')) ||
+                          'Import failed.', true);
+            });
+        });
+    }
+
+    // Live preview
+    function initPreview() {
+        var content = document.getElementById('edit-content');
+        var preview = document.getElementById('preview-content');
+        if (!content || !preview) return;
+
+        var latestPreviewRequest = null;
+
+        function applyPreviewHtml(html) {
+            preview.innerHTML = html;
+            // Image/video resizing is a nice-to-have; don't blank the
+            // preview if the helper is missing (e.g. main.js failed to
+            // load) or throws unexpectedly.  Without this guard, a thrown
+            // ReferenceError used to bubble up to .catch() and overwrite
+            // the just-rendered HTML with the generic error message,
+            // which is what users were seeing as a blank preview pane.
+            try {
+                if (typeof initResizableImages === 'function') {
+                    initResizableImages(preview, content);
+                }
+            } catch (err) {
+                if (window.console && console.error) {
+                    console.error('initResizableImages failed:', err);
+                }
+            }
+        }
+
+        function updatePreview() {
+            var requestId = latestPreviewRequest = {};
+            fetch('/api/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+                body: JSON.stringify({ content: content.value })
+            })
+            .then(function(r) {
+                if (!r.ok) throw new Error('Preview failed: ' + r.status);
+                return r.json();
+            })
+            .then(function(d) {
+                if (requestId !== latestPreviewRequest) return;
+                if (d && typeof d.html === 'string') {
+                    applyPreviewHtml(d.html);
+                }
+            })
+            .catch(function(err) {
+                if (requestId !== latestPreviewRequest) return;
+                if (window.console && console.error) {
+                    console.error('Markdown preview request failed:', err);
+                }
+                preview.innerHTML = '<p class="u-o70">' + ((window._t && window._t('js.wiki_edit.preview_failed')) || 'Preview could not be loaded.') + '</p>';
+            });
+        }
+
+        var previewTimer = null;
+        content.addEventListener('input', function() {
+            if (previewTimer) clearTimeout(previewTimer);
+            previewTimer = setTimeout(updatePreview, 400);
+        });
+
+        // Initial preview
+        updatePreview();
+    }
+
+    // These formatting helpers are now defined in main.js:
+    //   insertFormat(before, after): toggle-aware wrap/unwrap
+    //   insertLine(prefix): toggle-aware line prefix
+    //   insertInlineCode(): toggle inline backtick code
+    //   insertTaskList(): toggle - [ ] task list items
+
+    // Link dialog
+    var _linkInsertStart = 0, _linkInsertEnd = 0, _linkHasSelection = false;
+    var _linkTab = 'external';
+    var _selectedPageSlug = null, _selectedPageTitle = null;
+
+    function escapeHtml(str) {
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function setLinkTab(tab) {
+        _linkTab = tab;
+        document.getElementById('link-external-section').style.display = tab === 'external' ? 'block' : 'none';
+        document.getElementById('link-internal-section').style.display = tab === 'internal' ? 'block' : 'none';
+        document.getElementById('link-tab-external').className = tab === 'external' ? 'btn btn-sm' : 'btn btn-sm btn-outline';
+        document.getElementById('link-tab-internal').className = tab === 'internal' ? 'btn btn-sm' : 'btn btn-sm btn-outline';
+        _selectedPageSlug = null;
+        _selectedPageTitle = null;
+        document.getElementById('link-page-results').style.display = 'none';
+        document.getElementById('link-page-results').innerHTML = '';
+    }
+
+    function insertLink() {
+        var ta = document.getElementById('edit-content');
+        var start = ta.selectionStart, end = ta.selectionEnd;
+        var selectedText = ta.value.substring(start, end);
+        _linkInsertStart = start;
+        _linkInsertEnd = end;
+        _linkHasSelection = selectedText.length > 0;
+
+        var textGroup = document.getElementById('link-text-group');
+        var textInput = document.getElementById('link-text-input');
+        var urlInput = document.getElementById('link-url-input');
+        document.getElementById('link-newtab').checked = true;
+
+        if (_linkHasSelection) {
+            textInput.value = selectedText;
+            textGroup.style.display = 'none';
+        } else {
+            textInput.value = '';
+            textGroup.style.display = '';
+        }
+        urlInput.value = '';
+        document.getElementById('link-internal-text').value = _linkHasSelection ? selectedText : '';
+        document.getElementById('link-page-search').value = '';
+        document.getElementById('link-page-results').style.display = 'none';
+        _selectedPageSlug = null;
+        _selectedPageTitle = null;
+        setLinkTab('external');
+
+        document.getElementById('link-modal').style.display = 'flex';
+        (_linkHasSelection ? urlInput : textInput).focus();
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        function closeLinkModal() {
+            document.getElementById('link-modal').style.display = 'none';
+        }
+
+        function confirmLinkInsert() {
+            var ta = document.getElementById('edit-content');
+            var linkStr;
+
+            if (_linkTab === 'internal') {
+                if (!_selectedPageSlug) {
+                    alert((window._t && window._t('js.wiki_edit.select_wiki_page')) || 'Please select a wiki page from the search results.');
+                    return;
+                }
+                var internalText = document.getElementById('link-internal-text').value.trim()
+                    || _selectedPageTitle || _selectedPageSlug;
+                if (_linkHasSelection) {
+                    internalText = ta.value.substring(_linkInsertStart, _linkInsertEnd) || internalText;
+                }
+                var internalUrl = '/page/' + _selectedPageSlug;
+                linkStr = '[' + internalText + '](' + internalUrl + ')';
+            } else {
+                var textInput = document.getElementById('link-text-input');
+                var urlInput = document.getElementById('link-url-input');
+                var newTab = document.getElementById('link-newtab').checked;
+                var displayText = (_linkHasSelection
+                    ? ta.value.substring(_linkInsertStart, _linkInsertEnd)
+                    : textInput.value) || 'link';
+                var url = urlInput.value.trim() || 'url';
+                linkStr = newTab
+                    ? '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(displayText) + '</a>'
+                    : '[' + displayText + '](' + url + ')';
+            }
+
+            ta.value = ta.value.substring(0, _linkInsertStart) + linkStr + ta.value.substring(_linkInsertEnd);
+            ta.selectionStart = ta.selectionEnd = _linkInsertStart + linkStr.length;
+            ta.focus();
+            ta.dispatchEvent(new Event('input'));
+            closeLinkModal();
+        }
+
+        document.getElementById('link-cancel-btn').addEventListener('click', closeLinkModal);
+
+        document.getElementById('link-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeLinkModal();
+        });
+
+        document.getElementById('link-insert-btn').addEventListener('click', confirmLinkInsert);
+
+        [document.getElementById('link-url-input'), document.getElementById('link-text-input')].forEach(function(el) {
+            el.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') confirmLinkInsert();
+                if (e.key === 'Escape') closeLinkModal();
+            });
+        });
+
+        // Wiki page search for internal links
+        var _searchTimer = null;
+        document.getElementById('link-page-search').addEventListener('input', function() {
+            var q = this.value.trim();
+            var results = document.getElementById('link-page-results');
+            if (_searchTimer) clearTimeout(_searchTimer);
+            if (!q) { results.style.display = 'none'; results.innerHTML = ''; return; }
+            _searchTimer = setTimeout(function() {
+                fetch('/api/pages/search?q=' + encodeURIComponent(q))
+                .then(function(r) { return r.json(); })
+                .then(function(pages) {
+                    results.innerHTML = '';
+                    if (!pages.length) {
+                        results.innerHTML = '<div class="xs-eb10b175">' + ((window._t && window._t('js.wiki_edit.no_pages_found')) || 'No pages found') + '</div>';
+                        results.style.display = 'block';
+                        return;
+                    }
+                    pages.forEach(function(p) {
+                        var item = document.createElement('div');
+                        item.style.cssText = 'padding:.4rem .6rem;cursor:pointer;font-size:.9rem';
+                        var titleSpan = document.createElement('span');
+                        titleSpan.textContent = p.title;
+                        item.appendChild(titleSpan);
+                        if (p.category_name) {
+                            var catSpan = document.createElement('span');
+                            catSpan.textContent = ' (' + p.category_name + ')';
+                            catSpan.style.cssText = 'color:var(--text);opacity:.4;font-size:.8rem;margin-left:.4rem';
+                            item.appendChild(catSpan);
+                        }
+                        item.addEventListener('mouseenter', function() { this.style.background = 'var(--border-color)'; this.style.opacity = '0.7'; });
+                        item.addEventListener('mouseleave', function() { this.style.background = ''; this.style.opacity = ''; });
+                        item.addEventListener('click', function() {
+                            _selectedPageSlug = p.slug;
+                            _selectedPageTitle = p.title;
+                            document.getElementById('link-page-search').value = p.title;
+                            results.style.display = 'none';
+                        });
+                        results.appendChild(item);
+                    });
+                    results.style.display = 'block';
+                });
+            }, 300);
+        });
+    });
+
+    // Attachment upload
+    var _attachDownloadBase = '{{ url_for("download_attachment", slug=page.slug, attachment_id=0) }}'.replace('/0/download', '/');
+
+    // The attachment-file-input element only exists when the attachments
+    // plugin is enabled.  Guard the access so the rest of the script. Most
+    // importantly the toolbar event wiring further down, still runs when the
+    // plugin is disabled.
+    var _attachFileInput = document.getElementById('attachment-file-input');
+    if (_attachFileInput) {
+        _attachFileInput.addEventListener('change', function() {
+            var files = Array.from(this.files);
+            this.value = '';
+            files.forEach(function(file) { uploadAttachment(file); });
+        });
+    }
+
+    function uploadAttachment(file) {
+        var status = document.getElementById('attachment-upload-status');
+        var MAX = {{ max_attachment_size_bytes }};
+        var maxMB = Math.round(MAX / (1024 * 1024));
+        if (file.size > MAX) {
+            status.textContent = file.name + ' exceeds the ' + maxMB + ' MB limit.';
+            return;
+        }
+        var fd = new FormData();
+        fd.append('file', file);
+        status.textContent = (window._t && window._t('js.wiki_edit.uploading_file', { name: file.name })) || ('Uploading ' + file.name + '…');
+        fetch('/api/page/{{ page.id }}/attachments', {
+            method: 'POST',
+            headers: { 'X-CSRFToken': getCsrfToken() },
+            body: fd
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.error) {
+                status.textContent = 'Error: ' + d.error;
+                return;
+            }
+            status.textContent = '';
+            var li = document.createElement('li');
+            li.className = 'attachment-item';
+            li.dataset.id = d.id;
+            var kb = (d.size / 1024).toFixed(1);
+            var list = document.getElementById('attachments-list');
+            // The new file belongs to the uploader, so delete_own is enough here.
+            li.innerHTML =
+                '<span class="attachment-name">' + escapeHtml(d.name) + '</span>' +
+                '<span class="attachment-meta">' + kb + ' KB</span>' +
+                (list.dataset.canView === '1' ? '<a href="' + _attachDownloadBase + d.id + '/download" class="btn btn-sm btn-outline">⬇ ' + ((window._t && window._t('js.common.download')) || 'Download') + '</a>' : '') +
+                (list.dataset.canDeleteOwn === '1' ? '<button class="btn btn-sm btn-danger-outline js-delete-att-edit" data-att-id="' + d.id + '">' + (window._t ? window._t('js.common.delete') : 'Delete') + '</button>' : '');
+            list.appendChild(li);
+        })
+        .catch(function() { status.textContent = (window._t && window._t('js.wiki_edit.upload_failed')) || 'Upload failed.'; });
+    }
+
+    function deleteAttachmentEdit(id, btn) {
+        bwConfirm((window._t && window._t('js.wiki_edit.delete_attachment_confirm')) || 'Delete this attachment?', function() {
+            fetch('/api/attachments/' + id, {
+                method: 'DELETE',
+                headers: { 'X-CSRFToken': getCsrfToken() }
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.ok) {
+                    var li = btn.closest('li');
+                    if (li) li.remove();
+                } else {
+                    alert(d.error || (window._t && window._t('js.wiki_edit.delete_failed')) || 'Failed to delete.');
+                }
+            });
+        });
+    }
+
+    // ----- Custom tag color picker -----
+    var COLOR_PRESETS = [
+        '#4a90d9','#5cb85c','#f0ad4e','#d9534f','#9b59b6',
+        '#e67e22','#1abc9c','#e91e63','#2c3e50','#795548',
+        '#00bcd4','#8bc34a','#ff5722','#3f51b5','#9e9e9e','#673ab7'
+    ];
+
+    function buildPresets(gridId, pickerId, hexId, previewId, labelId) {
+        var grid = document.getElementById(gridId);
+        if (!grid) return;
+        COLOR_PRESETS.forEach(function(c) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'color-swatch';
+            btn.style.background = c;
+            btn.title = c;
+            btn.addEventListener('click', function() {
+                document.getElementById(hexId).value = c;
+                document.getElementById(pickerId).value = c;
+                updateTagPreview(previewId, c, labelId);
+            });
+            grid.appendChild(btn);
+        });
+    }
+
+    function syncColorInput(picker, hexId, previewId, labelId) {
+        document.getElementById(hexId).value = picker.value;
+        updateTagPreview(previewId, picker.value, labelId);
+    }
+
+    function syncColorPicker(hex, pickerId, previewId, labelId) {
+        var v = hex.value.trim();
+        if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+            document.getElementById(pickerId).value = v;
+            updateTagPreview(previewId, v, labelId);
+        }
+    }
+
+    function updateTagPreview(previewId, color, labelId) {
+        var p = document.getElementById(previewId);
+        if (!p) return;
+        p.style.color = color;
+        p.style.background = color + '26';
+        var lbl = document.getElementById(labelId);
+        p.textContent = lbl ? (lbl.value || ((window._t && window._t('js.wiki_edit.preview_label')) || 'Preview')) : ((window._t && window._t('js.wiki_edit.preview_label')) || 'Preview');
+    }
+
+    function toggleCustomTag(sel, customId) {
+        var custom = document.getElementById(customId);
+        if (custom) custom.style.display = sel.value === 'custom' ? 'block' : 'none';
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        buildPresets('editFormPresets','editFormColorPicker','editFormColorHex','editFormPreview','editFormLabel');
+    });
+
+    // ----- Replace Image -----
+    var _replaceImgNewUrl = null;
+
+    function extractImagesFromMarkdown(md) {
+        var images = [];
+        var seen = {};
+        // Standard markdown: ![alt](url)
+        var mdRe = /!\[([^\]]*)\]\(([^)]+)\)/g;
+        var m;
+        while ((m = mdRe.exec(md)) !== null) {
+            var url = m[2].trim();
+            if (!seen[url]) { seen[url] = true; images.push({ alt: m[1], url: url }); }
+        }
+        // HTML img tags: <img src="url"> or <img src='url'>
+        var htmlRe = /<img[^>]+src=(?:"([^"]+)"|'([^']+)')([^>]*)>/gi;
+        while ((m = htmlRe.exec(md)) !== null) {
+            var url = (m[1] || m[2] || '').trim();
+            if (url && !seen[url]) { seen[url] = true; images.push({ alt: url, url: url }); }
+        }
+        return images;
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        var replaceImgBtn = document.getElementById('replace-img-btn');
+        var replaceImgModal = document.getElementById('replace-img-modal');
+        var replaceImgSelect = document.getElementById('replace-img-select');
+        var replaceImgCurrentPreview = document.getElementById('replace-img-current-preview');
+        var replaceImgUploadInput = document.getElementById('replace-img-upload-input');
+        var replaceImgNewPreview = document.getElementById('replace-img-new-preview');
+        var replaceImgUploadName = document.getElementById('replace-img-upload-name');
+        var replaceImgStatus = document.getElementById('replace-img-status');
+        var replaceImgConfirmBtn = document.getElementById('replace-img-confirm-btn');
+        var replaceImgCancelBtn = document.getElementById('replace-img-cancel-btn');
+        if (!replaceImgBtn || !replaceImgModal) return;
+
+        replaceImgBtn.addEventListener('click', function() {
+            var ta = document.getElementById('edit-content');
+            if (!ta) return;
+            var images = extractImagesFromMarkdown(ta.value);
+            replaceImgSelect.innerHTML = '';
+            _replaceImgNewUrl = null;
+            replaceImgNewPreview.style.display = 'none';
+            replaceImgNewPreview.src = '';
+            replaceImgUploadName.textContent = '';
+            replaceImgStatus.textContent = '';
+            replaceImgConfirmBtn.disabled = true;
+            if (!images.length) {
+                replaceImgSelect.innerHTML = '<option value="">' + ((window._t && window._t('js.wiki_edit.no_images_in_content')) || 'No images found in content') + '</option>';
+                replaceImgCurrentPreview.style.display = 'none';
+            } else {
+                images.forEach(function(img, i) {
+                    var opt = document.createElement('option');
+                    opt.value = img.url;
+                    opt.textContent = (img.alt || img.url).substring(0, 60);
+                    replaceImgSelect.appendChild(opt);
+                });
+                replaceImgCurrentPreview.src = images[0].url;
+                replaceImgCurrentPreview.style.display = '';
+            }
+            replaceImgModal.style.display = 'flex';
+        });
+
+        replaceImgSelect.addEventListener('change', function() {
+            var url = replaceImgSelect.value;
+            if (url) {
+                replaceImgCurrentPreview.src = url;
+                replaceImgCurrentPreview.style.display = '';
+            } else {
+                replaceImgCurrentPreview.style.display = 'none';
+            }
+        });
+
+        replaceImgUploadInput.addEventListener('change', function() {
+            var file = replaceImgUploadInput.files[0];
+            if (!file) return;
+            replaceImgUploadName.textContent = file.name;
+            replaceImgStatus.textContent = (window._t && window._t('js.wiki_edit.uploading')) || 'Uploading…';
+            replaceImgConfirmBtn.disabled = true;
+            _replaceImgNewUrl = null;
+            replaceImgNewPreview.style.display = 'none';
+            var fd = new FormData();
+            fd.append('file', file);
+            fd.append('csrf_token', getCsrfToken());
+            fetch('/api/upload', { method: 'POST', body: fd })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d.error) {
+                        replaceImgStatus.textContent = ((window._t && window._t('js.wiki_edit.upload_failed_with_error', { error: d.error })) || ('Upload failed: ' + d.error));
+                        return;
+                    }
+                    _replaceImgNewUrl = d.url;
+                    replaceImgNewPreview.src = d.url;
+                    replaceImgNewPreview.style.display = '';
+                    replaceImgStatus.textContent = (window._t && window._t('js.wiki_edit.ready_to_replace')) || 'Ready to replace.';
+                    replaceImgConfirmBtn.disabled = false;
+                    replaceImgUploadInput.value = '';
+                })
+                .catch(function() {
+                    replaceImgStatus.textContent = (window._t && window._t('js.wiki_edit.upload_failed')) || 'Upload failed.';
+                });
+        });
+
+        replaceImgConfirmBtn.addEventListener('click', function() {
+            var oldUrl = replaceImgSelect.value;
+            if (!oldUrl || !_replaceImgNewUrl) return;
+            var ta = document.getElementById('edit-content');
+            if (!ta) return;
+            // Replace all occurrences of the old URL using split/join to avoid
+            // regex escaping issues with special characters in URLs
+            ta.value = ta.value.split(oldUrl).join(_replaceImgNewUrl);
+            ta.dispatchEvent(new Event('input'));
+            replaceImgModal.style.display = 'none';
+        });
+
+        function closeReplaceModal() {
+            replaceImgModal.style.display = 'none';
+        }
+        replaceImgCancelBtn.addEventListener('click', closeReplaceModal);
+        replaceImgModal.addEventListener('click', function(e) {
+            if (e.target === this) closeReplaceModal();
+        });
+    });
+
+    // ----- Embed Video -----
+    document.addEventListener('DOMContentLoaded', function() {
+        var embedVideoBtn = document.getElementById('embed-video-btn');
+        var videoModal = document.getElementById('video-embed-modal');
+        var videoUrlInput = document.getElementById('video-url-input');
+        var videoInsertBtn = document.getElementById('video-insert-btn');
+        var videoCancelBtn = document.getElementById('video-cancel-btn');
+        var videoResetBtn = document.getElementById('video-reset-btn');
+        if (!embedVideoBtn || !videoModal) return;
+
+        embedVideoBtn.addEventListener('click', function() {
+            openVideoOptionsModal('', '', 'center', '16:9', document.getElementById('edit-content'));
+            videoUrlInput.focus();
+        });
+
+        videoInsertBtn.addEventListener('click', confirmVideoInsert);
+        if (videoResetBtn) videoResetBtn.addEventListener('click', resetVideoOptionsModal);
+        videoCancelBtn.addEventListener('click', closeVideoOptionsModal);
+        videoModal.addEventListener('click', function(e) { if (e.target === this) closeVideoOptionsModal(); });
+        videoUrlInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') confirmVideoInsert();
+            if (e.key === 'Escape') closeVideoOptionsModal();
+        });
+    });
+
+    /* ── CSP-safe event wiring (replaces inline handlers) ────────────── */
+    // Editor toolbar buttons
+    document.querySelectorAll('.editor-toolbar [data-fmt-before]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            insertFormat(this.dataset.fmtBefore, this.dataset.fmtAfter);
+        });
+    });
+    document.querySelectorAll('.editor-toolbar [data-line-prefix]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            insertLine(this.dataset.linePrefix);
+        });
+    });
+    var insertLinkBtn = document.querySelector('[data-action="insert-link"]');
+    if (insertLinkBtn) insertLinkBtn.addEventListener('click', insertLink);
+    // Indent / outdent buttons: delegate to a synthesized Tab keystroke so
+    // we share the exact same logic as Tab/Shift+Tab on the keyboard.
+    function _editorTextarea() { return document.getElementById('edit-content'); }
+    function _dispatchTab(shiftKey) {
+        var ta = _editorTextarea();
+        if (!ta) return;
+        ta.focus();
+        ta.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Tab', code: 'Tab', shiftKey: !!shiftKey, bubbles: true, cancelable: true,
+        }));
+    }
+    var indentBtn = document.querySelector('[data-action="indent"]');
+    if (indentBtn) indentBtn.addEventListener('click', function() { _dispatchTab(false); });
+    var outdentBtn = document.querySelector('[data-action="outdent"]');
+    if (outdentBtn) outdentBtn.addEventListener('click', function() { _dispatchTab(true); });
+
+    // Subscript / superscript / clear formatting
+    document.querySelector('[data-action="subscript"]').addEventListener('click', function() { insertSubSuper('sub'); });
+    document.querySelector('[data-action="superscript"]').addEventListener('click', function() { insertSubSuper('sup'); });
+    document.querySelector('[data-action="clear-formatting"]').addEventListener('click', clearFormatting);
+
+    // Link tab buttons
+    document.querySelectorAll('[data-link-tab]').forEach(function(btn) {
+        btn.addEventListener('click', function() { setLinkTab(this.dataset.linkTab); });
+    });
+
+    // Tag select
+    var editFormTagSel = document.getElementById('editFormTagSelect');
+    if (editFormTagSel) editFormTagSel.addEventListener('change', function() { toggleCustomTag(this, 'editFormCustomTag'); });
+
+    // Tag label/color inputs
+    var editFormLabel = document.getElementById('editFormLabel');
+    if (editFormLabel) editFormLabel.addEventListener('input', function() {
+        updateTagPreview('editFormPreview', document.getElementById('editFormColorHex').value, 'editFormLabel');
+    });
+    var editFormColorPicker = document.getElementById('editFormColorPicker');
+    if (editFormColorPicker) editFormColorPicker.addEventListener('input', function() {
+        syncColorInput(this, 'editFormColorHex', 'editFormPreview', 'editFormLabel');
+    });
+    var editFormColorHex = document.getElementById('editFormColorHex');
+    if (editFormColorHex) editFormColorHex.addEventListener('input', function() {
+        syncColorPicker(this, 'editFormColorPicker', 'editFormPreview', 'editFormLabel');
+    });
+
+    // Draft buttons
+    document.querySelectorAll('.js-transfer-draft').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            transferDraft(Number(this.dataset.pageId), this.dataset.userId);
+        });
+    });
+    document.querySelectorAll('.js-delete-draft').forEach(function(btn) {
+        btn.addEventListener('click', function() { deleteDraft(Number(this.dataset.pageId)); });
+    });
+    document.querySelectorAll('.js-discard-draft').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            discardDraftAndClose(Number(this.dataset.pageId), this.dataset.redirect);
+        });
+    });
+
+    // Attachment delete (event delegation for dynamically added items)
+    var attList = document.getElementById('attachments-list');
+    if (attList) attList.addEventListener('click', function(e) {
+        var btn = e.target.closest('.js-delete-att-edit');
+        if (btn) deleteAttachmentEdit(Number(btn.dataset.attId), btn);
+    });
+</script>
+{% endblock %}

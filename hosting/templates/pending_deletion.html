@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ t('hosting.pending_deletion.title', default='Account Scheduled for Deletion') }} | {{ t('hosting.brand') }}{% endblock %}
+{% block content %}
+<div class="account-state-shell">
+<section class="account-state-card account-state-danger" aria-labelledby="pending-deletion-title">
+    <header class="account-state-header">
+        <div class="account-state-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/>
+            </svg>
+        </div>
+        <p class="account-state-kicker">{{ t('hosting.account_state.account_status', default='Account status') }}</p>
+        <h1 id="pending-deletion-title" class="account-state-title">{{ t('hosting.pending_deletion.heading', default='Your account is scheduled for deletion') }}</h1>
+        <p class="account-state-lead">{{ t('hosting.pending_deletion.message', default='Your account and all associated data will be permanently deleted when the countdown reaches zero.') }}</p>
+    </header>
+
+    <dl class="account-state-details">
+        {% if reason %}
+        <dt>{{ t('hosting.pending_deletion.reason_label', default='Reason') }}</dt>
+        <dd>{{ reason }}</dd>
+        {% endif %}
+
+        <dt>{{ t('hosting.pending_deletion.countdown_label', default='Account will be permanently deleted in') }}</dt>
+        <dd>
+            {% if remaining_seconds is not none and remaining_seconds > 0 %}
+            <div id="deletion-countdown" class="account-state-countdown" data-remaining="{{ remaining_seconds }}" role="timer" aria-live="off">
+                {{ remaining_seconds // 86400 }}d {{ (remaining_seconds % 86400) // 3600 }}h {{ (remaining_seconds % 3600) // 60 }}m {{ remaining_seconds % 60 }}s
+            </div>
+            {% elif remaining_seconds is not none and remaining_seconds <= 0 %}
+            <div class="account-state-countdown account-state-countdown-imminent">{{ t('hosting.pending_deletion.imminent', default='Deletion is imminent.') }}</div>
+            {% endif %}
+        </dd>
+    </dl>
+
+    <div class="account-state-notice">
+        <p>{{ t('hosting.pending_deletion.contact', default='If you believe this is a mistake, please email {email} before the countdown expires.', email=contact_email) }}</p>
+    </div>
+
+    <div class="account-state-actions">
+        <a class="btn btn-outline" href="mailto:{{ contact_email }}">{{ t('hosting.account_state.contact_support', default='Contact support') }}</a>
+        <form method="POST" action="{{ url_for('hosting_logout') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline">{{ t('hosting.nav.logout', default='Log out') }}</button>
+        </form>
+    </div>
+</section>
+</div>
+{% if remaining_seconds is not none and remaining_seconds > 0 %}
+<script nonce="{{ csp_nonce }}">
+(function() {
+    var el = document.getElementById('deletion-countdown');
+    if (!el) return;
+    var remaining = parseInt(el.getAttribute('data-remaining'), 10);
+    if (isNaN(remaining) || remaining <= 0) return;
+    function update() {
+        if (remaining <= 0) {
+            el.textContent = {{ t("hosting.pending_deletion.expired", default="Deletion pending...")|tojson }};
+            return;
+        }
+        var d = Math.floor(remaining / 86400);
+        var h = Math.floor((remaining % 86400) / 3600);
+        var m = Math.floor((remaining % 3600) / 60);
+        var s = remaining % 60;
+        el.textContent = d + 'd ' + h + 'h ' + m + 'm ' + s + 's';
+        remaining--;
+    }
+    update();
+    setInterval(update, 1000);
+})();
+</script>
+{% endif %}
+{% endblock %}

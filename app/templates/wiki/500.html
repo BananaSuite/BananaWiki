@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ t('error.500.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<div class="settings-section">
+    <h1>500: {{ t('error.500.heading') }}</h1>
+    <p class="u-label-note">{{ t('error.500.description') }}</p>
+    <div class="form-actions">
+        <a href="{{ url_for('home') }}" class="btn">{{ t('error.return_home') }}</a>
+        <button type="button" class="btn btn-outline" data-bw-action="history-back">{{ t('error.go_back') }}</button>
+        {% if not current_user %}
+        <a href="{{ url_for('login') }}" class="btn btn-outline">{{ t('error.sign_in') }}</a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

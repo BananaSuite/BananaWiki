@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% block title %}Collaborators | {{ instance.subdomain }} | {{ t('hosting.brand') }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <div class="breadcrumb">
+            <a href="{{ url_for('hosting_dashboard') }}">{{ t('hosting.nav.dashboard') }}</a>
+            <span class="breadcrumb-sep">&rsaquo;</span>
+            <a href="{{ url_for('hosting_instance_detail', instance_id=instance.id) }}">{{ instance.subdomain }}</a>
+            <span class="breadcrumb-sep">&rsaquo;</span>
+            <span>Collaborators</span>
+        </div>
+        <h2 class="page-title">Collaborators</h2>
+        <p class="page-subtitle">Share admin access to <strong>{{ instance.subdomain }}</strong> with other hosting accounts.</p>
+    </div>
+    <div class="page-header-actions">
+        <a href="{{ url_for('hosting_instance_detail', instance_id=instance.id) }}" class="btn btn-outline btn-sm">&larr; Back to Instance</a>
+    </div>
+</div>
+
+<!-- Owner info -->
+<div class="detail-card" style="margin-bottom:1rem">
+    <div class="detail-card-header">
+        <h3>Owner</h3>
+        <span class="status-badge status-running" style="font-size:.75rem">Owner</span>
+    </div>
+    <p style="margin:0;font-size:.9rem">
+        <strong>{{ owner_username }}</strong>
+        {% if viewer_is_owner %}<span class="muted">(you)</span>{% endif %}
+        has full control over this instance.
+    </p>
+</div>
+
+<!-- Add collaborator form -->
+{% if viewer_is_owner or viewer_is_admin %}
+<div class="detail-card" style="margin-bottom:1rem">
+    <div class="detail-card-header"><h3>Add Collaborator</h3></div>
+    <form method="POST" action="{{ url_for('hosting_add_collaborator', instance_id=instance.id) }}" class="collab-add-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-row" style="gap:.5rem;align-items:flex-end;flex-wrap:wrap">
+            <div class="form-group" style="flex:1 1 180px;min-width:0">
+                <label class="form-label" for="collab-username">Hosting Username</label>
+                <input type="text" id="collab-username" name="username" class="input" required placeholder="Enter username" autocomplete="off">
+            </div>
+            <div class="form-group" style="flex:0 1 180px;min-width:0">
+                <label class="form-label" for="collab-role">Access Level</label>
+                <select id="collab-role" name="role" class="input" onchange="togglePermissions(this)">
+                    <option value="full_access">Full Access</option>
+                    <option value="custom" selected>Custom Permissions</option>
+                </select>
+            </div>
+            <div class="form-group" style="flex:0 0 auto">
+                <button type="submit" class="btn btn-primary">Add</button>
+            </div>
+        </div>
+        <div id="custom-permissions-add" class="permissions-grid" style="margin-top:.6rem">
+            <p class="form-hint" style="margin-bottom:.4rem">Select which actions this collaborator can perform:</p>
+            <div class="perm-checkboxes">
+                {% for perm in all_permissions %}
+                <label class="perm-checkbox">
+                    <input type="checkbox" name="permissions" value="{{ perm }}" {% if perm == 'view' %}checked disabled{% endif %}>
+                    <span>{{ perm | replace('_', ' ') | title }}</span>
+                </label>
+                {% endfor %}
+            </div>
+            <input type="hidden" name="permissions" value="view">
+        </div>
+    </form>
+</div>
+{% endif %}
+
+<!-- Current collaborators -->
+<div class="detail-card" style="margin-bottom:1rem">
+    <div class="detail-card-header">
+        <h3>Current Collaborators</h3>
+        {% if collaborators %}<span class="count-badge">{{ collaborators|length }}</span>{% endif %}
+    </div>
+    {% if collaborators %}
+    <div class="collab-list">
+        {% for collab in collaborators %}
+        <div class="collab-item">
+            <div class="collab-info">
+                <div class="collab-name">
+                    <strong>{{ collab.account_username }}</strong>
+                    {% if collab.role == 'full_access' %}
+                    <span class="status-badge status-running" style="font-size:.7rem">Full Access</span>
+                    {% else %}
+                    <span class="status-badge status-stopped" style="font-size:.7rem">Custom</span>
+                    {% endif %}
+                </div>
+                {% if collab.role == 'custom' %}
+                <div class="collab-perms muted" style="font-size:.78rem;margin-top:.2rem">
+                    {% set perms = collab.permissions | default('[]') %}
+                    {% if perms is string %}
+                        {% set perm_list = perms | replace('[', '') | replace(']', '') | replace('"', '') | replace("'", '') | replace(' ', '') %}
+                        {% if perm_list %}{{ perm_list | replace(',', ', ') }}{% else %}view only{% endif %}
+                    {% else %}
+                        {{ perms | join(', ') if perms else 'view only' }}
+                    {% endif %}
+                </div>
+                {% endif %}
+                <div class="muted" style="font-size:.75rem;margin-top:.15rem">Added {{ collab.created_at[:10] }}</div>
+            </div>
+            <div class="collab-actions" style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+                {% if viewer_is_owner or viewer_is_admin %}
+                <!-- Edit button triggers inline edit -->
+                <button type="button" class="btn btn-outline btn-sm" onclick="toggleEditCollab('{{ collab.account_id }}')">Edit</button>
+                <form method="POST" action="{{ url_for('hosting_remove_collaborator', instance_id=instance.id, collab_account_id=collab.account_id) }}"
+                      class="js-confirm-form" data-confirm="Remove '{{ collab.account_username }}' as a collaborator?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-danger-outline btn-sm">Remove</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        <!-- Inline edit form (hidden by default) -->
+        {% if viewer_is_owner or viewer_is_admin %}
+        <div class="collab-edit-form" id="edit-collab-{{ collab.account_id }}" style="display:none">
+            <form method="POST" action="{{ url_for('hosting_update_collaborator', instance_id=instance.id, collab_account_id=collab.account_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="form-row" style="gap:.5rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:.5rem">
+                    <div class="form-group" style="flex:0 1 180px;min-width:0">
+                        <label class="form-label">Access Level</label>
+                        <select name="role" class="input" onchange="toggleEditPermissions(this, '{{ collab.account_id }}')">
+                            <option value="full_access" {% if collab.role == 'full_access' %}selected{% endif %}>Full Access</option>
+                            <option value="custom" {% if collab.role == 'custom' %}selected{% endif %}>Custom Permissions</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex:0 0 auto">
+                        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                        <button type="button" class="btn btn-outline btn-sm" onclick="toggleEditCollab('{{ collab.account_id }}')">Cancel</button>
+                    </div>
+                </div>
+                <div class="permissions-grid edit-perm-grid-{{ collab.account_id }}" {% if collab.role == 'full_access' %}style="display:none"{% endif %}>
+                    <div class="perm-checkboxes">
+                        {% set current_perms = collab.permissions | default('[]') %}
+                        {% for perm in all_permissions %}
+                        <label class="perm-checkbox">
+                            <input type="checkbox" name="permissions" value="{{ perm }}"
+                                {% if perm == 'view' %}checked disabled{% endif %}
+                                {% if perm in current_perms %}checked{% endif %}>
+                            <span>{{ perm | replace('_', ' ') | title }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    <input type="hidden" name="permissions" value="view">
+                </div>
+            </form>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted" style="margin:0;font-size:.85rem">No collaborators yet. Add one above to share admin access to this wiki.</p>
+    {% endif %}
+</div>
+
+<!-- Ownership transfer -->
+{% if viewer_is_owner or viewer_is_admin %}
+<div class="detail-card" style="margin-bottom:1rem">
+    <div class="detail-card-header"><h3>Transfer Ownership</h3></div>
+    {% if pending_transfer %}
+    <div class="info-box" style="border-color:rgba(99,179,237,.25);background:rgba(99,179,237,.06);margin-bottom:.6rem">
+        <p style="margin:0;font-size:.85rem;color:#9ecbff">
+            Ownership transfer pending to <strong>{{ pending_transfer.to_username }}</strong>
+            <span class="muted">(initiated {{ pending_transfer.created_at[:10] }})</span>
+        </p>
+    </div>
+    <form method="POST" action="{{ url_for('hosting_cancel_transfer', transfer_id=pending_transfer.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-danger-outline btn-sm">Cancel Transfer</button>
+    </form>
+    {% else %}
+    <p class="form-hint" style="margin-bottom:.6rem">
+        Transfer ownership of this instance to another hosting account.
+        You will become a full-access collaborator after the transfer, and the new owner will have complete control.
+        The recipient must accept the transfer from their dashboard.
+    </p>
+    <form method="POST" action="{{ url_for('hosting_initiate_transfer', instance_id=instance.id) }}"
+          class="js-confirm-form" data-confirm="Are you sure you want to transfer ownership of this instance? You will lose owner privileges but retain full-access collaborator status.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-row" style="gap:.5rem;align-items:flex-end">
+            <div class="form-group" style="flex:1 1 200px;min-width:0">
+                <label class="form-label" for="transfer-username">Transfer to (username)</label>
+                <input type="text" id="transfer-username" name="username" class="input" required placeholder="Enter recipient username" autocomplete="off">
+            </div>
+            <div class="form-group" style="flex:0 0 auto">
+                <button type="submit" class="btn btn-warning">Transfer Ownership</button>
+            </div>
+        </div>
+    </form>
+    {% endif %}
+</div>
+{% endif %}
+
+<style nonce="{{ csp_nonce }}">
+.collab-list { display: flex; flex-direction: column; gap: 0; }
+.collab-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: .65rem 0; border-bottom: 1px solid var(--border-color);
+    gap: .5rem; flex-wrap: wrap;
+}
+.collab-item:last-child { border-bottom: none; }
+.collab-info { flex: 1 1 0; min-width: 0; }
+.collab-name { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.collab-edit-form { padding: .6rem 0; border-bottom: 1px solid var(--border-color); background: rgba(255,255,255,.02); }
+.perm-checkboxes { display: flex; flex-wrap: wrap; gap: .3rem .8rem; }
+.perm-checkbox { display: flex; align-items: center; gap: .3rem; font-size: .82rem; cursor: pointer; }
+.perm-checkbox input { margin: 0; }
+.collab-add-form .form-row { display: flex; }
+.form-hint { font-size: .82rem; color: rgba(255,255,255,.5); margin: 0; }
+.info-box { padding: .6rem .8rem; border-radius: 6px; border: 1px solid; }
+</style>
+
+<script nonce="{{ csp_nonce }}">
+function togglePermissions(select) {
+    var grid = document.getElementById('custom-permissions-add');
+    if (grid) grid.style.display = select.value === 'custom' ? '' : 'none';
+}
+function toggleEditCollab(accountId) {
+    var el = document.getElementById('edit-collab-' + accountId);
+    if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+function toggleEditPermissions(select, accountId) {
+    var grids = document.querySelectorAll('.edit-perm-grid-' + accountId);
+    grids.forEach(function(g) { g.style.display = select.value === 'custom' ? '' : 'none'; });
+}
+// Initialize: hide custom permissions if full_access is selected on add form
+document.addEventListener('DOMContentLoaded', function() {
+    var addRole = document.getElementById('collab-role');
+    if (addRole) togglePermissions(addRole);
+});
+</script>
+{% endblock %}

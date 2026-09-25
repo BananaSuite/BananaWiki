@@ -1,0 +1,403 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.users.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ t('admin.users.title') }}</h1>
+</div>
+<div class="u-mb1">
+    <a href="{{ url_for('admin_roles') }}" class="btn btn-outline">{{ t('admin.users.manage_custom_roles') }}</a>
+</div>
+
+<div class="tabs">
+    <a href="{{ url_for('admin_users') }}" class="tab {% if not role_filter and not status_filter %}active{% endif %}">{{ t('admin.users.tab.all') }}{% if pending_quota_count and pending_quota_count > 0 %} <span class="unread-badge">{{ pending_quota_count }}</span>{% endif %}</a>
+    <a href="{{ url_for('admin_users', role='owner') }}" class="tab {% if role_filter == 'owner' %}active{% endif %}">{{ t('admin.users.tab.protected') }}</a>
+    <a href="{{ url_for('admin_users', role='admin') }}" class="tab {% if role_filter == 'admin' %}active{% endif %}">{{ t('admin.users.tab.admins') }}</a>
+    <a href="{{ url_for('admin_users', role='editor') }}" class="tab {% if role_filter == 'editor' %}active{% endif %}">{{ t('admin.users.tab.editors') }}</a>
+    <a href="{{ url_for('admin_users', role='user') }}" class="tab {% if role_filter == 'user' %}active{% endif %}">{{ t('admin.users.tab.users') }}</a>
+    <a href="{{ url_for('admin_users', status='active') }}" class="tab {% if status_filter == 'active' %}active{% endif %}">{{ t('admin.users.tab.active') }}</a>
+    <a href="{{ url_for('admin_users', status='suspended') }}" class="tab {% if status_filter == 'suspended' %}active{% endif %}">{{ t('admin.users.tab.suspended') }}</a>
+    <a href="{{ url_for('admin_users', approval='pending') }}" class="tab {% if approval_filter == 'pending' %}active{% endif %}">
+        {{ t('admin.users.tab.pending') }}
+        {% if pending_count > 0 %}<span class="badge badge-warning">{{ pending_count }}</span>{% endif %}
+    </a>
+</div>
+
+<!-- Mass logout all users -->
+<div class="settings-section u-mb1">
+    <h3>{{ t('admin.users.mass_logout') }}</h3>
+    <p class="xs-e2aa803a">
+        {{ t('admin.users.mass_logout_intro') }}
+    </p>
+    <form method="POST" action="{{ url_for('admin_mass_logout') }}"
+          data-confirm="{{ t('admin.users.mass_logout_confirm') }}" data-confirm-label="{{ t('admin.users.log_out_users') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-outline xs-caca5bd0">
+            {{ t('admin.users.log_out_all_now') }}
+        </button>
+    </form>
+</div>
+
+<!-- Create user -->
+<div class="settings-section u-mb1">
+    <h3>{{ t('admin.users.create_user') }}</h3>
+    <form class="admin-create-user-form" method="POST" action="{{ url_for('admin_create_user') }}" id="createUserForm" data-tour-id="admin-create-user">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group admin-create-user-field">
+            <label>{{ t('auth.username') }}</label>
+            <input type="text" name="username" class="input input-sm" required minlength="3">
+        </div>
+        <div class="form-group admin-create-user-field">
+            <label>{{ t('auth.password') }}</label>
+            <input type="password" name="password" class="input input-sm" required minlength="8" maxlength="1024" autocomplete="new-password">
+        </div>
+        <div class="form-group admin-create-user-field">
+            <label>{{ t('admin.users.confirm') }}</label>
+            <input type="password" name="confirm_password" class="input input-sm" required minlength="8" maxlength="1024" autocomplete="new-password">
+        </div>
+        <div class="form-group admin-create-user-field">
+            <label>{{ t('admin.users.role') }}</label>
+            <select name="role" class="input input-sm">
+                <option value="user">{{ t('admin.users.role.user') }}</option>
+                <option value="editor">{{ t('admin.users.role.editor') }}</option>
+                <option value="admin">{{ t('admin.users.role.admin') }}</option>
+            </select>
+        </div>
+        <label class="onboarding-check admin-force-password-check">
+            <input type="checkbox" name="force_password_change" value="1">
+            <span>
+                <strong>Force password change</strong>
+                <small>Require this user to set a new password on first login.</small>
+            </span>
+        </label>
+        <div class="form-actions admin-create-user-actions">
+            <button type="submit" class="btn btn-sm">{{ t('admin.users.create_user') }}</button>
+        </div>
+    </form>
+</div>
+
+<table class="admin-table">
+    <thead>
+        <tr>
+            <th>{{ t('admin.users.col.id') }}</th>
+            <th>{{ t('auth.username') }}</th>
+            <th>{{ t('admin.users.role') }}</th>
+            <th>{{ t('admin.codes.col.status') }}</th>
+            <th>{{ t('admin.users.col.last_login') }}</th>
+            <th>{{ t('admin.users.col.created') }}</th>
+            <th>{{ t('common.actions') }}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for u in users %}
+        <tr>
+            <td>{{ u.id }}</td>
+            <td>
+                @{{ u.username }}
+                {% if enabled_plugins.get('page_governance') and u.has_pending_reservation_quota_request %}
+                <span class="pending-indicator-dot" title="{{ t('admin.users.pending_quota') }}" aria-label="{{ t('admin.users.pending_quota') }}"></span>
+                {% endif %}
+            </td>
+            <td>
+                {% set display_role = u.role %}
+                {% set role_class = u.role %}
+                {% if u.custom_role_id %}
+                    {% for cr in custom_roles %}
+                        {% if cr.id == u.custom_role_id %}
+                            {% set display_role = cr.name %}
+                            {% set role_class = cr.base_role %}
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+                <span class="badge badge-{{ role_class }}" title="{{ u.role if u.custom_role_id else '' }}">
+                    {{ display_role }}{% if u.is_superuser %} ★{% endif %}
+                </span>
+            </td>
+            <td>
+                {% if u.approval_status == 'pending' %}
+                <span class="badge badge-warning">{{ t('admin.users.pending') }}</span>
+                {% elif u.approval_status == 'denied' %}
+                <span class="badge badge-danger">{{ t('admin.users.denied') }}</span>
+                {% endif %}
+                {% if u.suspended %}
+                <span class="badge badge-suspended">{{ t('admin.users.tab.suspended') }}</span>
+                {% if u.suspended_until %}
+                <span class="xs-92a42c2e" title="{{ format_datetime(u.suspended_until) }}">{{ t('admin.users.expires_in', when=time_ago(u.suspended_until)) }}</span>
+                {% else %}
+                <span class="xs-ecf38de4">{{ t('admin.users.permanent') }}</span>
+                {% endif %}
+                {% else %}
+                {{ t('admin.users.tab.active') }}
+                {% endif %}
+
+                {% if enabled_plugins.get('chat') and u.chat_disabled %}
+                <span class="badge badge-suspended" title="{{ t('admin.users.chat_disabled_title') }}">{{ t('admin.users.chat_off') }}</span>
+                {% endif %}
+            </td>
+            <td class="xs-0de4e77b">{% if u.last_login_at %}<span title="{{ format_datetime(u.last_login_at) }}">{{ time_ago(u.last_login_at) }}</span>{% else %}{{ t('admin.users.never') }}{% endif %}</td>
+            <td>{{ time_ago(u.created_at) }}</td>
+            <td>
+                <button class="btn btn-sm btn-outline js-edit-user-toggle" data-target="editUser{{ u.id }}">{{ t('common.edit') }}</button>
+                {% if enabled_plugins.get('audit') %}
+                <a href="{{ url_for('admin_user_audit', user_id=u.id) }}" class="btn btn-sm btn-outline" title="{{ t('admin.users.view_audit') }}">{{ t('admin.users.audit') }}</a>
+                {% endif %}
+                {% if enabled_plugins.get('user_data_export') %}
+                <a href="{{ url_for('admin_export_user_data', user_id=u.id) }}" class="btn btn-sm btn-outline" title="{{ t('admin.users.export_data') }}">⬇</a>
+                {% endif %}
+                {% if enabled_plugins.get('page_governance') %}
+                <a href="{{ url_for('admin_user_reservation_quota', user_id=u.id) }}" class="btn btn-sm btn-outline" title="{{ t('admin.users.view_quota') }}">{{ t('admin.users.quota') }}</a>
+                {% endif %}
+            </td>
+        </tr>
+        <tr class="xs-a7008d9d" id="editUser{{ u.id }}">
+            <td class="xs-8b66f60b" colspan="7">
+                {% if u.is_superuser %}
+                <p class="u-section-caption">⚠ {{ t('admin.users.superuser_locked') }}</p>
+                {% elif u.role == 'owner' and u.id != current_user.id %}
+                <p class="u-section-caption">⚠ {{ t('admin.users.protected_locked') }}</p>
+                {% else %}
+                <div class="u-flex-row-1">
+                    <!-- Change username -->
+                    <form method="POST" action="{{ url_for('admin_edit_user', user_id=u.id) }}" class="inline-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="change_username">
+                        <input type="text" name="username" value="{{ u.username }}" class="input input-sm u-w120">
+                        <button class="btn btn-sm">{{ t('admin.users.rename') }}</button>
+                    </form>
+                    <!-- Change password -->
+                    <form method="POST" action="{{ url_for('admin_edit_user', user_id=u.id) }}" class="inline-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="change_password">
+                        <input type="password" name="password" placeholder="{{ t('admin.users.new_password') }}" class="input input-sm u-w120" minlength="8" maxlength="1024" autocomplete="new-password">
+                        <input type="password" name="confirm_password" placeholder="{{ t('admin.users.confirm') }}" class="input input-sm u-w120" minlength="8" maxlength="1024" autocomplete="new-password">
+                        <button class="btn btn-sm">{{ t('admin.users.set_pw') }}</button>
+                    </form>
+                    <!-- Temporary password -->
+                    <div class="u-flex-row-1" style="gap: 5px; border-left: 1px solid var(--primary); padding-left: 5px;">
+                        <form method="POST" action="{{ url_for('admin_edit_user', user_id=u.id) }}" class="inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="set_temp_password">
+                            <input type="password" name="password" placeholder="{{ t('admin.users.temp_password') }}" class="input input-sm u-w120" minlength="8" maxlength="1024" autocomplete="new-password">
+                            <button class="btn btn-sm btn-outline" title="{{ t('admin.users.set_temp_pw_title') }}">{{ t('admin.users.set_temp_pw') }}</button>
+                        </form>
+                        {% if u.original_password_backup %}
+                        <form method="POST" action="{{ url_for('admin_edit_user', user_id=u.id) }}" class="inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="revert_password">
+                            <button class="btn btn-sm btn-outline" style="color: #f39c12; border-color: #f39c12;" title="{{ t('admin.users.revert_pw_title') }}">{{ t('admin.users.revert_pw') }}</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                    <!-- Unified Role Selection -->
+                    {% if u.role != 'owner' %}
+                    <!-- Legacy Chat Toggle (for tests) -->
+                    <form method="POST" action="{{ url_for('admin_toggle_chat', user_id=u.id) }}" style="display:none">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button id="legacy-toggle-chat-{{ u.id }}"></button>
+                    </form>
+                    <form method="POST" action="{{ url_for('admin_user_assign_role', user_id=u.id) }}" class="inline-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <select name="identity" class="input input-sm" style="min-width:140px">
+                            <optgroup label="{{ t('admin.users.standard_roles') }}">
+                                <option value="std:user" {% if not u.custom_role_id and u.role == 'user' %}selected{% endif %}>{{ t('admin.users.role.member') }}</option>
+                                <option value="std:editor" {% if not u.custom_role_id and u.role == 'editor' %}selected{% endif %}>{{ t('admin.users.role.editor') }}</option>
+                                <option value="std:admin" {% if not u.custom_role_id and u.role == 'admin' %}selected{% endif %}>{{ t('admin.users.role.admin') }}</option>
+                                <option value="std:owner" {% if not u.custom_role_id and u.role == 'owner' %}selected{% endif %}>{{ t('admin.users.role.owner') }}</option>
+                            </optgroup>
+                            {% if custom_roles %}
+                            <optgroup label="{{ t('admin.users.custom_roles') }}">
+                                {% for cr in custom_roles %}
+                                <option value="custom:{{ cr.id }}" {% if u.custom_role_id == cr.id %}selected{% endif %}>{{ cr.name }}</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endif %}
+                        </select>
+                        <button class="btn btn-sm">{{ t('admin.users.set_identity') }}</button>
+                    </form>
+                    {% endif %}
+                    <!-- Approve / Deny (only for pending users) -->
+                    {% if u.approval_status == 'pending' %}
+                    <form method="POST" action="{{ url_for('admin_edit_user', user_id=u.id) }}" class="inline-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="approve_user">
+                        <button class="btn btn-sm" style="background:var(--green,#27ae60);color:#fff;">{{ t('admin.users.approve') }}</button>
+                    </form>
+                    <form method="POST" action="{{ url_for('admin_edit_user', user_id=u.id) }}" data-confirm="{{ t('admin.users.deny_confirm', default='Deny this user? Their account will be deleted after the configured timeout.') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="deny_user">
+                        <button class="btn btn-sm btn-danger">{{ t('admin.users.deny') }}</button>
+                    </form>
+                    {% endif %}
+                    <!-- Suspend / Unsuspend -->
+                    {% if u.suspended %}
+                    <form method="POST" action="{{ url_for('admin_edit_user', user_id=u.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="unsuspend">
+                        <button class="btn btn-sm">{{ t('admin.users.unsuspend') }}</button>
+                    </form>
+                    {% else %}
+                    <button class="btn btn-sm btn-outline js-suspend-btn" data-user-id="{{ u.id }}" data-username="{{ u.username }}">{{ t('admin.users.suspend') }}</button>
+                    {% endif %}
+                    <!-- Delete -->
+                    <form method="POST" action="{{ url_for('admin_edit_user', user_id=u.id) }}" data-confirm="{{ t('admin.users.delete_confirm') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="delete">
+                        <button class="btn btn-sm btn-danger">{{ t('common.delete') }}</button>
+                    </form>
+                    <!-- Impersonate -->
+                    {% if u.id != current_user.id and (u.role not in ('admin', 'owner') or current_user.is_superuser) %}
+                    <form method="POST" action="{{ url_for('admin_impersonate_user', user_id=u.id) }}" data-confirm="{{ t('admin.users.impersonate_confirm', user=u.username) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-outline" title="{{ t('admin.users.impersonate_title') }}">{{ t('admin.users.impersonate') }}</button>
+                    </form>
+                    {% endif %}
+                    <!-- Superuser Toggle -->
+                    {% if current_user.is_superuser and u.id != current_user.id %}
+                    <form method="POST" action="{{ url_for('admin_edit_user', user_id=u.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="toggle_superuser">
+                        <button class="btn btn-sm {% if u.is_superuser %}btn-danger{% else %}btn-outline{% endif %}" title="{{ t('admin.users.toggle_superuser') }}">
+                            {% if u.is_superuser %}{{ t('admin.users.revoke_superuser') }}{% else %}{{ t('admin.users.grant_superuser') }}{% endif %}
+                        </button>
+                    </form>
+                    {% endif %}
+                    <!-- Profile -->
+                    {% if enabled_plugins.get('user_profiles') %}
+                    <a href="{{ url_for('user_profile', username=u.username) }}" class="btn btn-sm btn-outline">{{ t('admin.users.profile') }}</a>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Suspend Modal -->
+<div id="suspend-modal" class="modal u-d-none">
+    <div class="modal-content xs-e5bdc370">
+        <h3 id="suspend-modal-title">{{ t('admin.users.suspend_user') }}</h3>
+        <form id="suspend-modal-form" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="suspend">
+
+            <div class="form-group">
+                <label>{{ t('admin.users.duration') }}</label>
+                <select name="suspend_duration" id="suspend-duration" class="input">
+                    <option value="permanent">{{ t('admin.users.duration.permanent') }}</option>
+                    <option value="1">{{ t('admin.users.duration.1h') }}</option>
+                    <option value="8">{{ t('admin.users.duration.8h') }}</option>
+                    <option value="24">{{ t('admin.users.duration.24h') }}</option>
+                    <option value="168">{{ t('admin.users.duration.1w') }}</option>
+                    <option value="custom_datetime">{{ t('admin.users.duration.custom_datetime') }}</option>
+                    <option value="custom_relative">{{ t('admin.users.duration.custom_relative') }}</option>
+                </select>
+            </div>
+
+            <div id="suspend-custom-datetime" class="form-group u-d-none">
+                <label>{{ t('admin.users.unban_at') }} <small class="u-o60">{{ t('admin.users.site_timezone') }}</small></label>
+                <input type="datetime-local" name="suspend_custom_datetime" class="input">
+            </div>
+
+            <div id="suspend-custom-relative" class="form-group u-d-none">
+                <label>{{ t('admin.users.relative_from_now') }}</label>
+                <div class="xs-1639253e">
+                    <input type="number" name="suspend_rel_hours" class="input input-sm xs-f95ebd2a" min="0" max="8760" placeholder="0" value="0" aria-label="{{ t('admin.users.suspension_hours') }}"> <span>{{ t('admin.users.hours') }}</span>
+                    <input type="number" name="suspend_rel_minutes" class="input input-sm xs-f95ebd2a" min="0" max="59" placeholder="0" value="0" aria-label="{{ t('admin.users.suspension_minutes') }}"> <span>{{ t('admin.users.minutes') }}</span>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>{{ t('admin.users.reason') }} <small class="u-o60">{{ t('admin.users.reason_hint') }}</small></label>
+                <input type="text" name="suspend_reason" id="suspend-reason" class="input" maxlength="500" placeholder="{{ t('admin.users.reason_placeholder') }}">
+            </div>
+
+            <div class="form-group" id="suspend-reason-visible-group">
+                <label class="u-flex-center-05-ptr u-fw-normal">
+                    <input type="checkbox" name="suspend_reason_visible" id="suspend-reason-visible" value="1" disabled>
+                    {{ t('admin.users.show_reason') }} <small class="u-o60">{{ t('admin.users.show_reason_hint') }}</small>
+                </label>
+            </div>
+
+            <div class="form-group" id="suspend-time-visible-group">
+                <label class="u-flex-center-05-ptr u-fw-normal">
+                    <input type="checkbox" name="suspend_time_visible" id="suspend-time-visible" value="1">
+                    {{ t('admin.users.show_remaining') }} <small class="u-o60">{{ t('admin.users.show_remaining_hint') }}</small>
+                </label>
+            </div>
+
+            <div class="xs-f1d1cb6f">
+                <button type="submit" class="btn">{{ t('admin.users.suspend') }}</button>
+                <button type="button" class="btn btn-outline js-close-suspend">{{ t('common.cancel') }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script nonce="{{ csp_nonce }}">
+var _suspendUrlTemplate = "{{ url_for('admin_edit_user', user_id='__UID__') }}";
+function openSuspendModal(userId, username) {
+    var modal = document.getElementById('suspend-modal');
+    var form = document.getElementById('suspend-modal-form');
+    var title = document.getElementById('suspend-modal-title');
+    form.action = _suspendUrlTemplate.replace('__UID__', encodeURIComponent(userId));
+    title.textContent = '{{ t("admin.users.suspend") }}' + ' ' + username;
+    // Reset form fields
+    document.getElementById('suspend-duration').value = 'permanent';
+    document.getElementById('suspend-reason').value = '';
+    document.getElementById('suspend-reason-visible').checked = false;
+    document.getElementById('suspend-reason-visible').disabled = true;
+    document.getElementById('suspend-time-visible').checked = false;
+    onSuspendDurationChange();
+    modal.style.display = 'flex';
+}
+function closeSuspendModal() {
+    document.getElementById('suspend-modal').style.display = 'none';
+}
+function onSuspendDurationChange() {
+    var val = document.getElementById('suspend-duration').value;
+    document.getElementById('suspend-custom-datetime').style.display = val === 'custom_datetime' ? 'block' : 'none';
+    document.getElementById('suspend-custom-relative').style.display = val === 'custom_relative' ? 'block' : 'none';
+    var isPermanent = (val === 'permanent');
+    var timeGroup = document.getElementById('suspend-time-visible-group');
+    var timeCheckbox = document.getElementById('suspend-time-visible');
+    if (isPermanent) {
+        timeGroup.style.display = 'none';
+        timeCheckbox.checked = false;
+    } else {
+        timeGroup.style.display = 'block';
+    }
+}
+function onSuspendReasonChange() {
+    var reason = document.getElementById('suspend-reason').value.trim();
+    var cb = document.getElementById('suspend-reason-visible');
+    cb.disabled = !reason;
+    if (!reason) cb.checked = false;
+}
+// Close on backdrop click or Escape
+document.getElementById('suspend-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeSuspendModal();
+});
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && document.getElementById('suspend-modal').style.display !== 'none') {
+        closeSuspendModal();
+    }
+});
+document.querySelectorAll('.js-edit-user-toggle').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var el = document.getElementById(this.dataset.target);
+        if (el) {
+            var isHidden = window.getComputedStyle(el).display === 'none';
+            el.style.display = isHidden ? 'table-row' : 'none';
+        }
+    });
+});
+document.querySelectorAll('.js-suspend-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        openSuspendModal(this.dataset.userId, this.dataset.username);
+    });
+});
+document.getElementById('suspend-duration').addEventListener('change', onSuspendDurationChange);
+document.getElementById('suspend-reason').addEventListener('input', onSuspendReasonChange);
+document.querySelector('.js-close-suspend').addEventListener('click', closeSuspendModal);
+</script>
+{% endblock %}

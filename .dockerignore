@@ -1,0 +1,70 @@
+# Version control
+.git
+.gitignore
+.github
+.reviewdeps
+.reviewvenv
+.venv
+venv
+.env
+.env.*
+backups
+instances
+sites
+site
+
+# Python artefacts
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Runtime data directories (never belong in the image)
+instance
+data
+build
+dist
+
+# Dev / CI tooling: not needed in the tenant runtime image
+tests
+docs
+screenshots
+docs/screenshots
+easy_deployment_app
+banana-tts-gpu
+package
+ops
+
+# Deployment and installer scripts: not needed inside a tenant container
+deploy.sh
+install.sh
+uninstall.sh
+update.sh
+start.sh
+dev.sh
+Makefile
+
+# The hosting control plane runs on the HOST, not inside tenant containers
+hosting
+
+# Markdown and other non-runtime files
+*.md
+README*
+CHANGELOG*
+HISTORY*
+MIGRATION*
+PROJECT_INDEX*
+.editorconfig
+session-*.md
+
+# Secrets: mirror the .gitignore patterns so a stray key in a working
+# checkout cannot be copied into a tenant image.
+**/.secret_key
+*.agekey
+*.age
+*.db
+*.log
+logs
+deploy.conf
+config.py.prod

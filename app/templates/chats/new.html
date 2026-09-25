@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}{{ t('chats.new.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('chats.new.heading') }}</h1>
+
+<form class="u-mw400" method="POST" action="{{ url_for('chat_new') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-group">
+        <label>{{ t('chats.new.username') }}</label>
+        <div class="chat-user-field-row">
+            <input type="text" name="username" id="chat-username-input" class="input" required placeholder="{{ t('chats.new.username_placeholder') }}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+            {% if has_profiles %}
+            <button type="button" class="btn btn-sm btn-outline" id="chat-browse-btn">{{ t('chats.new.browse') }}</button>
+            {% endif %}
+        </div>
+        {% if has_profiles %}
+        <div class="chat-user-browse-panel u-d-none" id="chat-browse-panel">
+            <div class="chat-user-browse-list">
+                {% for u in all_users %}
+                {% if u.id != current_user.id %}
+                <button type="button" class="chat-user-browse-item" data-username="{{ u.username }}">
+                    {% if u.avatar_filename %}
+                    <img src="{{ url_for('static', filename='uploads/' + u.avatar_filename) }}" alt="{{ u.username }}" class="chat-user-browse-avatar">
+                    {% else %}
+                    <span class="chat-user-browse-avatar-placeholder">{{ u.username[0].upper() }}</span>
+                    {% endif %}
+                    <span class="chat-user-browse-info">
+                        <span class="chat-user-browse-name">{{ u.real_name or u.username }}</span>
+                        <span class="chat-user-browse-username">@{{ u.username }}</span>
+                    </span>
+                </button>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    <div class="form-actions">
+        <button type="submit" class="btn">{{ t('chats.new.submit') }}</button>
+        <a href="{{ url_for('chat_list') }}" class="btn btn-outline">{{ t('common.cancel') }}</a>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+(function() {
+    var usernameInput = document.getElementById('chat-username-input');
+    var browseBtn = document.getElementById('chat-browse-btn');
+    var browsePanel = document.getElementById('chat-browse-panel');
+
+    if (browseBtn && browsePanel) {
+        browseBtn.addEventListener('click', function() {
+            browsePanel.classList.toggle('u-d-none');
+        });
+        browsePanel.querySelectorAll('.chat-user-browse-item').forEach(function(item) {
+            item.addEventListener('click', function() {
+                usernameInput.value = this.dataset.username;
+                browsePanel.classList.add('u-d-none');
+            });
+        });
+    }
+})();
+</script>
+{% endblock %}

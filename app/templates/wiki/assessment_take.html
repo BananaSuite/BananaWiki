@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ assessment.title }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ assessment.title }}</h1>
+<p class="u-label-note">{{ assessment.description }}</p>
+<p><a href="{{ url_for('view_page', slug=page.slug) }}">{{ t('wiki.back_to_page_named', title=page.title) }}</a></p>
+
+{% if attempts %}
+<div class="settings-section">
+    <h3>{{ t('wiki.assessment.your_attempts') }}</h3>
+    <ul>
+        {% for a in attempts %}
+        <li>{{ format_datetime(a.submitted_at) }}: <strong>{{ a.total_points }}/{{ a.max_points }}</strong></li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+{% if can_attempt %}
+<form method="POST" action="{{ url_for('submit_assessment', slug=page.slug) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% for q in questions %}
+    <div class="settings-section">
+        <p><strong>{{ loop.index }}. {{ q.prompt }}</strong></p>
+        {% if q.question_type == 'single_choice' %}
+            {% for opt in q.options %}
+            <label class="u-flex-center-05-ptr u-fw-normal"><input type="radio" name="q_{{ q.id }}" value="{{ opt }}"> {{ opt }}</label>
+            {% endfor %}
+        {% elif q.question_type == 'multiple_choice' %}
+            {% for opt in q.options %}
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="q_{{ q.id }}" value="{{ opt }}">
+                {{ opt }}
+            </label>
+            {% endfor %}
+        {% else %}
+            <textarea class="input" name="q_{{ q.id }}" rows="3" placeholder="{{ t('wiki.assessment.type_your_answer') }}"></textarea>
+        {% endif %}
+    </div>
+    {% endfor %}
+    <button type="submit" class="btn">{{ t('wiki.assessment.submit') }}</button>
+</form>
+{% else %}
+<div class="flash flash-info">{{ block_reason }}</div>
+{% endif %}
+{% endblock %}

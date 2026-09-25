@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}{{ t('hosting.verify_email.title', default='Verify email') }} | {{ t('hosting.brand') }}{% endblock %}
+{% block content %}
+<div class="account-state-shell">
+    <section class="account-state-card" aria-labelledby="verify-email-title">
+        <header class="account-state-header">
+            <div class="account-state-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="5" width="18" height="14" rx="2"/>
+                    <path d="m3 7 9 6 9-6"/>
+                </svg>
+            </div>
+            <p class="account-state-kicker">{{ t('hosting.account_state.security_check', default='Security check') }}</p>
+            <h1 id="verify-email-title" class="account-state-title">{{ t('hosting.verify_email.heading', default='Verify your email address') }}</h1>
+            <p class="account-state-lead">
+                {{ t('hosting.verify_email.sent_to', default='We sent a verification link to') }}
+                <strong class="account-state-email">{{ account.email }}</strong>.
+            </p>
+        </header>
+
+        <div class="account-state-notice">
+            <p>{{ t('hosting.verify_email.instructions', default='Open the link in the email to continue. Check your spam folder too; the link expires after 24 hours.') }}</p>
+        </div>
+
+        {% if not email_delivery_configured %}
+        <div class="account-state-notice account-state-notice-error" role="alert">
+            <p>{{ t('hosting.verify_email.delivery_unavailable', default='Email delivery is currently unavailable. Contact the platform administrator for help.') }}</p>
+        </div>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('hosting_resend_verification') }}" class="account-state-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button id="resend-verification" class="btn btn-primary" type="submit" data-cooldown="{{ cooldown }}" data-delivery-available="{{ 'true' if email_delivery_configured else 'false' }}"{% if cooldown or not email_delivery_configured %} disabled{% endif %}>
+                {{ t('hosting.verify_email.resend', default='Resend verification email') }}
+            </button>
+            <p id="resend-status" class="account-state-status" role="status" aria-live="polite">
+                {% if cooldown %}{{ t('hosting.verify_email.resend_in', default='You can request another email in {seconds} seconds.', seconds=cooldown) }}{% elif email_delivery_configured %}{{ t('hosting.verify_email.resend_ready', default="Didn't receive it? You can request another email.") }}{% else %}{{ t('hosting.verify_email.resend_unavailable', default='Resending is unavailable right now.') }}{% endif %}
+            </p>
+        </form>
+
+        <div class="account-state-actions">
+            <a class="btn btn-outline" href="{{ url_for('hosting_account') }}">{{ t('hosting.verify_email.change_email', default='Change email address') }}</a>
+            <form method="POST" action="{{ url_for('hosting_logout') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline">{{ t('hosting.nav.logout', default='Log out') }}</button>
+            </form>
+        </div>
+    </section>
+</div>
+<script nonce="{{ csp_nonce }}">
+(() => {
+    const button = document.getElementById('resend-verification');
+    const status = document.getElementById('resend-status');
+    if (!button || !status) return;
+    let remaining = Number(button.dataset.cooldown || 0);
+    if (!remaining) return;
+    const cooldownTemplate = {{ t('hosting.verify_email.resend_in', default='You can request another email in {seconds} seconds.')|tojson }};
+    const readyMessage = {{ t('hosting.verify_email.resend_ready', default="Didn't receive it? You can request another email.")|tojson }};
+    const unavailableMessage = {{ t('hosting.verify_email.resend_unavailable', default='Resending is unavailable right now.')|tojson }};
+    const tick = () => {
+        remaining -= 1;
+        if (remaining <= 0) {
+            const deliveryAvailable = button.dataset.deliveryAvailable === 'true';
+            button.disabled = !deliveryAvailable;
+            status.textContent = deliveryAvailable ? readyMessage : unavailableMessage;
+            return;
+        }
+        status.textContent = cooldownTemplate.replace('{seconds}', remaining);
+        window.setTimeout(tick, 1000);
+    };
+    window.setTimeout(tick, 1000);
+})();
+</script>
+{% endblock %}

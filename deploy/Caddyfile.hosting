@@ -1,0 +1,27 @@
+{
+	email {$ACME_EMAIL}
+	on_demand_tls {
+		ask http://127.0.0.1:{$HOSTING_PORT:5099}/internal/domains/authorize
+	}
+}
+
+{$BASE_DOMAIN} {
+	root * {$STATIC_SITE_DIR:/srv/bananawiki-site}
+	file_server {
+		hide .git .env
+	}
+	header Strict-Transport-Security "max-age=31536000"
+}
+
+{$PORTAL_DOMAIN} {
+	reverse_proxy 127.0.0.1:{$HOSTING_PORT:5099}
+	header Strict-Transport-Security "max-age=31536000"
+}
+
+:443 {
+	tls {
+		on_demand
+	}
+	reverse_proxy 127.0.0.1:{$HOSTING_PORT:5099}
+	header Strict-Transport-Security "max-age=31536000"
+}

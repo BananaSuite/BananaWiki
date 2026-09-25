@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="{{ current_language|default('en') }}" data-theme="{{ effective_theme_mode|default('dark') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Merge | {{ settings.site_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=asset_version|default('dev')) }}">
+    {% if settings.favicon_enabled %}
+      {% if settings.favicon_type == 'custom' and settings.favicon_custom %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/' + settings.favicon_custom) }}">
+      {% elif settings.favicon_type != 'custom' %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/banana_' + settings.favicon_type + '.png') }}">
+      {% endif %}
+    {% endif %}
+    <style nonce="{{ csp_nonce }}">:root{--primary:{{ theme_primary|default(settings.primary_color) }};--secondary:{{ theme_secondary|default(settings.secondary_color) }};--accent:{{ theme_accent|default(settings.accent_color) }};--text:{{ theme_text|default(settings.text_color) }};--sidebar:{{ theme_sidebar|default(settings.sidebar_color) }};--bg:{{ theme_bg|default(settings.bg_color) }}}</style>
+</head>
+<body class="u-flex-column u-min-vh-100">
+    {% include "auth/_topbar.html" %}
+    {% include "_announcements_bar.html" %}
+    <main class="auth-container" id="main-content" tabindex="-1">
+        <div class="auth-box">
+            <h1>{{ settings.site_name }}</h1>
+            <p class="subtitle">Link Your Accounts</p>
+            {% with messages = dedupe_flashed_messages(get_flashed_messages(with_categories=true)) %}
+            {% if messages %}
+            <div class="flash-messages">
+                {% for category, message in messages %}
+                <div class="flash flash-{{ category }}" role="alert">
+                    <span class="flash-message">{{ message }}</span>
+                    <button type="button" class="btn flash-close" aria-label="Dismiss">x</button>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            <div class="card" style="padding:1rem;margin-bottom:1rem;">
+                <p>
+                    A wiki account with the username <strong>{{ local_username }}</strong> already exists.
+                    To link it with your hosting platform account, please enter the wiki account password below.
+                </p>
+                <p class="muted" style="font-size:0.9rem;">
+                    If this is not your account, you can go back and log in with your local wiki password instead.
+                </p>
+            </div>
+
+            <form method="POST" action="{{ url_for('platform_oauth_merge') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="form-group">
+                    <label for="merge-password">Wiki Password for <strong>{{ local_username }}</strong></label>
+                    <input type="password" id="merge-password" name="password" class="input" required autocomplete="current-password">
+                </div>
+                <div class="form-actions" style="display:flex;gap:0.5rem;">
+                    <a href="{{ url_for('login') }}" class="btn btn-outline">Use Local Login Instead</a>
+                    <button type="submit" class="btn btn-primary">Link and Sign In</button>
+                </div>
+            </form>
+        </div>
+    </main>
+    <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% include "_source_link.html" %}
+</body>
+</html>

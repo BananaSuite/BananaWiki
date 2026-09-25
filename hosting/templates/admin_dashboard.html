@@ -1,0 +1,1112 @@
+{% extends "base.html" %}
+{% block title %}{{ t('hosting.nav.admin') }} | {{ t('hosting.brand') }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 class="page-title">{{ t('hosting.admin.title') }}</h2>
+        <p class="page-subtitle">{{ t('hosting.admin.subtitle') }}</p>
+    </div>
+    <div class="page-header-actions">
+        <a href="{{ url_for('hosting_admin_spawn_demos') }}" class="btn btn-primary">{{ t('hosting.admin.create_demos') }}</a>
+        <a href="{{ url_for('hosting_admin_import_instance') }}" class="btn btn-outline">{{ t('hosting.admin.import_instance') }}</a>
+        <a href="{{ url_for('hosting_admin_banners') }}" class="btn btn-outline">{{ t('hosting.banners.title') }}</a>
+        <a href="{{ url_for('hosting_moderation_history') }}" class="btn btn-outline">{{ t('hosting.admin.moderation_history', default='Moderation history') }}</a>
+        <a href="{{ url_for('hosting_admin_settings') }}" class="btn btn-outline">{{ t('hosting.admin.settings') }}</a>
+    </div>
+</div>
+
+<!-- Platform stats -->
+<div class="stats-bar stats-bar-admin">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_accounts }}</div>
+        <div class="stat-label">{{ t('hosting.admin.stat.accounts') }}</div>
+    </div>
+    <div class="stat-card stat-card-green">
+        <div class="stat-value">{{ stats.running }}</div>
+        <div class="stat-label">{{ t('hosting.dashboard.stat.running') }}</div>
+    </div>
+    <div class="stat-card stat-card-yellow">
+        <div class="stat-value">{{ stats.stopped }}</div>
+        <div class="stat-label">{{ t('hosting.dashboard.stat.stopped') }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_instances }}</div>
+        <div class="stat-label">{{ t('hosting.admin.stat.total_instances') }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_storage_mb }} MB</div>
+        <div class="stat-label">{{ t('hosting.dashboard.stat.storage_used') }}</div>
+    </div>
+</div>
+
+<!-- Signup gating + invite codes (task #5) -->
+<div class="admin-section" id="signup-gating">
+    <div class="section-header">
+        <h3>{{ t('hosting.admin.signup_gating_title', default='Signup gating') }}</h3>
+    </div>
+    <form method="POST" action="{{ url_for('hosting_admin_set_signup_mode') }}" style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label for="signup_mode" style="margin:0;font-weight:600">{{ t('hosting.admin.signup_mode_label', default='Mode') }}:</label>
+        <select id="signup_mode" name="signup_mode" class="input" style="max-width:18rem">
+            <option value="open" {% if signup_mode == 'open' %}selected{% endif %}>{{ t('hosting.admin.signup_mode_open', default='Open: anyone can sign up') }}</option>
+            <option value="invite" {% if signup_mode == 'invite' %}selected{% endif %}>{{ t('hosting.admin.signup_mode_invite', default='Invite code required') }}</option>
+            <option value="closed" {% if signup_mode == 'closed' %}selected{% endif %}>{{ t('hosting.admin.signup_mode_closed', default='Closed: admin-created accounts only') }}</option>
+            <option value="approval" {% if signup_mode == 'approval' %}selected{% endif %}>{{ t('hosting.admin.signup_mode_approval', default='Approval required: new accounts need admin approval') }}</option>
+        </select>
+        <button type="submit" class="btn btn-sm">{{ t('hosting.admin.signup_mode_save', default='Save mode') }}</button>
+    </form>
+
+    {% if signup_mode == 'approval' %}
+    <!-- Activation approval settings (only shown in approval mode) -->
+    <form method="POST" action="{{ url_for('hosting_admin_settings') }}" style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;padding:.6rem;background:rgba(255,255,255,.03);border-radius:6px">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="save_activation">
+        <label style="display:flex;align-items:center;gap:.4rem;font-weight:400;margin:0;cursor:pointer">
+            <input type="checkbox" name="hosting_activation_required" value="1" {% if activation_required %}checked{% endif %} onchange="this.form.submit()">
+            {{ t('hosting.admin.activation_required', default='Require admin approval for new accounts') }}
+        </label>
+        <label style="display:flex;align-items:center;gap:.4rem;font-weight:400;margin:0;cursor:pointer">
+            <input type="checkbox" name="hosting_activation_denied_deletion_enabled" value="1" {% if denied_deletion_enabled %}checked{% endif %}>
+            {{ t('hosting.admin.denied_deletion_enabled', default='Delete denied accounts') }}
+        </label>
+        <label style="display:flex;align-items:center;gap:.4rem;font-weight:400;margin:0;cursor:pointer">
+            <input type="checkbox" name="signup_use_case_required" value="1" {% if signup_use_case_required %}checked{% endif %}>
+            {{ t('hosting.admin.signup_use_case_required', default='Require use-case description at signup') }}
+        </label>
+        <label for="act-timeout-hours" style="margin:0;font-weight:600;font-size:.85rem">{{ t('hosting.admin.activation_timeout_label', default='Timeout') }}:</label>
+        {% set th = (denied_timeout // 3600) if denied_timeout and denied_timeout > 0 else 0 %}
+        {% set tm = ((denied_timeout % 3600) // 60) if denied_timeout and denied_timeout > 0 else 0 %}
+        {% set ts = (denied_timeout % 60) if denied_timeout and denied_timeout > 0 else 0 %}
+        <input id="act-timeout-hours" type="number" name="act_timeout_hours" min="0" max="87600" value="{{ th }}" class="input" style="width:4rem" title="Hours">
+        <span style="font-size:.8rem">h</span>
+        <input type="number" name="act_timeout_minutes" min="0" max="59" value="{{ tm }}" class="input" style="width:3.5rem" title="Minutes">
+        <span style="font-size:.8rem">m</span>
+        <input type="number" name="act_timeout_seconds" min="0" max="59" value="{{ ts }}" class="input" style="width:3.5rem" title="Seconds">
+        <span style="font-size:.8rem">s</span>
+        <button type="submit" class="btn btn-sm">{{ t('hosting.admin.signup_mode_save', default='Save') }}</button>
+    </form>
+    {% endif %}
+
+    {% if signup_mode == 'invite' %}
+    <div class="info-box" style="margin-bottom:1rem">
+        <p style="margin:0;font-size:.85rem">{{ t('hosting.admin.invite_mode_help', default='Invite-code mode is active. Users must enter one of the codes below to register.') }}</p>
+    </div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('hosting_admin_create_invite') }}" style="display:flex;gap:.6rem;align-items:end;flex-wrap:wrap;margin-bottom:1rem">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group" style="margin:0">
+            <label for="invite-max-uses">{{ t('hosting.admin.invite_max_uses', default='Max uses') }}</label>
+            <input id="invite-max-uses" type="number" name="max_uses" min="1" max="1000" value="1" class="input" style="width:6rem">
+        </div>
+        <div class="form-group" style="margin:0;min-width:12rem">
+            <label for="invite-custom-code">{{ t('hosting.admin.invite_custom_code', default='Custom code (optional)') }}</label>
+            <input id="invite-custom-code" type="text" name="custom_code" maxlength="32" pattern="[A-Za-z0-9]*" autocomplete="off" class="input" placeholder="{{ t('hosting.admin.invite_custom_code_placeholder', default='e.g. TEAM2026') }}">
+        </div>
+        <div class="form-group" style="margin:0;flex:1;min-width:14rem">
+            <label for="invite-note">{{ t('hosting.admin.invite_note', default='Note (optional)') }}</label>
+            <input id="invite-note" type="text" name="note" maxlength="200" class="input" placeholder="{{ t('hosting.admin.invite_note_placeholder', default='e.g. for the design team') }}">
+        </div>
+        <button type="submit" class="btn btn-sm">{{ t('hosting.admin.invite_create', default='Create invite code') }}</button>
+    </form>
+
+    {% if invite_codes %}
+    <div class="admin-table-wrap">
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th>{{ t('hosting.admin.invite_col_code', default='Code') }}</th>
+                    <th>{{ t('hosting.admin.invite_col_uses', default='Uses') }}</th>
+                    <th>{{ t('hosting.admin.invite_col_note', default='Note') }}</th>
+                    <th>{{ t('hosting.admin.invite_col_created', default='Created') }}</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for code in invite_codes %}
+                <tr>
+                    <td><code style="font-size:.95rem;letter-spacing:.05em">{{ code.code }}</code></td>
+                    <td>{{ code.current_uses }} / {{ code.max_uses }}</td>
+                    <td>{{ code.note }}</td>
+                    <td>{{ format_datetime(code.created_at) if format_datetime else code.created_at }}</td>
+                    <td>
+                        <form method="POST" action="{{ url_for('hosting_admin_delete_invite', invite_id=code.id) }}" class="js-confirm-form" data-confirm="{{ t('hosting.admin.invite_delete_confirm', default='Revoke this invite code?') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-danger-outline btn-sm">{{ t('hosting.admin.invite_delete', default='Revoke') }}</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted">{{ t('hosting.admin.no_invite_codes', default='No invite codes yet.') }}</p>
+    {% endif %}
+</div>
+
+<!-- Admin-created account (task #5) -->
+<div class="admin-section" id="admin-create-account">
+    <div class="section-header">
+        <h3>{{ t('hosting.admin.create_account_title', default='Create account directly') }}</h3>
+    </div>
+    <form method="POST" action="{{ url_for('hosting_admin_create_account') }}" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.6rem;align-items:end" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group" style="margin:0">
+            <label for="ac-username">{{ t('hosting.admin.create_account_username', default='Username') }}</label>
+            <input id="ac-username" type="text" name="username" class="input" required
+                   pattern="[a-zA-Z0-9_\-]{3,30}" autocomplete="off">
+        </div>
+        <div class="form-group" style="margin:0">
+            <label for="ac-password">{{ t('hosting.admin.create_account_password', default='Password') }}</label>
+            <input id="ac-password" type="password" name="password" class="input" required minlength="8" autocomplete="new-password">
+        </div>
+        <div class="form-group" style="margin:0">
+            <label for="ac-confirm">{{ t('hosting.admin.create_account_confirm', default='Confirm password') }}</label>
+            <input id="ac-confirm" type="password" name="confirm_password" class="input" required minlength="8" autocomplete="new-password">
+        </div>
+        <div class="form-group" style="margin:0;align-self:center">
+            <label style="display:flex;align-items:center;gap:.4rem;font-weight:400">
+                <input type="checkbox" name="is_admin" value="1">
+                {{ t('hosting.admin.create_account_is_admin', default='Make admin') }}
+            </label>
+        </div>
+        <div class="form-group" style="margin:0">
+            <button type="submit" class="btn">{{ t('hosting.admin.create_account_submit', default='Create account') }}</button>
+        </div>
+    </form>
+</div>
+
+<!-- Pending accounts section -->
+{% if pending_accounts %}
+<div class="admin-section" id="pending-accounts">
+    <div class="section-header">
+        <h3>{{ t('hosting.admin.pending_accounts', default='Pending Approval') }} <span class="count-badge">{{ pending_accounts|length }}</span></h3>
+    </div>
+    <div class="admin-table-wrap">
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th>{{ t('hosting.admin.col.username', default='Username') }}</th>
+                    <th>{{ t('hosting.admin.col.joined', default='Joined') }}</th>
+                    <th>{{ t('hosting.admin.col.use_case', default='Use Case') }}</th>
+                    <th>{{ t('hosting.admin.col.actions', default='Actions') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for acct in pending_accounts %}
+                <tr>
+                    <td class="td-username">{{ acct.username }}</td>
+                    <td class="muted">{{ acct.created_at[:10] }}</td>
+                    <td class="muted" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ acct.signup_use_case or '' }}">{{ acct.signup_use_case or '-' }}</td>
+                    <td class="action-cell">
+                        <div class="action-dropdown">
+                            <button type="button" class="action-dropdown-toggle btn btn-outline btn-sm" title="{{ t('hosting.admin.col.actions') }}">⋯</button>
+                            <div class="action-dropdown-content">
+                        <form method="POST" action="{{ url_for('hosting_admin_approve_account', account_id=acct.id) }}" class="inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <textarea name="decision_reason" class="input input-sm" rows="2" maxlength="1000" placeholder="Approval reason (optional)" style="margin-bottom:.3rem"></textarea>
+                            <button type="submit" class="btn btn-success btn-sm">{{ t('hosting.admin.approve', default='Approve') }}</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('hosting_admin_deny_account', account_id=acct.id) }}" class="inline-form js-confirm-form" data-confirm="{{ t('hosting.admin.deny_confirm', name=acct.username, default='Deny this account? The user will be logged in but only see a denied notice. The account may be deleted after the configured timeout.') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <textarea name="decision_reason" class="input input-sm" rows="2" maxlength="1000" placeholder="Denial reason (optional)" style="margin-bottom:.3rem"></textarea>
+                            <button type="submit" class="btn btn-danger-outline btn-sm">{{ t('hosting.admin.deny', default='Deny') }}</button>
+                        </form>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% if pending_feature_requests %}
+<div class="admin-section" id="pending-feature-requests">
+    <div class="section-header">
+        <h3>Pending feature requests <span class="count-badge">{{ pending_feature_requests|length }}</span></h3>
+    </div>
+    <div class="admin-table-wrap">
+        <table class="admin-table">
+            <thead><tr><th>Wiki</th><th>Owner</th><th>Feature</th><th>Reason</th><th>Requested</th><th>Review</th></tr></thead>
+            <tbody>
+            {% for item in pending_feature_requests %}
+                <tr>
+                    <td><a href="{{ url_for('hosting_admin_instance_manage', instance_id=item.instance_id) }}">{{ item.subdomain }}</a></td>
+                    <td>{{ item.owner_username }}</td>
+                    <td>{{ feature_labels[item.feature] }}</td>
+                    <td style="max-width:320px;white-space:normal">{{ item.reason }}</td>
+                    <td class="muted">{{ item.requested_at[:19] }}</td>
+                    <td style="min-width:240px">
+                        <form method="POST" action="{{ url_for('hosting_admin_approve_feature_request', request_id=item.id) }}" style="margin-bottom:.4rem">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="text" name="review_note" class="input input-sm" maxlength="2000" placeholder="Review note (optional)" style="margin-bottom:.3rem">
+                            <button type="submit" class="btn btn-success btn-sm">Approve</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('hosting_admin_deny_feature_request', request_id=item.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="text" name="review_note" class="input input-sm" maxlength="2000" placeholder="Review note (optional)" style="margin-bottom:.3rem">
+                            <button type="submit" class="btn btn-danger-outline btn-sm">Deny</button>
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Accounts section -->
+<div class="admin-section">
+    <div class="section-header">
+        <h3>{{ t('hosting.admin.stat.accounts') }} <span class="count-badge">{{ accounts|length }}</span></h3>
+    </div>
+    {% if accounts %}
+    <div class="bulk-bar" id="accounts-bulk-bar">
+        <span class="bulk-count" id="accounts-bulk-count">{{ t('hosting.admin.bulk_count', count=0) }}</span>
+        <form method="POST" action="{{ url_for('hosting_admin_bulk_delete_accounts') }}" id="accounts-bulk-form" class="js-confirm-form js-loading-form" data-confirm="{{ t('hosting.admin.bulk_delete_accounts_confirm') }}" data-loading-text="{{ t('hosting.admin.loading.delete_accounts') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-danger-outline btn-sm">{{ t('hosting.admin.delete_selected_accounts') }}</button>
+        </form>
+    </div>
+    <div class="admin-table-wrap">
+        <table class="admin-table" id="accounts-table">
+            <thead>
+                <tr>
+                    <th class="cb-col"><input type="checkbox" id="accounts-select-all" title="{{ t('hosting.admin.select_all') }}"></th>
+                    <th>{{ t('hosting.admin.col.username') }}</th>
+                    <th>Email</th>
+                    <th>{{ t('hosting.admin.col.role') }}</th>
+                    <th>{{ t('hosting.admin.col.joined') }}</th>
+                    <th>{{ t('hosting.admin.col.instances') }}</th>
+                    <th>{{ t('hosting.admin.col.actions') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for acct in accounts %}
+                <tr{% if acct.deleted_at %} style="opacity:.45"{% endif %}>
+                    <td class="cb-col">
+                        {% if acct.id != current_account.id %}
+                        <input type="checkbox" class="acct-cb" value="{{ acct.id }}">
+                        {% endif %}
+                    </td>
+                    <td class="td-username">
+                        {{ acct.username }}
+                        {% if acct.id == current_account.id %}
+                        <span class="you-badge">{{ t('hosting.admin.you') }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="muted">
+                        {% if acct.email_flagged_invalid %}
+                        <span class="status-badge status-suspended" style="font-size:.65rem" title="{{ acct.email_flag_reason or 'Flagged invalid' }}">Invalid</span>
+                        {% elif acct.email %}
+                        <a href="mailto:{{ acct.email }}">{{ acct.email }}</a>
+                        {% else %}
+                        &ndash;
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if acct.is_admin %}
+                        <span class="role-badge role-admin">{{ t('hosting.admin.role.admin') }}</span>
+                        {% else %}
+                        <span class="role-badge role-user">{{ t('hosting.admin.role.user') }}</span>
+                        {% endif %}
+                        {% if acct.approval_status == 'pending' %}
+                        <span class="status-badge status-stopped">{{ t('hosting.admin.pending_label', default='Pending') }}</span>
+                        {% elif acct.approval_status == 'denied' %}
+                        <span class="status-badge status-suspended">{{ t('hosting.admin.denied_label', default='Denied') }}</span>
+                        {% endif %}
+                        {% if acct.decision_reason %}
+                        <div class="muted" style="font-size:.75rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ acct.decision_reason }}">Decision: {{ acct.decision_reason }}</div>
+                        {% endif %}
+                        {% if acct.deleted_at %}
+                        <span class="status-badge status-terminated" style="font-size:.7rem">Deleted</span>
+                        {% elif acct.pending_deletion %}
+                        <span class="status-badge status-terminated" style="font-size:.7rem">Pending deletion</span>
+                        {% endif %}
+                        {% if acct.suspended %}
+                        <span class="status-badge status-suspended">{{ t('hosting.admin.suspended') }}</span>
+                        {% if acct.suspended_until %}
+                        <span class="muted" style="font-size:.75rem" title="{{ acct.suspended_until }}">{{ t('hosting.admin.expires_at_short', value=acct.suspended_until[:16]) }}</span>
+                        {% elif acct.suspended_at %}
+                        <span class="muted" style="font-size:.75rem">{{ t('hosting.admin.suspend_permanent') }}</span>
+                        {% endif %}
+                        {% if acct.suspend_reason %}
+                        <div class="muted" style="font-size:.75rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ acct.suspend_reason }}">{{ t('hosting.admin.reason_with_value', reason=acct.suspend_reason) }}</div>
+                        {% endif %}
+                        {% endif %}
+                    </td>
+                    <td class="muted">{{ acct.created_at[:10] }}</td>
+                    <td class="muted">
+                        {% set ns = namespace(count=0) %}
+                        {% for inst in instances %}
+                            {% if inst.account_id == acct.id and inst.status != 'terminated' %}
+                                {% set ns.count = ns.count + 1 %}
+                            {% endif %}
+                        {% endfor %}
+                        {{ ns.count }}
+                    </td>
+                    <td class="action-cell">
+                        {% if acct.id != current_account.id %}
+                        <div class="action-dropdown">
+                            <button type="button" class="action-dropdown-toggle btn btn-outline btn-sm" title="{{ t('hosting.admin.col.actions') }}">⋯</button>
+                            <div class="action-dropdown-content">
+                        <form method="POST" action="{{ url_for('hosting_admin_toggle_admin', account_id=acct.id) }}" class="inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline btn-sm">
+                                {% if acct.is_admin %}{{ t('hosting.admin.revoke_admin') }}{% else %}{{ t('hosting.admin.grant_admin') }}{% endif %}
+                            </button>
+                        </form>
+                        {% if acct.approval_status == 'denied' %}
+                        <form method="POST" action="{{ url_for('hosting_admin_approve_account', account_id=acct.id) }}" class="inline-form js-loading-form" data-loading-text="{{ t('hosting.admin.loading.approve_account', default='Approving account…') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <textarea name="decision_reason" class="input input-sm" rows="2" maxlength="1000" placeholder="{{ t('hosting.admin.approval_reason_placeholder', default='Approval / undo-denial reason (optional)') }}" style="margin-bottom:.3rem"></textarea>
+                            <button type="submit" class="btn btn-success btn-sm">{{ t('hosting.admin.undo_deny', default='Approve (undo denial)') }}</button>
+                        </form>
+                        {% endif %}
+                        {% if acct.suspended %}
+                        <form method="POST" action="{{ url_for('hosting_admin_unsuspend_account', account_id=acct.id) }}" class="inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="unsuspend_instances" value="1">
+                            <button type="submit" class="btn btn-success btn-sm">{{ t('hosting.admin.unsuspend') }}</button>
+                        </form>
+                        {% else %}
+                        <button type="button" class="btn btn-warning btn-sm js-suspend-btn"
+                                data-account-id="{{ acct.id }}" data-account-username="{{ acct.username }}">{{ t('hosting.admin.suspend') }}</button>
+                        {% endif %}
+                        {% if not acct.is_admin and not acct.suspended %}
+                        <form method="POST" action="{{ url_for('hosting_admin_impersonate_account', account_id=acct.id) }}"
+                              class="inline-form js-confirm-form" data-confirm="{{ t('hosting.admin.impersonate_confirm', name=acct.username) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline btn-sm">{{ t('hosting.admin.impersonate') }}</button>
+                        </form>
+                        {% endif %}
+                        {% if acct.email_flagged_invalid %}
+                        <form method="POST" action="{{ url_for('hosting_admin_unflag_email', account_id=acct.id) }}" class="inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-success btn-sm">Clear email flag</button>
+                        </form>
+                        {% elif acct.email %}
+                        <button type="button" class="btn btn-warning btn-sm js-flag-email-btn"
+                                data-account-id="{{ acct.id }}"
+                                data-account-username="{{ acct.username }}"
+                                data-account-email="{{ acct.email }}">Flag email invalid</button>
+                        {% endif %}
+                        <button type="button" class="btn btn-outline btn-sm js-edit-account-btn"
+                                data-account-id="{{ acct.id }}"
+                                data-account-username="{{ acct.username }}"
+                                data-account-email="{{ acct.email or '' }}">Edit account</button>
+                        {% if acct.pending_deletion %}
+                        <form method="POST" action="{{ url_for('hosting_admin_cancel_deletion', account_id=acct.id) }}" style="display:inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-success btn-sm">Cancel deletion</button>
+                        </form>
+                        {% else %}
+                        <button type="button" class="btn btn-warning btn-sm js-schedule-deletion-btn"
+                                data-account-id="{{ acct.id }}"
+                                data-account-username="{{ acct.username }}">Schedule deletion</button>
+                        {% endif %}
+                        <a href="{{ url_for('hosting_admin_delete_account', account_id=acct.id) }}" class="btn btn-danger-outline btn-sm">{{ t('common.delete') }}</a>
+                            </div>
+                        </div>
+                        {% else %}
+                        <span class="muted">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted">{{ t('hosting.admin.no_accounts') }}</p>
+    {% endif %}
+</div>
+
+<!-- Instances section -->
+<div class="admin-section">
+    <div class="section-header">
+        <h3>{{ t('hosting.admin.all_instances') }} <span class="count-badge">{{ instances|length }}</span></h3>
+    </div>
+    {% if instances %}
+    <div class="bulk-bar" id="instances-bulk-bar">
+        <span class="bulk-count" id="instances-bulk-count">{{ t('hosting.admin.bulk_count', count=0) }}</span>
+        <form method="POST" action="{{ url_for('hosting_admin_bulk_stop_instances') }}" class="instances-bulk-form js-loading-form" data-loading-text="{{ t('hosting.admin.loading.pause_instances') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-warning btn-sm">{{ t('hosting.admin.pause_selected') }}</button>
+        </form>
+        <form method="POST" action="{{ url_for('hosting_admin_bulk_restart_instances') }}" class="instances-bulk-form js-loading-form" data-loading-text="{{ t('hosting.admin.loading.resume_instances') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-success btn-sm">{{ t('hosting.admin.resume_selected') }}</button>
+        </form>
+        <form method="POST" action="{{ url_for('hosting_admin_bulk_suspend_instances') }}" class="instances-bulk-form js-confirm-form js-loading-form" data-confirm="{{ t('hosting.admin.bulk_suspend_instances_confirm') }}" data-loading-text="{{ t('hosting.admin.loading.suspend_instances') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-danger-outline btn-sm">{{ t('hosting.admin.suspend_selected') }}</button>
+        </form>
+        <form method="POST" action="{{ url_for('hosting_admin_bulk_unsuspend_instances') }}" class="instances-bulk-form js-loading-form" data-loading-text="{{ t('hosting.admin.loading.unsuspend_instances') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-success btn-sm">{{ t('hosting.admin.unsuspend_selected') }}</button>
+        </form>
+        <form method="POST" action="{{ url_for('hosting_admin_bulk_delete_instances') }}" class="instances-bulk-form js-confirm-form js-loading-form" data-confirm="{{ t('hosting.admin.bulk_terminate_instances_confirm') }}" data-loading-text="{{ t('hosting.admin.loading.terminate_instances') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-danger-outline btn-sm">{{ t('hosting.admin.terminate_selected') }}</button>
+        </form>
+    </div>
+    <div class="bulk-bar" id="grace-bulk-bar">
+        <label class="bulk-select-label">
+            <input type="checkbox" id="grace-select-all">
+            <span>{{ t('hosting.admin.select_all_grace') }}</span>
+        </label>
+        <span class="bulk-count" id="grace-bulk-count">{{ t('hosting.admin.bulk_count', count=0) }}</span>
+        <form method="POST" action="{{ url_for('hosting_admin_bulk_restore_terminated_instances') }}" class="grace-bulk-form js-confirm-form js-loading-form" data-confirm="{{ t('hosting.admin.bulk_restore_grace_confirm') }}" data-loading-text="{{ t('hosting.admin.loading.restore_wikis') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-success btn-sm">{{ t('hosting.admin.restore_selected_grace') }}</button>
+        </form>
+        <form method="POST" action="{{ url_for('hosting_admin_bulk_delete_terminated_instances') }}" class="grace-bulk-form js-confirm-form js-loading-form" data-confirm="{{ t('hosting.admin.bulk_delete_grace_confirm') }}" data-loading-text="{{ t('hosting.admin.loading.delete_retained_data') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-danger-outline btn-sm">{{ t('hosting.admin.delete_selected_grace') }}</button>
+        </form>
+    </div>
+    <div class="admin-table-wrap">
+        <table class="admin-table" id="instances-table">
+            <thead>
+                <tr>
+                    <th class="cb-col"><input type="checkbox" id="instances-select-all" title="{{ t('hosting.admin.select_all') }}"></th>
+                    <th>{{ t('hosting.admin.col.instance') }}</th>
+                    <th>{{ t('hosting.admin.col.owner') }}</th>
+                    <th>{{ t('hosting.detail.status') }}</th>
+                    <th>{{ t('hosting.admin.col.time_left') }}</th>
+                    <th>{{ t('hosting.detail.storage') }}</th>
+                    <th>{{ t('hosting.admin.col.actions') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for inst in instances %}
+                <tr class="{% if inst.is_expired and inst.status != 'terminated' %}row-expired{% endif %}">
+                    <td class="cb-col">
+                        {% if inst.status != 'terminated' %}
+                        <input type="checkbox" class="inst-cb" value="{{ inst.id }}">
+                        {% elif inst.grace_period_active %}
+                        <input type="checkbox" class="grace-cb" value="{{ inst.id }}" title="{{ t('hosting.admin.select_grace_wiki') }}">
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if inst.status == 'running' and inst.url %}
+                        <a href="{{ inst.url }}" target="_blank" rel="noopener"><strong>{{ inst.subdomain }}</strong></a>
+                        <br><a href="{{ url_for('hosting_instance_detail', instance_id=inst.id) }}" style="font-size: 0.85em;">{{ t('hosting.admin.view_details') }}</a>
+                        {% else %}
+                        <a href="{{ url_for('hosting_instance_detail', instance_id=inst.id) }}">{{ inst.subdomain }}</a>
+                        {% endif %}
+                        {% if hosting_mode != 'port' %}
+                        {% if inst.domain_mode == 'apex' or not instance_url_suffix %}
+                        <span class="muted">.{{ base_domain }}</span>
+                        {% else %}
+                        <span class="muted">-{{ instance_url_suffix }}.{{ base_domain }}</span>
+                        {% endif %}
+                        {% elif inst.port %}
+                        <span class="muted">:{{ inst.port }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ inst.account_username }}</td>
+                    <td>
+                        <span class="status-badge status-{{ inst.status }}">{{ inst.status }}</span>
+                        {% if inst.easy_wiki %}
+                        <span class="status-badge" style="background:rgba(99,179,237,.15);color:#63b3ed;font-size:.7rem">Easy</span>
+                        {% endif %}
+                        {% if inst.status == 'running' %}
+                        <span class="health-badge {% if inst.is_healthy %}health-ok{% else %}health-down{% endif %}">
+                            {% if inst.is_healthy %}●{% else %}●{% endif %}
+                        </span>
+                        {% endif %}
+                        {% if inst.status == 'terminated' and inst.grace_period_suspended %}
+                        <span class="status-badge status-suspended" style="font-size:.7rem">{{ t('hosting.admin.export_off') }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if inst.is_expired %}
+                        <strong class="text-danger">{{ t('hosting.dashboard.expired') }}</strong>
+                        {% elif inst.status == 'terminated' %}
+                            {% if inst.grace_period_active %}
+                            <span class="status-badge status-stopped" title="{{ t('hosting.admin.grace.tooltip') }}">
+                                {{ t('hosting.admin.grace.label') }}: {{ inst.grace_days_remaining }}d
+                            </span>
+                            {% if inst.grace_period_ends_at %}
+                            <div class="muted" style="font-size: 0.75rem;">
+                                {{ t('hosting.admin.grace.expires') }} {{ inst.grace_period_ends_at[:10] }}
+                            </div>
+                            {% endif %}
+                            {% else %}
+                            <span class="muted">-</span>
+                            {% endif %}
+                        {% else %}
+                        {{ inst.days_remaining }}d {{ inst.display_hours }}h
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if inst.storage_limit_mb is none %}
+                        {{ inst.storage_mb }} / ∞
+                        {% else %}
+                        {{ inst.storage_mb }} / {{ inst.storage_limit_mb }} MB
+                        {% endif %}
+                    </td>
+                    <td class="action-cell">
+                        <div class="action-dropdown">
+                            <button type="button" class="action-dropdown-toggle btn btn-outline btn-sm" title="{{ t('hosting.admin.col.actions') }}">⋯</button>
+                            <div class="action-dropdown-content">
+                        {% if inst.status == 'running' %}
+                        <form method="POST" action="{{ url_for('hosting_admin_stop_instance', instance_id=inst.id) }}" class="inline-form js-loading-form" data-loading-text="{{ t('hosting.admin.loading.pause_instance') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-warning btn-sm">{{ t('hosting.dashboard.pause') }}</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('hosting_admin_suspend_instance', instance_id=inst.id) }}"
+                              class="inline-form js-confirm-form js-loading-form" data-confirm="{{ t('hosting.admin.suspend_instance_confirm', name=inst.subdomain) }}" data-loading-text="{{ t('hosting.admin.loading.suspend_instance') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-danger-outline btn-sm">{{ t('hosting.admin.suspend') }}</button>
+                        </form>
+                        {% elif inst.status == 'stopped' %}
+                        <form method="POST" action="{{ url_for('hosting_admin_restart_instance', instance_id=inst.id) }}" class="inline-form js-loading-form" data-loading-text="{{ t('hosting.admin.loading.resume_instance') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-success btn-sm">{{ t('hosting.dashboard.resume') }}</button>
+                        </form>
+                        {% elif inst.status == 'suspended' %}
+                        <form method="POST" action="{{ url_for('hosting_admin_unsuspend_instance', instance_id=inst.id) }}" class="inline-form js-loading-form" data-loading-text="{{ t('hosting.admin.loading.unsuspend_instance') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-success btn-sm">{{ t('hosting.admin.unsuspend') }}</button>
+                        </form>
+                        {% endif %}
+                        {% if inst.status != 'terminated' %}
+                        <form method="POST" action="{{ url_for('hosting_admin_extend_instance', instance_id=inst.id) }}" class="inline-form extend-form js-loading-form" data-loading-text="{{ t('hosting.admin.loading.extend_instance') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="number" name="extra_days" value="7" min="0" max="3650" class="input input-sm" title="{{ t('hosting.admin.days_to_extend') }}">
+                            <button type="submit" class="btn btn-outline btn-sm">{{ t('hosting.admin.extend') }}</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('hosting_admin_shorten_expiry', instance_id=inst.id) }}" class="inline-form extend-form js-loading-form" data-loading-text="{{ t('hosting.admin.loading.shorten_expiry') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="number" name="shorten_days" value="1" min="0" max="3650" class="input input-sm" title="{{ t('hosting.admin.days_to_shorten') }}">
+                            <button type="submit" class="btn btn-outline btn-sm">{{ t('hosting.admin.shorten') }}</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('hosting_admin_set_expiry', instance_id=inst.id) }}" class="inline-form extend-form js-loading-form" data-loading-text="{{ t('hosting.admin.loading.set_expiry') }}" style="flex-wrap:wrap">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="datetime-local" name="expiry_datetime" class="input" style="flex:1;min-width:200px" title="{{ t('hosting.admin.set_expiry_title') }}">
+                            <button type="submit" class="btn btn-outline btn-sm">{{ t('hosting.admin.set_expiry') }}</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('hosting_admin_make_indefinite', instance_id=inst.id) }}"
+                              class="inline-form js-confirm-form js-loading-form" data-confirm="{{ t('hosting.admin.indefinite_confirm', name=inst.subdomain) }}" data-loading-text="{{ t('hosting.detail.making_indefinite') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline btn-sm">{{ t('hosting.admin.indefinite') }}</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('hosting_admin_reset_instance_password', instance_id=inst.id) }}"
+                              class="inline-form js-confirm-form js-loading-form" data-confirm="{{ t('hosting.admin.reset_pw_confirm', name=inst.subdomain) }}" data-loading-text="{{ t('hosting.admin.loading.reset_password') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline btn-sm">{{ t('hosting.admin.reset_pw') }}</button>
+                        </form>
+                        <a href="{{ url_for('hosting_admin_instance_logs', instance_id=inst.id) }}" class="btn btn-outline btn-sm">
+                            {{ t('hosting.admin_logs.view_logs') }}
+                        </a>
+                        <a href="{{ url_for('hosting_admin_download_instance', instance_id=inst.id) }}" class="btn btn-outline btn-sm">
+                            {{ t('hosting.admin.grace.download') }}
+                        </a>
+                        <form method="POST" action="{{ url_for('hosting_admin_set_storage_limit', instance_id=inst.id) }}" class="inline-form extend-form js-loading-form" data-loading-text="{{ t('hosting.admin.loading.update_storage') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="number" name="storage_limit_mb" min="1" class="input input-sm" placeholder="MB" title="{{ t('hosting.detail.storage_mb') }}">
+                            <button type="submit" class="btn btn-outline btn-sm">{{ t('hosting.detail.set_storage') }}</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('hosting_admin_set_storage_limit', instance_id=inst.id) }}" class="inline-form js-loading-form" data-loading-text="{{ t('hosting.admin.loading.update_storage') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="unlimited" value="1">
+                            <button type="submit" class="btn btn-outline btn-sm">∞ {{ t('hosting.detail.storage_short') }}</button>
+                        </form>
+                        <a href="{{ url_for('hosting_admin_instance_manage', instance_id=inst.id) }}" class="btn btn-outline btn-sm" title="{{ t('hosting.admin.manage_instance_title') }}">{{ t('hosting.admin.manage_instance') }}</a>
+                        <form method="POST" action="{{ url_for('hosting_admin_transfer_instance', instance_id=inst.id) }}" class="inline-form extend-form js-loading-form" data-loading-text="{{ t('hosting.admin.loading.transfer_wiki') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="text" name="username" class="input input-sm" placeholder="{{ t('hosting.admin.new_owner_username') }}" required>
+                            <button type="submit" class="btn btn-outline btn-sm">{{ t('hosting.admin.transfer_wiki') }}</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('hosting_admin_set_instance_user_password', instance_id=inst.id) }}" class="inline-form extend-form js-loading-form" data-loading-text="{{ t('hosting.admin.loading.update_user') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="text" name="username" class="input input-sm" placeholder="{{ t('hosting.admin.user_placeholder') }}">
+                            <input type="text" name="password" class="input input-sm" placeholder="{{ t('hosting.admin.password_placeholder') }}">
+                            <input type="text" name="role" class="input input-sm" placeholder="{{ t('hosting.admin.role_placeholder') }}">
+                            <button type="submit" class="btn btn-outline btn-sm">{{ t('hosting.admin.upsert_user') }}</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('hosting_admin_remove_instance_user', instance_id=inst.id) }}" class="inline-form extend-form js-loading-form" data-loading-text="{{ t('hosting.admin.loading.remove_user') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="text" name="username" class="input input-sm" placeholder="{{ t('hosting.admin.user_placeholder') }}">
+                            <button type="submit" class="btn btn-outline btn-sm">{{ t('hosting.admin.delete_user') }}</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('hosting_admin_terminate_instance', instance_id=inst.id) }}"
+                              class="inline-form js-confirm-form js-loading-form" data-confirm="{{ t('hosting.admin.terminate_confirm', name=inst.subdomain) }}" data-loading-text="{{ t('hosting.admin.loading.terminate_instance') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-danger-outline btn-sm">{{ t('hosting.dashboard.terminate') }}</button>
+                        </form>
+                        {% else %}
+                        <form method="POST" action="{{ url_for('hosting_admin_restore_instance', instance_id=inst.id) }}"
+                              class="inline-form extend-form js-confirm-form js-loading-form" data-confirm="{{ t('hosting.admin.restore_confirm', name=inst.subdomain) }}" data-loading-text="{{ t('hosting.admin.loading.restore_instance') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="number" name="extend_days" value="" min="0" max="3650" class="input input-sm" placeholder="{{ t('hosting.admin.grace.extra_days_ph') }}" title="{{ t('hosting.admin.grace.extra_days_title') }}">
+                            <button type="submit" class="btn btn-success btn-sm">{{ t('hosting.admin.restore') }}</button>
+                        </form>
+                        {% if inst.grace_period_active %}
+                        <a href="{{ url_for('hosting_admin_download_instance', instance_id=inst.id) }}" class="btn btn-outline btn-sm">
+                            {{ t('hosting.admin.grace.download') }}
+                        </a>
+                        <a href="{{ url_for('hosting_admin_instance_logs', instance_id=inst.id) }}" class="btn btn-outline btn-sm">
+                            {{ t('hosting.admin_logs.view_logs') }}
+                        </a>
+                        {% if inst.grace_period_suspended %}
+                        <form method="POST" action="{{ url_for('hosting_admin_grace_unsuspend_instance', instance_id=inst.id) }}" class="inline-form js-loading-form" data-loading-text="{{ t('hosting.detail.reenabling_export') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-success btn-sm">✓ {{ t('hosting.admin.enable_export') }}</button>
+                        </form>
+                        {% else %}
+                        <form method="POST" action="{{ url_for('hosting_admin_grace_suspend_instance', instance_id=inst.id) }}" class="inline-form js-confirm-form js-loading-form" data-confirm="{{ t('hosting.admin.suspend_export_confirm') }}" data-loading-text="{{ t('hosting.detail.suspending_export') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-warning btn-sm">⏻ {{ t('hosting.admin.suspend_export') }}</button>
+                        </form>
+                        {% endif %}
+                        {% endif %}
+                        <span class="muted">{{ t('hosting.admin.terminated') }}</span>
+                        <form method="POST" action="{{ url_for('hosting_admin_delete_terminated_instance', instance_id=inst.id) }}"
+                              class="inline-form js-confirm-form js-loading-form" data-confirm="{{ t('hosting.detail.delete_terminated_confirm') }}" data-loading-text="{{ t('hosting.detail.deleting_permanently') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-danger-outline btn-sm">{{ t('hosting.detail.delete_permanently') }}</button>
+                        </form>
+                        {% endif %}
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted">{{ t('hosting.admin.no_instances') }}</p>
+    {% endif %}
+</div>
+
+<script nonce="{{ csp_nonce }}">
+document.addEventListener('DOMContentLoaded', function() {
+    var bulkCountTemplate = {{ t('hosting.admin.bulk_count', count='__COUNT__')|tojson }};
+
+    function bulkCountLabel(count) {
+        return bulkCountTemplate.replace('__COUNT__', String(count));
+    }
+
+    // NOTE: ``.js-confirm-form`` is intentionally NOT bound here. The
+    // global handler in ``base.html`` already attaches a ``submit``
+    // listener that fires ``confirm()``.  Binding it again here would
+    // pop up two confirm dialogs for the same action (the bug admins
+    // hit when terminating an instance or hard-deleting it from grace).
+
+    // Bulk-select helper.  ``formSelector`` may target one or many forms
+    // (e.g. an ``id="…"`` for a single action bar or a ``class="…"`` for
+    // a row of bulk-action buttons that all share the same selection).
+    function setupBulk(selectAllId, cbClass, barId, countId, formSelector, paramName) {
+        var selectAll = document.getElementById(selectAllId);
+        var cbs = document.querySelectorAll('.' + cbClass);
+        var bar = document.getElementById(barId);
+        var countEl = document.getElementById(countId);
+        var forms = document.querySelectorAll(formSelector);
+        if (!selectAll || !cbs.length || !forms.length) return;
+        function sync() {
+            var checked = document.querySelectorAll('.' + cbClass + ':checked');
+            var n = checked.length;
+            if (bar) bar.classList.toggle('active', n > 0);
+            if (countEl) countEl.textContent = bulkCountLabel(n);
+            // Sync hidden inputs into every bulk-action form so any of
+            // them can submit the same selection.
+            forms.forEach(function(form) {
+                form.querySelectorAll('input[name="' + paramName + '"]').forEach(function(i) { i.remove(); });
+                checked.forEach(function(cb) {
+                    var inp = document.createElement('input');
+                    inp.type = 'hidden'; inp.name = paramName; inp.value = cb.value;
+                    form.appendChild(inp);
+                });
+            });
+            selectAll.checked = (n > 0 && n === cbs.length);
+            selectAll.indeterminate = (n > 0 && n < cbs.length);
+        }
+        selectAll.addEventListener('change', function() {
+            cbs.forEach(function(cb) { cb.checked = selectAll.checked; });
+            sync();
+        });
+        cbs.forEach(function(cb) { cb.addEventListener('change', sync); });
+    }
+    setupBulk('accounts-select-all', 'acct-cb', 'accounts-bulk-bar', 'accounts-bulk-count', '#accounts-bulk-form', 'account_ids');
+    setupBulk('instances-select-all', 'inst-cb', 'instances-bulk-bar', 'instances-bulk-count', '.instances-bulk-form', 'instance_ids');
+    setupBulk('grace-select-all', 'grace-cb', 'grace-bulk-bar', 'grace-bulk-count', '.grace-bulk-form', 'instance_ids');
+
+    // Action dropdown toggles for mobile admin tables
+    document.querySelectorAll('.action-dropdown-toggle').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var dropdown = btn.closest('.action-dropdown');
+            if (dropdown) {
+                dropdown.querySelector('.action-dropdown-content').classList.toggle('open');
+            }
+        });
+    });
+    document.addEventListener('click', function(e) {
+        document.querySelectorAll('.action-dropdown-content.open').forEach(function(el) {
+            if (!el.closest('.action-dropdown').contains(e.target)) {
+                el.classList.remove('open');
+            }
+        });
+    });
+
+    // Account suspend modal
+    var suspendModal = document.getElementById('suspend-account-modal');
+    var suspendForm = document.getElementById('suspend-account-form');
+    var suspendAccountIdInput = document.getElementById('suspend-account-id');
+    var suspendDurationSelect = document.getElementById('suspend-duration');
+    var suspendCustomDatetime = document.getElementById('suspend-custom-datetime');
+    var suspendCustomRelative = document.getElementById('suspend-custom-relative');
+    var suspendReasonInput = document.getElementById('suspend-reason');
+    var suspendReasonVisible = document.getElementById('suspend-reason-visible');
+    var suspendTimeVisible = document.getElementById('suspend-time-visible');
+
+    document.querySelectorAll('.js-suspend-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var accountId = btn.getAttribute('data-account-id');
+            var username = btn.getAttribute('data-account-username');
+            suspendAccountIdInput.value = accountId;
+            suspendForm.action = '/admin/accounts/' + accountId + '/suspend';
+            document.getElementById('suspend-modal-username').textContent = username;
+            // Reset form
+            suspendDurationSelect.value = 'permanent';
+            suspendCustomDatetime.style.display = 'none';
+            suspendCustomRelative.style.display = 'none';
+            suspendReasonInput.value = '';
+            suspendReasonVisible.checked = false;
+            suspendReasonVisible.disabled = true;
+            suspendTimeVisible.checked = false;
+            suspendTimeVisible.parentElement.style.display = 'none';
+            suspendModal.classList.add('open');
+        });
+    });
+
+    if (suspendDurationSelect) {
+        suspendDurationSelect.addEventListener('change', function() {
+            var val = suspendDurationSelect.value;
+            suspendCustomDatetime.style.display = (val === 'custom_datetime') ? 'block' : 'none';
+            suspendCustomRelative.style.display = (val === 'custom_relative') ? 'block' : 'none';
+            suspendTimeVisible.parentElement.style.display = (val !== 'permanent') ? 'flex' : 'none';
+            if (val === 'permanent') suspendTimeVisible.checked = false;
+        });
+    }
+
+    if (suspendReasonInput) {
+        suspendReasonInput.addEventListener('input', function() {
+            suspendReasonVisible.disabled = !suspendReasonInput.value.trim();
+            if (!suspendReasonInput.value.trim()) suspendReasonVisible.checked = false;
+        });
+    }
+
+    // Close suspend modal
+    document.querySelectorAll('.js-close-suspend-modal').forEach(function(el) {
+        el.addEventListener('click', function() {
+            suspendModal.classList.remove('open');
+        });
+    });
+    if (suspendModal) {
+        suspendModal.addEventListener('click', function(e) {
+            if (e.target === suspendModal) suspendModal.classList.remove('open');
+        });
+    }
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && suspendModal && suspendModal.classList.contains('open')) {
+            suspendModal.classList.remove('open');
+        }
+    });
+});
+</script>
+
+<!-- Account Edit Modal -->
+<div class="hosting-modal-overlay" id="edit-account-modal">
+    <div class="hosting-modal" style="max-width:480px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.2rem">
+            <h3 style="margin:0">Edit account: <span id="edit-modal-username"></span></h3>
+            <button type="button" class="js-close-edit-modal" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-muted,#888)">&times;</button>
+        </div>
+        <form method="POST" id="edit-account-form" action="" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label for="edit-new-username">New username <span class="muted">(leave blank to keep current)</span></label>
+                <input type="text" id="edit-new-username" name="new_username" class="input" pattern="[a-zA-Z0-9_-]{3,30}" maxlength="30" autocomplete="off" placeholder="Leave blank to keep current">
+            </div>
+            <div class="form-group">
+                <label for="edit-new-email">New email <span class="muted">(leave blank to keep current)</span></label>
+                <input type="email" id="edit-new-email" name="new_email" class="input" maxlength="254" autocomplete="off" placeholder="Leave blank to keep current">
+            </div>
+            <div class="form-group">
+                <label for="edit-new-password">New password <span class="muted">(leave blank to keep current)</span></label>
+                <input type="password" id="edit-new-password" name="new_password" class="input" minlength="8" autocomplete="new-password" placeholder="Leave blank to keep current">
+            </div>
+            <div class="form-group" id="edit-confirm-pw-wrap" style="display:none">
+                <label for="edit-confirm-password">Confirm new password</label>
+                <input type="password" id="edit-confirm-password" name="confirm_password" class="input" minlength="8" autocomplete="new-password">
+            </div>
+            <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1.2rem">
+                <button type="button" class="btn btn-outline js-close-edit-modal">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script nonce="{{ csp_nonce }}">
+(function(){
+    var editModal   = document.getElementById('edit-account-modal');
+    var editForm    = document.getElementById('edit-account-form');
+    var editPwField = document.getElementById('edit-new-password');
+    var confirmWrap = document.getElementById('edit-confirm-pw-wrap');
+
+    document.querySelectorAll('.js-edit-account-btn').forEach(function(btn){
+        btn.addEventListener('click', function(){
+            var id       = btn.dataset.accountId;
+            var username = btn.dataset.accountUsername;
+            document.getElementById('edit-modal-username').textContent = username;
+            document.getElementById('edit-new-username').value  = '';
+            document.getElementById('edit-new-email').value     = '';
+            editPwField.value = '';
+            document.getElementById('edit-confirm-password').value = '';
+            confirmWrap.style.display = 'none';
+            editForm.action = '/admin/accounts/' + id + '/edit';
+            editModal.classList.add('open');
+        });
+    });
+
+    editPwField.addEventListener('input', function(){
+        confirmWrap.style.display = editPwField.value ? 'block' : 'none';
+    });
+
+    document.querySelectorAll('.js-close-edit-modal').forEach(function(btn){
+        btn.addEventListener('click', function(){ editModal.classList.remove('open'); });
+    });
+    editModal.addEventListener('click', function(e){
+        if (e.target === editModal) editModal.classList.remove('open');
+    });
+    document.addEventListener('keydown', function(e){
+        if (e.key === 'Escape' && editModal.classList.contains('open'))
+            editModal.classList.remove('open');
+    });
+})();
+</script>
+
+<!-- Flag Email Modal -->
+<div class="hosting-modal-overlay" id="flag-email-modal">
+    <div class="hosting-modal" style="max-width:480px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+            <h3 style="margin:0">Flag email as invalid: <span id="flag-email-modal-username"></span></h3>
+            <button type="button" class="js-close-flag-modal" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-muted,#888)">&times;</button>
+        </div>
+        <p style="font-size:.85rem;color:var(--text-muted,#aaa);margin:0 0 .8rem">
+            Current email: <strong id="flag-email-modal-current"></strong>
+        </p>
+        <p style="font-size:.85rem;margin:0 0 .8rem">
+            This will clear the user's email and force them to enter a new one on their next visit.
+            Alternatively, enter a replacement email below to change it on their behalf without prompting them.
+        </p>
+        <form method="POST" id="flag-email-form" action="" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label for="flag-email-reason">Reason <span class="muted">(optional)</span></label>
+                <input type="text" id="flag-email-reason" name="reason" class="input" maxlength="500" placeholder="e.g. Email bounced, invalid address">
+            </div>
+            <div class="form-group">
+                <label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem;cursor:pointer">
+                    <input type="checkbox" name="reason_visible" value="1">
+                    Show reason to the user on the re-entry page
+                </label>
+            </div>
+            <div class="form-group">
+                <label for="flag-email-new">Set new email directly <span class="muted">(optional; skips the prompt)</span></label>
+                <input type="email" id="flag-email-new" name="new_email" class="input" maxlength="254" placeholder="Leave blank to make the user re-enter it">
+            </div>
+            <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem">
+                <button type="button" class="btn btn-outline js-close-flag-modal">Cancel</button>
+                <button type="submit" class="btn btn-warning">Flag / Change Email</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script nonce="{{ csp_nonce }}">
+(function(){
+    var flagModal = document.getElementById('flag-email-modal');
+    var flagForm  = document.getElementById('flag-email-form');
+    document.querySelectorAll('.js-flag-email-btn').forEach(function(btn){
+        btn.addEventListener('click', function(){
+            var id       = btn.dataset.accountId;
+            var username = btn.dataset.accountUsername;
+            var email    = btn.dataset.accountEmail;
+            document.getElementById('flag-email-modal-username').textContent = username;
+            document.getElementById('flag-email-modal-current').textContent = email || '(none)';
+            document.getElementById('flag-email-reason').value = '';
+            document.getElementById('flag-email-new').value = '';
+            flagForm.action = '/admin/accounts/' + id + '/flag-email';
+            flagModal.classList.add('open');
+        });
+    });
+    document.querySelectorAll('.js-close-flag-modal').forEach(function(btn){
+        btn.addEventListener('click', function(){ flagModal.classList.remove('open'); });
+    });
+    flagModal.addEventListener('click', function(e){
+        if (e.target === flagModal) flagModal.classList.remove('open');
+    });
+    document.addEventListener('keydown', function(e){
+        if (e.key === 'Escape' && flagModal.classList.contains('open'))
+            flagModal.classList.remove('open');
+    });
+})();
+</script>
+
+<!-- Account Suspend Modal -->
+<div class="hosting-modal-overlay" id="suspend-account-modal">
+    <div class="hosting-modal" style="max-width:520px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+            <h3 style="margin:0">{{ t('hosting.admin.suspend_account_title') }}: <span id="suspend-modal-username"></span></h3>
+            <button type="button" class="js-close-suspend-modal" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-muted,#888)">&times;</button>
+        </div>
+        <form method="POST" id="suspend-account-form" action="">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="suspend_instances" value="1">
+            <input type="hidden" id="suspend-account-id" name="account_id" value="">
+
+            <div class="form-group">
+                <label for="suspend-duration">{{ t('hosting.admin.suspend_duration') }}</label>
+                <select id="suspend-duration" name="suspend_duration" class="input">
+                    <option value="permanent">{{ t('hosting.admin.suspend_permanent') }}</option>
+                    <option value="1">{{ t('hosting.admin.suspend_1h') }}</option>
+                    <option value="8">{{ t('hosting.admin.suspend_8h') }}</option>
+                    <option value="24">{{ t('hosting.admin.suspend_24h', default='24 hours') }}</option>
+                    <option value="72">3 days</option>
+                    <option value="168">{{ t('hosting.admin.suspend_1w', default='1 week') }}</option>
+                    <option value="336">2 weeks</option>
+                    <option value="720">1 month</option>
+                    <option value="custom_datetime">{{ t('hosting.admin.suspend_custom_datetime') }}</option>
+                    <option value="custom_relative">{{ t('hosting.admin.suspend_custom_relative') }}</option>
+                </select>
+            </div>
+
+            <div class="form-group" id="suspend-custom-datetime" style="display:none">
+                <label for="suspend-custom-datetime-input">{{ t('hosting.admin.suspend_expires_at') }}</label>
+                <input type="datetime-local" id="suspend-custom-datetime-input" name="suspend_custom_datetime" class="input" style="width:100%">
+            </div>
+
+            <div class="form-group" id="suspend-custom-relative" style="display:none">
+                <label>{{ t('hosting.admin.suspend_expires_in') }}</label>
+                <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+                    <input type="number" name="suspend_rel_days" min="0" max="3650" value="0" class="input" style="width:5rem" placeholder="Days">
+                    <span>d</span>
+                    <input type="number" name="suspend_rel_hours" min="0" max="999" value="0" class="input" style="width:5rem" placeholder="{{ t('hosting.admin.suspend_hours') }}">
+                    <span>h</span>
+                    <input type="number" name="suspend_rel_minutes" min="0" max="59" value="0" class="input" style="width:5rem" placeholder="{{ t('hosting.admin.suspend_minutes') }}">
+                    <span>m</span>
+                    <input type="number" name="suspend_rel_seconds" min="0" max="59" value="0" class="input" style="width:5rem" placeholder="Seconds">
+                    <span>s</span>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="suspend-reason">{{ t('hosting.admin.suspend_reason_optional') }}</label>
+                <input type="text" id="suspend-reason" name="suspend_reason" class="input" maxlength="500" placeholder="{{ t('hosting.admin.suspend_reason_example') }}">
+            </div>
+
+            <div class="form-group">
+                <label style="display:flex;align-items:center;gap:.4rem;font-weight:400">
+                    <input type="checkbox" id="suspend-reason-visible" name="suspend_reason_visible" value="1" disabled>
+                    {{ t('hosting.admin.suspend_reason_visible_user') }}
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label style="display:none;align-items:center;gap:.4rem;font-weight:400" id="suspend-time-visible-wrap">
+                    <input type="checkbox" id="suspend-time-visible" name="suspend_time_visible" value="1">
+                    {{ t('hosting.admin.suspend_time_visible_user') }}
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label style="display:flex;align-items:center;gap:.4rem;font-weight:400;font-size:.85rem">
+                    <input type="checkbox" name="notify_user" value="1" checked>
+                    Notify user by email
+                </label>
+            </div>
+
+            <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1.2rem">
+                <button type="button" class="btn btn-outline js-close-suspend-modal">{{ t('common.cancel') }}</button>
+                <button type="submit" class="btn btn-warning">{{ t('hosting.admin.suspend_account_submit') }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+<!-- Schedule Deletion Modal -->
+<div class="hosting-modal-overlay" id="schedule-deletion-modal">
+    <div class="hosting-modal" style="max-width:420px">
+        <h3 style="margin:0 0 .5rem">Schedule account deletion</h3>
+        <p class="muted" style="margin:0 0 1rem;font-size:.85rem">
+            The user will see a countdown page and can only log in to view it. When the timer expires, the account and all instances are permanently deleted.
+        </p>
+        <form method="POST" id="schedule-deletion-form" class="js-confirm-form" data-confirm="Schedule this account for deletion?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-group">
+                <label class="form-label">Countdown duration</label>
+                <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+                    <input type="number" name="deletion_hours" class="input" value="24" min="0" max="87600" style="width:5rem">
+                    <span>h</span>
+                    <input type="number" name="deletion_minutes" class="input" value="0" min="0" max="59" style="width:5rem">
+                    <span>m</span>
+                    <input type="number" name="deletion_seconds" class="input" value="0" min="0" max="59" style="width:5rem">
+                    <span>s</span>
+                </div>
+                <p class="form-hint">Default: 24 hours. Minimum: 1 second. Can be set up to ~10 years.</p>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Reason (shown to user)</label>
+                <input type="text" name="deletion_reason" class="input" maxlength="500" placeholder="Optional reason visible to the user">
+            </div>
+
+            <div class="form-group">
+                <label style="display:flex;align-items:center;gap:.4rem;font-weight:400;font-size:.85rem">
+                    <input type="checkbox" name="notify_user" value="1" checked>
+                    Notify user by email
+                </label>
+            </div>
+
+            <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1.2rem">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('schedule-deletion-modal').classList.remove('open')">Cancel</button>
+                <button type="submit" class="btn btn-warning">Schedule deletion</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script nonce="{{ csp_nonce }}">
+(function(){
+    document.querySelectorAll('.js-schedule-deletion-btn').forEach(function(btn){
+        btn.addEventListener('click', function(){
+            var id = btn.getAttribute('data-account-id');
+            var username = btn.getAttribute('data-account-username');
+            var form = document.getElementById('schedule-deletion-form');
+            form.action = '/admin/accounts/' + encodeURIComponent(id) + '/schedule-deletion';
+            var modal = document.getElementById('schedule-deletion-modal');
+            modal.querySelector('h3').textContent = 'Schedule deletion: ' + username;
+            modal.classList.add('open');
+        });
+    });
+    var overlay = document.getElementById('schedule-deletion-modal');
+    if (overlay) overlay.addEventListener('click', function(e){ if (e.target === overlay) overlay.classList.remove('open'); });
+})();
+</script>
+<style nonce="{{ csp_nonce }}">
+.hosting-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:none;align-items:center;justify-content:center;padding:1rem}
+.hosting-modal-overlay.open{display:flex}
+.hosting-modal{background:var(--bg-card,#1e1e2e);border-radius:8px;padding:1.5rem;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+@media(max-width:480px){.hosting-modal{padding:1rem}}
+</style>
+{% endblock %}

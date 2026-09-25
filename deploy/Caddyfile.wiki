@@ -1,0 +1,8 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$WIKI_DOMAIN} {
+	reverse_proxy 127.0.0.1:{$BW_PORT:5001}
+	header Strict-Transport-Security "max-age=31536000"
+}

@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Admin: Merge Requests | {{ settings.site_name if settings else 'Hosting Platform' }}{% endblock %}
+{% block content %}
+<h2>Admin: Merge Requests</h2>
+
+<a href="{{ url_for('admin_merge_accounts') }}" class="btn" style="margin-bottom: 15px;">New Admin Merge</a>
+
+{% if requests %}
+<table class="admin-table" style="width: 100%; text-align: left;">
+    <thead>
+        <tr>
+            <th>Source</th>
+            <th>Target</th>
+            <th>Status</th>
+            <th>Reason</th>
+            <th>Created</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for req in requests %}
+        <tr>
+            <td><code>@{{ req.source_username }}</code></td>
+            <td><code>@{{ req.target_username }}</code></td>
+            <td>
+                {% if req.status == 'approved' %}
+                <form method="POST" action="{{ url_for('admin_execute_merge_request', merge_id=req.id) }}" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm">Complete merge</button>
+                </form>
+                {% endif %}
+                {% if req.status == 'pending' %}
+                    <span style="color: #f39c12;">Pending</span>
+                {% elif req.status == 'approved' %}
+                    <span style="color: #27ae60;">Approved</span>
+                {% elif req.status == 'merged' %}
+                    <span style="color: #27ae60;">Merged</span>
+                {% elif req.status == 'denied' %}
+                    <span style="color: #e74c3c;">Denied</span>
+                {% elif req.status == 'cancelled' %}
+                    <span style="color: #e74c3c;">Cancelled</span>
+                {% endif %}
+            </td>
+            <td><small>{{ req.request_reason or '-' }}</small></td>
+            <td><small>{{ req.created_at[:19] }}</small></td>
+            <td>
+                {% if req.status == 'pending' %}
+                <form method="POST" action="{{ url_for('admin_approve_merge_request', merge_id=req.id) }}" style="display: inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm">Approve</button>
+                </form>
+                <form method="POST" action="{{ url_for('admin_deny_merge_request', merge_id=req.id) }}" style="display: inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm" style="background: #e74c3c; color: #fff;">Deny</button>
+                </form>
+                <form method="POST" action="{{ url_for('admin_cancel_merge_request', merge_id=req.id) }}" style="display: inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-outline">Cancel</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="settings-section">
+    <p>No merge requests found.</p>
+</div>
+{% endif %}
+
+<hr style="margin: 30px 0;">
+
+<div class="settings-section">
+    <h3>What Happens During an Account Merge</h3>
+    <ul>
+        <li>All wiki instances from the source account are transferred to the target account</li>
+        <li>OAuth links are updated</li>
+        <li>The source account is suspended (still viewable by admins)</li>
+        <li>A merge log entry is created for audit purposes</li>
+    </ul>
+</div>
+{% endblock %}

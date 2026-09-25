@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ page.title or t('custom_page.link_list.fallback_title') }}{# Links #} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+{% if page.title %}<h1>{{ page.title }}</h1>{% endif %}
+{% if page.meta_description %}<p class="u-o70">{{ page.meta_description }}</p>{% endif %}
+
+{% if links %}
+<div class="xs-d3ac492a">
+    {% for link in links %}
+    <div class="xs-1ac1e544">
+        <a class="xs-07965eba" href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.title or link.url }}</a>
+        {% if link.description %}
+        <p class="xs-c7cfd4e9">{{ link.description }}</p>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="u-o60">{{ t('custom_page.link_list.empty') }}</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ t('hosting.created.title') }} | {{ t('hosting.brand') }}{% endblock %}
+{% block content %}
+<div class="instance-created">
+    <h2>{{ t('hosting.created.heading') }}</h2>
+
+    <div class="info-box">
+        <p><strong>{{ t('hosting.created.url') }}</strong> <a href="{{ instance.url }}" target="_blank" rel="noopener">{{ instance.url }}</a></p>
+        {% if hosting_mode == 'port' %}
+        <p><strong>{{ t('hosting.created.name') }}</strong> {{ instance.subdomain }}</p>
+        <p><strong>{{ t('hosting.created.port') }}</strong> {{ instance.port }}</p>
+        {% else %}
+        <p><strong>{{ t('hosting.created.subdomain') }}</strong> {% if instance.domain_mode == 'apex' or not instance_url_suffix %}{{ instance.subdomain }}.{{ base_domain }}{% else %}{{ instance.subdomain }}-{{ instance_url_suffix }}.{{ base_domain }}{% endif %}</p>
+        {% endif %}
+        <p><strong>{{ t('hosting.created.expires') }}</strong> {{ instance.expires_at[:19] }} UTC</p>
+    </div>
+
+    {% if force_password_change %}
+    <div class="credentials-box">
+        <h3>{{ t('hosting.created.credentials') }}</h3>
+        <p>{{ t('hosting.created.credentials_help_force') }}</p>
+        <div class="credential-row">
+            <span class="credential-label">{{ t('hosting.created.username') }}</span>
+            <code class="credential-value">{{ instance.admin_username }}</code>
+        </div>
+        <div class="credential-row">
+            <span class="credential-label">{{ t('hosting.created.password') }}</span>
+            <code class="credential-value">{{ instance.admin_password_plain }}</code>
+        </div>
+    </div>
+    {% else %}
+    <div class="info-box">
+        <p>{{ t('hosting.created.custom_credentials_set', default='Your custom credentials have been set. Log in with the username and password you provided during setup.') }}</p>
+    </div>
+    {% endif %}
+
+    <div class="next-steps">
+        <h3>{{ t('hosting.created.next_steps') }}</h3>
+        <ol>
+            <li>{{ t('hosting.created.step_visit')|safe }} <a href="{{ instance.url }}" target="_blank" rel="noopener">{{ instance.url }}</a></li>
+            <li>{{ t('hosting.created.step_login') }}</li>
+            <li>{{ t('hosting.created.step_change_pw') }}</li>
+            <li>{{ t('hosting.created.step_build') }}</li>
+        </ol>
+    </div>
+
+    <p><a href="{{ url_for('hosting_dashboard') }}" class="btn btn-primary">{{ t('hosting.created.go_dashboard') }}</a></p>
+</div>
+{% endblock %}

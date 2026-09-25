@@ -1,0 +1,182 @@
+    <!-- Accessibility Panel -->
+    <div class="a11y-panel" id="a11y-panel" role="dialog" aria-label="{{ t('a11y.options') }}" aria-modal="true">
+        <div class="a11y-panel-header">
+            <span>{{ t('a11y.customization') }}</span>
+            <button class="btn-icon" id="a11y-close-btn" aria-label="{{ t('a11y.close_panel') }}">✕</button>
+        </div>
+        <div class="a11y-panel-body">
+            <div class="a11y-section">
+                <label class="a11y-label">{{ t('a11y.theme_mode') }}</label>
+                <p class="a11y-hint" id="a11y-theme-hint">{{ t('a11y.theme_hint', mode=site_theme_mode | capitalize) }}</p>
+                <div class="a11y-theme-btns" role="group" aria-label="{{ t('a11y.theme_mode') }}">
+                    <button class="a11y-theme-btn" data-theme-mode="default" title="{{ t('a11y.theme_default_title') }}">{{ t('a11y.theme_default') }}</button>
+                    <button class="a11y-theme-btn" data-theme-mode="dark" title="{{ t('a11y.theme_dark_title') }}">{{ t('a11y.theme_dark') }}</button>
+                    <button class="a11y-theme-btn" data-theme-mode="light" title="{{ t('a11y.theme_light_title') }}">{{ t('a11y.theme_light') }}</button>
+                </div>
+            </div>
+            <div class="a11y-section">
+                <label class="a11y-label">{{ t('a11y.text_size') }}</label>
+                <div class="a11y-font-btns" role="group" aria-label="{{ t('a11y.text_size') }}">
+                    <button class="a11y-font-btn" data-scale="0.85" title="{{ t('a11y.text_xs_title') }}">XS</button>
+                    <button class="a11y-font-btn" data-scale="0.9" title="{{ t('a11y.text_s_title') }}">S</button>
+                    <button class="a11y-font-btn" data-scale="1.0" title="{{ t('a11y.text_m_title') }}">M</button>
+                    <button class="a11y-font-btn" data-scale="1.1" title="{{ t('a11y.text_l_title') }}">L</button>
+                    <button class="a11y-font-btn" data-scale="1.2" title="{{ t('a11y.text_xl_title') }}">XL</button>
+                    <button class="a11y-font-btn" data-scale="1.35" title="{{ t('a11y.text_xxl_title') }}">XXL</button>
+                </div>
+            </div>
+            <div class="a11y-section">
+                <label class="a11y-label">{{ t('a11y.high_contrast') }}</label>
+                <p class="a11y-hint" id="a11y-contrast-hint">{{ t('a11y.contrast_hint') }}</p>
+                <div class="a11y-contrast-btns" role="group" aria-label="{{ t('a11y.contrast_level') }}" aria-describedby="a11y-contrast-hint">
+                    <button class="a11y-contrast-btn" data-contrast="0" title="{{ t('a11y.contrast_off_title') }}">{{ t('a11y.contrast_off') }}</button>
+                    <button class="a11y-contrast-btn" data-contrast="1" title="{{ t('a11y.contrast_slight_title') }}">{{ t('a11y.contrast_slight') }}</button>
+                    <button class="a11y-contrast-btn" data-contrast="2" title="{{ t('a11y.contrast_low_title') }}">{{ t('a11y.contrast_low') }}</button>
+                    <button class="a11y-contrast-btn" data-contrast="3" title="{{ t('a11y.contrast_med_title') }}">{{ t('a11y.contrast_med') }}</button>
+                    <button class="a11y-contrast-btn" data-contrast="4" title="{{ t('a11y.contrast_high_title') }}">{{ t('a11y.contrast_high') }}</button>
+                    <button class="a11y-contrast-btn" data-contrast="5" title="{{ t('a11y.contrast_max_title') }}">{{ t('a11y.contrast_max') }}</button>
+                </div>
+            </div>
+            <div class="a11y-section">
+                <label class="a11y-label">{{ t('a11y.line_spacing') }}</label>
+                <div class="a11y-line-btns" role="group" aria-label="{{ t('a11y.line_spacing') }}">
+                    <button class="a11y-line-btn" data-line-height="0" title="{{ t('a11y.line_default_title') }}">{{ t('a11y.line_default') }}</button>
+                    <button class="a11y-line-btn" data-line-height="1" title="{{ t('a11y.line_wide_title') }}">{{ t('a11y.line_wide') }}</button>
+                    <button class="a11y-line-btn" data-line-height="2" title="{{ t('a11y.line_extra_title') }}">{{ t('a11y.line_extra') }}</button>
+                </div>
+            </div>
+            <div class="a11y-section">
+                <label class="a11y-label">{{ t('a11y.letter_spacing') }}</label>
+                <div class="a11y-spacing-btns" role="group" aria-label="{{ t('a11y.letter_spacing') }}">
+                    <button class="a11y-spacing-btn" data-spacing="0" title="{{ t('a11y.letter_normal_title') }}">{{ t('a11y.letter_normal') }}</button>
+                    <button class="a11y-spacing-btn" data-spacing="1" title="{{ t('a11y.letter_wide_title') }}">{{ t('a11y.letter_wide') }}</button>
+                    <button class="a11y-spacing-btn" data-spacing="2" title="{{ t('a11y.letter_extra_title') }}">{{ t('a11y.letter_extra') }}</button>
+                </div>
+            </div>
+            <div class="a11y-section a11y-toggle-row">
+                <label class="a11y-label" for="a11y-motion-toggle">{{ t('a11y.reduce_motion') }}</label>
+                <label class="a11y-switch" title="{{ t('a11y.reduce_motion_title') }}">
+                    <input type="checkbox" id="a11y-motion-toggle" aria-label="{{ t('a11y.reduce_motion_aria') }}">
+                    <span class="a11y-switch-slider"></span>
+                </label>
+            </div>
+            <div class="a11y-section">
+                <label class="a11y-label">{{ t('a11y.semantic_highlight') }}</label>
+                <p class="a11y-hint">{{ t('a11y.semantic_highlight_hint') }}</p>
+                {% for key, label in [
+                    ('bold', t('a11y.semantic.bold')),
+                    ('italic', t('a11y.semantic.italic')),
+                    ('code', t('a11y.semantic.code')),
+                    ('link', t('a11y.semantic.link')),
+                    ('heading', t('a11y.semantic.heading')),
+                ] %}
+                <div class="a11y-semantic-row">
+                    <span class="a11y-semantic-label">{{ label }}</span>
+                    <div class="a11y-semantic-btns" role="group" aria-label="{{ label }}">
+                        <button class="a11y-semantic-btn" data-semantic="{{ key }}" data-level="0">{{ t('a11y.semantic.off') }}</button>
+                        <button class="a11y-semantic-btn" data-semantic="{{ key }}" data-level="1">{{ t('a11y.semantic.subtle') }}</button>
+                        <button class="a11y-semantic-btn" data-semantic="{{ key }}" data-level="2">{{ t('a11y.semantic.strong') }}</button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="a11y-section">
+                <label class="a11y-label" for="a11y-language-select" data-i18n="a11y.language">{{ t('a11y.language') }}</label>
+                <select id="a11y-language-select" class="input a11y-language-select" aria-label="{{ t('a11y.interface_language') }}">
+                    <option value="default">{{ t('a11y.site_default_label', label=get_interface_language_label(site_default_language, settings, default_label='English')) }}</option>
+                    {% for code, label in available_interface_languages.items() %}
+                    <option value="{{ code }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="a11y-section">
+                <label class="a11y-label">{{ t('a11y.color_presets') }}</label>
+                <div class="a11y-preset-grid" id="a11y-preset-grid">
+                    <button class="btn a11y-preset-swatch" data-preset="ocean" title="{{ t('a11y.preset.ocean') }}">
+                        <span class="a11y-preset-colors"><span class="xs-7087ad64"></span><span class="xs-e4c2a0a2"></span><span class="xs-792fae84"></span></span>
+                        <span class="a11y-preset-name">{{ t('a11y.preset.ocean') }}</span>
+                    </button>
+                    <button class="btn a11y-preset-swatch" data-preset="forest" title="{{ t('a11y.preset.forest') }}">
+                        <span class="a11y-preset-colors"><span class="xs-fd99009e"></span><span class="xs-4bbcce4b"></span><span class="xs-839e2dc6"></span></span>
+                        <span class="a11y-preset-name">{{ t('a11y.preset.forest') }}</span>
+                    </button>
+                    <button class="btn a11y-preset-swatch" data-preset="sunset" title="{{ t('a11y.preset.sunset') }}">
+                        <span class="a11y-preset-colors"><span class="xs-6ce6d37c"></span><span class="xs-e3ec5517"></span><span class="xs-630591a0"></span></span>
+                        <span class="a11y-preset-name">{{ t('a11y.preset.sunset') }}</span>
+                    </button>
+                    <button class="btn a11y-preset-swatch" data-preset="lavender" title="{{ t('a11y.preset.lavender') }}">
+                        <span class="a11y-preset-colors"><span class="xs-f7fd6918"></span><span class="xs-bf443334"></span><span class="xs-a4dd691d"></span></span>
+                        <span class="a11y-preset-name">{{ t('a11y.preset.lavender') }}</span>
+                    </button>
+                    <button class="btn a11y-preset-swatch" data-preset="midnight" title="{{ t('a11y.preset.midnight') }}">
+                        <span class="a11y-preset-colors"><span class="xs-15c95f78"></span><span class="xs-6ea414e8"></span><span class="xs-0fc5c095"></span></span>
+                        <span class="a11y-preset-name">{{ t('a11y.preset.midnight') }}</span>
+                    </button>
+                    <button class="btn a11y-preset-swatch" data-preset="copper" title="{{ t('a11y.preset.copper') }}">
+                        <span class="a11y-preset-colors"><span class="xs-b5fe91df"></span><span class="xs-07298f95"></span><span class="xs-eceae53c"></span></span>
+                        <span class="a11y-preset-name">{{ t('a11y.preset.copper') }}</span>
+                    </button>
+                    <button class="btn a11y-preset-swatch" data-preset="rose" title="{{ t('a11y.preset.rose') }}">
+                        <span class="a11y-preset-colors"><span class="xs-79a9d8d8"></span><span class="xs-a0f1b92d"></span><span class="xs-7c74c3bf"></span></span>
+                        <span class="a11y-preset-name">{{ t('a11y.preset.rose') }}</span>
+                    </button>
+                    <button class="btn a11y-preset-swatch" data-preset="slate" title="{{ t('a11y.preset.slate') }}">
+                        <span class="a11y-preset-colors"><span class="xs-4b64846b"></span><span class="xs-8f706773"></span><span class="xs-b449c1f6"></span></span>
+                        <span class="a11y-preset-name">{{ t('a11y.preset.slate') }}</span>
+                    </button>
+                    <button class="btn a11y-preset-swatch" data-preset="ember" title="{{ t('a11y.preset.ember') }}">
+                        <span class="a11y-preset-colors"><span class="xs-cb7f1cc0"></span><span class="xs-49d32781"></span><span class="xs-38d833fd"></span></span>
+                        <span class="a11y-preset-name">{{ t('a11y.preset.ember') }}</span>
+                    </button>
+                </div>
+                <p class="a11y-hint">{{ t('a11y.preset_hint') }}</p>
+            </div>
+            <div class="a11y-section">
+                <label class="a11y-label">{{ t('a11y.custom_colors') }}</label>
+                <div class="a11y-color-row">
+                    <label class="a11y-color-label">{{ t('a11y.color_background') }}</label>
+                    <input type="color" id="a11y-color-bg" class="a11y-color-input" title="{{ t('a11y.color_background_title') }}" value="{{ theme_bg }}" autocomplete="off">
+                    <button class="btn-icon a11y-color-clear" data-target="bg" title="{{ t('a11y.reset_to_default') }}">✕</button>
+                </div>
+                <div class="a11y-color-row">
+                    <label class="a11y-color-label">{{ t('a11y.color_text') }}</label>
+                    <input type="color" id="a11y-color-text" class="a11y-color-input" title="{{ t('a11y.color_text_title') }}" value="{{ theme_text }}" autocomplete="off">
+                    <button class="btn-icon a11y-color-clear" data-target="text" title="{{ t('a11y.reset_to_default') }}">✕</button>
+                </div>
+                <div class="a11y-color-row">
+                    <label class="a11y-color-label">{{ t('a11y.color_primary') }}</label>
+                    <input type="color" id="a11y-color-primary" class="a11y-color-input" title="{{ t('a11y.color_primary_title') }}" value="{{ theme_primary }}" autocomplete="off">
+                    <button class="btn-icon a11y-color-clear" data-target="primary" title="{{ t('a11y.reset_to_default') }}">✕</button>
+                </div>
+                <div class="a11y-color-row">
+                    <label class="a11y-color-label">{{ t('a11y.color_secondary') }}</label>
+                    <input type="color" id="a11y-color-secondary" class="a11y-color-input" title="{{ t('a11y.color_secondary_title') }}" value="{{ theme_secondary }}" autocomplete="off">
+                    <button class="btn-icon a11y-color-clear" data-target="secondary" title="{{ t('a11y.reset_to_default') }}">✕</button>
+                </div>
+                <div class="a11y-color-row">
+                    <label class="a11y-color-label">{{ t('a11y.color_accent') }}</label>
+                    <input type="color" id="a11y-color-accent" class="a11y-color-input" title="{{ t('a11y.color_accent_title') }}" value="{{ theme_accent }}" autocomplete="off">
+                    <button class="btn-icon a11y-color-clear" data-target="accent" title="{{ t('a11y.reset_to_default') }}">✕</button>
+                </div>
+                <div class="a11y-color-row">
+                    <label class="a11y-color-label">{{ t('a11y.color_sidebar') }}</label>
+                    <input type="color" id="a11y-color-sidebar" class="a11y-color-input" title="{{ t('a11y.color_sidebar_title') }}" value="{{ theme_sidebar }}" autocomplete="off">
+                    <button class="btn-icon a11y-color-clear" data-target="sidebar" title="{{ t('a11y.reset_to_default') }}">✕</button>
+                </div>
+            </div>
+            <div class="a11y-section">
+                <label class="a11y-label">{{ t('a11y.background_image') }}</label>
+                <div class="a11y-bg-image-preview" id="a11y-bg-image-preview" aria-hidden="true"></div>
+                <div class="a11y-bg-image-actions">
+                    <input type="file" id="a11y-bg-image-input" class="u-d-none" accept="image/png,image/jpeg,image/gif,image/webp">
+                    <button type="button" class="btn btn-sm" id="a11y-bg-image-upload">{{ t('a11y.background_image_upload') }}</button>
+                    <button type="button" class="btn btn-outline btn-sm" id="a11y-bg-image-clear">{{ t('a11y.background_image_clear') }}</button>
+                </div>
+                <p class="a11y-hint">{{ t('a11y.background_image_hint') }}</p>
+            </div>
+            <div class="a11y-section">
+                <button class="btn btn-outline btn-sm u-w100" id="a11y-reset-btn">{{ t('a11y.reset_all') }}</button>
+            </div>
+        </div>
+    </div>
+    <div class="a11y-overlay" id="a11y-overlay"></div>

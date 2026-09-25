@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Recovery codes · BananaWiki Hosting{% endblock %}
+{% block content %}
+<div class="auth-container"><div class="auth-box">
+  <h1>Save your recovery codes</h1>
+  <p>Two-step verification is enabled. Save these codes somewhere safe. Each works once if you lose access to your authenticator. They are only shown here.</p>
+  <ul>{% for code in recovery_codes %}<li><code>{{ code }}</code></li>{% endfor %}</ul>
+  <a class="btn" href="{{ url_for('hosting_account') }}">Back to account</a>
+</div></div>
+{% endblock %}

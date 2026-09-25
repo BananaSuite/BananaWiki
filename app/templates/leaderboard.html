@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% block title %}{{ t('leaderboard.title') }} - {{ settings.site_name }}{% endblock %}
+{% block content %}
+{% macro contributor_name(entry) -%}
+    {% set pub = profile_map.get(entry.user_id, false) %}
+    {% if pub or is_admin %}
+    <a href="{{ url_for('user_profile', username=entry.username) }}" class="leaderboard-user-link{% if not pub and is_admin %} leaderboard-profile-private{% endif %}">{{ entry.username }}</a>
+    {% else %}
+    <span class="leaderboard-user-link leaderboard-profile-private" title="{{ t('leaderboard.private_profile') }}">{{ entry.username }}</span>
+    {% endif %}
+{%- endmacro %}
+
+{% macro sort_value(entry) -%}
+    {% if sort_by == 'edits' %}
+    {{ "{:,}".format(entry.edit_count) }}
+    {% elif sort_by == 'chars' %}
+    {{ "{:,}".format(entry.total) }}
+    {% elif sort_by == 'pages' %}
+    {{ "{:,}".format(entry.pages_touched) }}
+    {% elif sort_by == 'active' %}
+    {{ "{:,}".format(entry.active_days) }}
+    {% elif sort_by == 'recent' %}
+    {% if entry.last_contribution %}{{ time_ago(entry.last_contribution) }}{% else %}-{% endif %}
+    {% else %}
+    {{ "{:,}".format(entry.score) }}
+    {% endif %}
+{%- endmacro %}
+
+{% macro net_value(value) -%}
+    {% if value > 0 %}
+    <span class="leaderboard-added">+{{ "{:,}".format(value) }}</span>
+    {% elif value < 0 %}
+    <span class="leaderboard-removed">&minus;{{ "{:,}".format(-value) }}</span>
+    {% else %}
+    <span>0</span>
+    {% endif %}
+{%- endmacro %}
+
+{% macro streak_cell(entry) -%}
+    {% if entry.longest_streak > 0 %}
+    <span class="leaderboard-streak" title="{{ t('leaderboard.current_streak') }}: {{ entry.current_streak }}">{{ entry.longest_streak }}</span>
+    {% else %}
+    <span>0</span>
+    {% endif %}
+{%- endmacro %}
+
+{% macro podium_card(entry, podium_class) -%}
+    {% if entry %}
+    <div class="leaderboard-podium-card leaderboard-podium-{{ podium_class }}{% if current_user and entry.user_id == current_user.id %} leaderboard-current-user{% endif %}">
+        <div class="leaderboard-podium-rank">#{{ entry.rank }}</div>
+        <div class="leaderboard-podium-name">{{ contributor_name(entry) }}</div>
+        <div class="leaderboard-podium-value">{{ sort_value(entry) }}</div>
+        <div class="leaderboard-podium-label">{{ t('leaderboard.sorted_value') }}</div>
+        <div class="leaderboard-podium-base">
+            <span>{{ "{:,}".format(entry.edit_count) }} {{ t('leaderboard.edits') }}</span>
+            <span>{{ "{:,}".format(entry.pages_touched) }} {{ t('leaderboard.pages') }}</span>
+            {% if entry.longest_streak > 0 %}
+            <span>{{ entry.longest_streak }}d {{ t('leaderboard.streak') }}</span>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <div class="leaderboard-podium-card leaderboard-podium-empty" aria-hidden="true"></div>
+    {% endif %}
+{%- endmacro %}
+
+<div class="leaderboard-page">
+    <div class="page-header leaderboard-header">
+        <div>
+            <h1>{{ t('leaderboard.title') }}</h1>
+            {% if summary.last_contribution %}
+            <p class="leaderboard-header-meta">{{ t('leaderboard.last_activity') }}: {{ time_ago(summary.last_contribution) }}</p>
+            {% endif %}
+        </div>
+        <div class="leaderboard-toolbar">
+            <div class="leaderboard-sort-toggle" role="tablist" aria-label="{{ t('leaderboard.sort_by') }}">
+                <a href="{{ url_for('leaderboard', sort='score', range=date_range) }}" class="btn btn-sm{% if sort_by == 'score' %} btn-active{% else %} btn-outline{% endif %}" role="tab" aria-selected="{{ 'true' if sort_by == 'score' else 'false' }}">{{ t('leaderboard.by_score') }}</a>
+                <a href="{{ url_for('leaderboard', sort='edits', range=date_range) }}" class="btn btn-sm{% if sort_by == 'edits' %} btn-active{% else %} btn-outline{% endif %}" role="tab" aria-selected="{{ 'true' if sort_by == 'edits' else 'false' }}">{{ t('leaderboard.by_edits') }}</a>
+                <a href="{{ url_for('leaderboard', sort='chars', range=date_range) }}" class="btn btn-sm{% if sort_by == 'chars' %} btn-active{% else %} btn-outline{% endif %}" role="tab" aria-selected="{{ 'true' if sort_by == 'chars' else 'false' }}">{{ t('leaderboard.by_chars') }}</a>
+                <a href="{{ url_for('leaderboard', sort='pages', range=date_range) }}" class="btn btn-sm{% if sort_by == 'pages' %} btn-active{% else %} btn-outline{% endif %}" role="tab" aria-selected="{{ 'true' if sort_by == 'pages' else 'false' }}">{{ t('leaderboard.by_pages') }}</a>
+                <a href="{{ url_for('leaderboard', sort='active', range=date_range) }}" class="btn btn-sm{% if sort_by == 'active' %} btn-active{% else %} btn-outline{% endif %}" role="tab" aria-selected="{{ 'true' if sort_by == 'active' else 'false' }}">{{ t('leaderboard.by_active_days') }}</a>
+                <a href="{{ url_for('leaderboard', sort='recent', range=date_range) }}" class="btn btn-sm{% if sort_by == 'recent' %} btn-active{% else %} btn-outline{% endif %}" role="tab" aria-selected="{{ 'true' if sort_by == 'recent' else 'false' }}">{{ t('leaderboard.by_recent') }}</a>
+            </div>
+            <div class="leaderboard-actions">
+                <div class="leaderboard-range-toggle" role="tablist" aria-label="{{ t('leaderboard.date_range') }}">
+                    {% for key in ['all', '30d', '90d', 'year'] %}
+                    <a href="{{ url_for('leaderboard', sort=sort_by, range=key) }}" class="btn btn-xs{% if date_range == key %} btn-active{% else %} btn-outline{% endif %}" role="tab" aria-selected="{{ 'true' if date_range == key else 'false' }}">{{ t('leaderboard.range_' + key) }}</a>
+                    {% endfor %}
+                </div>
+                <a href="{{ url_for('leaderboard_export', sort=sort_by, range=date_range) }}" class="btn btn-sm btn-outline leaderboard-export-btn" title="{{ t('leaderboard.export_csv') }}">{{ t('leaderboard.export') }}</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="leaderboard-search-bar">
+        <input type="text" id="leaderboard-search" class="form-input" placeholder="{{ t('leaderboard.search_placeholder') }}" autocomplete="off">
+    </div>
+
+    {% if leaderboard_data %}
+    <div class="leaderboard-summary" aria-label="{{ t('leaderboard.summary') }}">
+        <div class="leaderboard-stat">
+            <span>{{ t('leaderboard.contributors') }}</span>
+            <strong>{{ "{:,}".format(summary.contributor_count) }}</strong>
+        </div>
+        <div class="leaderboard-stat">
+            <span>{{ t('leaderboard.edits') }}</span>
+            <strong>{{ "{:,}".format(summary.edit_count) }}</strong>
+        </div>
+        <div class="leaderboard-stat">
+            <span>{{ t('leaderboard.pages_touched') }}</span>
+            <strong>{{ "{:,}".format(summary.pages_touched) }}</strong>
+        </div>
+        <div class="leaderboard-stat">
+            <span>{{ t('leaderboard.text_changed') }}</span>
+            <strong>{{ "{:,}".format(summary.total) }}</strong>
+        </div>
+        <div class="leaderboard-stat">
+            <span>{{ t('leaderboard.active_days') }}</span>
+            <strong>{{ "{:,}".format(summary.active_days) }}</strong>
+        </div>
+    </div>
+
+    <section class="leaderboard-podium-section" aria-labelledby="leaderboard-podium-heading">
+        <h2 id="leaderboard-podium-heading">{{ t('leaderboard.podium') }}</h2>
+        <div class="leaderboard-podium">
+            {{ podium_card(podium[1] if podium|length > 1 else none, 'second') }}
+            {{ podium_card(podium[0] if podium|length > 0 else none, 'first') }}
+            {{ podium_card(podium[2] if podium|length > 2 else none, 'third') }}
+        </div>
+    </section>
+
+    {% if current_user_entry %}
+    <div class="leaderboard-you">
+        <span>{{ t('leaderboard.your_rank') }}</span>
+        <strong>#{{ current_user_entry.rank }}</strong>
+        <span>{{ sort_value(current_user_entry) }}</span>
+        {% if current_user_entry.longest_streak > 0 %}
+        <span>{{ t('leaderboard.streak') }}: {{ current_user_entry.longest_streak }}d</span>
+        {% endif %}
+        {% if current_user_entry.outside_limit %}
+        <span>{{ t('leaderboard.outside_top') }}</span>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="leaderboard-table-wrap">
+        <table class="leaderboard-table leaderboard-table-rich">
+            <thead>
+                <tr>
+                    <th class="leaderboard-rank">#</th>
+                    <th>{{ t('leaderboard.contributor') }}</th>
+                    <th class="leaderboard-num">{{ t('leaderboard.score') }}</th>
+                    <th class="leaderboard-num">{{ t('leaderboard.edits') }}</th>
+                    <th class="leaderboard-num">{{ t('leaderboard.pages') }}</th>
+                    <th class="leaderboard-num">{{ t('leaderboard.created') }}</th>
+                    <th class="leaderboard-num">{{ t('leaderboard.active_days') }}</th>
+                    <th class="leaderboard-num">{{ t('leaderboard.streak') }}</th>
+                    <th class="leaderboard-num">{{ t('leaderboard.added') }}</th>
+                    <th class="leaderboard-num">{{ t('leaderboard.removed') }}</th>
+                    <th class="leaderboard-num">{{ t('leaderboard.net') }}</th>
+                    <th class="leaderboard-num">{{ t('leaderboard.avg_edit') }}</th>
+                    <th class="leaderboard-num">{{ t('leaderboard.biggest_edit') }}</th>
+                    <th class="leaderboard-num">{{ t('leaderboard.reverts') }}</th>
+                    <th>{{ t('leaderboard.first_seen') }}</th>
+                    <th>{{ t('leaderboard.latest') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in leaderboard_data %}
+                <tr{% if current_user and entry.user_id == current_user.id %} class="leaderboard-current-user"{% endif %} data-username="{{ entry.username|lower }}">
+                    <td class="leaderboard-rank">{{ entry.rank }}</td>
+                    <td>{{ contributor_name(entry) }}</td>
+                    <td class="leaderboard-num leaderboard-total">{{ "{:,}".format(entry.score) }}</td>
+                    <td class="leaderboard-num">{{ "{:,}".format(entry.edit_count) }}</td>
+                    <td class="leaderboard-num">{{ "{:,}".format(entry.pages_touched) }}</td>
+                    <td class="leaderboard-num">{{ "{:,}".format(entry.pages_created) }}</td>
+                    <td class="leaderboard-num">{{ "{:,}".format(entry.active_days) }}</td>
+                    <td class="leaderboard-num">{{ streak_cell(entry) }}</td>
+                    <td class="leaderboard-num leaderboard-added">+{{ "{:,}".format(entry.added) }}</td>
+                    <td class="leaderboard-num leaderboard-removed">&minus;{{ "{:,}".format(entry.deleted) }}</td>
+                    <td class="leaderboard-num">{{ net_value(entry.net) }}</td>
+                    <td class="leaderboard-num">{{ "{:,}".format(entry.avg_change) }}</td>
+                    <td class="leaderboard-num">{{ "{:,}".format(entry.largest_edit) }}</td>
+                    <td class="leaderboard-num">{{ "{:,}".format(entry.revert_count) }}</td>
+                    <td>{% if entry.first_contribution %}<span title="{{ format_datetime(entry.first_contribution) }}">{{ time_ago(entry.first_contribution) }}</span>{% else %}-{% endif %}</td>
+                    <td>{% if entry.last_contribution %}<span title="{{ format_datetime(entry.last_contribution) }}">{{ time_ago(entry.last_contribution) }}</span>{% else %}-{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="leaderboard-empty">{{ t('leaderboard.no_data') }}</p>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var searchInput = document.getElementById('leaderboard-search');
+    if (!searchInput) return;
+    searchInput.addEventListener('input', function() {
+        var query = this.value.toLowerCase().trim();
+        var rows = document.querySelectorAll('.leaderboard-table tbody tr');
+        rows.forEach(function(row) {
+            var username = row.getAttribute('data-username') || '';
+            row.style.display = (!query || username.indexOf(query) !== -1) ? '' : 'none';
+        });
+    });
+});
+</script>
+{% endblock %}

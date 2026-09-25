@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.migration.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ t('admin.migration.title') }}</h1>
+</div>
+
+<div class="settings-section">
+    <div class="u-flex-center-05 u-jc-between u-mb08">
+        <h3 class="u-m0">{{ t('admin.migration.export') }}</h3>
+    </div>
+    <p class="u-section-note">
+        {{ t('admin.migration.export_intro') }}
+    </p>
+    <ul class="xs-3bea4c1c">
+        <li>{{ t('admin.migration.export.1') }}</li>
+        <li>{{ t('admin.migration.export.2') }}</li>
+        <li>{{ t('admin.migration.export.3') }}</li>
+        <li>{{ t('admin.migration.export.4') }}</li>
+    </ul>
+    <p class="u-section-note">
+        {{ t('admin.migration.export_private_warning', default='<strong>Keep this archive private.</strong> It contains the password hash of every account and a full copy of the database, private pages and chats included. Anyone who gets a copy can try to recover the passwords offline and read everything on the wiki. Store it where only you can read it and delete copies you no longer need.')|safe }}
+    </p>
+    <p class="xs-79c6e966">
+        {{ t('admin.migration.security_note')|safe }}{# <strong>Security note:</strong> The secret key file (<code>.secret_key</code>) is <strong>not</strong> included in the export. Sharing the raw secret key would allow anyone with the archive to forge session cookies. If you are migrating to a new server and need to preserve existing sessions, copy the secret key file to the new server manually out-of-band. #}
+    </p>
+    <form method="POST" action="{{ url_for('admin_migration_export') }}" id="exportSiteForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+            <label for="exportSitePassword">{{ t('account.settings.confirm_password') }}</label>
+            <input type="password" id="exportSitePassword" name="password" class="input" required maxlength="1024" autocomplete="current-password">
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn">{{ t('admin.migration.download') }}</button>
+        </div>
+    </form>
+</div>
+
+<div class="settings-section">
+    <h3>{{ t('admin.migration.import') }}</h3>
+    <p class="u-section-note">
+        {{ t('admin.migration.import_intro') }}
+    </p>
+    <p class="xs-79c6e966">
+        {{ t('admin.migration.import_full_control_warning', default="<strong>Importing a backup gives complete control of the wiki.</strong> The file can add accounts with any role, owners and superusers included, and the first two modes below can also replace accounts that already exist, the owner's included. Owner status protects an account from being demoted or deleted through the normal interface, not from an admin who imports a backup or installs a plugin. Give the admin role only to people you trust with everything.")|safe }}
+    </p>
+    <form method="POST" action="{{ url_for('admin_migration_import') }}"
+          enctype="multipart/form-data"
+          data-confirm="{{ t('admin.migration.import_confirm') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="form-group">
+            <label>{{ t('admin.migration.import_files_label') }}</label>
+            <p class="u-section-note">
+                {{ t('admin.migration.import_files_hint') }}
+            </p>
+            <input type="file" name="import_file" accept=".zip" class="input" multiple required>
+        </div>
+
+        <div class="form-group u-mt08">
+            <label>{{ t('admin.migration.conflict_resolution') }}</label>
+            <div class="xs-f8442a38">
+                <label class="u-flex-start-05-ptr">
+                    <input class="u-mt02" type="radio" name="import_mode" value="delete_all" required>
+                    <span>
+                        <strong>{{ t('admin.migration.mode.delete_all') }}</strong><br>
+                        <small class="u-o70">
+                            {{ t('admin.migration.mode.delete_all_hint') }}
+                        </small>
+                    </span>
+                </label>
+                <label class="u-flex-start-05-ptr">
+                    <input class="u-mt02" type="radio" name="import_mode" value="override">
+                    <span>
+                        <strong>{{ t('admin.migration.mode.override') }}</strong><br>
+                        <small class="u-o70">
+                            {{ t('admin.migration.mode.override_hint') }}
+                        </small>
+                    </span>
+                </label>
+                <label class="u-flex-start-05-ptr">
+                    <input class="u-mt02" type="radio" name="import_mode" value="keep">
+                    <span>
+                        <strong>{{ t('admin.migration.mode.keep') }}</strong><br>
+                        <small class="u-o70">
+                            {{ t('admin.migration.mode.keep_hint') }}
+                            {{ t('admin.migration.mode.keep_accounts_hint', default='Accounts that already exist here are left exactly as they are: the file cannot change their role, schedule their demotion or deletion, or add sign-in tokens for them.') }}
+                        </small>
+                    </span>
+                </label>
+            </div>
+        </div>
+
+        <div class="form-group u-mt08">
+            <label class="u-flex-start-05-ptr u-fw-normal">
+                <input type="checkbox" name="restore_system_files" value="1">
+                <span>
+                    <strong>{{ t('admin.migration.restore_system_files') }}</strong><br>
+                    <small class="u-o70">
+                        {{ t('admin.migration.restore_system_files_hint')|safe }}{# If present in the backup, restore <code>config.py</code> and <code>.secret_key</code>. Only use this if you trust the source of the backup, as it can be used for Remote Code Execution. #}
+                    </small>
+                </span>
+            </label>
+        </div>
+
+        <div class="form-group u-mt08">
+            <label for="importSitePassword">{{ t('account.settings.confirm_password') }}</label>
+            <input type="password" id="importSitePassword" name="password" class="input" required maxlength="1024" autocomplete="current-password">
+        </div>
+
+        <button type="submit" class="btn">
+            {{ t('admin.migration.import_button') }}
+        </button>
+    </form>
+</div>
+{% endblock %}

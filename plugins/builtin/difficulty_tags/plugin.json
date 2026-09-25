@@ -1,0 +1,9 @@
+{
+    "id": "difficulty_tags",
+    "name": "Difficulty Tags",
+    "version": "1.0.0",
+    "author": "BananaWiki",
+    "description": "Difficulty tags \u2013 label pages with difficulty levels and custom tags",
+    "builtin": true,
+    "bananawiki_api_version": "1.0"
+}

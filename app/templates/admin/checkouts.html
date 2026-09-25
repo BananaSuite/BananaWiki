@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.checkouts.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('admin.checkouts.title') }}</h1>
+<p class="xs-9879b7a2">
+    {{ t('admin.checkouts.intro') }}
+    {% if not settings.page_reservations_enabled %}
+    <span class="xs-f62f3d6d"> {{ t('admin.checkouts.disabled_note') }}</span>
+    {% endif %}
+</p>
+
+{# Active Reservations #}
+<div class="settings-section">
+    <h3>{{ t('admin.checkouts.active_reservations') }}</h3>
+    {% if reservations %}
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>{{ t('admin.contributions.col.page') }}</th>
+                <th>{{ t('admin.checkouts.col.reserved_by') }}</th>
+                <th>{{ t('admin.checkouts.col.reserved_at') }}</th>
+                <th>{{ t('admin.audit.col.expires') }}</th>
+                <th>{{ t('common.actions') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in reservations %}
+            <tr>
+                <td><a href="{{ url_for('view_page', slug=r.slug) }}">{{ r.title }}</a></td>
+                <td>{{ r.username }}</td>
+                <td title="{{ format_datetime(r.reserved_at) }}">{{ time_ago(r.reserved_at) }}</td>
+                <td title="{{ format_datetime(r.expires_at) }}">{{ time_ago(r.expires_at) }}</td>
+                <td>
+                    <form class="u-d-inline" method="POST" action="{{ url_for('admin_force_release_reservation', page_id=r.page_id) }}" data-confirm="{{ t('admin.checkouts.force_release_confirm', title=r.title) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-danger">{{ t('admin.checkouts.force_release') }}</button>
+                    </form>
+                    <form class="xs-af6a85f5" method="POST" action="{{ url_for('admin_clear_page_cooldown', page_id=r.page_id) }}" data-confirm="{{ t('admin.checkouts.clear_cooldowns_confirm', title=r.title) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm">{{ t('admin.checkouts.clear_cooldowns') }}</button>
+                    </form>
+                </td>
+            </tr>
+            <tr>
+                <td class="xs-a3733402" colspan="5">
+                    <form class="u-flex-center-05" method="POST" action="{{ url_for('admin_assign_reservation', page_id=r.page_id) }}" data-confirm="{{ t('admin.checkouts.reassign_confirm', title=r.title) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <label class="xs-cb82926d">{{ t('admin.checkouts.reassign_to') }}</label>
+                        <select name="user_id" class="input xs-d05fed52">
+                            {% for u in eligible_users %}
+                            <option value="{{ u.id }}">{{ u.username }} ({{ u.role }})</option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-sm">{{ t('admin.checkouts.assign') }}</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="u-o50">{{ t('admin.checkouts.empty_reservations') }}</p>
+    {% endif %}
+</div>
+
+{# Active Cooldowns #}
+<div class="settings-section u-mt15">
+    <h3>{{ t('admin.checkouts.users_in_cooldown') }}</h3>
+    {% if cooldowns %}
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>{{ t('admin.contributions.col.page') }}</th>
+                <th>{{ t('admin.contributions.col.user') }}</th>
+                <th>{{ t('admin.checkouts.col.cooldown_until') }}</th>
+                <th>{{ t('common.actions') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for c in cooldowns %}
+            <tr>
+                <td><a href="{{ url_for('view_page', slug=c.slug) }}">{{ c.title }}</a></td>
+                <td>{{ c.username }}</td>
+                <td title="{{ format_datetime(c.cooldown_until) }}">{{ time_ago(c.cooldown_until) }}</td>
+                <td>
+                    <form class="u-d-inline" method="POST" action="{{ url_for('admin_clear_page_cooldown', page_id=c.page_id) }}"
+                          data-confirm="{{ t('admin.checkouts.clear_user_cooldown_confirm', user=c.username, title=c.title) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="user_id" value="{{ c.user_id }}">
+                        <button class="btn btn-sm">{{ t('admin.checkouts.clear_cooldown') }}</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="u-o50">{{ t('admin.checkouts.empty_cooldowns') }}</p>
+    {% endif %}
+</div>
+
+{# Assign New Reservation #}
+{% if eligible_users %}
+<div class="settings-section u-mt15">
+    <h3>{{ t('admin.checkouts.assign_new') }}</h3>
+    <p class="xs-dee1c059">
+        {{ t('admin.checkouts.assign_new_intro')|safe }}{# Assign a reservation to any page, bypassing existing reservations and cooldowns. Select a page from the list or type its URL slug (e.g. <code>my-page-name</code>). #}
+    </p>
+    <form class="xs-4ceca31a" method="POST" action="{{ url_for('admin_assign_new_reservation') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div>
+            <label class="xs-910b0beb">{{ t('admin.contributions.col.page') }}</label>
+            {% if all_pages %}
+            <select name="page_id" class="input xs-015ccf91">
+                <option value="">{{ t('admin.checkouts.pick_a_page') }}</option>
+                {% for p in all_pages %}
+                <option value="{{ p.id }}">{{ p.title }}{% if p.is_deindexed %} {{ t('admin.checkouts.hidden_tag') }}{% endif %}</option>
+                {% endfor %}
+            </select>
+            {% endif %}
+        </div>
+        <div>
+            <label class="xs-910b0beb">{{ t('admin.checkouts.or_slug') }}</label>
+            <input type="text" name="page_slug" class="input u-mw200" placeholder="{{ t('admin.checkouts.slug_placeholder') }}">
+        </div>
+        <div>
+            <label class="xs-910b0beb">{{ t('admin.checkouts.assign_to') }}</label>
+            <select name="user_id" class="input u-mw200">
+                {% for u in eligible_users %}
+                <option value="{{ u.id }}">{{ u.username }} ({{ u.role }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button class="btn" type="submit">{{ t('admin.checkouts.assign_reservation') }}</button>
+    </form>
+</div>
+{% endif %}
+{% endblock %}

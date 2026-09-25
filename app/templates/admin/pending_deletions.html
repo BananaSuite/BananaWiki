@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.pending_deletions.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('admin.pending_deletions.title') }}</h1>
+<p class="xs-9879b7a2">
+    {{ t('admin.pending_deletions.intro') }}
+</p>
+
+<div class="settings-section">
+    {% if pending %}
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>{{ t('admin.pending_deletions.col.page') }}</th>
+                <th>{{ t('admin.pending_deletions.col.category') }}</th>
+                <th>{{ t('admin.pending_deletions.col.deleted_by') }}</th>
+                <th>{{ t('admin.pending_deletions.col.queued_at') }}</th>
+                <th>{{ t('admin.pending_deletions.col.expires_at') }}</th>
+                <th>{{ t('common.actions') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in pending %}
+            <tr>
+                <td>
+                    <a href="{{ url_for('view_page', slug=p.slug) }}">{{ p.title }}</a>
+                    <small class="xs-de56f9d1">{{ p.slug }}</small>
+                </td>
+                <td>{{ p.category_name or t('admin.pending_deletions.uncategorized') }}{# (Uncategorized) #}</td>
+                <td>{{ p.deleted_by_username }}</td>
+                <td title="{{ format_datetime(p.pending_deletion_at) }}">{{ time_ago(p.pending_deletion_at) }}</td>
+                <td>
+                    {% if p.expires_at %}
+                    {{ format_datetime(p.expires_at) }}
+                    {% else %}
+                    <span class="u-o50">-</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <form class="u-d-inline" method="POST" action="{{ url_for('admin_restore_pending_deletion', page_id=p.id) }}"
+                          data-confirm="{{ t('admin.pending_deletions.restore_confirm', title=p.title) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm">{{ t('admin.pending_deletions.restore') }}</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="u-o60">{{ t('admin.pending_deletions.empty') }}</p>
+    {% endif %}
+</div>
+{% endblock %}

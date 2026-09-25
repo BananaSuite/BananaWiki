@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="{{ current_language|default('en') }}" data-theme="{{ effective_theme_mode|default('dark') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ t('app_selector.title') }} | {{ settings.site_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=asset_version|default('dev')) }}">
+    {% if settings.favicon_enabled %}
+      {% if settings.favicon_type == 'custom' and settings.favicon_custom %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/' + settings.favicon_custom) }}">
+      {% elif settings.favicon_type != 'custom' %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/banana_' + settings.favicon_type + '.png') }}">
+      {% endif %}
+    {% endif %}
+    <style nonce="{{ csp_nonce }}">:root{--primary:{{ theme_primary|default(settings.primary_color) }};--secondary:{{ theme_secondary|default(settings.secondary_color) }};--accent:{{ theme_accent|default(settings.accent_color) }};--text:{{ theme_text|default(settings.text_color) }};--sidebar:{{ theme_sidebar|default(settings.sidebar_color) }};--bg:{{ theme_bg|default(settings.bg_color) }}}
+    .app-selector-container{display:flex;align-items:center;justify-content:center;flex:1;min-height:0;background:var(--bg);overflow-y:auto;padding:2rem}
+    .app-selector-box{background:var(--secondary);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:2.5rem;width:520px;max-width:100%}
+    .app-selector-box h1{text-align:center;color:var(--text);margin-bottom:.3rem;font-size:1.4rem;font-weight:600}
+    .app-selector-box .subtitle{text-align:center;font-size:.85rem;opacity:.45;margin-bottom:1.5rem}
+    .app-cards{display:flex;flex-direction:column;gap:.75rem}
+    .app-card{display:flex;align-items:center;gap:1rem;padding:1rem 1.25rem;background:var(--bg);border:1px solid rgba(255,255,255,.06);border-radius:8px;cursor:pointer;text-decoration:none;color:var(--text);transition:border-color .15s,transform .1s}
+    .app-card:hover{border-color:var(--accent);transform:translateY(-1px)}
+    .app-card-icon{font-size:1.8rem;flex-shrink:0;width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:var(--secondary);border-radius:8px}
+    .app-card-body{flex:1;min-width:0}
+    .app-card-body strong{display:block;font-size:1rem;margin-bottom:.15rem}
+    .app-card-body small{display:block;font-size:.8rem;opacity:.5;line-height:1.3}
+    .app-card-arrow{font-size:1.2rem;opacity:.3;flex-shrink:0}
+    </style>
+</head>
+<body class="u-flex-column u-min-vh-100">
+    {% include "auth/_topbar.html" %}
+    <main class="app-selector-container" id="main-content" tabindex="-1">
+        <div class="app-selector-box">
+            <h1>{{ t('app_selector.title') }}</h1>
+            <p class="subtitle">{{ t('app_selector.subtitle') }}</p>
+            <div class="app-cards">
+                {% for app in apps %}
+                <a href="{{ app.url }}" class="app-card">
+                    <div class="app-card-icon">{{ app.icon }}</div>
+                    <div class="app-card-body">
+                        <strong>{{ app.name }}</strong>
+                        <small>{{ app.description }}</small>
+                    </div>
+                    <span class="app-card-arrow">→</span>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+    </main>
+    <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% include "_source_link.html" %}
+</body>
+</html>

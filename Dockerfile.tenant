@@ -1,0 +1,28 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    BW_ENV=production
+
+WORKDIR /opt/bananawiki
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -g 997 bananawiki \
+    && useradd -u 997 -g 997 -r -s /sbin/nologin bananawiki
+
+COPY requirements.txt ./
+RUN python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: --no-deps --upgrade 'pip>=26.2.1' \
+    && python -m pip install --disable-pip-version-check --no-cache-dir --requirement requirements.txt
+
+COPY . ./
+
+# container_runtime.py always passes --user {data_dir_uid}:{data_dir_gid} at
+# runtime, so the UID here is overridden in production.  The USER directive
+# still ensures the image is safe when run directly (e.g. in CI or developer
+# testing) without the hosting platform's --user flag.
+USER bananawiki
+
+EXPOSE 5001
+ENTRYPOINT ["python", "scripts/hosted_container_entrypoint.py"]

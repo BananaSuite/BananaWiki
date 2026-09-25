@@ -1,0 +1,23 @@
+BananaWiki
+Copyright (c) 2026 Luca Zani and all contributors.
+
+Originally started by Luca Zani (OverloadedTech) on 20 February 2026,
+for Canalescuola's Officina Tecnologica project. Contributors retain
+copyright in their respective contributions.
+
+Development sped up in June 2026 during an FSL (formazione scuola-lavoro)
+placement. BananaWiki is maintained by Luca Zani and Officina Tecnologica.
+It was an internal project until September 2026, when this source release
+made it free software.
+
+First recorded project commit: 1a7c1e99847a5145429b4033293a497a118d85fc
+Author and committer timestamp: 2026-02-20T01:16:43+01:00
+
+These dates come from the private development history. That history (3,072
+commits) is not published: it contains deployment credentials, access tokens
+and infrastructure details, and there is no reliable way to remove all of them
+from that many commits. The public repository therefore starts from a single
+commit, a clean export of the source.
+
+Licensed under the GNU Affero General Public License, version 3.
+See LICENSE. Third-party components retain their respective licenses and notices.

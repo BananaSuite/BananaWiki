@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.codes.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ t('admin.codes.title') }}</h1>
+</div>
+
+<div class="tabs">
+    <a href="{{ url_for('admin_codes') }}" class="tab active">{{ t('admin.codes.tab_active') }}</a>
+    <a href="{{ url_for('admin_codes_expired') }}" class="tab">{{ t('admin.codes.tab_expired') }}</a>
+</div>
+
+{% if current_user.role in ('admin', 'owner') %}
+<div class="settings-section u-mb1">
+    <h3>{{ t('admin.codes.generate') }}</h3>
+        <form method="POST" action="{{ url_for('admin_generate_code') }}" id="generateCodeForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group u-mb1">
+                <label for="custom_code">{{ t('admin.codes.custom_code') }}</label>
+                <input type="text" id="custom_code" name="custom_code" maxlength="32" pattern="[A-Za-z0-9]*" autocomplete="off" class="input" style="max-width: 250px;" placeholder="{{ t('admin.codes.custom_code_placeholder') }}">
+                <small class="u-hint">{{ t('admin.codes.custom_code_hint') }}</small>
+            </div>
+            <div class="form-group u-mb1">
+                <label for="max_uses">{{ t('admin.codes.max_uses') }}</label>
+                <input type="number" id="max_uses" name="max_uses" value="1" min="0" class="input" style="max-width: 150px;">
+            </div>
+            <div class="form-group u-mb1">
+                <label for="expiry_mode">{{ t('admin.codes.expiration') }}</label>
+                <select name="expiry_mode" id="expiry_mode" class="input" style="max-width: 250px;">
+                    <option value="24h">{{ t('admin.codes.expiry.24h') }}</option>
+                    <option value="48h" selected>{{ t('admin.codes.expiry.48h') }}</option>
+                    <option value="72h">{{ t('admin.codes.expiry.72h') }}</option>
+                    <option value="custom">{{ t('admin.codes.expiry.custom') }}</option>
+                    <option value="never">{{ t('admin.codes.expiry.never') }}</option>
+                </select>
+            </div>
+            <div id="custom-expiry-wrap" class="form-group u-mb1" style="display: none;">
+                <label for="custom_expiry">{{ t('admin.codes.expiry_dt_label') }}</label>
+                <input type="datetime-local" id="custom_expiry" name="custom_expiry" class="input">
+            </div>
+            <div class="form-group u-mb1">
+                <label for="assigned_role">{{ t('admin.codes.assigned_role') }}</label>
+                <select name="assigned_role" id="assigned_role" class="input" style="max-width: 250px;">
+                    <option value="" selected>{{ t('admin.codes.role.default') }}</option>
+                    <option value="editor">{{ t('admin.codes.role.editor') }}</option>
+                    <option value="admin">{{ t('admin.codes.role.admin') }}</option>
+                </select>
+                <small class="u-hint">{{ t('admin.codes.assigned_role_hint') }}</small>
+            </div>
+            <div class="form-group u-mb1">
+                <label for="assigned_custom_role_id">{{ t('admin.codes.custom_role') }}</label>
+                <select name="assigned_custom_role_id" id="assigned_custom_role_id" class="input" style="max-width: 250px;">
+                    <option value="" selected>{{ t('admin.codes.custom_role.none') }}</option>
+                    {% for r in custom_roles %}
+                    <option value="{{ r.id }}">{{ r.name }} ({{ t('admin.custom_roles.base.editor') if r.base_role == 'editor' else t('admin.custom_roles.base.member') }})</option>
+                    {% endfor %}
+                </select>
+                <small class="u-hint">{{ t('admin.codes.custom_role_hint') }}</small>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn">{{ t('admin.codes.generate_button') }}</button>
+            </div>
+        </form>
+</div>
+
+<script nonce="{{ csp_nonce }}">
+    document.getElementById('expiry_mode').addEventListener('change', function() {
+        document.getElementById('custom-expiry-wrap').style.display = (this.value === 'custom') ? 'block' : 'none';
+    });
+</script>
+{% endif %}
+
+{% if codes %}
+<table class="admin-table">
+    <thead>
+        <tr>
+            <th>{{ t('admin.codes.col.code') }}</th>
+            <th>{{ t('admin.group_view.col.role') }}</th>
+            <th>{{ t('admin.codes.col.uses') }}</th>
+            <th>{{ t('admin.codes.col.created_by') }}</th>
+            <th>{{ t('admin.custom_roles.col.created') }}</th>
+            <th>{{ t('admin.codes.col.expires') }}</th>
+            <th>{{ t('common.actions') }}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for c in codes %}
+        <tr>
+            <td class="xs-321d378a">{{ c.code }}</td>
+            <td>
+                {% if c.assigned_role and c.assigned_role != 'user' %}
+                    <span class="badge badge-{{ c.assigned_role }}">{{ c.assigned_role|capitalize }}</span>
+                {% else %}
+                    <span class="u-o50">{{ t('admin.codes.role.user') }}</span>
+                {% endif %}
+            </td>
+            <td>
+                {{ c.use_count }} /
+                {% if c.max_uses == 0 %}
+                    <span class="u-o50">∞</span>
+                {% else %}
+                    {{ c.max_uses }}
+                {% endif %}
+            </td>
+            <td>{{ c.creator_name }}</td>
+            <td>{{ time_ago(c.created_at) }}</td>
+            <td>
+                {% if c.expires_at %}
+                    {{ time_ago(c.expires_at) }}
+                    <div class="u-o50 u-fs-xs">{{ c.expires_at|replace('T', ' ')|truncate(16, True, '') }}</div>
+                {% else %}
+                    <span class="u-o50">{{ t('admin.codes.never') }}</span>
+                {% endif %}
+            </td>
+            <td>
+                <form class="u-d-inline" method="POST" action="{{ url_for('admin_delete_code', code_id=c.id) }}" data-confirm="{{ t('admin.codes.delete_confirm') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-danger">{{ t('common.delete') }}</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="u-o50">{{ t('admin.codes.empty') }}</p>
+{% endif %}
+{% endblock %}

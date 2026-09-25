@@ -1,0 +1,9 @@
+{
+    "id": "drafts",
+    "name": "Drafts",
+    "version": "1.0.0",
+    "author": "BananaWiki",
+    "description": "Draft autosave \u2013 automatically save page drafts while editing",
+    "builtin": true,
+    "bananawiki_api_version": "1.0"
+}

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ t('hosting.activation_pending.title', default='Account Pending Approval') }} | {{ t('hosting.brand') }}{% endblock %}
+{% block content %}
+<div class="account-state-shell">
+<section class="account-state-card" aria-labelledby="activation-pending-title">
+    <header class="account-state-header">
+        <div class="account-state-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+            </svg>
+        </div>
+        <p class="account-state-kicker">{{ t('hosting.account_state.account_status', default='Account status') }}</p>
+        <h1 id="activation-pending-title" class="account-state-title">{{ t('hosting.activation_pending.heading', default='Account Pending Approval') }}</h1>
+        <p class="account-state-lead">{{ t('hosting.activation_pending.message', default='Your account has been created but requires approval from an administrator before you can access the platform.') }}</p>
+    </header>
+
+    {% if account and account.decision_reason %}
+    <div class="account-state-notice">
+        <p><strong>{{ t('hosting.account_state.decision_reason', default='Decision reason') }}:</strong> {{ account.decision_reason }}</p>
+    </div>
+    {% endif %}
+
+    <div class="account-state-notice">
+        <p>{{ t('hosting.activation_pending.contact', default='Please check back later or email {email} for more information.', email=contact_email) }}</p>
+    </div>
+    {% if current_account %}
+    <div class="account-state-notice">
+        <p>{{ t('hosting.activation_pending.logged_in_notice', default='You are logged in but cannot access the platform until your account is approved.') }}</p>
+    </div>
+    {% else %}
+    <div class="account-state-notice">
+        <p>{{ t('hosting.activation_pending.login_notice', default='Log in to check whether your account has been approved.') }}</p>
+    </div>
+    {% endif %}
+
+    <div class="account-state-actions">
+        <a class="btn btn-outline" href="mailto:{{ contact_email }}">{{ t('hosting.account_state.contact_support', default='Contact support') }}</a>
+        {% if current_account %}
+        <form method="POST" action="{{ url_for('hosting_logout') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline">{{ t('hosting.nav.logout', default='Log out') }}</button>
+        </form>
+        {% else %}
+        <a class="btn btn-primary" href="{{ url_for('hosting_login') }}">{{ t('hosting.login.title', default='Log In') }}</a>
+        {% endif %}
+    </div>
+</section>
+</div>
+{% endblock %}

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.groups.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('admin.groups.title') }}</h1>
+
+{% if groups %}
+<table class="admin-table">
+    <thead>
+        <tr>
+            <th>{{ t('common.id') }}</th>
+            <th>{{ t('common.name') }}</th>
+            <th>{{ t('admin.groups.col.creator') }}</th>
+            <th>{{ t('admin.groups.col.members') }}</th>
+            <th>{{ t('admin.groups.col.messages') }}</th>
+            <th>{{ t('admin.groups.col.last_activity') }}</th>
+            <th>{{ t('common.actions') }}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for g in groups %}
+        <tr>
+            <td>{{ g.id }}</td>
+            <td>{% if g.is_global %}{{ t('admin.groups.global_tag') }}{% endif %} {{ g.name }}{% if g.is_global and not g.is_active %} <span class="xs-5a8223cf">{{ t('admin.groups.deactivated') }}</span>{% endif %}</td>
+            <td>{{ g.creator_name or '-' }}</td>
+            <td>{{ g.member_count }}</td>
+            <td>{{ g.message_count }}</td>
+            <td>{{ time_ago(g.last_message_at) if g.last_message_at else '-' }}</td>
+            <td>
+                <a href="{{ url_for('admin_group_view', group_id=g.id) }}" class="btn btn-sm">{{ t('admin.chats.read') }}</a>
+                <a href="{{ url_for('group_view', group_id=g.id) }}" class="btn btn-sm btn-outline" title="{{ t('admin.groups.moderate_title') }}">{{ t('admin.groups.moderate') }}</a>
+                <form class="u-d-inline" method="POST" action="{{ url_for('group_admin_takeover', group_id=g.id) }}"
+                      data-confirm="{{ t('admin.groups.takeover_confirm') }}" data-confirm-label="{{ t('admin.groups.takeover') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-outline" title="{{ t('admin.groups.takeover_button_title') }}">{{ t('admin.groups.takeover') }}</button>
+                </form>
+                {% if not g.is_global %}
+                <form class="u-d-inline" method="POST" action="{{ url_for('admin_group_delete', group_id=g.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-danger" title="{{ t('admin.groups.delete_title') }}"
+                            data-confirm="{{ t('admin.groups.delete_confirm', name=g.name) }}"
+                            data-confirm-label="{{ t('common.delete') }}">{{ t('common.delete') }}</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>{{ t('admin.groups.none') }}</p>
+{% endif %}
+{% endblock %}

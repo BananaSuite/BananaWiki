@@ -1,0 +1,119 @@
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <span data-i18n="nav.explorer">{{ t('nav.explorer') }}</span>
+                <div class="sidebar-actions">
+                    {% if current_user and current_user.role in ('editor', 'admin', 'owner') %}
+                    <button class="btn-icon sidebar-action-btn" id="open-create-cat-btn" title="{{ t('nav.new_category') }}" aria-label="{{ t('nav.new_category') }}"><span class="sidebar-action-plus" aria-hidden="true">+</span><span class="sidebar-action-label" data-i18n="nav.folder">{{ t('nav.folder') }}</span></button>
+                    <a href="{{ url_for('create_page') }}" class="btn-icon sidebar-action-btn" title="{{ t('nav.new_page') }}" aria-label="{{ t('nav.new_page') }}" data-tour-id="sidebar-new-page"><span class="sidebar-action-plus" aria-hidden="true">+</span><span class="sidebar-action-label" data-i18n="nav.page">{{ t('nav.page') }}</span></a>
+                    {% endif %}
+                </div>
+            </div>
+            {% if current_user or public_mode_active %}
+            <div class="sidebar-search">
+                <div class="sidebar-search-input-wrap">
+                    <input type="search" id="sidebar-search-input" class="input" placeholder="{{ t('nav.search_placeholder') }}" data-i18n-placeholder="nav.search_placeholder" autocomplete="off" aria-label="{{ t('nav.search_pages_and_categories') }}" data-tour-id="sidebar-search">
+                    <button class="sidebar-search-scope-btn btn-icon" id="sidebar-search-scope-btn" title="{{ t('nav.search_in_content_too') }}">Aa</button>
+                </div>
+                <div class="sidebar-search-results" id="sidebar-search-results" hidden></div>
+            </div>
+            {% endif %}
+            {% if sidebar_navigation.categories %}
+            <div class="sidebar-category-controls" aria-label="{{ t('nav.category_tree_controls') }}">
+                <button type="button" class="btn-icon sidebar-category-control-btn" id="sidebar-expand-categories-btn" title="{{ t('nav.expand_all_categories') }}" aria-label="{{ t('nav.expand_all_categories') }}" data-i18n="nav.expand_all">{{ t('nav.expand_all') }}</button>
+                <button type="button" class="btn-icon sidebar-category-control-btn" id="sidebar-collapse-categories-btn" title="{{ t('nav.collapse_all_categories') }}" aria-label="{{ t('nav.collapse_all_categories') }}" data-i18n="nav.collapse_all">{{ t('nav.collapse_all') }}</button>
+            </div>
+            {% endif %}
+            <nav class="sidebar-nav">
+                {% if federation_enabled and current_user %}
+                <a href="{{ url_for('federation_index') }}" class="nav-item">Federated pages</a>
+                {% endif %}
+                <a href="{{ url_for('home') }}" class="nav-item {% if page and page.is_home %}active{% endif %}" data-i18n="nav.home">{{ t('nav.home') }}</a>
+                {% if page and not page.is_home and page.id not in sidebar_navigation.page_ids %}
+                <a href="{{ url_for('view_page', slug=page.slug) }}" class="nav-item active sidebar-current-page">{{ page.title }}</a>
+                {% endif %}
+                {% for cat in sidebar_navigation.categories %}
+                    {% include "wiki/_category.html" %}
+                {% endfor %}
+                {% if sidebar_navigation.uncategorized or none in sidebar_navigation.more %}
+                <div class="nav-section">
+                    <span class="nav-section-title">{{ t('nav.uncategorized') }}</span>
+                    {% for p in sidebar_navigation.uncategorized %}
+                        {% include "wiki/_navigation_page.html" %}
+                    {% endfor %}
+                    {% if none in sidebar_navigation.more %}
+                        {% with nav_category_id=none, nav_after=sidebar_navigation.more[none] %}
+                            {% include "wiki/_navigation_more.html" %}
+                        {% endwith %}
+                    {% endif %}
+                </div>
+                {% endif %}
+            </nav>
+            {% if current_user or public_mode_active %}
+            <div class="sidebar-bottom-section">
+            <div class="sidebar-chat-links">
+                {% set sidebar_app_ids = ['reservations','chats','groups','kanban','leaderboard','canvas'] %}
+                {% set user_sidebar_order = user_accessibility.sidebar_apps_order if current_user and user_accessibility and user_accessibility.sidebar_apps_order else '' %}
+                {% set effective_order = user_sidebar_order or settings.sidebar_apps_order or 'reservations,chats,groups,kanban,leaderboard,canvas' %}
+                {% set sidebar_app_order = effective_order.split(',') %}
+                {% for app_id in sidebar_app_order %}{% if app_id in sidebar_app_ids %}
+                {% if app_id == 'reservations' and current_user.role in ('editor', 'admin', 'owner') and settings.page_reservations_enabled and enabled_plugins.page_governance %}
+                <a href="{{ url_for('reservation_directory') }}" class="nav-item {% if request.path.startswith('/reservations') %}active{% endif %}">{{ t('nav.reservations') }}</a>
+                {% endif %}
+                {% if app_id == 'chats' and enabled_plugins.chat and has_permission(current_user, 'chat.dm') %}
+                <a href="{{ url_for('chat_list') }}" class="nav-item {% if request.path.startswith('/chats') %}active{% endif %}">{{ t('nav.chats') }}{% if total_unread_dm %} <span class="unread-badge">{{ total_unread_dm }}</span>{% endif %}</a>
+                {% endif %}
+                {% if app_id == 'groups' and enabled_plugins.chat and has_permission(current_user, 'chat.group') %}
+                <a href="{{ url_for('group_list') }}" class="nav-item {% if request.path.startswith('/groups') %}active{% endif %}">{{ t('nav.groups') }}{% if total_unread_group %} <span class="unread-badge">{{ total_unread_group }}</span>{% endif %}</a>
+                {% endif %}
+                {% if app_id == 'kanban' and enabled_plugins.kanban and user_has_kanban_sidebar_access(current_user) %}
+                <a href="{{ url_for('kanban_list') }}" class="nav-item {% if request.path.startswith('/kanban') %}active{% endif %}">{{ t('nav.kanban') }}</a>
+                {% endif %}
+                {% if app_id == 'kanban' and not current_user and public_mode_active and enabled_plugins.kanban and settings.get('kanban_public_access_enabled') %}
+                <a href="{{ url_for('kanban_list') }}" class="nav-item {% if request.path.startswith('/kanban') %}active{% endif %}">{{ t('nav.kanban') }}</a>
+                {% endif %}
+                {% if app_id == 'leaderboard' and settings.contributor_leaderboard_enabled %}
+                <a href="{{ url_for('leaderboard') }}" class="nav-item {% if request.path.startswith('/leaderboard') %}active{% endif %}">{{ t('nav.leaderboard') }}</a>
+                {% endif %}
+                {% if app_id == 'canvas' and enabled_plugins.canvas and user_has_canvas_sidebar_access(current_user) %}
+                <a href="{{ url_for('canvas_list') }}" class="nav-item {% if request.path.startswith('/canvas') %}active{% endif %}">{{ t('nav.canvas') }}</a>
+                {% endif %}
+                {% if app_id == 'canvas' and not current_user and public_mode_active and enabled_plugins.canvas and settings.get('canvas_public_access_enabled') %}
+                <a href="{{ url_for('canvas_list') }}" class="nav-item {% if request.path.startswith('/canvas') %}active{% endif %}">{{ t('nav.canvas') }}</a>
+                {% endif %}
+                {% endif %}{% endfor %}
+                {% if current_user %}{{ render_slot("sidebar.bottom", {"user": current_user, "csp_nonce": csp_nonce}) | safe }}{% endif %}
+            </div>
+            {% if enabled_plugins.get('user_profiles') and sidebar_people %}
+            <div class="sidebar-people">
+                <div class="sidebar-people-header">
+                    <span>{{ t('nav.people') }}</span>
+                    <a href="{{ url_for('users_list') }}" class="sidebar-people-more">{{ t('common.more') }}</a>
+                </div>
+                <div class="sidebar-people-grid">
+                    {% set sidebar_visible_people = sidebar_people | list %}
+                    {% for p in sidebar_visible_people[:19] %}
+                    <a href="{{ url_for('user_profile', username=p.username) }}" class="sidebar-person" title="{{ p.username }}">
+                        {% if p.avatar_filename %}
+                        <img src="{{ url_for('static', filename='uploads/' + p.avatar_filename) }}" alt="{{ p.username }}" class="sidebar-person-img">
+                        {% else %}
+                        <span class="sidebar-person-placeholder">{{ p.username[0].upper() if p.username else '?' }}</span>
+                        {% endif %}
+                    </a>
+                    {% endfor %}
+                    {% if sidebar_visible_people | length >= 19 %}
+                    <a href="{{ url_for('users_list') }}" class="sidebar-person sidebar-person-more" title="{{ t('nav.more_members') }}">+</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            </div>
+            {% endif %}
+        </aside>
+        <div class="sidebar-resize-handle" id="sidebar-resize-handle">
+            <button type="button" class="sidebar-collapse-btn" id="sidebar-collapse-btn" title="{{ t('a11y.collapse_sidebar') }}" aria-label="{{ t('a11y.collapse_sidebar') }}" aria-controls="sidebar" aria-expanded="true" data-label-collapse="{{ t('a11y.collapse_sidebar') }}" data-label-expand="{{ t('a11y.expand_sidebar') }}">
+                <svg class="sidebar-collapse-icon" aria-hidden="true" viewBox="0 0 16 16" focusable="false">
+                    <path fill="currentColor" d="M10.78 12.78a.75.75 0 0 1-1.06 0L4.97 8.03a.75.75 0 0 1 0-1.06l4.75-4.75a.75.75 0 1 1 1.06 1.06L6.56 7.5l4.22 4.22a.75.75 0 0 1 0 1.06"/>
+                </svg>
+            </button>
+        </div>
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>

@@ -1,0 +1,10 @@
+{
+    "id": "api_service",
+    "name": "API Service",
+    "version": "1.0.0",
+    "author": "BananaWiki",
+    "description": "Unified REST API service with token-based authentication, audit logging, bulk operations, and programmable admin controls.",
+    "builtin": true,
+    "experimental": false,
+    "bananawiki_api_version": "1.0"
+}

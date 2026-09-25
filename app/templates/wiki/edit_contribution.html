@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ t('wiki.edit_contribution.title', title=page.title) }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('wiki.edit_contribution.heading', title=page.title) }}</h1>
+<p class="u-o60">{{ t('wiki.edit_contribution.intro') }}</p>
+
+<form method="POST" action="{{ url_for('edit_contribution', slug=page.slug, contribution_id=contribution.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="form-group">
+        <label for="edit-contr-title">{{ t('common.title') }}</label>
+        <input type="text" name="title" id="edit-contr-title" value="{{ contribution.title or page.title }}" class="input u-mw500">
+    </div>
+
+    <div class="form-group">
+        <label for="edit-contr-content">{{ t('common.content') }}</label>
+        <textarea name="content" id="edit-contr-content" class="editor-area" rows="20">{{ contribution.content }}</textarea>
+    </div>
+
+    <div class="form-group">
+        <label for="edit-contr-reason">{{ t('wiki.contribution.reason') }} <span class="u-o50">{{ t('common.required_paren') }}</span></label>
+        <textarea name="reason" id="edit-contr-reason" class="input u-mw500" rows="3" required>{{ contribution.reason }}</textarea>
+    </div>
+
+    <div class="form-group">
+        <button type="submit" class="btn">{{ t('wiki.edit_contribution.submit') }}</button>
+        <a href="{{ url_for('view_page', slug=page.slug) }}" class="btn btn-outline">{{ t('common.cancel') }}</a>
+    </div>
+</form>
+{% endblock %}

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="{{ current_language|default('en') }}" data-theme="{{ effective_theme_mode|default('dark') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ t('auth.session_conflict.title') }} | {{ settings.site_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=asset_version|default('dev')) }}">
+    {% if settings.favicon_enabled %}
+      {% if settings.favicon_type == 'custom' and settings.favicon_custom %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/' + settings.favicon_custom) }}">
+      {% elif settings.favicon_type != 'custom' %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/banana_' + settings.favicon_type + '.png') }}">
+      {% endif %}
+    {% endif %}
+    <style nonce="{{ csp_nonce }}">:root{--primary:{{ theme_primary|default(settings.primary_color) }};--secondary:{{ theme_secondary|default(settings.secondary_color) }};--accent:{{ theme_accent|default(settings.accent_color) }};--text:{{ theme_text|default(settings.text_color) }};--sidebar:{{ theme_sidebar|default(settings.sidebar_color) }};--bg:{{ theme_bg|default(settings.bg_color) }}}</style>
+</head>
+<body class="u-flex-column u-min-vh-100">
+    {% include "auth/_topbar.html" %}
+    {% include "_announcements_bar.html" %}
+    <main class="auth-container" id="main-content" tabindex="-1">
+        <div class="auth-box session-conflict-box">
+            <div class="session-conflict-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                    <rect x="3" y="5" width="13" height="9" rx="1.5"/>
+                    <path d="M3 10h13"/>
+                    <circle cx="17.5" cy="16.5" r="4"/>
+                    <path d="M17.5 14.5v2l1.4 1"/>
+                </svg>
+            </div>
+            <h1>{{ t('auth.session_conflict.banner') }}</h1>
+            <p class="subtitle">{{ t('auth.session_conflict.heading') }}</p>
+
+            <div class="session-conflict-notice" role="status">
+                <p class="session-conflict-notice-line">{{ t('auth.session_conflict.description_line1') }}</p>
+                <p class="session-conflict-notice-line session-conflict-notice-detail">{{ t('auth.session_conflict.description_line2') }}</p>
+            </div>
+
+            {% with messages = dedupe_flashed_messages(get_flashed_messages(with_categories=true)) %}
+            {% if messages %}
+            <div class="flash-messages">
+                {% for category, message in messages %}
+                <div class="flash flash-{{ category }}" role="alert">
+                    <span class="flash-message">{{ message }}</span>
+                    <button type="button" class="btn flash-close" aria-label="{{ t('common.dismiss_message') }}">x</button>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            <p class="session-conflict-instructions">{{ t('auth.session_conflict.instructions') }}</p>
+
+            <form method="POST" action="{{ url_for('session_conflict_force') }}" id="session-conflict-form" autocomplete="on" data-storage-key="bw-session-conflict-username">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if request.args.get('next') %}
+                <input type="hidden" name="next" value="{{ request.args.get('next') }}">
+                {% endif %}
+                <div class="form-group">
+                    <label for="sc-username">{{ t('auth.username') }}</label>
+                    <input type="text" id="sc-username" name="username" class="input" required autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label for="sc-password">{{ t('auth.password') }}</label>
+                    <input type="password" id="sc-password" name="password" class="input" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn">
+                    {{ t('auth.session_conflict.submit') }}
+                </button>
+            </form>
+
+            <div class="auth-link">
+                <a href="{{ url_for('login') }}">{{ t('auth.session_conflict.back_signin') }}</a>
+            </div>
+
+        </div>
+    </main>
+    <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script nonce="{{ csp_nonce }}">
+    (function() {
+        var form = document.getElementById('session-conflict-form');
+        if (!form) return;
+        var key = form.getAttribute('data-storage-key') || 'bw-session-conflict-username';
+        var usernameInput = document.getElementById('sc-username');
+        var passwordInput = document.getElementById('sc-password');
+        var storage = null;
+        try { storage = window.sessionStorage; } catch (e) { storage = null; }
+
+        // Restore the typed username after an accidental reload, browser back,
+        // or other transient navigation so the user does not have to retype it.
+        if (storage && usernameInput && !usernameInput.value) {
+            try {
+                var saved = storage.getItem(key);
+                if (saved) usernameInput.value = saved;
+            } catch (e) { /* ignore */ }
+        }
+        if (storage && usernameInput) {
+            usernameInput.addEventListener('input', function() {
+                try {
+                    if (usernameInput.value) {
+                        storage.setItem(key, usernameInput.value);
+                    } else {
+                        storage.removeItem(key);
+                    }
+                } catch (e) { /* ignore */ }
+            });
+        }
+
+        // Resist accidental reloads / navigations once the user has started
+        // typing credentials by triggering the browser's native confirmation.
+        var dirty = false;
+        function markDirty() { dirty = true; }
+        if (passwordInput) passwordInput.addEventListener('input', markDirty);
+        if (usernameInput) usernameInput.addEventListener('input', markDirty);
+
+        window.addEventListener('beforeunload', function(ev) {
+            if (!dirty) return;
+            ev.preventDefault();
+            ev.returnValue = '';
+            return '';
+        });
+
+        form.addEventListener('submit', function() {
+            dirty = false;
+            if (storage) {
+                try { storage.removeItem(key); } catch (e) { /* ignore */ }
+            }
+        });
+
+        // Auto-focus the right field for a faster re-auth.
+        if (usernameInput && !usernameInput.value) {
+            usernameInput.focus();
+        } else if (passwordInput) {
+            passwordInput.focus();
+        }
+    })();
+    </script>
+{% include "_source_link.html" %}
+</body>
+</html>

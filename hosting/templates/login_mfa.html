@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Two-step verification · BananaWiki Hosting{% endblock %}
+{% block content %}
+<div class="auth-container"><div class="auth-box">
+  <h1>Two-step verification</h1>
+  <p>Enter the code from your authenticator, or an unused recovery code.</p>
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-group"><label for="code">Verification code</label>
+      <input class="input" id="code" name="code" autocomplete="one-time-code" maxlength="128" required autofocus></div>
+    <button class="btn" type="submit">Verify</button>
+  </form>
+  <p><a href="{{ url_for('hosting_login') }}">Back to sign in</a></p>
+</div></div>
+{% endblock %}

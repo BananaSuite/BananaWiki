@@ -1,0 +1,9 @@
+{
+    "id": "canvas",
+    "name": "Canvas",
+    "version": "1.0.0",
+    "author": "BananaWiki",
+    "description": "Visual knowledge canvas: create, connect, and share visual layouts with text, images, videos, and wiki page links",
+    "builtin": true,
+    "bananawiki_api_version": "1.0"
+}

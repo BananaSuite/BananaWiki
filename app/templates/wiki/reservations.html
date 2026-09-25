@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}{{ t('wiki.reservations.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ t('wiki.reservations.heading') }}</h1>
+</div>
+
+<div class="reservation-panel">
+    <div class="reservation-panel-header">
+        <div>
+            <h3>{{ t('wiki.reservations.how_title') }}</h3>
+            <p>
+                {{ t('wiki.reservations.how_description') }}
+            </p>
+        </div>
+    </div>
+</div>
+
+{% if reservable_pages %}
+<table class="admin-table reservation-directory-table">
+    <thead>
+        <tr>
+            <th>{{ t('wiki.reservations.col.page') }}</th>
+            <th>{{ t('wiki.reservations.col.category') }}</th>
+            <th>{{ t('wiki.reservations.col.status') }}</th>
+            <th>{{ t('wiki.reservations.col.action') }}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for page in reservable_pages %}
+        {% set status = page.reservation_status %}
+        <tr>
+            <td><a href="{{ url_for('view_page', slug=page.slug) }}">{{ page.title }}</a></td>
+            <td>{{ page.category_label }}</td>
+            <td>
+                {% if status and status.is_reserved %}
+                    {% if status.reserved_by == current_user.id %}
+                    <strong>{{ t('wiki.reservations.reserved_by_you') }}</strong><br>
+                    <span class="reservation-table-meta">{{ t('wiki.reservations.expires', when=time_ago(status.expires_at)) }}</span>
+                    {% else %}
+                    <strong>{{ t('wiki.reservations.reserved_by', user=status.reserved_by_username) }}</strong><br>
+                    <span class="reservation-table-meta">{{ t('wiki.reservations.expires', when=time_ago(status.expires_at)) }}</span>
+                    {% endif %}
+                {% elif status and status.user_in_cooldown %}
+                    <strong>{{ t('wiki.reservations.cooldown') }}</strong><br>
+                    <span class="reservation-table-meta">{{ t('wiki.reservations.available', when=time_ago(status.cooldown_until)) }}</span>
+                {% else %}
+                    <strong>{{ t('wiki.reservations.available_now') }}</strong>
+                {% endif %}
+            </td>
+            <td>
+                {% if status and status.is_reserved and status.reserved_by == current_user.id %}
+                <form method="POST" action="{{ url_for('release_page_reservation_route', slug=page.slug) }}" class="reservation-inline-form" data-confirm="{{ t('wiki.reservations.release_confirm', title=page.title) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-outline">{{ t('wiki.reservations.release') }}</button>
+                </form>
+                {% elif status and (status.is_reserved or status.user_in_cooldown) %}
+                <form method="POST" action="{{ url_for('reserve_page_route', slug=page.slug) }}" class="reservation-inline-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm">{{ t('wiki.reservations.reserve') }}</button>
+                </form>
+                {% else %}
+                <form method="POST" action="{{ url_for('reserve_page_route', slug=page.slug) }}" class="reservation-inline-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm">{{ t('wiki.reservations.reserve') }}</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="u-o60">{{ t('wiki.reservations.empty') }}</p>
+{% endif %}
+{% endblock %}

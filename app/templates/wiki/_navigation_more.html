@@ -1,0 +1,2 @@
+<a class="nav-item nav-more-pages" href="{{ url_for('navigation_pages', category_id=nav_category_id or 0, after=nav_after or 0) }}"
+   data-sidebar-load="{{ url_for('api_sidebar_pages', category_id=nav_category_id or 0, after=nav_after or 0) }}">{{ t('nav.more_pages') }}</a>

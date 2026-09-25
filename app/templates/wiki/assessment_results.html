@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ t('wiki.assessment.results_title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('wiki.assessment.results_heading', title=assessment.title) }}</h1>
+<p><a href="{{ url_for('view_page', slug=page.slug) }}">{{ t('common.back_to_page') }}</a></p>
+
+{% if not attempts %}
+<p>{{ t('wiki.assessment.no_submissions') }}</p>
+{% endif %}
+
+{% for a in attempts %}
+<div class="settings-section">
+    <h3>{{ a.username }}: {{ a.total_points }}/{{ a.max_points }} ({{ t('wiki.assessment.attempt_n', n=a.attempt_number) }})</h3>
+    <p class="u-label-note">{{ t('wiki.assessment.submitted_at', date=format_datetime(a.submitted_at)) }}</p>
+    {% if attempt_details.get(a.id) %}
+    <ul>
+        {% for ans in attempt_details[a.id] %}
+        <li>
+            <strong>{{ ans.prompt }}</strong><br>
+            {{ t('wiki.assessment.given') }}: <code>{{ ans.answer_value }}</code><br>
+            {{ t('wiki.assessment.correct') }}: <code>{{ ans.correct_values }}</code><br>
+            {% if ans.is_correct %}{{ t('wiki.assessment.is_correct') }}{% else %}{{ t('wiki.assessment.is_wrong') }}{% endif %}: {{ t('wiki.assessment.points_awarded', n=ans.awarded_points) }}
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+    <form method="POST" action="{{ url_for('assessment_reset_user', slug=page.slug, user_id=a.user_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-outline btn-sm">{{ t('wiki.assessment.allow_retake_for', username=a.username) }}</button>
+    </form>
+</div>
+{% endfor %}
+{% endblock %}

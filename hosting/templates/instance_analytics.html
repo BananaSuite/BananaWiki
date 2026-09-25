@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}{{ instance.subdomain }} | {{ t('hosting.analytics.title', default='Analytics') }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <div class="breadcrumb">
+            <a href="{{ url_for('hosting_dashboard') }}">{{ t('hosting.nav.dashboard') }}</a>
+            <span class="breadcrumb-sep">›</span>
+            <a href="{{ url_for('hosting_instance_detail', instance_id=instance.id) }}">{{ instance.subdomain }}</a>
+            <span class="breadcrumb-sep">›</span>
+            <span>{{ t('hosting.analytics.title', default='Analytics') }}</span>
+        </div>
+        <h2 class="page-title">{{ t('hosting.analytics.heading', default='Analytics for ') }}{{ instance.subdomain }}</h2>
+    </div>
+    <div class="page-header-actions">
+        <form method="GET" class="inline-form">
+            <label for="days-range" class="muted">{{ t('hosting.analytics.window', default='Window') }}:</label>
+            <select id="days-range" name="days" class="js-days-range">
+                <option value="7"  {% if days == 7  %}selected{% endif %}>{{ t('hosting.analytics.last_7',  default='Last 7 days')  }}</option>
+                <option value="30" {% if days == 30 %}selected{% endif %}>{{ t('hosting.analytics.last_30', default='Last 30 days') }}</option>
+                <option value="90" {% if days == 90 %}selected{% endif %}>{{ t('hosting.analytics.last_90', default='Last 90 days') }}</option>
+            </select>
+            <noscript><button type="submit" class="btn btn-sm">{{ t('common.update', default='Update') }}</button></noscript>
+        </form>
+    </div>
+</div>
+
+<div class="detail-grid">
+    <div class="detail-main">
+        <div class="detail-card">
+            <div class="detail-card-header"><h3>{{ t('hosting.analytics.totals', default='Totals in window') }}</h3></div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="info-label">{{ t('hosting.analytics.total_requests', default='Total requests') }}</span>
+                    <span class="info-value"><strong>{{ summary.totals.request }}</strong></span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">{{ t('hosting.analytics.page_views', default='Page views') }}</span>
+                    <span class="info-value"><strong>{{ summary.totals.page_view }}</strong></span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">{{ t('hosting.analytics.errors', default='5xx errors') }}</span>
+                    <span class="info-value {% if summary.totals.error %}text-danger{% endif %}"><strong>{{ summary.totals.error }}</strong></span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">{{ t('hosting.analytics.status', default='Status') }}</span>
+                    <span class="info-value">
+                        <span class="status-badge status-{{ instance.status }}">{{ instance.status }}</span>
+                    </span>
+                </div>
+            </div>
+            <p class="muted small">{{ t('hosting.analytics.window_explanation', default='Counts are stored daily in UTC on the wiki itself. Static assets are excluded.') }}</p>
+            {% if instance.status == 'running' %}
+            <p class="muted small">{{ t('hosting.analytics.auto_refresh', default='This page auto-refreshes every 10 seconds while the wiki is running.') }}</p>
+            {% endif %}
+        </div>
+
+        <div class="detail-card">
+            <div class="detail-card-header"><h3>{{ t('hosting.analytics.daily_chart', default='Daily activity') }}</h3></div>
+            {% if summary.daily and summary.totals.request %}
+            <div class="analytics-chart" role="img"
+                 aria-label="{{ t('hosting.analytics.chart_aria', default='Daily request activity bar chart') }}">
+                {% for row in summary.daily %}
+                    {% set req_pct  = (row.request   * 100 // max_value) %}
+                    {% set view_pct = (row.page_view * 100 // max_value) %}
+                    {% set err_pct  = (row.error     * 100 // max_value) %}
+                    <div class="analytics-bar-group" title="{{ row.day }}: {{ row.request }} req · {{ row.page_view }} views · {{ row.error }} err">
+                        <div class="analytics-bars">
+                            <div class="analytics-bar analytics-bar-req"  style="height: {{ req_pct  }}%"></div>
+                            <div class="analytics-bar analytics-bar-view" style="height: {{ view_pct }}%"></div>
+                            {% if row.error %}
+                            <div class="analytics-bar analytics-bar-err"  style="height: {{ err_pct  }}%"></div>
+                            {% endif %}
+                        </div>
+                        <div class="analytics-day-label">{{ row.day[5:] }}</div>
+                    </div>
+                {% endfor %}
+            </div>
+            <div class="analytics-legend">
+                <span class="legend-item"><span class="legend-swatch analytics-bar-req"></span>{{ t('hosting.analytics.legend_requests', default='Requests') }}</span>
+                <span class="legend-item"><span class="legend-swatch analytics-bar-view"></span>{{ t('hosting.analytics.legend_views', default='Page views') }}</span>
+                <span class="legend-item"><span class="legend-swatch analytics-bar-err"></span>{{ t('hosting.analytics.legend_errors', default='Errors') }}</span>
+            </div>
+            {% else %}
+            <p class="muted">{{ t('hosting.analytics.empty', default='No requests recorded in this window yet. Once people visit the wiki, traffic will show up here.') }}</p>
+            {% endif %}
+        </div>
+
+        <div class="detail-card">
+            <div class="detail-card-header"><h3>{{ t('hosting.analytics.daily_table', default='Daily breakdown') }}</h3></div>
+            <div class="table-scroll">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>{{ t('hosting.analytics.day', default='Day (UTC)') }}</th>
+                            <th class="text-right">{{ t('hosting.analytics.requests', default='Requests') }}</th>
+                            <th class="text-right">{{ t('hosting.analytics.views', default='Page views') }}</th>
+                            <th class="text-right">{{ t('hosting.analytics.errs', default='Errors') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in summary.daily|reverse %}
+                        <tr>
+                            <td>{{ row.day }}</td>
+                            <td class="text-right">{{ row.request }}</td>
+                            <td class="text-right">{{ row.page_view }}</td>
+                            <td class="text-right {% if row.error %}text-danger{% endif %}">{{ row.error }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="detail-sidebar">
+        <div class="detail-card">
+            <div class="detail-card-header"><h3>{{ t('hosting.detail.actions') }}</h3></div>
+            <div class="action-list">
+                <a href="{{ url_for('hosting_instance_detail', instance_id=instance.id) }}" class="btn btn-outline btn-block">{{ t('hosting.analytics.back_to_instance', default='Back to instance') }}</a>
+                {% if instance.status == 'running' and instance.url %}
+                <a href="{{ instance.url }}" target="_blank" rel="noopener" class="btn btn-outline btn-block">{{ t('hosting.detail.open_wiki') }}</a>
+                {% endif %}
+                {% if viewer_is_admin %}
+                <a href="{{ url_for('hosting_admin_instance_logs', instance_id=instance.id) }}" class="btn btn-outline btn-block">{{ t('hosting.admin.view_logs', default='View logs (admin)') }}</a>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="detail-card">
+            <div class="detail-card-header"><h3>{{ t('hosting.analytics.about', default='About these numbers') }}</h3></div>
+            <ul class="help-list">
+                <li>{{ t('hosting.analytics.help_kind_request', default='Requests: every non-static HTTP request handled by the wiki.') }}</li>
+                <li>{{ t('hosting.analytics.help_kind_view',    default='Page views: successful loads of /wiki/<slug>.') }}</li>
+                <li>{{ t('hosting.analytics.help_kind_error',   default='Errors: requests that ended in a 5xx response.') }}</li>
+                <li>{{ t('hosting.analytics.help_storage',      default='Counts roll up once per UTC day, so the most recent bar may still be growing.') }}</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<script nonce="{{ csp_nonce }}">
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.js-days-range').forEach(function (sel) {
+        sel.addEventListener('change', function () {
+            if (sel.form) sel.form.submit();
+        });
+    });
+    var isRunning = {{ 'true' if instance.status == 'running' else 'false' }};
+    if (isRunning) {
+        window.setTimeout(function () {
+            window.location.reload();
+        }, 10000);
+    }
+});
+</script>
+{% endblock %}

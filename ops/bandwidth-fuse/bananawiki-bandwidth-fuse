@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG="/etc/bananawiki-bandwidth-fuse.conf"
+DISABLE_FILE="/etc/bananawiki-bandwidth-fuse.disabled"
+
+LIMIT_GIB=12
+GRACE_MINUTES_AFTER_BOOT=10
+DRY_RUN=0
+STOP_SERVICES="nginx bananawiki"
+
+log() {
+  logger -t bananawiki-bandwidth-fuse "$*"
+}
+
+if [ -f "$CONFIG" ]; then
+  # The config is root-owned shell syntax.
+  # shellcheck disable=SC1090
+  . "$CONFIG"
+fi
+
+if [ -f "$DISABLE_FILE" ]; then
+  log "disabled by $DISABLE_FILE"
+  exit 0
+fi
+
+for required in ip awk cut vnstat jq systemctl logger; do
+  if ! command -v "$required" >/dev/null 2>&1; then
+    log "missing required command: $required"
+    exit 0
+  fi
+done
+
+UPTIME_SECONDS="$(cut -d' ' -f1 /proc/uptime | cut -d'.' -f1)"
+GRACE_SECONDS="$((GRACE_MINUTES_AFTER_BOOT * 60))"
+
+if [ "$UPTIME_SECONDS" -lt "$GRACE_SECONDS" ]; then
+  log "grace period active: uptime ${UPTIME_SECONDS}s, grace ${GRACE_SECONDS}s"
+  exit 0
+fi
+
+IFACE="$(
+  ip route get 1.1.1.1 2>/dev/null \
+    | awk '{for(i=1;i<=NF;i++) if ($i=="dev") print $(i+1)}' \
+    | head -n1
+)"
+
+if [ -z "$IFACE" ]; then
+  log "could not detect default network interface"
+  exit 0
+fi
+
+VNSTAT_JSON="$(vnstat --json m 1 -i "$IFACE" 2>/dev/null || true)"
+if [ -z "$VNSTAT_JSON" ]; then
+  log "could not read vnstat data for interface $IFACE"
+  exit 0
+fi
+
+USED_GIB="$(
+  printf '%s' "$VNSTAT_JSON" \
+    | jq -r '(.interfaces[0].traffic.month[0].tx // empty) / 1073741824' 2>/dev/null \
+    || true
+)"
+
+if [ -z "$USED_GIB" ] || [ "$USED_GIB" = "null" ]; then
+  log "vnstat data did not include current monthly tx bytes for $IFACE"
+  exit 0
+fi
+
+OVER="$(awk "BEGIN { print ($USED_GIB >= $LIMIT_GIB) ? 1 : 0 }")"
+
+log "check: ${USED_GIB} GiB outbound used on ${IFACE}; limit ${LIMIT_GIB} GiB"
+
+if [ "$OVER" != "1" ]; then
+  exit 0
+fi
+
+log "tripped: ${USED_GIB} GiB >= ${LIMIT_GIB} GiB"
+
+for service in $STOP_SERVICES; do
+  if systemctl list-unit-files "${service}.service" >/dev/null 2>&1; then
+    systemctl stop "$service" || true
+  fi
+done
+
+if [ "$DRY_RUN" = "1" ]; then
+  log "DRY_RUN=1; not powering off"
+  exit 0
+fi
+
+log "powering off host"
+systemctl poweroff

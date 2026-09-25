@@ -1,0 +1,63 @@
+<div class="modal cat-modal-src u-d-none" id="catManageModal{{ cat.id }}">
+    <div class="modal-content xs-a80092e0">
+        <h3>{{ t('wiki.category.manage_with_name', name=cat.name) }}</h3>
+        <!-- Rename -->
+        <form method="POST" action="{{ url_for('edit_category', cat_id=cat.id) }}" class="cat-manage-row">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="text" name="name" value="{{ cat.name }}" class="input xs-97aad9ac" required maxlength="100">
+            <button type="submit" class="btn btn-sm">{{ t('wiki.category.rename') }}</button>
+        </form>
+        <hr class="xs-a4202b87">
+        <!-- Move category -->
+        <form method="POST" action="{{ url_for('move_category', cat_id=cat.id) }}" class="cat-manage-row">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="xs-923b6b31">{{ t('wiki.category.move_to') }}</label>
+            <select name="parent_id" class="input input-sm xs-ab88d28c">
+                <option value="" {% if not cat.parent_id %}selected{% endif %}>{{ t('wiki.category.top_level') }}</option>
+                {% for c in all_categories if c.id != cat.id %}
+                <option value="{{ c.id }}" {% if cat.parent_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-sm">{{ t('wiki.category.move') }}</button>
+        </form>
+        <hr class="xs-a4202b87">
+        <!-- Sequential navigation -->
+        <form method="POST" action="{{ url_for('toggle_category_sequential_nav', cat_id=cat.id) }}" class="cat-manage-row">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="xs-a17a5c92">{{ t('wiki.category.sequential_nav') }}</label>
+            <input type="hidden" name="sequential_nav" value="0">
+            <label class="u-flex-center-05-ptr u-fw-normal">
+                <input type="checkbox" name="sequential_nav" value="1" {% if cat.sequential_nav %}checked{% endif %} class="seq-nav-checkbox">
+                {{ t('wiki.category.show_prev_next') }}
+            </label>
+            <button type="submit" class="btn btn-sm">{{ t('common.save') }}</button>
+        </form>
+        <hr class="xs-a4202b87">
+        <!-- Delete -->
+        <form method="POST" action="{{ url_for('delete_category_route', cat_id=cat.id) }}" id="catDeleteForm{{ cat.id }}" data-cat-delete-confirm data-cat-page-count="{{ cat.page_count }}" data-cat-name="{{ cat.name }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="page_action" value="uncategorize" class="cat-page-action">
+            <input type="hidden" name="target_category_id" value="" class="cat-target-id">
+            {% if cat.page_count > 0 %}
+            <p class="xs-ae32a1f2">{% if cat.page_count == 1 %}{{ t('wiki.category.has_pages_one', count=cat.page_count) }}{% else %}{{ t('wiki.category.has_pages_many', count=cat.page_count) }}{% endif %}</p>
+            <div class="cat-delete-options">
+                <label class="cat-radio"><input type="radio" name="page_action_ui" value="uncategorize" checked> {{ t('wiki.category.move_to_uncategorized') }}</label>
+                <label class="cat-radio"><input type="radio" name="page_action_ui" value="move"> {{ t('wiki.category.move_pages_to') }}</label>
+                <select class="input input-sm cat-move-target xs-cf9931d1">
+                    {% for c in all_categories if c.id != cat.id %}
+                    <option value="{{ c.id }}">{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+                {# Deleting the pages as well needs page.delete; the route checks it too. #}
+                {% if has_permission(current_user, 'page.delete') %}
+                <label class="cat-radio"><input type="radio" name="page_action_ui" value="delete"> {{ t('wiki.category.delete_all_pages') }}</label>
+                {% endif %}
+            </div>
+            {% endif %}
+            <button type="submit" class="btn btn-sm btn-danger u-mt05">{{ t('wiki.category.delete_category') }}</button>
+        </form>
+        <div class="form-actions u-mt08">
+            <button type="button" class="btn btn-outline btn-sm" data-close-cat-modal>{{ t('common.cancel') }}</button>
+        </div>
+    </div>
+</div>

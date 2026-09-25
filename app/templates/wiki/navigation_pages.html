@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ navigation_category.name if navigation_category else t('nav.uncategorized') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ navigation_category.name if navigation_category else t('nav.uncategorized') }}</h1>
+<ul>
+{% for item in navigation_batch.pages %}
+    <li><a href="{{ url_for('view_page', slug=item.slug) }}">{{ item.title }}</a></li>
+{% endfor %}
+</ul>
+{% if navigation_batch.after is not none %}
+<a class="btn btn-outline" href="{{ url_for('navigation_pages', category_id=nav_category_id or 0, after=navigation_batch.after) }}">{{ t('nav.more_pages') }}</a>
+{% endif %}
+{% endblock %}

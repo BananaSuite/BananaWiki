@@ -1,0 +1,8 @@
+{
+    "id": "page_word_count",
+    "name": "Page Word Count",
+    "version": "1.0.0",
+    "author": "BananaWiki",
+    "description": "Tracks word counts per page using a plugin table and a template slot.",
+    "bananawiki_api_version": "1.0"
+}

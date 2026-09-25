@@ -1,0 +1,28 @@
+<div class="nav-section" data-cat-id="{{ cat.id }}" {% if depth is defined %}data-depth="{{ depth }}"{% endif %}>
+    <div class="nav-section-header">
+        <button class="btn cat-toggle" title="{{ t('wiki.category.toggle') }}" aria-label="{{ t('wiki.category.toggle') }}">▾</button>
+        <span class="nav-section-title">{{ cat.name }}</span>
+        {% if current_user and current_user.role in ('editor', 'admin', 'owner') %}
+        <div class="cat-actions">
+            <button class="btn-icon-tiny reorder-btn" data-dir="up" data-type="category" data-id="{{ cat.id }}" title="{{ t('wiki.category.move_up') }}" aria-label="{{ t('wiki.category.move_up') }}">▲</button>
+            <button class="btn-icon-tiny reorder-btn" data-dir="down" data-type="category" data-id="{{ cat.id }}" title="{{ t('wiki.category.move_down') }}" aria-label="{{ t('wiki.category.move_down') }}">▼</button>
+            <button class="btn-icon-tiny" data-open-cat-modal="catManageModal{{ cat.id }}" data-modal-url="{{ url_for('api_category_management', cat_id=cat.id) }}" title="{{ t('wiki.category.manage') }}" aria-label="{{ t('wiki.category.manage') }}">&#9881;</button>
+        </div>
+        {% endif %}
+    </div>
+    <div class="nav-section-body">
+        {% for p in cat.pages %}
+            {% include "wiki/_navigation_page.html" %}
+        {% endfor %}
+        {% if cat.id in sidebar_navigation.more %}
+            {% with nav_category_id=cat.id, nav_after=sidebar_navigation.more[cat.id] %}
+                {% include "wiki/_navigation_more.html" %}
+            {% endwith %}
+        {% endif %}
+        {% for child in cat.children %}
+            {% with cat=child, depth=(depth|default(0)) + 1 %}
+                {% include "wiki/_category.html" %}
+            {% endwith %}
+        {% endfor %}
+    </div>
+</div>

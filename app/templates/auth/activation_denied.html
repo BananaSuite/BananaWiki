@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="{{ current_language|default('en') }}" data-theme="{{ effective_theme_mode|default('dark') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ t('auth.activation_denied.title', default='Account Denied') }} | {{ settings.site_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=asset_version|default('dev')) }}">
+    {% if settings.favicon_enabled %}
+      {% if settings.favicon_type == 'custom' and settings.favicon_custom %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/' + settings.favicon_custom) }}">
+      {% elif settings.favicon_type != 'custom' %}
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicons/banana_' + settings.favicon_type + '.png') }}">
+      {% endif %}
+    {% endif %}
+    <style nonce="{{ csp_nonce }}">:root{--primary:{{ theme_primary|default(settings.primary_color) }};--secondary:{{ theme_secondary|default(settings.secondary_color) }};--accent:{{ theme_accent|default(settings.accent_color) }};--text:{{ theme_text|default(settings.text_color) }};--sidebar:{{ theme_sidebar|default(settings.sidebar_color) }};--bg:{{ theme_bg|default(settings.bg_color) }}}</style>
+</head>
+<body class="u-flex-column u-min-vh-100">
+    {% include "auth/_topbar.html" %}
+    {% include "_announcements_bar.html" %}
+    <main class="auth-container" id="main-content" tabindex="-1">
+        <div class="auth-box">
+            <h1>{{ settings.site_name }}</h1>
+            <div class="u-mt1 u-mb1" style="text-align:center;font-size:3rem;">🚫</div>
+            <h2 style="text-align:center;">{{ t('auth.activation_denied.heading', default='Account Request Denied') }}</h2>
+            <p style="text-align:center;color:var(--color-muted);">
+                {{ t('auth.activation_denied.message', default='An administrator has reviewed your sign-up request and has decided not to approve it.') }}
+            </p>
+            {% if deletion_time %}
+            <p style="text-align:center;color:var(--color-muted);">
+                {{ t('auth.activation_denied.deletion_message', default='Your account will be automatically deleted after') }} {{ timeout_hours }} {{ t('auth.activation_denied.hours', default='hours') }} ({{ deletion_time }}).
+            </p>
+            {% endif %}
+            <div class="auth-link u-mt1">
+                <form method="POST" action="{{ url_for('logout') }}" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-outline">{{ t('auth.logout') }}</button>
+                </form>
+            </div>
+        </div>
+    </main>
+    <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script nonce="{{ csp_nonce }}">
+    document.querySelectorAll('form[method="POST"], form[method="post"]').forEach(function(form) {
+        if (!form.querySelector('input[name="csrf_token"]')) {
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'csrf_token';
+            input.value = getCsrfToken();
+            form.appendChild(input);
+        }
+    });
+    </script>
+{% include "_source_link.html" %}
+</body>
+</html>

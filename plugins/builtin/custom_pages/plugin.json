@@ -1,0 +1,9 @@
+{
+    "id": "custom_pages",
+    "name": "Custom Pages",
+    "version": "1.0.0",
+    "author": "BananaWiki",
+    "description": "Create admin-defined custom pages at arbitrary URL paths with 19 content types including redirects, HTML, Markdown, images, file hosting, and more",
+    "builtin": true,
+    "bananawiki_api_version": "1.0"
+}

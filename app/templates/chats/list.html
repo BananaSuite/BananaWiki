@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ t('chats.list.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('chats.list.title') }}
+    {% if total_unread_dm > 0 %}
+    <span class="unread-badge">{{ total_unread_dm }}</span>
+    {% endif %}
+</h1>
+
+<div class="u-mb1">
+    <a href="{{ url_for('chat_new') }}" class="btn">{{ t('chats.list.new_chat') }}</a>
+</div>
+
+{% if chats %}
+<div class="chat-list">
+    {% for chat in chats %}
+    <a href="{{ url_for('chat_view', chat_id=chat.id) }}" class="chat-list-item">
+        <div class="chat-list-name">
+            {{ chat.other_username }}
+            {% if chat.unread_count > 0 %}
+            <span class="unread-badge">{{ chat.unread_count }}</span>
+            {% endif %}
+        </div>
+        <div class="chat-list-preview">
+            {% if chat.last_message %}
+                {{ chat.last_message[:80] }}{% if chat.last_message|length > 80 %}…{% endif %}
+            {% else %}
+                <em>{{ t('chats.list.no_messages') }}</em>
+            {% endif %}
+        </div>
+        {% if chat.last_message_at %}
+        <div class="chat-list-time">{{ time_ago(chat.last_message_at) }}</div>
+        {% endif %}
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<p>{{ t('chats.list.empty') }}</p>
+{% endif %}
+{% endblock %}

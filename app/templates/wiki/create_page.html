@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}{{ t('wiki.create.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ t('wiki.create.heading') }}</h1>
+</div>
+
+<div class="info-callout">
+    {{ t('wiki.create.info') }}
+</div>
+
+<form method="POST" id="createForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-group">
+        <label>{{ t('common.title') }}</label>
+        <input type="text" name="title" class="input u-mw500" required value="{{ form.title if form else '' }}" data-tour-id="create-page-title">
+    </div>
+    <div class="form-group">
+        <label>{{ t('wiki.create.category') }}</label>
+        <select name="category_id" class="input u-mw300">
+            <option value="" {% if not form or not form.category_id %}selected{% endif %}>{{ t('wiki.create.uncategorized') }}</option>
+            {% for cat in all_categories %}
+            <option value="{{ cat.id }}" {% if form and form.category_id == cat.id|string %}selected{% endif %}>{{ cat.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    {% if enabled_plugins.difficulty_tags %}
+    <div class="form-group">
+        <label>{{ t('wiki.create.difficulty') }}</label>
+        <select name="difficulty_tag" class="input u-mw220" id="createFormTagSelect">
+            <option value="" {% if not form or not form.difficulty_tag %}selected{% endif %}>{{ t('wiki.difficulty.none') }}</option>
+            <option value="beginner" {% if form and form.difficulty_tag == 'beginner' %}selected{% endif %}>{{ t('wiki.difficulty.beginner') }}</option>
+            <option value="easy" {% if form and form.difficulty_tag == 'easy' %}selected{% endif %}>{{ t('wiki.difficulty.easy') }}</option>
+            <option value="intermediate" {% if form and form.difficulty_tag == 'intermediate' %}selected{% endif %}>{{ t('wiki.difficulty.intermediate') }}</option>
+            <option value="expert" {% if form and form.difficulty_tag == 'expert' %}selected{% endif %}>{{ t('wiki.difficulty.expert') }}</option>
+            <option value="extra" {% if form and form.difficulty_tag == 'extra' %}selected{% endif %}>{{ t('wiki.difficulty.extra') }}</option>
+            <option value="custom" {% if form and form.difficulty_tag == 'custom' %}selected{% endif %}>{{ t('wiki.difficulty.custom') }}</option>
+        </select>
+    </div>
+    <div class="custom-tag-fields{% if not form or form.difficulty_tag != 'custom' %} u-d-none{% endif %}" id="createFormCustomTag">
+        <div class="form-group">
+            <label>{{ t('wiki.difficulty.label') }}</label>
+            <input type="text" name="tag_custom_label" class="input u-mw220" maxlength="50" placeholder="{{ t('wiki.difficulty.label_placeholder') }}" value="{{ form.tag_custom_label if form else '' }}">
+        </div>
+        <div class="form-group">
+            <label>{{ t('wiki.difficulty.color') }}</label>
+            <div class="u-flex-center-05">
+                <input type="color" class="color-hex-picker" id="createFormColorPicker" value="{{ form.tag_custom_color if form else '#4a90d9' }}">
+                <input type="text" name="tag_custom_color" class="input u-w7r-mono" id="createFormColorHex" maxlength="7" placeholder="#4a90d9" value="{{ form.tag_custom_color if form else '#4a90d9' }}">
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    <div class="form-actions">
+        <button type="submit" class="btn">{{ t('wiki.create.submit') }}</button>
+        <a href="{{ url_for('home') }}" class="btn btn-outline">{{ t('common.cancel') }}</a>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+function toggleCustomTag(sel, customId) {
+    var custom = document.getElementById(customId);
+    if (custom) custom.style.display = sel.value === 'custom' ? 'block' : 'none';
+}
+document.addEventListener('DOMContentLoaded', function() {
+    var picker = document.getElementById('createFormColorPicker');
+    var hex = document.getElementById('createFormColorHex');
+    if (picker && hex) {
+        picker.addEventListener('input', function() { hex.value = picker.value; });
+        hex.addEventListener('input', function() {
+            if (/^#[0-9a-fA-F]{6}$/.test(hex.value)) picker.value = hex.value;
+        });
+    }
+    var tagSel = document.getElementById('createFormTagSelect');
+    if (tagSel) tagSel.addEventListener('change', function() { toggleCustomTag(this, 'createFormCustomTag'); });
+});
+</script>
+{% endblock %}

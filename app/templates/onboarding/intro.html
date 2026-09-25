@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{{ t('onboarding.intro.title') }} - {{ settings.site_name }}{% endblock %}
+{% block content %}
+<section class="intro-tour intro-tour-compact">
+    <div class="intro-copy">
+        <p class="onboarding-kicker">{% if preview %}{{ t('onboarding.intro.kicker_preview') }}{% else %}{{ t('onboarding.intro.kicker_welcome') }}{% endif %}</p>
+        <h1>{{ t('onboarding.intro.heading') }}</h1>
+        <p>{{ t('onboarding.intro.description', site_name=settings.site_name) }}</p>
+        <div class="intro-tour-card">
+            <div class="intro-tour-progress">
+                <span>{{ t('onboarding.intro.live_steps', count=tour_steps|length) }}</span>
+            </div>
+            <h2>{{ t('onboarding.intro.what_next') }}</h2>
+            <p>{{ t('onboarding.intro.what_next_copy') }}</p>
+            {% if tour_steps %}
+            <ol class="intro-step-list">
+                {% for step in tour_steps %}
+                <li>{{ step.title }}</li>
+                {% endfor %}
+            </ol>
+            {% endif %}
+        </div>
+        <div class="intro-tour-actions">
+            {% if can_start_tour %}
+            <form method="POST" action="{{ url_for('tour_start') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if tour_role_options|length > 1 %}
+                <div class="intro-role-picker">
+                    <div class="intro-role-picker-head">
+                        <strong>{{ t('onboarding.intro.choose_view') }}</strong>
+                        <span>{{ t('onboarding.intro.choose_view_help') }}</span>
+                    </div>
+                    <div class="intro-role-options" role="radiogroup" aria-label="{{ t('onboarding.live_tour.perspective') }}">
+                        {% for option in tour_role_options %}
+                        <label class="intro-role-option">
+                            <input type="radio" name="tour_role" value="{{ option.id }}"{% if option.id == default_tour_role %} checked{% endif %}>
+                            <span>
+                                <strong>{{ option.label }}</strong>
+                                <small>{% if option.is_current_role %}{{ t('onboarding.intro.current_role') }}{% else %}{{ t('onboarding.intro.read_only_preview') }}{% endif %}</small>
+                            </span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <input type="hidden" name="tour_role" value="{{ default_tour_role }}">
+                {% endif %}
+                <button type="submit" class="btn btn-primary intro-tour-primary">{{ t('onboarding.intro.start_tour') }}</button>
+            </form>
+            {% endif %}
+            <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline intro-tour-secondary">{% if preview %}{{ t('common.close') }}{% else %}{{ t('onboarding.intro.skip_for_now') }}{% endif %}</button>
+            </form>
+        </div>
+    </div>
+</section>
+{% endblock %}

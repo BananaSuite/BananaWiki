@@ -1,0 +1,741 @@
+{% extends "base.html" %}
+{% block title %}{{ target.username }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<div class="user-profile-page{% if birthday_celebration %} user-profile-birthday{% endif %}">
+    {% if birthday_celebration %}
+    <div class="profile-birthday-card" aria-live="polite">
+        <span class="profile-birthday-icon" aria-hidden="true">✦</span>
+        <div>
+            <strong>Happy birthday, {{ target.username }}!</strong>
+            <span>Today is their celebration day.</span>
+        </div>
+    </div>
+    {% endif %}
+    <div class="user-profile-header">
+        <div class="user-profile-avatar-wrap">
+            {% if profile and profile.avatar_filename %}
+            <img src="{{ url_for('static', filename='uploads/' + profile.avatar_filename) }}" alt="{{ target.username }}" class="user-profile-avatar">
+            {% else %}
+            <span class="user-profile-avatar-placeholder">{{ target.username[0].upper() if target.username else '?' }}</span>
+            {% endif %}
+        </div>
+        <div class="user-profile-meta">
+            <h1 class="user-profile-username">{{ target.username }}</h1>
+            {% if profile and profile.real_name %}
+            <p class="user-profile-realname">{{ profile.real_name }}</p>
+            {% endif %}
+            {# Profile fields display (pill-style tags) #}
+            {% if enabled_plugins.get('user_profiles') and profile_fields %}
+            <div class="user-profile-fields">
+                {% for pf in profile_fields %}
+                <span class="profile-field-pill">
+                    <span class="profile-field-pill-label">{{ pf.label }}:</span>
+                    <span class="profile-field-pill-value">{{ pf.value }}</span>
+                </span>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if profile and profile.bio %}
+            <p class="user-profile-bio" id="profile-bio-text">{{ profile.bio }}</p>
+            <script nonce="{{ csp_nonce }}">
+            (function(){
+                var bio = document.getElementById('profile-bio-text');
+                if (!bio) return;
+                var lineHeight = parseFloat(getComputedStyle(bio).lineHeight) || 22;
+                var maxLines = 4;
+                var maxH = lineHeight * maxLines;
+                if (bio.scrollHeight > maxH + 4) {
+                    bio.style.maxHeight = maxH + 'px';
+                    bio.style.overflow = 'hidden';
+                    var btn = document.createElement('button');
+                    btn.className = 'btn btn-sm btn-outline';
+                    btn.style.marginTop = '.4rem';
+                    btn.style.fontSize = '.8rem';
+                    btn.textContent = window._t ? window._t('js.profile.view_more') : 'View more';
+                    var expanded = false;
+                    btn.addEventListener('click', function() {
+                        expanded = !expanded;
+                        bio.style.maxHeight = expanded ? 'none' : maxH + 'px';
+                        btn.textContent = window._t ? (expanded ? window._t('js.profile.view_less') : window._t('js.profile.view_more')) : (expanded ? 'View less' : 'View more');
+                    });
+                    bio.parentNode.insertBefore(btn, bio.nextSibling);
+                }
+            })();
+            </script>
+            {% endif %}
+            <div class="user-profile-badges">
+                {% if target.created_at %}
+                {% set member_since = format_datetime(target.created_at) %}
+                <span class="badge badge-member-since" title="{{ t('users.profile.member_since_title', date=member_since) }}">{{ t('users.profile.member_since_label', date=member_since) }}</span>
+                {% endif %}
+            </div>
+            <div class="user-profile-badges">
+                <span class="badge badge-{{ target.role }}" title="{{ target.role }}">{{ role_labels.get(target.role, target.role) }}</span>
+                {% if target.role == 'owner' %}
+                <span class="badge badge-owner" title="{{ t('users.profile.owner_title') }}">{{ t('users.profile.owner_label') }}</span>
+                {% endif %}
+                {% for tag in custom_tags %}
+                <style nonce="{{ csp_nonce }}">.ut-{{ tag.id }}{background:{{ tag.color }}22;color:{{ tag.color }}}</style>
+                <span class="badge ut-{{ tag.id }}" title="{{ tag.label }}">{{ tag.label }}</span>
+                {% endfor %}
+                {% if target.suspended %}
+                <span class="badge badge-suspended">{{ t('users.profile.suspended_label') }}</span>
+                {% endif %}
+                {% if target.userbot_enabled %}
+                <span class="badge" title="{{ t('users.profile.automated_label') }}">{{ t('users.profile.automated_label') }}</span>
+                {% endif %}
+
+                {% if profile and profile.page_disabled_by_admin %}
+                <span class="badge badge-suspended">{{ t('users.profile.disabled_by_admin_label') }}</span>
+                {% endif %}
+                {% if (is_own or is_admin) and profile and not profile.page_published %}
+                <span class="badge u-o60">{{ t('users.profile.hidden_from_public_label') }}</span>
+                {% endif %}
+                {% if role_expiry and (role_expiry.show_countdown or is_own or is_admin) %}
+                <span class="badge xs-7dedaacc" title="{{ t('users.profile.temp_role_title', original_role=role_expiry.original_role, date=format_datetime(role_expiry.expires_at)) }}">{{ t('users.profile.temp_role_label', role=target.role, original_role=role_expiry.original_role) }}</span>
+                {% endif %}
+            </div>
+            {# Temporary account countdown #}
+            {% if user_expiry and (user_expiry.show_countdown or is_own or is_admin) %}
+            <div class="xs-20b97ce2">
+                ⏳ <strong>{{ t('users.profile.account_scheduled_deletion') }}</strong>: {{ format_datetime(user_expiry.expires_at) }}
+                {% if not user_expiry.show_countdown and is_admin %}
+                <small class="u-o60">{{ t('users.profile.hidden_from_user') }}</small>
+                {% endif %}
+            </div>
+            {% endif %}
+            {% if role_expiry and (role_expiry.show_countdown or is_own or is_admin) %}
+            <div class="xs-f819b2f9">
+                ⏳ <strong>{{ t('users.profile.role_reverts_to', original_role=role_expiry.original_role) }}</strong>: {{ format_datetime(role_expiry.expires_at) }}
+                {% if not role_expiry.show_countdown and is_admin %}
+                <small class="u-o60">{{ t('users.profile.hidden_from_user') }}</small>
+                {% endif %}
+            </div>
+            {% endif %}
+            {% if user_badges %}
+            <div class="user-profile-badges u-mt08">
+                <h3 class="xs-6cadde86">{{ t('users.profile.badges_heading') }}</h3>
+                {% for badge in user_badges %}
+                <style nonce="{{ csp_nonce }}">.ub-{{ badge.id }}{background:{{ badge.color }}22;color:{{ badge.color }};border:1px solid {{ badge.color }}44}</style>
+                <span class="badge ub-{{ badge.id }}" title="{{ badge.description }}{% if badge.earned_at %} · {{ t('users.profile.earned', when=time_ago(badge.earned_at)) }}{% endif %}">
+                    {{ badge.icon }} {{ badge.name }}
+                </span>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if profile_group_badges %}
+            <div class="user-profile-badges u-mt08">
+                <h3 class="xs-6cadde86">{{ t('users.profile.groups_heading') }}</h3>
+                {% for gb in profile_group_badges %}
+                <span class="badge xs-c43379a8" title="{{ t('users.profile.group_member_title', group_name=gb.group_name) }}">
+                    {{ gb.group_name }}
+                </span>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if is_own %}
+            <div class="user-profile-actions">
+                <button class="btn btn-sm js-toggle-profile-edit">{{ t('users.profile.edit_profile') }}</button>
+                {% if profile %}
+                    {% if profile.page_published %}
+                    <form class="u-d-inline" method="POST" action="{{ url_for('user_settings') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="unpublish_profile">
+                        <input type="hidden" name="next_url" value="{{ url_for('user_profile', username=target.username) }}">
+                        <button type="submit" class="btn btn-sm btn-outline">{{ t('users.profile.hide_profile') }}</button>
+                    </form>
+                    {% else %}
+                    <form class="u-d-inline" method="POST" action="{{ url_for('user_settings') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="publish_profile">
+                        <input type="hidden" name="next_url" value="{{ url_for('user_profile', username=target.username) }}">
+                        <button type="submit" class="btn btn-sm">{{ t('users.profile.publish_profile') }}</button>
+                    </form>
+                    {% endif %}
+                {% endif %}
+            </div>
+            <div class="xs-e6f52802" id="profile-edit-section">
+                {% if profile and profile.page_disabled_by_admin %}
+                <div class="flash flash-error u-mb1">{{ t('users.profile.page_disabled_notice') }}</div>
+                {% endif %}
+                <form method="POST" action="{{ url_for('user_settings') }}" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="update_profile">
+                    <input type="hidden" name="next_url" value="{{ url_for('user_profile', username=target.username) }}">
+                    <div class="profile-edit-grid">
+                        <div class="profile-edit-main">
+                            <div class="form-group">
+                                <label>{{ t('users.profile.real_name_label') }}</label>
+                                <input type="text" name="real_name" class="input" value="{{ profile.real_name if profile else '' }}" maxlength="100" placeholder="{{ t('users.profile.real_name_placeholder') }}">
+                            </div>
+                            <div class="form-group">
+                                <label>{{ t('users.profile.bio_label') }}</label>
+                                <textarea name="bio" class="input" rows="3" maxlength="500" placeholder="{{ t('users.profile.bio_placeholder') }}">{{ profile.bio if profile else '' }}</textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>Birth date</label>
+                                <input type="date" name="birth_date" class="input" value="{{ profile.birth_date if profile else '' }}">
+                                <p class="u-label-note">Used only to show birthday celebrations on your birthday.</p>
+                            </div>
+                            <div class="form-group">
+                                <label>{{ t('users.profile.avatar_label') }}</label>
+                                <input type="file" name="avatar" class="input" accept="image/png,image/jpeg,image/gif,image/webp">
+                            </div>
+                            {% if enabled_plugins.get('user_profiles') and profile_field_defs %}
+                            <div class="profile-fields-inline">
+                                <h4 class="profile-fields-inline-heading">{{ t('users.profile.profile_fields') }}</h4>
+                                <div class="profile-fields-grid">
+                                {% for fd in profile_field_defs %}
+                                {% set fv = profile_field_values.get(fd.key, {}) %}
+                                    <div class="profile-field-inline-item">
+                                        <label class="profile-field-inline-label">
+                                            <input type="checkbox" name="profile_field_visible" value="{{ fd.key }}"{% if fv.get('visible') %} checked{% endif %}>
+                                            {{ fd.label }}
+                                        </label>
+                                        <input type="hidden" name="profile_field_key" value="{{ fd.key }}">
+                                        {% if fd.field_type == 'longtext' %}
+                                        <textarea name="profile_value_{{ fd.key }}" class="input input-sm" rows="2" maxlength="2000" placeholder="{{ t('users.profile.enter_label', label=fd.label|lower) }}">{{ fv.get('value', '') }}</textarea>
+                                        {% elif fd.field_type == 'date' %}
+                                        <input type="date" name="profile_value_{{ fd.key }}" class="input input-sm" value="{{ fv.get('value', '') }}">
+                                        {% elif fd.field_type == 'number' %}
+                                        <input type="number" name="profile_value_{{ fd.key }}" class="input input-sm" value="{{ fv.get('value', '') }}" step="any">
+                                        {% elif fd.field_type == 'url' %}
+                                        <input type="url" name="profile_value_{{ fd.key }}" class="input input-sm" value="{{ fv.get('value', '') }}" maxlength="500" placeholder="https://">
+                                        {% else %}
+                                        <input type="text" name="profile_value_{{ fd.key }}" class="input input-sm" value="{{ fv.get('value', '') }}" maxlength="500">
+                                        {% endif %}
+                                    </div>
+                                {% endfor %}
+                                </div>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-sm">{{ t('users.profile.save') }}</button>
+                        {% if profile and profile.avatar_filename %}
+                        <button type="submit" form="profile-remove-avatar-form" class="btn btn-sm btn-outline">{{ t('users.profile.remove_avatar') }}</button>
+                        {% endif %}
+                        <button type="button" class="btn btn-sm btn-outline js-cancel-profile-edit">{{ t('users.profile.cancel') }}</button>
+                    </div>
+                </form>
+                <form class="u-d-none" id="profile-remove-avatar-form" method="POST" action="{{ url_for('user_settings') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="remove_avatar">
+                    <input type="hidden" name="next_url" value="{{ url_for('user_profile', username=target.username) }}">
+                </form>
+            </div>
+            {% endif %}
+            {% if is_admin and not is_own and not target.is_superuser %}
+            <div class="user-profile-actions">
+                <a href="{{ url_for('admin_export_user_data', user_id=target.id) }}" class="btn btn-sm btn-outline">{{ t('admin.users.export_data') }}</a>
+            </div>
+            {% endif %}
+            {% if is_own %}
+            <div class="user-profile-actions">
+                <a href="{{ url_for('export_own_data') }}" class="btn btn-sm btn-outline">{{ t('admin.users.export_data') }}</a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {# Contribution heatmap #}
+    {% if contribution_chart_enabled %}
+    {% set total = contributions.values() | sum %}
+    <div class="contribution-section">
+        <div class="contribution-header">
+            <h2 class="contribution-title">{% if total == 1 %}{{ t('users.profile.contributions_total_singular', count="{:,}".format(total), year=contrib_year) }}{% else %}{{ t('users.profile.contributions_total_plural', count="{:,}".format(total), year=contrib_year) }}{% endif %}</h2>
+            {% if contribution_years | length > 1 %}
+            <form method="GET" action="{{ url_for('user_profile', username=target.username) }}" class="contrib-year-form">
+                <label for="contrib-year">{{ t('users.profile.year_label') }}</label>
+                <select id="contrib-year" name="year" class="input input-sm">
+                    {% for y in contribution_years %}
+                    <option value="{{ y }}"{% if y == contrib_year %} selected{% endif %}>{{ y }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-sm">{{ t('users.profile.go') }}</button>
+            </form>
+            {% endif %}
+        </div>
+        <div class="contribution-graph" id="contrib-graph"
+             data-contributions='{{ contributions | tojson }}'
+             data-day-details='{{ contribution_day_details | tojson }}'
+             data-year="{{ contrib_year }}"></div>
+        <div class="contribution-legend">
+            <span class="contrib-legend-label">{{ t('users.profile.legend_less') }}</span>
+            <span class="contrib-cell contrib-0"></span>
+            <span class="contrib-cell contrib-1"></span>
+            <span class="contrib-cell contrib-2"></span>
+            <span class="contrib-cell contrib-3"></span>
+            <span class="contrib-cell contrib-4"></span>
+            <span class="contrib-legend-label">{{ t('users.profile.legend_more') }}</span>
+        </div>
+        <div id="contrib-day-details" class="contrib-day-details u-d-none" aria-live="polite"></div>
+    </div>
+    {% endif %}
+
+    {# Recent contributions list #}
+    <div class="contribution-list-section">
+        <h2>{{ t('users.profile.recent_contributions') }}</h2>
+        {% if contribution_list %}
+        <ul class="contribution-list">
+            {% for c in contribution_list[:50] %}
+            <li class="contribution-item xs-f1278614">
+                <span class="contribution-date">{{ format_datetime(c.created_at) }}</span>
+                {% if c.page_slug %}
+                <a href="{{ url_for('view_page', slug=c.page_slug) }}" class="contribution-page">{{ c.page_title }}</a>
+                {% else %}
+                <span class="contribution-page deleted">{{ c.page_title }}</span>
+                {% endif %}
+                {% if c.edit_message %}<span class="contribution-msg">: {{ c.edit_message }}</span>{% endif %}
+                {% if is_admin %}
+                <form class="xs-7d5af229" method="POST" action="{{ url_for('admin_manage_attributions', user_id=target.id) }}" data-confirm="{{ t('users.profile.deattribute_one_confirm') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="deattribute_contribution">
+                    <input type="hidden" name="entry_id" value="{{ c.id }}">
+                    <button type="submit" class="btn btn-sm btn-danger u-fs075-p2-6">✕</button>
+                </form>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% if is_admin and contribution_list | length > 0 %}
+        <div class="xs-c63fb05f">
+            <form class="u-d-inline" method="POST" action="{{ url_for('admin_manage_attributions', user_id=target.id) }}" data-confirm="{{ t('users.profile.deattribute_all_confirm') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="deattribute_all">
+                <button type="submit" class="btn btn-sm btn-danger">{{ t('users.profile.deattribute_all_button') }}</button>
+            </form>
+            <form class="xs-f9e8563d" method="POST" action="{{ url_for('admin_manage_attributions', user_id=target.id) }}" data-confirm="{{ t('users.profile.mass_reattribute_confirm') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="mass_reattribute">
+                <select name="to_user_id" class="input input-sm u-w160" required>
+                    <option value="">{{ t('users.profile.select_user_placeholder') }}</option>
+                    {% for u in all_users %}
+                    {% if u.id != target.id %}
+                    <option value="{{ u.id }}">{{ u.username }}</option>
+                    {% endif %}
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-sm">{{ t('users.profile.mass_reattribute_button') }}</button>
+            </form>
+        </div>
+        {% endif %}
+        {% else %}
+        <p class="u-o60">{{ t('users.profile.no_contributions_yet') }}</p>
+        {% endif %}
+    </div>
+
+    {# Role history log #}
+    {% if (is_own or is_admin) and role_history %}
+    <div class="settings-section u-mt2">
+        <h2>{{ t('users.profile.role_history_heading') }}</h2>
+        <ul class="contribution-list">
+            {% for rh in role_history %}
+            <li class="contribution-item xs-f1278614">
+                <span class="contribution-date">{{ format_datetime(rh.changed_at) }}</span>
+                <span class="badge badge-{{ rh.old_role }}">{{ role_labels.get(rh.old_role, rh.old_role) }}</span>
+                → <span class="badge badge-{{ rh.new_role }}">{{ role_labels.get(rh.new_role, rh.new_role) }}</span>
+                {% if rh.changed_by_username %}
+                <span class="xs-228ae3c4">{{ t('users.profile.role_changed_by', username=rh.changed_by_username) }}</span>
+                {% endif %}
+                {% if is_admin %}
+                <form class="xs-7d5af229" method="POST" action="{{ url_for('admin_manage_attributions', user_id=target.id) }}" data-confirm="{{ t('users.profile.delete_role_history_entry_confirm') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="delete_role_history_entry">
+                    <input type="hidden" name="entry_id" value="{{ rh.id }}">
+                    <button type="submit" class="btn btn-sm btn-danger u-fs075-p2-6">✕</button>
+                </form>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% if is_admin and role_history | length > 0 %}
+        <form class="u-mt05" method="POST" action="{{ url_for('admin_manage_attributions', user_id=target.id) }}" data-confirm="{{ t('users.profile.delete_all_role_history_confirm') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="delete_all_role_history">
+            <button type="submit" class="btn btn-sm btn-danger">{{ t('users.profile.delete_all_role_history_button') }}</button>
+        </form>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# Admin moderation tools #}
+    {% if is_admin and not is_own %}
+    <div class="settings-section u-mt2">
+        <h2>{{ t('users.profile.admin_moderation_heading') }}</h2>
+        <form method="POST" action="{{ url_for('admin_moderate_profile', user_id=target.id) }}" class="admin-profile-form" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label>{{ t('users.profile.admin_real_name_label') }}</label>
+                <input type="text" name="real_name" class="input" value="{{ profile.real_name if profile else '' }}" maxlength="100">
+            </div>
+            <div class="form-group">
+                <label>{{ t('users.profile.admin_bio_label') }}</label>
+                <textarea name="bio" class="input" rows="3" maxlength="500">{{ profile.bio if profile else '' }}</textarea>
+            </div>
+            <div class="form-group">
+                <label>Birth date</label>
+                <input type="date" name="birth_date" class="input" value="{{ profile.birth_date if profile else '' }}">
+            </div>
+            <div class="form-group">
+                <label>{{ t('users.profile.avatar_label') }}</label>
+                <input type="file" name="avatar" class="input" accept="image/png,image/jpeg,image/gif,image/webp">
+            </div>
+            {% if enabled_plugins.get('user_profiles') and profile_field_defs %}
+            <div class="profile-fields-inline">
+                <h4 class="profile-fields-inline-heading">{{ t('users.profile.profile_fields') }}</h4>
+                <div class="profile-fields-grid">
+                {% for fd in profile_field_defs %}
+                {% set fv = profile_field_values.get(fd.key, {}) %}
+                    <div class="profile-field-inline-item">
+                        <label class="profile-field-inline-label">
+                            <input type="checkbox" name="profile_field_visible" value="{{ fd.key }}"{% if fv.get('visible') %} checked{% endif %}>
+                            {{ fd.label }}
+                        </label>
+                        <input type="hidden" name="profile_field_key" value="{{ fd.key }}">
+                        {% if fd.field_type == 'longtext' %}
+                        <textarea name="profile_value_{{ fd.key }}" class="input input-sm" rows="2" maxlength="2000" placeholder="{{ t('users.profile.enter_label', label=fd.label|lower) }}">{{ fv.get('value', '') }}</textarea>
+                        {% elif fd.field_type == 'date' %}
+                        <input type="date" name="profile_value_{{ fd.key }}" class="input input-sm" value="{{ fv.get('value', '') }}">
+                        {% elif fd.field_type == 'number' %}
+                        <input type="number" name="profile_value_{{ fd.key }}" class="input input-sm" value="{{ fv.get('value', '') }}" step="any">
+                        {% elif fd.field_type == 'url' %}
+                        <input type="url" name="profile_value_{{ fd.key }}" class="input input-sm" value="{{ fv.get('value', '') }}" maxlength="500" placeholder="https://">
+                        {% else %}
+                        <input type="text" name="profile_value_{{ fd.key }}" class="input input-sm" value="{{ fv.get('value', '') }}" maxlength="500">
+                        {% endif %}
+                    </div>
+                {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            <div class="form-actions">
+                <button type="submit" name="action" value="edit_profile" class="btn">{{ t('users.profile.save_changes') }}</button>
+                {% if profile and profile.avatar_filename %}
+                <button type="submit" name="action" value="remove_avatar" class="btn btn-outline">{{ t('users.profile.remove_avatar') }}</button>
+                {% endif %}
+                {% if profile and not profile.page_disabled_by_admin %}
+                    {% if profile.page_published %}
+                    <button type="submit" name="action" value="unpublish_profile" class="btn btn-outline"
+                        data-confirm="{{ t('users.profile.unpublish_confirm') }}" data-confirm-label="{{ t('users.profile.unpublish_short') }}">{{ t('users.profile.unpublish_profile') }}</button>
+                    {% else %}
+                    <button type="submit" name="action" value="publish_profile" class="btn btn-outline">{{ t('users.profile.publish_profile') }}</button>
+                    {% endif %}
+                {% endif %}
+                {% if profile and profile.page_disabled_by_admin %}
+                <button type="submit" name="action" value="enable_profile" class="btn btn-outline">{{ t('users.profile.reenable_profile') }}</button>
+                {% else %}
+                <button type="submit" name="action" value="disable_profile" class="btn btn-danger"
+                    data-confirm="{{ t('users.profile.disable_confirm') }}" data-confirm-label="{{ t('users.profile.disable_short') }}">{{ t('users.profile.disable_profile') }}</button>
+                {% endif %}
+                {% if profile %}
+                <button type="submit" name="action" value="delete_profile" class="btn btn-danger"
+                    data-confirm="{{ t('users.profile.delete_confirm') }}" data-confirm-label="{{ t('users.profile.delete_short') }}">{{ t('users.profile.delete_profile') }}</button>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+    {% endif %}
+
+    {# Admin custom tags management #}
+    {% if is_admin %}
+    <div class="settings-section u-mt2">
+        <h2>{{ t('users.profile.manage_tags_heading') }}</h2>
+        {% if custom_tags %}
+        <div class="u-mb1">
+            {% for tag in custom_tags %}
+            <div class="custom-tag-fields xs-d7a4426b">
+                <style nonce="{{ csp_nonce }}">.ut-edit-{{ tag.id }}{background:{{ tag.color }}22;color:{{ tag.color }}}</style>
+                <span class="badge ut-edit-{{ tag.id }}">{{ tag.label }}</span>
+                <form class="xs-9e2979b6" method="POST" action="{{ url_for('admin_manage_user_tags', user_id=target.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="update_tag">
+                    <input type="hidden" name="tag_id" value="{{ tag.id }}">
+                    <input type="text" name="tag_label" value="{{ tag.label }}" class="input input-sm u-w120" maxlength="50" required>
+                    <div class="color-preset-grid">
+                        {% for pc in ['#9b59b6','#e74c3c','#3498db','#2ecc71','#f39c12','#1abc9c','#e67e22','#c45c6a'] %}
+                        <style nonce="{{ csp_nonce }}">.cs-t{{ tag.id }}-{{ loop.index }}{background:{{ pc }}}</style>
+                        <button type="button" class="btn color-swatch cs-t{{ tag.id }}-{{ loop.index }} js-color-swatch" data-color="{{ pc }}"></button>
+                        {% endfor %}
+                    </div>
+                    <input type="color" name="tag_color" value="{{ tag.color }}" class="color-hex-picker" title="{{ t('users.profile.pick_color_title') }}">
+                    <button type="submit" class="btn btn-sm">{{ t('users.profile.update') }}</button>
+                </form>
+                <form class="u-d-inline" method="POST" action="{{ url_for('admin_manage_user_tags', user_id=target.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="delete_tag">
+                    <input type="hidden" name="tag_id" value="{{ tag.id }}">
+                    <button type="submit" class="btn btn-sm btn-danger" data-confirm="{{ t('users.profile.delete_tag_confirm') }}" data-confirm-label="{{ t('users.profile.delete_short') }}">✕</button>
+                </form>
+            </div>
+            {% endfor %}
+            {% if custom_tags | length > 1 %}
+            <form class="u-mt05" method="POST" action="{{ url_for('admin_manage_user_tags', user_id=target.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="reorder_tags">
+                <label class="xs-fc53e4e1">{{ t('users.profile.reorder_label') }}</label>
+                <input type="text" name="tag_order" class="input input-sm u-w200" value="{{ custom_tags | map(attribute='id') | join(',') }}" placeholder="{{ t('users.profile.reorder_placeholder') }}">
+                <button type="submit" class="btn btn-sm">{{ t('users.profile.reorder_button') }}</button>
+            </form>
+            {% endif %}
+        </div>
+        {% endif %}
+        <form class="u-flex-row-wrap" method="POST" action="{{ url_for('admin_manage_user_tags', user_id=target.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="add_tag">
+            <div class="form-group u-mb0">
+                <label>{{ t('users.profile.new_tag_label') }}</label>
+                <input type="text" name="tag_label" class="input input-sm u-w150" maxlength="50" required placeholder="{{ t('users.profile.new_tag_placeholder') }}">
+            </div>
+            <div class="form-group u-mb0">
+                <label>{{ t('users.profile.color_label') }}</label>
+                <div class="xs-1452e5c5">
+                    <div class="color-preset-grid">
+                        {% for pc in ['#9b59b6','#e74c3c','#3498db','#2ecc71','#f39c12','#1abc9c','#e67e22','#c45c6a'] %}
+                        <style nonce="{{ csp_nonce }}">.cs-add-{{ loop.index }}{background:{{ pc }}}</style>
+                        <button type="button" class="btn color-swatch cs-add-{{ loop.index }} js-color-swatch" data-color="{{ pc }}"></button>
+                        {% endfor %}
+                    </div>
+                    <input type="color" name="tag_color" value="#9b59b6" class="color-hex-picker" title="{{ t('users.profile.pick_color_title') }}">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-sm">{{ t('users.profile.add_tag') }}</button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+(function() {
+    var graphEl = document.getElementById('contrib-graph');
+    if (!graphEl) return;
+    var data = JSON.parse(graphEl.dataset.contributions || '{}');
+    var dayDetails = JSON.parse(graphEl.dataset.dayDetails || '{}');
+    var detailsEl = document.getElementById('contrib-day-details');
+    var year = parseInt(graphEl.dataset.year, 10);
+
+    // Format a Date as YYYY-MM-DD without UTC conversion
+    function fmtDate(d) {
+        return d.getFullYear() + '-' +
+               String(d.getMonth() + 1).padStart(2, '0') + '-' +
+               String(d.getDate()).padStart(2, '0');
+    }
+
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Grid starts on the Sunday on or before Jan 1
+    var jan1 = new Date(year, 0, 1);
+    var startDay = new Date(jan1);
+    startDay.setDate(startDay.getDate() - startDay.getDay());
+
+    // Grid ends on the Saturday on or after Dec 31
+    var dec31 = new Date(year, 11, 31);
+    var endDay = new Date(dec31);
+    endDay.setDate(endDay.getDate() + (6 - endDay.getDay()));
+
+    // Build weeks
+    var weeks = [];
+    var d = new Date(startDay);
+    while (d <= endDay) {
+        var week = [];
+        for (var i = 0; i < 7; i++) {
+            var key = fmtDate(d);
+            var inYear = d.getFullYear() === year;
+            var isFuture = d > today;
+            week.push({
+                date: key,
+                count: (inYear && !isFuture) ? (data[key] || 0) : 0,
+                outside: !inYear,
+                future: isFuture && inYear
+            });
+            d.setDate(d.getDate() + 1);
+        }
+        weeks.push(week);
+    }
+
+    // Compute max for colour scaling
+    var maxCount = 0;
+    for (var key in data) { if (data[key] > maxCount) maxCount = data[key]; }
+    function levelOf(count) {
+        if (count === 0) return 0;
+        if (maxCount === 0) return 1;
+        var ratio = count / maxCount;
+        if (ratio < 0.25) return 1;
+        if (ratio < 0.5)  return 2;
+        if (ratio < 0.75) return 3;
+        return 4;
+    }
+
+    // Month labels: show name on the first column that starts a new in-year month
+    var monthNames = window._t ? ['js.profile.month.jan','js.profile.month.feb','js.profile.month.mar','js.profile.month.apr','js.profile.month.may','js.profile.month.jun','js.profile.month.jul','js.profile.month.aug','js.profile.month.sep','js.profile.month.oct','js.profile.month.nov','js.profile.month.dec'].map(function(k){return window._t(k);}) : ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var monthLabels = [];
+    var seenMonths = {};
+    for (var w = 0; w < weeks.length; w++) {
+        var label = '';
+        for (var di = 0; di < 7; di++) {
+            var cell = weeks[w][di];
+            var parts = cell.date.split('-');
+            var cellYear = parseInt(parts[0], 10);
+            var cellMonth = parseInt(parts[1], 10) - 1; // 0-indexed
+            if (cellYear === year && !seenMonths[cellMonth]) {
+                seenMonths[cellMonth] = true;
+                label = monthNames[cellMonth];
+                break;
+            }
+        }
+        monthLabels.push(label);
+    }
+
+    // Build DOM
+    var wrapper = document.createElement('div');
+    wrapper.className = 'contrib-wrapper';
+
+    var headerRow = document.createElement('div');
+    headerRow.className = 'contrib-months';
+
+    var dayLabels = document.createElement('div');
+    dayLabels.className = 'contrib-day-labels';
+    [''].concat(window._t ? [window._t('js.profile.day.mon'), '', window._t('js.profile.day.wed'), '', window._t('js.profile.day.fri'), ''] : ['Mon', '', 'Wed', '', 'Fri', '']).forEach(function(lbl) {
+        var s = document.createElement('span');
+        s.textContent = lbl;
+        dayLabels.appendChild(s);
+    });
+
+    var monthRow = document.createElement('div');
+    monthRow.className = 'contrib-month-row';
+    for (var w = 0; w < weeks.length; w++) {
+        var lbl = document.createElement('span');
+        lbl.className = 'contrib-month-label';
+        lbl.textContent = monthLabels[w];
+        monthRow.appendChild(lbl);
+    }
+    headerRow.appendChild(monthRow);
+
+    var grid = document.createElement('div');
+    grid.className = 'contrib-grid';
+    grid.appendChild(dayLabels);
+
+    var colsDiv = document.createElement('div');
+    colsDiv.className = 'contrib-cols';
+    var interactiveCells = [];
+
+    function renderDayDetails(day) {
+        if (!detailsEl) return;
+        var items = dayDetails[day] || [];
+        var total = items.length;
+        detailsEl.classList.remove('u-d-none');
+        detailsEl.textContent = '';
+        var head = document.createElement('div');
+        head.className = 'contrib-day-details-head';
+        head.textContent = window._t ? window._t(total === 1 ? 'js.profile.day_details_singular' : 'js.profile.day_details_plural', {day: day, total: total}) : (day + ' · ' + total + ' contribution' + (total !== 1 ? 's' : ''));
+        detailsEl.appendChild(head);
+        if (!items.length) {
+            var empty = document.createElement('p');
+            empty.className = 'u-o60 u-mb0';
+            empty.textContent = window._t ? window._t('js.profile.no_contributions_on_day') : 'No contributions on this day.';
+            detailsEl.appendChild(empty);
+            return;
+        }
+        var list = document.createElement('ul');
+        list.className = 'contrib-day-list';
+        for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            var title = item.page_title || (window._t ? window._t('js.profile.deleted_page') : '[deleted page]');
+            var li = document.createElement('li');
+            li.className = 'contrib-day-item';
+            var timeEl = document.createElement('span');
+            timeEl.className = 'contrib-day-time';
+            timeEl.textContent = (item.created_at || '').replace('T', ' ').slice(0, 16);
+            li.appendChild(timeEl);
+            li.appendChild(document.createTextNode(' '));
+            if (item.page_slug) {
+                var link = document.createElement('a');
+                link.className = 'contribution-page';
+                link.href = '/page/' + encodeURIComponent(item.page_slug);
+                link.textContent = title;
+                li.appendChild(link);
+            } else {
+                var deleted = document.createElement('span');
+                deleted.className = 'contribution-page deleted';
+                deleted.textContent = title;
+                li.appendChild(deleted);
+            }
+            if (item.edit_message) {
+                var msg = document.createElement('span');
+                msg.className = 'contribution-msg';
+                msg.textContent = ': ' + item.edit_message;
+                li.appendChild(msg);
+            }
+            list.appendChild(li);
+        }
+        detailsEl.appendChild(list);
+    }
+
+    for (var w = 0; w < weeks.length; w++) {
+        var col = document.createElement('div');
+        col.className = 'contrib-col';
+        for (var di = 0; di < weeks[w].length; di++) {
+            var day = weeks[w][di];
+            var cellEl = document.createElement('button');
+            cellEl.type = 'button';
+            if (day.outside) {
+                cellEl.className = 'contrib-cell contrib-outside';
+                cellEl.disabled = true;
+                cellEl.setAttribute('aria-label', window._t ? window._t('js.profile.cell_outside_year', {date: day.date}) : (day.date + ': outside selected year'));
+            } else if (day.future) {
+                cellEl.className = 'contrib-cell contrib-future';
+                cellEl.disabled = true;
+                cellEl.setAttribute('aria-label', window._t ? window._t('js.profile.cell_future', {date: day.date}) : (day.date + ': future date'));
+            } else {
+                cellEl.className = 'contrib-cell contrib-' + levelOf(day.count);
+                cellEl.title = window._t ? window._t(day.count === 1 ? 'js.profile.cell_singular' : 'js.profile.cell_plural', {date: day.date, count: day.count}) : (day.date + ': ' + day.count + ' contribution' + (day.count !== 1 ? 's' : ''));
+                cellEl.setAttribute('aria-label', cellEl.title);
+                cellEl.dataset.day = day.date;
+                cellEl.addEventListener('click', function(e) {
+                    interactiveCells.forEach(function(cell) { cell.classList.remove('is-active'); });
+                    e.currentTarget.classList.add('is-active');
+                    renderDayDetails(e.currentTarget.dataset.day);
+                });
+                interactiveCells.push(cellEl);
+            }
+            col.appendChild(cellEl);
+        }
+        colsDiv.appendChild(col);
+    }
+    grid.appendChild(colsDiv);
+
+    wrapper.appendChild(headerRow);
+    wrapper.appendChild(grid);
+    graphEl.appendChild(wrapper);
+
+    var firstActive = interactiveCells.find(function(c) { return !c.classList.contains('contrib-0'); });
+    if (!firstActive && interactiveCells.length) firstActive = interactiveCells[0];
+    if (firstActive) {
+        firstActive.classList.add('is-active');
+        setTimeout(function() {
+            renderDayDetails(firstActive.dataset.day);
+        }, 50);
+    }
+}());
+var _profileEditBtn = document.querySelector('.js-toggle-profile-edit');
+if (_profileEditBtn) _profileEditBtn.addEventListener('click', function() {
+    var s = document.getElementById('profile-edit-section');
+    if (s) s.style.display = window.getComputedStyle(s).display === 'none' ? 'block' : 'none';
+});
+var _cancelEditBtn = document.querySelector('.js-cancel-profile-edit');
+if (_cancelEditBtn) _cancelEditBtn.addEventListener('click', function() {
+    var s = document.getElementById('profile-edit-section');
+    if (s) s.style.display = 'none';
+});
+document.querySelectorAll('.js-color-swatch').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var input = this.closest('form').querySelector('[name=tag_color]');
+        if (input) input.value = this.dataset.color;
+    });
+});
+</script>
+{% endblock %}

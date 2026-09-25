@@ -1,0 +1,8 @@
+{% for p in navigation_batch.pages %}
+    {% include "wiki/_navigation_page.html" %}
+{% endfor %}
+{% if navigation_batch.after is not none %}
+    {% with nav_after=navigation_batch.after %}
+        {% include "wiki/_navigation_more.html" %}
+    {% endwith %}
+{% endif %}

@@ -1,0 +1,9 @@
+{
+    "id": "badges",
+    "name": "Badges",
+    "version": "1.0.0",
+    "author": "BananaWiki",
+    "description": "Badge system \u2013 achievement badges with auto-trigger support",
+    "builtin": true,
+    "bananawiki_api_version": "1.0"
+}

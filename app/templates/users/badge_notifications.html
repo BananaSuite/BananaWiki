@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ t('users.badge_notif.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('users.badge_notif.heading') }}</h1>
+
+{% if unnotified %}
+<p class="xs-debcef92">{{ t('users.badge_notif.congrats') }}</p>
+
+<div class="xs-c2d6b7a7">
+    {% for badge_notif in unnotified %}
+    <style nonce="{{ csp_nonce }}">.bn-{{ badge_notif.id }}{border-left:4px solid {{ badge_notif.color }}}</style>
+    <div class="settings-section bn-{{ badge_notif.id }}">
+        <div class="xs-4e1feb95">
+            <div class="xs-32ef604f">{{ badge_notif.icon }}</div>
+            <div class="u-flex-1">
+                <h2 class="xs-d53a2dbb">{{ badge_notif.name }}</h2>
+                <p class="xs-01e4862a">{{ badge_notif.description }}</p>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<form class="u-mt2" method="POST" action="{{ url_for('dismiss_badge_notifications') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn">{{ t('users.badge_notif.continue') }}</button>
+</form>
+
+{% else %}
+<p class="u-o70">{{ t('users.badge_notif.empty') }}</p>
+<a href="{{ url_for('user_profile', username=current_user.username) if enabled_plugins.user_profiles else url_for('user_settings') }}" class="btn">{{ t('users.badge_notif.view_profile') }}</a>
+{% endif %}
+
+{% endblock %}

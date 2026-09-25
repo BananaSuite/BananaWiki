@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.audit.title', username=target.username) }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('admin.audit.heading', username=target.username) }}</h1>
+<p class="u-mb1">
+    <a href="{{ url_for('admin_users') }}">{{ t('admin.audit.back') }}</a>
+    &nbsp;·&nbsp;
+    {{ t('admin.audit.role_label') }} <span class="badge badge-{{ target.role }}">{{ target.role }}</span>
+    {% if target.last_login_at %}
+    &nbsp;·&nbsp; {{ t('admin.audit.last_login') }} <span title="{{ format_datetime(target.last_login_at) }}">{{ time_ago(target.last_login_at) }}</span>
+    {% else %}
+    &nbsp;·&nbsp; {{ t('admin.audit.last_login') }} {{ t('admin.codes.never') }}
+    {% endif %}
+</p>
+
+{% if username_history %}
+<div id="username-history-section" class="settings-section u-mb15">
+    <h3>{{ t('admin.audit.username_history') }}</h3>
+    <table class="admin-table u-mt05">
+        <thead>
+            <tr>
+                <th>{{ t('admin.audit.col.date') }}</th>
+                <th>{{ t('admin.audit.col.old_username') }}</th>
+                <th>{{ t('admin.audit.col.new_username') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in username_history %}
+            <tr>
+                <td><span title="{{ format_datetime(entry.changed_at) }}">{{ time_ago(entry.changed_at) }}</span></td>
+                <td>{{ entry.old_username }}</td>
+                <td>{{ entry.new_username }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if suspension_history %}
+<div id="suspension-history-section" class="settings-section u-mb15">
+    <h3>{{ t('admin.audit.suspension_history') }}</h3>
+    <table class="admin-table u-mt05">
+        <thead>
+            <tr>
+                <th>{{ t('admin.audit.col.date') }}</th>
+                <th>{{ t('admin.audit.col.action') }}</th>
+                <th>{{ t('admin.audit.col.duration') }}</th>
+                <th>{{ t('admin.audit.col.expires') }}</th>
+                <th>{{ t('admin.audit.col.reason') }}</th>
+                <th>{{ t('admin.audit.col.reason_visible') }}</th>
+                <th>{{ t('admin.audit.col.time_visible') }}</th>
+                <th>{{ t('admin.audit.col.by') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in suspension_history %}
+            <tr>
+                <td><span title="{{ format_datetime(entry.created_at) }}">{{ time_ago(entry.created_at) }}</span></td>
+                <td>
+                    {% if entry.action == 'suspend' %}
+                    <span class="badge badge-suspended">{{ t('admin.audit.action.suspended') }}</span>
+                    {% else %}
+                    <span class="badge badge-editor">{{ t('admin.audit.action.unsuspended') }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ entry.duration or '-' }}</td>
+                <td>{% if entry.suspended_until %}<span title="{{ format_datetime(entry.suspended_until) }}">{{ time_ago(entry.suspended_until) }}</span>{% else %}-{% endif %}</td>
+                <td>{{ entry.reason or '-' }}</td>
+                <td>{% if entry.reason_visible %}{{ t('admin.audit.shown_to_user') }}{% else %}{{ t('admin.audit.internal_only') }}{% endif %}</td>
+                <td>{% if entry.time_visible %}{{ t('admin.audit.shown_to_user') }}{% else %}{{ t('admin.audit.hidden') }}{% endif %}</td>
+                <td>{{ entry.performed_by_username or '-' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if log_entries %}
+<div class="settings-section">
+    <h3>{{ t('admin.audit.activity_log') }}</h3>
+    <p class="xs-2abadb2f">{{ t('admin.audit.activity_log_intro') }}</p>
+    <div class="xs-61948001">
+        {% for entry in log_entries %}
+        <div class="xs-263899bc">{{ entry|e }}</div>
+        {% endfor %}
+    </div>
+</div>
+{% else %}
+<p class="u-o50">{{ t('admin.audit.empty') }}</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,26 @@
+    <!-- Create Category Modal -->
+    <div class="modal u-d-none" id="createCatModal">
+        <div class="modal-content">
+            <h3>{{ t('wiki.create_category') }}</h3>
+            <form method="POST" action="{{ url_for('create_category') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="form-group">
+                    <label>{{ t('common.name') }}</label>
+                    <input type="text" name="name" required class="input">
+                </div>
+                <div class="form-group">
+                    <label>{{ t('wiki.parent_category_optional') }}</label>
+                    <select name="parent_id" class="input">
+                        <option value="">{{ t('common.none') }}</option>
+                        {% for cat in all_categories %}
+                        <option value="{{ cat.id }}">{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn">{{ t('common.create') }}</button>
+                    <button type="button" class="btn btn-outline" data-close-modal>{{ t('common.cancel') }}</button>
+                </div>
+            </form>
+        </div>
+    </div>

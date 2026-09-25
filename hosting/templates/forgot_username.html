@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Forgot username | {{ t('hosting.brand') }}{% endblock %}
+{% block content %}
+<div class="auth-container">
+    <div class="auth-box">
+        <h1>{{ t('hosting.brand') }}</h1>
+        <p class="subtitle">{{ t('hosting.forgot_username.subtitle', default='Recover your username') }}</p>
+
+        <form method="POST" action="{{ url_for('hosting_forgot_username') }}" autocomplete="on">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label for="email">{{ t('hosting.forgot_username.email', default='Your verified email address') }}</label>
+                <input type="email" id="email" name="email" class="input" required autofocus autocomplete="email">
+            </div>
+            <p class="form-hint" style="margin-bottom:1rem;opacity:.65;font-size:.82rem;">
+                {{ t('hosting.forgot_username.hint', default='If an account with a verified email exists, we will send your username to that address.') }}
+            </p>
+            <button type="submit" class="btn">{{ t('hosting.forgot_username.submit', default='Send my username') }}</button>
+        </form>
+        <div class="auth-link">
+            <a href="{{ url_for('hosting_login') }}">&larr; {{ t('hosting.forgot_username.back', default='Back to login') }}</a>
+        </div>
+        {% include "_back_to_bananawiki.html" %}
+    </div>
+</div>
+{% endblock %}

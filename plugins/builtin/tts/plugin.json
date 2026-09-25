@@ -1,0 +1,9 @@
+{
+    "id": "tts",
+    "name": "Text-to-Speech",
+    "version": "1.0.0",
+    "author": "BananaWiki",
+    "description": "Generate shareable local audio narrations of wiki pages on demand. Piper neural voices run on your server, multilingual voice models are cached locally, in-flight requests are deduplicated, and the cache is automatically invalidated when a page is updated.",
+    "builtin": true,
+    "bananawiki_api_version": "1.0"
+}

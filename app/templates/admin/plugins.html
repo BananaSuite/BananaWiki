@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.plugins.title') }} | {{ settings.site_name }}{% endblock %}
+{% block content %}
+<h1>{{ t('admin.plugins.title') }}</h1>
+
+<p class="xs-a84fa730">
+    {{ t('admin.plugins.intro') }}
+</p>
+
+{% if not external_plugins_allowed %}
+<div class="settings-section u-mb15" role="note">
+    {% if managed_hosting %}<h3>{{ t('admin.plugins.custom_plugins_protected') }}</h3>{% endif %}
+    <p class="u-mb0">{{ external_plugins_off }}</p>
+</div>
+{% else %}
+<!-- Import external plugin -->
+<div class="settings-section u-mb15">
+    <h3>{{ t('admin.plugins.import_external') }}</h3>
+    {# An uploaded plugin is Python that runs inside the wiki. Say so where
+       the decision is made, not only in the documentation. #}
+    <p role="note"><strong>{{ t('admin.plugins.import_warning', default='An external plugin runs as the wiki itself. Once enabled it can read and change all data, read the secret key and act as any user, the owner included. Install only code you have reviewed and trust.') }}</strong></p>
+    <p class="xs-ba62232d">{{ t('admin.plugins.admin_trust_note', default='Any admin can install plugins and import a full-site backup, and either one gives complete control of the wiki. Give the admin role only to people you would trust with everything. Owner status protects an account from being demoted or deleted through the normal interface, not from an admin who installs code.') }}</p>
+    <form class="u-flex-row-wrap" method="POST" action="{{ url_for('admin_import_plugin') }}" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group u-mb0">
+            <label for="plugin-import-file">{{ t('admin.plugins.file_label') }}</label>
+            <input type="file" id="plugin-import-file" name="plugin_file" accept=".bwplugin" class="input u-mw340">
+        </div>
+        <div class="form-group u-mb0">
+            <label for="plugin-import-password">{{ t('account.settings.confirm_password') }}</label>
+            <input type="password" id="plugin-import-password" name="password" class="input u-mw340"
+                   required maxlength="1024" autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-sm">{{ t('admin.plugins.import_button') }}</button>
+    </form>
+</div>
+{% endif %}
+
+<!-- Plugin SDK -->
+<div class="settings-section u-mb15">
+    <h3>{{ t('admin.plugins.sdk') }}</h3>
+    <p class="xs-ba62232d">
+        {{ t('admin.plugins.sdk_intro') }}
+    </p>
+    <a href="{{ url_for('admin_plugins_sdk_download') }}" class="btn btn-sm">{{ t('admin.plugins.download_sdk') }}</a>
+</div>
+
+<!-- Plugin list -->
+<table class="admin-table" data-tour-id="admin-plugins-list">
+    <thead>
+        <tr>
+            <th>{{ t('common.name') }}</th>
+            <th>{{ t('admin.plugin_detail.version') }}</th>
+            <th>{{ t('admin.languages.col.author') }}</th>
+            <th>{{ t('admin.custom_pages.col.type') }}</th>
+            <th>{{ t('admin.codes.col.status') }}</th>
+            <th>{{ t('admin.plugins.extends_header') }}</th>
+            <th>{{ t('common.actions') }}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in plugins %}
+        <tr>
+            <td>
+                <a class="u-fw-600" href="{{ url_for('admin_plugin_detail', plugin_id=p.id) }}">
+                    {{ p.name }}
+                </a>
+                {% if p.description %}
+                <br><span class="xs-9e603ace">{{ p.description[:80] }}{% if p.description|length > 80 %}…{% endif %}</span>
+                {% endif %}
+            </td>
+            <td>{{ p.version }}</td>
+            <td>{{ p.author }}</td>
+            <td>
+                {% if p.builtin %}
+                    <span class="xs-36c642da">{{ t('admin.plugin_detail.builtin') }}</span>
+                {% else %}
+                    <span class="xs-66975d5e">{{ t('admin.plugin_detail.external') }}</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if p.restriction %}
+                    <span class="u-o50" title="{{ p.restriction }}">{{ t('admin.plugins.restricted') }}</span>
+                {% elif p.enabled %}
+                    <span class="xs-3958a29f">{{ t('admin.plugins.enabled_dot') }}</span>
+                {% else %}
+                    <span class="u-o50">{{ t('admin.plugins.disabled_dot') }}</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if p.extends %}
+                    <span class="xs-2d1c806e" title="{{ t('admin.plugins.extends_tooltip') }}">
+                    {% for eid in p.extends %}
+                        {% set e_name = all_manifests[eid]['name'] if eid in all_manifests else eid %}
+                        {% if eid not in p.extends_missing %}
+                            <span class="xs-3958a29f">{{ e_name }}</span>{% if not loop.last %}, {% endif %}
+                        {% else %}
+                            <span class="u-o50">{{ e_name }}</span>{% if not loop.last %}, {% endif %}
+                        {% endif %}
+                    {% endfor %}
+                    </span>
+                {% endif %}
+                {% if p.extended_by %}
+                    <br><span class="xs-775b6761" style="font-size:0.85em">
+                    {{ t('admin.plugins.extended_by_label') }}
+                    {% for eid in p.extended_by %}
+                        {% set e_name = all_manifests[eid]['name'] if eid in all_manifests else eid %}
+                        {% if eid in p.extended_by_enabled %}
+                            <strong>{{ e_name }}</strong>{% if not loop.last %}, {% endif %}
+                        {% else %}
+                            {{ e_name }}{% if not loop.last %}, {% endif %}
+                        {% endif %}
+                    {% endfor %}
+                    </span>
+                {% endif %}
+            </td>
+            <td class="u-ws-nowrap">
+                {% if p.restriction %}
+                <button type="button" class="btn btn-sm btn-outline" disabled title="{{ p.restriction }}">{{ t('admin.plugins.unavailable') }}</button>
+                {% elif p.enabled %}
+                <form class="u-d-inline" method="POST" action="{{ url_for('admin_disable_plugin', plugin_id=p.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-outline">{{ t('admin.plugins.disable') }}</button>
+                </form>
+                {% else %}
+                <form class="u-d-inline" method="POST" action="{{ url_for('admin_enable_plugin', plugin_id=p.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm">{{ t('admin.plugins.enable') }}</button>
+                </form>
+                {% endif %}
+                {% if not p.builtin %}
+                {# Opens a confirmation page that asks for the password and
+                   lets the admin choose whether the listed data goes too. #}
+                <form class="xs-2d1c806e" method="POST" action="{{ url_for('admin_delete_plugin', plugin_id=p.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-danger">{{ t('common.delete') }}</button>
+                </form>
+                {% else %}
+                <form class="xs-2d1c806e" method="POST" action="{{ url_for('admin_delete_plugin', plugin_id=p.id) }}"
+                      data-confirm="{{ t('admin.plugins.uninstall_confirm', name=p.name) }}" data-confirm-label="{{ t('admin.plugins.uninstall') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="drop_data" value="0">
+                    <button type="submit" class="btn btn-sm btn-outline">{{ t('admin.plugins.uninstall') }}</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if not plugins %}
+<p class="xs-c65ff88e">{{ t('admin.plugins.empty') }}</p>
+{% endif %}
+
+{% endblock %}
