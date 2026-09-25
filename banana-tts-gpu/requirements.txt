@@ -6,5 +6,5 @@
 piper-tts>=1.4.0,<2.0
 onnxruntime-gpu>=1.17.0,<2.0
 fastapi>=0.110.0,<1.0
-uvicorn[standard]>=0.29.0,<1.0
+uvicorn[standard]>=0.53.0,<1.0
 pydantic>=2.0.0,<3.0
