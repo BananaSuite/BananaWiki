@@ -8,7 +8,7 @@ filelock>=3.0.0,<4.0
 markdown>=3.0,<4.0
 Pygments==2.20.0
 bleach>=6.0.0,<7.0
-tinycss2>=1.0.0,<2.0
+tinycss2>=1.5.1,<2.0
 Pillow>=12.3.0,<13.0
 qrcode>=7.4.0,<8.0
 cryptography>=50.0.1,<51
