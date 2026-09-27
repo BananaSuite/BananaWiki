@@ -4,6 +4,7 @@ import io
 import os
 import re
 import signal
+import sqlite3
 import stat
 import sys
 import tempfile
@@ -7801,3 +7802,110 @@ class TestProductionBootstrapLock:
         response = client.get("/signup?bootstrap_token=correct-token")
         assert response.status_code == 200
         assert b"bootstrap_token" in response.data
+
+
+class TestAttributeWikiPagesToSystem:
+    """The ``-1`` author sentinel must stay a valid foreign-key reference.
+
+    ``pages.last_edited_by`` and ``page_history.edited_by`` reference
+    ``users.id``. The import path stamps both with the ``-1`` "the system"
+    sentinel, so a matching ``users`` row has to exist or the resulting database
+    fails ``PRAGMA foreign_key_check`` and can no longer start once a schema
+    migration runs.
+    """
+
+    @staticmethod
+    def _make_wiki_db(path):
+        conn = sqlite3.connect(path)
+        conn.executescript(
+            """
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                password TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'user',
+                suspended INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE pages (
+                id INTEGER PRIMARY KEY,
+                title TEXT,
+                last_edited_by TEXT REFERENCES users(id) ON DELETE SET NULL
+            );
+            CREATE TABLE page_history (
+                id INTEGER PRIMARY KEY,
+                page_id INTEGER,
+                edited_by TEXT REFERENCES users(id) ON DELETE SET NULL
+            );
+            """
+        )
+        conn.execute("INSERT INTO users (id, username, password) VALUES ('u1','ann','h')")
+        conn.execute("INSERT INTO pages (title, last_edited_by) VALUES ('Home','u1')")
+        conn.execute("INSERT INTO page_history (page_id, edited_by) VALUES (1,'u1')")
+        conn.commit()
+        conn.close()
+
+    def test_sentinel_reference_is_valid_after_import(self, tmp_path):
+        from hosting.instance_database import _attribute_wiki_db_pages_to_system
+
+        db_path = str(tmp_path / "bananawiki.db")
+        self._make_wiki_db(db_path)
+
+        _attribute_wiki_db_pages_to_system(db_path)
+
+        conn = sqlite3.connect(db_path)
+        try:
+            assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+            assert conn.execute(
+                "SELECT COUNT(*) FROM users WHERE id='-1'"
+            ).fetchone()[0] == 1
+            # The sentinel value itself is preserved for the "the system" label.
+            assert conn.execute(
+                "SELECT last_edited_by FROM pages"
+            ).fetchone()[0] == "-1"
+            assert conn.execute(
+                "SELECT edited_by FROM page_history"
+            ).fetchone()[0] == "-1"
+        finally:
+            conn.close()
+
+    def test_repeated_import_does_not_duplicate_the_account(self, tmp_path):
+        from hosting.instance_database import _attribute_wiki_db_pages_to_system
+
+        db_path = str(tmp_path / "bananawiki.db")
+        self._make_wiki_db(db_path)
+
+        _attribute_wiki_db_pages_to_system(db_path)
+        _attribute_wiki_db_pages_to_system(db_path)
+
+        conn = sqlite3.connect(db_path)
+        try:
+            assert conn.execute(
+                "SELECT COUNT(*) FROM users WHERE id='-1'"
+            ).fetchone()[0] == 1
+            assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        finally:
+            conn.close()
+
+    def test_system_account_cannot_sign_in_or_leak_into_admin_listings(self, tmp_path):
+        from hosting.instance_database import _attribute_wiki_db_pages_to_system
+
+        db_path = str(tmp_path / "bananawiki.db")
+        self._make_wiki_db(db_path)
+
+        _attribute_wiki_db_pages_to_system(db_path)
+
+        conn = sqlite3.connect(db_path)
+        try:
+            role, suspended, password = conn.execute(
+                "SELECT role, suspended, password FROM users WHERE id='-1'"
+            ).fetchone()
+            assert role == "user"
+            assert suspended == 1
+            assert not password.startswith("$")  # not a usable hash
+            # Privileged listings filter on suspended=0, so it stays out of them.
+            assert conn.execute(
+                "SELECT COUNT(*) FROM users WHERE role IN ('admin','owner') "
+                "AND suspended=0 AND id='-1'"
+            ).fetchone()[0] == 0
+        finally:
+            conn.close()

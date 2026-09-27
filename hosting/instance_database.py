@@ -419,11 +419,37 @@ def _reconstruct_wiki_db_from_json(target_db_path, json_payload):
 
 
 def _attribute_wiki_db_pages_to_system(db_path):
-    """Assign imported page and page-history authors in *db_path* to the system."""
+    """Assign imported page and page-history authors in *db_path* to the system.
+
+    ``"-1"`` is the established sentinel for "no human author": it renders as
+    "the system" in page history (see :func:`db._pages.get_page_history`) and is
+    skipped when ranking contributors (:func:`db._leaderboard._normal_user_id`).
+
+    ``pages.last_edited_by`` and ``page_history.edited_by`` are foreign keys onto
+    ``users.id``, so that sentinel only resolves while a matching ``users`` row
+    exists. Without one, every database this function touches fails
+    ``PRAGMA foreign_key_check``, and because
+    :func:`sqlite_migrations.schema_transaction` rolls back on any violation, the
+    instance can no longer start once a schema migration runs. The import path
+    does not trip that gate immediately only because ``init_db`` has already
+    stamped the current ``user_version``, leaving no pending migration to apply.
+
+    Creating the row keeps the attribution intact and the foreign key
+    satisfiable. The account is suspended and holds the lowest role, so it never
+    appears in member or administrator listings, and its password column carries
+    a value that cannot match a stored hash.
+    """
     system_id = "-1"
     conn = sqlite3.connect(db_path, timeout=20)
     try:
         conn.execute("PRAGMA foreign_keys=OFF")
+        # Resolve the sentinel before writing it into any referencing column.
+        # Only ``id`` is unique, so this stays idempotent across repeat imports.
+        conn.execute(
+            "INSERT OR IGNORE INTO users (id, username, password, role, suspended) "
+            "VALUES (?, ?, ?, 'user', 1)",
+            (system_id, "the system", "!system-account-cannot-sign-in"),
+        )
         page_cols = {
             row[1] for row in conn.execute("PRAGMA table_info(pages)").fetchall()
         }
