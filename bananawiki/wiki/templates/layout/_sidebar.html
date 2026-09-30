@@ -1,7 +1,9 @@
+{#- The page tree comes first (as in 1.4); the apps sit at the bottom of the sidebar. -#}
 {{ slot('sidebar.top') }}
+{{ slot('sidebar.navigation') }}
 {% set apps = nav_items('apps') %}
 {% if apps %}
-<div>
+<div class="sidebar__apps">
   <p class="sidebar__section-title">{{ t('nav.apps') }}</p>
   <ul class="nav-list">
     {% for item in apps %}
@@ -12,5 +14,4 @@
   </ul>
 </div>
 {% endif %}
-{{ slot('sidebar.navigation') }}
 {{ slot('sidebar.bottom') }}

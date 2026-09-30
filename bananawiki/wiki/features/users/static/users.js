@@ -2,7 +2,7 @@
  * coloured by the number of edits; choosing a day lists what was edited. */
 (function () {
   "use strict";
-  var dataNode = document.getElementById("users-calendar-data");
+  var dataNode = document.querySelector("script#users-calendar-data");
   var host = document.getElementById("users-calendar");
   var details = document.getElementById("users-calendar-details");
   if (!dataNode || !host) return;

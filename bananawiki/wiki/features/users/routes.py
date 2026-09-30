@@ -49,7 +49,7 @@ def settings_page():
     user = auth.current_user()
     return render_template(
         "users/settings.html", user=user, tab="account", languages=enabled_languages(),
-        display_prefs=preferences.current(user),
+        display_prefs=preferences.current(user), may_become_owner=service.may_become_owner(user),
     )
 
 

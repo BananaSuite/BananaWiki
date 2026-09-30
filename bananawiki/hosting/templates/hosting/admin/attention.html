@@ -1,8 +1,8 @@
 {% extends "hosting/base.html" %}
 {% block title %}{{ t('hosting.attention.title') }}{% endblock %}
 {% block content %}
-<h1>{{ t('hosting.attention.title') }}</h1>
 {% include "hosting/admin/_nav.html" %}
+<h1>{{ t('hosting.attention.title') }}</h1>
 <section class="card" aria-labelledby="attention-queues">
   <h2 id="attention-queues">{{ t('hosting.attention.summary_one' if total == 1 else 'hosting.attention.summary_other', count=total) if total else t('hosting.attention.empty') }}</h2>
   {% if entries %}

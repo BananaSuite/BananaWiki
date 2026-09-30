@@ -2,7 +2,7 @@
 (function () {
   "use strict";
   var select = document.querySelector("[data-cp-type]");
-  var data = document.getElementById("cp-type-fields");
+  var data = document.querySelector("script#cp-type-fields");
   if (!select || !data) return;
   var fields = JSON.parse(data.textContent || "{}");
   var help = document.querySelector("[data-cp-type-help]");

@@ -7,7 +7,11 @@ snapshots uploaded by 1.4 restore with 1.6 and the other way round:
   holding ``index.json`` and ``part-NNNNN.age`` (age-encrypted, 32 MiB parts);
 * the plaintext starts with ``BananaSuite backup v1`` and a JSON header binding
   the product, series and snapshot id, followed by a ``banana`` package;
-* ``.../<series>/identity`` pins the recovery key's recipient to the series.
+* ``.../<series>/identity`` pins the recovery key's recipient to the series;
+* ``index.json`` also carries ``authentication``: an HMAC-SHA256,
+  keyed from the recovery identity, over the rest of the index (context and
+  the SHA-256 of every part). Restores refuse snapshots without it unless
+  ``--allow-unauthenticated``; older releases ignore the extra key.
 
 Configuration lives in ``config/remote-backup/`` (repository.json,
 schedule.json, repo.token, recovery.agekey, last-backup.json).

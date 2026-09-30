@@ -155,6 +155,40 @@ def test_private_destinations_are_refused_without_retry(api_app, client, db, bos
     assert row == {"state": "failed", "error": "blocked_destination", "attempts": 1}
 
 
+def test_managed_hosting_never_allows_the_local_network(app_factory, tmp_path, login):
+    """On a hosted wiki the local network is the host's: the switch is refused, and ignored if stored earlier."""
+    from bananawiki.core.sqlite import Session
+    from bananawiki.wiki import accounts
+    from tests.conftest import PASSWORD
+
+    hosted = app_factory(environ={"BW_INSTANCE_DIR": str(tmp_path / "hosted"), "BW_MANAGED_HOSTING": "1"})
+    db = Session(hosted.extensions["bananawiki.database"].connect())
+    try:
+        enable_api(hosted, db)
+        boss = in_app(hosted, lambda: accounts.create("boss", PASSWORD, role="admin", emit_event=False))
+        token, client = issue(hosted, boss, ["admin"]), hosted.test_client()
+        body = {"url": "http://127.0.0.1:9/hook", "events": ["page.created"], "allow_private_network": True}
+        refused = call(client, "POST", "/admin/webhooks", token, json=body)
+        assert refused.status_code == 403 and refused.json["code"] == "private_network_managed"
+        hook = create_hook(client, token, url="http://127.0.0.1:9/hook")["webhook"]
+        assert call(client, "PUT", f"/admin/webhooks/{hook['id']}", token,
+                    json={"allow_private_network": True}).json["code"] == "private_network_managed"
+        db.execute("UPDATE api_service__webhooks SET allow_private_network = 1")
+        assert call(client, "GET", f"/admin/webhooks/{hook['id']}", token).json["webhook"][
+            "allow_private_network"] is False
+        call(client, "POST", f"/admin/webhooks/{hook['id']}/ping", token)
+        receiver = Receiver(200)
+        run_deliveries(hosted, receiver)
+        assert receiver.calls[0]["allow_private"] is False
+        login(client, boss)
+        assert b'name="allow_private_network"' not in client.get("/admin/api-service").data
+        client.post("/admin/api-service/webhooks", data={"url": "http://127.0.0.1:9/x", "events": ["page.created"],
+                                                         "allow_private_network": "1"})
+        assert db.scalar("SELECT COUNT(*) FROM api_service__webhooks") == 1
+    finally:
+        db.conn.close()
+
+
 def test_a_failing_receiver_does_not_hold_up_the_others(api_app, client, db, boss):
     token = issue(api_app, boss, ["admin", "pages"])
     create_hook(client, token, url="https://down.example.org/")
@@ -263,3 +297,11 @@ def test_verify_webhook_rejects_old_timestamps():
     assert verify_webhook("whsec_x", body, "1000", signature, now=1100)
     assert not verify_webhook("whsec_x", body, "1000", signature, now=2000)
     assert not verify_webhook("whsec_x", body, "not-a-number", signature, now=1000)
+
+
+def test_verify_webhook_answers_false_for_any_signature():
+    body = b'{"event":"ping"}'
+    signature = webhooks.signature("whsec_x", "1000", body)
+    assert verify_webhook("whsec_x", body, "1000", signature.encode(), now=1000)
+    for forged in ("sha256=ümlaut", "\u2603", "", None, 42):
+        assert verify_webhook("whsec_x", body, "1000", forged, now=1000) is False

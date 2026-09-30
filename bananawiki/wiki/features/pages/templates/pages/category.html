@@ -12,12 +12,19 @@
   <h1>{{ category.name }}</h1>
   {% if can_create_page %}<div class="page-header__actions"><a class="btn btn--primary btn--small" href="{{ url_for('pages.create', category_id=category.id) }}">{{ t('pages.nav.new_page') }}</a></div>{% endif %}
 </header>
+{% if subcategories %}
+<h2 class="h3">{{ t('pages.category.subcategories') }}</h2>
+<ul class="page-list">
+  {% for c in subcategories %}<li><a href="{{ url_for('pages.category', category_id=c.id) }}">{{ c.name }}</a></li>{% endfor %}
+</ul>
+{% if listing.pages %}<h2 class="h3">{{ t('pages.nav.title') }}</h2>{% endif %}
+{% endif %}
 {% if listing.pages %}
 <ul class="page-list">
   {% for p in listing.pages %}<li><a href="{{ url_for('pages.view', slug=p.slug) }}">{{ p.title }}</a>{% if p.is_deindexed %} <span class="badge badge--warning">{{ t('pages.badge.hidden') }}</span>{% endif %}</li>{% endfor %}
 </ul>
 {% if listing.more is not none %}<a class="btn btn--small" href="{{ url_for('pages.category', category_id=category.id, after=listing.more) }}">{{ t('pages.nav.more') }}</a>{% endif %}
-{% else %}
+{% elif not subcategories %}
 <p class="muted">{{ t('pages.category.empty') }}</p>
 {% endif %}
 {% include "pages/_category_manage.html" %}

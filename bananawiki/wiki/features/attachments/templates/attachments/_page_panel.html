@@ -1,5 +1,18 @@
 {#- Attachments under a wiki page. Context: page, attachments, can_view, can_upload, deletable, max_bytes. -#}
 {% import "macros/forms.html" as forms with context %}
+{#- Like 1.4, a page without attachments shows no panel; uploaders get a small "Add files" disclosure. -#}
+{% macro upload_form() -%}
+  <form method="post" action="{{ url_for('attachments.upload', slug=page.slug) }}" enctype="multipart/form-data" class="attachments__upload">
+    {{ forms.csrf() }}
+    <label class="visually-hidden" for="attachments-files">{{ t('attachments.add') }}</label>
+    <div class="cluster">
+      <input id="attachments-files" type="file" name="files" multiple required aria-describedby="attachments-hint">
+      <button class="btn btn--small btn--primary">{{ t('attachments.upload') }}</button>
+    </div>
+    <p class="hint" id="attachments-hint">{{ t('attachments.hint', size=max_bytes|filesize) }}</p>
+  </form>
+{%- endmacro %}
+{% if attachments %}
 <section class="card attachments no-print" id="attachments" aria-labelledby="attachments-h">
   <div class="card__header">
     <h2 class="h3" id="attachments-h">{{ t('attachments.title_count', count=attachments|length) }}</h2>
@@ -7,7 +20,6 @@
     <a class="btn btn--small" href="{{ url_for('attachments.download_all', slug=page.slug) }}">{{ t('attachments.download_all') }}</a>
     {% endif %}
   </div>
-  {% if attachments %}
   <ul class="attachments__list">
     {% for a in attachments %}
     <li class="attachments__item">
@@ -19,19 +31,11 @@
     </li>
     {% endfor %}
   </ul>
-  {% else %}
-  <p class="muted small">{{ t('attachments.empty') }}</p>
-  {% endif %}
-  {% if can_upload %}
-  <form method="post" action="{{ url_for('attachments.upload', slug=page.slug) }}" enctype="multipart/form-data" class="attachments__upload">
-    {{ forms.csrf() }}
-    <label for="attachments-files">{{ t('attachments.add') }}</label>
-    <div class="cluster">
-      <input id="attachments-files" type="file" name="files" multiple required aria-describedby="attachments-hint">
-      <button class="btn btn--small btn--primary">{{ t('attachments.upload') }}</button>
-    </div>
-    <p class="hint" id="attachments-hint">{{ t('attachments.hint', size=max_bytes|filesize) }}</p>
-  </form>
-  {% endif %}
+  {% if can_upload %}<details class="attachments__more"><summary>{{ t('attachments.add') }}</summary>{{ upload_form() }}</details>{% endif %}
 </section>
-<link rel="stylesheet" href="{{ asset_url('attachments.css', blueprint='attachments') }}">
+{% elif can_upload %}
+<details class="attachments attachments--empty no-print" id="attachments">
+  <summary>{{ t('attachments.add') }}</summary>
+  {{ upload_form() }}
+</details>
+{% endif %}

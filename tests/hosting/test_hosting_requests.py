@@ -68,6 +68,37 @@ def test_custom_domain_claim_and_verify(domain_portal, query):
     assert "docs.example.org" in client.get(f"/instances/{wiki['id']}/domain").get_data(as_text=True)
 
 
+def test_proxied_custom_domain_is_verified_with_cloudflare_advice(domain_portal):
+    app = domain_portal
+    runtime = app.extensions["bananawiki.hosting.runtime"]
+    from bananawiki.hosting.db import connection_scope
+
+    with app.test_request_context("/"), connection_scope() as session:
+        from bananawiki.hosting import accounts, instances
+
+        accounts.create("orange", "correct horse 42")
+        owner = accounts.create("cloudy", "correct horse 42")
+        wiki = instances.create(owner, "clouded")[0]
+        session.execute("UPDATE instances SET custom_domain_allowed = 1")
+    client = app.test_client()
+    client.post("/login", data={"username": "cloudy", "password": "correct horse 42"})
+    client.post(f"/instances/{wiki['id']}/domain", data={"action": "claim", "domain": "docs.example.org"})
+    page = client.get(f"/instances/{wiki['id']}/domain").get_data(as_text=True)
+    assert "Full (strict)" in page, "the Cloudflare hint is shown before verifying"
+    runtime.domain_results["docs.example.org"] = DomainCheck(ownership=True, routing=True, proxied=True)
+    response = client.post(f"/instances/{wiki['id']}/domain", data={"action": "verify"}, follow_redirects=True)
+    text = response.get_data(as_text=True)
+    assert "Domain verified" in text and "proxied by Cloudflare" in text
+    with app.app_context(), connection_scope() as session:
+        assert session.scalar("SELECT verified_at FROM instance_custom_domains")
+
+
+def test_www_of_the_base_domain_gets_a_certificate(domain_portal):
+    client = domain_portal.test_client()
+    assert client.get("/internal/domains/authorize?domain=www.wiki.test").status_code == 200
+    assert client.get("/internal/domains/authorize?domain=www.other.test").status_code == 403
+
+
 def test_platform_domains_cannot_be_claimed(domain_portal):
     app = domain_portal
     from bananawiki.hosting.db import connection_scope

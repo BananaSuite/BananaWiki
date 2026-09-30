@@ -127,3 +127,24 @@ def test_storage_preparation_does_not_follow_a_planted_storage_link(hosting, tmp
     (tenant / "storage").symlink_to(elsewhere)
     profile.prepare_hosting_storage(root / "data")  # no error: the portal repairs the layout at start
     assert list(elsewhere.iterdir()) == []
+
+
+def test_maintenance_markers_replace_whatever_a_tenant_put_there(tmp_path):
+    from bananawiki.ops.files import untrusted_marker
+
+    outside = tmp_path / "outside.txt"
+    outside.write_text("host file")
+    tenants = {"link": None, "folder": None, "fifo": None, "plain": None}
+    for name in tenants:
+        (tmp_path / name).mkdir()
+    (tmp_path / "link" / ".banana-maintenance").symlink_to(outside)
+    (tmp_path / "folder" / ".banana-maintenance").mkdir()
+    (tmp_path / "folder" / ".banana-maintenance" / "inner").mkdir()
+    os.mkfifo(tmp_path / "fifo" / ".banana-maintenance")
+    for name in tenants:
+        untrusted_marker(tmp_path / name, ".banana-maintenance", "on\n")
+        marker = tmp_path / name / ".banana-maintenance"
+        assert marker.is_file() and not marker.is_symlink() and marker.read_text() == "on\n"
+        untrusted_marker(tmp_path / name, ".banana-maintenance", None)
+        assert not marker.exists()
+    assert outside.read_text() == "host file"

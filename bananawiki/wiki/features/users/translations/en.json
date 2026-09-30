@@ -72,6 +72,7 @@
   "users.error.last_admin": "You are the last active administrator. Appoint another one first.",
   "users.error.last_owner": "The wiki needs at least one owner.",
   "users.error.owner_blocked_by_temporary_role": "Your role is temporary. An administrator must remove that schedule first.",
+  "users.error.owner_needs_owner": "Only an owner or a superuser can make you an owner.",
   "users.error.protected_account": "This account is protected and cannot be deleted.",
   "users.flash.account_deleted": "Your account was deleted.",
   "users.flash.avatar_removed": "Your profile picture was removed.",

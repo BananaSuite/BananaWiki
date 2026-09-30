@@ -16,6 +16,7 @@
   "admin.attributions.count": "{count} page edit(s) are credited to this account.",
   "admin.attributions.error.entry_not_found": "That entry does not exist.",
   "admin.attributions.error.no_recipient": "That account does not exist.",
+  "admin.attributions.error.own_history": "You cannot delete your own role history.",
   "admin.attributions.error.same_user": "Choose a different account.",
   "admin.attributions.history_deleted": "{count} role change(s) deleted.",
   "admin.attributions.move_all": "Move attribution",

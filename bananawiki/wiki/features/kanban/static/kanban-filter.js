@@ -12,6 +12,8 @@
   var BW = window.BW;
   var K = window.BWKanban;
   var form = document.getElementById("kanban-filter");
+  var tools = document.getElementById("kanban-tools");
+  function openTools() { if (tools) tools.open = true; }
   if (!K || !form) return;
 
   var FIELDS = ["q", "who", "label", "priority", "due"];
@@ -140,6 +142,7 @@
     var on = active();
     clear.hidden = !on;
     form.classList.toggle("is-active", on);
+    if (on) openTools();
     var numbers = counts();
     var text = on ? BW.t("kanban.filter_result", numbers) : "";
     status.textContent = text;
@@ -196,6 +199,7 @@
     if (target.closest && target.closest("input, textarea, select, [contenteditable], dialog[open]")) return;
     if (document.querySelector("dialog[open]")) return;
     event.preventDefault();
+    openTools();
     controls.q.focus();
     controls.q.select();
   });
@@ -207,6 +211,8 @@
 
   // Start from the address.
   var params = new URLSearchParams(location.search);
+  if (window.matchMedia && window.matchMedia("(min-width: 901px)").matches) openTools();
+  if (params.get("lanes")) openTools();
   FIELDS.forEach(function (name) {
     var value = params.get(name) || "";
     if (value && controls[name].tagName === "SELECT" && !Array.prototype.some.call(controls[name].options, function (o) { return o.value === value; })) {

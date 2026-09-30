@@ -138,7 +138,8 @@ def verify(inst: dict[str, Any], actor_id: str | None) -> dict[str, Any]:
         if not record["verified_at"]:
             events.record("instance", inst["id"], "domain.verified", actor_id, record["domain"])
     instances.sync_routes()
-    return binding(inst["id"])  # type: ignore[return-value]
+    # ``proxied``: accepted because the record is proxied by Cloudflare (not stored).
+    return {**binding(inst["id"]), "proxied": check.proxied}  # type: ignore[dict-item]
 
 
 def refresh(limit: int = 10) -> int:
@@ -222,6 +223,9 @@ def certificate_allowed(host: str) -> bool:
         return False
     if resolve(domain):
         return True
+    base = current_app.config["HOSTING"].base_domain
+    if base and domain == "www." + base:
+        return True  # the managed Caddyfile redirects it to the base domain
     found = platform_slug(domain)
     if not found:
         return False

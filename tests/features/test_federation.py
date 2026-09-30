@@ -21,9 +21,9 @@ PASSWORD = "correct horse battery"
 class Wiki:
     """One test wiki with its own instance directory."""
 
-    def __init__(self, app_factory, tmp_path, name: str, *, enabled: bool = True):
+    def __init__(self, app_factory, tmp_path, name: str, *, enabled: bool = True, **environ: str):
         self.app = app_factory(environ={"BW_INSTANCE_DIR": str(tmp_path / name),
-                                        "BW_FEDERATION_ENABLED": "1" if enabled else "0"})
+                                        "BW_FEDERATION_ENABLED": "1" if enabled else "0", **environ})
         self.client = self.app.test_client()
         self.db = Session(self.app.extensions["bananawiki.database"].connect())
 
@@ -208,6 +208,20 @@ def test_private_addresses_are_refused_unless_allowed(app_factory, tmp_path):
     wiki.db.execute("UPDATE federation_peers SET allow_private_network = 1, lease_until = 0")
     wiki.run(lambda: sync.sync_peer(remote, force=True))
     assert wiki.db.scalar("SELECT last_error FROM federation_peers") == "federation.error.network"
+
+
+def test_managed_hosting_never_allows_private_peers(app_factory, tmp_path):
+    wiki = Wiki(app_factory, tmp_path, "hosted", BW_MANAGED_HOSTING="1")
+    remote = "3f1e2d4c-5b6a-4798-8a9b-0c1d2e3f4a5b"
+    with pytest.raises(protocol.ProtocolError) as refused:
+        wiki.run(lambda: store.pair(remote, "Local", "https://127.0.0.1:9", protocol.new_secret(), allow_private=True))
+    assert refused.value.key == "federation.error.private_network_managed"
+    wiki.run(lambda: store.pair(remote, "Local", "https://127.0.0.1:9", protocol.new_secret()))
+    wiki.db.execute("UPDATE federation_peers SET allow_private_network = 1, lease_until = 0")
+    assert wiki.run(lambda: sync.sync_peer(remote, force=True)) is False
+    assert wiki.db.scalar("SELECT last_error FROM federation_peers") == "federation.error.blocked_address"
+    wiki.login(wiki.user("boss", "admin"))
+    assert b'name="allow_private_network"' not in wiki.client.get("/admin/federation").data
 
 
 def test_sharing_rules(pair):

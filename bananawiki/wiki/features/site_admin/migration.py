@@ -82,7 +82,7 @@ EXPORT_PREFIX = "bw-site-export-"
 IMPORT_PREFIX = "bw-site-import-"
 STALE_SECONDS = 24 * 3600
 # Tables never carried over: live credentials and regenerable or per-process state.
-VOLATILE_TABLES = ("user_sessions", "job_runs", "tts_generations", "rate_limit_hits")
+VOLATILE_TABLES = ("user_sessions", "job_runs", "tts_generations", "rate_limit_hits", "api_service__idempotency")
 _STORED_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "gif", "webp", "zip", "gz", "mp3", "mp4", "webm", "ogg", "m4a"})
 
 

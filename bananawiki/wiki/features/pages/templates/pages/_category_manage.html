@@ -1,7 +1,7 @@
 {#- Category management forms. Context: category, page_count, parent_choices, move_targets, manage. -#}
 {% if manage.edit or manage.move or manage.sequential or manage.delete or manage.create %}
-<section class="card category-manage" aria-labelledby="manage-{{ category.id }}">
-  <h2 class="h3" id="manage-{{ category.id }}">{{ t('pages.category.manage') }}</h2>
+<details class="card category-manage">
+  <summary><h2 class="h3" id="manage-{{ category.id }}">{{ t('pages.category.manage') }}</h2></summary>
   <div class="stack">
   {% if manage.edit %}
   <form method="post" action="{{ url_for('pages.rename_category', category_id=category.id) }}" class="input-group">
@@ -29,7 +29,7 @@
   </form>
   {% endif %}
   {% if manage.sequential %}
-  <form method="post" action="{{ url_for('pages.sequential_nav', category_id=category.id) }}" class="cluster">
+  <form method="post" action="{{ url_for('pages.sequential_nav', category_id=category.id) }}" class="cluster category-manage__sequential">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="sequential_nav" value="0">
     <label class="check"><input type="checkbox" name="sequential_nav" value="1"{% if category.sequential_nav %} checked{% endif %}> <span>{{ t('pages.category.sequential') }}<small>{{ t('pages.category.sequential_hint') }}</small></span></label>
@@ -56,5 +56,5 @@
   </form>
   {% endif %}
   </div>
-</section>
+</details>
 {% endif %}

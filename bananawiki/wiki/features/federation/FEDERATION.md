@@ -33,6 +33,9 @@ and the pairing has to be made again.
 A wiki is only contacted at public internet addresses. For a peer on the
 same private network, tick *The other wiki is on a private network* when
 pairing; loopback and private addresses are then allowed for that peer only.
+Under managed hosting (`BW_MANAGED_HOSTING=1`) the local network is the
+host's, so the option is not offered and a peer marked that way earlier is
+contacted at public addresses only.
 Link-local (cloud metadata), multicast and reserved addresses are always
 refused, the address is resolved once and the connection goes to the checked
 address, redirects are not followed, and answers are capped at 8 MiB and 25

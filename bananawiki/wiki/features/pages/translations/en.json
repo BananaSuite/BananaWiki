@@ -38,6 +38,7 @@
   "pages.category.rename": "Rename",
   "pages.category.sequential": "Previous/next links",
   "pages.category.sequential_hint": "Show links to the previous and next page at the bottom of each page.",
+  "pages.category.subcategories": "Subcategories",
   "pages.category.top_level": "Top level",
   "pages.confirm.delete": "Delete the page “{title}”?",
   "pages.confirm.delete_category": "Delete the category “{name}”?",

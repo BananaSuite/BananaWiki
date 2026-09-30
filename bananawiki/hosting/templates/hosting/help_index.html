@@ -2,9 +2,9 @@
 {% block title %}{{ t('hosting.help.title') }}{% endblock %}
 {% block content %}
 <h1>{{ t('hosting.help.title') }}</h1>
-<div class="grid grid--2">
+<ul class="link-list">
 {% for article in articles %}
-  <a class="card" href="{{ url_for('public.help_article', slug=article.slug, lang=help_language) }}"><h2>{{ article.title }}</h2><p class="muted">{{ article.description }}</p></a>
+  <li><a href="{{ url_for('public.help_article', slug=article.slug, lang=help_language) }}"><strong>{{ article.title }}</strong><span>{{ article.description }}</span></a></li>
 {% endfor %}
-</div>
+</ul>
 {% endblock %}

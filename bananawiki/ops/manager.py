@@ -12,7 +12,8 @@ Safety properties (all inherited from 1.4 and kept):
   operator explicitly allows otherwise, optionally signature-verified.
 
 New in 1.6: data is captured by an online :class:`~.snapshot.Snapshot` (short
-downtime) and the portable package is written after the service is back;
+downtime) and the portable package is written after the service is back, then
+verified as a restore would before it is used;
 ``before-update-*`` packages, releases and tenant images are pruned; hosting
 installs get the runtime agent instead of Docker group membership; units
 installed by the 1.4 updater are converged to the hardened 1.6 units.
@@ -20,6 +21,7 @@ installed by the 1.4 updater are converged to the hardened 1.6 units.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import secrets
@@ -43,6 +45,7 @@ from .files import (
     read_environment,
     read_json,
     read_package,
+    untrusted_marker,
     write_environment,
     write_json,
     write_package,
@@ -55,6 +58,8 @@ from .system import System
 DEFAULT_POLICY = {"enabled": False, "interval_minutes": 60, "keep_backups": 3}
 PRUNED_PREFIXES = ("auto", "before-update")
 PROXY_ROLLBACK = "Caddyfile.rollback"
+
+log = logging.getLogger("bananawiki.ops")
 
 
 def _now() -> str:
@@ -284,7 +289,8 @@ class Manager:
                 return None, None
             return None, (f"{destination} was not installed by this server and does not import {routes}/*.caddy, "
                           "so wikis are not reachable; merge the output of 'proxy' into it.")
-        text = caddy.render(settings, email=str(record.get("email") or ""), routes=str(routes))
+        options = caddy.options_for(record, self.system.caddy_version())
+        text = caddy.render(settings, email=str(record.get("email") or ""), routes=str(routes), options=options)
         return (None if text.encode() == current else text), None
 
     def refresh_proxy(self, settings: dict[str, Any], undo: dict[str, Any], *,
@@ -402,11 +408,14 @@ class Manager:
             return
         for directory in instances.iterdir():
             if directory.is_dir() and not directory.is_symlink():
-                marker = directory / MAINTENANCE_MARKER
-                if enabled:
-                    atomic_write(marker, "Hosting maintenance in progress\n", 0o644)
-                else:
-                    marker.unlink(missing_ok=True)
+                # The tenant owns this directory: whatever it put under the marker's name must
+                # neither redirect a root write nor fail (and so block) the update for everyone.
+                try:
+                    untrusted_marker(directory, MAINTENANCE_MARKER,
+                                     "Hosting maintenance in progress\n" if enabled else None)
+                except OSError as error:
+                    log.warning("Maintenance marker not %s for tenant %s: %s", "set" if enabled else "removed",
+                                directory.name, error)
 
     def quiesce(self, journal: dict[str, Any]) -> None:
         write_json(self.config_dir / "transaction.json", journal)
@@ -461,12 +470,34 @@ class Manager:
         return result, snapshot
 
     def package_from(self, snapshot: Snapshot, settings: dict[str, Any], destination: Path) -> Path:
+        """Write a package from *snapshot*, remove the snapshot, then verify the package.
+
+        The package is only returned (recorded as the rollback target, uploaded
+        and followed by remote pruning) once :func:`read_package` accepts it,
+        exactly as a restore would. The snapshot is removed first, so the
+        verification does not need space for both.
+        """
         source_archive = self.release(settings["revision"]) / ".source.tar.gz"
         inputs = [*snapshot.inputs(), (source_archive, "source.tar.gz")]
-        return write_package(destination, {
-            "product": PRODUCT, "mode": settings["mode"], "revision": settings["revision"], "created_at": _now(),
-            "old_root": str(self.root), "model_weights_excluded": False, "excluded_paths": [],
-        }, inputs)
+        try:
+            package = write_package(destination, {
+                "product": PRODUCT, "mode": settings["mode"], "revision": settings["revision"],
+                "created_at": _now(), "old_root": str(self.root), "model_weights_excluded": False,
+                "excluded_paths": [],
+            }, inputs)
+        finally:
+            snapshot.remove()
+        self.verify_package(package)
+        return package
+
+    def verify_package(self, package: Path) -> None:
+        """Refuse (and delete) a package that a restore would refuse."""
+        try:
+            with read_package(package, PRODUCT, self.root / "staging"):
+                pass
+        except Exception as error:
+            package.unlink(missing_ok=True)
+            raise ValueError(f"The new package failed verification and was removed: {error}") from error
 
     def backup_name(self, prefix: str) -> Path:
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")

@@ -185,6 +185,20 @@ def test_status_reports_health_and_caches(setup):
     assert runtime.status(spec).state == "unknown"
 
 
+def test_upstream_is_the_running_containers_bridge_address(setup):
+    runtime, agent = setup
+    spec = make_spec()
+    assert runtime.upstream(spec) is None
+    provision(runtime, spec)
+    item = agent.containers["acme"]
+    assert runtime.upstream(spec) == (item["address"], item["internal_port"])
+    item["address"] = "127.0.0.1"
+    runtime._forget("acme")
+    assert runtime.upstream(spec) is None, "never a loopback address"
+    runtime.stop(spec)
+    assert runtime.upstream(spec) is None
+
+
 def test_usage_counts_files_without_following_links(setup, tmp_path):
     runtime, _agent = setup
     spec = make_spec()

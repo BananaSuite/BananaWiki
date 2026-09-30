@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from . import MANAGED_MARKER, units
+from .caddy_blocks import parse_version
 from .files import atomic_write, digest_file, read_environment, read_json
 from .profile import TENANT_IMAGE, ReleaseFeatures, Service, hosting_storage_link, inside_tenant
 from .runtime_agent import ROUTES_FILE, ROUTES_WANTED
@@ -511,8 +512,68 @@ class System:
             except OSError:
                 pass  # something else was put there; leave it
 
-    def validate_proxy(self, candidate: Path) -> None:
-        self.run(["caddy", "validate", "--config", str(candidate), "--adapter", "caddyfile"], timeout=60)
+    def validate_proxy(self, candidate: Path, environment: dict[str, str] | None = None) -> None:
+        """``caddy validate`` with the variables Caddy's unit gets (the Cloudflare API token)."""
+        extra = {**read_environment(self.caddy_environment_file), **(environment or {})}
+        if not extra:
+            self.run(["caddy", "validate", "--config", str(candidate), "--adapter", "caddyfile"], timeout=60)
+            return
+        result = self.runner(["caddy", "validate", "--config", str(candidate), "--adapter", "caddyfile"],
+                             capture_output=True, text=True, timeout=60, check=False, env={**os.environ, **extra})
+        if result.returncode:
+            detail = ((result.stderr or "").strip().splitlines() or ["no output"])[-1]
+            raise RuntimeError(f"caddy validate failed (exit {result.returncode}): {detail[:500]}")
+
+    # Caddy's own installation (certificate modes) ---------------------------
+
+    @property
+    def caddy_environment_file(self) -> Path:
+        """Secrets for Caddy's unit (``CLOUDFLARE_API_TOKEN``), root-only, loaded by a drop-in."""
+        return self.proxy_file.parent / "bananawiki-cloudflare.env"
+
+    @property
+    def caddy_dropin(self) -> Path:
+        return self.unit_dir / "caddy.service.d" / "bananawiki-cloudflare.conf"
+
+    def caddy_version(self) -> tuple[int, int, int] | None:
+        """The installed Caddy's version, or None when unknown."""
+        try:
+            result = self.run(["caddy", "version"], check=False, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return parse_version(result.stdout or "") if result.returncode == 0 else None
+
+    def caddy_modules(self) -> set[str]:
+        try:
+            result = self.run(["caddy", "list-modules"], check=False, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            return set()
+        return {line.split()[0] for line in (result.stdout or "").splitlines() if line.strip()}
+
+    def install_caddy_environment(self, values: dict[str, str]) -> None:
+        """Write Caddy's secret environment (0600) and the systemd drop-in that loads it."""
+        lines = "".join(f"{key}={value}\n" for key, value in sorted(values.items()))
+        atomic_write(self.caddy_environment_file, lines, 0o600)
+        atomic_write(self.caddy_dropin, f"{MANAGED_MARKER}\n[Service]\nEnvironmentFile={self.caddy_environment_file}\n",
+                     0o644)
+        self.run(["systemctl", "daemon-reload"])
+
+    def install_origin_certificate(self, certificate: Path, key: Path) -> tuple[str, str]:
+        """Copy a Cloudflare Origin CA certificate and key where Caddy (user ``caddy``) can read them."""
+        cert_text, key_text = certificate.read_text(encoding="ascii"), key.read_text(encoding="ascii")
+        if "-----BEGIN CERTIFICATE-----" not in cert_text or "PRIVATE KEY-----" not in key_text:
+            raise ValueError("--origin-cert and --origin-key must be PEM files (certificate, then private key).")
+        targets = (self.proxy_file.parent / "bananawiki-origin.crt", self.proxy_file.parent / "bananawiki-origin.key")
+        try:
+            group = grp.getgrnam("caddy").gr_gid
+        except KeyError:
+            group = None
+        key_mode = 0o640 if group is not None else 0o600
+        for target, text, mode in ((targets[0], cert_text, 0o644), (targets[1], key_text, key_mode)):
+            atomic_write(target, text, mode)
+            if group is not None:
+                os.chown(target, 0, group)
+        return str(targets[0]), str(targets[1])
 
     def reload_proxy(self, *, check: bool = True) -> None:
         self.run(["systemctl", "reload-or-restart", "caddy"], check=check, timeout=120)

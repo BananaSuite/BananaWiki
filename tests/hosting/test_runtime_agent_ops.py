@@ -162,7 +162,8 @@ def test_routes_are_rendered_from_docker_addresses(agent, tmp_path):
     ]})
     assert result == {"routes": 1, "changed": True, "reloaded": True}
     text = (tmp_path / "routes" / "tenants.caddy").read_text()
-    assert "acme-hosting.example.com, docs.acme.org {" in text
+    assert ("acme-hosting.example.com, docs.acme.org, http://acme-hosting.example.com, http://docs.acme.org {"
+            in text)
     assert "reverse_proxy 172.20.0.2:5001" in text and "on_demand" in text
     assert "beta" not in text, "stopped tenants are not routed"
     assert oct((tmp_path / "routes" / "tenants.caddy").stat().st_mode & 0o777) == "0o644"
@@ -224,11 +225,64 @@ def test_render_routes_is_deterministic():
     assert "header_up -X-Forwarded-Prefix" in text and "Strict-Transport-Security" in text
 
 
+def test_routes_serve_cloudflare_and_fall_back_to_the_portal(agent, tmp_path):
+    """Behind Cloudflare: real client address, no redirect loop, and never an empty 502 for a wiki."""
+    from bananawiki.core import cloudflare
+
+    agent.config["portal"] = "127.0.0.1:5099"
+    _run_up(agent, "acme", "172.20.0.2")
+    agent.call("proxy.routes", {"routes": [{"tenant": "acme", "hosts": ["acme-hosting.example.com"]}]})
+    text = (tmp_path / "routes" / "tenants.caddy").read_text()
+    assert "acme-hosting.example.com, http://acme-hosting.example.com {" in text
+    assert "\ttls {\n\t\ton_demand\n\t}\n" in text
+    assert "@needs_https {\n\t\tprotocol http\n\t\tnot {\n" in text
+    assert 'header CF-Visitor *"scheme":"https"*' in text
+    assert "remote_ip " + " ".join(cloudflare.RANGES) in text
+    assert "redir @needs_https https://{host}{uri} 308" in text
+    assert "lb_try_duration 5s" in text and "lb_try_interval 250ms" in text
+    assert "handle_errors {\n\t\treverse_proxy 127.0.0.1:5099 {" in text
+    assert text.count("header_up X-Forwarded-For {client_ip}") == 2
+    assert "reverse_proxy 172.20.0.2:5001 {" in text, "readiness checks look for the container's route"
+
+
+def test_routes_for_a_caddy_without_client_ip(agent, tmp_path):
+    runner = agent.runner
+
+    def old_caddy(command, **kwargs):
+        if command[:2] == ["caddy", "version"]:
+            return subprocess.CompletedProcess(command, 0, "v2.6.2 h1:abc\n", "")
+        return runner(command, **kwargs)
+
+    agent.runner = old_caddy
+    _run_up(agent, "acme", "172.20.0.2")
+    agent.call("proxy.routes", {"routes": [{"tenant": "acme", "hosts": ["acme-hosting.example.com"]}]})
+    text = (tmp_path / "routes" / "tenants.caddy").read_text()
+    assert "{client_ip}" not in text and "reverse_proxy 172.20.0.2:5001 {" in text
+    assert "handle_errors" not in text, "no portal address configured"
+
+
+def test_render_routes_without_portal_keeps_plain_proxying():
+    text = render_routes({"a": (["a.example.com"], "172.1.0.3:5001")})
+    assert "handle_errors" not in text and "lb_try_duration" not in text
+    assert "a.example.com, http://a.example.com {" in text
+
+
+def test_agent_config_names_the_portal(tmp_path, monkeypatch):
+    from bananawiki.ops import runtime_agent
+
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/installation.json").write_text(json.dumps({"service": "root", "port": 5100}))
+    (tmp_path / "config/app.env").write_text("HOSTING_PORT=5123\n")
+    assert runtime_agent.load_config(tmp_path)["portal"] == "127.0.0.1:5123"
+    (tmp_path / "config/app.env").write_text("HOSTING_PORT=nonsense\n")
+    assert runtime_agent.load_config(tmp_path)["portal"] == "127.0.0.1:5100"
+
+
 def test_managed_caddyfile_imports_the_routes_and_the_unit_owns_them():
     text = caddy.render({"domain": "example.com", "portal_domain": "portal.example.com", "port": 5099,
                          "mode": "hosting", "root": "/opt/bananawiki", "service": "bananawiki"})
     assert "import /var/lib/bananawiki-routes/*.caddy" in text
-    assert text.index("import /var/lib/bananawiki-routes") < text.index(":443 {"), "specific hosts before catch-all"
+    assert text.index("import /var/lib/bananawiki-routes") < text.index(":443, :80 {"), "specific hosts first"
     settings = {"root": "/opt/bananawiki", "service": "bananawiki", "mode": "hosting", "port": 5099}
     features = ReleaseFeatures(runtime_agent=True, hardened=True)
     agent_service = next(s for s in services(settings, features) if s.privileged)

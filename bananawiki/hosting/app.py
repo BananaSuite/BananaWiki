@@ -19,7 +19,7 @@ from ..core import web
 from ..core.i18n import Catalog
 from ..core.ratelimit import MemoryLimiter
 from ..core.sqlite import Database, DatabaseUnavailable, is_unavailable
-from . import auth, i18n, settings, templating
+from . import auth, i18n, settings, templating, wikihosts
 from .config import PACKAGE_ROOT, HostingConfig, load_config
 from .db import EXTENSION as DB_EXTENSION
 from .db import close_request_session, connection_scope, open_database
@@ -31,16 +31,29 @@ RUNTIME_EXTENSION = "bananawiki.hosting.runtime"
 GLOBAL_RATE_LIMIT = 300
 MAX_BODY = 32 * 1024 * 1024
 SESSION_COOKIE = "bwh_session"
+SECURE_SESSION_COOKIE = "__Host-" + SESSION_COOKIE
 
 
 class _SessionInterface(SecureCookieSessionInterface):
-    """1.4-compatible signed cookie; ``Secure`` follows the request scheme."""
+    """Signed session cookie; ``Secure`` follows the request scheme.
+
+    Over HTTPS the cookie is ``__Host-bwh_session``. The portal and the wikis
+    are sibling subdomains, and a wiki controls its own responses (its admins
+    may run plugins), so it could set a ``bwh_session`` cookie for the parent
+    domain on a narrower path and swap a visitor's portal session on pages
+    such as ``/oauth/authorize``. Browsers refuse a ``__Host-`` cookie that
+    has a Domain or a path other than ``/``, so a wiki cannot plant one. The
+    plain 1.4 name is kept only for plain-HTTP portals (port mode, local use).
+    """
 
     def get_cookie_secure(self, app: Flask) -> bool:
         try:
             return request.is_secure
         except RuntimeError:
             return False
+
+    def get_cookie_name(self, app: Flask) -> str:
+        return SECURE_SESSION_COOKIE if self.get_cookie_secure(app) else SESSION_COOKIE
 
 
 class _MaintenanceGate:
@@ -93,6 +106,8 @@ def create_app(config: HostingConfig | None = None, *, runtime: Runtime | None =
     app.session_interface = _SessionInterface()
     app.jinja_env.trim_blocks = True
     app.jinja_env.lstrip_blocks = True
+    # Inside ProxyFix: it needs the public Host and scheme.
+    wikihosts.install(app)
     if cfg.proxy_mode:
         # X-Forwarded-Prefix is not trusted: Caddy does not strip it (audit).
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[method-assign]

@@ -96,10 +96,10 @@ and `refused` (settings).
 | 401 | missing, invalid, revoked or expired token |
 | 403 | the token or its owner may not do this |
 | 404 | not found, or not readable by the caller |
-| 409 | conflict: slug taken, page protected or checked out, edit conflict, already pending deletion, idempotent request still running |
+| 409 | conflict: slug taken, page protected or checked out, edit conflict, already pending deletion, idempotent request still running or not replayable |
 | 412 | `If-Match` names an older version (`precondition_failed`, with `revision` or `version`) |
 | 413 | body larger than 2 MiB (or an upload over its limit) |
-| 422 | `Idempotency-Key` reused for a different request |
+| 422 | `Idempotency-Key` reused for a different request or by another token |
 | 429 | rate limit (per account, per minute; `Retry-After` in seconds) |
 | 503 | API switched off, or maintenance mode |
 
@@ -115,10 +115,16 @@ answer 404.
   (seconds until a request is freed).
 * **Idempotency.** A `POST` with `Idempotency-Key: <1–255 visible ASCII>`
   runs once; a retry with the same key and the same method, path and body
-  gets the stored answer back with `Idempotent-Replayed: true` for 24 hours
-  (keys belong to the account, across its tokens). The same key with another
-  request is 422, a retry while the first is still running 409. Server errors
-  and 429 answers are not stored. File uploads (multipart) refuse the header.
+  gets the stored answer back with `Idempotent-Replayed: true` for 24 hours.
+  A key is unique per account and bound to the token that first used it: the
+  same key with another request, or from another token, is 422
+  (`idempotency_key_reused`); a retry while the first is still running 409.
+  Server errors and 429 answers are not stored. File uploads (multipart)
+  refuse the header. Answers that carry a new secret (`POST /tokens`,
+  `POST /admin/webhooks`, `POST /admin/webhooks/<id>/rotate-secret`) are
+  never stored: a retry of a successful one is refused with 409
+  `idempotency_replay_unavailable` and the first answer's `status`, and is
+  not run again (list your tokens or webhooks to see what was created).
 * **Optimistic concurrency.** `GET/POST/PUT /pages/<slug>` answer with
   `ETag: "r<revision>"`, canvas answers with `ETag: "v<version>"`. Send it
   back as `If-Match` on `PUT /pages/<slug>` or `PUT /canvas/<slug>/document`
@@ -282,10 +288,19 @@ force_password_change?}`, `POST /users/bulk {users: [...]}` (at most 20),
 `DELETE /users/<id>`.
 
 Usernames are 3–50 letters, digits, `_` or `-`; passwords follow the web
-password rules. The owner role cannot be given, superusers and the owner
-(for anyone but the owner) cannot be changed, and the last administrator
-cannot be demoted, suspended or deleted. Setting a password signs the account
-out everywhere and revokes its tokens (`api_tokens_revoked` in the answer).
+password rules. The hierarchy of the admin pages applies
+(`docs/permissions.md`): superusers and owners are
+changed only by themselves, another administrator only by an owner or a
+superuser (403 `protected_account`), nobody changes their own role (400
+`cannot_change_own_role`) or suspends themselves, the owner role cannot be
+given, and the last administrator cannot be demoted, suspended or deleted.
+Changes go through the same code as the admin pages: a role change drops a
+custom role and individual permissions and is recorded in the role history,
+a suspension (permanent, without a reason) and its lifting are recorded in
+the suspension log, and `user.role_changed` / `user.suspended` are sent to
+webhooks. Setting a password signs the account out everywhere and revokes
+its tokens (`api_tokens_revoked` in the answer). `POST /admin/tokens/<id>/revoke`
+follows the same hierarchy.
 
 ## Settings (`settings`, administrators)
 
@@ -370,7 +385,11 @@ that fails is skipped for the rest of a run so it cannot hold up the others.
 Requests go through `bananawiki.core.http`: the host is resolved and checked
 before connecting, private and loopback addresses are refused unless the
 webhook allows the local network, link-local and cloud metadata addresses
-always, redirects are not followed, time and answer size are bounded. A
+always, redirects are not followed, time and answer size are bounded. Under
+managed hosting a webhook can never allow the local network (the host's):
+`allow_private_network: true` is refused with 403 `private_network_managed`,
+the admin form does not offer it, and a flag stored earlier is ignored (and
+reported as `false`). A
 refused destination fails at once. Secrets are stored encrypted with the
 instance key (`api_service__webhooks.secret`); moving to another key makes
 deliveries fail with `secret_unreadable` until the secret is rotated. The

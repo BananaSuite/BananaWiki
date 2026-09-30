@@ -72,6 +72,7 @@
   "users.error.last_admin": "Sei l'ultimo amministratore attivo. Nominane prima un altro.",
   "users.error.last_owner": "Il wiki deve avere almeno un proprietario.",
   "users.error.owner_blocked_by_temporary_role": "Il tuo ruolo è temporaneo. Un amministratore deve prima rimuovere la scadenza.",
+  "users.error.owner_needs_owner": "Solo un proprietario o un superutente può renderti proprietario.",
   "users.error.protected_account": "Questo account è protetto e non può essere eliminato.",
   "users.flash.account_deleted": "Il tuo account è stato eliminato.",
   "users.flash.avatar_removed": "L'immagine del profilo è stata rimossa.",

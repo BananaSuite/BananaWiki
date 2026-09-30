@@ -2,7 +2,7 @@
  * recently used) and reports it once a minute for the reading-time badges. */
 (function () {
   "use strict";
-  var node = document.getElementById("badges-reading-config");
+  var node = document.querySelector("script#badges-reading-config");
   if (!node || !window.BW) return;
   var config;
   try { config = JSON.parse(node.textContent || "{}"); } catch (e) { return; }

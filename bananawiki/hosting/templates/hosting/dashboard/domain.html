@@ -16,6 +16,7 @@
   <dl class="kv"><dt>TXT</dt><dd class="mono">_bananawiki-challenge.{{ binding.domain }} = {{ binding.verification_token }}</dd>
     <dt>CNAME</dt><dd class="mono">{{ binding.domain }} → {{ target }}</dd>
     {% if ips %}<dt>A / AAAA</dt><dd class="mono">{{ ips|join(', ') }}</dd>{% endif %}</dl>
+  {% if allow_proxied %}<p class="muted">{{ t('hosting.domains.cloudflare_hint') }}</p>{% endif %}
   <div class="btn-row">{{ ui.post(url_for('dashboard.instance_domain', instance_id=instance.id), t('hosting.domains.verify'), 'btn btn--primary', hidden={'action': 'verify'}) }}
   {{ ui.post(url_for('dashboard.instance_domain', instance_id=instance.id), t('hosting.domains.remove'), 'btn btn--danger', confirm=t('hosting.common.are_you_sure'), hidden={'action': 'remove'}) }}</div></section>
 {% else %}

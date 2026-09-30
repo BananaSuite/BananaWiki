@@ -47,6 +47,7 @@
   "federation.error.not_shareable": "Share only an active Markdown page you may edit.",
   "federation.error.page_missing": "Page not found.",
   "federation.error.peer_limit": "The pairing limit has been reached.",
+  "federation.error.private_network_managed": "Addresses on the local network cannot be used on a hosted wiki.",
   "federation.error.remote_status": "The other wiki refused the request. Check that it paired with this wiki.",
   "federation.error.response_signature": "The other wiki's answer was not signed with the pairing key.",
   "federation.error.secret": "Use a newly generated 64-character hexadecimal pairing key.",

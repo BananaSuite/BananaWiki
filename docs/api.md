@@ -35,7 +35,9 @@ with `PUT /api/v1/admin/users/<id>/api-access`.
 ## Tokens
 
 Each account creates its tokens on **Settings → API tokens**
-(`/settings/api-tokens`). The token is shown once; only an HMAC-SHA256 of it
+(`/settings/api-tokens`); an administrator viewing the wiki as someone else
+(impersonation) cannot create tokens or turn on automation mode for them.
+The token is shown once; only an HMAC-SHA256 of it
 is stored (`api_service__tokens.token_hash`, keyed by the instance secret key
 with the 1.4 label, so tokens issued by 1.4 keep working). Moving the wiki to
 a different secret key invalidates every token.
@@ -100,7 +102,8 @@ and `refused` (settings).
 | 401 | missing, invalid, revoked or expired token |
 | 403 | the token or its owner may not do this |
 | 404 | not found, or not readable by the caller |
-| 409 | conflict: slug taken, page protected or checked out, edit conflict, already pending deletion |
+| 409 | conflict: slug taken, page protected or checked out, edit conflict, already pending deletion, `Idempotency-Key` request running or not replayable |
+| 422 | `Idempotency-Key` reused for a different request or by another token |
 | 413 | body larger than 2 MiB |
 | 429 | rate limit (per account, per minute; `Retry-After: 60`) |
 | 503 | API switched off, or maintenance mode |
@@ -108,6 +111,26 @@ and `refused` (settings).
 Timestamps are ISO 8601 in UTC (`2025-01-31T09:30:00Z`). Request bodies must
 be JSON objects. Booleans are JSON `true`/`false` (`0`/`1` are accepted);
 strings like `"false"` are refused.
+
+## Retrying safely (`Idempotency-Key`)
+
+A `POST` sent with `Idempotency-Key: <1–255 visible ASCII characters>` runs
+once. Retrying it with the same key, method, path and body within 24 hours
+returns the stored answer with `Idempotent-Replayed: true` instead of running
+it again. A key is unique per account and bound to the token that first used
+it: the same key with a different request, or from another token, is refused
+with 422 `idempotency_key_reused`; a retry while the first request is still
+running gets 409 `idempotency_in_progress`. Server errors and 429 answers are
+not stored, so those requests can simply be retried.
+
+Answers that contain a new secret are never stored: a new token
+(`POST /tokens`) and a webhook secret (`POST /admin/webhooks`,
+`POST /admin/webhooks/<id>/rotate-secret`). A retry of such a request that
+succeeded is refused with 409 `idempotency_replay_unavailable` (with the
+first answer's `status`) and is **not** run again; list your tokens or
+webhooks to find what was created, revoke or rotate it if the secret was
+lost, and use a new key for a new request. Refusals (4xx) of these requests
+are stored and replayed as usual.
 
 ## Pages (`pages`)
 
@@ -164,9 +187,17 @@ force_password_change?}`, `POST /users/bulk {users: [...]}` (at most 20),
 `DELETE /users/<id>`.
 
 Usernames are 3–50 letters, digits, `_` or `-`; passwords follow the web
-password rules. The owner role cannot be given, superusers and the owner
-(for anyone but the owner) cannot be changed, and the last administrator
-cannot be demoted, suspended or deleted. Setting a password signs the account
+password rules. The [hierarchy of administrators](permissions.md#roles)
+applies exactly as in the admin pages: superusers and owners are changed only
+by themselves, another administrator only by an owner or a superuser (403
+`protected_account`); nobody changes their own role (400
+`cannot_change_own_role`) or suspends or deletes themselves; the owner role
+cannot be given; the last administrator cannot be demoted, suspended or
+deleted. Role changes and suspensions go through the same code as the admin
+pages: a new role drops a custom role and individual permissions and is
+recorded in the role history, `suspended: true` is a permanent suspension
+without a reason, both are recorded and sent to webhooks
+(`user.role_changed`, `user.suspended`). Setting a password signs the account
 out everywhere and revokes its tokens (`api_tokens_revoked` in the answer).
 
 ## Settings (`settings`, administrators)
@@ -188,7 +219,8 @@ offset are read in the site time zone.
   never exceed the calling one — no flag or scope it lacks, no later expiry;
   an omitted expiry inherits the caller's. Each token is independent:
   revoking the parent does not revoke its children.
-* `GET /admin/tokens`, `POST /admin/tokens/<id>/revoke`,
+* `GET /admin/tokens`, `POST /admin/tokens/<id>/revoke` (the tokens of a
+  superuser, an owner or another administrator only as the hierarchy allows),
   `PUT /admin/users/<id>/api-access {enabled}`,
   `GET /admin/audit-log?limit=&offset=`,
   `DELETE /admin/audit-log?before_days=` (superusers).

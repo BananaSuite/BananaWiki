@@ -3,7 +3,8 @@
 Package format (unchanged from 1.4, so packages stay readable in both
 directions): a gzip tarball of regular files plus ``manifest.json`` with
 ``schema: 1``, ``product``, ``mode``, ``revision``, ``created_at``,
-``old_root`` and ``files: {name: {sha256, size}}``.
+``old_root`` and ``files: {name: {sha256, size}}``. The manifest is written
+last, from checksums of the bytes that went into the archive.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import re
 import shlex
 import shutil
 import sqlite3
+import stat
 import tarfile
 import tempfile
 from collections.abc import Callable, Iterable, Iterator
@@ -27,6 +29,8 @@ from typing import Any
 MAINTENANCE_MARKER = ".banana-maintenance"
 _ENV_KEY = re.compile(r"[A-Z][A-Z0-9_]*")
 _DATABASE_SUFFIXES = {".db", ".sqlite", ".sqlite3"}
+_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+_READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 
 
 def absolute_path(value: str | os.PathLike[str]) -> Path:
@@ -65,6 +69,77 @@ def atomic_write(path: str | os.PathLike[str], content: str | bytes, mode: int =
         fsync_directory(path.parent)
     finally:
         Path(temporary).unlink(missing_ok=True)
+
+
+def _remove_entry_at(dir_fd: int, name: str) -> None:
+    """Remove *name* under *dir_fd* whatever it is (a link as a link, a directory as a tree)."""
+    try:
+        info = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    if not stat.S_ISDIR(info.st_mode):
+        os.unlink(name, dir_fd=dir_fd)
+        return
+    fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
+    try:
+        for entry in os.listdir(fd):
+            _remove_entry_at(fd, entry)
+    finally:
+        os.close(fd)
+    os.rmdir(name, dir_fd=dir_fd)
+
+
+def untrusted_marker(directory: str | os.PathLike[str], name: str, content: str | None) -> None:
+    """Create (*content*) or remove (None) the file *name* in a directory someone else controls.
+
+    For tenant directories: the tenant may have put a link, a FIFO or a
+    directory under that name. Whatever is there is removed without being
+    followed, and the file is created by descriptor with ``O_EXCL``.
+    """
+    dir_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        _remove_entry_at(dir_fd, name)
+        if content is not None:
+            fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=dir_fd)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                os.fchmod(handle.fileno(), 0o644)
+                handle.write(content)
+    finally:
+        os.close(dir_fd)
+
+
+def open_directory(root: str | os.PathLike[str], relative: str = "") -> int:
+    """A descriptor for ``root/relative``, opening each component without following links.
+
+    For trees someone else writes (tenant directories): a component swapped
+    for a link while root walks the tree fails with ``ELOOP``/``ENOTDIR``
+    instead of redirecting root elsewhere.
+    """
+    parts = [part for part in relative.split("/") if part not in ("", ".")]
+    if ".." in parts:
+        raise ValueError("Path escapes its directory.")
+    fd = os.open(root, _DIRECTORY)
+    try:
+        for part in parts:
+            child = os.open(part, _DIRECTORY, dir_fd=fd)
+            os.close(fd)
+            fd = child
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def open_regular(name: str | os.PathLike[str], dir_fd: int | None = None) -> int:
+    """A read descriptor for a regular file: never through a link, never blocking on a FIFO."""
+    fd = os.open(name, _READ, dir_fd=dir_fd)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError(f"Not a regular file: {os.fsdecode(name)}")
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
 def write_json(path: str | os.PathLike[str], value: Any) -> None:
@@ -165,25 +240,56 @@ def regular_files(
     def omitted(relative: str) -> bool:
         return any(relative == item or relative.startswith(item + "/") for item in excluded)
 
-    for current, dirs, files in os.walk(root, followlinks=False):
-        base = Path(current)
-        dirs[:] = sorted(name for name in dirs if not omitted((base / name).relative_to(root).as_posix()))
-        for name in (*dirs, *sorted(files)):
-            path = base / name
-            relative = path.relative_to(root).as_posix()
-            if name == MAINTENANCE_MARKER or omitted(relative):
-                continue
-            foreign = path.is_symlink() or not (path.is_file() or path.is_dir())
-            if foreign and allowed_link is not None and allowed_link(path):
-                continue
-            if path.is_symlink() or not (path.is_file() or path.is_dir()):
-                raise ValueError(f"Portable packages require regular files and directories: {relative}")
-            if path.is_file():
+    # By descriptor below *directory*: a directory swapped for a link during the walk is not entered.
+    top = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    walk = os.fwalk(".", dir_fd=top, follow_symlinks=False)
+    try:
+        for current, dirs, files, dir_fd in walk:
+            base = root / current
+            dirs[:] = sorted(name for name in dirs if not omitted((base / name).relative_to(root).as_posix()))
+            for name in (*dirs, *sorted(files)):
+                path = base / name
+                relative = path.relative_to(root).as_posix()
+                if name == MAINTENANCE_MARKER or omitted(relative):
+                    continue
+                try:
+                    mode = os.stat(name, dir_fd=dir_fd, follow_symlinks=False).st_mode
+                except FileNotFoundError:
+                    mode = 0
+                if stat.S_ISDIR(mode):
+                    continue
+                if not stat.S_ISREG(mode):
+                    if allowed_link is not None and allowed_link(path):
+                        continue
+                    raise ValueError(f"Portable packages require regular files and directories: {relative}")
                 yield path, relative
+    finally:
+        walk.close()
+        os.close(top)
+
+
+class _HashingReader:
+    """Hand a file to ``tarfile`` while hashing exactly the bytes it archives."""
+
+    def __init__(self, source: Any):
+        self.source = source
+        self.digest = hashlib.sha256()
+        self.size = 0
+
+    def read(self, size: int = -1) -> bytes:
+        chunk = self.source.read(size)
+        self.digest.update(chunk)
+        self.size += len(chunk)
+        return chunk
 
 
 def write_package(destination: Path, manifest: dict[str, Any], inputs: Iterable[tuple[Path, str]]) -> Path:
-    """Write a new package (never overwriting) with a hashed manifest."""
+    """Write a new package (never overwriting) with a hashed manifest.
+
+    Each file is read once, by descriptor: the checksum in the manifest is of
+    the bytes streamed into the archive, so a file changed while the package
+    is written cannot make the package disagree with its own manifest.
+    """
     destination = Path(destination).absolute()
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     if destination.exists() or destination.is_symlink():
@@ -202,8 +308,13 @@ def write_package(destination: Path, manifest: dict[str, Any], inputs: Iterable[
             for path, name in files:
                 if name in manifest["files"]:
                     raise ValueError(f"Duplicate package entry: {name}")
-                manifest["files"][name] = {"sha256": digest_file(path), "size": path.stat().st_size}
-                archive.add(path, arcname=name, recursive=False)
+                with os.fdopen(open_regular(path), "rb") as handle:
+                    info = archive.gettarinfo(arcname=name, fileobj=handle)
+                    reader = _HashingReader(handle)
+                    archive.addfile(info, reader)
+                if reader.size != info.size:
+                    raise ValueError(f"A file changed size while it was packaged: {name}")
+                manifest["files"][name] = {"sha256": reader.digest.hexdigest(), "size": info.size}
             raw = json.dumps(manifest, sort_keys=True).encode()
             if len(raw) > 16 * 1024 * 1024:
                 raise ValueError("Package manifest is too large.")

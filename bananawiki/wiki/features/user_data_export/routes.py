@@ -44,6 +44,8 @@ def admin_export(user_id: str):
     if target is None:
         abort(404)
     admin = auth.current_user()
-    if target["id"] != admin["id"] and (target.get("is_superuser") or target["role"] == "owner"):
+    from ..admin.service import protection_error
+
+    if protection_error(admin, target):
         abort(403)
     return _download(target, admin)

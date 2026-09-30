@@ -124,6 +124,7 @@ class HostingConfig:
     instance_runtime: str
     tenant_network: str
     tenant_plugin_denylist: tuple[str, ...]
+    tts_gpu_tenant_tokens: bool
     container_image: str
     container_internal_port: int
     subdomain_min_length: int
@@ -142,6 +143,8 @@ class HostingConfig:
     db_busy_timeout_ms: int = 5000
     min_form_seconds: float = 1.5
     testing: bool = False
+    # Accept custom domains whose records are proxied by Cloudflare (only Cloudflare addresses visible).
+    custom_domain_allow_proxied: bool = True
 
     @property
     def is_production(self) -> bool:
@@ -438,6 +441,7 @@ def load_config(environ: dict[str, str] | None = None, **overrides: object) -> H
         instance_runtime=runtime,
         tenant_network=network,
         tenant_plugin_denylist=env.list("HOSTING_TENANT_PLUGIN_DENYLIST"),
+        tts_gpu_tenant_tokens=env.bool("HOSTING_TTS_GPU_TENANT_TOKENS", True),
         container_image=env.str("HOSTING_CONTAINER_IMAGE", "bananawiki-tenant:latest"),
         container_internal_port=env.int("HOSTING_CONTAINER_INTERNAL_PORT", 5001, minimum=1, maximum=65535),
         subdomain_min_length=env.int("SUBDOMAIN_MIN_LENGTH", 3, minimum=1, maximum=63),
@@ -455,6 +459,7 @@ def load_config(environ: dict[str, str] | None = None, **overrides: object) -> H
         log_level=env.choice("HOSTING_LOG_LEVEL", "info", frozenset({"debug", "info", "warning", "error"})),
         db_busy_timeout_ms=env.int("HOSTING_DB_BUSY_TIMEOUT_MS", 5000, minimum=100, maximum=30000),
         testing=run_env == "test",
+        custom_domain_allow_proxied=env.bool("HOSTING_CUSTOM_DOMAIN_ALLOW_PROXIED", True),
     )
     values.update(overrides)
     cfg = HostingConfig(**values)  # type: ignore[arg-type]

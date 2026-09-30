@@ -2,8 +2,8 @@
 {% import "hosting/_macros.html" as ui with context %}
 {% block title %}{{ t('hosting.admin.nav.banners') }}{% endblock %}
 {% block content %}
-<h1>{{ t('hosting.admin.nav.banners') }}</h1>
 {% include "hosting/admin/_nav.html" %}
+<h1>{{ t('hosting.admin.nav.banners') }}</h1>
 {% macro banner_fields(b=None) %}
   <div class="field"><label>{{ t('hosting.banners.content') }}<textarea name="content" maxlength="2000" rows="2" required>{{ b.content if b else '' }}</textarea></label></div>
   <div class="form-grid">

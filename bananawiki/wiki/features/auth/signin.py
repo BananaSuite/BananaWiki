@@ -23,6 +23,9 @@ from ...registry import emit
 WINDOW_SECONDS = 15 * 60
 MAX_PER_IP = 20
 MAX_PER_ACCOUNT = 8
+# Failures for one account from all addresses together. Much higher than the per-source limit:
+# with a low shared limit, anyone could keep the owner out by failing 8 times every 15 minutes.
+MAX_PER_ACCOUNT_TOTAL = 100
 
 
 class Refused(Exception):
@@ -42,9 +45,11 @@ def verify(username: str, password: str, *, admin_only: bool = False) -> dict[st
     """Return the account for these credentials or raise :class:`Refused`."""
     ip = client_ip()
     account_key = username.lower()
+    source_key = f"{account_key}\n{ip}"
     limiter = _limiter()
     if (limiter.exceeded(ip, "login:ip", MAX_PER_IP, WINDOW_SECONDS)
-            or limiter.exceeded(account_key, "login:account", MAX_PER_ACCOUNT, WINDOW_SECONDS)):
+            or limiter.exceeded(source_key, "login:account-ip", MAX_PER_ACCOUNT, WINDOW_SECONDS)
+            or limiter.exceeded(account_key, "login:account", MAX_PER_ACCOUNT_TOTAL, WINDOW_SECONDS)):
         raise Refused("auth.error.too_many_attempts", 429)
     user = accounts.by_username(username) if username and len(password) <= passwords.MAX_LENGTH else None
     if user is None:
@@ -52,10 +57,11 @@ def verify(username: str, password: str, *, admin_only: bool = False) -> dict[st
     if user is None or not passwords.verify_password(user["password"], password):
         with db.transaction():
             limiter.record(ip, "login:ip")
+            limiter.record(source_key, "login:account-ip")
             limiter.record(account_key, "login:account")
         current_app.logger.info("Failed sign-in for %r from %s", username, ip)
         raise Refused("auth.error.invalid_credentials", 401)
-    limiter.clear(account_key, "login:account")
+    limiter.clear(source_key, "login:account-ip")
     if admin_only and not auth.is_admin(user):
         raise Refused("auth.admin_login.not_admin", 403)
     return user

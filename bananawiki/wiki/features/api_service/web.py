@@ -11,6 +11,7 @@ from ... import accounts, auth, settings
 from ...db import db
 from ...registry import feature_blueprint, is_enabled
 from ...templating import from_local_input
+from ..admin import service as admin_service
 from . import audit, openapi, tokens, userbot, webhooks
 from .errors import ApiError
 
@@ -53,6 +54,12 @@ def _no_store(result):
     return body, status, {"Cache-Control": "no-store"}
 
 
+def _no_impersonation() -> None:
+    """An administrator viewing the wiki as someone else must not mint lasting credentials for them."""
+    if auth.is_impersonating():
+        abort(403)
+
+
 @bp.get("/settings/api-tokens")
 def tokens_page():
     return _tokens_page(auth.current_user())
@@ -67,6 +74,7 @@ def legacy_tokens_page():
 @bp.post("/settings/api-tokens/create")
 def create_token():
     """Show the new token once, in this response only (it is never put in a cookie)."""
+    _no_impersonation()
     user = auth.current_user()
     service = tokens.service_settings()
     if not service["enabled"]:
@@ -111,6 +119,7 @@ def revoke_token(token_id: int):
 
 @bp.post("/settings/api-tokens/userbot")
 def userbot_mode():
+    _no_impersonation()
     user = auth.current_user()
     try:
         if request.form.get("enable") == "1":
@@ -159,6 +168,7 @@ def _admin_page(*, new_secret: dict[str, Any] | None = None, status: int = 200):
         webhooks=[{**hook, "event_list": webhooks.subscribed_events(hook)} for hook in webhooks.all_webhooks()],
         webhook_events=list(webhooks.EVENTS),
         max_webhooks=webhooks.MAX_WEBHOOKS,
+        private_network_offered=webhooks.private_network_offered(),
         new_secret=new_secret,
     ), status
 
@@ -192,19 +202,20 @@ def admin_settings():
     return _admin_redirect()
 
 
-def _protected_from(actor: dict[str, Any], target: dict[str, Any] | None) -> bool:
-    """Only the owner may act on the owner's account."""
-    return bool(target) and target["role"] == "owner" and target["id"] != actor["id"]
+def _protection_error(target: dict[str, Any]) -> str | None:
+    """Why the current administrator may not act on *target*'s account (the hierarchy of the admin pages)."""
+    return admin_service.protection_error(auth.current_user(), target)
 
 
 @bp.post("/admin/api-service/tokens/<int:token_id>/revoke")
 @auth.admin_required
 def admin_revoke_token(token_id: int):
     token = tokens.get(token_id)
+    owner = accounts.by_id(token["user_id"]) if token else None
     if token is None:
         auth.flash_t("api_service.flash.token_not_found", "error")
-    elif _protected_from(auth.current_user(), accounts.by_id(token["user_id"])):
-        auth.flash_t("api_service.flash.owner_protected", "error")
+    elif owner and (error := _protection_error(owner)):
+        auth.flash_t(error, "error")
     else:
         tokens.revoke(token_id)
         auth.flash_t("api_service.flash.token_revoked", "success")
@@ -217,8 +228,8 @@ def admin_revoke_all():
     target = accounts.by_id(request.form.get("user_id", "").strip())
     if target is None:
         auth.flash_t("api_service.flash.user_not_found", "error")
-    elif _protected_from(auth.current_user(), target):
-        auth.flash_t("api_service.flash.owner_protected", "error")
+    elif error := _protection_error(target):
+        auth.flash_t(error, "error")
     else:
         count = tokens.revoke_all_for_user(target["id"])
         auth.flash_t("api_service.flash.all_revoked", "success", username=target["username"], count=count)
@@ -247,8 +258,8 @@ def admin_userbot_lock(user_id: str):
     target = accounts.by_id(user_id)
     if target is None:
         auth.flash_t("api_service.flash.user_not_found", "error")
-    elif _protected_from(auth.current_user(), target):
-        auth.flash_t("api_service.flash.owner_protected", "error")
+    elif error := _protection_error(target):
+        auth.flash_t(error, "error")
     else:
         try:
             userbot.set_lock(target, request.form.get("mode", ""))

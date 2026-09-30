@@ -28,7 +28,9 @@
         {% for category in categories %}<option value="{{ category.id }}">{{ t('federation.admin.audience_readers', category=category.name) }}</option>{% endfor %}
       </select>
     </div>
+    {% if private_network_offered %}
     {{ forms.checkbox('allow_private_network', t('federation.admin.private'), hint=t('federation.admin.private_hint')) }}
+    {% endif %}
     <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('federation.admin.pair_button') }}</button></div>
   </form>
 </section>
@@ -36,7 +38,7 @@
 {% for peer in peers %}
 <section class="card">
   <h2>{{ peer.name }}</h2>
-  <p><code class="mono">{{ peer.wiki_id }}</code> · {{ peer.base_url }}{% if peer.allow_private_network %} · <span class="badge">{{ t('federation.admin.private_badge') }}</span>{% endif %}</p>
+  <p><code class="mono">{{ peer.wiki_id }}</code> · {{ peer.base_url }}{% if peer.allow_private_network and private_network_offered %} · <span class="badge">{{ t('federation.admin.private_badge') }}</span>{% endif %}</p>
   <p>{{ t('federation.admin.sequence', sequence=peer.last_sequence) }}
     {% if peer.last_success %}{{ t('federation.admin.last_success', when=peer.last_success|datetime) }}{% else %}{{ t('federation.admin.never_synced') }}{% endif %}</p>
   {% if peer.last_error %}<p class="text-danger" role="status">{{ t(peer.last_error) }} {{ t('federation.admin.retry', when=peer.next_attempt|datetime) }}</p>{% endif %}

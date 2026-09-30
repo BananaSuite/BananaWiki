@@ -25,6 +25,7 @@ from ....core.timeutil import now_sql, utcnow
 from ... import accounts, auth, storage
 from ...config import IMAGE_EXTENSIONS, MIB
 from ...db import db
+from ...registry import emit
 from ..pages import service as pages
 
 AVATAR_MAX_BYTES = 1 * MIB
@@ -305,14 +306,28 @@ def delete_account(user: dict[str, Any], *, deleted_by: str | None) -> None:
         delete_upload(name)
 
 
+def may_become_owner(user: dict[str, Any]) -> bool:
+    """Owners are appointed by owners or superusers (``admin.change_role``). An administrator
+    promotes themselves only when the wiki has no owner at all, or when they are a superuser."""
+    return auth.is_admin(user) and user["role"] != "owner" and (
+        bool(user.get("is_superuser")) or accounts.owners_count() == 0)
+
+
 def set_owner_status(user: dict[str, Any], password: str | None) -> str:
-    """Toggle between admin and owner for the signed-in administrator; return the new role."""
+    """Toggle between admin and owner for the signed-in administrator; return the new role.
+
+    Stepping down is always possible (except for the last owner). Stepping up is limited by
+    :func:`may_become_owner`: owners outrank administrators, so an administrator who could
+    make themselves owner could then change every other administrator's account.
+    """
     if not auth.is_admin(user):
         raise ProfileError("error.forbidden")
     if not password_ok(user, password):
         raise ProfileError("auth.error.current_password_wrong")
     new_role = "owner" if user["role"] == "admin" else "admin"
     with db.transaction():
+        if new_role == "owner" and not may_become_owner(user):
+            raise ProfileError("users.error.owner_needs_owner")
         if new_role == "owner" and db.scalar("SELECT 1 FROM temp_roles WHERE user_id = ?", (user["id"],)):
             raise ProfileError("users.error.owner_blocked_by_temporary_role")
         if new_role == "admin" and accounts.owners_count() <= 1:
@@ -320,12 +335,30 @@ def set_owner_status(user: dict[str, Any], password: str | None) -> str:
         db.execute("UPDATE users SET role = ? WHERE id = ?", (new_role, user["id"]))
         db.insert("role_history", {"user_id": user["id"], "old_role": user["role"], "new_role": new_role,
                                    "changed_by": user["id"], "changed_at": now_sql()})
+    emit("user.role_changed", user=accounts.by_id(user["id"]), old_role=user["role"], new_role=new_role,
+         changed_by=user["id"])
     return new_role
 
 
-def reactivate_self(user: dict[str, Any]) -> None:
-    """Administrators may lift their own suspension (as in 1.4)."""
+def may_reactivate_self(user: dict[str, Any]) -> bool:
+    """Whether a suspended administrator may lift the suspension themselves (1.4 allowed any).
+
+    Not when an owner or superuser imposed it: that suspension is exactly what the
+    hierarchy exists for. Owners and superusers can always lift their own.
+    """
     if not auth.is_admin(user) or not user.get("suspended"):
+        return False
+    if user["role"] == "owner" or user.get("is_superuser"):
+        return True
+    performer = db.scalar("SELECT performed_by FROM suspension_audit WHERE user_id = ? AND action = 'suspend' "
+                          "ORDER BY created_at DESC, id DESC LIMIT 1", (user["id"],))
+    by = accounts.by_id(performer) if performer and performer != user["id"] else None
+    return not (by and (by["role"] == "owner" or by.get("is_superuser")))
+
+
+def reactivate_self(user: dict[str, Any]) -> None:
+    """Lift one's own suspension where :func:`may_reactivate_self` allows it."""
+    if not may_reactivate_self(user):
         raise ProfileError("error.forbidden")
     with db.transaction():
         db.execute(

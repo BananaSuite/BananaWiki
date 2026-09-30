@@ -7,8 +7,12 @@ only the Python standard library plus Piper.
     GET  /health       {"status": "ok"}; with a valid token also GPU and voice details
     POST /synthesize   {"text": "...", "language": "en"} -> audio/mpeg (or audio/wav)
 
-Every /synthesize request needs ``Authorization: Bearer <TTS_AUTH_TOKEN>``
-(compared in constant time). Request bodies and text length are capped and
+Every /synthesize request needs ``Authorization: Bearer <token>`` (compared in
+constant time): either ``TTS_AUTH_TOKEN`` itself or, for wikis on a BananaWiki
+hosting platform, that wiki's own token ``bwt1.<wiki id>.<hex>``, an
+HMAC-SHA256 of the wiki id under ``TTS_AUTH_TOKEN``. Hosted wikis can run
+plugins, so they never get the master token; a single wiki is shut out with
+``TTS_REVOKED_TENANTS``. Request bodies and text length are capped and
 refused, never silently truncated; at most ``TTS_MAX_CONCURRENT`` syntheses
 run at once and further requests wait up to ``TTS_QUEUE_TIMEOUT`` seconds
 before getting 503. Configuration is read from environment variables, see
@@ -90,6 +94,7 @@ def _env_float(environ, name: str, default: float) -> float:
 @dataclass(frozen=True)
 class Settings:
     token: str = field(repr=False)
+    revoked_tenants: frozenset[str] = frozenset()
     host: str = "127.0.0.1"
     port: int = 8787
     voice_dir: str = "voices"
@@ -127,6 +132,8 @@ class Settings:
                 voices[code.strip()] = voice.strip()
         return cls(
             token=token,
+            revoked_tenants=frozenset(part.strip() for part in env.get("TTS_REVOKED_TENANTS", "").split(",")
+                                      if part.strip()),
             host=env.get("TTS_HOST", "127.0.0.1").strip() or "127.0.0.1",
             port=_env_int(env, "TTS_PORT", 8787),
             voice_dir=env.get("PIPER_VOICE_DIR", "").strip() or str(Path(__file__).resolve().parent / "voices"),
@@ -269,9 +276,27 @@ def wav_to_mp3(wav: bytes, override: str = "") -> bytes:
 # ── HTTP ──────────────────────────────────────────────────────────────────────
 
 
+TENANT_TOKEN = re.compile(r"bwt1\.([A-Za-z0-9]{1,64})\.([0-9a-f]{64})")
+
+
+def tenant_token(master: str, tenant: str) -> str:
+    """The token BananaWiki hosting gives one wiki (see ``bananawiki.hosting.instances.tenant_tts_token``)."""
+    digest = hmac.new(master.encode("utf-8"), f"bananawiki-tts-tenant:{tenant}".encode(), "sha256")
+    return f"bwt1.{tenant}.{digest.hexdigest()}"
+
+
+def token_valid(settings: Settings, presented: str) -> bool:
+    candidate = presented.encode("utf-8", "replace")
+    if hmac.compare_digest(candidate, settings.token.encode("ascii")):
+        return True
+    match = TENANT_TOKEN.fullmatch(presented)
+    if not match or match.group(1) in settings.revoked_tenants:
+        return False
+    return hmac.compare_digest(candidate, tenant_token(settings.token, match.group(1)).encode("ascii"))
+
+
 def make_handler(settings: Settings, engine: Engine) -> type[BaseHTTPRequestHandler]:
     slots = threading.BoundedSemaphore(settings.max_concurrent)
-    expected = settings.token.encode("ascii")
 
     class Handler(BaseHTTPRequestHandler):
         server_version = f"BananaWikiTTS/{VERSION}"
@@ -299,7 +324,7 @@ def make_handler(settings: Settings, engine: Engine) -> type[BaseHTTPRequestHand
             scheme, _, presented = (self.headers.get("Authorization") or "").partition(" ")
             if scheme.lower() != "bearer":
                 return False
-            return hmac.compare_digest(presented.strip().encode("utf-8", "replace"), expected)
+            return token_valid(settings, presented.strip())
 
         def do_GET(self) -> None:  # noqa: N802 - http.server API
             if self.path.split("?", 1)[0] != "/health":

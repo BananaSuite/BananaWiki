@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import hashlib
 import http.client
+import ipaddress
 import json
 import logging
 import os
@@ -426,6 +427,25 @@ class AgentRuntime:
             self._status[name] = (now + (HEALTH_TTL if result.healthy else NEGATIVE_TTL), result)
         return result
 
+    def upstream(self, spec: TenantSpec) -> tuple[str, int] | None:
+        cfg = self._cfg()
+        if cfg.hosting_mode != "subdomain":
+            return ("127.0.0.1", int(spec.port)) if spec.port else None
+        try:
+            item = self._container_map().get(spec.data_dir_name)
+        except RuntimeFailure:
+            return None
+        if not item or not item.get("running") or not item.get("address"):
+            return None
+        try:
+            address = ipaddress.ip_address(str(item["address"]))
+        except ValueError:
+            return None
+        # Same rule as the agent's Caddy routes: only a container's bridge address.
+        if not address.is_private or address.is_loopback:
+            return None
+        return str(address), int(item.get("internal_port") or cfg.container_internal_port)
+
     def usage(self, spec: TenantSpec) -> int:
         cfg = self._cfg()
         name = spec.data_dir_name
@@ -637,7 +657,8 @@ class AgentRuntime:
 
     def check_domain(self, domain: str, token: str) -> DomainCheck:
         cfg = self._cfg()
-        return dnscheck.check(domain, token, cfg.custom_domain_target, cfg.custom_domain_ips)
+        return dnscheck.check(domain, token, cfg.custom_domain_target, cfg.custom_domain_ips,
+                              allow_proxied=cfg.custom_domain_allow_proxied)
 
     def sync_routes(self, specs: Sequence[TenantSpec]) -> None:
         if self._cfg().hosting_mode != "subdomain":

@@ -9,3 +9,7 @@
 .attachments__item form, .attachments__item button { margin-left: auto; }
 .attachments__upload { display: grid; gap: .4rem; margin-top: .5rem; }
 .attachments__upload input[type="file"] { max-width: 100%; }
+.attachments--empty { margin-top: 1.5rem; font-size: .9rem; }
+.attachments--empty > summary, .attachments__more > summary { cursor: pointer; color: var(--muted); width: max-content; }
+.attachments--empty > summary:hover, .attachments__more > summary:hover { color: var(--bw-text); }
+.attachments--empty[open] { border: 1px solid var(--border); border-radius: var(--radius); padding: .6rem .9rem; }

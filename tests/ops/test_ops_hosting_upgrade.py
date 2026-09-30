@@ -107,10 +107,11 @@ def caddy_reloads(system: FakeSystem) -> int:
 def assert_routed(root: Path, system: FakeSystem) -> None:
     caddyfile = system.proxy_file.read_text()
     routes = system.state_dir / "bananawiki-routes"
-    assert f"import {routes}/*.caddy" in caddyfile and "portal.wiki.example.org {" in caddyfile
+    assert f"import {routes}/*.caddy" in caddyfile
+    assert "portal.wiki.example.org, http://portal.wiki.example.org {" in caddyfile
     assert read_json(root / "config/proxy.json")["installed_sha256"] == digest_file(system.proxy_file)
     assert (routes.stat().st_mode & 0o777) == 0o755
-    assert f"# tenant acme\n{HOST} {{" in (routes / "tenants.caddy").read_text()
+    assert f"# tenant acme\n{HOST}, http://{HOST} {{" in (routes / "tenants.caddy").read_text()
     agent = (system.unit_dir / "bananawiki-agent.service").read_text()
     assert "User=root" in agent and "StateDirectory=bananawiki-routes" in agent
     assert "SupplementaryGroups=docker" not in (system.unit_dir / "bananawiki.service").read_text()

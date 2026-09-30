@@ -27,8 +27,8 @@
   var checksEmpty = $("builder-checks-empty");
   var conflictEl = $("builder-conflict");
   var suggestions = $("builder-page-suggestions");
-  var options = JSON.parse($("builder-options").textContent);
-  var state = JSON.parse($("builder-initial-document").textContent || '{"version":2,"blocks":[]}');
+  var options = JSON.parse(document.querySelector("script#builder-options").textContent);
+  var state = JSON.parse(document.querySelector("script#builder-initial-document").textContent || '{"version":2,"blocks":[]}');
   var baseRevision = Number(root.dataset.baseRevision || 0);
   // Wiki pages keep server-side drafts; custom pages have none and are saved explicitly.
   var hasDrafts = !!root.dataset.draftUrl;

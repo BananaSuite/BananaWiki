@@ -50,6 +50,16 @@ def requires(scope: str, *, write: bool = False, feature: str | None = None) -> 
     return decorate
 
 
+def secret_response(view: Callable) -> Callable:
+    """Mark a view whose successful answer carries a new secret (a token, a webhook secret).
+
+    Such answers are never stored for ``Idempotency-Key`` replays; a retry
+    with the same key is refused instead (see :mod:`..idempotency`).
+    """
+    view._api_secret_response = True  # type: ignore[attr-defined]
+    return view
+
+
 def open_endpoint(view: Callable) -> Callable:
     """An endpoint that needs no token (status, OpenAPI description)."""
     view._api_open = True  # type: ignore[attr-defined]
@@ -131,8 +141,12 @@ def _rate_headers(response) -> None:
         response.headers["X-RateLimit-Reset"] = str(state[2])
 
 
-def _idempotency(user: dict[str, Any]):
-    """Reserve or replay an ``Idempotency-Key`` sent with a POST; None lets the view run."""
+def _idempotency(user: dict[str, Any], token: dict[str, Any]):
+    """Reserve or replay an ``Idempotency-Key`` sent with a POST; None lets the view run.
+
+    Keys are bound to the token that first used them, so another token of the
+    same account never receives an answer meant for a broader one.
+    """
     key = request.headers.get(idempotency.HEADER)
     if key is None or request.method != "POST":
         return None
@@ -149,10 +163,13 @@ def _idempotency(user: dict[str, Any]):
         return ApiError(413, "body_too_large").response()
     fingerprint = idempotency.request_hash(request.method, request.path, request.query_string, body)
     try:
-        reservation, stored = idempotency.begin(user["id"], key, fingerprint)
+        reservation, stored = idempotency.begin(user["id"], token["id"], key, fingerprint)
     except ApiError as error:
         return error.response()
     if stored is not None:
+        if stored["response_body"] is None:
+            return ApiError(409, "idempotency_replay_unavailable",
+                            extra={"status": stored["status_code"]}).response()
         replay = current_app.response_class(stored["response_body"] or "", status=stored["status_code"],
                                             mimetype="application/json")
         replay.headers[idempotency.REPLAY_HEADER] = "true"
@@ -213,7 +230,7 @@ def authenticate():
         response = ApiError(429, "rate_limited").response()
         response[0].headers["Retry-After"] = str(g.api_rate[2])
         return response
-    return _idempotency(user)
+    return _idempotency(user, token)
 
 
 @bp.after_request
@@ -228,8 +245,10 @@ def record_call(response):
         )
     reservation = g.pop("api_idempotency", None)
     if reservation is not None:
+        view = current_app.view_functions.get(request.endpoint or "")
+        secret = getattr(view, "_api_secret_response", False) and response.status_code < 400
         idempotency.finish(reservation, response.status_code,
-                           b"" if response.direct_passthrough else response.get_data())
+                           None if secret else b"" if response.direct_passthrough else response.get_data())
     _rate_headers(response)
     # Interceptors written for the browser may flash messages; a bearer call has no session to keep them.
     if token is not None and session.modified:

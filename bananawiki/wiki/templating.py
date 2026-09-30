@@ -124,6 +124,19 @@ def favicon_url() -> str:
     return url_for("static", filename=f"favicons/banana_{preset}.png")
 
 
+def _luminance(hex_color: str) -> float:
+    """Relative luminance (WCAG) of a #rrggbb or #rgb colour."""
+    value = hex_color.lstrip("#")
+    if len(value) == 3:
+        value = "".join(ch * 2 for ch in value)
+    try:
+        channels = [int(value[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    except ValueError:
+        return 0.0
+    linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
 def theme_css() -> Markup:
     """CSS custom properties from the administrator's colour choices."""
     s = settings.load()
@@ -139,7 +152,10 @@ def theme_css() -> Markup:
         props = ";".join(
             f"--bw-{name}:{color(f'{prefix}{name}_color', fallback)}" for name, fallback in defaults.items()
         )
-        blocks.append(f"{selector}{{{props}}}")
+        # Text on primary buttons follows the chosen colour (0.19 is where white and near-black
+        # give the same contrast), so a dark or a light primary both keep readable labels.
+        on_primary = "#10131c" if _luminance(color(f"{prefix}primary_color", defaults["primary"])) > 0.19 else "#ffffff"
+        blocks.append(f"{selector}{{{props};--on-primary:{on_primary}}}")
     return Markup("".join(blocks))
 
 

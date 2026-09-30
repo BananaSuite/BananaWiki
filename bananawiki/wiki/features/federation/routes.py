@@ -71,7 +71,8 @@ def admin():
             auth.flash_t("federation.flash.paired", "success")
         return redirect(url_for("federation.admin"))
     return render_template("federation/admin.html", wiki_id=store.identity(), peers=store.peers(),
-                           categories=categories.all_categories(), new_secret=protocol.new_secret())
+                           categories=categories.all_categories(), new_secret=protocol.new_secret(),
+                           private_network_offered=store.private_network_offered())
 
 
 @bp.post("/admin/federation/<remote_id>/delete")

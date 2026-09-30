@@ -7,7 +7,7 @@
       <span class="avatar">{{ current_user.username[:1]|upper }}</span>
       {% if attention_total %}<span class="attention-dot" data-attention-count="{{ attention_total }}">{{ attention_total if attention_total < 100 else '99+' }}</span>{% endif %}
     </span>
-    <span class="visually-hidden">{{ current_user.username }}</span>
+    <span class="topbar__username">{{ current_user.username }}</span>
   </summary>
   <div class="menu__panel" role="menu">
     <div class="menu__label">{{ t('nav.signed_in_as', user=current_user.username) }}</div>
@@ -23,10 +23,13 @@
     <a role="menuitem" href="{{ item.url }}">{{ item.label }}{% if item.badge %} <span class="count-pill">{{ item.badge }}</span>{% endif %}</a>
     {% endfor %}
     {% if is_admin %}
+    {#- One entry: the administration area has its own side menu with every section. -#}
+    {% set admin_items = nav_items('admin') %}
+    {% if admin_items %}
+    {% set admin_badge = admin_items|sum(attribute='badge') %}
     <hr>
-    {% for item in nav_items('admin') %}
-    <a role="menuitem" href="{{ item.url }}">{{ item.label }}{% if item.badge %} <span class="count-pill">{{ item.badge }}</span>{% endif %}</a>
-    {% endfor %}
+    <a role="menuitem" href="{{ admin_items[0].url }}">{{ t('admin.nav.label') }}{% if admin_badge %} <span class="count-pill">{{ admin_badge }}</span>{% endif %}</a>
+    {% endif %}
     {% endif %}
     <hr>
     <form method="post" action="{{ url_for('auth.logout') }}">

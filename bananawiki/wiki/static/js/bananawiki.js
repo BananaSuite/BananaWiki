@@ -21,7 +21,7 @@
   var BW = window.BW = window.BW || {};
   var strings = {};
   try {
-    var node = document.getElementById("bw-strings");
+    var node = document.querySelector("script#bw-strings");
     if (node) strings = JSON.parse(node.textContent || "{}");
   } catch (e) { strings = {}; }
 
@@ -197,11 +197,29 @@
 
   // Sidebar (mobile drawer) and theme ---------------------------------------
   BW.onReady(function () {
+    // The menu button opens the drawer on phones and hides/shows the sidebar on wide
+    // screens (as the 1.4 collapse button did); the wide-screen choice is remembered.
     var toggle = document.querySelector("[data-sidebar-toggle]");
     if (toggle) {
+      var narrow = window.matchMedia ? window.matchMedia("(max-width: 900px)") : { matches: false };
+      var collapsed = false;
+      try { collapsed = localStorage.getItem("bw-sidebar-collapsed") === "1"; } catch (e) { collapsed = false; }
+      document.body.classList.toggle("sidebar-collapsed", collapsed);
+      var sync = function () {
+        var shown = narrow.matches ? document.body.classList.contains("sidebar-open")
+          : !document.body.classList.contains("sidebar-collapsed");
+        toggle.setAttribute("aria-expanded", shown ? "true" : "false");
+      };
+      sync();
+      if (narrow.addEventListener) narrow.addEventListener("change", sync);
       toggle.addEventListener("click", function () {
-        var open = document.body.classList.toggle("sidebar-open");
-        toggle.setAttribute("aria-expanded", open ? "true" : "false");
+        if (narrow.matches) {
+          document.body.classList.toggle("sidebar-open");
+        } else {
+          var now = document.body.classList.toggle("sidebar-collapsed");
+          try { localStorage.setItem("bw-sidebar-collapsed", now ? "1" : "0"); } catch (e) { /* storage disabled */ }
+        }
+        sync();
       });
     }
 

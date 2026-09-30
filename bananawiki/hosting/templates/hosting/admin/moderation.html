@@ -2,8 +2,8 @@
 {% block title %}{{ t('hosting.admin.nav.moderation') }}{% endblock %}
 {% block column_class %}wide{% endblock %}
 {% block content %}
-<h1>{{ t('hosting.admin.nav.moderation') }}</h1>
 {% include "hosting/admin/_nav.html" %}
+<h1>{{ t('hosting.admin.nav.moderation') }}</h1>
 <div class="table-wrap"><table class="table"><thead><tr><th>{{ t('hosting.admin.when') }}</th><th>{{ t('hosting.admin.subject') }}</th><th>{{ t('hosting.admin.action') }}</th><th>{{ t('hosting.admin.actor') }}</th><th>{{ t('hosting.suspend.reason') }}</th></tr></thead><tbody>
 {% for ev in events %}<tr><td class="small nowrap">{{ ev.created_at|datetime }}</td>
 <td><a href="{{ url_for('admin.moderation', type=ev.subject_type, id=ev.subject_id) }}">{{ ev.subject_type }} {{ ev.subject_id }}</a></td>

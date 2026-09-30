@@ -59,8 +59,8 @@
 
 {% for tr in incoming %}
 <div class="alert"><div class="alert__body">{{ t('hosting.transfers.incoming', username=tr.from_username, slug=tr.subdomain) }}
-  {{ ui.post(url_for('dashboard.accept_transfer', transfer_id=tr.id), t('hosting.transfers.accept'), 'btn btn--small btn--primary') }}
-  {{ ui.post(url_for('dashboard.decline_transfer', transfer_id=tr.id), t('hosting.transfers.decline')) }}</div></div>
+  <div class="btn-row">{{ ui.post(url_for('dashboard.accept_transfer', transfer_id=tr.id), t('hosting.transfers.accept'), 'btn btn--small btn--primary') }}
+  {{ ui.post(url_for('dashboard.decline_transfer', transfer_id=tr.id), t('hosting.transfers.decline')) }}</div></div></div>
 {% endfor %}
 
 {% if is_owner and inst.status != 'terminated' and not current_account.is_admin %}
@@ -70,9 +70,10 @@
   {% if inst[column] or not feature_restricted[feature] %}<p class="text-success">{{ t('hosting.features.available') }}</p>
   {% elif feature in pending_features %}<p>{{ t('hosting.features.pending') }}</p>
   {% else %}
+  <details class="feature-request"><summary class="btn btn--small">{{ t('hosting.features.request') }}</summary>
   <form method="post" action="{{ url_for('dashboard.request_feature', instance_id=inst.id, feature=feature) }}" class="form">{{ ui.csrf() }}
-    <div class="field"><label for="fr-{{ feature }}">{{ t('hosting.features.reason') }}</label><textarea id="fr-{{ feature }}" name="reason" minlength="20" maxlength="2000" rows="2" required></textarea></div>
-    <p><button class="btn btn--small" type="submit">{{ t('hosting.features.request') }}</button></p></form>
+    <div class="field"><label for="fr-{{ feature }}">{{ t('hosting.features.reason') }}</label><textarea id="fr-{{ feature }}" name="reason" minlength="20" maxlength="2000" rows="3" required></textarea></div>
+    <p><button class="btn btn--small btn--primary" type="submit">{{ t('hosting.features.request') }}</button></p></form></details>
   {% endif %}
 {% endfor %}
 {% if feature_history %}<div class="table-wrap"><table class="table"><thead><tr><th>{{ t('hosting.features.feature') }}</th><th>{{ t('hosting.instance.status') }}</th><th>{{ t('hosting.features.note') }}</th><th></th></tr></thead><tbody>
@@ -83,7 +84,7 @@
 {% endif %}
 
 {% if 'use_case' in permissions and inst.status != 'terminated' %}
-<details class="card"><summary>{{ t('hosting.instance.use_case') }}</summary>
+<details class="card" id="panel-1" data-remember><summary>{{ t('hosting.instance.use_case') }}</summary>
 <form method="post" action="{{ url_for('dashboard.update_use_case', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}
   <textarea name="declared_use_case" minlength="20" maxlength="2000" aria-label="{{ t('hosting.instance.use_case') }}">{{ inst.declared_use_case }}</textarea>
   {{ ui.check('compliance_declared', t('hosting.create.compliance')) }}
@@ -91,7 +92,7 @@
 {% endif %}
 
 {% if manager and users %}
-<details class="card"><summary>{{ t('hosting.instance.wiki_users', count=users_total) }}</summary>
+<details class="card" id="panel-2" data-remember><summary>{{ t('hosting.instance.wiki_users', count=users_total) }}</summary>
 <div class="table-wrap"><table class="table"><thead><tr><th>{{ t('hosting.field.username') }}</th><th>{{ t('hosting.instance.role') }}</th><th>{{ t('hosting.instance.created') }}</th></tr></thead><tbody>
 {% for user in users %}<tr><td>{{ user.username }}</td><td>{{ user.role }}</td><td>{{ user.created_at|date }}</td></tr>{% endfor %}
 </tbody></table></div></details>

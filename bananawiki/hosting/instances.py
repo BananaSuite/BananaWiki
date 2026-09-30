@@ -15,6 +15,8 @@ kept, name archived as ``<slug>--terminated-<id8>``; data retained until
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import secrets
 import socket
@@ -60,6 +62,25 @@ def get(instance_id: str | None) -> dict[str, Any] | None:
 def by_slug(slug: str, domain_mode: str) -> dict[str, Any] | None:
     return db.one("SELECT * FROM instances WHERE subdomain = ? COLLATE NOCASE AND domain_mode = ? "
                   "AND status != 'terminated'", (slug, domain_mode))
+
+
+def name_holder(slug: str, domain_mode: str) -> dict[str, Any] | None:
+    """The live wiki already using this name: the same slug and mode, or the same public host.
+
+    An apex wiki named ``team-hosting`` and a hosting wiki named ``team`` both
+    answer at ``team-hosting.<base>`` (and without a suffix every apex name
+    matches a hosting one), so a slug free in its own mode can still be taken.
+    """
+    found = by_slug(slug, domain_mode)
+    if found:
+        return found
+    host = urls.platform_host({"subdomain": slug, "domain_mode": domain_mode})
+    if not host:
+        return None
+    for row in db.all("SELECT * FROM instances WHERE status != 'terminated' AND domain_mode != ?", (domain_mode,)):
+        if urls.platform_host(row) == host:
+            return row
+    return None
 
 
 def owned_by(account_id: str) -> list[dict[str, Any]]:
@@ -128,6 +149,22 @@ def _tts_allowed(inst: dict[str, Any]) -> bool:
     return True
 
 
+TENANT_TTS_PREFIX = "bwt1"
+
+
+def tenant_tts_token(master: str, instance_id: str) -> str:
+    """The GPU speech token of one wiki: ``bwt1.<instance id>.<HMAC-SHA256(master, id)>``.
+
+    Hosted wikis may run plugins, so anything in their environment must be
+    assumed readable by the wiki's administrators. Each wiki therefore gets its
+    own token instead of the platform's master token; the GPU server
+    (``contrib/tts-gpu-server``) recomputes it from the master token and can
+    refuse single wikis (``TTS_REVOKED_TENANTS``). Keep in sync with that server.
+    """
+    digest = hmac.new(master.encode("utf-8"), f"bananawiki-tts-tenant:{instance_id}".encode(), hashlib.sha256)
+    return f"{TENANT_TTS_PREFIX}.{instance_id}.{digest.hexdigest()}"
+
+
 def policy(inst: dict[str, Any]) -> TenantPolicy:
     config = cfg()
     admin_owner = owner_is_admin(inst)
@@ -141,6 +178,8 @@ def policy(inst: dict[str, Any]) -> TenantPolicy:
     gpu = None
     token = settings.tts_gpu_token()
     if tts_allowed and settings.flag("global_tts_gpu_enabled") and settings.get("global_tts_gpu_url") and token:
+        if config.tts_gpu_tenant_tokens:
+            token = tenant_tts_token(token, inst["id"])
         gpu = TtsGpu(url=str(settings.get("global_tts_gpu_url")).strip().rstrip("/"), token=token,
                      timeout=int(settings.get("global_tts_gpu_timeout", 120) or 120))
     federation = config.federation_instances
@@ -259,7 +298,7 @@ def _check_capacity(account: dict[str, Any]) -> None:
 
 def _insert(account: dict[str, Any], slug: str, domain_mode: str, *, admin_username: str, custom_credentials: bool,
             easy_wiki: bool, use_case: str) -> dict[str, Any]:
-    if by_slug(slug, domain_mode):
+    if name_holder(slug, domain_mode):
         raise ServiceError("hosting.instances.name_taken")
     admin_owner = bool(account["is_admin"])
     if admin_owner:
@@ -515,7 +554,7 @@ def restore(inst: dict[str, Any], *, actor_id: str, extend_days: int | None = No
         raise ServiceError("hosting.instances.no_retained_data")
     target = original
     for _attempt in range(8):
-        if not by_slug(target, mode):
+        if not name_holder(target, mode):
             break
         target = f"{original[:30]}-r{secrets.token_hex(2)}"
     else:
@@ -655,11 +694,11 @@ def rename(inst: dict[str, Any], slug: str, domain_mode: str, *, actor_id: str, 
     slug = urls.validate_slug(slug, account_is_admin=admin_owner, domain_mode=domain_mode)
     if auto_suffix:
         base, number = slug, 2
-        while (other := by_slug(slug, domain_mode)) and other["id"] != inst["id"]:
+        while (other := name_holder(slug, domain_mode)) and other["id"] != inst["id"]:
             slug = f"{base[: cfg().subdomain_max_length - len(str(number)) - 1].rstrip('-')}-{number}"
             number += 1
     else:
-        other = by_slug(slug, domain_mode)
+        other = name_holder(slug, domain_mode)
         if other and other["id"] != inst["id"]:
             raise ServiceError("hosting.instances.name_taken")
     old_mode = inst.get("domain_mode") or "hosting"
@@ -735,7 +774,7 @@ def rename_for_non_admin(inst: dict[str, Any], *, actor_id: str) -> dict[str, An
     """Move an apex wiki to hosting mode (apex names are for administrators)."""
     base = inst["subdomain"]
     slug, number = base, 2
-    while (other := by_slug(slug, "hosting")) and other["id"] != inst["id"]:
+    while (other := name_holder(slug, "hosting")) and other["id"] != inst["id"]:
         slug = f"{base[:30]}-{number}"
         number += 1
     old_spec = spec(inst, with_policy=False)

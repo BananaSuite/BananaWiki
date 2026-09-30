@@ -38,7 +38,7 @@
 .has-bg-primary .builder-button--outline { border-color: currentColor; color: inherit; }
 
 .builder-hero { display: grid; gap: 1.5rem; align-items: center; padding: 2.5rem 1.5rem; border-radius: var(--radius);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--bw-primary) 16%, var(--surface)), var(--surface-2)); }
+  background: color-mix(in srgb, var(--bw-primary) 12%, var(--surface)); }
 .builder-hero--with-image { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); text-align: left; }
 .builder-hero.has-bg-primary { background: var(--bw-primary); }
 .builder-page .builder-hero__body > h2 { font-size: clamp(1.6rem, 4cqi, 2.4rem); line-height: 1.15; margin: 0 0 .6rem; border: 0; padding: 0; }

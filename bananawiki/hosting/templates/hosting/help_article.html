@@ -2,8 +2,9 @@
 {% block title %}{{ article.title }}{% endblock %}
 {% block content %}
 <nav class="breadcrumbs"><a href="{{ url_for('public.help_index', lang=help_language) }}">{{ t('hosting.help.title') }}</a></nav>
-<article class="card">
+<article class="prose">
   <h1>{{ article.title }}</h1>
+  {% if article.description %}<p class="lead">{{ article.description }}</p>{% endif %}
   {% for section in article.sections %}
   {% if section.heading %}<h2>{{ section.heading }}</h2>{% endif %}
   {#- Articles ship with the platform (trusted, reviewed HTML); only config values are substituted, escaped. -#}

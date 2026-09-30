@@ -27,29 +27,29 @@
   {% if target.pending_deletion %}{{ ui.post(url_for('admin.cancel_deletion', account_id=target.id), t('hosting.admin.cancel_deletion')) }}{% endif %}
   <a class="btn btn--small btn--danger" href="{{ url_for('admin.delete_account', account_id=target.id) }}">{{ t('hosting.admin.delete_account') }}</a>
 </div></section>
-<details class="card"><summary>{{ t('hosting.admin.edit_account') }}</summary>
+<details class="card" id="panel-1" data-remember><summary>{{ t('hosting.admin.edit_account') }}</summary>
 <form method="post" action="{{ url_for('admin.edit_account', account_id=target.id) }}" class="form" autocomplete="off">{{ ui.csrf() }}
   {{ ui.field('new_username', t('hosting.field.username'), target.username) }}{{ ui.field('new_email', t('hosting.field.email'), target.email, type='email') }}
   {{ ui.field('new_password', t('hosting.field.new_password'), type='password', attrs={'autocomplete': 'new-password'}) }}{{ ui.field('confirm_password', t('hosting.field.confirm_password'), type='password', attrs={'autocomplete': 'new-password'}) }}
   <p><button class="btn btn--small btn--primary" type="submit">{{ t('common.save') }}</button></p></form></details>
 {% if not target.suspended and target.id != current_account.id %}
-<details class="card"><summary>{{ t('hosting.admin.suspend_account') }}</summary>{{ ui.suspension_form(url_for('admin.suspend_account', account_id=target.id), show_instances=true) }}</details>
+<details class="card" id="panel-2" data-remember><summary>{{ t('hosting.admin.suspend_account') }}</summary>{{ ui.suspension_form(url_for('admin.suspend_account', account_id=target.id), show_instances=true) }}</details>
 {% endif %}
-<details class="card"><summary>{{ t('hosting.admin.flag_email') }}</summary>
+<details class="card" id="panel-3" data-remember><summary>{{ t('hosting.admin.flag_email') }}</summary>
 <form method="post" action="{{ url_for('admin.flag_email', account_id=target.id) }}" class="form">{{ ui.csrf() }}
   {{ ui.field('reason', t('hosting.suspend.reason')) }}{{ ui.check('reason_visible', t('hosting.suspend.reason_visible')) }}
   {{ ui.field('new_email', t('hosting.admin.replacement_email'), type='email', hint=t('hosting.admin.replacement_hint')) }}
   <p><button class="btn btn--small" type="submit">{{ t('hosting.admin.flag_email') }}</button></p></form></details>
 {% if not target.pending_deletion and target.id != current_account.id %}
-<details class="card"><summary>{{ t('hosting.admin.schedule_deletion') }}</summary>
+<details class="card" id="panel-4" data-remember><summary>{{ t('hosting.admin.schedule_deletion') }}</summary>
 <form method="post" action="{{ url_for('admin.schedule_deletion', account_id=target.id) }}" class="form">{{ ui.csrf() }}
   {{ ui.duration_fields('deletion', ('hours', 'minutes', 'seconds')) }}{{ ui.field('deletion_reason', t('hosting.suspend.reason')) }}
   {{ ui.check('notify_user', t('hosting.admin.notify_user'), checked=true) }}
   <p><button class="btn btn--small btn--danger" type="submit">{{ t('hosting.admin.schedule_deletion') }}</button></p></form></details>
 {% endif %}
 {% endif %}
-<section class="card"><h2>{{ t('hosting.admin.instances') }}</h2><ul>{% for inst in owned %}<li><a href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ inst.subdomain }}</a> {{ ui.status(inst.status) }}</li>{% else %}<li class="muted">{{ t('hosting.common.none') }}</li>{% endfor %}</ul></section>
-<details class="card"><summary>{{ t('hosting.admin.history') }}</summary><ul class="small">
+<section class="card"><h2>{{ t('hosting.admin.instances') }}</h2><ul class="plain-list">{% for inst in owned %}<li><a href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ inst.subdomain }}</a> {{ ui.status(inst.status) }}</li>{% else %}<li class="muted">{{ t('hosting.common.none') }}</li>{% endfor %}</ul></section>
+<details class="card" id="panel-5" data-remember><summary>{{ t('hosting.admin.history') }}</summary><ul class="plain-list">
 {% for row in history %}<li>{{ row.created_at|datetime }} · {{ row.action }} · {{ row.performed_by_name or '—' }} · {{ row.reason or '' }}</li>{% endfor %}
 {% for ev in events %}<li>{{ ev.created_at|datetime }} · {{ ev.action }} · {{ ev.actor_name or '—' }} · {{ ev.reason }}</li>{% endfor %}</ul></details>
 {% endblock %}

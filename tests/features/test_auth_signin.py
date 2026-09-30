@@ -178,3 +178,18 @@ def test_csrf_protects_suspended_deletion(csrf_client, db, make_user):
     token = csrf_token_from(csrf_client.get("/login"))
     csrf_client.post("/login", data={"username": "bob", "password": PASSWORD, "csrf_token": token})
     assert csrf_client.post("/account-suspended/delete", data={"password": PASSWORD}).status_code == 400
+
+
+def test_failures_from_one_address_do_not_lock_the_account_elsewhere(app, db, make_user):
+    make_user("bob")
+    attacker = app.test_client()
+    for _ in range(9):
+        attacker.post("/login", data={"username": "bob", "password": "nope-nope"},
+                      environ_base={"REMOTE_ADDR": "203.0.113.5"})
+    refused = attacker.post("/login", data={"username": "bob", "password": PASSWORD},
+                            environ_base={"REMOTE_ADDR": "203.0.113.5"})
+    assert refused.status_code == 429
+    owner = app.test_client()
+    response = owner.post("/login", data={"username": "bob", "password": PASSWORD},
+                          environ_base={"REMOTE_ADDR": "198.51.100.7"})
+    assert response.status_code == 302

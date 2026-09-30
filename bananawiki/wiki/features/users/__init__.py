@@ -38,7 +38,7 @@ def _display_css() -> str:
 
 
 def _account_status(state: str, user) -> str:
-    if state != "suspended" or not auth.is_admin(user):
+    if state != "suspended" or not service.may_reactivate_self(user):
         return ""
     return render_template("users/_suspended_actions.html")
 

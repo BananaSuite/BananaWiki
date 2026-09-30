@@ -280,8 +280,14 @@ def force_password_change():
         current = request.form.get("current_password", "")
         new = request.form.get("new_password", "")
         new_username = (request.form.get("username") or "").strip()
-        if not passwords.verify_password(user["password"], current):
-            error = t("auth.error.current_password_wrong")
+        from ..users.service import ProfileError, password_ok
+
+        try:
+            current_ok = password_ok(user, current)
+        except ProfileError as exc:
+            current_ok, error = False, t(exc.key)
+        if not current_ok:
+            error = error or t("auth.error.current_password_wrong")
         elif new != request.form.get("confirm_password", ""):
             error = t("auth.error.passwords_differ")
         elif passwords.verify_password(user["password"], new):

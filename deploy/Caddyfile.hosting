@@ -6,8 +6,10 @@
 		timeouts {
 			read_header 10s
 			read_body 5m
-			idle 2m
+			idle 16m
 		}
+		trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+		client_ip_headers CF-Connecting-IP
 	}
 	on_demand_tls {
 		ask http://127.0.0.1:{$HOSTING_PORT:5099}/internal/domains/authorize
@@ -20,7 +22,19 @@
 	respond @internal 404
 }
 
-{$BASE_DOMAIN} {
+(bananawiki_https) {
+	@needs_https {
+		protocol http
+		not {
+			remote_ip 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+			header CF-Visitor *"scheme":"https"*
+		}
+	}
+	redir @needs_https https://{host}{uri} 308
+}
+
+{$BASE_DOMAIN}, http://{$BASE_DOMAIN} {
+	import bananawiki_https
 	import bananawiki_public
 	root * {$STATIC_SITE_DIR:/opt/bananawiki/site}
 	file_server {
@@ -28,21 +42,32 @@
 	}
 }
 
-{$PORTAL_DOMAIN} {
+www.{$BASE_DOMAIN}, http://www.{$BASE_DOMAIN} {
+	tls {
+		on_demand
+	}
+	redir https://{$BASE_DOMAIN}{uri} 308
+}
+
+{$PORTAL_DOMAIN}, http://{$PORTAL_DOMAIN} {
+	import bananawiki_https
 	import bananawiki_public
 	reverse_proxy 127.0.0.1:{$HOSTING_PORT:5099} {
 		header_up -X-Forwarded-Prefix
+		header_up X-Forwarded-For {client_ip}
 	}
 }
 
 import {$HOSTING_ROUTES_DIR:/var/lib/bananawiki-routes}/*.caddy
 
-:443 {
+:443, :80 {
 	tls {
 		on_demand
 	}
+	import bananawiki_https
 	import bananawiki_public
 	reverse_proxy 127.0.0.1:{$HOSTING_PORT:5099} {
 		header_up -X-Forwarded-Prefix
+		header_up X-Forwarded-For {client_ip}
 	}
 }

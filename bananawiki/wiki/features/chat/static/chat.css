@@ -26,6 +26,11 @@
 .chat-msg__body--deleted { font-style: italic; color: var(--muted); }
 .chat-msg__files { margin: .3rem 0 0; padding-left: 1.1rem; font-size: .9rem; }
 .chat-msg__delete { margin-top: .2rem; text-align: right; }
+/* The delete control shows on hover or keyboard focus, so every bubble is not crowded by it. */
+@media (hover: hover) {
+  .chat-msg__delete { opacity: 0; transition: opacity .12s; }
+  .chat-msg:hover .chat-msg__delete, .chat-msg:focus-within .chat-msg__delete { opacity: 1; }
+}
 
 .chat-composer { display: grid; gap: .5rem; }
 .chat-composer textarea { width: 100%; resize: vertical; min-height: 3.2rem; }

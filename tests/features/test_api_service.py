@@ -234,6 +234,39 @@ def test_admin_token_management(api_app, client, db, admin, make_user):
     assert call(client, "GET", "/pages", member_token).status_code == 401
 
 
+def test_only_the_hierarchy_may_revoke_protected_tokens(api_app, client, db, login, admin, make_user):
+    """A superuser's or another administrator's tokens are revoked only by an owner or a superuser."""
+    keeper = make_user("keeper", role="editor", is_superuser=1, api_access_enabled=1)
+    other_admin = make_user("other_admin", role="admin")
+    keeper_token, other_token = issue(api_app, keeper), issue(api_app, other_admin)
+    ids = {row["user_id"]: row["id"] for row in db.all("SELECT id, user_id FROM api_service__tokens")}
+    token = issue(api_app, admin, ["admin"])
+    for user in (keeper, other_admin):
+        refused = call(client, "POST", f"/admin/tokens/{ids[user['id']]}/revoke", token)
+        assert refused.status_code == 403 and refused.json["code"] == "protected_account"
+    login(client, admin)
+    client.post(f"/admin/api-service/tokens/{ids[keeper['id']]}/revoke")
+    client.post("/admin/api-service/tokens/revoke-all", data={"user_id": other_admin["id"]})
+    client.post(f"/admin/api-service/users/{keeper['id']}/userbot-lock", data={"mode": "force_disabled"})
+    assert call(client, "GET", "/pages", keeper_token).status_code == 200
+    assert call(client, "GET", "/pages", other_token).status_code == 200
+    assert db.scalar("SELECT userbot_mode_lock FROM users WHERE id = ?", (keeper["id"],)) == "unlocked"
+    owner = make_user("the_owner", role="owner")
+    owner_token = issue(api_app, owner, ["admin"])
+    assert call(client, "POST", f"/admin/tokens/{ids[other_admin['id']]}/revoke", owner_token).status_code == 200
+    assert call(client, "POST", f"/admin/tokens/{ids[keeper['id']]}/revoke", owner_token).status_code == 403
+
+
+def test_an_impersonating_admin_cannot_mint_credentials(api_app, client, db, login, admin, make_user):
+    target = make_user("target_user", role="editor", api_access_enabled=1)
+    login(client, admin)
+    assert client.post(f"/admin/users/{target['id']}/impersonate").status_code == 302
+    assert client.post("/settings/api-tokens/create", data={"name": "x", "scopes": ["pages"]}).status_code == 403
+    assert client.post("/settings/api-tokens/userbot", data={"enable": "1"}).status_code == 403
+    assert db.scalar("SELECT COUNT(*) FROM api_service__tokens") == 0
+    assert db.scalar("SELECT userbot_enabled FROM users WHERE id = ?", (target["id"],)) == 0
+
+
 def test_password_change_anywhere_revokes_tokens(api_app, client, admin, make_user):
     from bananawiki.wiki import accounts
 

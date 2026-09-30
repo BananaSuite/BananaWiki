@@ -1,8 +1,8 @@
 {% with messages = get_flashed_messages(with_categories=true) %}
 {% if messages %}
-<div class="flash-stack" role="status" aria-live="polite">
+<div class="flashes" role="status" aria-live="polite">
   {% for category, message in messages|unique(attribute='1') %}
-  <div class="alert alert--{{ category if category in ('error', 'warning', 'success') else 'info' }}" {% if category != 'error' %}data-autohide{% endif %}>
+  <div class="alert alert--{{ category if category in ('error', 'warning', 'success') else 'info' }}">
     <div class="alert__body">{{ message }}</div>
     <button type="button" class="alert__close" data-dismiss aria-label="{{ t('common.close') }}">×</button>
   </div>

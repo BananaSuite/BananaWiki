@@ -53,3 +53,14 @@
 .conflict pre.diff, pre.diff { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .8rem; max-height: 60vh; overflow: auto; }
 .diff-rendered ins { background: var(--success-bg); text-decoration: none; }
 .diff-rendered del { background: var(--danger-bg); }
+
+/* Category page */
+.category-manage { margin-top: 2rem; }
+.category-manage > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: .4rem; }
+.category-manage > summary::-webkit-details-marker { display: none; }
+.category-manage > summary::before { content: "▸"; color: var(--muted); font-size: .8rem; }
+.category-manage[open] > summary { margin-bottom: .9rem; }
+.category-manage[open] > summary::before { content: "▾"; }
+.category-manage > summary h2 { margin: 0; }
+.category-manage__sequential { align-items: flex-start; flex-wrap: nowrap; justify-content: space-between; }
+.page-list + .h3, .page-list + .btn + .h3 { margin-top: 1.5rem; }

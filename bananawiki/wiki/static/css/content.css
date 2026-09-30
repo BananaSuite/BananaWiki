@@ -51,3 +51,9 @@
 .prose li.task-item { list-style: none; margin-left: -1.2rem; }
 .prose .task-box { display: inline-block; width: 1.2rem; }
 .prose li.task-done { color: var(--muted); }
+
+/* Wrappers allowed in page HTML (markdown.py _CONTENT_CLASSES) */
+.prose .table-wrapper { overflow-x: auto; margin: 0 0 1em; }
+.prose .table-wrapper > table { margin: 0; }
+.prose .media-inline { display: inline-block; vertical-align: middle; }
+.prose .media-image-container { max-width: 100%; }

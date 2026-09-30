@@ -17,24 +17,31 @@
     {% if can_export %}<a class="btn btn--small" href="{{ url_for('kanban.export', board_id=board.id) }}">{{ t('kanban.board.export') }}</a>{% endif %}
     <button type="button" class="btn btn--small" id="kanban-archive-toggle" aria-expanded="false" aria-controls="kanban-archive">{{ t('kanban.board.archived_tickets') }} <span class="badge" id="kanban-archive-count">{{ data.state.archived_count }}</span></button>
     <button type="button" class="btn btn--small" id="kanban-activity-toggle" aria-expanded="false" aria-controls="kanban-activity">{{ t('kanban.board.activity') }}</button>
-    <a class="btn btn--small" href="{{ url_for('kanban.board_history', board_id=board.id) }}">{{ t('kanban.board.history') }}</a>
-    <button type="button" class="btn btn--small" data-print>{{ t('kanban.board.print') }}</button>
-    {% if is_owner %}
-    <button type="button" class="btn btn--small" data-dialog-open="kanban-share-dialog">{{ t('kanban.board.sharing') }}</button>
-    {% if board.archived_at %}
-    {{ forms.post_button(url_for('kanban.restore', board_id=board.id), t('kanban.board.restore'), 'btn btn--small') }}
-    {% else %}
-    {{ forms.post_button(url_for('kanban.archive', board_id=board.id), t('kanban.board.archive'), 'btn btn--small', confirm=t('kanban.board.archive_confirm')) }}
-    {% endif %}
-    <button type="button" class="btn btn--small btn--danger" data-dialog-open="kanban-delete-dialog">{{ t('kanban.board.delete') }}</button>
-    {% endif %}
+    {#- Less frequent actions live in a menu, like the page view's "More". -#}
+    <details class="menu">
+      <summary class="btn btn--small">{{ t('pages.actions.more') }}</summary>
+      <div class="menu__panel" role="menu">
+        <a role="menuitem" href="{{ url_for('kanban.board_history', board_id=board.id) }}">{{ t('kanban.board.history') }}</a>
+        <button type="button" role="menuitem" data-print>{{ t('kanban.board.print') }}</button>
+        {% if is_owner %}
+        <button type="button" role="menuitem" data-dialog-open="kanban-share-dialog">{{ t('kanban.board.sharing') }}</button>
+        {% if board.archived_at %}
+        {{ forms.post_button(url_for('kanban.restore', board_id=board.id), t('kanban.board.restore'), '') }}
+        {% else %}
+        {{ forms.post_button(url_for('kanban.archive', board_id=board.id), t('kanban.board.archive'), '', confirm=t('kanban.board.archive_confirm')) }}
+        {% endif %}
+        <hr>
+        <button type="button" role="menuitem" class="text-danger" data-dialog-open="kanban-delete-dialog">{{ t('kanban.board.delete') }}</button>
+        {% endif %}
+      </div>
+    </details>
   </div>
   <div class="page-header__meta">
     <span>{{ t('kanban.board.owner', username=board.creator_username or t('common.unknown_user')) }}</span>
     <span>{{ t('kanban.visibility.' ~ (board.visibility or 'public')) }}</span>
   </div>
 </header>
-{% if board.description %}<div class="kanban-description wiki-content" id="kanban-board-description">{{ board.description|markdown }}</div>{% endif %}
+{% if board.description %}<div class="kanban-description prose" id="kanban-board-description">{{ board.description|markdown }}</div>{% endif %}
 
 {% if board.archived_at %}
 <div class="alert alert--info" role="status" id="kanban-archived-notice">{{ t('kanban.board.archived_notice', date=board.archived_at|date) }}{% if is_owner %} {{ t('kanban.board.archived_notice_owner') }}{% endif %}</div>
@@ -79,6 +86,10 @@
 </section>
 {% endif %}
 
+{#- Filters and rows fold away (kanban-filter.js opens them on wide screens and when a filter is set),
+    so on a phone the board is not pushed below the fold. -#}
+<details class="kanban-tools no-print" id="kanban-tools">
+<summary>{{ t('kanban.filter.label') }}</summary>
 <form class="kanban-filter no-print" id="kanban-filter" role="search" aria-label="{{ t('kanban.filter.label') }}">
   <div class="kanban-filter__field kanban-filter__field--search">
     <label for="kanban-filter-q">{{ t('kanban.filter.search') }}</label>
@@ -123,6 +134,7 @@
   </select>
   {% if can_write %}<span class="hint" id="kanban-lanes-hint">{{ t('kanban.lanes.hint') }}</span>{% endif %}
 </div>
+</details>
 
 <div class="kanban-board" id="kanban-board" aria-label="{{ t('kanban.board.columns_label') }}"></div>
 <noscript>
@@ -151,7 +163,7 @@
         <a href="#kanban-tab-history" role="tab" data-tab="history">{{ t('kanban.ticket.history') }}</a>
       </nav>
       <section id="kanban-tab-description" role="tabpanel" data-panel="description">
-        <div class="wiki-content kanban-ticket-dialog__description" id="kanban-ticket-description"></div>
+        <div class="prose kanban-ticket-dialog__description" id="kanban-ticket-description"></div>
         <div id="kanban-ticket-description-editor" hidden>
           <textarea id="kanban-ticket-description-input" rows="10" maxlength="10000" aria-label="{{ t('kanban.field.description') }}"></textarea>
           <p class="hint">{{ t('kanban.ticket.description_hint') }}</p>

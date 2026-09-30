@@ -63,7 +63,9 @@ def _redirect_if_signed_in():
 def complete_login(account: dict, next_url: str | None, method: str):
     """Open a session once every factor passed and send the account where it must go."""
     auth.start_session(account, method)
-    clear("login-failed")
+    # Only this account's counter: clearing the per-IP bucket would let anyone with one
+    # working account reset the limit between guesses at other accounts.
+    clear("login-account", key=account["username"].lower())
     gate = auth.pending_gate(account, None)
     if gate:
         return redirect(url_for(gate))

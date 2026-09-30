@@ -1,7 +1,7 @@
 /* Page view: notice when someone saves the page, and who is editing it. */
 (function () {
   "use strict";
-  var stateNode = document.getElementById("page-state");
+  var stateNode = document.querySelector("script#page-state");
   if (!stateNode) return;
   var state = JSON.parse(stateNode.textContent || "{}");
   var banner = document.querySelector("[data-page-updated]");

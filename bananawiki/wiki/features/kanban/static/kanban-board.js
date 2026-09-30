@@ -18,7 +18,7 @@
   "use strict";
 
   var BW = window.BW;
-  var dataNode = document.getElementById("kanban-data");
+  var dataNode = document.querySelector("script#kanban-data");
   var root = document.getElementById("kanban-board");
   if (!dataNode || !root || !BW) return;
 
@@ -210,18 +210,21 @@
     head.appendChild(title);
     head.appendChild(el("span", "kanban-column__count"));
     if (K.canWrite) {
+      // Column tools share one row under the title instead of wrapping one by one.
+      var tools = el("div", "kanban-column__tools");
       var limit = el("button", "btn btn--ghost btn--small kanban-column__limit", BW.t("kanban.wip_button"));
       limit.type = "button";
       limit.dataset.action = "wip-limit";
-      head.appendChild(limit);
+      tools.appendChild(limit);
       var shelve = el("button", "btn btn--ghost btn--small kanban-column__archive", BW.t("kanban.archive_column"));
       shelve.type = "button";
       shelve.dataset.action = "archive-column";
-      head.appendChild(shelve);
-      var remove = el("button", "btn btn--ghost btn--icon btn--small", "×");
+      tools.appendChild(shelve);
+      var remove = el("button", "btn btn--ghost btn--icon btn--small kanban-column__delete", "×");
       remove.type = "button";
       remove.dataset.action = "delete-column";
-      head.appendChild(remove);
+      tools.appendChild(remove);
+      head.appendChild(tools);
     }
     section.appendChild(head);
     if (headOnly) return section;

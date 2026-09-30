@@ -52,7 +52,7 @@
     </form>
   </section>
 
-  {% if is_admin %}
+  {% if is_admin and (user.role == 'owner' or may_become_owner) %}
   <section class="card" aria-labelledby="owner-heading">
     <h2 id="owner-heading">{{ t('users.settings.owner_status') }}</h2>
     <p>{{ t('users.settings.owner_on' if user.role == 'owner' else 'users.settings.owner_off') }}</p>

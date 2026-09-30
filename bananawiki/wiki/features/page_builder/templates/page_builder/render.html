@@ -80,7 +80,7 @@
     {% endfor %}
   </div>
 {% elif kind == 'table' %}
-  <div class="{{ item.classes }} table-wrapper">
+  <div class="{{ item.classes }} table-wrap">
     <table class="table builder-table">
       {% if block.caption %}<caption>{{ block.caption }}</caption>{% endif %}
       {% set body_rows = block.rows[1:] if block.header else block.rows %}

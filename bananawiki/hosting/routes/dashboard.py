@@ -26,7 +26,7 @@ from ..errors import ServiceError
 from ..i18n import t
 from ..limits import rate_limit
 from ..runtime import RuntimeFailure
-from .common import account, detail_url, flash_error, instance_for, owner_locked
+from .common import account, back, detail_url, flash_error, instance_for, owner_locked
 
 bp = Blueprint("dashboard", __name__)
 
@@ -134,7 +134,7 @@ def _act(instance_id: str, permission: str, action, success_key: str):
         flash(t(success_key, slug=inst["subdomain"]), "success")
     except ServiceError as error:
         flash_error(error)
-    return redirect(detail_url(instance_id))
+    return back(detail_url(instance_id))
 
 
 @bp.post("/instances/<instance_id>/stop")
@@ -493,8 +493,10 @@ def instance_domain(instance_id: str):
                 domains.remove(inst, viewer["id"])
                 flash(t("hosting.domains.removed"), "success")
             elif action == "verify":
-                domains.verify(inst, viewer["id"])
+                verified = domains.verify(inst, viewer["id"])
                 flash(t("hosting.domains.verified"), "success")
+                if verified.get("proxied"):
+                    flash(t("hosting.domains.verified_proxied"), "info")
             elif action == "claim":
                 domains.claim(inst, request.form.get("domain") or "", viewer["id"])
                 flash(t("hosting.domains.claimed"), "success")
@@ -508,4 +510,4 @@ def instance_domain(instance_id: str):
     return render_template("hosting/dashboard/domain.html", instance=inst, binding=binding,
                            active=bool(binding and domains.resolve(binding["domain"])),
                            configured=domains.configured(), target=cfg.custom_domain_target,
-                           ips=cfg.custom_domain_ips)
+                           ips=cfg.custom_domain_ips, allow_proxied=cfg.custom_domain_allow_proxied)

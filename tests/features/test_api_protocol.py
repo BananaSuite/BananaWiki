@@ -58,10 +58,11 @@ def test_idempotent_post_is_replayed_not_repeated(api_app, client, db, people):
     assert again.status_code == 201 and again.headers["Idempotent-Replayed"] == "true"
     assert again.json == first.json
     assert db.scalar("SELECT COUNT(*) FROM pages WHERE slug = 'once'") == 1
-    # Another token of the same account shares the key; another account does not.
+    # The key is bound to the token that used it: another token of the account gets no replay.
     other_token = issue(api_app, people["admin"])
-    assert call(client, "POST", "/pages", other_token, json=body,
-                headers={"Idempotency-Key": "abc-123"}).headers.get("Idempotent-Replayed") == "true"
+    other = call(client, "POST", "/pages", other_token, json=body, headers={"Idempotency-Key": "abc-123"})
+    assert other.status_code == 422 and other.json["code"] == "idempotency_key_reused"
+    assert db.scalar("SELECT COUNT(*) FROM pages WHERE slug LIKE 'once%'") == 1
     changed = call(client, "POST", "/pages", token, json={"title": "Twice"}, headers={"Idempotency-Key": "abc-123"})
     assert changed.status_code == 422 and changed.json["code"] == "idempotency_key_reused"
     invalid = call(client, "POST", "/pages", token, json=body, headers={"Idempotency-Key": "bad key"})
@@ -77,8 +78,9 @@ def test_idempotency_keeps_errors_but_not_rate_limits(api_app, client, db, peopl
     # A reservation left by a request that never finished blocks retries only for a while.
     raw = b'{"title": "Nope"}'
     fingerprint = idempotency.request_hash("POST", "/api/v1/pages", b"", raw)
-    db.execute("INSERT INTO api_service__idempotency (user_id, idempotency_key, request_hash, created_at) "
-               "VALUES (?, 'stuck', ?, datetime('now'))", (people["reader"]["id"], fingerprint))
+    token_id = db.scalar("SELECT id FROM api_service__tokens WHERE user_id = ?", (people["reader"]["id"],))
+    db.execute("INSERT INTO api_service__idempotency (user_id, token_id, idempotency_key, request_hash, created_at) "
+               "VALUES (?, ?, 'stuck', ?, datetime('now'))", (people["reader"]["id"], token_id, fingerprint))
     headers = {"Idempotency-Key": "stuck", "Content-Type": "application/json"}
     busy = call(client, "POST", "/pages", token, data=raw, headers=dict(headers))
     assert busy.status_code == 409 and busy.json["code"] == "idempotency_in_progress"
@@ -86,6 +88,45 @@ def test_idempotency_keeps_errors_but_not_rate_limits(api_app, client, db, peopl
                "WHERE idempotency_key = 'stuck'")
     retried = call(client, "POST", "/pages", token, data=raw, headers=dict(headers))
     assert retried.status_code == 403 and "Idempotent-Replayed" not in retried.headers
+
+
+def test_idempotency_never_stores_secrets(api_app, client, db, people):
+    """New tokens and webhook secrets are not kept for replays: a retry is refused, never run again."""
+    token = issue(api_app, people["admin"], ["tokens", "pages", "admin"])
+    minted = call(client, "POST", "/tokens", token, json={"permissions": {"read": True, "scopes": ["pages"]}},
+                  headers={"Idempotency-Key": "mint-1"})
+    hook = call(client, "POST", "/admin/webhooks", token, json={"url": "https://example.org/hook",
+                                                                "events": ["page.created"]},
+                headers={"Idempotency-Key": "hook-1"})
+    rotated = call(client, "POST", f"/admin/webhooks/{hook.json['webhook']['id']}/rotate-secret", token,
+                   headers={"Idempotency-Key": "rotate-1"})
+    assert (minted.status_code, hook.status_code, rotated.status_code) == (201, 201, 200)
+    rows = db.all("SELECT idempotency_key, status_code, response_body FROM api_service__idempotency "
+                  "ORDER BY idempotency_key")
+    assert [(row["idempotency_key"], row["status_code"], row["response_body"]) for row in rows] == [
+        ("hook-1", 201, None), ("mint-1", 201, None), ("rotate-1", 200, None)]
+    for key, path, body, status in (("mint-1", "/tokens", {"permissions": {"read": True, "scopes": ["pages"]}}, 201),
+                                    ("rotate-1", f"/admin/webhooks/{hook.json['webhook']['id']}/rotate-secret",
+                                     None, 200)):
+        retry = call(client, "POST", path, token, json=body, headers={"Idempotency-Key": key})
+        assert retry.status_code == 409 and retry.json["code"] == "idempotency_replay_unavailable"
+        assert retry.json["status"] == status and "Idempotent-Replayed" not in retry.headers
+    assert db.scalar("SELECT COUNT(*) FROM api_service__tokens") == 2
+    # Refusals carry no secret and are replayed as before.
+    refused = {"permissions": {"read": True, "scopes": ["users"]}}
+    assert call(client, "POST", "/tokens", token, json=refused, headers={"Idempotency-Key": "mint-2"}).status_code == 403
+    again = call(client, "POST", "/tokens", token, json=refused, headers={"Idempotency-Key": "mint-2"})
+    assert again.status_code == 403 and again.headers["Idempotent-Replayed"] == "true"
+
+
+def test_idempotency_rows_without_a_token_are_dropped_by_the_upgrade(api_app, db, people):
+    from bananawiki.wiki.features.api_service import schema
+
+    db.execute("INSERT INTO api_service__idempotency (user_id, idempotency_key, request_hash, status_code, "
+               "response_body, created_at) VALUES (?, 'legacy', 'x', 201, '{\"token\": \"raw\"}', datetime('now'))",
+               (people["admin"]["id"],))
+    schema.upgrade_v4(db.conn)
+    assert db.scalar("SELECT COUNT(*) FROM api_service__idempotency") == 0
 
 
 def test_idempotency_prune(api_app, db, people):

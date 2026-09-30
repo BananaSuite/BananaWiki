@@ -131,8 +131,12 @@ per tenant, each hostname once) in `routes.json` and renders
 `/var/lib/<service>-routes/tenants.caddy`: one site block per *running*
 tenant, proxying its hostnames to the container address that Docker
 reports (private, non-loopback addresses only), with on-demand TLS, HSTS
-and `X-Forwarded-Prefix` stripped. The portal cannot choose upstreams or
-write Caddy directives. When the file changes the agent runs `systemctl
+and `X-Forwarded-Prefix` stripped. Each block also answers plain HTTP
+(redirected to HTTPS except for Cloudflare "Flexible" requests), passes
+`X-Forwarded-For: {client_ip}` (Caddy 2.7+, detected with `caddy version`),
+retries a container that is still starting for 5 s and then hands the
+request to the portal (`127.0.0.1:<HOSTING_PORT>`), which shows the wiki's
+status page. The portal cannot choose upstreams or write Caddy directives. When the file changes the agent runs `systemctl
 reload caddy`. It re-renders after every `tenant.start` and `tenant.stop`,
 so a recreated container is routed at once. The Caddyfile written by
 `bananawiki proxy` imports `/var/lib/<service>-routes/*.caddy`; without the
@@ -142,7 +146,8 @@ routes directory (in-process fallback) the operation answers
 The controller keeps both ends in step on every `update` (including the
 convergence of a release the 1.4 updater installed) and `restart`: it creates
 the routes directory, re-renders a Caddyfile it installed (digest in
-`config/proxy.json`; the `--email` given to `proxy` is kept), validates it and
+`config/proxy.json`; the `--email`, `--tls` and `--cloudflare` given to `proxy`
+are kept), validates it and
 reloads Caddy only when it changed, and puts the previous file back when the
 readiness check fails. For hosting releases with the agent in subdomain mode
 that check also requires every running wiki the portal publishes to have a

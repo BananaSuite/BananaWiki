@@ -12,7 +12,7 @@
 {% macro figure(kind, apps=[]) -%}
 <div class="tour-mock" aria-hidden="true">
   <div class="tour-mock__topbar">
-    <span class="{% if kind == 'home' %}tour-mock__hl{% endif %}">🍌 {{ site_name() }}</span>
+    <span class="{% if kind == 'home' %}tour-mock__hl{% endif %}">{{ site_name() }}</span>
     <span class="tour-mock__spacer"></span>
     <span class="{% if kind == 'settings' %}tour-mock__hl{% endif %}">◯ {{ t('auth.tour.mock.account') }}</span>
   </div>

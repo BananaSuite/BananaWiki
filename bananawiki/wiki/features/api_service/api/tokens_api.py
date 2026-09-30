@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from .... import accounts
 from ....db import db
+from ...admin import service as admin_service
 from .. import audit, serialize, tokens
 from ..errors import ApiError, flag, json_body, query_int, text, window_fields
-from . import bp, caller, caller_token, ok, require_admin, requires
+from . import bp, caller, caller_token, ok, require_admin, requires, secret_response
 
 
 @bp.get("/tokens")
@@ -17,6 +18,7 @@ def list_own_tokens():
 
 @bp.post("/tokens")
 @requires("tokens", write=True)
+@secret_response
 def create_token():
     """Issue a token that can never exceed the calling token (scopes, flags, expiry)."""
     data = json_body()
@@ -54,7 +56,7 @@ def admin_revoke_token(token_id: int):
     if token is None:
         raise ApiError(404, "token_not_found")
     owner = accounts.by_id(token["user_id"])
-    if owner and owner["role"] == "owner" and owner["id"] != caller()["id"]:
+    if owner and admin_service.protection_error(caller(), owner):
         raise ApiError(403, "protected_account")
     tokens.revoke(token_id)
     return ok(revoked=True, id=token_id)

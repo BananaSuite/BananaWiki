@@ -6,7 +6,7 @@
 
 {% include "attention/_dashboard_card.html" %}
 
-<div class="admin-stats">
+<div class="admin-stats admin-stats--summary">
   <a class="card stat" href="{{ url_for('admin.users') }}"><span class="stat__value">{{ stats.users }}</span><span class="stat__label">{{ t('admin.dashboard.stat.users') }}</span></a>
   <a class="card stat" href="{{ url_for('admin.users', approval='pending') }}"><span class="stat__value">{{ stats.pending }}</span><span class="stat__label">{{ t('admin.dashboard.stat.pending') }}</span></a>
   <a class="card stat" href="{{ url_for('admin.users', status='suspended') }}"><span class="stat__value">{{ stats.suspended }}</span><span class="stat__label">{{ t('admin.dashboard.stat.suspended') }}</span></a>

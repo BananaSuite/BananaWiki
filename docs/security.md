@@ -40,9 +40,11 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   or everyone), and by the optional daily automatic sign-out.
 * **Single session** (`session_limit_enabled`): a new sign-in ends the
   previous session; the signed-out browser is told why.
-* **Sign-in limits:** at most 20 failed attempts per address and 8 per
-  account name in 15 minutes, shared by all workers. A successful sign-in
-  clears only its own account's counter.
+* **Sign-in limits:** at most 20 failed attempts per address, 8 per account
+  name from one address, and 100 per account name from all addresses
+  together, in 15 minutes, shared by all workers. Failures from one address
+  do not lock the account for everyone else. A successful sign-in clears
+  only its own account-and-address counter.
 * **Sign-up:** invite codes, open sign-up (optionally until a date), and
   administrator approval, which is enforced everywhere: pending and denied
   accounts can only see their status page. Bot protection adds a honeypot
@@ -52,7 +54,8 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   wizard block every other page until done.
 * **Impersonation** (**Admin → Users → Impersonate**) keeps the
   administrator's own session, is logged, and needs a superuser for
-  administrators and owners.
+  administrators and owners. While impersonating, lasting credentials of the
+  account (API tokens, the userbot key) cannot be created.
 * **Setup token:** the first account needs the token from
   `bananawiki setup-token` (or `BW_SETUP_TOKEN`), accepted only in the posted
   form, never in the URL.
@@ -166,9 +169,11 @@ and encrypted settings unusable. Back it up with the database.
 Everything that calls another server on behalf of configuration or remote
 data (federation, platform sign-in, the GPU speech server) goes through one
 HTTP client that resolves the name once, refuses link-local (cloud metadata),
-multicast and reserved addresses, refuses private and loopback addresses
+IPv6 site-local, multicast and reserved addresses, refuses private and loopback addresses
 unless that connection is explicitly allowed, connects to the checked
-address, does not follow redirects, and caps time and response size.
+address, does not follow redirects, and caps time and response size. Under
+managed hosting no webhook or federation peer can be allowed to reach private
+or loopback addresses: that network belongs to the host.
 
 ## Plugins
 

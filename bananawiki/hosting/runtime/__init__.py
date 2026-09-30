@@ -264,11 +264,14 @@ class DomainCheck:
     has a CNAME to ``HOSTING_CUSTOM_DOMAIN_TARGET`` or all its A/AAAA records
     are within ``HOSTING_CUSTOM_DOMAIN_IPS`` (or the target's own addresses).
     ``dns_error`` is set when resolution failed (records not propagated yet).
+    ``proxied`` is set when routing was accepted because every address of the
+    domain belongs to Cloudflare's proxy (``HOSTING_CUSTOM_DOMAIN_ALLOW_PROXIED``).
     """
 
     ownership: bool
     routing: bool
     dns_error: bool = False
+    proxied: bool = False
 
 
 @runtime_checkable
@@ -360,6 +363,13 @@ class Runtime(Protocol):
     def status(self, spec: TenantSpec) -> TenantStatus:
         """Current state of the tenant. Must answer in well under a second
         (cache health for ~10 s, negative results for ~3 s like 1.4)."""
+
+    def upstream(self, spec: TenantSpec) -> tuple[str, int] | None:
+        """``(address, port)`` where the running tenant answers HTTP, or None.
+
+        The portal proxies a wiki's traffic itself only when a request for a
+        wiki host reaches it anyway (the reverse proxy has no route for it
+        yet, or still sends every host to the portal as 1.4 did)."""
 
     def usage(self, spec: TenantSpec) -> int:
         """Bytes used by the tenant's data directory (cached ~5 s; a bounded
@@ -469,7 +479,8 @@ class Runtime(Protocol):
         routing (create, rename, stop/start, suspension, termination, domain
         verification); the maintenance loop calls it periodically. Only
         tenants that may serve are passed (see ``domains.may_serve``);
-        requests for other hosts get the proxy's "not available" page.
+        requests for other hosts reach the portal, which shows a status
+        page (or proxies the wiki itself, see :mod:`..wikihosts`).
         1.4: the in-portal ``SubdomainProxyMiddleware``, which 1.6 replaces
         with direct proxy routes (audit section 3)."""
 
@@ -537,6 +548,8 @@ class UnavailableRuntime:
             return lambda spec: []
         if name == "sync_routes":
             return lambda specs: None
+        if name == "upstream":
+            return lambda spec: None
         if name.startswith("_"):
             raise AttributeError(name)
 

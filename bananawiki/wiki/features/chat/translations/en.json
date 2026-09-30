@@ -41,7 +41,7 @@
   "chat.dm.title": "Messages",
   "chat.dm.username": "Username",
   "chat.dm.with": "Conversation with {user}",
-  "chat.empty": "No messages yet. Say hello!",
+  "chat.empty": "No messages yet.",
   "chat.error.daily_limit": "You reached the limit of {limit} files per day.",
   "chat.error.dm_creation_disabled": "Starting new conversations is currently disabled.",
   "chat.error.dm_self": "You cannot start a conversation with yourself.",

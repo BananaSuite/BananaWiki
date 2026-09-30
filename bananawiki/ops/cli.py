@@ -12,13 +12,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from . import DEFAULT_ROOT, PRODUCT, caddy, profile
+from . import DEFAULT_ROOT, PRODUCT, caddy, caddy_blocks, profile
 from .files import atomic_write, digest_file, maintenance_lock, read_environment, read_json, write_json
 from .manager import PROXY_ROLLBACK, Manager
 
@@ -96,6 +97,17 @@ def parser() -> argparse.ArgumentParser:
     proxy.add_argument("--install", action="store_true")
     proxy.add_argument("--replace", action="store_true", help="Replace an existing Caddyfile, keeping a private backup")
     proxy.add_argument("--email", default="", help="ACME account e-mail for certificate notices")
+    proxy.add_argument("--tls", choices=caddy.TLS_MODES,
+                       help="Certificates: acme (default, per host), cloudflare-dns (wildcard through a Cloudflare "
+                            "API token; needs Caddy with the caddy-dns/cloudflare module) or origin-cert (a "
+                            "Cloudflare Origin CA certificate). Remembered for later updates.")
+    proxy.add_argument("--cloudflare", action=argparse.BooleanOptionalAction, default=None,
+                       help="The DNS records are proxied by Cloudflare (orange cloud): skip the ACME challenge "
+                            "that cannot pass Cloudflare's proxy. Remembered for later updates.")
+    proxy.add_argument("--cloudflare-token-file", type=Path, metavar="FILE",
+                       help="Cloudflare API token (Zone:DNS:Edit) for --tls cloudflare-dns; stored root-only for Caddy")
+    proxy.add_argument("--origin-cert", type=Path, metavar="PEM", help="Origin CA certificate for --tls origin-cert")
+    proxy.add_argument("--origin-key", type=Path, metavar="PEM", help="Its private key")
     uninstall = commands.add_parser("uninstall", help="Remove services and updater; keep files unless --purge")
     uninstall.add_argument("--purge", action="store_true")
     uninstall.add_argument("--confirm", default="", metavar="SERVICE_NAME")
@@ -110,19 +122,82 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
+_TOKEN = re.compile(r"[A-Za-z0-9_-]{20,200}")
+
+
+def _proxy_options(manager: Manager, args: argparse.Namespace, record: dict[str, Any],
+                   version: tuple[int, int, int] | None) -> tuple[caddy.ProxyOptions, dict[str, str]]:
+    """The certificate mode for this run (arguments over ``proxy.json``) and Caddy secrets to install."""
+    previous = caddy.options_for(record, version)
+    mode = args.tls or previous.tls
+    cloudflare = previous.cloudflare if args.cloudflare is None else args.cloudflare
+    secrets: dict[str, str] = {}
+    cert, key = (previous.origin_cert, previous.origin_key) if previous.tls == "origin-cert" else ("", "")
+    if mode == "origin-cert":
+        if bool(args.origin_cert) != bool(args.origin_key):
+            raise ValueError("Give both --origin-cert and --origin-key.")
+        if args.origin_cert:
+            if args.install:
+                cert, key = manager.system.install_origin_certificate(args.origin_cert, args.origin_key)
+            else:
+                cert, key = str(args.origin_cert.resolve()), str(args.origin_key.resolve())
+        if not (cert and key):
+            raise ValueError("--tls origin-cert needs --origin-cert and --origin-key (a Cloudflare Origin CA "
+                             "certificate for the domain and *.domain).")
+    if mode == "cloudflare-dns":
+        if version is not None and version[:2] < caddy_blocks.WILDCARD_VERSION:
+            raise ValueError("--tls cloudflare-dns needs Caddy 2.10 or newer (found "
+                             + ".".join(map(str, version)) + ").")
+        if args.install and caddy.CLOUDFLARE_DNS_MODULE not in manager.system.caddy_modules():
+            raise ValueError("This Caddy has no Cloudflare DNS module. Install it with "
+                             "'caddy add-package github.com/caddy-dns/cloudflare' (or a build from "
+                             "https://caddyserver.com/download with caddy-dns/cloudflare), then run proxy again.")
+        if args.cloudflare_token_file:
+            token = args.cloudflare_token_file.read_text(encoding="utf-8").strip()
+            if not _TOKEN.fullmatch(token):
+                raise ValueError("The Cloudflare API token file must contain only the token.")
+            secrets[caddy.CLOUDFLARE_TOKEN_VARIABLE] = token
+        elif args.install and caddy.CLOUDFLARE_TOKEN_VARIABLE not in read_environment(
+                manager.system.caddy_environment_file):
+            raise ValueError("--tls cloudflare-dns needs --cloudflare-token-file (an API token with Zone:DNS:Edit "
+                             "permission for the domain's zone).")
+    elif args.cloudflare_token_file:
+        raise ValueError("--cloudflare-token-file is only used with --tls cloudflare-dns.")
+    options = caddy.ProxyOptions(tls=mode, cloudflare=cloudflare, origin_cert=cert, origin_key=key,
+                                 client_ip=caddy_blocks.supports_client_ip(version))
+    return options, secrets
+
+
+def proxy_warnings(manager: Manager, settings: dict[str, Any]) -> list[str]:
+    suffix = read_environment(manager.config_dir / "app.env").get("INSTANCE_URL_SUFFIX", "hosting")
+    warnings = caddy.layout_warnings(settings, suffix)
+    version = manager.system.caddy_version()
+    if not caddy_blocks.supports_client_ip(version):
+        warnings.append("Caddy " + ".".join(map(str, version or ())) + " cannot pass the visitors' real "
+                        "addresses from Cloudflare (needs 2.7 or newer); rate limits then apply per Cloudflare "
+                        "address. Upgrade Caddy and run proxy --install again.")
+    return warnings
+
+
 def configure_proxy(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | None:
     settings = manager.settings()
     hosting = settings["mode"] == "hosting"
     routes = manager.system.routes_directory(settings) if hosting else None
-    text = caddy.render(settings, email=args.email, routes=str(routes) if routes else None)
+    record = read_json(manager.config_dir / "proxy.json", {}) or {}
+    version = manager.system.caddy_version()
+    options, secrets = _proxy_options(manager, args, record, version)
+    email = args.email or str(record.get("email") or "")
+    text = caddy.render(settings, email=email, routes=str(routes) if routes else None, options=options)
+    warnings = proxy_warnings(manager, settings)
     if not args.install:
         print(text, end="")
+        for warning in warnings:
+            print(f"Warning: {warning}", file=sys.stderr)
         return None
     if hosting:
         manager.system.ensure_routes_directory(settings)
     destination = manager.system.proxy_file
     previous = destination.read_bytes() if destination.exists() else None
-    record = read_json(manager.config_dir / "proxy.json", {})
     owned = destination.is_file() and record.get("installed_sha256") == digest_file(destination)
     if previous and not owned and not args.replace:
         raise ValueError("Caddy already has a configuration. Merge the output of proxy into it, or use "
@@ -131,13 +206,18 @@ def configure_proxy(manager: Manager, args: argparse.Namespace) -> dict[str, Any
     atomic_write(candidate, text)
     backup = record.get("previous") if owned else None
     try:
-        manager.system.run(["caddy", "validate", "--config", str(candidate), "--adapter", "caddyfile"])
+        manager.system.validate_proxy(candidate, secrets)
+        if secrets:
+            # {env.*} placeholders are read by the running server: restart, not reload.
+            manager.system.install_caddy_environment({**read_environment(manager.system.caddy_environment_file),
+                                                      **secrets})
         if previous and not owned:
             backup = str(manager.root / "backups" / ("Caddyfile-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")))
             atomic_write(backup, previous)
         atomic_write(destination, text, 0o644)
+        action = "restart" if secrets else "reload-or-restart"
         try:
-            manager.system.run(["systemctl", "reload-or-restart", "caddy"])
+            manager.system.run(["systemctl", action, "caddy"])
         except BaseException:
             if previous is not None:
                 atomic_write(destination, previous, 0o644)
@@ -148,8 +228,12 @@ def configure_proxy(manager: Manager, args: argparse.Namespace) -> dict[str, Any
     finally:
         candidate.unlink(missing_ok=True)
     write_json(manager.config_dir / "proxy.json", {"installed_sha256": digest_file(destination), "previous": backup,
-                                                   "email": args.email})
-    return {"outcome": "proxy configured", "domain": settings["domain"]}
+                                                   "email": email, "tls": options.record()})
+    result: dict[str, Any] = {"outcome": "proxy configured", "domain": settings["domain"], "tls": options.tls,
+                              "cloudflare": options.behind_cloudflare}
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 def lifecycle(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | None:
@@ -222,9 +306,11 @@ def dispatch(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | Non
             return manager.restore(args.restore, new=True, name=args.name, domain=args.domain, port=args.port)
         if not args.mode:
             raise ValueError("Choose --mode, or use --restore PACKAGE to recover a saved deployment.")
-        return manager.install(Path(__file__).resolve().parents[2], mode=args.mode, name=args.name,
-                               domain=args.domain or "", portal_domain=args.portal_domain, port=args.port,
-                               source_options=source_values(args), reuse_data=args.reuse_data)
+        result = manager.install(Path(__file__).resolve().parents[2], mode=args.mode, name=args.name,
+                                 domain=args.domain or "", portal_domain=args.portal_domain, port=args.port,
+                                 source_options=source_values(args), reuse_data=args.reuse_data)
+        warnings = caddy.layout_warnings(manager.settings())
+        return {**result, "warnings": warnings} if warnings and isinstance(result, dict) else result
     if command == "update":
         return manager.update(automatic=args.automatic, allow_divergent=args.allow_divergent,
                               retry_failed=args.retry_failed)

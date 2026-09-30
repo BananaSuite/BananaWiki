@@ -1,10 +1,19 @@
-"""DNS checks for custom domain claims (1.4 ``hosting/domains.py``, dnspython, 4 s lifetime)."""
+"""DNS checks for custom domain claims (1.4 ``hosting/domains.py``, dnspython, 4 s lifetime).
+
+A record proxied by Cloudflare (orange cloud) hides both the CNAME and the
+origin address: public DNS shows only Cloudflare's edge addresses. The TXT
+proof still shows the claimant controls the zone, so with *allow_proxied*
+(``HOSTING_CUSTOM_DOMAIN_ALLOW_PROXIED``, on by default) a domain whose
+addresses all belong to Cloudflare counts as routed and is reported as
+``proxied``; the domain page then explains the Cloudflare settings it needs.
+"""
 
 from __future__ import annotations
 
 import hmac
 from collections.abc import Iterable
 
+from ...core.cloudflare import all_cloudflare
 from . import DomainCheck, RuntimeFailure
 
 LIFETIME_SECONDS = 4.0
@@ -38,9 +47,12 @@ def _addresses(resolver, name: str) -> set[str]:
     return _optional(resolver, name, "A") | _optional(resolver, name, "AAAA")
 
 
-def check(domain: str, token: str, target: str, allowed_ips: Iterable[str]) -> DomainCheck:
-    """Ownership (TXT proof) and routing (CNAME to *target*, or A/AAAA within the allowed addresses)."""
+def check(domain: str, token: str, target: str, allowed_ips: Iterable[str], *,
+          allow_proxied: bool = True) -> DomainCheck:
+    """Ownership (TXT proof) and routing (CNAME to *target*, A/AAAA within the allowed addresses,
+    or, with *allow_proxied*, only Cloudflare edge addresses)."""
     resolver, exception = _resolver()
+    proxied = False
     try:
         proofs = _records(resolver, CHALLENGE_PREFIX + domain, "TXT")
         ownership = any(hmac.compare_digest(value.encode("utf-8"), token.encode("utf-8")) for value in proofs)
@@ -50,6 +62,8 @@ def check(domain: str, token: str, target: str, allowed_ips: Iterable[str]) -> D
             expected = set(allowed_ips) or (_addresses(resolver, target) if target else set())
             actual = _addresses(resolver, domain)
             routing = bool(actual) and bool(expected) and actual <= expected
+            if not routing and allow_proxied and all_cloudflare(actual):
+                routing = proxied = True
     except exception.DNSException:
         return DomainCheck(ownership=False, routing=False, dns_error=True)
-    return DomainCheck(ownership=ownership, routing=routing)
+    return DomainCheck(ownership=ownership, routing=routing, proxied=proxied)

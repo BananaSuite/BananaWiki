@@ -290,4 +290,9 @@ def verify_webhook(secret: str, body: bytes, timestamp: str, signature: str, *,
         return False
     expected = "sha256=" + hmac.new(secret.encode("utf-8"), timestamp.encode("ascii", "replace") + b"." + body,
                                     hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature or "")
+    if isinstance(signature, str):
+        signature = signature.encode("utf-8", "replace")
+    if not isinstance(signature, (bytes, bytearray)):
+        return False
+    # Compare bytes: comparing str raises TypeError for non-ASCII input instead of answering False.
+    return hmac.compare_digest(expected.encode("ascii"), bytes(signature))

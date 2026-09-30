@@ -16,6 +16,7 @@
   "admin.attributions.count": "{count} modifiche di pagina sono attribuite a questo account.",
   "admin.attributions.error.entry_not_found": "Questa voce non esiste.",
   "admin.attributions.error.no_recipient": "Questo account non esiste.",
+  "admin.attributions.error.own_history": "Non puoi eliminare la cronologia dei tuoi ruoli.",
   "admin.attributions.error.same_user": "Scegli un account diverso.",
   "admin.attributions.history_deleted": "{count} cambi di ruolo eliminati.",
   "admin.attributions.move_all": "Sposta l'attribuzione",

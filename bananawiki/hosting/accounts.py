@@ -203,6 +203,10 @@ def signup(username: str, password: str, *, email: str = "", invite_code: str = 
 # ── Identity and credentials ──────────────────────────────────────────────────
 
 
+# A reset link sent to the old address must not start working again once a new one is verified.
+_RESET_CLEARED = {"password_reset_token_hash": "", "password_reset_sent_at": None, "password_reset_expires_at": None}
+
+
 def update_identity(account: dict[str, Any], *, username: str, email: str, email_required: bool) -> bool:
     """Change username/email; returns True when the email changed (verification restarts)."""
     username = check_username(username)
@@ -214,7 +218,7 @@ def update_identity(account: dict[str, Any], *, username: str, email: str, email
     values: dict[str, Any] = {"username": username, "email": email, "email_prompt_dismissed": 1}
     if changed_email:
         values.update(email_verified_at=None, email_verification_token_hash="",
-                      email_verification_sent_at=None, email_verification_expires_at=None)
+                      email_verification_sent_at=None, email_verification_expires_at=None, **_RESET_CLEARED)
     try:
         db.update("accounts", values, "id = ?", (account["id"],))
     except sqlite3.IntegrityError as error:
@@ -225,7 +229,7 @@ def update_identity(account: dict[str, Any], *, username: str, email: str, email
 def set_contact_email(account: dict[str, Any], address: str) -> None:
     address = check_email(address, required=True, exclude_id=account["id"])
     db.update("accounts", {"email": address, "email_prompt_dismissed": 1, "email_verified_at": None,
-                           "email_verification_token_hash": ""}, "id = ?", (account["id"],))
+                           "email_verification_token_hash": "", **_RESET_CLEARED}, "id = ?", (account["id"],))
 
 
 def set_password(account_id: str, password: str, *, actor_id: str | None, reason: str) -> int:
@@ -339,13 +343,13 @@ def flag_email(account: dict[str, Any], *, reason: str, reason_visible: bool, re
         replacement = check_email(replacement, required=True, exclude_id=account["id"])
         db.update("accounts", {"email": replacement, "email_verified_at": None, "email_verification_token_hash": "",
                                "email_flagged_invalid": 0, "email_flag_reason": "", "email_flagged_previous": "",
-                               "email_flag_reason_visible": 0}, "id = ?", (account["id"],))
+                               "email_flag_reason_visible": 0, **_RESET_CLEARED}, "id = ?", (account["id"],))
         events.record("account", account["id"], "email.replaced", actor_id)
         return
     db.update("accounts", {"email_flagged_invalid": 1, "email_flag_reason": reason[:REASON_MAX_LENGTH],
                            "email_flag_reason_visible": 1 if reason_visible and reason else 0,
                            "email_flagged_previous": (account.get("email") or "").lower(), "email": "",
-                           "email_verified_at": None, "email_verification_token_hash": ""},
+                           "email_verified_at": None, "email_verification_token_hash": "", **_RESET_CLEARED},
               "id = ?", (account["id"],))
     events.record("account", account["id"], "email.flagged", actor_id, reason)
 
@@ -360,7 +364,8 @@ def replace_flagged_email(account: dict[str, Any], address: str) -> None:
     if settings.flag("email_flag_block_reentry") and address == (account.get("email_flagged_previous") or ""):
         raise ServiceError("hosting.email_flagged.same_address")
     with db.transaction():
-        db.update("accounts", {"email": address, "email_verified_at": None}, "id = ?", (account["id"],))
+        db.update("accounts", {"email": address, "email_verified_at": None, **_RESET_CLEARED}, "id = ?",
+                  (account["id"],))
         clear_email_flag(account["id"])
 
 

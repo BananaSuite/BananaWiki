@@ -230,6 +230,49 @@ def test_account_updates_and_protections(api_app, client, db, people, make_user)
     assert call(client, "GET", f"/users/{reader['id']}", token).status_code == 404
 
 
+def test_account_changes_follow_the_administrators_hierarchy(api_app, client, db, make_user):
+    """Another administrator is changed only by an owner or a superuser, in the API as in the web interface."""
+    owner = make_user("the_owner", role="owner", is_superuser=1)
+    mallory = make_user("mallory", role="admin")
+    victim = make_user("victim_admin", role="admin")
+    token = issue(api_app, mallory, ["users"])
+    before = db.one("SELECT password, role, suspended, api_access_enabled FROM users WHERE id = ?", (victim["id"],))
+    for body in ({"password": "taken over password"}, {"role": "user"}, {"suspended": True},
+                 {"api_access_enabled": True}):
+        refused = call(client, "PUT", f"/users/{victim['id']}", token, json=body)
+        assert refused.status_code == 403 and refused.json["code"] == "protected_account", body
+    assert call(client, "DELETE", f"/users/{victim['id']}", token).json["code"] == "protected_account"
+    assert db.one("SELECT password, role, suspended, api_access_enabled FROM users WHERE id = ?",
+                  (victim["id"],)) == before
+    assert call(client, "PUT", f"/users/{mallory['id']}", token, json={"role": "editor"}).json["code"] \
+        == "cannot_change_own_role"
+    # Members are still managed by any administrator; an owner manages administrators.
+    member = make_user("member")
+    assert call(client, "PUT", f"/users/{member['id']}", token, json={"role": "editor"}).status_code == 200
+    owner_token = issue(api_app, owner, ["users"])
+    assert call(client, "PUT", f"/users/{victim['id']}", owner_token, json={"role": "user"}).status_code == 200
+    assert call(client, "DELETE", f"/users/{victim['id']}", owner_token).json["deleted"] is True
+
+
+def test_account_changes_are_recorded_like_the_web_interface(api_app, client, db, people, make_user):
+    token = issue(api_app, people["admin"], ["users", "admin"])
+    hook = call(client, "POST", "/admin/webhooks", token, json={
+        "url": "https://hooks.example.org/x", "events": ["user.role_changed", "user.suspended"]})
+    assert hook.status_code == 201
+    member = make_user("member", api_access_enabled=1)
+    member_token = issue(api_app, member)
+    assert call(client, "PUT", f"/users/{member['id']}", token, json={"role": "editor"}).status_code == 200
+    assert call(client, "PUT", f"/users/{member['id']}", token, json={"suspended": True}).status_code == 200
+    assert call(client, "GET", "/pages", member_token).status_code == 401
+    assert call(client, "PUT", f"/users/{member['id']}", token, json={"suspended": False}).status_code == 200
+    history = db.one("SELECT old_role, new_role, changed_by FROM role_history WHERE user_id = ?", (member["id"],))
+    assert history == {"old_role": "user", "new_role": "editor", "changed_by": people["admin"]["id"]}
+    assert db.column("SELECT action FROM suspension_audit WHERE user_id = ? AND performed_by = ? ORDER BY id",
+                     (member["id"], people["admin"]["id"])) == ["suspend", "unsuspend"]
+    assert db.column("SELECT event FROM api_service__webhook_deliveries ORDER BY id") == [
+        "user.role_changed", "user.suspended"]
+
+
 # ── Settings ──────────────────────────────────────────────────────────────────
 
 

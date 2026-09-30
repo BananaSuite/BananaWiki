@@ -233,3 +233,18 @@ def test_worker_main_processes_queue_once(app, tmp_path, monkeypatch, db):
 def test_worker_script_exists():
     source = (ROOT / "scripts" / "tts_worker.py").read_text()
     assert "bananawiki.wiki.features.tts.worker import main" in source
+
+
+def test_gpu_server_accepts_per_wiki_tokens_and_revokes_single_wikis():
+    from bananawiki.hosting.instances import tenant_tts_token
+
+    module = load_server()
+    master = "m" * 32
+    settings = module.Settings.from_env({"TTS_AUTH_TOKEN": master, "TTS_REVOKED_TENANTS": "badwiki1"})
+    assert module.token_valid(settings, master)
+    token = tenant_tts_token(master, "goodwiki1")
+    assert token == module.tenant_token(master, "goodwiki1"), "portal and server derive the same token"
+    assert module.token_valid(settings, token)
+    assert not module.token_valid(settings, tenant_tts_token(master, "badwiki1"))
+    assert not module.token_valid(settings, tenant_tts_token("other" * 8, "goodwiki1"))
+    assert not module.token_valid(settings, token.replace("goodwiki1", "goodwiki2"))

@@ -35,6 +35,7 @@ class FakeRuntime:
         self.calls: list[tuple[str, str]] = []
         self.routes: list[TenantSpec] = []
         self.domain_results: dict[str, DomainCheck] = {}
+        self.upstreams: dict[str, tuple[str, int]] = {}
         self._failures: dict[str, RuntimeFailure] = {}
 
     # Test helpers ---------------------------------------------------------
@@ -116,6 +117,10 @@ class FakeRuntime:
         if tenant is None:
             return TenantStatus("missing")
         return TenantStatus("running" if tenant.running else "stopped")
+
+    def upstream(self, spec: TenantSpec) -> tuple[str, int] | None:
+        tenant = self.tenants.get(spec.data_dir_name)
+        return self.upstreams.get(spec.data_dir_name) if tenant and tenant.running else None
 
     def usage(self, spec: TenantSpec) -> int:
         tenant = self.tenants.get(spec.data_dir_name)

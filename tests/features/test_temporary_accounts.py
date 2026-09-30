@@ -81,8 +81,21 @@ def test_account_rules_and_expiry(ctx, db, people):
     assert accounts.by_id(people["reader"]["id"]) is None
 
 
+def test_administrators_are_scheduled_only_by_owners(ctx, db, people):
+    with pytest.raises(TemporaryError):
+        service.schedule_account_deletion(people["admin2"], SOON, show_countdown=True, actor=people["admin"])
+    with pytest.raises(TemporaryError):
+        service.schedule_role_revert(people["admin2"], "user", SOON, show_countdown=True, actor=people["admin"])
+    service.schedule_account_deletion(people["admin2"], SOON, show_countdown=True, actor=people["owner"])
+    db.execute("UPDATE users SET role = 'admin' WHERE id = ?", (people["owner"]["id"],))
+    _expire(db, "temp_users")
+    service.run_expiry()
+    assert accounts.by_id(people["admin2"]["id"]) is not None, "the scheduler no longer outranks the target"
+    assert service.account_schedule(people["admin2"]["id"]) is None
+
+
 def test_last_admin_is_never_deleted(ctx, db, people):
-    service.schedule_account_deletion(people["admin2"], SOON, show_countdown=True, actor=people["admin"])
+    service.schedule_account_deletion(people["admin2"], SOON, show_countdown=True, actor=people["owner"])
     db.execute("UPDATE users SET role = 'user' WHERE id IN (?, ?)", (people["admin"]["id"], people["owner"]["id"]))
     _expire(db, "temp_users")
     service.run_expiry()

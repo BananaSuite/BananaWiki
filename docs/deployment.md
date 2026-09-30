@@ -29,8 +29,10 @@ wiki or a hosting platform on a Linux server.
 * Network access to GitHub (or your source) and to PyPI while installing and
   updating. Dependencies are installed from binary wheels only; nothing is
   compiled on the server.
-* For HTTPS: [Caddy 2](https://caddyserver.com/docs/install) and a DNS name
-  pointing at the server.
+* For HTTPS: [Caddy 2](https://caddyserver.com/docs/install) (2.7 or newer
+  for visitors' real addresses behind Cloudflare; older versions still work
+  without that) and a DNS name pointing at the server, proxied by Cloudflare
+  or not ([behind Cloudflare](#behind-cloudflare)).
 * For the hosting platform: Docker.
 * For encrypted Git backups: `age` (`apt install age`).
 * For read aloud with MP3 output: `ffmpeg`.
@@ -83,6 +85,21 @@ Caddy's configuration and reloads Caddy. It refuses to replace a Caddyfile it
 did not write unless you add `--replace` (the old file is kept under
 `/opt/bananawiki/backups/`). Then open `https://wiki.example.org` and follow
 [first sign-in](getting-started.md#first-sign-in).
+
+`proxy` options (all remembered in `config/proxy.json`, so updates re-render
+the same configuration):
+
+| Option | Meaning |
+|---|---|
+| `--email ADDRESS` | ACME account e-mail for certificate notices. |
+| `--cloudflare` / `--no-cloudflare` | The DNS records are proxied by Cloudflare: disable the TLS-ALPN-01 challenge, which cannot pass Cloudflare's proxy (certificates then come from Let's Encrypt only, without Caddy's ZeroSSL fallback; also for custom domains in the two modes below). See [behind Cloudflare](#behind-cloudflare). |
+| `--tls acme` | Default: Let's Encrypt certificates per host name (on demand for hosted wikis). |
+| `--tls cloudflare-dns --cloudflare-token-file FILE` | One wildcard certificate `*.<domain>` (plus `<domain>`) through the DNS-01 challenge. Needs Caddy 2.10 or newer with the `caddy-dns/cloudflare` module and an API token with *Zone → DNS → Edit* for the zone; the token is stored in `/etc/caddy/bananawiki-cloudflare.env` (root only, loaded by a `caddy.service.d` drop-in), never in the Caddyfile. |
+| `--tls origin-cert --origin-cert PEM --origin-key PEM` | A Cloudflare Origin CA certificate for `<domain>` and `*.<domain>`, copied to `/etc/caddy/bananawiki-origin.{crt,key}`. Only for proxied records with SSL/TLS mode *Full (strict)*: browsers do not trust it. |
+
+The printed output (without `--install`) ends with warnings on standard error
+when a host name is too deep for Cloudflare's free certificate or the installed
+Caddy is too old to pass visitors' real addresses (2.7 or newer is needed).
 
 Automatic updates stay **off** until you run `sudo bananawiki updates enable`.
 
@@ -265,6 +282,40 @@ proxy_buffering off;
 client_max_body_size 500m;
 ```
 
+Behind Cloudflare, let nginx take the visitor's address from Cloudflare (and
+only from Cloudflare) so that `$remote_addr` above is the visitor, not the
+Cloudflare edge; at the `http` or `server` level:
+
+```nginx
+# https://www.cloudflare.com/ips/ (the list BananaWiki ships is in bananawiki/core/cloudflare.py)
+set_real_ip_from 173.245.48.0/20;
+set_real_ip_from 103.21.244.0/22;
+set_real_ip_from 103.22.200.0/22;
+set_real_ip_from 103.31.4.0/22;
+set_real_ip_from 141.101.64.0/18;
+set_real_ip_from 108.162.192.0/18;
+set_real_ip_from 190.93.240.0/20;
+set_real_ip_from 188.114.96.0/20;
+set_real_ip_from 197.234.240.0/22;
+set_real_ip_from 198.41.128.0/17;
+set_real_ip_from 162.158.0.0/15;
+set_real_ip_from 104.16.0.0/13;
+set_real_ip_from 104.24.0.0/14;
+set_real_ip_from 172.64.0.0/13;
+set_real_ip_from 131.0.72.0/22;
+set_real_ip_from 2400:cb00::/32;
+set_real_ip_from 2606:4700::/32;
+set_real_ip_from 2803:f800::/32;
+set_real_ip_from 2405:b500::/32;
+set_real_ip_from 2405:8100::/32;
+set_real_ip_from 2a06:98c0::/29;
+set_real_ip_from 2c0f:f248::/32;
+real_ip_header CF-Connecting-IP;
+```
+
+With Cloudflare's *Flexible* mode nginx receives plain HTTP: do not redirect
+it to HTTPS (an endless loop), or better, use *Full (strict)*.
+
 Never set `BW_PROXY_MODE=1` when the wiki's port is reachable directly: a
 client could then choose its own address and scheme.
 
@@ -288,8 +339,18 @@ portal (`bananawiki.service`), its maintenance service
 (`bananawiki-agent.service`), and builds the tenant image
 `bananawiki-tenant:<commit>` from `Dockerfile.tenant`. Docker must be
 installed first. `sudo bananawiki proxy --install` then installs a Caddy
-configuration that serves the static site on the base domain, the portal on
-the portal domain and every wiki through on-demand TLS.
+configuration that serves the static site on the base domain (and redirects
+`www.<domain>` to it), the portal on the portal domain and every wiki through
+on-demand TLS, or through one wildcard certificate with `--tls cloudflare-dns`
+or `--tls origin-cert` (see [behind Cloudflare](#behind-cloudflare)).
+
+Keep the portal and the wikis one level below the DNS zone: the default
+`--domain example.com` gives `portal.example.com` and
+`<name>-hosting.example.com`. With `--domain hosting.example.com` they become
+`portal.hosting.example.com` and `<name>-hosting.hosting.example.com`, which
+Cloudflare's free certificate does not cover; `install` and `proxy` warn about
+this. Use `--domain example.com --portal-domain hosting.example.com` instead
+(the static site then answers on `example.com`).
 
 The first account on the portal is the platform administrator. Its sign-up
 needs `HOSTING_BOOTSTRAP_TOKEN` from `config/app.env`:
@@ -299,6 +360,67 @@ sudo grep HOSTING_BOOTSTRAP_TOKEN /opt/bananawiki/config/app.env
 ```
 
 Everything else about the platform is in [hosting](hosting.md).
+
+## Behind Cloudflare
+
+BananaWiki works with proxied (orange-cloud) Cloudflare DNS records, both for a
+single wiki and for the hosting platform (portal, static site, every hosted
+wiki). What the generated Caddy configuration does for it:
+
+* It trusts `CF-Connecting-IP` from Cloudflare's published address ranges only
+  and passes that address to the application, so sign-in limits, rate limits
+  and logs see the visitor instead of a shared Cloudflare address (Caddy 2.7
+  or newer).
+* Every site also answers plain HTTP. ACME HTTP-01 challenges are answered
+  first; other requests are redirected to HTTPS, except requests that
+  Cloudflare already received over HTTPS (*Flexible* mode), which are served
+  instead of redirected in an endless loop (`ERR_TOO_MANY_REDIRECTS`).
+* Idle connections stay open longer than Cloudflare reuses them (occasional
+  HTTP 520 otherwise).
+* A wiki whose container is starting or unreachable shows its "starting"
+  page (HTTP 503, refreshing by itself) instead of an empty 502 that Cloudflare
+  replaces with its own "Bad gateway" page.
+
+Recommended Cloudflare settings:
+
+1. **SSL/TLS mode *Full (strict)*.** *Flexible* works but leaves the
+   Cloudflare-to-server leg unencrypted; *Full* skips certificate checks.
+   Avoid *Automatic* while certificates are still being obtained: it can settle
+   on *Flexible*.
+2. **Certificates on the server:**
+   * `--tls cloudflare-dns` (recommended with Cloudflare): one wildcard
+     certificate through the DNS API, nothing depends on port 80, no
+     per-wiki certificates and no Let's Encrypt rate limits (50 new
+     certificates per week per domain).
+   * `--tls origin-cert`: a free Cloudflare Origin CA certificate (SSL/TLS →
+     Origin Server) for `example.com` and `*.example.com`.
+   * `--tls acme --cloudflare` (the default mode): Let's Encrypt must reach
+     `http://<host>/.well-known/acme-challenge/` on port 80. Turn *Always Use
+     HTTPS* off, or add a Configuration Rule that turns it off (and any WAF or
+     Bot Fight challenge) for URI paths starting with
+     `/.well-known/acme-challenge/`. With a redirect to HTTPS the first
+     certificate of every new wiki fails (Cloudflare error 525).
+3. **One level of subdomain.** Cloudflare's free Universal SSL certificate
+   covers `example.com` and `*.example.com` only. A proxied
+   `portal.hosting.example.com` fails in the browser with
+   `ERR_SSL_VERSION_OR_CIPHER_MISMATCH` before it reaches the server; see the
+   domain layout in [hosting platform](#hosting-platform).
+4. **DNS records:** proxied A/AAAA records for the base domain, `www`, the
+   portal and `*` (or each wiki) pointing at the server. Keep the custom
+   domain target (`HOSTING_CUSTOM_DOMAIN_TARGET`) **DNS-only** (grey cloud):
+   customers' CNAMEs to a proxied name of another Cloudflare account fail
+   with error 1014.
+5. **Limits:** Cloudflare's Free and Pro plans refuse request bodies above
+   100 MB (HTTP 413; the wiki allows 100 MiB attachments and 500 MiB site
+   imports by default, so lower `BW_MAX_ATTACHMENT_SIZE_BYTES` or upload big
+   imports without the proxy) and end requests after about 125 seconds
+   (HTTP 524).
+6. **Port mode** (`HOSTING_MODE=port`, wikis on ports 6001–7000) cannot be
+   proxied: Cloudflare only proxies a few fixed ports. Use subdomain mode.
+
+Optionally, allow ports 80 and 443 only from
+[Cloudflare's addresses](https://www.cloudflare.com/ips/) in the firewall (not
+with `--tls acme` for custom domains whose records are not proxied).
 
 ## Moving to another server
 

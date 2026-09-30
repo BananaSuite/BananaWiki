@@ -111,6 +111,21 @@ def test_export_contents(app, source, db):
     assert leftovers == []
 
 
+def test_export_leaves_out_stored_api_answers(app, admin_client, admin, db):
+    """Idempotency-Key answers are a short-lived retry cache, not site data."""
+    db.execute("INSERT INTO api_service__idempotency (user_id, token_id, idempotency_key, request_hash, status_code, "
+               "response_body, created_at) VALUES (?, 1, 'k', 'x', 201, '{}', datetime('now'))", (admin["id"],))
+    response = export(admin_client)
+    assert response.status_code == 200
+    path = Path(app.config["BW"].folders.exports) / "check.db"
+    path.write_bytes(raw_db(response.get_data()))
+    response.close()
+    conn = sqlite3.connect(path)
+    assert conn.execute("SELECT COUNT(*) FROM api_service__idempotency").fetchone()[0] == 0
+    conn.close()
+    path.unlink()
+
+
 def test_round_trip_replaces_the_target(source, target):
     other, client = target
     response = do_import(client, source)

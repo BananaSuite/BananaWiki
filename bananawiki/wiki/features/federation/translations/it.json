@@ -47,6 +47,7 @@
   "federation.error.not_shareable": "Condividi solo una pagina Markdown attiva che puoi modificare.",
   "federation.error.page_missing": "Pagina non trovata.",
   "federation.error.peer_limit": "È stato raggiunto il limite di collegamenti.",
+  "federation.error.private_network_managed": "Gli indirizzi della rete locale non possono essere usati in un wiki ospitato.",
   "federation.error.remote_status": "L'altra wiki ha rifiutato la richiesta. Verifica che abbia collegato questa wiki.",
   "federation.error.response_signature": "La risposta dell'altra wiki non era firmata con la chiave di collegamento.",
   "federation.error.secret": "Usa una chiave di collegamento esadecimale di 64 caratteri appena generata.",

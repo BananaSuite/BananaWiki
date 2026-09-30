@@ -438,9 +438,14 @@ see, with CSV export. Revision sizes are computed once in the background.
 ## Personal data export
 
 **Settings → Your data → Download my data** (`/settings/export`) downloads a ZIP of
-everything the account owns: account, profile, preferences, every row that
-refers to it, and its uploaded files, without password hashes or tokens.
-Administrators can export any account (`/admin/users/<id>/export`).
+everything the account owns: account, profile, preferences, its own records
+(edits, drafts, proposals, messages, boards, canvases, sessions, tokens …) and
+its uploaded files. It never contains password hashes, tokens or other
+secrets, what administrators keep to themselves (hidden suspension reasons
+and end times, impersonation records, internal tags, who changed a role), or
+content the account can no longer read: rows of pages, boards, canvases and
+groups it has lost access to keep only their ids and times. Administrators can
+export any account (`/admin/users/<id>/export`).
 
 ## Custom pages
 

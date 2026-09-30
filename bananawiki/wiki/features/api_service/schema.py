@@ -5,7 +5,9 @@
   the current one.
 * ``api_service__idempotency``: answers to ``POST`` requests sent with an
   ``Idempotency-Key``, kept for a day so a retried request is answered
-  instead of being run twice.
+  instead of being run twice; ``token_id`` binds a key to the token that
+  used it (rows from before it existed are dropped: they may hold secrets
+  and belong to no token).
 * ``api_service__webhooks`` and ``api_service__webhook_deliveries``: outgoing
   webhooks configured by administrators and their delivery queue and log;
   ``failing_since``, ``disabled_reason`` and ``disabled_at`` record a run of
@@ -25,6 +27,7 @@ _TABLES = (
     CREATE TABLE IF NOT EXISTS api_service__idempotency (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id         TEXT    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_id        INTEGER,
         idempotency_key TEXT    NOT NULL,
         request_hash    TEXT    NOT NULL,
         status_code     INTEGER,
@@ -80,6 +83,8 @@ _INDEXES = {
 def upgrade_v4(conn: sqlite3.Connection) -> None:
     for statement in _TABLES:
         conn.execute(statement)
+    add_columns(conn, "api_service__idempotency", {"token_id": "INTEGER"})
+    conn.execute("DELETE FROM api_service__idempotency WHERE token_id IS NULL")
     add_columns(conn, "api_service__webhooks", {
         "failing_since": "TEXT",
         "disabled_reason": "TEXT",

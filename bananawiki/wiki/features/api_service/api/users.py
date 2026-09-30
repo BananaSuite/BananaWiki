@@ -1,24 +1,32 @@
 """Accounts (administrators, ``users`` scope).
 
-Usernames and passwords follow the account forms (``accounts.py``). Protected
-accounts (superusers, and the owner for anyone but the owner) cannot be
-changed, the last administrator cannot be demoted, suspended or deleted,
-and a password change signs the account out everywhere and revokes its
-API tokens.
+Usernames and passwords follow the account forms (``accounts.py``). Changes
+go through the administration service (``features/admin/service.py``), so
+the web interface's hierarchy applies: superusers and owners are changed only
+by themselves, other administrators only by an owner or a superuser. Role
+changes and suspensions are recorded (``role_history``, ``suspension_audit``)
+and announced (``user.role_changed``, ``user.suspended``) as in the web
+interface. The last administrator cannot be demoted, suspended or deleted,
+and a password change signs the account out everywhere and revokes its API
+tokens.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
-from .... import accounts, auth, settings
+from .... import accounts, settings
 from ....db import db
+from ...admin import service as admin_service
 from .. import serialize, tokens
 from ..errors import ApiError, flag, from_service, invalid, items, json_body, page_window, window_fields
 from . import bp, caller, ok, require_admin, requires
 
 MAX_BULK_USERS = 20
 NEW_USER_ROLES = ("user", "editor", "admin")
+PROTECTION_ERRORS = frozenset({"admin.users.error.protected", "admin.users.error.owner_only_self",
+                               "admin.users.error.admin_needs_owner"})
 
 
 def _target(user_id: str) -> dict[str, Any]:
@@ -33,10 +41,19 @@ def _admins() -> int:
 
 
 def _check_modifiable(target: dict[str, Any]) -> None:
-    if target.get("is_superuser") and target["id"] != caller()["id"]:
+    """The administrators' hierarchy of the web interface (``admin.service.protection_error``)."""
+    if admin_service.protection_error(caller(), target):
         raise ApiError(403, "protected_account")
-    if target["role"] == "owner" and target["id"] != caller()["id"]:
-        raise ApiError(403, "protected_account")
+
+
+def _service(action: Callable[..., Any], target: dict[str, Any], *args: Any, **kwargs: Any) -> Any:
+    """Run an administration service call as the caller; a refusal becomes an API error."""
+    try:
+        return action(caller(), target, *args, **kwargs)
+    except accounts.AccountError as error:
+        if error.key in PROTECTION_ERRORS:
+            raise ApiError(403, "protected_account") from None
+        raise from_service(error) from None
 
 
 def _password(value: Any) -> str:
@@ -107,12 +124,14 @@ def bulk_create_users():
 @bp.put("/users/<user_id>")
 @requires("users", write=True)
 def update_user(user_id: str):
+    """Everything is checked before anything changes; each change then runs as in the web interface."""
     require_admin()
     target = _target(user_id)
     _check_modifiable(target)
     data = json_body()
-    changes: dict[str, Any] = {}
+    own = target["id"] == caller()["id"]
     last_admin = target["role"] in ("admin", "owner") and _admins() <= 1
+    role = None
     if "role" in data:
         role = data["role"]
         if role == "owner":
@@ -123,16 +142,20 @@ def update_user(user_id: str):
             raise ApiError(403, "protected_account")
         if last_admin and role not in ("admin", "owner"):
             raise ApiError(400, "last_admin")
-        changes["role"] = role
+        if role == target["role"]:
+            role = None
+        elif own:
+            raise ApiError(400, "cannot_change_own_role")
+    suspended = None
     if "suspended" in data:
         suspended = flag(data["suspended"], "suspended")
-        if suspended and (last_admin or target["id"] == caller()["id"]):
+        if suspended and (last_admin or own):
             raise ApiError(400, "last_admin" if last_admin else "cannot_suspend_self")
-        changes["suspended"] = 1 if suspended else 0
-        if not suspended:
-            changes["suspended_until"] = None
+        if suspended == bool(target["suspended"]):
+            suspended = None
+    api_access = None
     if "api_access_enabled" in data:
-        changes["api_access_enabled"] = 1 if flag(data["api_access_enabled"], "api_access_enabled") else 0
+        api_access = flag(data["api_access_enabled"], "api_access_enabled")
     new_password = None
     if "password" in data and not (isinstance(data["password"], str) and not data["password"].strip()):
         new_password = _password(data["password"])
@@ -141,14 +164,19 @@ def update_user(user_id: str):
         except accounts.AccountError as error:
             raise from_service(error) from None
     payload: dict[str, Any] = {}
-    with db.transaction():
-        if changes:
-            db.update("users", changes, "id = ?", (target["id"],))
-        if changes.get("suspended"):
-            auth.revoke_sessions(target["id"])
-        if new_password is not None:
-            payload["api_tokens_revoked"] = tokens.revoke_all_for_user(target["id"])
-            accounts.set_password(target["id"], new_password)
+    if role is not None:
+        target = _service(admin_service.change_role, target, role)
+    if suspended:
+        _service(admin_service.suspend, target, until=None, label="permanent", reason="", reason_visible=False,
+                 time_visible=False)
+    elif suspended is False:
+        _service(admin_service.unsuspend, target)
+    if api_access is not None:
+        db.execute("UPDATE users SET api_access_enabled = ? WHERE id = ?", (1 if api_access else 0, target["id"]))
+    if new_password is not None:
+        payload["api_tokens_revoked"] = tokens.revoke_all_for_user(target["id"])
+        _service(admin_service.reset_password, _target(user_id), new_password, require_change=False,
+                 keep_original=False)
     return ok(user=serialize.user(_target(user_id)), **payload)
 
 
@@ -161,10 +189,8 @@ def delete_user(user_id: str):
         raise ApiError(403, "protected_account")
     if target["id"] == caller()["id"]:
         raise ApiError(400, "cannot_delete_self")
+    _check_modifiable(target)
     if target["role"] == "admin" and _admins() <= 1:
         raise ApiError(400, "last_admin")
-    try:
-        accounts.delete(target, deleted_by=caller()["id"])
-    except accounts.AccountError as error:
-        raise from_service(error) from None
+    _service(admin_service.delete_user, target)
     return ok(deleted=True, id=target["id"])

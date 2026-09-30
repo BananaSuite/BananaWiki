@@ -51,8 +51,12 @@
   <header class="topbar hosting-topbar">
     <a class="topbar__brand" href="{{ url_for('public.index') }}"><img src="{{ asset_url('favicon.png') }}" alt="" width="26" height="26"><span>{{ t('hosting.brand') }}</span></a>
     <div class="topbar__spacer"></div>
-    <nav class="topbar__actions hosting-nav" aria-label="{{ t('hosting.nav.label') }}">
-      <a href="{{ url_for('public.help_index') }}">{{ t('hosting.nav.help') }}</a>
+    <button type="button" class="btn btn--ghost btn--icon hosting-menu-toggle" data-nav-toggle aria-controls="hosting-nav" aria-expanded="false" aria-label="{{ t('hosting.nav.label') }}">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+    <nav class="topbar__actions hosting-nav" id="hosting-nav" aria-label="{{ t('hosting.nav.label') }}">
+      {% if current_account %}<span class="hosting-nav__user">{{ current_account.username }}</span>{% endif %}
+      <a href="{{ url_for('public.help_index') }}" {% if request.endpoint and request.endpoint.startswith('public.help') %}aria-current="page"{% endif %}>{{ t('hosting.nav.help') }}</a>
       {% if current_account %}
       <a href="{{ url_for('dashboard.dashboard') }}" {% if request.blueprint == 'dashboard' %}aria-current="page"{% endif %}>{{ t('hosting.nav.dashboard') }}</a>
       <a href="{{ url_for('account.account') }}" {% if request.blueprint == 'account' %}aria-current="page"{% endif %}>{{ t('hosting.nav.account') }}</a>
@@ -64,15 +68,16 @@
       <form class="inline" method="post" action="{{ url_for('public.set_theme') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="theme_mode" value="{{ 'dark' if theme() == 'light' else 'light' }}">
-        <button type="submit" class="btn btn--ghost btn--icon" aria-label="{{ t('hosting.nav.toggle_theme') }}">◐</button>
+        <button type="submit" class="btn btn--small" title="{{ t('hosting.nav.toggle_theme') }}">{{ t('hosting.nav.theme_dark') if theme() == 'light' else t('hosting.nav.theme_light') }}</button>
       </form>
       <form class="inline" method="post" action="{{ url_for('auth.logout') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn btn--small">{{ t('hosting.nav.logout') }}</button>
+        <button type="submit" class="btn btn--small btn--ghost">{{ t('hosting.nav.logout') }}</button>
       </form>
       {% else %}
-      <button type="button" class="btn btn--ghost btn--icon" data-theme-toggle aria-label="{{ t('hosting.nav.toggle_theme') }}">◐</button>
-      <a href="{{ url_for('auth.login') }}">{{ t('hosting.nav.login') }}</a>
+      <a href="{{ url_for('auth.login') }}" {% if request.endpoint == 'auth.login' %}aria-current="page"{% endif %}>{{ t('hosting.nav.login') }}</a>
+      <button type="button" class="btn btn--small" data-theme-toggle title="{{ t('hosting.nav.toggle_theme') }}"
+              data-label-light="{{ t('hosting.nav.theme_light') }}" data-label-dark="{{ t('hosting.nav.theme_dark') }}">{{ t('hosting.nav.theme_dark') if theme() == 'light' else t('hosting.nav.theme_light') }}</button>
       {% endif %}
       <form class="inline" method="post" action="{{ url_for('public.change_language') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -85,14 +90,14 @@
   </header>
   <main id="main" class="main hosting-main" tabindex="-1">
     <div class="content-column {% block column_class %}{% endblock %}">
+      {% include "hosting/_flashes.html" %}
       {% block content %}{% endblock %}
       <footer class="site-footer">
-        <span>{{ t('hosting.footer') }}</span>
+        <span>{{ t('hosting.footer', version=app_version) }}</span>
         <span><a href="{{ source_url }}">{{ t('hosting.footer.source') }}</a> · <a href="{{ url_for('public.help_index') }}">{{ t('hosting.nav.help') }}</a> · <a href="mailto:{{ contact_email }}">{{ contact_email }}</a></span>
       </footer>
     </div>
   </main>
-  {% include "hosting/_flashes.html" %}
   <script type="application/json" id="bw-strings">{{ js_strings()|json_script }}</script>
   <script src="{{ asset_url('js/bananawiki.js') }}"></script>
   <script src="{{ asset_url('js/hosting.js') }}"></script>

@@ -21,7 +21,7 @@
     {% if entry.is_revert %}<span class="badge badge--warning">{{ t('kanban.history.revert_badge') }}</span>{% endif %}
   </div>
 </header>
-{% if entry.description %}<div class="wiki-content kanban-description">{{ entry.description|markdown }}</div>{% endif %}
+{% if entry.description %}<div class="prose kanban-description">{{ entry.description|markdown }}</div>{% endif %}
 
 <section class="card kanban-changes" aria-labelledby="kanban-changes-title">
   <h2 id="kanban-changes-title" class="kanban-changes__title">{{ t('kanban.history.changes') }}</h2>

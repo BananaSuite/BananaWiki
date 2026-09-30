@@ -44,7 +44,8 @@ link-local and metadata addresses are refused, and redirects are never followed.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `TTS_AUTH_TOKEN` | (required, ≥ 16 characters) | Shared bearer token |
+| `TTS_AUTH_TOKEN` | (required, ≥ 16 characters) | Master bearer token. A BananaWiki hosting platform never hands it to its wikis: each hosted wiki gets its own token `bwt1.<wiki id>.<hex>` derived from it, which this server checks too. |
+| `TTS_REVOKED_TENANTS` | | Hosted wiki ids (comma-separated) whose derived tokens are refused |
 | `TTS_HOST` / `TTS_PORT` | `127.0.0.1` / `8787` | Listen address |
 | `PIPER_VOICE_DIR` | `./voices` | Voice models (`<voice>.onnx` + `.onnx.json`) |
 | `TTS_AUTO_DOWNLOAD` | `1` | Download missing voices on first use |

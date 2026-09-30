@@ -132,14 +132,27 @@ def test_deleting_an_account_replaces_mentions(app, client, make_user, login, db
 
 
 def test_owner_toggle(client, make_user, login, db):
-    make_user("first_owner", role="owner")
+    first = make_user("first_owner", role="owner")
     boss = make_user("boss", role="admin")
     login(client, boss)
     client.post("/settings/owner", data={"password": PASSWORD})
-    assert db.scalar("SELECT role FROM users WHERE id = ?", (boss["id"],)) == "owner"
-    assert db.scalar("SELECT new_role FROM role_history WHERE user_id = ?", (boss["id"],)) == "owner"
+    assert db.scalar("SELECT role FROM users WHERE id = ?", (boss["id"],)) == "admin", \
+        "an administrator cannot make themselves owner while the wiki has one"
+    db.execute("UPDATE users SET role = 'admin' WHERE id = ?", (first["id"],))
     client.post("/settings/owner", data={"password": PASSWORD})
-    assert db.scalar("SELECT role FROM users WHERE id = ?", (boss["id"],)) == "admin"
+    assert db.scalar("SELECT role FROM users WHERE id = ?", (boss["id"],)) == "owner", "no owner yet: allowed"
+    assert db.scalar("SELECT new_role FROM role_history WHERE user_id = ?", (boss["id"],)) == "owner"
+    db.execute("UPDATE users SET role = 'owner' WHERE id = ?", (first["id"],))
+    client.post("/settings/owner", data={"password": PASSWORD})
+    assert db.scalar("SELECT role FROM users WHERE id = ?", (boss["id"],)) == "admin", "stepping down is allowed"
+
+
+def test_superusers_may_make_themselves_owner(client, make_user, login, db):
+    make_user("first_owner", role="owner")
+    boss = make_user("boss", role="admin", is_superuser=1)
+    login(client, boss)
+    client.post("/settings/owner", data={"password": PASSWORD})
+    assert db.scalar("SELECT role FROM users WHERE id = ?", (boss["id"],)) == "owner"
 
 
 def test_owner_toggle_is_admin_only(client, make_user, login, db):
@@ -154,6 +167,17 @@ def test_suspended_admin_can_reactivate_self(client, make_user, login, db):
     assert b"Reactivate my account" in client.get("/account-status").data
     client.post("/settings/reactivate")
     assert db.scalar("SELECT suspended FROM users WHERE id = ?", (boss["id"],)) == 0
+
+
+def test_an_owners_suspension_cannot_be_lifted_by_the_admin(client, make_user, login, db):
+    owner = make_user("first_owner", role="owner")
+    boss = make_user("boss", role="admin", suspended=1)
+    db.execute("INSERT INTO suspension_audit (user_id, action, performed_by, created_at) "
+               "VALUES (?, 'suspend', ?, '2026-01-01 00:00:00')", (boss["id"], owner["id"]))
+    login(client, boss)
+    assert b"Reactivate my account" not in client.get("/account-status").data
+    assert client.post("/settings/reactivate").status_code == 403
+    assert db.scalar("SELECT suspended FROM users WHERE id = ?", (boss["id"],)) == 1
 
 
 def test_suspended_user_cannot_reactivate(client, make_user, login, db):
@@ -451,3 +475,18 @@ def test_pages_render_for_admins(admin_client, make_user):
                 "/admin/badges", "/admin/profile-fields", f"/admin/users/{bob['id']}/profile-fields",
                 "/settings/profile-fields", "/badges/notifications"):
         assert admin_client.get(url).status_code == 200, url
+
+
+def test_administrators_cannot_erase_their_own_role_history(app, make_user):
+    from bananawiki.wiki.accounts import AccountError
+    from bananawiki.wiki.db import connection_scope
+    from bananawiki.wiki.features.admin import service as admin_service
+
+    boss = make_user("boss", role="admin")
+    with app.test_request_context(), connection_scope():
+        try:
+            admin_service.delete_role_history(boss, boss)
+        except AccountError as error:
+            assert error.key == "admin.attributions.error.own_history"
+        else:
+            raise AssertionError("deleting one's own role history was allowed")

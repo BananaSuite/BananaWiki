@@ -40,7 +40,7 @@ def fetch(local_id: str, peer: dict[str, Any], *, transport: Transport | None = 
     response = (transport or http.request)(
         "GET", protocol.base_url(peer["base_url"]) + protocol.PATH, headers=headers,
         timeout=10, total_timeout=25, max_bytes=protocol.MAX_RESPONSE,
-        allow_private=bool(peer.get("allow_private_network")),
+        allow_private=store.private_network(peer),
     )
     if response.status != 200:
         raise ProtocolError("federation.error.remote_status")

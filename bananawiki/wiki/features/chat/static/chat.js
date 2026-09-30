@@ -320,7 +320,7 @@
   BW.onReady(function () {
     setupSuggestions();
     setupCountdown();
-    var node = document.getElementById("chat-data");
+    var node = document.querySelector("script#chat-data");
     if (!node || !document.getElementById("chat-log")) return;
     var data;
     try { data = JSON.parse(node.textContent || "{}"); } catch (e) { return; }

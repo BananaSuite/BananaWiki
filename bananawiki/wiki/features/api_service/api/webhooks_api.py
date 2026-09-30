@@ -10,7 +10,7 @@ from typing import Any
 
 from .. import webhooks
 from ..errors import ApiError, flag, json_body, page_window, window_fields
-from . import bp, caller, ok, require_admin, requires
+from . import bp, caller, ok, require_admin, requires, secret_response
 
 
 def _webhook(webhook_id: int) -> dict[str, Any]:
@@ -35,6 +35,7 @@ def list_webhooks():
 
 @bp.post("/admin/webhooks")
 @requires("admin", write=True)
+@secret_response
 def create_webhook():
     """``{url, events, description?, active?, allow_private_network?}`` → the webhook and its ``secret``."""
     require_admin()
@@ -72,6 +73,7 @@ def delete_webhook(webhook_id: int):
 
 @bp.post("/admin/webhooks/<int:webhook_id>/rotate-secret")
 @requires("admin", write=True)
+@secret_response
 def rotate_webhook_secret(webhook_id: int):
     return ok(secret=webhooks.rotate_secret(_webhook(webhook_id)))
 

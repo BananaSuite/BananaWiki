@@ -17,7 +17,7 @@ Installing it: [deployment](deployment.md#hosting-platform). Every variable:
 | Maintenance (`bananawiki-maintenance.service`, `python -m hosting.maintenance --interval 300`) | the service account | Brings running wikis back after a restart or update, then every 5 minutes: lifts ended suspensions, terminates expired wikis and deletes data after the grace period, suspends wikis far over their storage cap, renews custom-domain proofs, deletes denied and scheduled accounts, sends the approval digest, prunes sessions and old uploads, publishes the routing table. |
 | Runtime agent (`bananawiki-agent.service`) | root, no network, sandboxed | The only component that talks to Docker, over a local socket that only root and the service account may use. Starts, stops and inspects tenant containers with fixed security options, runs database tasks inside a tenant's sandbox, and writes Caddy's per-wiki routes. |
 | Tenant containers (`bananawiki-tenant:<commit>`) | the tenant directory's owner, read-only root | One wiki each, with its data bind-mounted at `/data`. |
-| Caddy | | HTTPS: the static site on the base domain, the portal on the portal domain, and one site block per running wiki (written by the agent to `/var/lib/<service>-routes/tenants.caddy`), so wiki traffic goes straight to each container. Unknown hosts fall through to the portal's "not available" page. Certificates for wikis and custom domains come through on-demand TLS. |
+| Caddy | | HTTPS: the static site on the base domain, the portal on the portal domain, and one site block per running wiki (written by the agent to `/var/lib/<service>-routes/tenants.caddy`), so wiki traffic goes straight to each container. A wiki host without a route (a hand-written Caddyfile without the routes import, a 1.4 proxy configuration that sends every host to the portal, a container that has just started) falls through to the portal, which proxies a running wiki itself and otherwise shows a status page on the wiki's address (no wiki here, paused, suspended, expired, starting); it never shows portal pages on a wiki host. Certificates for wikis and custom domains come through on-demand TLS, or a wildcard certificate for the platform's own hosts (`proxy --tls cloudflare-dns|origin-cert`). Works behind Cloudflare's proxy ([below](#behind-cloudflare)). |
 
 The contract between the portal and the agent is
 `bananawiki/ops/RUNTIME_AGENT.md`.
@@ -48,6 +48,18 @@ The contract between the portal and the agent is
   plugins only in container isolation and never those in
   `HOSTING_TENANT_PLUGIN_DENYLIST`.
 
+A wiki's administrators can install third-party plugins, which run as Python
+inside their container. Treat everything the container holds as readable by
+them: its environment, its files and its database. That is why a wiki gets
+its own GPU speech token (derived from the master token, revocable on the GPU
+server with `TTS_REVOKED_TENANTS`) and never a platform-wide secret, and why
+the limits that matter are enforced outside the container (memory, CPU,
+processes, network isolation, the proxy). Policies the wiki applies to itself
+(upload blacklist, public mode, page builder, storage limit, federation) keep
+honest administrators within the plan but are not a security boundary against
+one who installs a plugin to lift them; use `HOSTING_TENANT_PLUGIN_DENYLIST`
+and plugin quarantine for wikis you do not trust.
+
 Not yet isolated: all tenant containers run as the service account's UID (the
 portal reads tenant files for backups and exports), and the storage limit is
 enforced by the wiki inside the container (use file-system quotas on the host
@@ -58,8 +70,12 @@ if tenants must not be able to fill the disk).
 * **Subdomain mode** (`BASE_DOMAIN` set to a domain name): wikis at
   `<name>-<suffix>.<BASE_DOMAIN>` (suffix `hosting` by default, configurable in
   the platform settings or with `INSTANCE_URL_SUFFIX`; empty for
-  `<name>.<BASE_DOMAIN>`). The single-level host names are covered by a
-  wildcard certificate or on-demand TLS.
+  `<name>.<BASE_DOMAIN>`). These host names are one level below
+  `BASE_DOMAIN`, covered by on-demand TLS or a wildcard certificate
+  (`bananawiki proxy --tls cloudflare-dns|origin-cert`). They are single-level
+  names of the DNS zone, as Cloudflare's free certificate requires, only when
+  `BASE_DOMAIN` is the zone itself (`example.com`, not `hosting.example.com`);
+  `install` and `proxy` warn otherwise.
 * **Port mode**: wikis at `http(s)://<HOSTING_PUBLIC_HOST>:<port>` with ports
   from `INSTANCE_PORT_START` to `INSTANCE_PORT_END`. Needs
   `HOSTING_TENANT_NETWORK=outbound`.
@@ -80,6 +96,25 @@ disappears, routing stops. Unverified claims expire after an hour, so a claim
 cannot reserve a name. Caddy asks the portal's `/internal/domains/authorize`
 (on loopback; the public listeners answer 404 for `/internal/*`) before it
 requests a certificate.
+
+Keep `HOSTING_CUSTOM_DOMAIN_TARGET` a **DNS-only** (grey-cloud) record if your
+own zone is on Cloudflare: a customer's CNAME to a name proxied by another
+Cloudflare account fails with Cloudflare error 1014. Customers may proxy their
+own record through their Cloudflare account: public DNS then shows only
+Cloudflare's addresses, so with `HOSTING_CUSTOM_DOMAIN_ALLOW_PROXIED` (on by
+default) a domain whose addresses all belong to Cloudflare passes the routing
+check (the TXT proof still proves ownership). The domain page then tells the
+customer to use SSL/TLS mode *Full (strict)* and not to redirect
+`/.well-known/acme-challenge/` to HTTPS until the wiki's certificate exists.
+
+## Behind Cloudflare
+
+The portal, the static site and every wiki work with proxied (orange-cloud)
+records: visitors' real addresses reach the rate limits, there is no redirect
+loop in any SSL/TLS mode, and a wiki that is starting shows its status page
+instead of Cloudflare's "Bad gateway". Settings, certificate modes and limits
+(100 MB request bodies, about 125 s per request, one subdomain level, no port
+mode): [deployment](deployment.md#behind-cloudflare).
 
 ## Accounts
 

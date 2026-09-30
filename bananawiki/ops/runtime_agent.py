@@ -36,6 +36,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from .caddy_blocks import HSTS, addresses, https_policy, parse_version, proxy, supports_client_ip
 from .files import read_environment, read_json
 
 PROTOCOL = 1
@@ -115,6 +116,14 @@ class TenantRuntime:
         self.lock = threading.Lock()
 
     # Plumbing -------------------------------------------------------------
+
+    def _caddy_client_ip(self) -> bool:
+        """Whether the installed Caddy understands ``{client_ip}`` (2.7+; unknown: yes)."""
+        try:
+            result = self.runner(["caddy", "version"], capture_output=True, text=True, timeout=15, check=False)
+        except (OSError, subprocess.SubprocessError):
+            return True
+        return supports_client_ip(parse_version(result.stdout or "") if result.returncode == 0 else None)
 
     def docker(self, *args: str, timeout: int = 60, check: bool = True) -> subprocess.CompletedProcess:
         result = self.runner(["docker", *args], capture_output=True, text=True, timeout=timeout, check=False)
@@ -402,7 +411,8 @@ class TenantRuntime:
                 if address.is_private and not address.is_loopback:
                     upstreams[item["tenant"]] = f"{item['address']}:{int(item['internal_port'])}"
         text = render_routes({tenant: (hosts, upstreams[tenant]) for tenant, hosts in wanted.items()
-                              if tenant in upstreams})
+                              if tenant in upstreams},
+                             portal=self.config.get("portal"), client_ip=self._caddy_client_ip())
         target = directory / ROUTES_FILE
         with self.lock:
             changed = not target.is_file() or target.read_text(encoding="utf-8") != text
@@ -442,15 +452,29 @@ class TenantRuntime:
 # Routes ----------------------------------------------------------------------
 
 
-def render_routes(routes: dict[str, tuple[list[str], str]]) -> str:
-    """Caddy site blocks, imported by the managed Caddyfile (``bananawiki.ops.caddy``)."""
+def render_routes(routes: dict[str, tuple[list[str], str]], *, portal: str | None = None,
+                  client_ip: bool = True) -> str:
+    """Caddy site blocks, imported by the managed Caddyfile (``bananawiki.ops.caddy``).
+
+    Each wiki answers on HTTPS and plain HTTP (ACME HTTP-01, Cloudflare's
+    "Flexible" mode; see :mod:`bananawiki.ops.caddy_blocks`). Caddy retries a
+    container that is still starting for a few seconds, then hands the request
+    to the *portal* (``127.0.0.1:<port>``), which shows the wiki's status page
+    ("starting", refreshing by itself) instead of an empty 502 that Cloudflare
+    would replace with its own "Bad gateway" page.
+    """
     parts = ["# Managed by the BananaWiki runtime agent; rewritten on every routing change.\n"]
+    retry = ("lb_try_duration 5s", "lb_try_interval 250ms")
     for tenant in sorted(routes):
         hosts, upstream = routes[tenant]
+        fallback = ""
+        if portal:
+            fallback = "\thandle_errors {\n" + proxy(portal, streaming=False, client_ip=client_ip, indent="\t\t") + "\t}\n"
         parts.append(
-            f"\n# tenant {tenant}\n{', '.join(hosts)} {{\n\ttls {{\n\t\ton_demand\n\t}}\n"
-            '\theader Strict-Transport-Security "max-age=31536000"\n'
-            f"\treverse_proxy {upstream} {{\n\t\tflush_interval -1\n\t\theader_up -X-Forwarded-Prefix\n\t}}\n}}\n"
+            f"\n# tenant {tenant}\n{addresses(hosts)} {{\n\ttls {{\n\t\ton_demand\n\t}}\n"
+            + https_policy() + HSTS
+            + proxy(upstream, streaming=True, client_ip=client_ip, extra=retry if portal else ())
+            + fallback + "}\n"
         )
     return "".join(parts)
 
@@ -478,6 +502,17 @@ def routes_dir(service: str) -> str:
     return f"/var/lib/{service}-routes"
 
 
+def _port(*candidates: Any) -> int:
+    for value in candidates:
+        try:
+            port = int(value)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= port <= 65535:
+            return port
+    return 5099
+
+
 def load_config(root: Path) -> dict[str, Any]:
     """What the operator configured: read fresh for every request (updates change the image)."""
     installation = read_json(root / "config/installation.json") or {}
@@ -498,6 +533,8 @@ def load_config(root: Path) -> dict[str, Any]:
         "service": service, "service_uid": entry.pw_uid, "service_gid": entry.pw_gid,
         "instances_dir": environment.get("INSTANCES_DIR", str(root / "data/instances")),
         "routes_dir": routes_dir(service),
+        # Wiki routes fall back to the portal's status pages while a container is unreachable.
+        "portal": f"127.0.0.1:{_port(environment.get('HOSTING_PORT'), installation.get('port'))}",
         "image": environment.get("HOSTING_CONTAINER_IMAGE", "bananawiki-tenant:" + installation.get("revision", "")),
         "limits": {
             "memory_mb": int(ceiling("HOSTING_AGENT_MAX_MEMORY_MB", 4096)),

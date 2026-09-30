@@ -493,6 +493,7 @@ def deattribute_all(actor: dict[str, Any], target: dict[str, Any]) -> int:
 
 def reattribute_all(actor: dict[str, Any], target: dict[str, Any], recipient: dict[str, Any]) -> int:
     require_manageable(actor, target)
+    require_manageable(actor, recipient)
     if recipient["id"] == target["id"]:
         raise AccountError("admin.attributions.error.same_user")
     with db.transaction():
@@ -503,6 +504,8 @@ def reattribute_all(actor: dict[str, Any], target: dict[str, Any], recipient: di
 
 
 def delete_role_history(actor: dict[str, Any], target: dict[str, Any], entry_id: int | None = None) -> int:
+    # Not one's own: the history is how others see who promoted themselves.
+    _require_other(actor, target, "admin.attributions.error.own_history")
     require_manageable(actor, target)
     if entry_id is None:
         return db.execute("DELETE FROM role_history WHERE user_id = ?", (target["id"],)).rowcount

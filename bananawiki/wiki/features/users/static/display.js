@@ -2,7 +2,7 @@
  * choice follows the account (or the visitor's cookie) instead of one browser. */
 (function () {
   "use strict";
-  var node = document.getElementById("users-display-config");
+  var node = document.querySelector("script#users-display-config");
   var toggle = document.querySelector("[data-theme-toggle]");
   if (!node || !toggle || !window.BW) return;
   var config;

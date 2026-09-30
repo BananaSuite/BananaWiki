@@ -37,8 +37,8 @@
     <thead><tr><th>{{ t('hosting.account.sessions.device') }}</th><th>{{ t('hosting.account.sessions.ip') }}</th><th>{{ t('hosting.account.sessions.last_seen') }}</th><th></th></tr></thead>
     <tbody>
     {% for row in sessions %}
-    <tr><td>{{ row.user_agent[:80] or '—' }}{% if row.id == current_session_id %} <span class="badge badge--primary">{{ t('hosting.account.sessions.current') }}</span>{% endif %}</td>
-      <td class="mono">{{ row.last_ip }}</td><td>{{ row.last_seen_at|time_ago }}</td>
+    <tr><td title="{{ row.user_agent or '' }}">{{ row.user_agent|device }}{% if row.id == current_session_id %} <span class="badge badge--primary">{{ t('hosting.account.sessions.current') }}</span>{% endif %}</td>
+      <td class="mono">{{ row.last_ip }}</td><td class="nowrap">{{ row.last_seen_at|time_ago }}</td>
       <td class="actions">{{ ui.post(url_for('account.revoke_session', session_id=row.id), t('hosting.account.sessions.end')) }}</td></tr>
     {% else %}<tr><td colspan="4" class="muted">{{ t('hosting.common.none') }}</td></tr>{% endfor %}
     </tbody></table></div>

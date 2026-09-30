@@ -3,15 +3,15 @@
 {% set s = settings %}
 {% block title %}{{ t('hosting.admin.nav.settings') }}{% endblock %}
 {% block content %}
-<h1>{{ t('hosting.admin.nav.settings') }}</h1>
 {% include "hosting/admin/_nav.html" %}
+<h1>{{ t('hosting.admin.nav.settings') }}</h1>
 {% macro section(action, title, hint='') %}
-<details class="card"><summary>{{ title }}</summary>{% if hint %}<p class="muted small">{{ hint }}</p>{% endif %}
+<details class="card" id="{{ action }}" data-remember{% if request.args.get('open') == action %} open{% endif %}><summary>{{ title }}</summary>{% if hint %}<p class="muted small">{{ hint }}</p>{% endif %}
 <form method="post" action="{{ url_for('admin.settings_page') }}" class="form" enctype="multipart/form-data">{{ ui.csrf() }}<input type="hidden" name="action" value="{{ action }}">
 {{ caller() }}
 <p><button class="btn btn--primary btn--small" type="submit">{{ t('common.save') }}</button></p></form></details>
 {% endmacro %}
-<div class="stack">
+<div class="panel-list">
 {% call section('save_limits', t('hosting.settings.limits')) %}
   {{ ui.check('global_limit_enabled', t('hosting.settings.limits_enabled'), s.global_limit_enabled) }}
   {{ ui.field('global_limit_max_instances', t('hosting.settings.max_instances'), s.global_limit_max_instances, type='number', attrs={'min': 1}) }}
@@ -28,7 +28,7 @@
   {{ ui.check('auto_approve_public_access_requests', t('hosting.settings.auto_public'), s.auto_approve_public_access_requests) }}
   {{ ui.check('auto_approve_page_builder_requests', t('hosting.settings.auto_builder'), s.auto_approve_page_builder_requests) }}
 {% endcall %}
-<details class="card" id="notifications"{% if request.args.get('open') == 'notifications' %} open{% endif %}><summary>{{ t('hosting.settings.notifications') }}</summary>
+<details class="card" id="notifications" data-remember{% if request.args.get('open') == 'notifications' %} open{% endif %}><summary>{{ t('hosting.settings.notifications') }}</summary>
 <p class="muted small">{{ t('hosting.settings.notifications_hint') }}</p>
 {% if not email_configured %}<div class="alert alert--warning"><div class="alert__body">{{ t('hosting.settings.email_missing') }}</div></div>{% endif %}
 <form method="post" action="{{ url_for('admin.settings_page') }}" class="form">{{ ui.csrf() }}<input type="hidden" name="action" value="save_notifications">

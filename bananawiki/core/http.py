@@ -12,8 +12,9 @@ against server-side request forgery and resource exhaustion:
   still verifies the certificate against the host name.
 * Private, loopback and shared addresses are refused unless the caller
   explicitly allows them (for example a peer an administrator marked as
-  being on the local network). Link-local (cloud metadata), multicast,
-  unspecified and reserved addresses are always refused.
+  being on the local network). Link-local (cloud metadata), deprecated IPv6
+  site-local (``fec0::/10``, which :mod:`ipaddress` counts as global),
+  multicast, unspecified and reserved addresses are always refused.
 * Redirects are not followed unless asked for, and then only to the same
   scheme, host and port.
 * Connect/read timeouts, a total deadline that also stops servers that trickle
@@ -75,7 +76,8 @@ def address_allowed(address: ipaddress.IPv4Address | ipaddress.IPv6Address, *, a
     mapped = getattr(address, "ipv4_mapped", None)
     if mapped is not None:
         address = mapped
-    if address.is_link_local or address.is_multicast or address.is_unspecified or address.is_reserved:
+    if (address.is_link_local or address.is_multicast or address.is_unspecified or address.is_reserved
+            or getattr(address, "is_site_local", False)):
         return False
     if address.is_global:
         return True

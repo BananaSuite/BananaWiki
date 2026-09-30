@@ -285,24 +285,32 @@ def relocate(instances_dir: str, old_name: str, new_name: str) -> None:
 
 
 def usage(root: Path, *, deadline_seconds: float = 10.0) -> int:
-    """Bytes used below *root*, not following links; stops counting at the deadline."""
+    """Bytes used below *root*, not following links; stops counting at the deadline.
+
+    Walks by directory descriptor (``os.fwalk``), so a directory the tenant
+    swaps for a link mid-walk is not entered.
+    """
     total = 0
     deadline = time.monotonic() + deadline_seconds
-    stack = [str(root)]
-    while stack and time.monotonic() < deadline:
-        try:
-            entries = os.scandir(stack.pop())
-        except OSError:
-            continue
-        with entries:
-            for entry in entries:
+    try:
+        root_fd = open_dir(root)
+    except OSError:
+        return 0
+    walk = os.fwalk(".", dir_fd=root_fd, follow_symlinks=False)
+    try:
+        for _dirpath, _dirnames, filenames, walk_fd in walk:
+            if time.monotonic() >= deadline:
+                break
+            for name in filenames:
                 try:
-                    if entry.is_dir(follow_symlinks=False):
-                        stack.append(entry.path)
-                    elif entry.is_file(follow_symlinks=False):
-                        total += entry.stat(follow_symlinks=False).st_size
+                    info = os.stat(name, dir_fd=walk_fd, follow_symlinks=False)
                 except OSError:
                     continue
+                if stat.S_ISREG(info.st_mode):
+                    total += info.st_size
+    finally:
+        walk.close()
+        os.close(root_fd)
     return total
 
 

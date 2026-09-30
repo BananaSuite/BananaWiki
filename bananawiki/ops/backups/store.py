@@ -139,7 +139,7 @@ class Store:
                 heads = git.heads(self.prefix(config))
             return [{"snapshot": name, "commit": heads[name]} for name in sorted(heads, key=_snapshot_order, reverse=True)]
 
-    def _download(self, git, config, identifier, sha, output):
+    def _download(self, git, config, identifier, sha, output, *, allow_unauthenticated=False):
         maximum = config["max_mib"] * 1024 * 1024
         if shutil.disk_usage(git.work).free < maximum * 3 + 128 * 1024 * 1024:
             raise ValueError("Not enough staging space: reserve three times the configured backup limit plus 128 MiB.")
@@ -150,6 +150,10 @@ class Store:
                 or any(index.get(key) != value for key, value in expected.items())
                 or not isinstance(index.get("parts"), list) or not 1 <= len(index["parts"]) <= 34):
             raise ValueError("Invalid backup index.")
+        # Before anything is decrypted: age alone cannot tell our snapshots from ones
+        # encrypted to the (public) recipient by someone else who can push.
+        authenticated = crypto.check_authentication(index, self.identity,
+                                                    allow_unauthenticated=allow_unauthenticated)
         parts = index["parts"]
         names = [f"part-{number:05d}.age" for number in range(len(parts))]
         if set(entries) != {*names, "index.json"}:
@@ -168,9 +172,10 @@ class Store:
                     actual = hashlib.sha256(check.read(entries[name][1])).hexdigest()
                 if actual != part.get("sha256"):
                     raise ValueError("An encrypted backup part failed its checksum.")
-        return crypto.decrypt(ciphertext, output, self.identity, expected, maximum)
+        metadata = crypto.decrypt(ciphertext, output, self.identity, expected, maximum)
+        return {**metadata, "authenticated": authenticated}
 
-    def download(self, identifier, output):
+    def download(self, identifier, output, *, allow_unauthenticated=False):
         with lock(self.root):
             config = self.settings()
             self.context(config, identifier)
@@ -178,13 +183,15 @@ class Store:
                 heads = git.heads(self.prefix(config))
                 if identifier not in heads:
                     raise ValueError("The selected backup no longer exists. Use backups list.")
-                metadata = self._download(git, config, identifier, heads[identifier], output)
+                metadata = self._download(git, config, identifier, heads[identifier], output,
+                                          allow_unauthenticated=allow_unauthenticated)
         return {**metadata, "package": str(Path(output).absolute()), "verified": True}
 
-    def verify(self, identifier):
+    def verify(self, identifier, *, allow_unauthenticated=False):
         directory(self.root)
         with tempfile.TemporaryDirectory(prefix="verify-", dir=self.root) as name:
-            result = self.download(identifier, Path(name) / "package.tar.gz")
+            result = self.download(identifier, Path(name) / "package.tar.gz",
+                                   allow_unauthenticated=allow_unauthenticated)
         result.pop("package")
         return result
 
@@ -216,7 +223,7 @@ class Store:
                         paths.append(path)
                         parts.append({"name": path.name, "bytes": len(chunk), "sha256": digest(path)})
                 index = git.work / "index.json"
-                write_json(index, {**context, "schema": 1, "parts": parts})
+                write_json(index, crypto.authenticate({**context, "schema": 1, "parts": parts}, self.identity))
                 sha = git.commit([*paths, index])
                 if automatic and not self.schedule()["enabled"]:
                     return {"outcome": "disabled", "package": str(package)}

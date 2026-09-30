@@ -241,7 +241,7 @@ like 1.4; managed installations set them to `<root>/data`.
 |---|---|---|
 | `HOSTING_ENV` | value of `BW_ENV`, else `production` | Same values as `BW_ENV`. |
 | `HOSTING_HOST`, `HOSTING_PORT` | `127.0.0.1`, `5099` | Listen address. |
-| `HOSTING_PROXY_MODE` | off | Trust one proxy's `X-Forwarded-For`, `-Proto`, `-Host`. |
+| `HOSTING_PROXY_MODE` | off | Trust one proxy's `X-Forwarded-For`, `-Proto`, `-Host`. The managed Caddy configuration puts the visitor's address there, also behind Cloudflare. |
 | `HOSTING_PREFERRED_URL_SCHEME` | none | Scheme of generated absolute links. |
 | `HOSTING_SECRET_KEY` | from the key file | Portal signing key. Also derives the MFA and encrypted-settings keys: changing it disables every account's authenticator. |
 | `HOSTING_SECRET_KEY_PATH` | `<source>/hosting/data/.secret_key` | Generated key file (0600). |
@@ -271,6 +271,7 @@ like 1.4; managed installations set them to `<root>/data`.
 | `SUBDOMAIN_MIN_LENGTH`, `SUBDOMAIN_MAX_LENGTH` | 3, 40 | Wiki name length. |
 | `HOSTING_CUSTOM_DOMAIN_TARGET` | none | Host name customers point their CNAME at. |
 | `HOSTING_CUSTOM_DOMAIN_IPS` | none | Addresses accepted for A/AAAA records of custom domains. |
+| `HOSTING_CUSTOM_DOMAIN_ALLOW_PROXIED` | on | Accept a custom domain whose A/AAAA records are all Cloudflare edge addresses (a record proxied by the customer's Cloudflare account); the TXT proof still proves ownership. `0` requires the CNAME or the addresses above. |
 | `HOSTING_CONTACT_EMAIL` | reply-to address, else `contact@<BASE_DOMAIN>` | Shown in the help centre and emails. |
 | `HOSTING_STATUS_URL` | none | Link to a status page. |
 
@@ -285,6 +286,7 @@ like 1.4; managed installations set them to `<root>/data`.
 | `HOSTING_CONTAINER_INTERNAL_PORT` | 5001 | Port inside tenant containers. |
 | `HOSTING_TENANT_NETWORK` | `isolated` in subdomain mode, else `outbound` | `isolated`: no network except the proxy. Port and onion mode need `outbound`. |
 | `HOSTING_TENANT_PLUGIN_DENYLIST` | none | Plugin ids tenants may never load. |
+| `HOSTING_TTS_GPU_TENANT_TOKENS` | `1` | Give each wiki its own GPU speech token derived from the master token instead of the master token itself. Needs the GPU server from this release; set `0` only while an older GPU server is still running. |
 | `HOSTING_FEDERATION_INSTANCES` | none | Wiki ids (from the portal) whose tenants get `BW_FEDERATION_ENABLED=1`; `*` for every wiki. |
 | `MAX_INSTANCES_PER_ACCOUNT` | 5 | Wikis per customer. |
 | `INSTANCE_DURATION_DAYS` | 14 | Lifetime of a new wiki. |

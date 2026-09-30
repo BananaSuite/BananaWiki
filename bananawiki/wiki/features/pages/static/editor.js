@@ -4,7 +4,7 @@
   "use strict";
   var form = document.querySelector("[data-page-editor]");
   var editor = document.querySelector("[data-editor]");
-  var configNode = document.getElementById("editor-config");
+  var configNode = document.querySelector("script#editor-config");
   if (!form || !editor || !configNode) return;
   var config = JSON.parse(configNode.textContent || "{}");
   var area = editor.querySelector("#editor-content");

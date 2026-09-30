@@ -19,6 +19,12 @@
 .admin-stats { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-bottom: 1rem; }
 .admin-stats .card { margin: 0; }
 .admin-stats a.stat { color: inherit; }
+/* Dashboard counters: one bordered strip of figures rather than a wall of cards. */
+.admin-stats--summary { gap: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.admin-stats--summary > .card { border: 0; border-radius: 0; padding: .7rem .9rem; background: none; box-shadow: 1px 1px 0 var(--border); }
+.admin-stats--summary > a.card:hover { background: var(--surface-2); text-decoration: none; }
+.admin-stats--summary .stat__value { font-size: 1.35rem; }
 
 /* Daily requests: one bar per day, anchored to the baseline. */
 .traffic-chart { display: flex; align-items: flex-end; gap: 2px; height: 140px; padding-top: .5rem;

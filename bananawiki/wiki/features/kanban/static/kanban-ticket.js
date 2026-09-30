@@ -518,7 +518,7 @@
     }
     head.appendChild(actions);
     li.appendChild(head);
-    var body = el("div", "wiki-content");
+    var body = el("div", "prose");
     body.innerHTML = comment.content_html; // sanitised by markdown.render on the server
     li.appendChild(body);
     return li;

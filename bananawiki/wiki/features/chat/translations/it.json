@@ -41,7 +41,7 @@
   "chat.dm.title": "Messaggi",
   "chat.dm.username": "Nome utente",
   "chat.dm.with": "Conversazione con {user}",
-  "chat.empty": "Ancora nessun messaggio. Saluta!",
+  "chat.empty": "Ancora nessun messaggio.",
   "chat.error.daily_limit": "Hai raggiunto il limite di {limit} file al giorno.",
   "chat.error.dm_creation_disabled": "Al momento non è possibile avviare nuove conversazioni.",
   "chat.error.dm_self": "Non puoi avviare una conversazione con te stesso.",

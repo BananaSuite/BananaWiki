@@ -57,7 +57,7 @@ def _get(url, **options):
     ("93.184.216.34", False, True), ("10.0.0.1", False, False), ("10.0.0.1", True, True),
     ("127.0.0.1", False, False), ("127.0.0.1", True, True), ("169.254.169.254", True, False),
     ("0.0.0.0", True, False), ("224.0.0.1", True, False), ("::ffff:127.0.0.1", False, False),
-    ("fe80::1", True, False), ("100.64.0.1", False, False),
+    ("fe80::1", True, False), ("100.64.0.1", False, False), ("fec0::1", False, False), ("fec0::1", True, False),
 ])
 def test_address_policy(address, private_ok, allowed):
     assert http.address_allowed(ipaddress.ip_address(address), allow_private=private_ok) is allowed

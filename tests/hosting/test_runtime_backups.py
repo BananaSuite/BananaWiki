@@ -250,6 +250,26 @@ def test_check_domain_by_cname_or_addresses(tmp_path, zone):
     assert runtime.check_domain("missing.example.org", "t").dns_error
 
 
+def test_check_domain_accepts_records_proxied_by_cloudflare(tmp_path, zone):
+    """A proxied (orange-cloud) record hides the CNAME and shows only Cloudflare's edge addresses."""
+    runtime, _agent = make_runtime(tmp_path, HOSTING_CUSTOM_DOMAIN_TARGET="edge.wiki.test",
+                                   HOSTING_CUSTOM_DOMAIN_IPS="203.0.113.5")
+    zone[("_bananawiki-challenge.docs.example.org", "TXT")] = ["token-1"]
+    zone[("docs.example.org", "A")] = ["104.21.2.3", "172.67.4.5"]
+    zone[("docs.example.org", "AAAA")] = ["2606:4700:3031::6815:203"]
+    check = runtime.check_domain("docs.example.org", "token-1")
+    assert (check.ownership, check.routing, check.proxied) == (True, True, True)
+    zone[("docs.example.org", "A")] = ["104.21.2.3", "198.51.100.1"]
+    assert not runtime.check_domain("docs.example.org", "token-1").routing, "not all addresses are Cloudflare's"
+    zone[("docs.example.org", "A")] = ["203.0.113.5"]
+    del zone[("docs.example.org", "AAAA")]
+    assert runtime.check_domain("docs.example.org", "token-1").proxied is False, "direct records are not proxied"
+    strict, _agent = make_runtime(tmp_path / "strict", HOSTING_CUSTOM_DOMAIN_TARGET="edge.wiki.test",
+                                  HOSTING_CUSTOM_DOMAIN_ALLOW_PROXIED="0")
+    zone[("docs.example.org", "A")] = ["104.21.2.3"]
+    assert not strict.check_domain("docs.example.org", "token-1").routing
+
+
 # ── Maintenance ───────────────────────────────────────────────────────────────
 
 

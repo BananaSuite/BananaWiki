@@ -32,6 +32,10 @@ def add_commands(commands, *, agent=False):
     for action in ("download", "verify", "restore"):
         target = actions.add_parser(action)
         target.add_argument("snapshot", help="Exact snapshot ID from backups list")
+        target.add_argument("--allow-unauthenticated", action="store_true",
+                            help="Accept a snapshot made before snapshots were authenticated. Anyone with write "
+                                 "access to the backup repository can create such a snapshot, and a restore "
+                                 "deploys its source and configuration as root")
         if action == "download" or (action == "restore" and agent):
             target.add_argument("--output", type=Path, required=True,
                                 help="New package filename" if action == "download" else "Empty recovery directory")
@@ -67,10 +71,11 @@ def handle(args, store, *, create_package, restore_package, schedule=None):
         return {"schedule": policy}
     if action == "list":
         return store.list()
+    unauthenticated = getattr(args, "allow_unauthenticated", False)
     if action == "verify":
-        return store.verify(args.snapshot)
+        return store.verify(args.snapshot, allow_unauthenticated=unauthenticated)
     if action == "download":
-        return store.download(args.snapshot, args.output)
+        return store.download(args.snapshot, args.output, allow_unauthenticated=unauthenticated)
     if action == "run":
         if args.automatic and not store.schedule()["enabled"]:
             return {"outcome": "disabled"}
@@ -91,7 +96,7 @@ def handle(args, store, *, create_package, restore_package, schedule=None):
         directory(store.root)
         with tempfile.TemporaryDirectory(prefix="restore-", dir=store.root) as name:
             package = Path(name) / "package.tar.gz"
-            store.download(args.snapshot, package)
+            store.download(args.snapshot, package, allow_unauthenticated=unauthenticated)
             result = restore_package(package, args)
         # Both the updater and the backup schedule remain opt-in on a restore.
         policy = store.set_schedule(False)

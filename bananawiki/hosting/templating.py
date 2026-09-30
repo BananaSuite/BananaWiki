@@ -37,7 +37,7 @@ def time_ago(value: Any) -> str:
 
 
 def duration(seconds: Any) -> str:
-    """"3d 4h", "2h 5m" or "45s" for a number of seconds."""
+    """"99y 364d", "3d 4h", "2h 5m" or "45s" for a number of seconds."""
     try:
         seconds = max(0, int(seconds))
     except (TypeError, ValueError):
@@ -45,6 +45,8 @@ def duration(seconds: Any) -> str:
     days, rest = divmod(seconds, 86400)
     hours, rest = divmod(rest, 3600)
     minutes, secs = divmod(rest, 60)
+    if days >= 365:
+        return f"{days // 365}y {days % 365}d"
     if days:
         return f"{days}d {hours}h"
     if hours:
@@ -62,6 +64,20 @@ def filesize(value: Any) -> str:
             return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} GB"
+
+
+_BROWSERS = (("Edg/", "Edge"), ("OPR/", "Opera"), ("Opera", "Opera"), ("Firefox/", "Firefox"),
+             ("Chrome/", "Chrome"), ("CriOS/", "Chrome"), ("Safari/", "Safari"))
+_PLATFORMS = (("iPhone", "iOS"), ("iPad", "iOS"), ("Android", "Android"), ("Windows", "Windows"),
+              ("Macintosh", "macOS"), ("Mac OS X", "macOS"), ("Linux", "Linux"))
+
+
+def device(user_agent: Any) -> str:
+    """"Firefox on Windows" for a stored user agent string."""
+    ua = str(user_agent or "")
+    browser = next((name for marker, name in _BROWSERS if marker in ua), i18n.t("hosting.account.sessions.unknown_browser"))
+    platform = next((name for marker, name in _PLATFORMS if marker in ua), i18n.t("hosting.account.sessions.unknown_platform"))
+    return i18n.t("hosting.account.sessions.device_label", browser=browser, platform=platform)
 
 
 @lru_cache(maxsize=64)
@@ -116,7 +132,8 @@ def _json_script(value: Any) -> Markup:
 
 def install(app: Flask) -> None:
     app.jinja_env.filters.update(datetime=format_datetime, date=lambda v: format_datetime(v, "%Y-%m-%d"),
-                                 time_ago=time_ago, duration=duration, filesize=filesize, json_script=_json_script)
+                                 time_ago=time_ago, duration=duration, filesize=filesize, json_script=_json_script,
+                                 device=device)
 
     @app.context_processor
     def _globals() -> dict[str, Any]:

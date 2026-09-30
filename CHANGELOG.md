@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+* Opening a hosted wiki no longer lands on the hosting portal. When Caddy
+  has no route for a wiki's address (a hand-written Caddyfile, a server still
+  on the 1.4 proxy setup, a container that has just restarted), the portal
+  proxies the wiki itself or shows a status page on the wiki's address
+  (no wiki here, paused, suspended, expired, starting). It never shows portal
+  pages on a wiki host.
+* Behind Cloudflare proxied records: no redirect loop in Flexible mode, the
+  real visitor address instead of Cloudflare's (rate limits and sign-in
+  limits were shared by everyone), no empty "Bad gateway" while a wiki
+  starts (retries, then the portal's status page, answered as 503), `www`
+  redirects to the base domain, and proxied custom domains verify. New
+  `bananawiki proxy` options: `--tls acme|cloudflare-dns|origin-cert`,
+  `--cloudflare`, `--cloudflare-token-file`, `--origin-cert/--origin-key`.
+  See "Behind Cloudflare" in docs/deployment.md.
+* Hosting portal and wiki interface: many layout regressions from the
+  rewrite (light theme in the portal, misaligned cards, broken phone top
+  bar, unstyled inputs, code highlighting, menus running off screen), and a
+  plainer look closer to 1.4.
+
+### Security
+
+* Portal session cookie is `__Host-bwh_session` over HTTPS, so a wiki cannot
+  plant a portal session (users sign in once more).
+* Administrators are changed only by owners and superusers everywhere: the
+  REST API, the owner toggle, temporary accounts, self-reactivation, token
+  revocation and the data export now follow that rule.
+* Sign-in limits no longer let anyone lock an account out; a successful
+  portal sign-in no longer resets the per-address limit.
+* API idempotency never stores new tokens or webhook secrets, and keys are
+  bound to one token.
+* Hosted wikis: per-wiki GPU speech tokens instead of the platform token;
+  webhooks and federation cannot reach private networks.
+* Personal data export is an explicit allowlist (no hidden suspension
+  reasons, impersonation logs or content the account can no longer read).
+* Root controller: a tenant can no longer block updates through its
+  maintenance marker or make backup packages unrestorable; packages are
+  verified before use; tenant files are captured by descriptor. Remote
+  backups are authenticated; older snapshots need `--allow-unauthenticated`.
+
 ## 1.6.0
 
 BananaWiki 1.6 is a rewrite of the whole code base. It upgrades a 1.4

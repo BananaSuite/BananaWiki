@@ -27,6 +27,7 @@ from ... import accounts
 from ...db import db
 from ...permissions import ADMIN_ROLES, ROLE_RANK
 from ...registry import emit
+from ..admin import service as admin_service
 from ..pages import service as pages
 
 REVERTIBLE_ROLES = ("user", "editor", "admin")
@@ -65,6 +66,10 @@ def _check_account_target(target: dict[str, Any], actor: dict[str, Any]) -> None
         raise TemporaryError("temporary_accounts.error.owner")
     if target.get("is_superuser"):
         raise TemporaryError("temporary_accounts.error.protected_account")
+    # The same hierarchy as the account pages: only owners and superusers change administrators.
+    error = admin_service.protection_error(actor, target)
+    if error:
+        raise TemporaryError(error)
 
 
 # ── Scheduling ───────────────────────────────────────────────────────────────
@@ -187,13 +192,24 @@ def _expire_visibility(page_id: int, now: str) -> None:
         remove("visibility", page_id)
 
 
+def _setter_still_may(row: dict[str, Any], user: dict[str, Any]) -> bool:
+    """Whoever scheduled a change to an administrator must still be allowed to make it."""
+    if user["role"] not in ADMIN_ROLES and not user.get("is_superuser"):
+        return True
+    setter = accounts.by_id(row["set_by"]) if row.get("set_by") else None
+    return setter is not None and admin_service.protection_error(setter, user) is None
+
+
 def _expire_account(user_id: str, now: str) -> None:
     with db.transaction():
-        row = db.one("SELECT expires_at FROM temp_users WHERE user_id = ?", (user_id,))
+        row = db.one("SELECT * FROM temp_users WHERE user_id = ?", (user_id,))
         user = accounts.by_id(user_id)
         if row is None or row["expires_at"] > now or user is None:
             return
         if user["role"] == "owner" or (user["role"] in ADMIN_ROLES and _admins() <= 1):
+            return
+        if not _setter_still_may(row, user):
+            remove("user", user_id)
             return
         accounts.delete(user, deleted_by=None)
 

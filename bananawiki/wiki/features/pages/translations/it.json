@@ -38,6 +38,7 @@
   "pages.category.rename": "Rinomina",
   "pages.category.sequential": "Link precedente/successiva",
   "pages.category.sequential_hint": "Mostra in fondo a ogni pagina i link alla pagina precedente e successiva.",
+  "pages.category.subcategories": "Sottocategorie",
   "pages.category.top_level": "Livello principale",
   "pages.confirm.delete": "Eliminare la pagina «{title}»?",
   "pages.confirm.delete_category": "Eliminare la categoria «{name}»?",

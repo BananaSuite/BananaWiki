@@ -13,7 +13,9 @@ and the delivery log). The ``api_service.webhooks`` job sends due deliveries:
 * Requests go through :mod:`bananawiki.core.http`: the destination is
   resolved and checked before connecting (no private or loopback addresses
   unless the webhook allows the local network, never link-local or metadata
-  addresses), redirects are not followed, time and size are bounded.
+  addresses), redirects are not followed, time and size are bounded. Under
+  managed hosting (``BW_MANAGED_HOSTING``) the local network is the host's,
+  so it can never be allowed: the switch is refused and a stored one ignored.
 * A delivery that does not get a 2xx answer is retried with growing delays
   (:data:`BACKOFF_SECONDS`) and then marked ``failed``; a destination that is
   not allowed fails at once. Deliveries are kept for :data:`RETENTION_DAYS`.
@@ -211,6 +213,24 @@ def secret_of(hook: dict[str, Any]) -> str:
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 
+def private_network_offered() -> bool:
+    """Whether a webhook may be allowed to reach the local network (never under managed hosting)."""
+    return not current_app.config["BW"].managed_hosting
+
+
+def _private_network(hook: dict[str, Any]) -> bool:
+    """The switch as it applies now: a flag stored before the wiki became hosted is ignored."""
+    return bool(hook.get("allow_private_network")) and private_network_offered()
+
+
+def _allow_private(value: Any) -> int:
+    if not value:
+        return 0
+    if not private_network_offered():
+        raise ApiError(403, "private_network_managed", extra={"field": "allow_private_network"})
+    return 1
+
+
 def _url(value: Any) -> str:
     if not isinstance(value, str) or not value.strip():
         raise invalid("url", "required")
@@ -254,7 +274,8 @@ def all_webhooks() -> list[dict[str, Any]]:
 def create(*, url: Any, events: Any, description: Any = "", active: bool = True, allow_private: bool = False,
            created_by: str | None) -> tuple[dict[str, Any], str]:
     """Register a webhook; return it and its secret (shown once)."""
-    values = {"url": _url(url), "events": json.dumps(_events(events)), "description": _description(description)}
+    values = {"url": _url(url), "events": json.dumps(_events(events)), "description": _description(description),
+              "allow_private_network": _allow_private(allow_private)}
     secret = new_secret()
     with db.transaction():
         if int(db.scalar("SELECT COUNT(*) FROM api_service__webhooks", default=0)) >= MAX_WEBHOOKS:
@@ -262,7 +283,7 @@ def create(*, url: Any, events: Any, description: Any = "", active: bool = True,
         now = now_sql()
         webhook_id = db.insert("api_service__webhooks", {
             **values, "secret": crypto.encrypt(_secret_key(), secret), "active": 1 if active else 0,
-            "allow_private_network": 1 if allow_private else 0, "created_by": created_by,
+            "created_by": created_by,
             "created_at": now, "updated_at": now,
         })
     return get(webhook_id), secret  # type: ignore[return-value]
@@ -283,7 +304,7 @@ def update(hook: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
         if changes["active"]:
             values.update(consecutive_failures=0, failing_since=None)
     if "allow_private_network" in changes:
-        values["allow_private_network"] = 1 if changes["allow_private_network"] else 0
+        values["allow_private_network"] = _allow_private(changes["allow_private_network"])
     if values:
         values["updated_at"] = now_sql()
         db.update("api_service__webhooks", values, "id = ?", (hook["id"],))
@@ -321,7 +342,7 @@ def public_view(hook: dict[str, Any]) -> dict[str, Any]:
         "description": hook.get("description") or "",
         "events": subscribed_events(hook),
         "active": bool(hook["active"]),
-        "allow_private_network": bool(hook.get("allow_private_network")),
+        "allow_private_network": _private_network(hook),
         "consecutive_failures": int(hook.get("consecutive_failures") or 0),
         "failing_since": iso(hook.get("failing_since")),
         "last_delivery_at": iso(hook.get("last_delivery_at")),
@@ -438,7 +459,7 @@ def _send(hook: dict[str, Any], row: dict[str, Any], transport: Transport) -> tu
     try:
         response = transport("POST", hook["url"], headers=headers, body=body, timeout=REQUEST_TIMEOUT,
                              total_timeout=REQUEST_TOTAL_TIMEOUT, max_bytes=MAX_RESPONSE_BYTES,
-                             allow_private=bool(hook.get("allow_private_network")), schemes=SCHEMES)
+                             allow_private=_private_network(hook), schemes=SCHEMES)
     except http.BlockedDestination:
         return None, "blocked_destination", True
     except http.HttpError:

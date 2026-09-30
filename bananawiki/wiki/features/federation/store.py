@@ -58,6 +58,16 @@ def encrypt_legacy_secrets() -> None:
                        (crypto.encrypt(_key(), row["secret"]), row["wiki_id"]))
 
 
+def private_network_offered() -> bool:
+    """Whether a peer may be allowed on the local network: never under managed hosting (the host's network)."""
+    return not current_app.config["BW"].managed_hosting
+
+
+def private_network(peer: dict[str, Any]) -> bool:
+    """The peer's switch as it applies now; a flag stored before the wiki became hosted is ignored."""
+    return bool(peer.get("allow_private_network")) and private_network_offered()
+
+
 def peers() -> list[dict[str, Any]]:
     return db.all(
         "SELECT wiki_id, name, base_url, audience_category, allow_private_network, last_sequence, last_success, "
@@ -77,6 +87,8 @@ def pair(remote_id: str, name: str, origin: str, secret: str, *, category: int |
     name = " ".join((name or "").split())
     if not name or len(name) > 100 or remote_id == identity():
         raise ProtocolError("federation.error.name")
+    if allow_private and not private_network_offered():
+        raise ProtocolError("federation.error.private_network_managed")
     with db.transaction():
         existing = db.all("SELECT wiki_id, base_url, secret FROM federation_peers")
         if len(existing) >= protocol.MAX_PEERS:

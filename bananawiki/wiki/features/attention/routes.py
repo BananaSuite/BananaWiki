@@ -67,6 +67,9 @@ def dismiss_all():
 
 @bp.post("/settings/notifications")
 def save_preferences():
+    # The address receives this account's mail: not something to change while impersonating it.
+    if auth.is_impersonating():
+        abort(403)
     user = auth.current_user()
     try:
         service.set_email(user["id"], request.form.get("email", ""))

@@ -70,7 +70,10 @@ What happens:
    meanwhile. A failure here leaves everything as it was and records the
    commit as failed.
 4. A snapshot of `data/`, `site/` and the configuration is taken while the
-   wiki still runs (online SQLite copies, hard links for uploads).
+   wiki still runs (consistent SQLite copies, hard links for uploads; on
+   hosting servers the files of hosted wikis are always copied, by
+   descriptor and without following links, because their containers keep
+   writing them).
 5. The services stop, the snapshot is refreshed (only what changed), the
    `current` link switches to the new release, units are rewritten, and the
    services start. The database is upgraded by the new release when it
@@ -79,8 +82,10 @@ What happens:
    hosting servers every running wiki), the snapshot is put back, the old
    release is switched back in and started. The result is `rolled_back`.
 7. After success, a portable package `backups/before-update-<time>.tar.gz` is
-   written from the snapshot **after** the site is back up, and recorded as
-   the rollback target. Older `before-update-*` and `auto-*` packages beyond
+   written from the snapshot **after** the site is back up, verified as a
+   restore would verify it, and only then recorded as the rollback target
+   (a package that fails verification is deleted, the update reports a
+   `backup_warning` and the previous rollback target stays). Older `before-update-*` and `auto-*` packages beyond
    the retention count (3 by default), old releases and old tenant images
    are removed.
 
@@ -150,7 +155,9 @@ data directory (including the secret key), the site, the configuration
 (`app.env`, source settings and credentials) and the source of the deployed
 commit. **It contains secrets**: store it like a password. The format is the
 one 1.4 used; packages move in both directions. The wiki is stopped only for
-the moment a consistent copy is taken.
+the moment a consistent copy is taken. Every new package is read back and
+verified (checksums, database integrity) before the command reports it; a
+package that fails is deleted and the command fails.
 
 Manual packages are never pruned automatically.
 
@@ -177,9 +184,20 @@ sudo bananawiki backups status
   file with mode 0600. For Forgejo use `--forge forgejo` and its HTTPS URL.
 * Every transfer first checks through the forge's API that the repository is
   private (not public, archived or a mirror).
-* `run` creates a package, encrypts it, uploads it in parts of at most 32 MiB,
-  downloads and verifies it again, and only then prunes old snapshots of the
-  series (`--keep`, 2–30). `--max-mib` (1–1024, default 512) caps the package.
+* `run` creates and verifies a package, encrypts it, uploads it in parts of
+  at most 32 MiB, downloads and verifies it again, and only then prunes old
+  snapshots of the series (`--keep`, 2–30). `--max-mib` (1–1024, default 512)
+  caps the package.
+* Snapshots are **authenticated**. age encrypts to the recovery key's public
+  recipient, which is stored in the repository, so anyone who can push to it
+  could otherwise upload a snapshot that decrypts and verifies, and a restore
+  deploys a package's source and `app.env` as root. Each snapshot's
+  `index.json` therefore carries an HMAC-SHA256 (keyed from the recovery
+  key, which is never uploaded) over the snapshot's series, ID and the
+  checksum of every encrypted part. `verify`, `download` and `restore` check
+  it before decrypting anything and refuse a snapshot without a valid tag.
+  The recovery key is the only secret this needs: nothing else has to be
+  saved for a restore on a new server.
 * `enable --interval MINUTES` (60–10080, default 1440) schedules
   `bananawiki-backup.timer`; `disable` stops it. The schedule is independent of
   automatic updates. Failures appear in `journalctl -u bananawiki-backup` and
@@ -196,6 +214,15 @@ sudo bananawiki backups restore SNAPSHOT_ID [--domain NAME] [--port N] [--name S
 On a new server, run `sudo ./banana --root /opt/bananawiki backups configure …`
 from a checkout with the same repository, series name and key, then
 `backups list` and `backups restore SNAPSHOT_ID`.
+
+Snapshots uploaded by releases that did not authenticate them (1.4, and 1.6
+builds before this check) have no tag and are refused with *"This snapshot is
+not authenticated"*. Such a snapshot is indistinguishable from one forged by
+anyone with write access to the repository. If you trust everyone who could
+push to the repository since the snapshot was made, add
+`--allow-unauthenticated` to `verify`, `download` or `restore`. A snapshot
+whose tag does not match is always refused. Take a new `backups run` after
+updating so the series holds authenticated snapshots.
 
 ### Any installation
 
@@ -348,7 +375,7 @@ installation. Results are printed as JSON. Exit status: 0 success, 1 error,
 | `status` | Installation status. |
 | `start`, `stop`, `restart`, `recover` | Service control; `restart` also rewrites units; `recover` finishes an interrupted operation. |
 | `proxy [--install [--replace]] [--email ADDRESS]` | Print or install the Caddy configuration. |
-| `backups keygen\|configure\|status\|list\|run\|enable\|disable\|verify\|download\|restore` | Encrypted Git backups (see above). |
+| `backups keygen\|configure\|status\|list\|run\|enable\|disable\|verify\|download\|restore` | Encrypted Git backups (see above); `verify`, `download` and `restore` take `--allow-unauthenticated` for snapshots made before authentication. |
 | `uninstall [--purge --confirm NAME]` | Remove the services. |
 | `agent serve\|status [--socket PATH]` | Hosting runtime agent (`serve` is run by its unit; `status` pings it). |
 | `create-admin`, `reset-password`, `db`, `jobs`, `config`, `setup-token` | Passed to the release's `bananawiki` command as the service user (wiki installations). |
