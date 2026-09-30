@@ -1,0 +1,65 @@
+{#- Fields shared by the create and edit forms. `form` is an AnnouncementInput. -#}
+{% macro fields(form, service, editing=false) -%}
+<div class="field">
+  <label for="a-content">{{ t('announcements.content') }}</label>
+  <textarea id="a-content" name="content" rows="4" maxlength="{{ service.MAX_CONTENT }}" required>{{ form.content }}</textarea>
+  <p class="hint">{{ t('announcements.content_hint') }}</p>
+</div>
+<div class="form-grid">
+  <div class="field">
+    <label for="a-color">{{ t('announcements.color') }}</label>
+    <select id="a-color" name="color">
+      {% for value in service.COLORS %}<option value="{{ value }}"{% if form.color == value %} selected{% endif %}>{{ t('announcements.color.' + value) }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="a-size">{{ t('announcements.text_size') }}</label>
+    <select id="a-size" name="text_size">
+      {% for value in service.SIZES %}<option value="{{ value }}"{% if form.text_size == value %} selected{% endif %}>{{ t('announcements.size.' + value) }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="a-visibility">{{ t('announcements.show_to') }}</label>
+    <select id="a-visibility" name="visibility">
+      {% for value in service.VISIBILITIES %}<option value="{{ value }}"{% if form.visibility == value %} selected{% endif %}>{{ t('announcements.visibility.' + value) }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="a-expires">{{ t('announcements.expires_at') }}</label>
+    <input id="a-expires" type="datetime-local" name="expires_at" value="{{ form.expires_input }}">
+    <p class="hint">{{ t('announcements.expires_hint') }}</p>
+  </div>
+</div>
+<div class="form-grid">
+  <div class="field">
+    <label for="a-audience">{{ t('announcements.audience') }}</label>
+    <select id="a-audience" name="audience_mode">
+      {% for value in service.AUDIENCES %}<option value="{{ value }}"{% if form.audience_mode == value %} selected{% endif %}>{{ t('announcements.audience.' + value) }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="a-audience-users">{{ t('announcements.audience_users') }}</label>
+    <input id="a-audience-users" name="audience_users" value="{{ form.audience_usernames }}" autocomplete="off">
+    <p class="hint">{{ t('announcements.audience_users_hint') }}</p>
+  </div>
+</div>
+<fieldset class="stack">
+  <legend>{{ t('announcements.options') }}</legend>
+  {% if editing %}
+  <label class="check"><input type="checkbox" name="is_active" value="1"{% if form.is_active %} checked{% endif %}> <span>{{ t('announcements.active') }}</span></label>
+  {% endif %}
+  <label class="check"><input type="checkbox" name="not_removable" value="1"{% if form.not_removable %} checked{% endif %}> <span>{{ t('announcements.not_removable') }}</span></label>
+  <label class="check"><input type="checkbox" name="show_countdown" value="1"{% if form.show_countdown %} checked{% endif %}> <span>{{ t('announcements.show_countdown') }}</span></label>
+  <label class="check"><input type="checkbox" name="custom_colors" value="1"{% if form.custom_colors %} checked{% endif %}> <span>{{ t('announcements.custom_colors') }}</span></label>
+  <div class="cluster">
+    <label class="cluster" for="a-bg">{{ t('announcements.background') }} <input id="a-bg" type="color" name="custom_background" value="{{ form.custom_background or '#24304f' }}"></label>
+    <label class="cluster" for="a-fg">{{ t('announcements.text_color') }} <input id="a-fg" type="color" name="custom_text_color" value="{{ form.custom_text_color or '#ffffff' }}"></label>
+  </div>
+</fieldset>
+{%- endmacro %}
+
+{% macro error_list(errors) -%}
+{% if errors %}
+<div class="alert alert--error" role="alert"><div class="alert__body"><ul>{% for message in errors %}<li>{{ message }}</li>{% endfor %}</ul></div></div>
+{% endif %}
+{%- endmacro %}

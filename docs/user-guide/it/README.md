@@ -1,24 +1,25 @@
 # Guida utente di BananaWiki
 
-Questa cartella contiene la versione su disco della guida utente di BananaWiki. È lo stesso testo che viene creato all'interno della wiki dalla funzione **Spawn documentation** (Admin → Impostazioni del sito → Wiki Documentation), e viene generato automaticamente dal modulo Python `db/_wiki_docs.py` tramite `scripts/sync_user_guide_docs.py`.
+Per chi legge e scrive in una BananaWiki. Gli amministratori trovano la
+documentazione tecnica (in inglese) nell'[indice della documentazione](../../README.md).
 
-Per modificare la guida:
+Quello che vedi dipende dal tuo ruolo e dalle funzioni attivate nella tua
+wiki. Se manca qualcosa di quanto descritto qui, chiedi a un amministratore.
 
-1. Modifica direttamente i file `.md` di questa cartella, oppure modifica le stringhe dentro `db/_wiki_docs.py`.
-2. Esegui `python scripts/sync_user_guide_docs.py` per riallineare i due lati (la sorgente Python è il riferimento ufficiale).
-3. Per pubblicare le modifiche dentro una wiki reale, usa **Admin → Site Settings → Wiki Documentation → Download ZIP**, modifica i file in locale e re-importali con **Bulk Markdown Import**, oppure ri-spawna la documentazione standard.
+1. [Leggere e trovare](lettura.md): la barra laterale, la ricerca, le pagine,
+   l'ascolto di una pagina.
+2. [Scrivere le pagine](scrittura.md): creare e modificare, Markdown,
+   immagini e file, bozze, cronologia, conflitti.
+3. [Organizzare la wiki](organizzazione.md): categorie, spostare e
+   rinominare, nascondere ed eliminare, protezione e prenotazioni, proposte
+   di modifica.
+4. [Lavorare insieme](collaborazione.md): chat e gruppi, bacheche kanban,
+   canvas, quiz, annunci, distintivi.
+5. [Il tuo account](account.md): profilo, visualizzazione, password, sessioni,
+   esportazione dei dati, token API.
+6. [Amministrare la wiki](amministrazione.md): un breve giro dell'area di
+   amministrazione per i nuovi amministratori.
 
-## Pagine
-
-- [Benvenuto in BananaWiki](bananawiki-welcome.md)
-- [Pagine e Modifica](bananawiki-pages-editing.md)
-- [Categorie e Navigazione](bananawiki-categories-navigation.md)
-- [Ruoli e Permessi](bananawiki-roles-permissions.md)
-- [Guida amministratore](bananawiki-admin-guide.md)
-- [Chat e Messaggistica](bananawiki-chat-messaging.md)
-- [Bacheche Kanban](bananawiki-kanban-boards.md)
-- [Layout Canvas](bananawiki-canvas.md)
-- [Badge e Traguardi](bananawiki-badges.md)
-- [Plugin ed Estensioni](bananawiki-plugins.md)
-- [Riferimento API per sviluppatori](bananawiki-api-reference.md)
-- [Sicurezza e Backup](bananawiki-security.md)
+La stessa guida esiste in [inglese](../en/README.md). Gli amministratori
+possono anche aggiungerne una versione nella wiki stessa:
+**Amministrazione → Documentazione**.

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ t('assessments.points_title') }}{% endblock %}
+{% block content %}
+<div class="page-header"><h1>{{ t('assessments.points_title') }}</h1></div>
+<div class="card">
+  <div class="stat">
+    <span class="stat__value">{{ total }}</span>
+    <span class="stat__label">{{ t('assessments.points_total') }}</span>
+  </div>
+  <p class="hint">{{ t('assessments.points_explained') }}</p>
+</div>
+{% if not sources %}
+<div class="empty-state">{{ t('assessments.no_attempts_yet') }}</div>
+{% else %}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr>
+      <th scope="col">{{ t('assessments.quiz') }}</th>
+      <th scope="col">{{ t('assessments.page') }}</th>
+      <th scope="col">{{ t('assessments.attempt') }}</th>
+      <th scope="col">{{ t('assessments.score') }}</th>
+      <th scope="col">{{ t('assessments.submitted_at') }}</th>
+    </tr></thead>
+    <tbody>
+    {% for row in sources %}
+      <tr>
+        <td><a href="{{ url_for('assessments.attempt', slug=row.page_slug, attempt_id=row.attempt_id) }}">{{ row.assessment_title or row.page_title }}</a></td>
+        <td><a href="{{ url_for('pages.view', slug=row.page_slug) }}">{{ row.page_title }}</a></td>
+        <td>{{ row.attempt_number }}</td>
+        <td><strong>{{ row.total_points }}/{{ row.max_points }}</strong></td>
+        <td class="nowrap">{{ row.submitted_at|datetime }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

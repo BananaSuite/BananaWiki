@@ -1,0 +1,17 @@
+{#- Username/password form. Expects: action, username, next_url, submit_label, show_remember. -#}
+<form method="post" action="{{ action }}" class="form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="next" value="{{ next_url }}">
+  <div class="field">
+    <label for="username">{{ t('auth.field.username') }}</label>
+    <input id="username" name="username" value="{{ username }}" autocomplete="username" required maxlength="50"{% if not username %} autofocus{% endif %}>
+  </div>
+  <div class="field">
+    <label for="password">{{ t('auth.field.password') }}</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024"{% if username %} autofocus{% endif %}>
+  </div>
+  {% if show_remember %}
+  <label class="check"><input type="checkbox" name="remember_me" value="1"> <span>{{ t('auth.login.remember_me') }}</span></label>
+  {% endif %}
+  <button class="btn btn--primary" type="submit">{{ submit_label }}</button>
+</form>

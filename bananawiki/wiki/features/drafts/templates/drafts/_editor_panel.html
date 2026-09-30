@@ -1,0 +1,43 @@
+{#- Drafts panel inside the page editor form. Buttons that change drafts submit the editor form to
+    another URL (formaction), so they work without JavaScript; only the CSRF token is used there.
+    Context: page, draft, others, can_save, can_delete, can_transfer, stale, offer_restore, close_url. -#}
+<div class="drafts-panel" data-drafts
+  data-page-id="{{ page.id }}"
+  data-save-url="{{ url_for('drafts.api_save') if can_save else '' }}"
+  data-load-url="{{ url_for('drafts.api_load', page_id=page.id) }}"
+  data-others-url="{{ url_for('drafts.api_others', page_id=page.id) }}"
+  data-transfer-url="{{ url_for('drafts.transfer', page_id=page.id) if can_transfer else '' }}"
+  data-close-url="{{ close_url }}">
+  {% if draft %}
+  <div class="alert alert--{{ 'warning' if stale else 'info' }}" data-draft-notice>
+    <div class="alert__body">
+      <p>{{ t('drafts.editor.have_draft', when=draft.updated_at|time_ago) }}</p>
+      {% if stale %}<p>{{ t('drafts.editor.stale') }}</p>{% endif %}
+      <div class="cluster">
+        {% if offer_restore %}<button type="button" class="btn btn--small btn--primary" data-draft-restore hidden>{{ t('drafts.editor.restore') }}</button>{% endif %}
+        {% if can_delete %}<button type="submit" class="btn btn--small" formaction="{{ url_for('drafts.discard', page_id=page.id) }}" formnovalidate name="next" value="{{ url_for('pages.edit', slug=page.slug) }}" data-confirm="{{ t('drafts.editor.discard_confirm') }}">{{ t('drafts.editor.discard') }}</button>{% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  <div class="alert alert--warning" data-draft-others{% if not others %} hidden{% endif %}>
+    <div class="alert__body">
+      <p>{{ t('drafts.editor.others') }}</p>
+      <ul class="drafts-panel__others" data-draft-others-list>
+        {% for other in others %}
+        <li><strong>{{ other.username }}</strong> <span class="small muted">{{ other.updated_at|time_ago }}</span>
+          {% if can_transfer %}<button type="submit" class="btn btn--small btn--ghost" formaction="{{ url_for('drafts.transfer', page_id=page.id) }}" formnovalidate name="from_user_id" value="{{ other.user_id }}" data-confirm="{{ t('drafts.editor.transfer_confirm', user=other.username) }}">{{ t('drafts.editor.transfer') }}</button>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="small">{{ t('drafts.editor.credit') }}</p>
+    </div>
+  </div>
+  {% if can_save %}
+  <div class="cluster">
+    <button type="button" class="btn btn--small" data-draft-close hidden>{{ t('drafts.editor.save_close') }}</button>
+    <span class="small muted" data-draft-status aria-live="polite"></span>
+  </div>
+  {% endif %}
+</div>
+<script src="{{ asset_url('drafts.js', blueprint='drafts') }}" defer></script>

@@ -1,0 +1,41 @@
+/* Chat pages. Uses the design-system tokens only. */
+.chat-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+.chat-list__item { display: grid; grid-template-columns: 1fr auto; gap: .15rem .75rem; padding: .75rem 1rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--bw-text); }
+.chat-list__item:hover { text-decoration: none; border-color: var(--border-strong); }
+.chat-list__name { font-weight: 600; overflow-wrap: anywhere; }
+.chat-list__preview { grid-column: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-list__time { grid-column: 2; grid-row: 1; }
+
+.chat { position: relative; margin-bottom: 1rem; }
+.chat__older, .chat__notice { text-align: center; margin: 0 0 .5rem; }
+.chat__log { list-style: none; margin: 0; padding: .75rem; display: flex; flex-direction: column; gap: .6rem;
+  height: min(62vh, 640px); overflow-y: auto; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); overscroll-behavior: contain; }
+.chat__empty { text-align: center; }
+.chat__jump { position: absolute; left: 50%; bottom: 1rem; transform: translateX(-50%); box-shadow: var(--shadow); }
+
+.chat-msg { max-width: min(85%, 640px); align-self: flex-start; padding: .45rem .7rem; border-radius: var(--radius);
+  background: var(--surface-2); overflow-wrap: anywhere; }
+.chat-msg--mine { align-self: flex-end; background: color-mix(in srgb, var(--bw-primary) 22%, var(--surface)); }
+.chat-msg--system { align-self: center; max-width: 100%; background: none; padding: 0; }
+.chat-msg__system { margin: 0; font-size: .85rem; color: var(--muted); text-align: center; }
+.chat-msg__meta { display: flex; flex-wrap: wrap; gap: .1rem .5rem; align-items: baseline; font-size: .85rem; }
+.chat-msg__time { color: var(--muted); font-size: .78rem; }
+.chat-msg__body { margin: .15rem 0 0; white-space: pre-wrap; }
+.chat-msg__body--deleted { font-style: italic; color: var(--muted); }
+.chat-msg__files { margin: .3rem 0 0; padding-left: 1.1rem; font-size: .9rem; }
+.chat-msg__delete { margin-top: .2rem; text-align: right; }
+
+.chat-composer { display: grid; gap: .5rem; }
+.chat-composer textarea { width: 100%; resize: vertical; min-height: 3.2rem; }
+.chat-composer__actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.chat-composer__actions .btn--primary { margin-left: auto; }
+.chat-composer__file { cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.chat-composer__file:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+.chat-composer__hint { margin: 0; }
+
+.chat-panel { margin-bottom: 1rem; }
+.chat-panel > summary { cursor: pointer; font-weight: 600; }
+.chat-panel[open] > summary { margin-bottom: .75rem; }
+.chat-badge-list { list-style: none; padding: 0; margin: 0; gap: .5rem; }

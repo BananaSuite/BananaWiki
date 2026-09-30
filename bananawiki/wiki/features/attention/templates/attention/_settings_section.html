@@ -1,0 +1,16 @@
+{% import "macros/forms.html" as forms with context %}
+<section class="card" id="notifications" aria-labelledby="notifications-heading">
+  <h2 id="notifications-heading">{{ t('attention.settings.title') }}</h2>
+  <p class="hint">{{ t('attention.settings.help') }}</p>
+  {% if not mail_ready %}<p class="hint">{{ t('attention.settings.mail_off') }}</p>{% endif %}
+  <form method="post" action="{{ url_for('attention.save_preferences') }}" class="form">
+    {{ forms.csrf() }}
+    {{ forms.field('email', t('attention.settings.email'), user.email or '', type='email', hint=t('attention.settings.email_hint'), attrs={'maxlength': 254, 'autocomplete': 'email'}) }}
+    {% if reviewer %}
+    <input type="hidden" name="attention_choice" value="1">
+    {{ forms.checkbox('attention_emails', t('attention.settings.attention_emails'), user.attention_emails, hint=t('attention.settings.attention_emails_hint')) }}
+    {% endif %}
+    {{ forms.checkbox('decision_emails', t('attention.settings.decision_emails'), user.decision_emails) }}
+    <div><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+  </form>
+</section>

@@ -1,0 +1,7 @@
+{
+  "hello_plugin.created": "Pages created while this plugin was enabled: {count}",
+  "hello_plugin.description": "Example plugin: a page, a sidebar app, a table of its own and an event handler.",
+  "hello_plugin.greeting": "Hello, {name}!",
+  "hello_plugin.name": "Hello Plugin",
+  "hello_plugin.nav": "Hello"
+}

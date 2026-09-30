@@ -1,0 +1,21 @@
+{#- Shared pieces of the attention templates. -#}
+{% macro plural(key, count) -%}
+{{ t(key ~ ('_one' if count == 1 else '_other'), count=count) }}
+{%- endmacro %}
+
+{% macro entry_list(entries, show_oldest=false) -%}
+<ul class="attention-list">
+  {% for entry in entries %}
+  <li class="attention-list__item">
+    <span class="attention-list__label">
+      <a href="{{ entry.url }}">{{ t(entry.label) }}</a>
+      {% if show_oldest and entry.oldest %}<span class="hint">{{ t('attention.oldest', when=entry.oldest|time_ago) }}</span>{% endif %}
+    </span>
+    <span class="cluster">
+      <span class="count-pill" aria-label="{{ plural('attention.waiting', entry.count) }}">{{ entry.count }}</span>
+      <a class="btn btn--small" href="{{ entry.url }}">{{ t('attention.review') }}</a>
+    </span>
+  </li>
+  {% endfor %}
+</ul>
+{%- endmacro %}

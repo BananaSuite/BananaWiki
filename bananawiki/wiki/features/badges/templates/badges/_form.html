@@ -1,0 +1,24 @@
+{#- Badge type fields. Expects `values` (a badge or the submitted form) and `triggers`. -#}
+{% import "macros/forms.html" as forms with context %}
+<div class="form-grid">
+  {{ forms.field('name', t('common.name'), values.name, required=true, attrs={'maxlength': 100}) }}
+  {{ forms.field('icon', t('badges.field.icon'), values.icon or '🏆', attrs={'maxlength': 10}) }}
+  <div class="field">
+    <label for="f-color">{{ t('badges.field.color') }}</label>
+    <input id="f-color" name="color" type="color" value="{{ values.color or '#ffd700' }}">
+  </div>
+</div>
+{{ forms.textarea('description', t('common.description'), values.description, rows=2) }}
+<div class="form-grid">
+  <div class="field">
+    <label for="f-trigger_type">{{ t('badges.field.trigger') }}</label>
+    <select id="f-trigger_type" name="trigger_type">
+      <option value="">{{ t('badges.trigger.manual') }}</option>
+      {% for trigger in triggers %}<option value="{{ trigger }}"{% if values.trigger_type == trigger %} selected{% endif %}>{{ t('badges.trigger.' ~ trigger) }}</option>{% endfor %}
+    </select>
+  </div>
+  {{ forms.field('trigger_threshold', t('badges.field.threshold'), values.trigger_threshold or 0, type='number', hint=t('badges.field.threshold_hint'), attrs={'min': 0}) }}
+</div>
+{{ forms.checkbox('enabled', t('badges.field.enabled'), values.enabled) }}
+{{ forms.checkbox('auto_trigger', t('badges.field.auto'), values.auto_trigger, hint=t('badges.field.auto_hint')) }}
+{{ forms.checkbox('allow_multiple', t('badges.field.multiple'), values.allow_multiple, hint=t('badges.field.multiple_hint')) }}

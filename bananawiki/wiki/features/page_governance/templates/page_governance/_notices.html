@@ -1,0 +1,24 @@
+{% if protection %}
+<div class="alert alert--warning" role="status"><div class="alert__body">
+  {% if protection.is_controller %}
+  {{ t('page_governance.notice.protected_by_you', since=protection.protected_at|datetime) }}
+  {% else %}
+  {{ t('page_governance.notice.protected_by', user=protection.controller_name or t('common.unknown_user'), since=protection.protected_at|datetime) }}
+  {% endif %}
+  {% if protection.unlock_requested_at %}
+  <br>{{ t('page_governance.notice.unlock_requested', user=protection.unlock_requested_by_name or t('common.unknown_user'), ready=protection.unlock_ready_at|datetime) }}
+  {% endif %}
+</div></div>
+{% endif %}
+{% if reservation and reservation.reservation %}
+<div class="alert {{ 'alert--success' if reservation.mine else 'alert--warning' }}" role="status"><div class="alert__body">
+  {% if reservation.mine %}
+  {{ t('page_governance.notice.reserved_by_you', until=reservation.reservation.expires_at|datetime) }}
+  {% else %}
+  {{ t('page_governance.notice.reserved_by', user=reservation.reservation.username, until=reservation.reservation.expires_at|datetime) }}
+  {% if reservation.admin_override %}<br>{{ t('page_governance.notice.admin_override') }}{% endif %}
+  {% endif %}
+</div></div>
+{% elif reservation and reservation.cooldown_until %}
+<div class="alert" role="status"><div class="alert__body">{{ t('page_governance.notice.cooldown', until=reservation.cooldown_until|datetime) }}</div></div>
+{% endif %}

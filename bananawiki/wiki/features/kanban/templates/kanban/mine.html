@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{{ t('kanban.mine.title') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('kanban.css', blueprint='kanban') }}">{% endblock %}
+{% block content %}
+<nav class="breadcrumbs no-print" aria-label="{{ t('kanban.breadcrumbs') }}">
+  <ol><li><a href="{{ url_for('kanban.index') }}">{{ t('kanban.list.title') }}</a></li></ol>
+</nav>
+<header class="page-header">
+  <h1>{{ t('kanban.mine.title') }}</h1>
+  <div class="page-header__meta"><span>{{ t('kanban.mine.count', count=total) }}</span></div>
+</header>
+<form class="kanban-filter no-print{% if filter.active %} is-active{% endif %}" method="get" action="{{ url_for('kanban.mine') }}" role="search" aria-label="{{ t('kanban.filter.label') }}">
+  <div class="kanban-filter__field kanban-filter__field--search">
+    <label for="kanban-mine-q">{{ t('kanban.filter.search') }}</label>
+    <input type="search" id="kanban-mine-q" name="q" maxlength="200" value="{{ filter.q }}" placeholder="{{ t('kanban.filter.search_placeholder') }}">
+  </div>
+  <div class="kanban-filter__field">
+    <label for="kanban-mine-label">{{ t('kanban.field.labels') }}</label>
+    <input type="text" id="kanban-mine-label" name="label" maxlength="40" value="{{ filter.label }}" placeholder="{{ t('kanban.filter.any_label') }}">
+  </div>
+  <div class="kanban-filter__field">
+    <label for="kanban-mine-priority">{{ t('kanban.field.priority') }}</label>
+    <select id="kanban-mine-priority" name="priority">
+      <option value="">{{ t('kanban.filter.any_priority') }}</option>
+      {% for p in ('critical', 'high', 'medium', 'low') %}<option value="{{ p }}"{% if filter.priority == p %} selected{% endif %}>{{ t('kanban.priority.' ~ p) }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="kanban-filter__field">
+    <label for="kanban-mine-due">{{ t('kanban.field.due_date') }}</label>
+    <select id="kanban-mine-due" name="due">
+      <option value="">{{ t('kanban.filter.any_due') }}</option>
+      {% for d in ('overdue', 'soon', 'week', 'none') %}<option value="{{ d }}"{% if filter.due == d %} selected{% endif %}>{{ t('kanban.filter.due.' ~ d) }}</option>{% endfor %}
+    </select>
+  </div>
+  <button type="submit" class="btn btn--small btn--primary">{{ t('kanban.filter.apply') }}</button>
+  {% if filter.active %}<a class="btn btn--small" href="{{ url_for('kanban.mine') }}">{{ t('kanban.filter.clear') }}</a>{% endif %}
+</form>
+{% if limited %}<p class="alert alert--info">{{ t('kanban.mine.limited', count=total) }}</p>{% endif %}
+{% if not groups %}
+{% if filter.active %}
+<div class="empty-state card"><h2>{{ t('kanban.mine.no_match') }}</h2></div>
+{% else %}
+<div class="empty-state card"><h2>{{ t('kanban.mine.empty') }}</h2><p>{{ t('kanban.mine.empty_help') }}</p></div>
+{% endif %}
+{% endif %}
+{% for name, tickets in groups %}
+<section class="kanban-mine" aria-labelledby="kanban-mine-{{ name }}">
+  <h2 id="kanban-mine-{{ name }}" class="kanban-mine__heading kanban-mine__heading--{{ name }}">{{ t('kanban.mine.group.' ~ name) }} <span class="badge">{{ tickets|length }}</span></h2>
+  <ul class="kanban-mine__list">
+    {% for ticket in tickets %}
+    <li class="kanban-card kanban-card--static">
+      <div class="kanban-card__main">
+        <a class="kanban-mine__title" href="{{ url_for('kanban.board', board_id=ticket.board_id, _anchor='ticket-' ~ ticket.id) }}">{{ ticket.title }}</a>
+        <p class="small muted kanban-mine__where">{{ t('kanban.mine.where', board=ticket.board_title, column=ticket.column_title) }}</p>
+        <div class="kanban-card__meta">
+          {% if ticket.priority != 'medium' %}<span class="badge kanban-priority--{{ ticket.priority }}">{{ t('kanban.priority.' ~ ticket.priority) }}</span>{% endif %}
+          {% if ticket.due_date %}<span class="badge{% if name == 'overdue' %} kanban-due--overdue{% elif name == 'today' %} kanban-due--soon{% endif %}">{{ t('kanban.mine.due', date=ticket.due_date) }}</span>{% endif %}
+          {% if ticket.checklist_total %}<span class="badge{% if ticket.checklist_done == ticket.checklist_total %} kanban-checklist--complete{% endif %}">{{ t('kanban.mine.checklist', done=ticket.checklist_done, total=ticket.checklist_total) }}</span>{% endif %}
+          {% for label in ticket.labels %}<span class="badge badge--primary">+{{ label }}</span>{% endfor %}
+        </div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endfor %}
+{% endblock %}

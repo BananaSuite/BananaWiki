@@ -1,9 +1,0 @@
-{
-    "id": "announcements",
-    "name": "Announcements",
-    "version": "1.0.0",
-    "author": "BananaWiki",
-    "description": "Announcement banners \u2013 display site-wide notification banners",
-    "builtin": true,
-    "bananawiki_api_version": "1.0"
-}

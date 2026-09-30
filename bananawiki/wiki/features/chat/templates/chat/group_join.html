@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ t('chat.groups.join') }}{% endblock %}
+{% block content %}
+<header class="page-header"><h1>{{ t('chat.groups.join') }}</h1></header>
+<div class="card">
+  <form method="post" class="form" action="{{ url_for('chat.group_join') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field">
+      <label for="invite-code">{{ t('chat.groups.invite_code') }}</label>
+      <input id="invite-code" name="invite_code" required maxlength="32" autocomplete="off" autocapitalize="off" spellcheck="false">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn--primary" type="submit">{{ t('chat.groups.join_button') }}</button>
+      <a class="btn" href="{{ url_for('chat.group_list') }}">{{ t('common.cancel') }}</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

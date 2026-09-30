@@ -1,0 +1,13 @@
+{% extends "base.html" if current_user else "base_minimal.html" %}
+{% block title %}{{ t('error.' ~ code ~ '.title', t('error.generic.title')) }}{% endblock %}
+{% block content %}
+<div class="card card--narrow empty-state">
+  <h1>{{ code }}</h1>
+  <h2>{{ t('error.' ~ code ~ '.title', t('error.generic.title')) }}</h2>
+  <p>{{ t('error.' ~ code ~ '.body', description or t('error.generic.body')) }}</p>
+  {% if request_id %}<p class="small muted">{{ t('error.reference', id=request_id) }}</p>{% endif %}
+  <p class="btn-row" style="justify-content:center">
+    <a class="btn btn--primary" href="/">{{ t('error.go_home') }}</a>
+  </p>
+</div>
+{% endblock %}

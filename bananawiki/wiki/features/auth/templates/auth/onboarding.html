@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('auth.onboarding.title') }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{{ t('auth.onboarding.heading_first_run' if first_run else 'auth.onboarding.heading_replay') }}</h1>
+</div>
+<p>{{ t('auth.onboarding.intro_first_run' if first_run else 'auth.onboarding.intro_replay') }}</p>
+{% if error %}<div class="alert alert--error" role="alert"><div class="alert__body">{{ error }}</div></div>{% endif %}
+<form method="post" class="form stack">
+  {{ forms.csrf() }}
+  <section class="card">
+    <h2>{{ t('auth.onboarding.basics') }}</h2>
+    {{ forms.field('site_name', t('auth.onboarding.site_name'), form.get('site_name') or site_name(), required=true, attrs={'maxlength': 100}) }}
+    {{ forms.select('language', t('auth.field.language'), languages.items()|list, form.get('language') or site().interface_language) }}
+    {{ forms.select('default_theme_mode', t('auth.onboarding.default_theme'),
+                    [('dark', t('auth.onboarding.theme_dark')), ('light', t('auth.onboarding.theme_light'))],
+                    form.get('default_theme_mode') or site().default_theme_mode) }}
+    {{ slot('auth.onboarding.fields') }}
+  </section>
+
+  <section class="card">
+    <h2>{{ t('auth.onboarding.features') }}</h2>
+    {% set mode = form.get('mode') or ('easy' if first_run else 'advanced') %}
+    <fieldset class="stack">
+      <legend class="visually-hidden">{{ t('auth.onboarding.mode') }}</legend>
+      <label class="check"><input type="radio" name="mode" value="easy"{% if mode == 'easy' %} checked{% endif %}>
+        <span>{{ t('auth.onboarding.mode_easy') }}<small>{{ t('auth.onboarding.mode_easy_help') }}</small></span></label>
+      <label class="check"><input type="radio" name="mode" value="advanced"{% if mode == 'advanced' %} checked{% endif %}>
+        <span>{{ t('auth.onboarding.mode_advanced') }}<small>{{ t('auth.onboarding.mode_advanced_help') }}</small></span></label>
+    </fieldset>
+    {% if features %}
+    <fieldset class="stack">
+      <legend>{{ t('auth.onboarding.feature_list') }}</legend>
+      {% for feature in features %}
+        {% set checked = (feature.id in form.getlist('features')) if form.get('mode') else feature.enabled %}
+        {{ forms.checkbox('features', t(feature.name), checked, t(feature.description) if feature.description else '', value=feature.id) }}
+      {% endfor %}
+    </fieldset>
+    {% endif %}
+    {{ forms.checkbox('new_user_intro_enabled', t('auth.onboarding.show_intro'),
+                      form.get('new_user_intro_enabled') if form.get('mode') else site().new_user_intro_enabled,
+                      t('auth.onboarding.show_intro_help')) }}
+  </section>
+
+  <section class="card">
+    <h2>{{ t('auth.onboarding.users') }}</h2>
+    <p class="hint">{{ t('auth.onboarding.users_help') }}</p>
+    {% for index in rows %}
+    <div class="form-grid">
+      <div class="field"><label for="nu-{{ index }}">{{ t('auth.field.username') }}</label>
+        <input id="nu-{{ index }}" name="new_username" maxlength="50" autocomplete="off"></div>
+      <div class="field"><label for="np-{{ index }}">{{ t('auth.onboarding.temporary_password') }}</label>
+        <input id="np-{{ index }}" name="new_password" type="password" maxlength="1024" autocomplete="new-password"></div>
+      <div class="field"><label for="nr-{{ index }}">{{ t('auth.onboarding.role') }}</label>
+        <select id="nr-{{ index }}" name="new_role">
+          {% for role in roles %}<option value="{{ role }}">{{ t('auth.role.' ~ role) }}</option>{% endfor %}
+        </select></div>
+      {{ forms.checkbox('new_force_password_change', t('auth.onboarding.force_password_change'), true, value=index) }}
+    </div>
+    {% endfor %}
+  </section>
+
+  <section class="card">
+    <h2>{{ t('auth.onboarding.docs') }}</h2>
+    <p class="hint">{{ t('auth.onboarding.docs_help') }}{% if docs_tracked %} {{ t('auth.onboarding.docs_replace') }}{% endif %}</p>
+    {{ forms.checkbox('spawn_docs', t('auth.onboarding.spawn_docs'), form.get('spawn_docs')) }}
+    {{ forms.select('docs_variant', t('auth.onboarding.docs_variant'),
+                    [('full', t('auth.onboarding.docs_full')), ('simplified', t('auth.onboarding.docs_simplified'))],
+                    form.get('docs_variant') or 'full') }}
+    {{ forms.select('docs_language', t('auth.onboarding.docs_language'),
+                    [('en', 'English'), ('it', 'Italiano')], form.get('docs_language') or lang) }}
+  </section>
+
+  <div class="btn-row">
+    <button class="btn btn--primary" type="submit">{{ t('auth.onboarding.finish' if first_run else 'auth.onboarding.update') }}</button>
+  </div>
+</form>
+{% endblock %}

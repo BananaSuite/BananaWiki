@@ -1,0 +1,87 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('site_admin.languages.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('site_admin.languages.title') }}</h1>
+  <p class="page-header__meta">{{ t('site_admin.languages.intro') }}</p>
+</header>
+
+<section class="card">
+  <h2>{{ t('site_admin.languages.installed') }}</h2>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr>
+        <th scope="col">{{ t('site_admin.languages.col.language') }}</th>
+        <th scope="col">{{ t('site_admin.languages.col.source') }}</th>
+        <th scope="col">{{ t('site_admin.languages.col.coverage') }}</th>
+        <th scope="col">{{ t('common.status') }}</th>
+        <th scope="col">{{ t('common.actions') }}</th>
+      </tr></thead>
+      <tbody>
+      {% for lang in languages %}
+        <tr>
+          <td><strong>{{ lang.name }}</strong> <span class="mono">{{ lang.code }}</span>
+            {% if lang.code == default_language %}<span class="badge badge--primary">{{ t('site_admin.languages.default_badge') }}</span>{% endif %}
+            {% if lang.author %}<br><span class="small muted">{{ t('site_admin.languages.author', author=lang.author) }}</span>{% endif %}</td>
+          <td>{{ t('site_admin.languages.source.builtin') if lang.builtin else t('site_admin.languages.source.custom') }}{% if lang.builtin and lang.custom_file %} · {{ t('site_admin.languages.source.override') }}{% endif %}</td>
+          <td>{{ lang.coverage }}%</td>
+          <td>{% if lang.enabled %}<span class="badge badge--success">{{ t('common.enabled') }}</span>{% else %}<span class="badge">{{ t('common.disabled') }}</span>{% endif %}</td>
+          <td class="cluster">
+            <a class="btn btn--small" href="{{ url_for('site_admin.download_language', code=lang.code) }}">{{ t('site_admin.languages.download') }}</a>
+            {% if lang.code != default_language %}
+            {{ forms.post_button(url_for('site_admin.toggle_language', code=lang.code), t('site_admin.languages.disable') if lang.enabled else t('site_admin.languages.enable'), 'btn btn--small', hidden={'enabled': '0' if lang.enabled else '1'}) }}
+            {% endif %}
+            {% if lang.custom_file %}
+            {{ forms.post_button(url_for('site_admin.delete_language', code=lang.code), t('site_admin.languages.remove_override') if lang.builtin else t('common.delete'), 'btn btn--small btn--danger', confirm=t('site_admin.languages.delete_confirm', code=lang.code)) }}
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>{{ t('site_admin.languages.default') }}</h2>
+  <form method="post" action="{{ url_for('site_admin.set_default_language') }}" class="form">
+    {{ forms.csrf() }}
+    <div class="field">
+      <label for="f-interface_language">{{ t('site_admin.languages.default_label') }}</label>
+      <select id="f-interface_language" name="interface_language">
+        {% for lang in languages if lang.enabled %}<option value="{{ lang.code }}"{% if lang.code == default_language %} selected{% endif %}>{{ lang.name }}</option>{% endfor %}
+      </select>
+      <p class="hint">{{ t('site_admin.languages.default_hint') }}</p>
+    </div>
+    <div class="field">
+      <label for="f-interface_language_fallback">{{ t('site_admin.languages.fallback_label') }}</label>
+      <select id="f-interface_language_fallback" name="interface_language_fallback">
+        {% for code, name in builtins.items() %}<option value="{{ code }}"{% if code == fallback %} selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+      <p class="hint">{{ t('site_admin.languages.fallback_hint') }}</p>
+    </div>
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>{{ t('site_admin.languages.upload') }}</h2>
+  <form method="post" action="{{ url_for('site_admin.upload_language') }}" enctype="multipart/form-data" class="form">
+    {{ forms.csrf() }}
+    <div class="field">
+      <label for="f-language_file">{{ t('site_admin.languages.upload_file') }}</label>
+      <input id="f-language_file" type="file" name="language_file" accept=".json,application/json" required>
+      <p class="hint">{{ t('site_admin.languages.upload_hint', limit_mb=max_mb) }}</p>
+    </div>
+    <div class="btn-row"><button class="btn" type="submit">{{ t('site_admin.languages.upload_button') }}</button></div>
+  </form>
+  <h3>{{ t('site_admin.languages.howto') }}</h3>
+  <ol>
+    <li>{{ t('site_admin.languages.howto.1') }}</li>
+    <li>{{ t('site_admin.languages.howto.2') }}</li>
+    <li>{{ t('site_admin.languages.howto.3') }}</li>
+    <li>{{ t('site_admin.languages.howto.4') }}</li>
+  </ol>
+</section>
+{% endblock %}

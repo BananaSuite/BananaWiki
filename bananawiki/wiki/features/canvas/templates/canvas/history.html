@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('canvas.history.title', title=layout.title) }}{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('canvas.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('canvas.index') }}">{{ t('canvas.list.title') }}</a></li>
+  <li><a href="{{ url_for('canvas.view', slug=layout.slug) }}">{{ layout.title }}</a></li>
+</ol></nav>
+<header class="page-header">
+  <h1>{{ t('canvas.history.heading') }}</h1>
+  {% if is_admin and entries %}
+  <div class="page-header__actions">
+    {{ forms.post_button(url_for('canvas.clear_history', slug=layout.slug), t('canvas.history.clear'), cls='btn btn--danger', confirm=t('canvas.history.clear_confirm')) }}
+  </div>
+  {% endif %}
+</header>
+{% if entries %}
+<div class="table-wrap"><table class="table">
+  <thead><tr><th>{{ t('canvas.history.date') }}</th><th>{{ t('canvas.history.editor') }}</th><th>{{ t('canvas.history.summary') }}</th><th class="actions"><span class="visually-hidden">{{ t('common.actions') }}</span></th></tr></thead>
+  <tbody>
+  {% for entry in entries %}
+  <tr>
+    <td><span title="{{ entry.created_at|datetime }}">{{ entry.created_at|time_ago }}</span></td>
+    <td>{{ entry.username or t('common.unknown_user') }}</td>
+    <td>{{ canvas_history_message(entry.edit_message) }}{% if entry.is_revert %} <span class="badge">{{ t('canvas.history.revert_badge') }}</span>{% endif %}</td>
+    <td class="actions">
+      <a class="btn btn--small" href="{{ url_for('canvas.history_entry', slug=layout.slug, entry_id=entry.id) }}">{{ t('canvas.history.view') }}</a>
+      {% if can_revert %}{{ forms.post_button(url_for('canvas.revert', slug=layout.slug, entry_id=entry.id), t('canvas.history.revert'), cls='btn btn--small', confirm=t('canvas.history.revert_confirm')) }}{% endif %}
+      {% if is_admin %}{{ forms.post_button(url_for('canvas.delete_history_entry', slug=layout.slug, entry_id=entry.id), t('common.delete'), cls='btn btn--small', confirm=t('canvas.history.delete_confirm')) }}{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<p class="empty-state">{{ t('canvas.history.empty') }}</p>
+{% endif %}
+{% endblock %}

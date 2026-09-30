@@ -1,0 +1,76 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('attention.admin.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('attention.admin.title') }}</h1>
+  <p class="muted">{{ t('attention.admin.intro') }}</p>
+</header>
+<div class="stack">
+  {% include "attention/_dashboard_card.html" %}
+
+  <section class="card" aria-labelledby="notify-heading">
+    <h2 id="notify-heading">{{ t('attention.admin.notify_title') }}</h2>
+    {% if not mail_ready %}<div class="alert alert--warning"><div class="alert__body">{{ t('attention.admin.mail_missing') }}</div></div>{% endif %}
+    <form method="post" class="form">
+      {{ forms.csrf() }}
+      <input type="hidden" name="section" value="notifications">
+      {{ forms.checkbox('attention_email_enabled', t('attention.admin.enabled'), values.attention_email_enabled, hint=t('attention.admin.enabled_hint', count=recipients)) }}
+      {{ forms.select('attention_email_mode', t('attention.admin.mode'), [('immediate', t('attention.admin.mode.immediate')), ('digest', t('attention.admin.mode.digest')), ('daily', t('attention.admin.mode.daily'))], values.attention_email_mode) }}
+      <div class="form-grid">
+        {{ forms.field('attention_email_interval_minutes', t('attention.admin.interval'), values.attention_email_interval_minutes, type='number', hint=t('attention.admin.interval_hint'), attrs={'min': min_interval, 'max': max_interval}) }}
+        {{ forms.field('attention_email_daily_hour', t('attention.admin.daily_hour'), values.attention_email_daily_hour, type='number', hint=t('attention.admin.daily_hour_hint'), attrs={'min': 0, 'max': 23}) }}
+      </div>
+      {{ forms.checkbox('decision_email_enabled', t('attention.admin.decisions'), values.decision_email_enabled, hint=t('attention.admin.decisions_hint')) }}
+      {% if base_url_from_env %}
+      <p class="hint">{{ t('attention.admin.base_url_env', url=base_url) }}</p>
+      {% else %}
+      {{ forms.field('public_base_url', t('attention.admin.base_url'), values.public_base_url or suggested_base_url, type='url', hint=t('attention.admin.base_url_hint'), attrs={'maxlength': 300}) }}
+      {% endif %}
+      <p class="hint">{{ t('attention.admin.opt_out_hint') }}</p>
+      <div><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+    </form>
+  </section>
+
+  <section class="card" aria-labelledby="mail-heading">
+    <h2 id="mail-heading">{{ t('attention.admin.mail_title') }}</h2>
+    {% if mail_source == 'env' %}
+    <p>{{ t('attention.admin.mail_env', provider=env_mail.provider, sender=env_mail.sender) }}</p>
+    {% elif mail_source == 'host_only' %}
+    <p>{{ t('attention.admin.mail_host_only') }}</p>
+    {% else %}
+    <form method="post" class="form" autocomplete="off">
+      {{ forms.csrf() }}
+      <input type="hidden" name="section" value="mail">
+      {{ forms.select('mail_provider', t('attention.admin.provider'), [('', t('attention.admin.provider.none')), ('smtp', 'SMTP'), ('brevo', 'Brevo'), ('resend', 'Resend')], values.mail_provider) }}
+      <div class="form-grid">
+        {{ forms.field('mail_from', t('attention.admin.from'), values.mail_from, type='email', hint=t('attention.admin.from_hint'), attrs={'maxlength': 254}) }}
+        {{ forms.field('mail_reply_to', t('attention.admin.reply_to'), values.mail_reply_to, type='email', attrs={'maxlength': 254}) }}
+        {{ forms.field('mail_smtp_host', t('attention.admin.smtp_host'), values.mail_smtp_host, attrs={'maxlength': 253}) }}
+        {{ forms.field('mail_smtp_port', t('attention.admin.smtp_port'), values.mail_smtp_port, type='number', attrs={'min': 1, 'max': 65535}) }}
+      </div>
+      {{ forms.select('mail_smtp_security', t('attention.admin.smtp_security'), [('starttls', t('attention.admin.security.starttls')), ('ssl', t('attention.admin.security.ssl')), ('none', t('attention.admin.security.none'))], values.mail_smtp_security) }}
+      <div class="form-grid">
+        {{ forms.field('mail_smtp_username', t('attention.admin.smtp_username'), values.mail_smtp_username, attrs={'maxlength': 200, 'autocomplete': 'off'}) }}
+        {{ forms.field('mail_smtp_password', t('attention.admin.smtp_password'), '', type='password', hint=t('attention.admin.secret_set' if values.mail_smtp_password else 'attention.admin.secret_unset'), attrs={'maxlength': 500, 'autocomplete': 'new-password'}) }}
+      </div>
+      {% if values.mail_smtp_password %}{{ forms.checkbox('clear_mail_smtp_password', t('attention.admin.clear_secret')) }}{% endif %}
+      {{ forms.field('mail_api_key', t('attention.admin.api_key'), '', type='password', hint=t('attention.admin.secret_set' if values.mail_api_key else 'attention.admin.secret_unset'), attrs={'maxlength': 500, 'autocomplete': 'new-password'}) }}
+      {% if values.mail_api_key %}{{ forms.checkbox('clear_mail_api_key', t('attention.admin.clear_secret')) }}{% endif %}
+      <p class="hint">{{ t('attention.admin.env_hint') }}</p>
+      <div><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+    </form>
+    {% endif %}
+  </section>
+
+  <section class="card" aria-labelledby="test-heading">
+    <h2 id="test-heading">{{ t('attention.admin.test_title') }}</h2>
+    {% if own_email %}
+    <p>{{ t('attention.admin.test_help', address=own_email) }}</p>
+    {{ forms.post_button(url_for('attention.send_test'), t('attention.admin.test_send'), 'btn' ~ ('' if mail_ready else ' btn--ghost')) }}
+    {% else %}
+    <p>{{ t('attention.admin.test_no_address') }} <a href="{{ url_for('users.settings') }}#notifications">{{ t('attention.settings.title') }}</a></p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

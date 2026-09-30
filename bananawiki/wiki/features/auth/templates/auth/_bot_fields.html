@@ -1,0 +1,8 @@
+{#- Bot protection fields; expects bot_protection and form_token. -#}
+{% if bot_protection %}
+<input type="hidden" name="_form_time" value="{{ form_token }}">
+<div class="visually-hidden" aria-hidden="true">
+  <label for="website">Website</label>
+  <input id="website" type="text" name="website" value="" autocomplete="off" tabindex="-1">
+</div>
+{% endif %}

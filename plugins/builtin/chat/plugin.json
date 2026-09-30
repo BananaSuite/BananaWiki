@@ -1,9 +1,0 @@
-{
-    "id": "chat",
-    "name": "Chats and Groups",
-    "version": "1.0.0",
-    "author": "BananaWiki",
-    "description": "Direct messages and group chat spaces in one messaging plugin",
-    "builtin": true,
-    "bananawiki_api_version": "1.0"
-}

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% import "attention/_macros.html" as m with context %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('attention.title') }}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>{{ t('attention.title') }}</h1>
+  {% if total %}<p class="muted">{{ m.plural('attention.summary', total) }}</p>{% endif %}
+</header>
+<div class="stack">
+  <section class="card" aria-labelledby="queues-title">
+    <div class="card__header"><h2 id="queues-title">{{ t('attention.queues') }}</h2></div>
+    {% if entries %}
+    {{ m.entry_list(entries, show_oldest=true) }}
+    {% else %}
+    <div class="empty-state"><h3>{{ t('attention.empty.title') }}</h3><p>{{ t('attention.empty.body') }}</p></div>
+    {% endif %}
+  </section>
+  {% if notices %}
+  <section class="card" aria-labelledby="notices-title">
+    <div class="card__header">
+      <h2 id="notices-title">{{ t('attention.notices.title') }}</h2>
+      {{ forms.post_button(url_for('attention.dismiss_all'), t('attention.notices.dismiss_all'), 'btn btn--small', hidden={'next': url_for('attention.index')}) }}
+    </div>
+    <ul class="attention-list">
+      {% for notice in notices %}
+      <li class="attention-list__item">
+        <span><span class="badge {{ 'badge--success' if notice.outcome == 'approved' else 'badge--danger' }}">{{ t('attention.outcome.' ~ notice.outcome) }}</span>
+          {{ notice_text(notice) }} <span class="hint">{{ notice.created_at|time_ago }}</span></span>
+        {{ forms.post_button(url_for('attention.dismiss_notice', notice_id=notice.id), t('attention.notices.dismiss'), 'btn btn--small btn--ghost', hidden={'next': url_for('attention.index')}) }}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

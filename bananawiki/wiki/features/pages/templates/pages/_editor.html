@@ -1,0 +1,82 @@
+{#- Markdown editor widget. Context: content, can_upload, page (or none). -#}
+<div class="editor" data-editor>
+  <div class="toolbar" role="toolbar" aria-label="{{ t('pages.editor.toolbar') }}">
+    {% for action, label, text in [
+      ('bold', 'pages.editor.bold', 'B'), ('italic', 'pages.editor.italic', 'I'), ('strike', 'pages.editor.strike', 'S'),
+      ('h2', 'pages.editor.heading2', 'H2'), ('h3', 'pages.editor.heading3', 'H3'),
+      ('ul', 'pages.editor.bullets', '•'), ('ol', 'pages.editor.numbers', '1.'), ('task', 'pages.editor.tasks', '☐'),
+      ('outdent', 'pages.editor.outdent', '⇤'), ('indent', 'pages.editor.indent', '⇥'),
+      ('quote', 'pages.editor.quote', '❝'), ('code', 'pages.editor.code', '`'), ('codeblock', 'pages.editor.codeblock', '{ }'),
+      ('hr', 'pages.editor.rule', '―')] %}
+    <button type="button" class="btn btn--ghost btn--small" data-md="{{ action }}" title="{{ t(label) }}" aria-label="{{ t(label) }}">{{ text }}</button>
+    {% endfor %}
+    <button type="button" class="btn btn--ghost btn--small" data-dialog-open="dlg-link" data-md-dialog="link">{{ t('pages.editor.link') }}</button>
+    <button type="button" class="btn btn--ghost btn--small" data-dialog-open="dlg-table" data-md-dialog="table">{{ t('pages.editor.table') }}</button>
+    {% if can_upload %}<button type="button" class="btn btn--ghost btn--small" data-md="image">{{ t('pages.editor.image') }}</button>{% endif %}
+    <button type="button" class="btn btn--ghost btn--small" data-dialog-open="dlg-video" data-md-dialog="video">{{ t('pages.editor.video') }}</button>
+    <button type="button" class="btn btn--ghost btn--small" data-editor-fullscreen aria-pressed="false">{{ t('pages.editor.fullscreen') }}</button>
+  </div>
+  <div class="editor__tabs" role="tablist">
+    <button type="button" class="btn btn--small" role="tab" aria-selected="true" data-editor-tab="write">{{ t('pages.editor.write') }}</button>
+    <button type="button" class="btn btn--small btn--ghost" role="tab" aria-selected="false" data-editor-tab="preview">{{ t('pages.editor.preview') }}</button>
+  </div>
+  <div class="editor__panes">
+    <div class="editor__write">
+      <label class="visually-hidden" for="editor-content">{{ t('pages.field.content') }}</label>
+      <textarea id="editor-content" name="content" class="textarea--code editor__textarea" spellcheck="true">{{ content }}</textarea>
+      <div class="editor__status small muted">
+        <span data-word-count></span>
+        {% if can_upload %}<span>{{ t('pages.editor.drop_hint') }}</span>{% endif %}
+        <span data-upload-status aria-live="polite"></span>
+      </div>
+      {% if can_upload %}<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden data-image-input>{% endif %}
+    </div>
+    <div class="editor__preview prose" data-preview aria-live="polite" aria-label="{{ t('pages.editor.preview') }}"></div>
+  </div>
+</div>
+
+<dialog id="dlg-link" aria-labelledby="dlg-link-h">
+  <h2 id="dlg-link-h">{{ t('pages.editor.link') }}</h2>
+  <div class="form">
+    <div class="field"><label for="link-text">{{ t('pages.editor.link_text') }}</label><input id="link-text" data-link-text maxlength="300"></div>
+    <div class="field"><label for="link-url">{{ t('pages.editor.link_url') }}</label><input id="link-url" data-link-url placeholder="https://" maxlength="2000"></div>
+    <div class="field">
+      <label for="link-search">{{ t('pages.editor.link_page') }}</label>
+      <input id="link-search" type="search" data-link-search autocomplete="off" maxlength="200">
+      <ul class="link-results" data-link-results></ul>
+    </div>
+    <div class="btn-row btn-row--end"><button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button><button type="button" class="btn btn--primary" data-insert="link">{{ t('pages.editor.insert') }}</button></div>
+  </div>
+</dialog>
+<dialog id="dlg-table" aria-labelledby="dlg-table-h">
+  <h2 id="dlg-table-h">{{ t('pages.editor.table') }}</h2>
+  <div class="form form-grid">
+    <div class="field"><label for="table-rows">{{ t('pages.editor.rows') }}</label><input id="table-rows" type="number" min="1" max="50" value="3" data-table-rows></div>
+    <div class="field"><label for="table-cols">{{ t('pages.editor.columns') }}</label><input id="table-cols" type="number" min="1" max="12" value="3" data-table-cols></div>
+  </div>
+  <div class="btn-row btn-row--end"><button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button><button type="button" class="btn btn--primary" data-insert="table">{{ t('pages.editor.insert') }}</button></div>
+</dialog>
+<dialog id="dlg-video" aria-labelledby="dlg-video-h">
+  <h2 id="dlg-video-h">{{ t('pages.editor.video') }}</h2>
+  <div class="form">
+    <div class="field"><label for="video-url">{{ t('pages.editor.video_url') }}</label><input id="video-url" data-video-url placeholder="https://www.youtube.com/watch?v=…" maxlength="500"><p class="hint">{{ t('pages.editor.video_hint') }}</p></div>
+    <div class="form-grid">
+      <div class="field"><label for="video-align">{{ t('pages.editor.align') }}</label>
+        <select id="video-align" data-video-align>
+          {% for value in ['center', 'left', 'right', 'none'] %}<option value="{{ value }}">{{ t('pages.editor.align.' ~ value) }}</option>{% endfor %}
+        </select></div>
+      <div class="field"><label for="video-ratio">{{ t('pages.editor.ratio') }}</label>
+        <select id="video-ratio" data-video-ratio><option>16:9</option><option>4:3</option><option>1:1</option></select></div>
+      <div class="field"><label for="video-width">{{ t('pages.editor.width') }}</label>
+        <select id="video-width" data-video-width><option value="">{{ t('pages.editor.width_full') }}</option>{% for w in [320, 480, 560, 640, 720, 800] %}<option value="{{ w }}">{{ w }} px</option>{% endfor %}</select></div>
+    </div>
+    <div class="btn-row btn-row--end"><button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button><button type="button" class="btn btn--primary" data-insert="video">{{ t('pages.editor.insert') }}</button></div>
+  </div>
+</dialog>
+<script type="application/json" id="editor-config">{{ {
+  'preview': url_for('pages.api_preview'),
+  'upload': url_for('pages.api_upload') if can_upload else '',
+  'pageSearch': url_for('pages.api_pages_search'),
+  'heartbeat': url_for('pages.api_editing_heartbeat', slug=page.slug) if page else '',
+  'stop': url_for('pages.api_editing_stop', slug=page.slug) if page else '',
+}|json_script }}</script>

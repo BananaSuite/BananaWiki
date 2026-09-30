@@ -1,0 +1,69 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('custom_pages.admin.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('custom_pages.admin.title') }}</h1>
+  <div class="page-header__actions">
+    <a class="btn btn--primary" href="{{ url_for('custom_pages.admin_create') }}">{{ t('custom_pages.admin.create') }}</a>
+  </div>
+</header>
+<div class="alert alert--warning"><div class="alert__body">{{ t('custom_pages.admin.public_notice') }}</div></div>
+
+{% if pages %}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr>
+      <th>{{ t('custom_pages.field.path') }}</th>
+      <th>{{ t('custom_pages.field.title') }}</th>
+      <th>{{ t('custom_pages.field.content_type') }}</th>
+      <th>{{ t('custom_pages.field.published') }}</th>
+      <th>{{ t('common.updated') }}</th>
+      <th class="actions">{{ t('common.actions') }}</th>
+    </tr></thead>
+    <tbody>
+    {% for p in pages %}
+    <tr>
+      <td class="mono"><a href="{{ p.path }}" target="_blank" rel="noopener">{{ p.path }}</a></td>
+      <td>{{ p.title or '—' }}</td>
+      {% set builder_page = p.builder_json and p.content_type == 'wiki_page' %}
+      <td>{{ t('custom_pages.type.' ~ ('builder' if builder_page else p.content_type)) }}</td>
+      <td>{% if p.is_published %}<span class="badge badge--success">{{ t('common.yes') }}</span>{% else %}<span class="badge">{{ t('common.no') }}</span>{% endif %}</td>
+      <td class="nowrap">{{ p.updated_at|time_ago }}</td>
+      <td class="actions">
+        <a class="btn btn--small" href="{{ url_for('custom_pages.admin_edit', page_id=p.id) }}">{{ t('common.edit') }}</a>
+        {% if builder_page and builder_available %}<a class="btn btn--small" href="{{ url_for('page_builder.custom_editor', page_id=p.id) }}">{{ t('custom_pages.admin.open_builder') }}</a>{% endif %}
+        {{ forms.post_button(url_for('custom_pages.admin_delete', page_id=p.id), t('common.delete'), cls='btn btn--small btn--danger', confirm=t('custom_pages.admin.delete_confirm')) }}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card empty-state"><p>{{ t('custom_pages.admin.empty') }}</p></div>
+{% endif %}
+
+<section class="card" aria-labelledby="cp-settings">
+  <div class="card__header"><h2 id="cp-settings">{{ t('custom_pages.admin.settings') }}</h2></div>
+  <form method="post" action="{{ url_for('custom_pages.admin_settings') }}" class="form">
+    {{ forms.csrf() }}
+    {{ forms.field('custom_pages_max_video_size_mb', t('custom_pages.field.max_video_mb'), max_video_mb, type='number', attrs={'min': 1, 'max': 10240}) }}
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+  </form>
+</section>
+
+<section class="card" aria-labelledby="cp-types">
+  <div class="card__header"><h2 id="cp-types">{{ t('custom_pages.admin.types_heading') }}</h2></div>
+  {% for group, kinds in groups.items() %}
+  <h3>{{ t('custom_pages.group.' ~ group) }}</h3>
+  <dl class="cp-types">
+    {% for kind in kinds %}
+    <dt>{{ t('custom_pages.type.' ~ kind) }} <code>{{ kind }}</code></dt>
+    <dd>{{ t('custom_pages.type_help.' ~ kind) }}</dd>
+    {% endfor %}
+  </dl>
+  {% endfor %}
+</section>
+{% endblock %}
+{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('custom_pages.css', blueprint='custom_pages') }}">{% endblock %}

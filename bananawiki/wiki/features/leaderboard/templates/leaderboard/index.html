@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ t('leaderboard.title') }}{% endblock %}
+{% macro who(entry) -%}
+{% if can_view_profiles and (entry.profile_published or is_admin or entry.user_id == current_user.id) %}<a href="{{ url_for('users.profile', username=entry.username) }}">{{ entry.username }}</a>{% else %}{{ entry.username }}{% endif %}
+{%- endmacro %}
+{% block content %}
+<header class="page-header">
+  <h1>{{ t('leaderboard.title') }}</h1>
+  <div class="page-header__actions"><a class="btn" href="{{ url_for('leaderboard.export', sort=sort, range=range_key) }}">{{ t('leaderboard.export_csv') }}</a></div>
+</header>
+<form method="get" action="{{ url_for('leaderboard.index') }}" class="cluster" aria-label="{{ t('leaderboard.options') }}">
+  <label for="lb-sort">{{ t('leaderboard.sort_by') }}</label>
+  <select id="lb-sort" name="sort" data-autosubmit>{% for option in sorts %}<option value="{{ option }}"{% if option == sort %} selected{% endif %}>{{ t('leaderboard.sort.' ~ option) }}</option>{% endfor %}</select>
+  <label for="lb-range">{{ t('leaderboard.date_range') }}</label>
+  <select id="lb-range" name="range" data-autosubmit>{% for option in ranges %}<option value="{{ option }}"{% if option == range_key %} selected{% endif %}>{{ t('leaderboard.range.' ~ option) }}</option>{% endfor %}</select>
+  <noscript><button class="btn btn--small" type="submit">{{ t('leaderboard.apply') }}</button></noscript>
+</form>
+<section class="grid grid--3 users-spaced" aria-label="{{ t('leaderboard.summary') }}">
+  <div class="card stat"><span class="stat__value">{{ summary.contributors }}</span><span class="stat__label">{{ t('leaderboard.contributors') }}</span></div>
+  <div class="card stat"><span class="stat__value">{{ summary.edits }}</span><span class="stat__label">{{ t('leaderboard.edits') }}</span></div>
+  <div class="card stat"><span class="stat__value">{{ summary.pages_touched }}</span><span class="stat__label">{{ t('leaderboard.pages_touched') }}</span></div>
+  <div class="card stat"><span class="stat__value">{{ summary.pages_created }}</span><span class="stat__label">{{ t('leaderboard.pages_created') }}</span></div>
+  <div class="card stat"><span class="stat__value">{{ summary.active_days }}</span><span class="stat__label">{{ t('leaderboard.active_days') }}</span></div>
+  <div class="card stat"><span class="stat__value">+{{ summary.added }} / −{{ summary.removed }}</span><span class="stat__label">{{ t('leaderboard.text_changed') }}</span></div>
+</section>
+{% if mine %}<p class="users-spaced">{{ t('leaderboard.your_rank', rank=mine.rank, score=mine.score) }}</p>{% endif %}
+{% if entries %}
+<div class="table-wrap users-spaced"><table class="table">
+  <thead><tr>
+    <th>#</th><th>{{ t('leaderboard.contributor') }}</th><th>{{ t('leaderboard.score') }}</th><th>{{ t('leaderboard.edits') }}</th>
+    <th>{{ t('leaderboard.pages_touched') }}</th><th>{{ t('leaderboard.pages_created') }}</th><th>{{ t('leaderboard.active_days') }}</th>
+    <th>{{ t('leaderboard.streak') }}</th><th>{{ t('leaderboard.text_changed') }}</th><th>{{ t('leaderboard.latest') }}</th>
+  </tr></thead>
+  <tbody>
+  {% for entry in entries %}
+  <tr{% if entry.user_id == current_user.id %} aria-current="true"{% endif %}>
+    <td>{{ entry.rank }}</td>
+    <td>{{ who(entry) }}</td>
+    <td><strong>{{ entry.score }}</strong></td>
+    <td>{{ entry.edit_count }}</td>
+    <td>{{ entry.pages_touched }}</td>
+    <td>{{ entry.pages_created }}</td>
+    <td>{{ entry.active_days }}</td>
+    <td>{{ t('leaderboard.streak_value', longest=entry.longest_streak, current=entry.current_streak) }}</td>
+    <td class="nowrap">+{{ entry.added }} / −{{ entry.removed }}</td>
+    <td>{% if entry.last_page_slug %}<a href="{{ url_for('pages.view', slug=entry.last_page_slug) }}">{{ entry.last_page_title }}</a><br>{% endif %}<span class="small muted">{{ entry.last_contribution|time_ago }}</span></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<div class="card empty-state users-spaced"><p>{{ t('leaderboard.no_data') }}</p></div>
+{% endif %}
+{% endblock %}

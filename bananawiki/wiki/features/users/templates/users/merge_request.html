@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% import "users/_macros.html" as m with context %}
+{% block title %}{{ t('users.merge.new') }}{% endblock %}
+{% block content %}
+<header class="page-header"><h1>{{ t('users.merge.new') }}</h1></header>
+<section class="card">
+  <p>{{ t('users.merge.intro') }}</p>
+  <form method="post" action="{{ url_for('users.merge_request') }}" class="form">
+    {{ forms.csrf() }}
+    {{ forms.field('other_username', t('users.merge.other_account'), other_name, required=true, attrs={'maxlength': 50}) }}
+    <fieldset>
+      <legend>{{ t('users.merge.direction') }}</legend>
+      <label class="check"><input type="radio" name="direction" value="into_mine" checked> <span>{{ t('users.merge.into_mine', user=user.username) }}</span></label>
+      <label class="check"><input type="radio" name="direction" value="into_other"> <span>{{ t('users.merge.into_other', user=user.username) }}</span></label>
+    </fieldset>
+    {{ forms.textarea('reason', t('users.merge.reason'), '', rows=3) }}
+    {{ m.password('merge-password', t('auth.field.current_password')) }}
+    <p class="hint">{{ t('users.merge.steps') }}</p>
+    <div class="btn-row">
+      <button class="btn btn--primary" type="submit">{{ t('users.merge.submit') }}</button>
+      <a class="btn" href="{{ url_for('users.merge_pending') }}">{{ t('common.cancel') }}</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ t('canvas.outline.title', title=layout.title) }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('canvas.css', blueprint='canvas') }}">{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('canvas.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('canvas.index') }}">{{ t('canvas.list.title') }}</a></li>
+  <li><a href="{{ url_for('canvas.view', slug=layout.slug) }}">{{ layout.title }}</a></li>
+</ol></nav>
+<header class="page-header">
+  <h1>{{ t('canvas.outline.heading') }}</h1>
+  <div class="page-header__actions">
+    <a class="btn btn--small" href="{{ url_for('canvas.outline', slug=layout.slug, format='md') }}">{{ t('canvas.outline.download') }}</a>
+  </div>
+  <p class="page-header__meta">{{ t('canvas.outline.hint') }}</p>
+</header>
+{% if items %}
+<ol class="canvas-outline">
+  {% for item in items %}
+  <li class="canvas-outline__item" id="outline-{{ item.id }}">
+    <h2 class="canvas-outline__title">{{ canvas_outline_label(item) }}{% if item.locked %} <span class="badge">{{ t('canvas.outline.locked') }}</span>{% endif %}</h2>
+    {% if item.type == 'wiki_page' and item.page %}
+    <p><a href="{{ url_for('pages.view', slug=item.page.slug) }}">{{ item.page.title }}</a></p>
+    {% elif item.page_state %}
+    <p class="muted">{{ t('canvas.outline.page_' ~ item.page_state) }}</p>
+    {% endif %}
+    {% if item.text %}<p class="canvas-outline__text">{{ item.text }}</p>{% endif %}
+    {% if item.url %}<p><a href="{{ item.url }}" rel="noopener noreferrer nofollow">{{ item.url }}</a></p>{% endif %}
+    {% if item.outgoing or item.incoming %}
+    <ul class="canvas-outline__links">
+      {% for link in item.outgoing %}
+      <li>{{ t('canvas.outline.both' if link.both else 'canvas.outline.to') }} <a href="#outline-{{ link.id }}">{{ canvas_outline_label(by_id[link.id]) }}</a>{% if link.label %} ({{ link.label }}){% endif %}</li>
+      {% endfor %}
+      {% for link in item.incoming %}
+      <li>{{ t('canvas.outline.both' if link.both else 'canvas.outline.from') }} <a href="#outline-{{ link.id }}">{{ canvas_outline_label(by_id[link.id]) }}</a>{% if link.label %} ({{ link.label }}){% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<p class="empty-state">{{ t('canvas.outline.empty') }}</p>
+{% endif %}
+{% endblock %}

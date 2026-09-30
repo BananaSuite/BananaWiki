@@ -1,0 +1,24 @@
+{% extends "page_builder/_editor.html" %}
+{% block title %}{{ t('page_builder.editor.title', title=page.title) }}{% endblock %}
+{% block heading %}{{ t('page_builder.editor.heading', title=page.title) }}{% endblock %}
+{% block initial_status %}{{ t('page_builder.status.draft_restored') if has_draft else t('page_builder.status.ready') }}{% endblock %}
+{% block extra_actions %}{% if has_draft %}<button type="button" class="btn" id="builder-discard">{{ t('page_builder.editor.discard') }}</button>{% endif %}{% endblock %}
+{% block notices %}
+{% if stale_draft %}
+<div class="alert alert--warning"><div class="alert__body">{{ t('page_builder.editor.stale_draft') }}</div></div>
+{% endif %}
+{% endblock %}
+{% block publish_panel %}
+<h2 id="builder-publish-title" class="builder-panel-title">{{ t('page_builder.editor.publishing') }}</h2>
+<div class="field">
+  <label for="builder-edit-message">{{ t('page_builder.editor.edit_message') }}</label>
+  <input type="text" id="builder-edit-message" maxlength="500" placeholder="{{ t('page_builder.editor.edit_message_placeholder') }}">
+</div>
+{% if can_publish_public %}
+<label class="check"><input type="checkbox" id="builder-public"{% if page.builder_public %} checked{% endif %}>
+  <span>{{ t('page_builder.editor.public') }}<small>{{ t('page_builder.editor.public_hint') }}</small></span></label>
+{% else %}
+<p class="hint">{{ t('page_builder.editor.members_only') }}</p>
+{% endif %}
+<p class="hint">{{ t('page_builder.editor.shortcut') }}</p>
+{% endblock %}

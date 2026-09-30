@@ -1,19 +1,18 @@
 version: 2
 updates:
-  # Python dependencies are declared as ranges, so a compromised release inside
-  # a range would install silently. These pull requests make each change visible.
+  # Runtime dependencies are compatible-release ranges; these pull requests
+  # make every change inside a range visible and reviewable.
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-  - package-ecosystem: pip
-    directory: /banana-tts-gpu
+  - package-ecosystem: docker
+    directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
-  # Workflow actions are pinned to commit SHAs, which never float. Without this
-  # they would simply go stale.
+    open-pull-requests-limit: 3
+  # Workflow actions are pinned to commit SHAs; keep them current.
   - package-ecosystem: github-actions
     directory: /
     schedule:

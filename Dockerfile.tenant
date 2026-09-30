@@ -1,28 +1,40 @@
-FROM python:3.12-slim
+# Tenant image for the hosting platform (built by the updater as
+# bananawiki-tenant:<revision>, with the repository root as the context).
+#
+# The runtime agent starts it with --read-only, --user <uid>:<gid>, a /data
+# bind mount, tmpfs /tmp and /run, --cap-drop ALL and no-new-privileges. The
+# image therefore writes nothing outside /data and the tmpfs mounts, works
+# under any unprivileged UID and serves /health on BW_PORT (5001).
+FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    BW_ENV=production
-
-WORKDIR /opt/bananawiki
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HOME=/tmp \
+    BW_ENV=production \
+    BW_HOST=0.0.0.0 \
+    BW_PORT=5001 \
+    BW_INSTANCE_DIR=/data
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg libgomp1 \
+    && apt-get install -y --no-install-recommends ffmpeg libgomp1 fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd -g 997 bananawiki \
-    && useradd -u 997 -g 997 -r -s /sbin/nologin bananawiki
+    && groupadd --system --gid 997 bananawiki \
+    && useradd --system --uid 997 --gid 997 --home-dir /data --no-create-home \
+        --shell /usr/sbin/nologin bananawiki
 
+WORKDIR /opt/bananawiki
 COPY requirements.txt ./
-RUN python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: --no-deps --upgrade 'pip>=26.2.1' \
-    && python -m pip install --disable-pip-version-check --no-cache-dir --requirement requirements.txt
+RUN python -m pip install --no-cache-dir --only-binary=:all: --no-deps --upgrade 'pip>=26.2.1' \
+    && python -m pip install --no-cache-dir --only-binary=:all: --requirement requirements.txt
 
-COPY . ./
+COPY LICENSE NOTICE ./
+COPY bananawiki ./bananawiki
+RUN python -m compileall -q bananawiki
 
-# container_runtime.py always passes --user {data_dir_uid}:{data_dir_gid} at
-# runtime, so the UID here is overridden in production.  The USER directive
-# still ensures the image is safe when run directly (e.g. in CI or developer
-# testing) without the hosting platform's --user flag.
-USER bananawiki
-
+# Overridden by the agent's --user; keeps a direct `docker run` unprivileged.
+USER 997:997
 EXPOSE 5001
-ENTRYPOINT ["python", "scripts/hosted_container_entrypoint.py"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+    CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('BW_PORT', '5001'), timeout=4)"]
+ENTRYPOINT ["python", "-m", "bananawiki.ops.tenant_entrypoint"]

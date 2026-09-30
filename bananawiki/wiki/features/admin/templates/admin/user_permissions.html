@@ -1,0 +1,50 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% from "admin/_categories.html" import category_list, permission_groups with context %}
+{% block title %}{{ t('admin.permissions.title') }} · {{ target.username }}{% endblock %}
+{% block admin_content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.back') }}"><ol>
+  <li><a href="{{ url_for('admin.users') }}">{{ t('admin.users.title') }}</a></li>
+  <li><a href="{{ url_for('admin.user_detail', user_id=target.id) }}">{{ target.username }}</a></li>
+  <li>{{ t('admin.permissions.title') }}</li>
+</ol></nav>
+<header class="page-header"><h1>{{ t('admin.permissions.heading', username=target.username) }}</h1></header>
+
+{% if protection %}
+<div class="alert alert--warning"><div class="alert__body">{{ t(protection) }}</div></div>
+{% elif target.custom_role_id %}
+<div class="alert"><div class="alert__body">{{ t('admin.permissions.error.custom_role') }}
+  <a href="{{ url_for('admin.edit_role', role_id=target.custom_role_id) }}">{{ t('admin.permissions.open_role') }}</a></div></div>
+{% elif not overridable %}
+<div class="alert"><div class="alert__body">{{ t('admin.permissions.error.admin_target') }}</div></div>
+{% else %}
+<p class="muted">{{ t('admin.permissions.customized') if access.customized else t('admin.permissions.defaults', role=t('admin.role.' ~ target.role)) }}</p>
+<form method="post" class="form">
+  {{ forms.csrf() }}
+  {{ permission_groups(groups, access.keys) }}
+  <fieldset>
+    <legend>{{ t('admin.permissions.read_access') }}</legend>
+    {{ forms.checkbox('read_restricted', t('admin.permissions.read_restricted'), checked=access.read_restricted) }}
+    <div data-reveal-for="read_restricted" data-reveal-values="1"{% if not access.read_restricted %} hidden{% endif %}>
+      {{ category_list('read_category_ids', access.read_ids, all_categories) }}
+    </div>
+  </fieldset>
+  {% if target.role == 'editor' %}
+  <fieldset>
+    <legend>{{ t('admin.permissions.write_access') }}</legend>
+    {{ forms.checkbox('write_restricted', t('admin.permissions.write_restricted'), checked=access.write_restricted) }}
+    <div data-reveal-for="write_restricted" data-reveal-values="1"{% if not access.write_restricted %} hidden{% endif %}>
+      {{ category_list('write_category_ids', access.write_ids, all_categories) }}
+    </div>
+  </fieldset>
+  {% endif %}
+  <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+</form>
+{% if access.customized %}
+<section class="card">
+  <p>{{ t('admin.permissions.reset_hint') }}</p>
+  {{ forms.post_button(url_for('admin.user_permissions', user_id=target.id), t('admin.permissions.reset_button'), 'btn', confirm=t('common.are_you_sure'), hidden={'action': 'reset'}) }}
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

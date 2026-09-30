@@ -1,0 +1,43 @@
+{% extends "admin/_layout.html" %}
+{% block title %}{{ t('bulk_manage.title') }}{% endblock %}
+{% macro section(id, title, items, action, label_attr, extra='') %}
+<section class="card">
+  <div class="card__header"><h2>{{ title }}</h2><span class="muted small">{{ items|length }}</span></div>
+  {% if items %}
+  <form method="post" action="{{ action }}" class="stack" data-confirm="{{ t('bulk_manage.confirm') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th scope="col"><span class="visually-hidden">{{ t('bulk_manage.select') }}</span></th><th scope="col">{{ t('common.name') }}</th></tr></thead>
+      <tbody>
+      {% for item in items %}
+        <tr><td><input type="checkbox" name="ids" value="{{ item.id }}" id="{{ id }}-{{ item.id }}"{% if item.is_home %} disabled{% endif %}></td>
+          <td><label for="{{ id }}-{{ item.id }}">{{ item[label_attr] }}</label>
+            {% if item.is_home %}<span class="badge">{{ t('bulk_manage.home') }}</span>{% endif %}
+            {% if item.pending_deletion %}<span class="badge badge--warning">{{ t('bulk_manage.pending') }}</span>{% endif %}
+            {% if item.pages is defined %}<span class="muted small">{{ t('bulk_manage.page_count', count=item.pages) }}</span>{% endif %}
+          </td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {{ extra }}
+    <div class="btn-row"><button class="btn btn--danger" type="submit">{{ t('bulk_manage.delete_selected') }}</button></div>
+  </form>
+  {% else %}<p class="muted">{{ t('bulk_manage.empty') }}</p>{% endif %}
+</section>
+{% endmacro %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('bulk_manage.title') }}</h1></header>
+<p class="muted">{{ t('bulk_manage.intro') }}</p>
+{% set category_options %}
+<fieldset><legend>{{ t('bulk_manage.category_pages') }}</legend>
+  <label class="check"><input type="radio" name="page_action" value="uncategorize" checked> <span>{{ t('bulk_manage.uncategorize') }}</span></label>
+  <label class="check"><input type="radio" name="page_action" value="delete"> <span>{{ t('bulk_manage.delete_pages_too') }}</span></label>
+</fieldset>
+{% endset %}
+<div class="stack">
+{{ section('cat', t('bulk_manage.categories'), categories, url_for('bulk_manage.delete_categories'), 'name', category_options) }}
+{{ section('page', t('bulk_manage.pages'), pages, url_for('bulk_manage.delete_pages'), 'title') }}
+{% if feature_enabled('canvas') %}{{ section('canvas', t('bulk_manage.canvases'), canvases, url_for('bulk_manage.delete_canvases'), 'title') }}{% endif %}
+{% if feature_enabled('kanban') %}{{ section('board', t('bulk_manage.boards'), boards, url_for('bulk_manage.delete_boards'), 'title') }}{% endif %}
+</div>
+{% endblock %}

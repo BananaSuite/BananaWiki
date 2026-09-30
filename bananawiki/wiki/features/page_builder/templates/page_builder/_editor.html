@@ -1,0 +1,122 @@
+{#- The builder's editor, shared by wiki pages (editor.html) and custom pages (custom_editor.html).
+    Context: urls (endpoints), initial (document), options, palette. Blocks: heading, extra_actions, notices, publish_panel. -#}
+{% extends "base.html" %}
+{% block main_class %}main--wide{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('page_builder.css', blueprint='page_builder') }}">{% endblock %}
+{% block content %}
+<div class="builder-shell" id="page-builder"
+     {% for name, url in urls.items() %}data-{{ name|replace('_', '-') }}-url="{{ url }}" {% endfor %}
+     {% if base_token is defined %}data-base-token="{{ base_token }}"{% else %}data-base-revision="{{ base_revision }}"{% endif %}>
+  <header class="page-header">
+    <h1>{% block heading %}{% endblock %}</h1>
+    <div class="page-header__actions">
+      <span class="builder-status muted small" id="builder-status" role="status" aria-live="polite">{% block initial_status %}{{ t('page_builder.status.ready') }}{% endblock %}</span>
+      <button type="button" class="btn btn--ghost" id="builder-undo" disabled aria-keyshortcuts="Control+Z">{{ t('page_builder.editor.undo') }}</button>
+      <button type="button" class="btn btn--ghost" id="builder-redo" disabled aria-keyshortcuts="Control+Shift+Z Control+Y">{{ t('page_builder.editor.redo') }}</button>
+      {% block extra_actions %}{% endblock %}
+      <a class="btn btn--ghost" href="{{ urls.exit or urls.view }}">{{ t('page_builder.editor.exit') }}</a>
+      <button type="button" class="btn btn--primary" id="builder-publish">{% block publish_label %}{{ t('page_builder.editor.publish') }}{% endblock %}</button>
+    </div>
+    <p class="page-header__meta">{{ t('page_builder.editor.intro') }}</p>
+  </header>
+  {% block notices %}{% endblock %}
+  <div class="alert alert--danger" id="builder-conflict" hidden>
+    <div class="alert__body">{% block conflict_text %}{{ t('page_builder.editor.conflict') }}{% endblock %}
+      <a href="{{ urls.reload }}">{{ t('page_builder.editor.reload') }}</a></div>
+  </div>
+
+  <div class="builder-workspace">
+    <aside class="builder-palette card" aria-labelledby="builder-blocks-title">
+      <h2 id="builder-blocks-title" class="builder-panel-title">{{ t('page_builder.editor.blocks') }}</h2>
+      <p class="hint" id="builder-insert-hint">{{ t('page_builder.editor.insert_hint') }}</p>
+      {% for group, kinds in palette %}
+      <div class="builder-palette-group" role="group" aria-labelledby="builder-group-{{ group }}">
+        <h3 class="builder-palette-heading" id="builder-group-{{ group }}">{{ t('page_builder.group.' ~ group) }}</h3>
+        <div class="builder-palette-grid">
+          {% for kind in kinds %}
+          <button type="button" class="builder-palette-item" draggable="true" data-block-type="{{ kind }}" aria-describedby="builder-insert-hint">{{ t('page_builder.block.' ~ kind) }}</button>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+      <div class="builder-palette-group" role="group" aria-labelledby="builder-clipboard-title">
+        <h3 class="builder-palette-heading" id="builder-clipboard-title">{{ t('page_builder.editor.clipboard') }}</h3>
+        <button type="button" class="btn btn--small" id="builder-paste" aria-describedby="builder-paste-hint">{{ t('page_builder.editor.paste') }}</button>
+        <p class="hint" id="builder-paste-hint">{{ t('page_builder.editor.paste_hint') }}</p>
+      </div>
+      <div class="builder-palette-group" role="group" aria-labelledby="builder-sections-title">
+        <h3 class="builder-palette-heading" id="builder-sections-title">{{ t('page_builder.editor.sections') }}</h3>
+        <p class="hint" id="builder-sections-empty"{% if options.sections %} hidden{% endif %}>{{ t('page_builder.editor.sections_none') }}</p>
+        <ul class="builder-sections" id="builder-sections"></ul>
+        {% if options.manage_sections %}
+        <details class="builder-section-form">
+          <summary>{{ t('page_builder.editor.section_save') }}</summary>
+          <div class="field">
+            <label for="builder-section-name">{{ t('page_builder.editor.section_name') }}</label>
+            <input type="text" id="builder-section-name" maxlength="80">
+          </div>
+          <div class="builder-section-range">
+            <div class="field">
+              <label for="builder-section-from">{{ t('page_builder.editor.section_from') }}</label>
+              <input type="number" id="builder-section-from" min="1" value="1">
+            </div>
+            <div class="field">
+              <label for="builder-section-to">{{ t('page_builder.editor.section_to') }}</label>
+              <input type="number" id="builder-section-to" min="1" value="1">
+            </div>
+          </div>
+          <button type="button" class="btn btn--small" id="builder-section-save">{{ t('page_builder.editor.section_store') }}</button>
+          <p class="hint">{{ t('page_builder.editor.section_hint') }}</p>
+        </details>
+        {% endif %}
+      </div>
+      <div class="builder-palette-group" role="group" aria-labelledby="builder-starters-title">
+        <h3 class="builder-palette-heading" id="builder-starters-title">{{ t('page_builder.editor.starters') }}</h3>
+        <ul class="builder-starters">
+          {% for starter in options.starters %}
+          <li><button type="button" class="builder-starter" data-starter="{{ starter.id }}">
+            <strong>{{ starter.name }}</strong><small>{{ starter.description }}</small></button></li>
+          {% endfor %}
+        </ul>
+      </div>
+      <p class="hint">{{ t('page_builder.editor.safety') }}</p>
+    </aside>
+
+    <section class="builder-stage-wrap card" aria-labelledby="builder-title-label">
+      <div class="field">
+        <label id="builder-title-label" for="builder-title">{{ t('page_builder.editor.page_title') }}</label>
+        <input type="text" id="builder-title" maxlength="200" value="{{ page.title }}">
+      </div>
+      <div class="builder-modes" role="group" aria-label="{{ t('page_builder.editor.mode') }}">
+        <button type="button" class="btn btn--small" id="builder-mode-edit" aria-pressed="true" aria-controls="builder-stage">{{ t('page_builder.editor.mode_edit') }}</button>
+        <button type="button" class="btn btn--small" id="builder-mode-preview" aria-pressed="false" aria-controls="builder-preview">{{ t('page_builder.editor.preview') }}</button>
+      </div>
+      <div class="builder-stage" id="builder-stage" aria-label="{{ t('page_builder.editor.stage') }}">
+        <p class="empty-state" id="builder-empty">{{ t('page_builder.editor.empty') }}</p>
+        <div id="builder-blocks"></div>
+      </div>
+      <section class="builder-preview" id="builder-preview" hidden aria-label="{{ t('page_builder.editor.preview') }}">
+        <div class="builder-devices" role="group" aria-label="{{ t('page_builder.editor.device') }}">
+          {% for device in ('desktop', 'tablet', 'mobile') %}
+          <button type="button" class="btn btn--small btn--ghost" data-device="{{ device }}" aria-pressed="{{ 'true' if device == 'desktop' else 'false' }}">{{ t('page_builder.device.' ~ device) }}</button>
+          {% endfor %}
+        </div>
+        <div class="builder-device-frame" id="builder-device-frame" data-device="desktop">
+          <div class="prose" id="builder-preview-content"></div>
+        </div>
+      </section>
+    </section>
+
+    <aside class="builder-publish-panel card" aria-labelledby="builder-publish-title">
+      <h2 id="builder-checks-title" class="builder-panel-title">{{ t('page_builder.editor.checks') }}</h2>
+      <p class="hint" id="builder-checks-empty">{{ t('page_builder.editor.checks_none') }}</p>
+      <ul class="builder-checks" id="builder-checks" aria-labelledby="builder-checks-title"></ul>
+      {% block publish_panel %}{% endblock %}
+    </aside>
+  </div>
+  <datalist id="builder-page-suggestions"></datalist>
+</div>
+<script type="application/json" id="builder-initial-document">{{ initial|json_script }}</script>
+<script type="application/json" id="builder-options">{{ options|json_script }}</script>
+{% endblock %}
+{% block scripts %}<script src="{{ asset_url('page_builder.js', blueprint='page_builder') }}"></script>{% endblock %}

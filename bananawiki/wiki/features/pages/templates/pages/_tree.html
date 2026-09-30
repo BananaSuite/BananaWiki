@@ -1,0 +1,26 @@
+{#- Full category tree for the navigation and welcome pages. Context: nav, manage_order. -#}
+<div class="nav-tree nav-tree--page" data-nav-tree>
+  <ul class="nav-list tree-root" {% if manage_order %}data-reorder-list data-reorder-url="{{ url_for('pages.api_reorder_categories') }}"{% endif %}>
+  {% for node in nav.categories recursive %}
+    <li data-reorder-item data-id="{{ node.id }}"{% if manage_order %} draggable="true"{% endif %}>
+      <details data-node="n{{ node.id }}" open>
+        <summary id="category-{{ node.id }}">
+          <span class="nav-label">{{ node.name }}</span><span class="nav-count">{{ node.count }}</span>
+          <a class="small" href="{{ url_for('pages.category', category_id=node.id) }}">{{ t('pages.nav.open_category') }}</a>
+          {% if manage_order %}<span class="reorder-buttons"><button type="button" class="btn btn--ghost btn--small" data-move="up" aria-label="{{ t('pages.order.up', name=node.name) }}">↑</button><button type="button" class="btn btn--ghost btn--small" data-move="down" aria-label="{{ t('pages.order.down', name=node.name) }}">↓</button></span>{% endif %}
+        </summary>
+        <ul class="nav-list" data-reorder-list data-reorder-url="{{ url_for('pages.api_reorder_pages') }}">
+          {% with pages=node.pages, more=node.more, category_id=node.id, current_slug=none, reorder=manage_order %}{% include "pages/_nav_pages.html" %}{% endwith %}
+        </ul>
+        {% if node.children %}<ul class="nav-list" {% if manage_order %}data-reorder-list data-reorder-url="{{ url_for('pages.api_reorder_categories') }}"{% endif %}>{{ loop(node.children) }}</ul>{% endif %}
+      </details>
+    </li>
+  {% endfor %}
+  </ul>
+  {% if nav.uncategorized.count %}
+  <h2 class="h3">{{ t('pages.nav.uncategorized') }}</h2>
+  <ul class="nav-list" data-reorder-list data-reorder-url="{{ url_for('pages.api_reorder_pages') }}">
+    {% with pages=nav.uncategorized.pages, more=nav.uncategorized.more, category_id=none, current_slug=none, reorder=manage_order %}{% include "pages/_nav_pages.html" %}{% endwith %}
+  </ul>
+  {% endif %}
+</div>

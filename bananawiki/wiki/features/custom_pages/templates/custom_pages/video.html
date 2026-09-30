@@ -1,0 +1,13 @@
+{% extends "custom_pages/_page.html" %}
+{% block page_body %}
+{% if video %}
+{% set src = url_for('custom_pages.file_download', file_id=video.id, filename=video.original_name) %}
+<video class="cp-video" preload="metadata"{% if page.video_controls %} controls{% endif %}{% if page.video_autoplay %} autoplay playsinline{% endif %}{% if page.video_muted or page.video_autoplay %} muted{% endif %}{% if page.video_loop %} loop{% endif %}>
+  <source src="{{ src }}" type="{{ video.mime_type }}">
+  <a href="{{ src }}">{{ t('custom_pages.view.download_video') }}</a>
+</video>
+<p class="small muted">{{ video.original_name }} · {{ video.file_size|filesize }}</p>
+{% else %}
+<p class="empty-state">{{ t('custom_pages.view.no_video') }}</p>
+{% endif %}
+{% endblock %}

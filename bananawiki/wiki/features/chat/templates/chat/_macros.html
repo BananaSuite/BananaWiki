@@ -1,0 +1,80 @@
+{#- Chat building blocks. chat.js builds the same markup for messages it fetches. -#}
+
+{% macro message(m, delete_url=None) -%}
+<li class="chat-msg{% if m.mine %} chat-msg--mine{% endif %}{% if m.system %} chat-msg--system{% endif %}{% if m.deleted %} chat-msg--deleted{% endif %}" data-id="{{ m.id }}">
+  {% if m.system %}
+  <p class="chat-msg__system">{{ m.text }} <time class="chat-msg__time">{{ m.time }}</time></p>
+  {% else %}
+  <div class="chat-msg__meta">
+    <strong>{{ m.sender or t('common.unknown_user') }}</strong>
+    <time class="chat-msg__time">{{ m.time }}</time>
+    {% if m.ip %}<span class="mono small muted">{{ m.ip }}</span>{% endif %}
+  </div>
+  {% if m.deleted %}
+  <p class="chat-msg__body chat-msg__body--deleted">{{ t('chat.message.deleted') }}</p>
+  {% else %}
+  {% if m.text %}<p class="chat-msg__body">{{ m.text }}</p>{% endif %}
+  {% if m.attachments %}
+  <ul class="chat-msg__files">
+    {% for a in m.attachments %}<li><a href="{{ a.url }}">{{ a.name }}</a> <span class="small muted">{{ a.size }}</span></li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% endif %}
+  {% if m.can_delete and delete_url %}
+  <form class="chat-msg__delete" method="post" action="{{ delete_url }}" data-confirm="{{ t('chat.message.delete_confirm') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="message_id" value="{{ m.id }}">
+    <button type="submit" class="btn btn--ghost btn--small">{{ t('common.delete') }}</button>
+  </form>
+  {% endif %}
+  {% endif %}
+</li>
+{%- endmacro %}
+
+{% macro log(conv, view_url, delete_url=None, live=None) -%}
+<div class="chat">
+  {% if conv.paged %}<p class="chat__notice"><a href="{{ view_url }}">{{ t('chat.back_to_latest') }}</a></p>{% endif %}
+  {% if conv.has_older %}
+  <p class="chat__older"><a class="btn btn--small" data-chat-older href="{{ view_url }}?before={{ conv.oldest_id }}">{{ t('chat.load_older') }}</a></p>
+  {% endif %}
+  <ol class="chat__log" id="chat-log" role="log" aria-label="{{ t('chat.messages_label') }}" tabindex="0">
+    {% for m in conv.messages %}{{ message(m, delete_url) }}{% endfor %}
+  </ol>
+  <p class="chat__empty muted" id="chat-empty"{% if conv.messages %} hidden{% endif %}>{{ t('chat.empty') }}</p>
+  <button type="button" class="btn btn--small chat__jump" id="chat-jump" hidden>{{ t('chat.new_messages') }}</button>
+</div>
+{% if live and not conv.paged %}
+<script type="application/json" id="chat-data">{{ {
+  "pollUrl": live.poll, "readUrl": live.read, "deleteUrl": delete_url, "latestId": conv.latest_id,
+  "oldestId": conv.oldest_id, "hasOlder": conv.has_older, "cursor": conv.cursor, "markRead": live.mark_read
+}|json_script }}</script>
+{% endif %}
+{%- endmacro %}
+
+{% macro composer(send_url, can_upload, max_length, max_attachment_bytes, per_day) -%}
+<form class="chat-composer" id="chat-composer" method="post" action="{{ send_url }}" enctype="multipart/form-data" data-allow-resubmit>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label class="visually-hidden" for="chat-input">{{ t('chat.composer.label') }}</label>
+  <textarea id="chat-input" name="content" rows="2" maxlength="{{ max_length }}" placeholder="{{ t('chat.composer.placeholder') }}"></textarea>
+  <div class="chat-composer__actions">
+    {% if can_upload %}
+    <label class="btn btn--small chat-composer__file">
+      <span data-chat-file-label>{{ t('chat.composer.attach') }}</span>
+      <input class="visually-hidden" type="file" name="attachment">
+    </label>
+    <span class="small muted">{{ t('chat.composer.limits', size=max_attachment_bytes|filesize, per_day=per_day) }}</span>
+    {% endif %}
+    <button type="submit" class="btn btn--primary">{{ t('chat.composer.send') }}</button>
+  </div>
+  <p class="small muted chat-composer__hint">{{ t('chat.composer.hint') }}</p>
+</form>
+{%- endmacro %}
+
+{% macro retention_notice(rules) -%}
+{% if rules %}
+<p class="alert alert--warning small"><span class="alert__body">
+  {% if rules.messages %}{{ t('chat.retention.messages', days=rules.messages) }}{% endif %}
+  {% if rules.attachments %}{{ t('chat.retention.attachments', days=rules.attachments) }}{% endif %}
+</span></p>
+{% endif %}
+{%- endmacro %}

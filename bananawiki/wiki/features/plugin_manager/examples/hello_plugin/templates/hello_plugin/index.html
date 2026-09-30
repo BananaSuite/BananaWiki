@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}{{ t('hello_plugin.name') }}{% endblock %}
+{% block content %}
+<header class="page-header"><h1>{{ t('hello_plugin.greeting', name=user.username) }}</h1></header>
+<p>{{ t('hello_plugin.created', count=created) }}</p>
+{% endblock %}

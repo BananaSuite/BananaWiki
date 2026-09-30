@@ -1,17 +1,58 @@
-# Security reports
+# Security policy
 
-Report a vulnerability through [GitHub private vulnerability reporting](https://github.com/BananaSuite/BananaWiki/security/advisories/new) when it is enabled. Include the affected revision, reproduction steps, impact, and any suggested fix. Avoid placing credentials or private user data in a report.
+## Reporting a vulnerability
 
-If private reporting is unavailable, contact [Luca Zani (OverloadedTech)](https://github.com/OverloadedTech) using the contact information on that profile. Use a public issue only to request a private reporting channel; do not publish exploit details or private data there.
+Report vulnerabilities privately through GitHub's private vulnerability
+reporting:
+<https://github.com/OverloadedTech/BananaWiki/security/advisories/new>
 
-## Trust model
+Include the affected version or commit, the steps to reproduce, the impact,
+and a suggested fix if you have one. Do not include real credentials or other
+people's data. If private reporting is unavailable, contact
+[Luca Zani (OverloadedTech)](https://github.com/OverloadedTech) through the
+contact details on that profile. Use a public issue only to ask for a private
+channel; never publish exploit details there.
 
-Admins are fully trusted. Any admin can install a plugin or import a full-site backup, and either one gives complete control of the wiki: an external plugin runs inside the wiki process with the wiki's own privileges, and a backup can replace any account. Owner status protects an account from being demoted or deleted through the normal interface, not from an admin who installs code or imports a backup. Give the admin role only to people you would trust with everything.
-
-The admin pages say this where the decision is made, ask for the admin's password again before an external plugin is imported, enabled or deleted and before a backup is exported or imported, and log each of these actions. External plugins are on by default on a self-hosted wiki; set `BW_ALLOW_EXTERNAL_PLUGINS=0` to turn them off. See [Plugins](docs/plugins/overview.md#what-an-external-plugin-can-do) for what a plugin can do and how to recover from a bad one.
-
-An admin gaining owner or superuser rights through a plugin or a backup is therefore expected behaviour, not a vulnerability. A way for someone without the admin role to reach those powers is one, and so is a way to run plugin code that no admin enabled.
+We acknowledge reports as soon as we can, keep you informed while we work on
+a fix, and credit you in the release notes unless you prefer otherwise.
 
 ## Supported versions
 
-Security fixes target the current public release. Operators should keep dependencies and operating-system packages current and test backups before upgrades.
+| Version | Supported |
+|---|---|
+| 1.6.x | Yes |
+| 1.4 and earlier | No: upgrade to 1.6 ([UPGRADING.md](UPGRADING.md)) |
+
+Security fixes are released for the latest 1.6 release. Keep the operating
+system, Python dependencies and Caddy/Docker up to date, and test your backups
+before upgrades.
+
+## Scope
+
+In scope: the wiki (`bananawiki/wiki`), the hosting portal
+(`bananawiki/hosting`), the lifecycle controller and runtime agent
+(`bananawiki/ops`), the desktop launcher, the GPU speech server
+(`contrib/tts-gpu-server`), the container images and the configurations
+shipped in `deploy/`.
+
+**Administrators are fully trusted.** An administrator can install a plugin
+(code that runs with the wiki's rights) or import a whole-site archive (which
+replaces every account). An administrator gaining owner or superuser rights,
+or reading data, through a plugin or an import is expected behaviour, not a
+vulnerability. These are vulnerabilities:
+
+* anyone without the administrator role reaching administrator powers, or
+  running plugin code no administrator enabled;
+* reading or changing pages, categories, files, chats, boards or canvases you
+  may not see or change;
+* a hosted wiki (or its administrator) affecting the hosting platform, the host
+  or other wikis;
+* bypassing CSRF, sessions, rate limits, the Content Security Policy or the
+  upload checks;
+* anything that exposes secrets (keys, tokens, password hashes).
+
+Out of scope: denial of service by volume, missing hardening headers that do
+not lead to an exploit, self-XSS, social engineering, and findings that
+require an administrator to act against their own wiki.
+
+The security model is described in [docs/security.md](docs/security.md).

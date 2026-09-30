@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ t('chat.dm.title') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('chat.css', blueprint='chat') }}">{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>{{ t('chat.dm.title') }}</h1>
+  <div class="page-header__actions">
+    {% if can_start %}<a class="btn btn--primary" href="{{ url_for('chat.dm_new') }}">{{ t('chat.dm.new') }}</a>{% endif %}
+    <a class="btn" href="{{ url_for('chat.group_list') }}">{{ t('chat.nav.groups') }}</a>
+  </div>
+</header>
+{% if chats %}
+<ul class="chat-list">
+  {% for c in chats %}
+  <li>
+    <a class="chat-list__item" href="{{ url_for('chat.dm_view', chat_id=c.id) }}">
+      <span class="chat-list__name">{{ c.other_username }}{% if c.unread_count %} <span class="count-pill" aria-label="{{ t('chat.unread', count=c.unread_count) }}">{{ c.unread_count }}</span>{% endif %}</span>
+      <span class="chat-list__preview muted">
+        {% if c.last_deleted %}{{ t('chat.message.deleted') }}{% elif c.last_message %}{{ c.last_message|truncate(90, true, '…') }}{% else %}{{ t('chat.no_messages_yet') }}{% endif %}
+      </span>
+      {% if c.last_message_at %}<span class="chat-list__time small muted">{{ c.last_message_at|time_ago }}</span>{% endif %}
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="empty-state card"><p>{{ t('chat.dm.empty') }}</p></div>
+{% endif %}
+{% endblock %}

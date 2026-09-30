@@ -1,9 +1,0 @@
-{
-    "id": "temporary_accounts",
-    "name": "Temporary Accounts & Pages",
-    "version": "1.0.0",
-    "author": "BananaWiki",
-    "description": "Auto-delete pages, auto-delete user accounts, and auto-revoke elevated roles on a configurable schedule with optional countdowns",
-    "builtin": true,
-    "bananawiki_api_version": "1.0"
-}

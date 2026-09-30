@@ -1,0 +1,6 @@
+{% import "macros/forms.html" as forms with context %}
+<form method="post" action="{{ url_for('attention.pending_email') }}" class="form">
+  {{ forms.csrf() }}
+  {{ forms.field('email', t('attention.status.email'), user.email or '', type='email', hint=t('attention.status.hint'), attrs={'maxlength': 254, 'autocomplete': 'email'}) }}
+  <div><button class="btn" type="submit">{{ t('attention.status.save') }}</button></div>
+</form>

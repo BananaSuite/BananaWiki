@@ -1,0 +1,5 @@
+{% if own %}
+<a class="btn btn--small" href="{{ url_for('contributions.edit', slug=page.slug, contribution_id=own.id) }}">{{ t('contributions.edit_mine') }}</a>
+{% else %}
+<a class="btn btn--small" href="{{ url_for('contributions.propose', slug=page.slug) }}">{{ t('contributions.propose') }}</a>
+{% endif %}

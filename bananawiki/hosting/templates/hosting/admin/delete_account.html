@@ -1,0 +1,14 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.admin.delete_account') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow card--danger"><h1>{{ t('hosting.admin.delete_account') }}: {{ target.username }}</h1>
+<p>{{ t('hosting.admin.delete_account_body', count=owned|length) }}</p>
+<ul>{% for inst in owned %}<li>{{ inst.subdomain }}</li>{% endfor %}</ul>
+<form method="post" class="form" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ ui.csrf() }}
+  <label class="check"><input type="radio" name="instance_action" value="terminate" checked><span>{{ t('hosting.admin.terminate_wikis') }}</span></label>
+  <label class="check"><input type="radio" name="instance_action" value="transfer"><span>{{ t('hosting.admin.transfer_wikis') }}</span></label>
+  {{ ui.field('transfer_username', t('hosting.transfers.to')) }}
+  {{ ui.check('notify_user', t('hosting.admin.notify_user')) }}
+  <p><button class="btn btn--danger" type="submit">{{ t('hosting.admin.delete_account') }}</button></p></form></div>
+{% endblock %}

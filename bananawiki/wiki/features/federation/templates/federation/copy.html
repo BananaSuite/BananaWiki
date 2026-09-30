@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ copy.title }}{% endblock %}
+{% block content %}
+<div class="page-header"><h1>{{ copy.title }}</h1></div>
+<p>{{ t('federation.copy.from') }} <a href="{{ copy.base_url }}{{ copy.source_path }}" rel="noreferrer noopener">{{ copy.name }}</a>. {{ t('federation.copy.remote_login') }}</p>
+<p class="small muted">{{ t('federation.copy.source') }} <code class="mono">{{ copy.peer_id }}</code> · {{ t('federation.copy.revision') }} <code class="mono">{{ copy.revision[:16] }}</code></p>
+{% if copy.last_error %}<div class="alert alert--warning" role="status"><div class="alert__body">{{ t('federation.copy.delayed') }}</div></div>{% endif %}
+<p class="hint">{{ t('federation.copy.as_text') }}</p>
+<pre class="mono">{{ copy.content }}</pre>
+{% if is_admin and copy.audience_category is not none %}
+<section class="card">
+  <p>{{ t('federation.copy.fork_hint') }}</p>
+  {{ forms.post_button(url_for('federation.fork', remote_id=copy.peer_id, page_id=copy.page_id), t('federation.copy.fork'), cls='btn btn--primary') }}
+</section>
+{% endif %}
+<p><a href="{{ url_for('federation.index') }}">{{ t('common.back') }}</a></p>
+{% endblock %}

@@ -1,0 +1,48 @@
+# A single wiki behind Caddy (automatic HTTPS).
+#
+#   WIKI_DOMAIN=wiki.example.org ACME_EMAIL=you@example.org docker compose up -d
+#   docker compose exec wiki python -m bananawiki.cli setup-token
+#
+# Data lives in the wiki-data volume; back it up with
+#   docker compose exec wiki python -m bananawiki.cli db backup
+services:
+  wiki:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bananawiki:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      BW_PROXY_MODE: "1"
+      BW_PREFERRED_URL_SCHEME: https
+    volumes:
+      - wiki-data:/data
+    expose: ["5001"]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      wiki:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      WIKI_DOMAIN: ${WIKI_DOMAIN:?set WIKI_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+    volumes:
+      - ./deploy/Caddyfile.compose:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  wiki-data:
+  caddy-data:
+  caddy-config:

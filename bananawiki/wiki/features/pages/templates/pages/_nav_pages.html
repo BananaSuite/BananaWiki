@@ -1,0 +1,15 @@
+{#- Page links of one category. Context: pages, more, category_id, current_slug, reorder. -#}
+{% for p in pages %}
+<li data-reorder-item data-id="{{ p.id }}"{% if reorder %} draggable="true"{% endif %}>
+  <a href="{{ url_for('pages.view', slug=p.slug) }}"{% if p.slug == current_slug %} aria-current="page"{% endif %}
+     {%- if p.is_deindexed or p.pending_deletion %} class="nav-link--hidden" title="{{ t('pages.badge.pending_deletion') if p.pending_deletion else t('pages.badge.hidden') }}"{% endif %}>
+    <span class="nav-label">{{ p.title }}</span>
+  </a>
+</li>
+{% endfor %}
+{% if more is not none %}
+<li class="nav-more">
+  <a href="{{ url_for('pages.navigation_pages', category_id=category_id or 0, after=more) }}"
+     data-nav-more="{{ url_for('pages.api_sidebar_pages', category_id=category_id or 0, after=more) }}">{{ t('pages.nav.more') }}</a>
+</li>
+{% endif %}

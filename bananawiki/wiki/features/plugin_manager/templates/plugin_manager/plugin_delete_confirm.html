@@ -1,0 +1,32 @@
+{% extends "admin/_layout.html" %}
+{% import "plugin_manager/_macros.html" as pm with context %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('plugin_manager.delete.title_named', name=entry.name) }}{% endblock %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('plugin_manager.delete.title_named', name=entry.name) }}</h1></header>
+<div class="card card--danger">
+  <p>{{ t('plugin_manager.delete.body') }}</p>
+  {% if entry.loaded %}<p class="small">{{ t('plugin_manager.delete.still_loaded') }}</p>{% endif %}
+  {% if dependents %}
+  <p>{{ t('plugin_manager.delete.dependents') }}</p>
+  <ul>{% for id, name in dependents %}<li>{{ name }}</li>{% endfor %}</ul>
+  {% endif %}
+  <form method="post" action="{{ url_for('plugin_manager.delete', plugin_id=entry.id) }}" class="form">
+    {{ forms.csrf() }}
+    {% if data_tables %}
+    <fieldset>
+      <legend>{{ t('plugin_manager.delete.data_legend') }}</legend>
+      {{ forms.checkbox('drop_data', t('plugin_manager.delete.drop_data'), hint=t('plugin_manager.delete.drop_hint')) }}
+      <ul class="mono small">{% for name in data_tables %}<li><input type="hidden" name="data_table" value="{{ name }}">{{ name }}</li>{% endfor %}</ul>
+    </fieldset>
+    {% else %}
+    <p class="small muted">{{ t('plugin_manager.delete.no_data') }}</p>
+    {% endif %}
+    {{ pm.password_field() }}
+    <div class="btn-row">
+      <button type="submit" class="btn btn--danger">{{ t('plugin_manager.action.delete') }}</button>
+      <a class="btn btn--ghost" href="{{ url_for('plugin_manager.index') }}">{{ t('common.cancel') }}</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

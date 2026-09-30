@@ -1,0 +1,33 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.collaborators.title') }}{% endblock %}
+{% block content %}
+<nav class="breadcrumbs"><a href="{{ url_for('dashboard.instance_detail', instance_id=instance.id) }}">{{ instance.subdomain }}</a></nav>
+<h1>{{ t('hosting.collaborators.title') }}</h1>
+{% macro perms_fields(selected=[], role='custom') %}
+<div class="field"><label>{{ t('hosting.collaborators.role') }}</label><select name="role">
+  <option value="custom"{% if role == 'custom' %} selected{% endif %}>{{ t('hosting.collaborators.custom') }}</option>
+  <option value="full_access"{% if role == 'full_access' %} selected{% endif %}>{{ t('hosting.collaborators.full_access') }}</option></select></div>
+<div class="cluster">{% for p in permissions %}{{ ui.check('permissions', t('hosting.permission.' ~ p), checked=p in selected, value=p) }}{% endfor %}</div>
+{% endmacro %}
+{% for c in collaborators %}
+<details class="card"><summary>{{ c.username }} · {{ t('hosting.collaborators.' ~ c.role) }}</summary>
+  <form method="post" action="{{ url_for('dashboard.update_collaborator', instance_id=instance.id, collab_account_id=c.account_id) }}" class="form">{{ ui.csrf() }}
+    {{ perms_fields(c.granted, c.role) }}<p><button class="btn btn--small" type="submit">{{ t('common.save') }}</button></p></form>
+  {{ ui.post(url_for('dashboard.remove_collaborator', instance_id=instance.id, collab_account_id=c.account_id), t('hosting.collaborators.remove'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}
+</details>
+{% else %}<p class="muted">{{ t('hosting.common.none') }}</p>{% endfor %}
+<section class="card"><h2>{{ t('hosting.collaborators.add') }}</h2>
+<form method="post" action="{{ url_for('dashboard.add_collaborator', instance_id=instance.id) }}" class="form">{{ ui.csrf() }}
+  {{ ui.field('username', t('hosting.field.username'), required=true) }}{{ perms_fields(['view']) }}
+  <p><button class="btn btn--primary" type="submit">{{ t('hosting.collaborators.add') }}</button></p></form></section>
+{% if can_transfer %}
+<section class="card"><h2>{{ t('hosting.transfers.title') }}</h2>
+{% if transfer %}<p>{{ t('hosting.transfers.pending', username=transfer.to_username) }}</p>
+  {{ ui.post(url_for('dashboard.cancel_transfer', transfer_id=transfer.id), t('common.cancel')) }}
+{% else %}
+<form method="post" action="{{ url_for('dashboard.start_transfer', instance_id=instance.id) }}" class="form" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ ui.csrf() }}
+  {{ ui.field('username', t('hosting.transfers.to'), required=true) }}<p><button class="btn" type="submit">{{ t('hosting.transfers.start') }}</button></p></form>
+{% endif %}</section>
+{% endif %}
+{% endblock %}

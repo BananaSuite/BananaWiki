@@ -1,0 +1,53 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('site_admin.docs.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('site_admin.docs.title') }}</h1>
+  <p class="page-header__meta">{{ t('site_admin.docs.intro') }}</p>
+</header>
+
+{% set variant_options = [] %}
+{% for v in variants %}{% set _ = variant_options.append((v, t('site_admin.docs.variant.' ~ v))) %}{% endfor %}
+{% set language_options = [] %}
+{% for code in languages %}{% set _ = language_options.append((code, t('site_admin.docs.language.' ~ code))) %}{% endfor %}
+
+<section class="card">
+  <h2>{{ t('site_admin.docs.create') }}</h2>
+  {% if category %}<p>{{ t('site_admin.docs.exists', name=category.name) }}</p>{% endif %}
+  <form method="post" action="{{ url_for('site_admin.spawn_docs') }}" class="form"
+        {% if category %}data-confirm="{{ t('site_admin.docs.replace_confirm') }}"{% endif %}>
+    {{ forms.csrf() }}
+    {{ forms.select('variant', t('site_admin.docs.variant'), variant_options, selected='full') }}
+    {{ forms.select('docs_language', t('site_admin.docs.language'), language_options, selected=default_language) }}
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('site_admin.docs.replace' if category else 'site_admin.docs.create_button') }}</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>{{ t('site_admin.docs.download') }}</h2>
+  <p>{{ t('site_admin.docs.download_hint') }}</p>
+  <form method="get" action="{{ url_for('site_admin.download_docs') }}" class="form">
+    <div class="field">
+      <label for="d-variant">{{ t('site_admin.docs.variant') }}</label>
+      <select id="d-variant" name="variant">{% for value, text in variant_options %}<option value="{{ value }}">{{ text }}</option>{% endfor %}</select>
+    </div>
+    <div class="field">
+      <label for="d-language">{{ t('site_admin.docs.language') }}</label>
+      <select id="d-language" name="docs_language">{% for value, text in language_options %}<option value="{{ value }}"{% if value == default_language %} selected{% endif %}>{{ text }}</option>{% endfor %}</select>
+    </div>
+    <div class="btn-row"><button class="btn" type="submit">{{ t('site_admin.docs.download_button') }}</button></div>
+  </form>
+</section>
+
+{% if slowdown %}
+<section class="card">
+  <h2>{{ t('site_admin.docs.settings') }}</h2>
+  <form method="post" action="{{ url_for('site_admin.docs_settings') }}" class="form">
+    {{ forms.csrf() }}
+    {{ forms.checkbox('docs_bypass_deletion_slowdown', t('site_admin.docs.bypass'), checked=bypass, hint=t('site_admin.docs.bypass_hint')) }}
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

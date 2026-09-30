@@ -1,0 +1,24 @@
+{#- Attachments in the page editor (inside the editor form: no nested forms, the script does the work).
+    Context: page, attachments, can_view, can_upload, deletable, max_bytes. -#}
+<fieldset class="attachments attachments--editor" data-attachments
+  data-upload-url="{{ url_for('attachments.api_upload', page_id=page.id) if can_upload else '' }}"
+  data-max-bytes="{{ max_bytes }}">
+  <legend>{{ t('attachments.title') }}</legend>
+  <ul class="attachments__list" data-attachments-list>
+    {% for a in attachments %}
+    <li class="attachments__item" data-attachment>
+      {% if can_view %}<a href="{{ url_for('attachments.download', slug=page.slug, attachment_id=a.id) }}" download>{{ a.original_name }}</a>{% else %}<span>{{ a.original_name }}</span>{% endif %}
+      <span class="small muted">{{ a.file_size|filesize }}</span>
+      {% if a.id in deletable %}<button type="button" class="btn btn--small btn--ghost text-danger" data-attachment-delete="{{ url_for('attachments.api_delete', attachment_id=a.id) }}" data-name="{{ a.original_name }}">{{ t('common.delete') }}</button>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% if can_upload %}
+  <label class="btn btn--small" for="attachments-editor-input">{{ t('attachments.add') }}</label>
+  <input id="attachments-editor-input" class="visually-hidden" type="file" multiple data-attachments-input>
+  <span class="small muted" data-attachments-status aria-live="polite">{{ t('attachments.hint', size=max_bytes|filesize) }}</span>
+  <noscript><p class="hint"><a href="{{ url_for('pages.view', slug=page.slug) }}#attachments">{{ t('attachments.manage_on_page') }}</a></p></noscript>
+  {% endif %}
+</fieldset>
+<link rel="stylesheet" href="{{ asset_url('attachments.css', blueprint='attachments') }}">
+<script src="{{ asset_url('attachments.js', blueprint='attachments') }}" defer></script>

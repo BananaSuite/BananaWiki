@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('contributions.detail_title', id=contribution.id) }}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>{{ t('contributions.detail_title', id=contribution.id) }}</h1>
+  <div class="page-header__meta">
+    <a href="{{ url_for('pages.view', slug=page.slug) }}">{{ page.title }}</a>
+    <span>{{ t('contributions.by', user=contribution.username, date=contribution.created_at|datetime) }}</span>
+    <span class="badge">{{ t('contributions.status.' ~ contribution.status) }}</span>
+  </div>
+</header>
+<div class="stack">
+  {% if page_changed %}<div class="alert alert--warning"><div class="alert__body">{{ t('contributions.page_changed') }}</div></div>{% endif %}
+  <section class="card">
+    <h2>{{ t('contributions.field.reason') }}</h2>
+    <p>{{ contribution.reason }}</p>
+    {% if contribution.title != page.title %}
+    <p>{{ t('contributions.title_change') }} <del>{{ page.title }}</del> → <ins>{{ contribution.title }}</ins></p>
+    {% endif %}
+  </section>
+  <section class="card">
+    <h2>{{ t('contributions.changes') }}</h2>
+    {% if diff %}
+    <div class="diff" role="table" aria-label="{{ t('contributions.changes') }}">
+      {% for row in diff %}
+      {% if row.op == 'gap' %}<div class="muted">⋯</div>
+      {% elif row.op == 'add' %}<div><ins>+ {{ row.text }}</ins></div>
+      {% elif row.op == 'del' %}<div><del>- {{ row.text }}</del></div>
+      {% else %}<div>&nbsp; {{ row.text }}</div>{% endif %}
+      {% endfor %}
+    </div>
+    {% else %}<p class="muted">{{ t('contributions.no_content_change') }}</p>{% endif %}
+  </section>
+  {% if contribution.status == 'pending' %}
+  <section class="card">
+    <form method="post" class="form">
+      {{ forms.csrf() }}
+      <div class="field">
+        <label for="f-review_reason">{{ t('contributions.review_reason') }}</label>
+        <textarea id="f-review_reason" name="review_reason" rows="2" maxlength="{{ max_review_reason }}"></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn--primary" type="submit" formaction="{{ url_for('contributions.approve', contribution_id=contribution.id) }}">{{ t('contributions.approve') }}</button>
+        <button class="btn btn--danger" type="submit" formaction="{{ url_for('contributions.deny', contribution_id=contribution.id) }}">{{ t('contributions.deny') }}</button>
+      </div>
+    </form>
+    {% if is_admin %}
+    <form method="post" action="{{ url_for('contributions.set_quota', contribution_id=contribution.id) }}" class="form cluster">
+      {{ forms.csrf() }}
+      <label for="f-quota">{{ t('contributions.quota.set_for', user=contribution.username) }}</label>
+      <input id="f-quota" name="quota" placeholder="{{ t('contributions.quota.set_hint') }}" size="10">
+      <button class="btn btn--small" type="submit">{{ t('common.save') }}</button>
+    </form>
+    {% endif %}
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,9 @@
+{% extends "base_minimal.html" %}
+{% block title %}{{ t('auth.maintenance.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('auth.maintenance.title') }}</h1>
+  <p>{{ message or t('auth.maintenance.body') }}</p>
+  <p><a class="btn" href="{{ url_for('auth.admin_login') }}">{{ t('auth.maintenance.admin_login') }}</a></p>
+</div>
+{% endblock %}

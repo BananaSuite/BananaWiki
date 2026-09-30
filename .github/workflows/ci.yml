@@ -1,9 +1,8 @@
-name: Tests
+name: CI
 
 on:
   push:
-    paths-ignore:
-      - '.bananavibe-state/**'
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -15,58 +14,85 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.12", "3.13"]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Install backup encryption and audio tools
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install ruff==0.16.9
+      - name: Ruff (pyproject.toml rules)
+        run: python -m ruff check bananawiki tests banana wsgi.py gunicorn.conf.py scripts/tts_worker.py
+      - name: ShellCheck
         run: |
-          sudo apt-get update
-          sudo apt-get install -y age ffmpeg
-      - name: Verify shared backup sources
-        run: python3 scripts/sync_backups.py --check
+          files=$(git ls-files '*.sh')
+          if [ -n "$files" ]; then shellcheck --severity=warning $files; else echo "No shell scripts."; fi
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-      - name: Verify shared lifecycle sources
-        run: python scripts/sync_lifecycle.py --check
-      - run: |
+      - name: Tools used by lifecycle and backup tests
+        run: sudo apt-get update && sudo apt-get install -y age openssh-client
+      - name: Install (wheels only, as on a managed server)
+        run: |
           python -m pip install --only-binary=:all: --no-deps --upgrade 'pip>=26.2.1'
-      - run: python -m pip install -r requirements.txt pytest pytest-xdist ruff==0.16.6
-      - name: Lint
-        run: python -m ruff check .
-      - run: python -m pytest -q -n 2
+          python -m pip install --only-binary=:all: -r requirements.txt pytest pytest-xdist
+      - name: Tests
+        run: python -m pytest tests -q -n 2 -p no:cacheprovider -o addopts=""
 
-  browser:
+  audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.13"
-          cache: pip
-      - run: |
-          python -m pip install --only-binary=:all: --no-deps --upgrade 'pip>=26.2.1'
-      - run: python -m pip install -r requirements.txt -r requirements-browser.txt
-      - run: python -m playwright install --with-deps chromium
-      - name: Check desktop and mobile navigation
-        run: python scripts/check_navigation_browser.py
-      - name: Retain browser results
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+          python-version: "3.12"
+      - run: python -m pip install pip-audit
+      - name: Known vulnerabilities in runtime dependencies
+        run: python -m pip_audit --requirement requirements.txt --strict --progress-spinner off
+
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile: [Dockerfile, Dockerfile.tenant]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          name: browser-results
-          path: .browser-artifacts/
-          include-hidden-files: true
-          retention-days: 7
+          persist-credentials: false
+      - name: Build
+        run: docker build -f ${{ matrix.dockerfile }} -t bananawiki-ci:${{ strategy.job-index }} .
+      - name: Start read-only, unprivileged, as an arbitrary UID, and wait for /health
+        run: |
+          mkdir -p "$RUNNER_TEMP/data" && sudo chown 4242:4242 "$RUNNER_TEMP/data"
+          docker run -d --name probe --read-only --user 4242:4242 --cap-drop ALL \
+            --security-opt no-new-privileges:true --tmpfs /tmp:rw,noexec,nosuid,size=128m \
+            --tmpfs /run:rw,nosuid,size=16m --mount "type=bind,src=$RUNNER_TEMP/data,dst=/data" \
+            -e BW_MANAGED_HOSTING=1 -p 127.0.0.1:5001:5001 bananawiki-ci:${{ strategy.job-index }}
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:5001/health; then exit 0; fi
+            sleep 3
+          done
+          docker logs probe
+          exit 1

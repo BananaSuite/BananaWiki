@@ -1,70 +1,136 @@
-<img src="app/static/favicons/banana_yellow.png" alt="BananaWiki logo" width="64">
+<img src="bananawiki/wiki/static/favicons/banana_yellow.png" alt="BananaWiki logo" width="64">
 
 # BananaWiki
 
-BananaWiki is a self-hosted wiki with page history, access controls, chat, kanban boards, canvas diagrams, and plugins. It can run as one wiki or as a hosting platform that manages separate wiki instances.
+BananaWiki is a self-hosted wiki for teams, schools and communities: Markdown
+pages with history, fine-grained permissions, and optional collaboration
+tools (chat, kanban boards, canvases, quizzes, read aloud). It runs as a
+single wiki, as a desktop app on one computer, or as a hosting platform that
+creates a separate wiki for each customer.
 
-[Italiano](README.it.md) · [Deployment](docs/deployment.md) · [User guide](docs/user-guide/en/README.md) · [API](docs/api.md)
+[Italiano](README.it.md) · [Documentation](docs/README.md) ·
+[Getting started](docs/getting-started.md) · [Upgrading from 1.4](UPGRADING.md) ·
+[User guide](docs/user-guide/en/README.md)
 
-## Choose a deployment
+## Features
 
-| Use case | Run | Requirements |
-| --- | --- | --- |
-| One wiki for a team or community | The wiki application | Python 3.12 or newer |
-| A service that provisions wikis for other people | The hosting portal and its tenant containers | Linux, Python 3.12 or newer, Docker, a reverse proxy |
-| A local or classroom wiki | The portable desktop launcher | See the [portable app guide](docs/easy-deployment-app.md) |
+* **Pages**: Markdown editor with toolbar, live preview, image upload, tables,
+  video embeds and `@mentions`; categories with drag-and-drop
+  ordering and sequential navigation; full-text search; edit-conflict
+  detection; full page history with differences, restore and attribution;
+  autosaved drafts; attachments; PDF and Markdown export; bulk Markdown import
+  and export.
+* **Access control**: roles (user, editor, administrator, owner), custom
+  roles, per-user permissions, read and write access per category, public
+  mode, invite codes, open sign-up with an end date, approval of new accounts,
+  suspensions, session management, audit log.
+* **Content governance**: page protection, check-outs with quotas, proposed
+  edits with review, a 48-hour grace period for deletions, scheduled deletion
+  of pages and accounts, temporary roles.
+* **Collaboration**: direct messages and group chats with retention rules,
+  kanban boards, visual canvases, quizzes attached to pages, announcements,
+  badges, a contributor leaderboard, member profiles with custom fields.
+* **Read aloud**: audio versions of pages with local neural voices (Piper) or
+  a GPU server.
+* **Integration**: a REST API with scoped tokens and an OpenAPI description,
+  federation between wikis, custom pages at any free address, third-party
+  plugins (1.4 plugins still load).
+* **Administration**: appearance themes, interface languages (English and
+  Italian included, more uploadable), built-in user guide, whole-site export
+  and import, bulk delete.
+* **Operations**: one-command installation with automatic HTTPS
+  configuration, updates with backup and automatic rollback, encrypted
+  backups to a private Git repository, Docker Compose, a desktop launcher for
+  Windows, macOS and Linux.
+* **Hosting platform**: sign-up, per-customer wikis in isolated containers,
+  custom domains, collaborators, quotas and expiry, platform sign-in, its own
+  API, Google Drive backups.
 
-The hosting platform includes approvals, account and instance suspension, an administrative decision history, storage limits, exports, and custom domains. Each instance's owner needs a platform administrator's permission before adding a custom domain.
+## Quick start
 
-## Run a single wiki locally
+**Try it from source** (Python 3.11 or newer):
 
 ```sh
-python3 -m venv .venv
-. .venv/bin/activate
-# a current pip first: older bundled releases lack its security fixes
-python -m pip install --only-binary=:all: --no-deps --upgrade 'pip>=26.2.1'
-python -m pip install -r requirements.txt
-python -c 'import config; print(config.SETUP_TOKEN)'
-gunicorn --bind 127.0.0.1:5001 --workers 2 --threads 4 wsgi:app
+git clone https://github.com/OverloadedTech/BananaWiki.git
+cd BananaWiki
+python3 -m venv .venv && . .venv/bin/activate
+python -m pip install -e .
+bananawiki serve
 ```
 
-Open `http://127.0.0.1:5001` and use the printed installation token to create the first administrator. Keep that token private until setup is complete. Install FFmpeg if you use features that process audio or video.
+Open <http://127.0.0.1:5001>, run `bananawiki setup-token` in a second
+terminal and enter the token to create the first account. Details:
+[getting started](docs/getting-started.md).
 
-These commands are for Linux and macOS. Reading pages aloud also needs the text-to-speech worker running next to the web server, `python scripts/tts_worker.py`; `banana install` and the desktop launcher start it for you.
+**Docker Compose** (a wiki behind Caddy with automatic HTTPS):
 
-For an internet-facing installation, follow the [deployment guide](docs/deployment.md). It covers HTTPS, persistent data, backups, and the hosting platform. Enable proxy trust only when the application's listening port is accessible through your trusted reverse proxy.
+```sh
+WIKI_DOMAIN=wiki.example.org ACME_EMAIL=you@example.org docker compose up -d
+docker compose exec wiki python -m bananawiki.cli setup-token
+```
 
-Managed servers use one command: `sudo ./banana install --mode wiki` or `--mode hosting`, then `sudo bananawiki update`, `backup`, `restore`, or `uninstall`. The command remembers the deployment mode. Automatic updates are off by default; `bananawiki updates enable` opts in and `updates disable` opts out. Choose your own Git URL, branch, and explicit fallback, including private repositories authenticated with a token or SSH deploy key.
+**Managed Linux server** (systemd services, HTTPS, updates, backups):
 
-[Encrypted repository backups](docs/backups.md) cover both single wikis and hosting platforms, including the deployed website. Choose a private GitHub or Forgejo destination, save the recovery key offline, and opt into scheduling if wanted. The hosting platform can also back up to Google Drive.
+```sh
+sudo ./banana install --mode wiki --domain wiki.example.org
+sudo bananawiki proxy --install --email you@example.org
+sudo bananawiki setup-token
+```
 
-## Background
+Use `--mode hosting` for the hosting platform. Automatic updates stay off
+until `sudo bananawiki updates enable`. See [deployment](docs/deployment.md)
+and [operations](docs/operations.md).
 
-Luca Zani ([OverloadedTech](https://github.com/OverloadedTech)) started BananaWiki alone on 20 February 2026, when Canalescuola needed a wiki for the Officina Tecnologica project. Work sped up in June 2026 during an FSL placement (formazione scuola-lavoro, the Italian school work experience scheme), and since then Luca and Officina Tecnologica have maintained it. Over those months one wiki for one group turned into a platform that provisions and runs a wiki per tenant, with the approvals, quotas and custom domain handling that implies.
+**Desktop**: [BananaWiki Desktop](docs/desktop.md) runs a wiki on a classroom
+or office computer without a server.
 
-Until September 2026 it was an internal project. This release turns that internal version into free software: the same code runs the hosted service, which is open to the public at some times and not at others, and anyone can run it on their own server instead.
-
-Two smaller projects grew alongside it. [BananaChat](https://github.com/BananaSuite/BananaChat) began as BananaAI, out of wanting to self-host AI models, and is now a separate way for people to try a local language model. [BananaVibe](https://github.com/BananaSuite/BananaVibe) is there to try out features quickly and keep up with routine maintenance, always ending at a draft pull request that a person reviews.
-
-On the commit count: the code was developed privately for about seven months, and the internal history runs to a little over three thousand commits. None of it is published. It carries deployment credentials and notes about infrastructure written for maintainers only, and there is no way to remove every secret from that many commits with certainty. The public repository starts from a clean export of the current source instead. [NOTICE](NOTICE) keeps the original start date and the first commit hash on record.
+Upgrading a 1.4 installation: [UPGRADING.md](UPGRADING.md).
 
 ## Documentation
 
-[All of it is indexed in `docs/`](docs/README.md). The pages people reach for first:
+Everything is indexed in [docs/](docs/README.md): configuration, deployment,
+operations, security, permissions, features, API, federation, plugins,
+hosting, desktop, read aloud, architecture, the user guide in English and
+Italian, and a [review of what was wrong in 1.4](docs/1.4-review.md).
+Contributors start with [CONTRIBUTING.md](CONTRIBUTING.md) and
+[ARCHITECTURE.md](ARCHITECTURE.md); security reports go through
+[SECURITY.md](SECURITY.md).
 
-- [Configuration](docs/configuration.md) and [operations](docs/operations.md)
-- [Measured capacity and operating limits](docs/capacity.md)
-- [Hosting platform](docs/hosting.md) and [custom domains](docs/custom-domains.md)
-- [Migration from an existing installation](MIGRATION.md)
-- [Plugin development](docs/plugins/overview.md)
-- [Contributing](CONTRIBUTING.md), [code of conduct](CODE_OF_CONDUCT.md) and [security reports](SECURITY.md)
+## Background
 
-`site/` contains an editable static placeholder for a hosting service's home page. The bananawiki.com website is maintained in a separate private repository; the hosting portal's help pages ship here, in `hosting/content/`. Application updates preserve an operator's separately deployed website.
+Luca Zani ([OverloadedTech](https://github.com/OverloadedTech)) started
+BananaWiki alone on 20 February 2026, when Canalescuola needed a wiki for the
+Officina Tecnologica project. Work sped up in June 2026 during an FSL
+placement (formazione scuola-lavoro, the Italian school work experience
+scheme), and since then Luca and Officina Tecnologica have maintained it.
+Over those months one wiki for one group turned into a platform that
+provisions and runs a wiki per tenant, with the approvals, quotas and custom
+domain handling that implies.
+
+Until September 2026 it was an internal project. The first public release
+turned that internal version into free software: the same code runs the
+hosted service, and anyone can run it on their own server instead. Version
+1.6 is a rewrite of that release, keeping its data, URLs and configuration
+so existing installations upgrade in place.
+
+The code was developed privately for about seven months, and the internal
+history runs to a little over three thousand commits. None of it is
+published: it carries deployment credentials and notes about infrastructure,
+and there is no way to remove every secret from that many commits with
+certainty. The public repository starts from a clean export instead;
+[NOTICE](NOTICE) keeps the original start date and the first commit hash on
+record.
 
 ## License and ownership
 
-BananaWiki is licensed under GNU AGPL version 3 (`AGPL-3.0-only`). Personal and commercial use are permitted. There are no software registration keys or commercial-use declarations.
+BananaWiki is licensed under the GNU Affero General Public License version 3
+(`AGPL-3.0-only`); see [LICENSE](LICENSE). Personal and commercial use are
+permitted. There are no registration keys or commercial-use declarations.
 
-If you modify the software and let people interact with it over a network, AGPL section 13 requires you to offer those users the corresponding source. Set `BW_SOURCE_URL` to the source of your deployed version; the application displays that link. See [LICENSE](LICENSE) for the full terms and retain third-party notices.
+If you modify BananaWiki and let people use it over a network, AGPL section
+13 requires you to offer them the corresponding source. Set `BW_SOURCE_URL`
+to the source of the version you run; the wiki links to it at `/source`.
+Keep third-party notices.
 
-Copyright © 2026 Luca Zani and all contributors. Each contributor retains copyright in their contributions. The hosted BananaWiki service runs this same codebase.
+Copyright © 2026 Luca Zani and all contributors. Each contributor retains
+copyright in their contributions. Source: <https://github.com/OverloadedTech/BananaWiki>.

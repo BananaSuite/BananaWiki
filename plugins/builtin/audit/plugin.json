@@ -1,9 +1,0 @@
-{
-    "id": "audit",
-    "name": "Audit",
-    "version": "1.0.0",
-    "author": "BananaWiki",
-    "description": "Audit trail \u2013 role change history, custom user tags, and contribution tracking",
-    "builtin": true,
-    "bananawiki_api_version": "1.0"
-}

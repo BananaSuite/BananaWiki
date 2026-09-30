@@ -1,0 +1,8 @@
+{
+  "id": "hello_plugin",
+  "name": "Hello Plugin",
+  "version": "1.0.0",
+  "author": "BananaWiki",
+  "description": "Example plugin: a page, a sidebar app, a table of its own and an event handler.",
+  "min_bananawiki": "1.6.0"
+}

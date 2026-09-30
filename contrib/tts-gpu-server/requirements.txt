@@ -1,0 +1,5 @@
+# BananaWiki GPU speech server. The server itself uses only the standard library.
+# Needs the NVIDIA driver, CUDA and cuDNN matching onnxruntime-gpu; for a CPU-only
+# server replace onnxruntime-gpu with onnxruntime and set TTS_USE_CUDA=0.
+piper-tts>=1.4,<2
+onnxruntime-gpu>=1.17,<2

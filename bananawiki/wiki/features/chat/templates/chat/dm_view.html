@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% import "chat/_macros.html" as ui with context %}
+{% set other_name = other.username if other else t('common.unknown_user') %}
+{% block title %}{{ t('chat.dm.with', user=other_name) }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('chat.css', blueprint='chat') }}">{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>{{ t('chat.dm.with', user=other_name) }}</h1>
+  <div class="page-header__actions">
+    <a class="btn btn--small" href="{{ url_for('chat.dm_list') }}">{{ t('common.back') }}</a>
+    <a class="btn btn--small" href="{{ url_for('chat.dm_export', chat_id=chat.id) }}">{{ t('chat.export.button') }}</a>
+    <form class="inline" method="post" action="{{ url_for('chat.dm_clear', chat_id=chat.id) }}"
+          data-confirm="{{ t('chat.clear.dm_confirm', messages=counts[0], attachments=counts[1]) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn--small btn--danger" type="submit">{{ t('chat.clear.button') }}</button>
+    </form>
+  </div>
+</header>
+{{ ui.retention_notice(retention) }}
+{% set view_url = url_for('chat.dm_view', chat_id=chat.id) %}
+{{ ui.log(conversation, view_url, url_for('chat.dm_delete_message', chat_id=chat.id),
+            {"poll": url_for('chat.dm_messages', chat_id=chat.id), "read": url_for('chat.dm_read', chat_id=chat.id), "mark_read": true}) }}
+{{ ui.composer(url_for('chat.dm_send', chat_id=chat.id), can_upload, max_length, max_attachment_bytes, per_day) }}
+{% endblock %}
+{% block scripts %}<script src="{{ asset_url('chat.js', blueprint='chat') }}"></script>{% endblock %}

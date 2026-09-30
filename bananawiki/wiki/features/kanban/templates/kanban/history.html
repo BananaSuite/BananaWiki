@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('kanban.history.title', title=board.title) }}{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('kanban.breadcrumbs') }}">
+  <ol><li><a href="{{ url_for('kanban.index') }}">{{ t('kanban.list.title') }}</a></li>
+    <li><a href="{{ url_for('kanban.board', board_id=board.id) }}">{{ board.title }}</a></li></ol>
+</nav>
+<header class="page-header">
+  <h1>{{ t('kanban.history.title', title=board.title) }}</h1>
+  {% if is_admin and entries %}
+  <div class="page-header__actions">
+    {{ forms.post_button(url_for('kanban.clear_history', board_id=board.id), t('kanban.history.clear'), 'btn btn--danger btn--small', confirm=t('kanban.history.clear_confirm')) }}
+  </div>
+  {% endif %}
+</header>
+<p class="hint">{{ t('kanban.history.revert_explained') }}</p>
+{% if entries %}
+<div class="table-wrap"><table class="table">
+  <thead><tr><th>{{ t('kanban.history.date') }}</th><th>{{ t('kanban.history.editor') }}</th><th>{{ t('kanban.history.summary') }}</th><th><span class="visually-hidden">{{ t('common.actions') }}</span></th></tr></thead>
+  <tbody>
+  {% for entry in entries %}
+  <tr>
+    <td class="nowrap"><time datetime="{{ entry.created_at }}" title="{{ entry.created_at|datetime }}">{{ entry.created_at|time_ago }}</time></td>
+    <td>{{ entry.username or t('common.unknown_user') }}</td>
+    <td>{{ entry.edit_message or '—' }}{% if entry.is_revert %} <span class="badge badge--warning">{{ t('kanban.history.revert_badge') }}</span>{% endif %}</td>
+    <td class="actions">
+      <a class="btn btn--small" href="{{ url_for('kanban.history_entry', board_id=board.id, entry_id=entry.id) }}">{{ t('kanban.history.view') }}</a>
+      {% if can_revert %}{{ forms.post_button(url_for('kanban.revert', board_id=board.id, entry_id=entry.id), t('kanban.history.revert'), 'btn btn--small', confirm=t('kanban.history.revert_confirm')) }}{% endif %}
+      {% if is_admin %}{{ forms.post_button(url_for('kanban.delete_history_entry', board_id=board.id, entry_id=entry.id), t('common.delete'), 'btn btn--small btn--danger', confirm=t('kanban.history.delete_confirm')) }}{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<p class="empty-state">{{ t('kanban.history.empty') }}</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,8 @@
+{% extends "hosting/base.html" %}
+{% block title %}{{ t('hosting.pending_deletion.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow card--danger"><h1>{{ t('hosting.pending_deletion.title') }}</h1>
+<p>{{ t('hosting.pending_deletion.body', time=(remaining or 0)|duration) }}</p>
+{% if reason %}<p><strong>{{ t('hosting.activation.reason') }}</strong> {{ reason }}</p>{% endif %}
+<p class="small muted">{{ t('hosting.common.contact', email=contact_email) }}</p></div>
+{% endblock %}

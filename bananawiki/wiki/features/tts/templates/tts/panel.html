@@ -1,0 +1,29 @@
+{#- "Listen to this page" player (slot page.below_content). Behaviour lives in static/tts.js. -#}
+<link rel="stylesheet" href="{{ asset_url('tts.css', blueprint='tts') }}">
+<section class="card tts-panel" data-tts-panel aria-labelledby="tts-title-{{ page.id }}">
+  <script type="application/json" data-tts-config>{{ {"urls": urls, "state": state, "speedDownload": speed_download}|json_script }}</script>
+  <div class="tts-panel__header">
+    <h2 class="tts-panel__title" id="tts-title-{{ page.id }}">{{ t('tts.panel.title') }}</h2>
+    <p class="tts-panel__status muted small" data-tts-status role="status" aria-live="polite"></p>
+  </div>
+  <div class="tts-panel__controls">
+    <label class="tts-panel__speed small" for="tts-speed-{{ page.id }}">{{ t('tts.panel.speed') }}
+      <select id="tts-speed-{{ page.id }}" data-tts-speed>
+        {% for speed in speeds %}
+        <option value="{{ speed_tag(speed) }}"{% if speed == default_speed %} selected{% endif %}>{{ speed_tag(speed) }}×</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="button" class="btn btn--primary btn--small" data-tts-generate hidden>{{ t('tts.panel.generate') }}</button>
+    <button type="button" class="btn btn--ghost btn--small" data-tts-cancel hidden>{{ t('tts.panel.remove') }}</button>
+  </div>
+  <div class="tts-panel__player" data-tts-player hidden>
+    <audio class="tts-panel__audio" controls preload="none" data-tts-audio></audio>
+    <div class="tts-panel__actions">
+      <label class="check small"><input type="checkbox" data-tts-follow checked><span>{{ t('tts.panel.follow') }}</span></label>
+      <a class="btn btn--small" href="{{ urls.download }}" data-tts-download download>{{ t('tts.panel.download') }}</a>
+      <span class="muted small" data-tts-meta></span>
+    </div>
+  </div>
+</section>
+<script src="{{ asset_url('tts.js', blueprint='tts') }}" defer></script>

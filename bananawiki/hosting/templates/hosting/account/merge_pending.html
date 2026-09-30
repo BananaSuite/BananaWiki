@@ -1,0 +1,13 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.merges.pending_title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('hosting.merges.pending_title') }}</h1>
+{% for m in merges %}
+<div class="card"><p>{{ t('hosting.merges.summary', source=m.source_username, target=m.target_username) }}</p>
+<p class="small muted">{{ t('hosting.merges.approvals', source=t('hosting.common.yes') if m.source_approved else t('hosting.common.no'), target=t('hosting.common.yes') if m.target_approved else t('hosting.common.no')) }} · {{ t('hosting.merges.status.' ~ m.status) }}</p>
+<div class="btn-row">
+{% if (m.source_account_id == current_account.id and not m.source_approved) or (m.target_account_id == current_account.id and not m.target_approved) %}{{ ui.post(url_for('account.merge_approve', merge_id=m.id), t('hosting.merges.approve'), 'btn btn--small btn--primary') }}{% endif %}
+{{ ui.post(url_for('account.merge_cancel', merge_id=m.id), t('hosting.merges.cancel'), 'btn btn--small') }}</div></div>
+{% else %}<p class="empty-state">{{ t('hosting.common.none') }}</p>{% endfor %}
+{% endblock %}

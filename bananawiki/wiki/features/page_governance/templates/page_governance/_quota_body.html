@@ -1,0 +1,89 @@
+{% import "macros/forms.html" as forms with context %}
+{% macro quota_label(value) %}{{ t('page_governance.quota.unlimited') if value == -1 else value }}{% endmacro %}
+<div class="grid grid--3">
+  <div class="card stat"><span class="stat__value">{{ quota_label(current_quota) }}</span><span class="stat__label">{{ t('page_governance.quota.current') }}</span></div>
+  <div class="card stat"><span class="stat__value">{{ active_count }}</span><span class="stat__label">{{ t('page_governance.quota.in_use') }}</span></div>
+  <div class="card stat"><span class="stat__value">{{ default_quota }}</span><span class="stat__label">{{ t('page_governance.quota.default') }}</span></div>
+</div>
+{% if not reservations_active %}<div class="alert alert--warning"><div class="alert__body">{{ t('page_governance.reservation.error.disabled') }}</div></div>{% endif %}
+
+{% if reservations %}
+<section class="card">
+  <h2>{{ t('page_governance.quota.my_reservations') }}</h2>
+  <ul>
+  {% for r in reservations %}<li><a href="{{ url_for('pages.view', slug=r.slug) }}">{{ r.title }}</a> — {{ t('page_governance.directory.until', until=r.expires_at|datetime) }}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if admin_view or has_role('admin') %}
+<section class="card">
+  <h2>{{ t('page_governance.quota.set_title') }}</h2>
+  <form method="post" class="form">
+    {{ forms.csrf() }}
+    <input type="hidden" name="action" value="set_quota">
+    {{ forms.field('new_quota', t('page_governance.quota.new_quota'), value=(current_quota if current_quota != -1 else ''), type='number', attrs={'min': 1, 'max': 100000}) }}
+    {{ forms.checkbox('unlimited', t('page_governance.quota.unlimited'), checked=current_quota == -1) }}
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+  </form>
+  {% if admin_view %}
+  {{ forms.post_button(request.path, t('page_governance.quota.reset'), cls='btn btn--small', hidden={'action': 'reset_quota'}) }}
+  {% endif %}
+</section>
+{% endif %}
+
+{% if pending_request %}
+<section class="card">
+  <h2>{{ t('page_governance.quota.pending_title') }}</h2>
+  <p>{{ t('page_governance.quota.pending_body', quota=quota_label(pending_request.requested_quota), date=pending_request.created_at|datetime) }}</p>
+  <p class="muted">{{ pending_request.reason }}</p>
+  {% if admin_view %}
+  <form method="post" class="form">
+    {{ forms.csrf() }}
+    <input type="hidden" name="request_id" value="{{ pending_request.id }}">
+    {{ forms.textarea('review_reason', t('page_governance.quota.review_reason'), rows=2) }}
+    <div class="btn-row">
+      <button class="btn btn--primary" type="submit" name="action" value="approve_request">{{ t('page_governance.quota.approve') }}</button>
+      <button class="btn btn--danger" type="submit" name="action" value="deny_request">{{ t('page_governance.quota.deny') }}</button>
+    </div>
+  </form>
+  {% else %}
+  {{ forms.post_button(request.path, t('page_governance.quota.cancel'), cls='btn btn--small', hidden={'action': 'cancel_request', 'request_id': pending_request.id}) }}
+  {% endif %}
+</section>
+{% elif not admin_view and not has_role('admin') %}
+<section class="card">
+  <h2>{{ t('page_governance.quota.request_title') }}</h2>
+  {% if cooldown_minutes %}<p class="muted">{{ t('page_governance.quota.error.cooldown', minutes=cooldown_minutes) }}</p>{% endif %}
+  <form method="post" class="form">
+    {{ forms.csrf() }}
+    <input type="hidden" name="action" value="submit_quota_request">
+    {{ forms.field('requested_quota', t('page_governance.quota.requested'), type='number', attrs={'min': 1, 'max': 100000}) }}
+    {{ forms.checkbox('unlimited', t('page_governance.quota.request_unlimited')) }}
+    <div class="field">
+      <label for="f-reason">{{ t('page_governance.quota.reason') }}</label>
+      <textarea id="f-reason" name="reason" rows="3" maxlength="{{ max_reason }}" required></textarea>
+    </div>
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('page_governance.quota.submit') }}</button></div>
+  </form>
+</section>
+{% endif %}
+
+{% if requests %}
+<section class="card">
+  <h2>{{ t('page_governance.quota.history') }}</h2>
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('common.created') }}</th><th>{{ t('page_governance.quota.requested') }}</th><th>{{ t('common.status') }}</th><th>{{ t('page_governance.quota.review_reason') }}</th></tr></thead>
+    <tbody>
+    {% for r in requests %}
+    <tr>
+      <td>{{ r.created_at|datetime }}</td>
+      <td>{{ quota_label(r.requested_quota) }}</td>
+      <td>{{ t('page_governance.quota.status.' ~ r.status) }}{% if r.review_source == 'automatic' %} ({{ t('page_governance.quota.automatic') }}){% elif r.reviewed_by_username %} · {{ r.reviewed_by_username }}{% endif %}</td>
+      <td>{{ r.review_reason }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endif %}

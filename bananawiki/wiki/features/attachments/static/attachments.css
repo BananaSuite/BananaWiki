@@ -1,0 +1,11 @@
+/* Page attachments (page view and editor). */
+.attachments { margin-top: 1.5rem; }
+.attachments--editor { border: 1px solid var(--border); border-radius: var(--radius); padding: .75rem 1rem; margin: 1rem 0; }
+.attachments--editor legend { padding: 0 .35rem; font-weight: 600; }
+.attachments__list { list-style: none; margin: 0 0 .75rem; padding: 0; }
+.attachments__item { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .75rem; padding: .4rem 0; border-bottom: 1px solid var(--border); }
+.attachments__item:last-child { border-bottom: 0; }
+.attachments__item > a, .attachments__item > span:first-child { overflow-wrap: anywhere; min-width: 0; }
+.attachments__item form, .attachments__item button { margin-left: auto; }
+.attachments__upload { display: grid; gap: .4rem; margin-top: .5rem; }
+.attachments__upload input[type="file"] { max-width: 100%; }

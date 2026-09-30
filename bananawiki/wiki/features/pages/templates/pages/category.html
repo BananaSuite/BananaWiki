@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ category.name }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('pages.css', blueprint='pages') }}">{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('pages.breadcrumbs') }}">
+  <ol>
+    <li><a href="{{ url_for('pages.navigation_page') }}">{{ t('pages.nav.all_pages') }}</a></li>
+    {% for crumb in breadcrumbs %}<li><a href="{{ url_for('pages.category', category_id=crumb.id) }}">{{ crumb.name }}</a></li>{% endfor %}
+  </ol>
+</nav>
+<header class="page-header">
+  <h1>{{ category.name }}</h1>
+  {% if can_create_page %}<div class="page-header__actions"><a class="btn btn--primary btn--small" href="{{ url_for('pages.create', category_id=category.id) }}">{{ t('pages.nav.new_page') }}</a></div>{% endif %}
+</header>
+{% if listing.pages %}
+<ul class="page-list">
+  {% for p in listing.pages %}<li><a href="{{ url_for('pages.view', slug=p.slug) }}">{{ p.title }}</a>{% if p.is_deindexed %} <span class="badge badge--warning">{{ t('pages.badge.hidden') }}</span>{% endif %}</li>{% endfor %}
+</ul>
+{% if listing.more is not none %}<a class="btn btn--small" href="{{ url_for('pages.category', category_id=category.id, after=listing.more) }}">{{ t('pages.nav.more') }}</a>{% endif %}
+{% else %}
+<p class="muted">{{ t('pages.category.empty') }}</p>
+{% endif %}
+{% include "pages/_category_manage.html" %}
+{% endblock %}
+{% block scripts %}<script src="{{ asset_url('navigation.js', blueprint='pages') }}"></script>{% endblock %}

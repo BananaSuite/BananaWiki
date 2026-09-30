@@ -1,0 +1,25 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('site_admin.settings.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('site_admin.settings.title') }}</h1>
+  <p class="page-header__meta">{{ t('site_admin.settings.intro') }}</p>
+</header>
+<nav class="tabs" aria-label="{{ t('site_admin.settings.sections') }}">
+  {% for section, _fields in sections %}<a href="#s-{{ section }}">{{ t('site_admin.section.' ~ section) }}</a>{% endfor %}
+</nav>
+<form method="post" action="{{ url_for('site_admin.general') }}" class="form" novalidate>
+  {{ forms.csrf() }}
+  {% for section, fields in sections %}
+  <section class="card" id="s-{{ section }}">
+    <h2>{{ t('site_admin.section.' ~ section) }}</h2>
+    {% for item in fields if item.shown() %}{% include "site_admin/_field.html" %}{% endfor %}
+    {% if section == 'uploads' and platform_blacklist %}
+    <p class="hint">{{ t('site_admin.settings.platform_blacklist', extensions=platform_blacklist|join(', ')) }}</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+  <div class="btn-row btn-row--end"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+</form>
+{% endblock %}

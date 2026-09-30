@@ -1,0 +1,22 @@
+{% extends "custom_pages/_page.html" %}
+{% block page_body %}
+{% if files %}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>{{ t('common.name') }}</th><th>{{ t('custom_pages.col.size') }}</th><th>{{ t('custom_pages.col.type') }}</th><th class="actions">{{ t('custom_pages.view.download') }}</th></tr></thead>
+    <tbody>
+    {% for f in files %}
+    <tr>
+      <td>{{ f.original_name }}</td>
+      <td class="nowrap">{{ f.file_size|filesize }}</td>
+      <td><code>{{ f.mime_type or t('custom_pages.view.unknown_type') }}</code></td>
+      <td class="actions"><a class="btn btn--small" href="{{ url_for('custom_pages.file_download', file_id=f.id, filename=f.original_name) }}">{{ t('custom_pages.view.download') }}</a></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="empty-state">{{ t('custom_pages.view.no_files') }}</p>
+{% endif %}
+{% endblock %}

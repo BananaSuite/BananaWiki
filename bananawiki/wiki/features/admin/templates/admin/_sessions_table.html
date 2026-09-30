@@ -1,0 +1,39 @@
+{#- Active sessions. Context: sessions, current_session_id, locked (optional), show_user (optional). -#}
+{% import "macros/forms.html" as forms with context %}
+{% if sessions %}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr>
+      {% if show_user %}<th scope="col">{{ t('admin.users.col.username') }}</th>{% endif %}
+      <th scope="col">{{ t('admin.sessions.device') }}</th>
+      <th scope="col">{{ t('admin.sessions.ip') }}</th>
+      <th scope="col">{{ t('admin.sessions.started') }}</th>
+      <th scope="col">{{ t('admin.sessions.last_seen') }}</th>
+      <th scope="col"><span class="visually-hidden">{{ t('common.actions') }}</span></th>
+    </tr></thead>
+    <tbody>
+    {% for s in sessions %}
+      <tr>
+        {% if show_user %}<td><a href="{{ url_for('admin.user_detail', user_id=s.user_id) }}">{{ s.username }}</a></td>{% endif %}
+        <td class="small">{{ s.user_agent[:80] or '—' }}{% if s.remember_me %} <span class="badge">{{ t('admin.sessions.remembered') }}</span>{% endif %}</td>
+        <td class="mono small">{{ s.last_ip or s.ip_address or '—' }}</td>
+        <td class="nowrap">{{ s.created_at|datetime }}</td>
+        <td class="nowrap">{{ s.last_seen_at|time_ago }}</td>
+        <td class="actions">
+          {% if s.id == current_session_id %}<span class="badge badge--success">{{ t('admin.sessions.this_session') }}</span>
+          {% elif not locked %}
+            {% if show_user %}
+            {{ forms.post_button(url_for('admin.revoke_one_session', session_id=s.id), t('admin.sessions.revoke'), 'btn btn--small') }}
+            {% else %}
+            {{ forms.post_button(url_for('admin.revoke_sessions', user_id=s.user_id), t('admin.sessions.revoke'), 'btn btn--small', hidden={'session_id': s.id}) }}
+            {% endif %}
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="muted">{{ t('admin.sessions.none') }}</p>
+{% endif %}

@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('api_service.admin.title') }}{% endblock %}
+{% block main_class %}main--wide{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{{ t('api_service.admin.title') }}</h1>
+  <div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('api_service.docs') }}">{{ t('api_service.docs.link') }}</a></div>
+</div>
+
+<section class="card" id="settings">
+  <h2>{{ t('api_service.admin.settings') }}</h2>
+  <form method="post" action="{{ url_for('api_service.admin_settings') }}" class="form">
+    {{ forms.csrf() }}
+    {{ forms.checkbox('enabled', t('api_service.admin.enabled'), checked=service.enabled, hint=t('api_service.admin.enabled_hint')) }}
+    <div class="form-grid">
+      {{ forms.field('rate_limit', t('api_service.admin.rate_limit'), value=service.rate_limit, type='number', attrs={'min': bounds.rate[0], 'max': bounds.rate[1]}) }}
+      {{ forms.field('admin_rate_limit', t('api_service.admin.admin_rate_limit'), value=service.admin_rate_limit, type='number', attrs={'min': bounds.rate[0], 'max': bounds.rate[1]}) }}
+      {{ forms.field('max_tokens_per_user', t('api_service.admin.max_tokens'), value=service.max_tokens_per_user, type='number', attrs={'min': bounds.tokens[0], 'max': bounds.tokens[1]}) }}
+      {{ forms.field('webhook_max_failures', t('api_service.admin.webhook_max_failures'), value=webhook_max_failures, type='number', hint=t('api_service.admin.webhook_max_failures_hint', days=auto_disable_days), attrs={'min': bounds.failures[0], 'max': bounds.failures[1]}) }}
+    </div>
+    <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('common.save') }}</button></div>
+  </form>
+</section>
+
+<section class="card" id="tokens">
+  <h2>{{ t('api_service.admin.tokens') }}</h2>
+  {% if not tokens %}<div class="empty-state">{{ t('api_service.tokens.none') }}</div>{% else %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr>
+      <th scope="col">{{ t('api_service.admin.user') }}</th>
+      <th scope="col">{{ t('common.name') }}</th>
+      <th scope="col">{{ t('api_service.tokens.scopes') }}</th>
+      <th scope="col">{{ t('api_service.tokens.access') }}</th>
+      <th scope="col">{{ t('api_service.tokens.last_used') }}</th>
+      <th scope="col">{{ t('api_service.tokens.expires') }}</th>
+      <th scope="col"><span class="visually-hidden">{{ t('common.actions') }}</span></th>
+    </tr></thead>
+    <tbody>
+    {% for token in tokens %}
+    <tr>
+      <td>{{ token.username }}</td>
+      <td>{{ token.name or t('api_service.tokens.unnamed') }}</td>
+      <td>{% for scope in token.grant.scopes %}<span class="badge">{{ scope }}</span> {% endfor %}</td>
+      <td>{{ t('api_service.tokens.read_write') if token.grant.write else t('api_service.tokens.read_only_badge') }}</td>
+      <td>{{ token.last_used_at|time_ago if token.last_used_at else t('common.never') }}</td>
+      <td>{{ token.expires_at|datetime if token.expires_at else t('common.never') }}</td>
+      <td>{{ forms.post_button(url_for('api_service.admin_revoke_token', token_id=token.id), t('api_service.tokens.revoke'), cls='btn btn--small btn--danger', confirm=t('api_service.tokens.revoke_confirm')) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+</section>
+
+<section class="card" id="users">
+  <h2>{{ t('api_service.admin.users') }}</h2>
+  <p class="hint">{{ t('api_service.admin.users_hint') }}</p>
+  <div class="table-wrap"><table class="table">
+    <thead><tr>
+      <th scope="col">{{ t('api_service.admin.user') }}</th>
+      <th scope="col">{{ t('api_service.admin.role') }}</th>
+      <th scope="col">{{ t('api_service.admin.api_access') }}</th>
+      <th scope="col">{{ t('api_service.userbot.title') }}</th>
+      <th scope="col"><span class="visually-hidden">{{ t('common.actions') }}</span></th>
+    </tr></thead>
+    <tbody>
+    {% for user in users %}
+    <tr>
+      <td>{{ user.username }}</td>
+      <td>{{ user.role }}</td>
+      <td>
+        {% if user.role in ('admin', 'owner') %}{{ t('api_service.admin.always') }}
+        {% else %}{{ t('common.enabled') if user.api_access_enabled else t('common.disabled') }}
+          {% if not user.is_superuser %}{{ forms.post_button(url_for('api_service.admin_toggle_access', user_id=user.id), t('api_service.admin.toggle'), cls='btn btn--small') }}{% endif %}
+        {% endif %}
+      </td>
+      <td>
+        <form class="inline" method="post" action="{{ url_for('api_service.admin_userbot_lock', user_id=user.id) }}">
+          {{ forms.csrf() }}
+          <label class="visually-hidden" for="lock-{{ user.id }}">{{ t('api_service.userbot.lock') }}</label>
+          <select id="lock-{{ user.id }}" name="mode" data-autosubmit>
+            {% for mode in lock_modes %}<option value="{{ mode }}"{% if (user.userbot_mode_lock or 'unlocked') == mode %} selected{% endif %}>{{ t('api_service.userbot.lock.' ~ mode) }}</option>{% endfor %}
+          </select>
+          <button type="submit" class="btn btn--small">{{ t('common.save') }}</button>
+        </form>
+        {% if user.userbot_enabled %}<span class="badge badge--primary">{{ t('api_service.userbot.state_on') }}</span>{% endif %}
+      </td>
+      <td>{{ forms.post_button(url_for('api_service.admin_revoke_all'), t('api_service.admin.revoke_all'), cls='btn btn--small btn--danger', confirm=t('api_service.admin.revoke_all_confirm', username=user.username), hidden={'user_id': user.id}) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+<section class="card" id="webhooks">
+  <h2>{{ t('api_service.webhooks.title') }}</h2>
+  <p class="hint">{{ t('api_service.webhooks.intro') }}</p>
+  {% if new_secret %}
+  <div class="alert alert--success" role="status"><div class="alert__body">
+    <p><strong>{{ t('api_service.webhooks.secret_for', url=new_secret.url) }}</strong> {{ t('api_service.webhooks.copy_now') }}</p>
+    <p><code class="mono">{{ new_secret.secret }}</code></p>
+    <button type="button" class="btn btn--small" data-copy="{{ new_secret.secret }}">{{ t('api_service.tokens.copy') }}</button>
+  </div></div>
+  {% endif %}
+  {% if not webhooks %}<div class="empty-state">{{ t('api_service.webhooks.none') }}</div>{% else %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr>
+      <th scope="col">{{ t('api_service.webhooks.url') }}</th>
+      <th scope="col">{{ t('api_service.webhooks.events') }}</th>
+      <th scope="col">{{ t('common.status') }}</th>
+      <th scope="col"><span class="visually-hidden">{{ t('common.actions') }}</span></th>
+    </tr></thead>
+    <tbody>
+    {% for hook in webhooks %}
+    <tr>
+      <td><a class="mono" href="{{ url_for('api_service.admin_webhook', webhook_id=hook.id) }}">{{ hook.url }}</a>{% if hook.description %}<br><small class="muted">{{ hook.description }}</small>{% endif %}</td>
+      <td>{% for event in hook.event_list %}<span class="badge">{{ event }}</span> {% endfor %}</td>
+      <td>
+        <span class="badge {{ 'badge--success' if hook.active else '' }}">{{ t('common.enabled') if hook.active else t('common.disabled') }}</span>
+        {% if hook.last_status %}<br><small class="muted">{{ t('api_service.webhooks.last', status=hook.last_status, when=hook.last_delivery_at|time_ago) }}</small>{% endif %}
+        {% if hook.consecutive_failures %}<br><small class="muted">{{ t('api_service.webhooks.failures', count=hook.consecutive_failures) }}</small>{% endif %}
+        {% if hook.disabled_reason and not hook.active %}<br><strong class="text-danger" role="note">{{ t('api_service.webhooks.auto_disabled', when=hook.disabled_at|time_ago) }}</strong>{% endif %}
+      </td>
+      <td class="cluster">
+        {{ forms.post_button(url_for('api_service.admin_toggle_webhook', webhook_id=hook.id), t('api_service.webhooks.disable') if hook.active else t('api_service.webhooks.enable'), cls='btn btn--small') }}
+        {{ forms.post_button(url_for('api_service.admin_ping_webhook', webhook_id=hook.id), t('api_service.webhooks.ping'), cls='btn btn--small') }}
+        {{ forms.post_button(url_for('api_service.admin_rotate_webhook', webhook_id=hook.id), t('api_service.webhooks.rotate'), cls='btn btn--small', confirm=t('api_service.webhooks.rotate_confirm')) }}
+        {{ forms.post_button(url_for('api_service.admin_delete_webhook', webhook_id=hook.id), t('common.delete'), cls='btn btn--small btn--danger', confirm=t('api_service.webhooks.delete_confirm')) }}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+  {% if webhooks|length < max_webhooks %}
+  <h3>{{ t('api_service.webhooks.add') }}</h3>
+  <form method="post" action="{{ url_for('api_service.admin_create_webhook') }}" class="form">
+    {{ forms.csrf() }}
+    {{ forms.field('url', t('api_service.webhooks.url'), type='url', required=true, hint=t('api_service.webhooks.url_hint'), attrs={'maxlength': 2000, 'placeholder': 'https://'}) }}
+    {{ forms.field('description', t('common.description'), attrs={'maxlength': 200}) }}
+    <fieldset class="field">
+      <legend>{{ t('api_service.webhooks.events') }}</legend>
+      {% for event in webhook_events %}
+      {{ forms.checkbox('events', event, value=event) }}
+      {% endfor %}
+    </fieldset>
+    {{ forms.checkbox('allow_private_network', t('api_service.webhooks.allow_private'), hint=t('api_service.webhooks.allow_private_hint')) }}
+    <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('api_service.webhooks.create') }}</button></div>
+  </form>
+  {% endif %}
+</section>
+
+<section class="card" id="audit">
+  <h2>{{ t('api_service.admin.audit') }}</h2>
+  <p class="hint">{{ t('api_service.admin.audit_count', count=entries|length, total=total_entries) }}</p>
+  {% if current_user.is_superuser %}
+  <form method="post" action="{{ url_for('api_service.admin_clear_audit') }}" class="cluster" data-confirm="{{ t('api_service.admin.clear_confirm') }}">
+    {{ forms.csrf() }}
+    {{ forms.field('before_days', t('api_service.admin.clear_before'), value=90, type='number', attrs={'min': 1, 'max': 3650}) }}
+    <button type="submit" class="btn btn--danger">{{ t('api_service.admin.clear') }}</button>
+  </form>
+  {% endif %}
+  {% if not entries %}<div class="empty-state">{{ t('api_service.admin.no_calls') }}</div>{% else %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr>
+      <th scope="col">{{ t('api_service.admin.time') }}</th>
+      <th scope="col">{{ t('api_service.admin.user') }}</th>
+      <th scope="col">{{ t('api_service.admin.request') }}</th>
+      <th scope="col">{{ t('common.status') }}</th>
+      <th scope="col">{{ t('api_service.admin.duration') }}</th>
+      <th scope="col">IP</th>
+    </tr></thead>
+    <tbody>
+    {% for entry in entries %}
+    <tr>
+      <td class="nowrap">{{ entry.created_at|datetime }}</td>
+      <td>{{ entry.username }}</td>
+      <td><code class="mono">{{ entry.method }} {{ entry.endpoint }}</code>{% if entry.request_body %}<br><small class="muted mono">{{ entry.request_body }}</small>{% endif %}</td>
+      <td><span class="badge {{ 'badge--success' if entry.status_code < 400 else 'badge--danger' }}">{{ entry.status_code }}</span></td>
+      <td>{{ entry.duration_ms }} ms</td>
+      <td class="mono">{{ entry.ip_address }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+</section>
+{% endblock %}

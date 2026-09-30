@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}{{ t('page_history.title', title=page.title) }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('pages.css', blueprint='pages') }}">{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('pages.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('pages.home') if page.is_home else url_for('pages.view', slug=page.slug) }}">{{ page.title }}</a></li>
+  <li aria-current="page">{{ t('pages.actions.history') }}</li>
+</ol></nav>
+<header class="page-header">
+  <h1>{{ t('page_history.title', title=page.title) }}</h1>
+  {% if can_delete and rows %}
+  <div class="page-header__actions">
+    <form method="post" action="{{ url_for('pages.history_clear', slug=page.slug) }}" data-confirm="{{ t('page_history.confirm.clear') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn--danger btn--small">{{ t('page_history.clear') }}</button>
+    </form>
+  </div>
+  {% endif %}
+</header>
+{% if blocked %}<div class="alert alert--warning"><div class="alert__body">{{ t(blocked) }}</div></div>{% endif %}
+{% if rows %}
+<div class="table-wrap">
+<table class="table">
+  <thead><tr><th>{{ t('page_history.col.date') }}</th><th>{{ t('page_history.col.editor') }}</th><th>{{ t('page_history.col.summary') }}</th><th>{{ t('page_history.col.size') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>
+  <tbody>
+  {% for row in rows %}
+  <tr>
+    <td class="nowrap"><a href="{{ url_for('pages.history_entry', slug=page.slug, entry_id=row.id) }}" title="{{ row.created_at|datetime }}">{{ row.created_at|time_ago }}</a></td>
+    <td>{% if row.editor %}{% if row.profile_url %}<a href="{{ row.profile_url }}">{{ row.editor }}</a>{% else %}{{ row.editor }}{% endif %}{% elif row.edited_by %}<span class="muted">{{ t('common.unknown_user') }}</span>{% else %}<span class="muted">{{ t('page_history.no_author') }}</span>{% endif %}</td>
+    <td>{{ row.edit_message or '—' }}{% if row.is_revert %} <span class="badge">{{ t('page_history.revert_badge') }}</span>{% endif %}</td>
+    <td class="nowrap small">{% if row.delta is none %}{{ row.size|filesize }}{% elif row.delta >= 0 %}<span class="text-success">+{{ row.delta }}</span>{% else %}<span class="text-danger">{{ row.delta }}</span>{% endif %}</td>
+    <td class="actions">
+      <a class="btn btn--small" href="{{ url_for('pages.history_entry', slug=page.slug, entry_id=row.id) }}">{{ t('page_history.view') }}</a>
+      {% if can_revert or can_delete or can_transfer %}
+      <details class="menu">
+        <summary class="btn btn--small btn--ghost" aria-label="{{ t('common.actions') }}">⋯</summary>
+        <div class="menu__panel" role="menu">
+          {% if can_revert and not blocked %}
+          <form method="post" action="{{ url_for('pages.history_revert', slug=page.slug, entry_id=row.id) }}" data-confirm="{{ t('page_history.confirm.revert') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button role="menuitem">{{ t('page_history.revert') }}</button></form>
+          {% endif %}
+          {% if can_transfer %}
+          <form method="post" action="{{ url_for('pages.history_transfer', slug=page.slug, entry_id=row.id) }}" class="menu__form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="small" for="to-{{ row.id }}">{{ t('page_history.transfer_to') }}</label>
+            <input id="to-{{ row.id }}" name="username" maxlength="50" required>
+            <button class="btn btn--small">{{ t('page_history.transfer') }}</button>
+          </form>
+          {% if row.edited_by %}
+          <form method="post" action="{{ url_for('pages.history_bulk_transfer', slug=page.slug) }}" class="menu__form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="from_user_id" value="{{ row.edited_by }}">
+            <label class="small" for="all-{{ row.id }}">{{ t('page_history.transfer_all', user=row.editor or t('common.unknown_user')) }}</label>
+            <input id="all-{{ row.id }}" name="username" maxlength="50" required>
+            <button class="btn btn--small">{{ t('page_history.transfer') }}</button>
+          </form>
+          <form method="post" action="{{ url_for('pages.history_deattribute', slug=page.slug, entry_id=row.id) }}" data-confirm="{{ t('page_history.confirm.deattribute') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button role="menuitem">{{ t('page_history.deattribute') }}</button></form>
+          {% endif %}
+          {% endif %}
+          {% if can_delete %}
+          <form method="post" action="{{ url_for('pages.history_delete_entry', slug=page.slug, entry_id=row.id) }}" data-confirm="{{ t('page_history.confirm.delete') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button role="menuitem" class="text-danger">{{ t('common.delete') }}</button></form>
+          {% endif %}
+        </div>
+      </details>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if pages_total > 1 %}
+<nav class="pagination" aria-label="{{ t('common.pagination') }}">
+  {% if number > 1 %}<a class="btn btn--small" href="{{ url_for('pages.history', slug=page.slug, page=number - 1) }}">‹ {{ t('common.previous') }}</a>{% endif %}
+  <span class="btn btn--small btn--ghost" aria-current="page">{{ t('common.page_of', page=number, pages=pages_total) }}</span>
+  {% if number < pages_total %}<a class="btn btn--small" href="{{ url_for('pages.history', slug=page.slug, page=number + 1) }}">{{ t('common.next') }} ›</a>{% endif %}
+</nav>
+{% endif %}
+{% else %}
+<p class="empty-state">{{ t('page_history.empty') }}</p>
+{% endif %}
+{% endblock %}

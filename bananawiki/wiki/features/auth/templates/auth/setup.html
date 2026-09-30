@@ -1,0 +1,36 @@
+{% extends "base_minimal.html" %}
+{% block title %}{{ t('auth.setup.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('auth.setup.title') }}</h1>
+  <p>{{ t('auth.setup.intro') }}</p>
+  {% if error %}<div class="alert alert--error" role="alert"><div class="alert__body">{{ error }}</div></div>{% endif %}
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="step" value="create">
+    <div class="field">
+      <label for="username">{{ t('auth.field.username') }}</label>
+      <input id="username" name="username" value="{{ form.get('username', '') }}" autocomplete="username"
+             required minlength="3" maxlength="50" pattern="[A-Za-z0-9_\-]+" autofocus>
+      <p class="hint">{{ t('auth.hint.username') }}</p>
+    </div>
+    <div class="field">
+      <label for="password">{{ t('auth.field.password') }}</label>
+      <input id="password" name="password" type="password" autocomplete="new-password" required minlength="8" maxlength="1024">
+      <p class="hint">{{ t('auth.hint.password') }}</p>
+    </div>
+    <div class="field">
+      <label for="confirm_password">{{ t('auth.field.confirm_password') }}</label>
+      <input id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" required>
+    </div>
+    <div class="field">
+      <label for="language">{{ t('auth.field.language') }}</label>
+      <select id="language" name="language">
+        <option value="en" {% if lang == 'en' %}selected{% endif %}>English</option>
+        <option value="it" {% if lang == 'it' %}selected{% endif %}>Italiano</option>
+      </select>
+    </div>
+    <button class="btn btn--primary" type="submit">{{ t('auth.setup.create') }}</button>
+  </form>
+</div>
+{% endblock %}

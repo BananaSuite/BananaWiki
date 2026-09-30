@@ -1,0 +1,14 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.mfa.login_title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('hosting.mfa.login_title') }}</h1>
+  <p>{{ t('hosting.mfa.login_hint') }}</p>
+  <form method="post" class="form">
+    {{ ui.csrf() }}
+    {{ ui.field('code', t('hosting.mfa.code'), required=true, attrs={'autocomplete': 'one-time-code', 'maxlength': 32, 'autofocus': 'autofocus', 'inputmode': 'numeric'}) }}
+    <button class="btn btn--primary" type="submit">{{ t('hosting.mfa.verify') }}</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,126 @@
+{#- A builder page. Every value is escaped; HTML fragments come from the sanitising
+    Markdown renderer, the code highlighter or validated video ids (document.render). -#}
+<link rel="stylesheet" href="{{ asset_url('page_builder.css', blueprint='page_builder') }}">
+<section class="builder-page">
+{% for item in items %}
+{% set block = item.block %}
+{% set kind = block.type %}
+{% if kind == 'heading' and block.text %}
+  <div class="{{ item.classes }}"><h{{ block.level }} id="{{ item.anchor }}">{{ block.text }}</h{{ block.level }}></div>
+{% elif kind == 'text' and block.text %}
+  <div class="{{ item.classes }} builder-text{% if block.format == 'markdown' %} prose{% endif %}">{{ item.html }}</div>
+{% elif kind == 'image' and block.url %}
+  <figure class="{{ item.classes }} builder-image builder-image--{{ block.size }}">
+    <img src="{{ block.url }}" alt="{{ '' if block.decorative else block.alt }}" loading="lazy">
+    {% if block.caption %}<figcaption>{{ block.caption }}</figcaption>{% endif %}
+  </figure>
+{% elif kind == 'gallery' and block.images %}
+  <div class="{{ item.classes }}">
+    <ul class="builder-gallery builder-grid builder-grid--{{ block.columns }}">
+      {% for image in block.images if image.url %}
+      <li><figure>
+        <a href="{{ image.url }}"><img src="{{ image.url }}" alt="{{ image.alt }}" loading="lazy"></a>
+        {% if image.caption %}<figcaption>{{ image.caption }}</figcaption>{% endif %}
+      </figure></li>
+      {% endfor %}
+    </ul>
+  </div>
+{% elif kind == 'youtube' and item.html %}
+  <figure class="{{ item.classes }} builder-video">
+    {{ item.html }}
+    {% if block.caption %}<figcaption>{{ block.caption }}</figcaption>{% endif %}
+  </figure>
+{% elif kind == 'button' and block.url %}
+  <p class="{{ item.classes }} builder-button-row">
+    <a class="builder-button builder-button--{{ block['style'] }}" href="{{ block.url }}" rel="noopener noreferrer">{{ block.label or block.url }}</a>
+  </p>
+{% elif kind == 'hero' and block.title %}
+  <div class="{{ item.classes }} builder-hero{% if block.image %} builder-hero--with-image{% endif %}">
+    <div class="builder-hero__body">
+      <h2 id="{{ item.anchor }}">{{ block.title }}</h2>
+      {% if block.text %}<p class="builder-hero__text">{{ lines(block.text) }}</p>{% endif %}
+      {% if block.button_url %}<p class="builder-button-row"><a class="builder-button builder-button--primary" href="{{ block.button_url }}" rel="noopener noreferrer">{{ block.button_label or block.button_url }}</a></p>{% endif %}
+    </div>
+    {% if block.image %}<img class="builder-hero__image" src="{{ block.image }}" alt="{{ block.image_alt }}" loading="lazy">{% endif %}
+  </div>
+{% elif kind == 'cards' and block['items'] %}
+  <div class="{{ item.classes }}">
+    <ul class="builder-cards builder-grid builder-grid--{{ block.columns }}">
+      {% for card in block['items'] if card.title or card.text %}
+      <li class="builder-card">
+        {% if card.image %}<img class="builder-card__image" src="{{ card.image }}" alt="{{ card.image_alt }}" loading="lazy">{% endif %}
+        <div class="builder-card__body">
+          {% if card.title %}<h3 class="builder-card__title">{% if card.url %}<a href="{{ card.url }}" rel="noopener noreferrer">{{ card.title }}</a>{% else %}{{ card.title }}{% endif %}</h3>{% endif %}
+          {% if card.text %}<p>{{ lines(card.text) }}</p>{% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+{% elif kind == 'callout' and (block.title or block.text) %}
+  <aside class="{{ item.classes }} builder-callout builder-callout--{{ block.tone }}">
+    {% if block.title %}<strong>{{ block.title }}</strong>{% endif %}
+    <div>{{ lines(block.text) }}</div>
+  </aside>
+{% elif kind == 'quote' and block.text %}
+  <figure class="{{ item.classes }} builder-quote">
+    <blockquote>{{ lines(block.text) }}</blockquote>
+    {% if block.cite %}<figcaption>{{ block.cite }}</figcaption>{% endif %}
+  </figure>
+{% elif kind == 'list' and block['items'] %}
+  {% set tag = 'ol' if block.ordered else 'ul' %}
+  <div class="{{ item.classes }}"><{{ tag }} class="builder-list">{% for entry in block['items'] %}<li>{{ entry }}</li>{% endfor %}</{{ tag }}></div>
+{% elif kind == 'faq' and block['items'] %}
+  <div class="{{ item.classes }} builder-faq">
+    {% for entry in block['items'] if entry.question %}
+    <details class="builder-faq__item">
+      <summary>{{ entry.question }}</summary>
+      <div class="builder-faq__answer prose">{{ item.html[loop.index0] }}</div>
+    </details>
+    {% endfor %}
+  </div>
+{% elif kind == 'table' %}
+  <div class="{{ item.classes }} table-wrapper">
+    <table class="table builder-table">
+      {% if block.caption %}<caption>{{ block.caption }}</caption>{% endif %}
+      {% set body_rows = block.rows[1:] if block.header else block.rows %}
+      {% if block.header %}<thead><tr>{% for cell in block.rows[0] %}<th scope="col">{{ cell }}</th>{% endfor %}</tr></thead>{% endif %}
+      <tbody>{% for row in body_rows %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+    </table>
+  </div>
+{% elif kind == 'columns' %}
+  <div class="{{ item.classes }} builder-columns builder-columns--{{ block.columns|length }}">
+    {% for column in item.html %}<div class="builder-column{% if block.format == 'markdown' %} prose{% endif %}">{{ column }}</div>{% endfor %}
+  </div>
+{% elif kind == 'code' and item.html %}
+  <div class="{{ item.classes }} builder-code">{{ item.html }}</div>
+{% elif kind == 'pages' and item.pages %}
+  <nav class="{{ item.classes }}" aria-label="{{ t('page_builder.render.pages') }}">
+    {% if block.display == 'cards' %}
+    <ul class="builder-cards builder-grid builder-grid--3">
+      {% for entry in item.pages %}
+      <li class="builder-card"><div class="builder-card__body">
+        <h3 class="builder-card__title"><a href="{{ entry.url }}">{{ entry.title }}</a></h3>
+        {% if entry.excerpt %}<p>{{ entry.excerpt }}</p>{% endif %}
+      </div></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <ul class="builder-page-list">
+      {% for entry in item.pages %}
+      <li><a href="{{ entry.url }}">{{ entry.title }}</a>{% if entry.excerpt %}<span class="muted"> — {{ entry.excerpt }}</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </nav>
+{% elif kind == 'embed' and item.enabled %}
+  <div class="{{ item.classes }}">
+    <div class="bw-embed bw-embed-{{ block.kind }}" data-embed-type="{{ block.kind }}" data-embed-ref="{{ block.ref }}" data-label="{{ item.label }}"></div>
+  </div>
+{% elif kind == 'divider' %}
+  <div class="{{ item.classes }}"><hr class="builder-divider"></div>
+{% elif kind == 'spacer' %}
+  <div class="{{ item.classes }} builder-spacer" aria-hidden="true"></div>
+{% endif %}
+{% endfor %}
+</section>

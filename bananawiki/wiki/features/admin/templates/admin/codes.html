@@ -1,0 +1,56 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('admin.codes.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('admin.codes.title') }}</h1></header>
+<nav class="tabs" aria-label="{{ t('admin.codes.title') }}">
+  <a href="{{ url_for('admin.codes') }}" aria-current="page">{{ t('admin.codes.active') }}</a>
+  {% if has_permission('invite.view') %}<a href="{{ url_for('admin.codes_expired') }}">{{ t('admin.codes.expired') }}</a>{% endif %}
+</nav>
+
+{% if can_generate %}
+<section class="card">
+  <h2>{{ t('admin.codes.generate') }}</h2>
+  <form method="post" action="{{ url_for('admin.generate_code') }}" class="form">
+    {{ forms.csrf() }}
+    <div class="form-grid">
+      {{ forms.field('max_uses', t('admin.codes.max_uses'), '1', type='number', hint=t('admin.codes.max_uses_hint'), attrs={'min': 0, 'max': 10000}) }}
+      <div class="field">
+        <label for="f-expiry_mode">{{ t('admin.codes.expiry') }}</label>
+        <select id="f-expiry_mode" name="expiry_mode">
+          {% for mode in expiry_presets %}<option value="{{ mode }}"{% if mode == '48h' %} selected{% endif %}>{{ t('admin.codes.expiry.' ~ mode) }}</option>{% endfor %}
+          <option value="never">{{ t('admin.codes.expiry.never') }}</option>
+          <option value="custom">{{ t('admin.codes.expiry.custom') }}</option>
+        </select>
+      </div>
+      <div data-reveal-for="expiry_mode" data-reveal-values="custom" hidden>
+        {{ forms.field('custom_expiry', t('admin.codes.custom_expiry'), type='datetime-local', hint=t('admin.site_time_hint')) }}
+      </div>
+      {{ forms.field('custom_code', t('admin.codes.custom_code'), hint=t('admin.codes.custom_code_hint'), attrs={'maxlength': 32, 'pattern': '[A-Za-z0-9]{6,32}', 'autocomplete': 'off'}) }}
+      <div class="field">
+        <label for="f-assigned_role">{{ t('admin.codes.role') }}</label>
+        <select id="f-assigned_role" name="assigned_role">
+          <option value="">{{ t('admin.codes.role_default') }}</option>
+          {% for role in assignable_roles %}<option value="{{ role }}">{{ t('admin.role.' ~ role) }}</option>{% endfor %}
+        </select>
+      </div>
+      {% if custom_roles %}
+      <div class="field">
+        <label for="f-assigned_custom_role_id">{{ t('admin.codes.custom_role') }}</label>
+        <select id="f-assigned_custom_role_id" name="assigned_custom_role_id">
+          <option value="">{{ t('common.none') }}</option>
+          {% for role in custom_roles %}<option value="{{ role.id }}">{{ role.name }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
+    </div>
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('admin.codes.generate') }}</button></div>
+  </form>
+</section>
+{% endif %}
+
+{% if has_permission('invite.view') %}
+{% set delete_endpoint = 'admin.delete_code' %}
+{% include "admin/_codes_table.html" %}
+{% endif %}
+{% endblock %}

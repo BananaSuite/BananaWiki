@@ -1,0 +1,17 @@
+{% extends layout %}
+{% import "chat/_macros.html" as ui with context %}
+{% block title %}{{ name }}{% endblock %}
+{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('chat.css', blueprint='chat') }}">{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ name }}</h1>
+  <div class="page-header__actions">
+    <a class="btn btn--small" href="{{ url_for('chat.admin_groups') }}">{{ t('common.back') }}</a>
+    <a class="btn btn--small" href="{{ url_for('chat.group_view', group_id=group.id) }}">{{ t('chat.admin.moderate') }}</a>
+  </div>
+</header>
+<p class="small">{{ t('chat.admin.members') }}: {% for m in members %}{{ m.username }} ({{ t('chat.groups.role.' ~ m.role) }}){% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</p>
+{% if banned %}<p class="small">{{ t('chat.groups.banned_heading', count=banned|length) }}: {% for b in banned %}{{ b.username }}{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+<p class="muted small">{{ t('chat.admin.deleted_note') }}</p>
+{{ ui.log(conversation, url_for('chat.admin_group_view', group_id=group.id)) }}
+{% endblock %}

@@ -1,0 +1,40 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('badges.admin.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('badges.admin.title') }}</h1>
+  <div class="page-header__actions">
+    {{ forms.post_button(url_for('badges.admin_evaluate'), t('badges.admin.evaluate'), cls='btn') }}
+    {{ forms.post_button(url_for('badges.admin_defaults'), t('badges.admin.defaults'), cls='btn') }}
+  </div>
+</header>
+<div class="stack">
+{% if badges %}
+<div class="table-wrap"><table class="table">
+  <thead><tr><th>{{ t('common.name') }}</th><th>{{ t('badges.field.trigger') }}</th><th>{{ t('badges.admin.holders') }}</th><th>{{ t('common.status') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>
+  <tbody>
+  {% for badge in badges %}
+  <tr>
+    <td><span aria-hidden="true">{{ badge.icon }}</span> {{ badge.name }}</td>
+    <td>{% if badge.auto_trigger and badge.trigger_type %}{{ t('badges.trigger.' ~ badge.trigger_type) }} ({{ badge.trigger_threshold }}){% else %}{{ t('badges.trigger.manual') }}{% endif %}</td>
+    <td>{{ badge.holder_count }}</td>
+    <td>{{ t('common.enabled') if badge.enabled else t('common.disabled') }}</td>
+    <td class="actions"><a class="btn btn--small" href="{{ url_for('badges.admin_edit', badge_id=badge.id) }}">{{ t('common.edit') }}</a></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<div class="card empty-state"><p>{{ t('badges.admin.none') }}</p></div>
+{% endif %}
+<section class="card">
+  <h2>{{ t('badges.admin.new') }}</h2>
+  <form method="post" action="{{ url_for('badges.admin_create') }}" class="form">
+    {{ forms.csrf() }}
+    {% with values = form %}{% include "badges/_form.html" %}{% endwith %}
+    <div><button class="btn btn--primary" type="submit">{{ t('common.create') }}</button></div>
+  </form>
+</section>
+</div>
+{% endblock %}

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ t('page_history.entry_title', title=entry.title) }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('pages.css', blueprint='pages') }}">{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('pages.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('pages.home') if page.is_home else url_for('pages.view', slug=page.slug) }}">{{ page.title }}</a></li>
+  <li><a href="{{ url_for('pages.history', slug=page.slug) }}">{{ t('pages.actions.history') }}</a></li>
+  <li aria-current="page">#{{ entry.id }}</li>
+</ol></nav>
+<header class="page-header">
+  <h1>{{ entry.title }}</h1>
+  <div class="page-header__actions">
+    {% if can_revert %}
+    <form method="post" action="{{ url_for('pages.history_revert', slug=page.slug, entry_id=entry.id) }}" data-confirm="{{ t('page_history.confirm.revert') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn--small">{{ t('page_history.revert_to_this') }}</button></form>
+    {% endif %}
+  </div>
+  <p class="page-header__meta">
+    {% if entry.editor %}{{ t('page_history.saved_by') }} {% if editor_url %}<a href="{{ editor_url }}">{{ entry.editor }}</a>{% else %}<strong>{{ entry.editor }}</strong>{% endif %}{% else %}{{ t('page_history.no_author') }}{% endif %}
+    · <time datetime="{{ entry.created_at }}">{{ entry.created_at|datetime }}</time>
+    {% if entry.edit_message %} · {{ entry.edit_message }}{% endif %}
+    {% if entry.is_revert %}<span class="badge">{{ t('page_history.revert_badge') }}</span>{% endif %}
+  </p>
+</header>
+<nav class="tabs" aria-label="{{ t('page_history.views') }}">
+  {% for name in ['rendered', 'diff', 'source', 'source_diff'] %}
+  {% if previous or name in ('rendered', 'source') %}
+  <a href="{{ url_for('pages.history_entry', slug=page.slug, entry_id=entry.id, view=name, against=request.args.get('against')) }}"{% if view == name %} aria-current="page"{% endif %}>{{ t('page_history.view_' ~ name) }}</a>
+  {% endif %}
+  {% endfor %}
+</nav>
+{% if previous and view in ('diff', 'source_diff') %}<p class="hint">{{ t('page_history.compared_with', date=previous.created_at|datetime) }}</p>{% endif %}
+{% if view == 'source' %}
+<pre class="diff">{{ entry.content }}</pre>
+{% elif view == 'source_diff' %}
+<pre class="diff">{{ shown }}</pre>
+{% else %}
+<article class="prose{% if view == 'diff' %} diff-rendered{% endif %}">{{ shown }}</article>
+{% endif %}
+{% endblock %}

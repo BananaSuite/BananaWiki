@@ -1,0 +1,12 @@
+{% extends "admin/_layout.html" %}
+{% block title %}{{ t('admin.codes.expired') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('admin.codes.title') }}</h1></header>
+<nav class="tabs" aria-label="{{ t('admin.codes.title') }}">
+  <a href="{{ url_for('admin.codes') }}">{{ t('admin.codes.active') }}</a>
+  <a href="{{ url_for('admin.codes_expired') }}" aria-current="page">{{ t('admin.codes.expired') }}</a>
+</nav>
+<p class="muted">{{ t('admin.codes.expired_intro') }}</p>
+{% set delete_endpoint = 'admin.purge_code' %}
+{% include "admin/_codes_table.html" %}
+{% endblock %}

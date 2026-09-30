@@ -1,0 +1,7 @@
+<details class="menu no-print">
+  <summary class="btn btn--small">{{ t('page_export.menu') }}</summary>
+  <div class="menu__panel" role="menu">
+    {% if can_pdf %}<a role="menuitem" href="{{ url_for('page_export.export_pdf', slug=page.slug) }}">{{ t('page_export.pdf') }}</a>{% endif %}
+    {% if can_md %}<a role="menuitem" href="{{ url_for('page_export.export_markdown', slug=page.slug) }}">{{ t('page_export.markdown') }}</a>{% endif %}
+  </div>
+</details>

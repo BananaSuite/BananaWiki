@@ -1,0 +1,99 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% set inst = instance %}
+{% block title %}{{ inst.original_slug }}{% endblock %}
+{% block content %}
+<nav class="breadcrumbs"><a href="{{ url_for('dashboard.dashboard') }}">{{ t('hosting.dashboard.title') }}</a></nav>
+<div class="page-header"><h1>{{ inst.original_slug }}</h1>{{ ui.status(inst.status) }}
+  {% if current_account.is_admin %}<div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ t('hosting.instance.admin_tools') }}</a></div>{% endif %}</div>
+
+{% if legacy_password %}
+<div class="alert alert--warning"><div class="alert__body">{{ t('hosting.instance.legacy_password') }} <span class="secret-box">{{ legacy_password }}</span></div></div>
+{% endif %}
+{% if inst.status == 'suspended' %}
+<div class="alert alert--error"><div class="alert__body">{{ t('hosting.instances.suspended_locked') }}
+  {% if inst.suspend_reason_visible and inst.suspend_reason %}<br><strong>{{ t('hosting.activation.reason') }}</strong> {{ inst.suspend_reason }}{% endif %}
+  {% if inst.suspend_time_visible and inst.suspended_until %}<br>{{ t('hosting.suspended.until', time=inst.suspended_until|datetime) }}{% endif %}</div></div>
+{% endif %}
+
+<section class="card">
+  <dl class="kv">
+    {% if inst.url %}<dt>{{ t('hosting.instance.url') }}</dt><dd><a href="{{ inst.url }}" rel="noopener">{{ inst.url }}</a></dd>{% endif %}
+    <dt>{{ t('hosting.instance.owner') }}</dt><dd>{{ owner.username if owner else '—' }}</dd>
+    <dt>{{ t('hosting.instance.created') }}</dt><dd>{{ inst.created_at|datetime }}</dd>
+    <dt>{{ t('hosting.instance.expires') }}</dt><dd>{% if inst.seconds_left is none %}{{ t('hosting.instance.never') }}{% else %}{{ inst.expires_at|datetime }}{% if not inst.expired %} ({{ inst.seconds_left|duration }}){% endif %}{% endif %}</dd>
+    <dt>{{ t('hosting.instance.storage') }}</dt><dd>{{ inst.storage_mb }} MB{% if inst.storage_limit_effective_mb %} / {{ inst.storage_limit_effective_mb }} MB{% endif %}
+      {% if inst.storage_limit_effective_mb %}<div class="progress"><span style="width: {{ inst.storage_pct }}%"></span></div>{% endif %}</dd>
+    <dt>{{ t('hosting.instance.mode') }}</dt><dd>{{ t('hosting.instance.easy_wiki') if inst.easy_wiki else t('hosting.instance.full_wiki') }}</dd>
+    <dt>{{ t('hosting.instance.upload_limit') }}</dt><dd>{{ upload_policy.upload_max_size_mb }} MB</dd>
+    {% if inst.status == 'running' %}<dt>{{ t('hosting.instance.health') }}</dt><dd>{{ t('hosting.health.' ~ inst.health, inst.health) }}</dd>{% endif %}
+    {% if inst.status == 'terminated' and inst.grace_active %}<dt>{{ t('hosting.instance.retained_until') }}</dt><dd>{{ inst.data_retained_until|datetime }}</dd>{% endif %}
+  </dl>
+</section>
+
+{% if inst.status != 'terminated' %}
+<section class="card">
+  <h2>{{ t('hosting.instance.actions') }}</h2>
+  <div class="btn-row">
+    {% if 'start_stop' in permissions %}
+      {% if inst.status == 'running' %}{{ ui.post(url_for('dashboard.stop', instance_id=inst.id), t('hosting.instance.stop')) }}
+      {{ ui.post(url_for('dashboard.restart', instance_id=inst.id), t('hosting.instance.restart')) }}
+      {% elif inst.status == 'stopped' %}{{ ui.post(url_for('dashboard.restart', instance_id=inst.id), t('hosting.instance.start'), 'btn btn--small btn--primary') }}{% endif %}
+    {% endif %}
+    {% if 'reset_password' in permissions %}{{ ui.post(url_for('dashboard.reset_password', instance_id=inst.id), t('hosting.instance.reset_password'), confirm=t('hosting.common.are_you_sure')) }}{% endif %}
+    {% if 'toggle_mode' in permissions %}{{ ui.post(url_for('dashboard.toggle_easy_wiki', instance_id=inst.id), t('hosting.instance.to_full') if inst.easy_wiki else t('hosting.instance.to_easy'), hidden={'enable': '0' if inst.easy_wiki else '1'}) }}{% endif %}
+    {% if 'analytics' in permissions %}<a class="btn btn--small" href="{{ url_for('dashboard.analytics', instance_id=inst.id) }}">{{ t('hosting.analytics.title') }}</a>{% endif %}
+    {% if 'manage_collaborators' in permissions %}<a class="btn btn--small" href="{{ url_for('dashboard.collaborators_page', instance_id=inst.id) }}">{{ t('hosting.collaborators.title') }}</a>{% endif %}
+    {% if manager and domains_configured %}<a class="btn btn--small" href="{{ url_for('dashboard.instance_domain', instance_id=inst.id) }}">{{ t('hosting.domains.title') }}</a>{% endif %}
+  </div>
+  <div class="btn-row">
+    {% if 'reset_wiki' in permissions %}{{ ui.post(url_for('dashboard.reset_wiki', instance_id=inst.id), t('hosting.instance.reset_wiki'), 'btn btn--small btn--danger', confirm=t('hosting.instance.reset_wiki_confirm')) }}{% endif %}
+    {% if 'terminate' in permissions %}{{ ui.post(url_for('dashboard.terminate', instance_id=inst.id), t('hosting.instance.terminate'), 'btn btn--small btn--danger', confirm=t('hosting.instance.terminate_confirm')) }}{% endif %}
+    {% if not is_owner and not current_account.is_admin %}{{ ui.post(url_for('dashboard.remove_collaborator', instance_id=inst.id, collab_account_id=current_account.id), t('hosting.collaborators.leave'), 'btn btn--small', confirm=t('hosting.common.are_you_sure')) }}{% endif %}
+  </div>
+</section>
+{% elif inst.grace_active and (current_account.is_admin or owner_can_download) and not inst.grace_period_suspended %}
+<section class="card"><h2>{{ t('hosting.instance.recover_title') }}</h2><p>{{ t('hosting.instance.recover_body') }}</p>
+  {{ ui.post(url_for('dashboard.download', instance_id=inst.id), t('hosting.instance.download'), 'btn btn--primary') }}</section>
+{% endif %}
+
+{% for tr in incoming %}
+<div class="alert"><div class="alert__body">{{ t('hosting.transfers.incoming', username=tr.from_username, slug=tr.subdomain) }}
+  {{ ui.post(url_for('dashboard.accept_transfer', transfer_id=tr.id), t('hosting.transfers.accept'), 'btn btn--small btn--primary') }}
+  {{ ui.post(url_for('dashboard.decline_transfer', transfer_id=tr.id), t('hosting.transfers.decline')) }}</div></div>
+{% endfor %}
+
+{% if is_owner and inst.status != 'terminated' and not current_account.is_admin %}
+<section class="card"><h2>{{ t('hosting.features.title') }}</h2>
+{% for feature, column in {'public_access': 'public_wiki_allowed', 'page_builder': 'page_builder_allowed'}.items() %}
+  <h3>{{ t('hosting.features.' ~ feature) }}</h3>
+  {% if inst[column] or not feature_restricted[feature] %}<p class="text-success">{{ t('hosting.features.available') }}</p>
+  {% elif feature in pending_features %}<p>{{ t('hosting.features.pending') }}</p>
+  {% else %}
+  <form method="post" action="{{ url_for('dashboard.request_feature', instance_id=inst.id, feature=feature) }}" class="form">{{ ui.csrf() }}
+    <div class="field"><label for="fr-{{ feature }}">{{ t('hosting.features.reason') }}</label><textarea id="fr-{{ feature }}" name="reason" minlength="20" maxlength="2000" rows="2" required></textarea></div>
+    <p><button class="btn btn--small" type="submit">{{ t('hosting.features.request') }}</button></p></form>
+  {% endif %}
+{% endfor %}
+{% if feature_history %}<div class="table-wrap"><table class="table"><thead><tr><th>{{ t('hosting.features.feature') }}</th><th>{{ t('hosting.instance.status') }}</th><th>{{ t('hosting.features.note') }}</th><th></th></tr></thead><tbody>
+{% for req in feature_history %}<tr><td>{{ t('hosting.features.' ~ req.feature) }}</td><td>{{ t('hosting.features.status.' ~ req.status) }}</td><td class="small">{{ req.review_note }}</td>
+<td class="actions">{% if req.status == 'pending' %}{{ ui.post(url_for('dashboard.cancel_feature', instance_id=inst.id, request_id=req.id), t('common.cancel')) }}{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>{% endif %}
+</section>
+{% endif %}
+
+{% if 'use_case' in permissions and inst.status != 'terminated' %}
+<details class="card"><summary>{{ t('hosting.instance.use_case') }}</summary>
+<form method="post" action="{{ url_for('dashboard.update_use_case', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}
+  <textarea name="declared_use_case" minlength="20" maxlength="2000" aria-label="{{ t('hosting.instance.use_case') }}">{{ inst.declared_use_case }}</textarea>
+  {{ ui.check('compliance_declared', t('hosting.create.compliance')) }}
+  <p><button class="btn btn--small" type="submit">{{ t('common.save') }}</button></p></form></details>
+{% endif %}
+
+{% if manager and users %}
+<details class="card"><summary>{{ t('hosting.instance.wiki_users', count=users_total) }}</summary>
+<div class="table-wrap"><table class="table"><thead><tr><th>{{ t('hosting.field.username') }}</th><th>{{ t('hosting.instance.role') }}</th><th>{{ t('hosting.instance.created') }}</th></tr></thead><tbody>
+{% for user in users %}<tr><td>{{ user.username }}</td><td>{{ user.role }}</td><td>{{ user.created_at|date }}</td></tr>{% endfor %}
+</tbody></table></div></details>
+{% endif %}
+{% endblock %}

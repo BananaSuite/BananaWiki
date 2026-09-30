@@ -1,0 +1,22 @@
+{% extends "admin/_layout.html" %}
+{% block title %}{{ t('site_admin.log.title') }}{% endblock %}
+{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('site_admin.css', blueprint='site_admin') }}">{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('site_admin.log.title') }}</h1>
+  <div class="page-header__actions">
+    {% if errors_only %}<a class="btn" href="{{ url_for('site_admin.error_log', level='all') }}">{{ t('site_admin.log.show_all') }}</a>
+    {% else %}<a class="btn" href="{{ url_for('site_admin.error_log') }}">{{ t('site_admin.log.show_errors') }}</a>{% endif %}
+  </div>
+</header>
+<section class="card">
+  <p class="hint">{{ t('site_admin.log.intro') }}</p>
+  {% if content is none %}
+  <p class="empty-state">{{ t('site_admin.log.missing') }}</p>
+  {% elif not content.strip() %}
+  <p class="empty-state">{{ t('site_admin.log.empty') }}</p>
+  {% else %}
+  <pre class="log-view mono" tabindex="0">{{ content }}</pre>
+  {% endif %}
+</section>
+{% endblock %}

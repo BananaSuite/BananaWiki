@@ -1,0 +1,2 @@
+{% import "macros/forms.html" as forms with context %}
+<p>{{ forms.post_button(url_for('users.reactivate'), t('users.suspended.reactivate'), cls='btn btn--primary', confirm=t('users.suspended.reactivate_confirm')) }}</p>

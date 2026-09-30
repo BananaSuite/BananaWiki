@@ -1,0 +1,7 @@
+{#- Load a Markdown file into the editor (script only; the editor form is not multipart). -#}
+<div class="md-import" data-md-import data-url="{{ url_for('page_export.import_markdown', slug=page.slug) }}" hidden>
+  <label class="btn btn--small" for="md-import-input">{{ t('page_export.import_file') }}</label>
+  <input id="md-import-input" class="visually-hidden" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" data-md-import-input>
+  <span class="small muted">{{ t('page_export.import_file_hint') }}</span>
+</div>
+<script src="{{ asset_url('import.js', blueprint='page_export') }}" defer></script>

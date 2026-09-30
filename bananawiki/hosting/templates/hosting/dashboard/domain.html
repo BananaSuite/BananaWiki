@@ -1,0 +1,26 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.domains.title') }}{% endblock %}
+{% block content %}
+<nav class="breadcrumbs"><a href="{{ url_for('dashboard.instance_detail', instance_id=instance.id) }}">{{ instance.subdomain }}</a></nav>
+<h1>{{ t('hosting.domains.title') }}</h1>
+{% if current_account.is_admin %}
+<section class="card"><h2>{{ t('hosting.domains.permission') }}</h2>
+  {{ ui.post(url_for('admin.domain_permission', instance_id=instance.id), t('hosting.domains.revoke') if instance.custom_domain_allowed else t('hosting.domains.allow'), hidden={'allowed': '0' if instance.custom_domain_allowed else '1'}) }}</section>
+{% endif %}
+{% if not configured %}<p class="muted">{{ t('hosting.domains.not_configured') }}</p>
+{% elif not instance.custom_domain_allowed %}<p class="muted">{{ t('hosting.domains.not_allowed') }}</p>
+{% elif binding %}
+<section class="card"><h2>{{ binding.domain }}</h2>
+  <p>{{ t('hosting.domains.active') if active else t('hosting.domains.inactive') }}</p>
+  <dl class="kv"><dt>TXT</dt><dd class="mono">_bananawiki-challenge.{{ binding.domain }} = {{ binding.verification_token }}</dd>
+    <dt>CNAME</dt><dd class="mono">{{ binding.domain }} → {{ target }}</dd>
+    {% if ips %}<dt>A / AAAA</dt><dd class="mono">{{ ips|join(', ') }}</dd>{% endif %}</dl>
+  <div class="btn-row">{{ ui.post(url_for('dashboard.instance_domain', instance_id=instance.id), t('hosting.domains.verify'), 'btn btn--primary', hidden={'action': 'verify'}) }}
+  {{ ui.post(url_for('dashboard.instance_domain', instance_id=instance.id), t('hosting.domains.remove'), 'btn btn--danger', confirm=t('hosting.common.are_you_sure'), hidden={'action': 'remove'}) }}</div></section>
+{% else %}
+<form method="post" class="form card">{{ ui.csrf() }}<input type="hidden" name="action" value="claim">
+  {{ ui.field('domain', t('hosting.domains.domain'), required=true, hint=t('hosting.domains.domain_hint'), attrs={'maxlength': 253}) }}
+  <p><button class="btn btn--primary" type="submit">{{ t('hosting.domains.claim') }}</button></p></form>
+{% endif %}
+{% endblock %}

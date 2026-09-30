@@ -1,49 +1,34 @@
+# Python
 __pycache__/
 *.py[cod]
-*.so
 *.egg-info/
-dist/
 build/
-*.egg
-.env
-instance/
-logs/
-app/static/uploads/*
-!app/static/uploads/.gitkeep
-plugins/external/*
-!plugins/external/.gitkeep
-app/static/favicons_test/
-app/static/favicons/custom_*
-venv/
+dist/
 .venv/
-.venv-tmp/
-.codex-py312/
-.cache/
-*.db
+venv/
 .pytest_cache/
-.browser-artifacts/
-test_output.txt
-config.py.prod
-backups/
-hosting/data/
-app_output.log
-*.log
-*.agekey
-*.age
-**/.secret_key
-deploy.conf
-.DS_Store
-*.bwplugin
-!plugins/builtin/**/*.bwplugin
-docs/audit/*.png
-
-# Plugin archives are built from source for distribution.
-*.bwplugin
 .ruff_cache/
 
-# Keys, certificates and archives must never be committed. These are not files
-# the project ships; the patterns exist so that a key generated while testing
-# in a working copy cannot be swept up by `git add .`.
+# Runtime data (BananaWiki keeps everything under the instance directory)
+/instance/
+/logs/
+*.log
+*.db
+*.db-wal
+*.db-shm
+/backups/
+
+# Data folders of 1.4 installations inside the source tree. BananaWiki 1.6
+# moves their contents into the instance directory on first start; the
+# patterns keep `git pull` and `git status` clean until then.
+/app/
+/plugins/external/
+/translations/
+/hosting/data/
+
+# Secrets and archives that must never be committed
+.env
+**/.secret_key
 *.key
 *.pem
 *.p12
@@ -52,6 +37,10 @@ docs/audit/*.png
 *.keystore
 *.crt
 *.cer
+*.agekey
+*.age
+*.bwplugin
 *.tar.gz
 *.tgz
-node_modules/
+
+.DS_Store

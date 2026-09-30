@@ -1,0 +1,12 @@
+/* Difficulty tags. */
+.difficulty-tag-line { margin: 0 0 .75rem; }
+.difficulty-tag { display: inline-block; padding: .15rem .6rem; border-radius: var(--radius-sm); font-size: .75rem;
+  font-weight: 600; letter-spacing: .03em; text-transform: uppercase; --tag-color: #6e8aca;
+  color: color-mix(in srgb, var(--tag-color) 80%, var(--bw-text)); background: color-mix(in srgb, var(--tag-color) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tag-color) 45%, transparent); }
+.difficulty-tag--beginner { --tag-color: #6e8aca; }
+.difficulty-tag--easy { --tag-color: #5cb85c; }
+.difficulty-tag--intermediate { --tag-color: #d2aa5a; }
+.difficulty-tag--expert { --tag-color: #c45c6a; }
+.difficulty-tag--extra { --tag-color: #a06cc0; }
+.difficulty-tag--custom { text-transform: none; }

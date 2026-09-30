@@ -1,0 +1,21 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.mfa.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('hosting.mfa.title') }}</h1>
+  {% if enabled %}
+  <p>{{ t('hosting.mfa.enabled_state') }}</p>
+  <p>{{ t('hosting.mfa.disable_hint') }}</p>
+  {% else %}
+  <p>{{ t('hosting.mfa.enroll_hint') }}</p>
+  <img class="qr" src="{{ qr }}" alt="{{ t('hosting.mfa.qr_alt') }}">
+  <p class="small">{{ t('hosting.mfa.manual_key') }}</p><p class="secret-box">{{ secret }}</p>
+  {% endif %}
+  <form method="post" class="form">{{ ui.csrf() }}
+    {{ ui.field('password', t('hosting.field.current_password'), type='password', required=true, attrs={'autocomplete': 'current-password'}) }}
+    {{ ui.field('code', t('hosting.mfa.code'), required=true, attrs={'autocomplete': 'one-time-code', 'maxlength': 32}) }}
+    <button class="btn {{ 'btn--danger' if enabled else 'btn--primary' }}" type="submit">{{ t('hosting.mfa.disable') if enabled else t('hosting.mfa.enable') }}</button>
+  </form>
+</div>
+{% endblock %}

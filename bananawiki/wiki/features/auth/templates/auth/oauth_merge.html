@@ -1,0 +1,15 @@
+{% extends "base_minimal.html" %}
+{% block title %}{{ t('auth.oauth.merge_title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('auth.oauth.merge_title') }}</h1>
+  <p>{{ t('auth.oauth.merge_body', name=local.username) }}</p>
+  <form method="post" action="{{ url_for('auth.platform_oauth_merge') }}" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field"><label for="password">{{ t('auth.field.password') }}</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024" autofocus></div>
+    <button class="btn btn--primary" type="submit">{{ t('auth.oauth.merge_submit') }}</button>
+  </form>
+  <p class="small"><a href="{{ url_for('auth.platform_oauth_signup') }}">{{ t('auth.oauth.merge_other') }}</a></p>
+</div>
+{% endblock %}

@@ -1,0 +1,7 @@
+{% import "macros/forms.html" as forms with context %}
+<div class="alert alert--error" role="status"><div class="alert__body split">
+  <span>{{ t('deletion_slowdown.notice', user=deleted_by or t('common.unknown_user'), date=purge_at|datetime) if purge_at else t('deletion_slowdown.notice_no_date') }}</span>
+  {% if can_restore %}
+  {{ forms.post_button(url_for('deletion_slowdown.restore', page_id=page.id), t('deletion_slowdown.restore'), cls='btn btn--small') }}
+  {% endif %}
+</div></div>

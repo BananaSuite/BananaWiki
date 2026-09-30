@@ -1,0 +1,39 @@
+{% extends "admin/_layout.html" %}
+{% import "plugin_manager/_macros.html" as pm with context %}
+{% block title %}{{ entry.name }}{% endblock %}
+{% block admin_content %}
+<nav class="breadcrumbs"><a href="{{ url_for('plugin_manager.index') }}">{{ t('plugin_manager.title') }}</a></nav>
+<header class="page-header">
+  <h1>{{ entry.name }}</h1>
+  <div class="page-header__actions">{{ pm.actions(entry) }}</div>
+</header>
+{% if entry.description %}<p>{{ entry.description }}</p>{% endif %}
+{% if entry.error_key %}<div class="alert alert--error" role="alert"><div class="alert__body">{{ t(entry.error_key, **entry.error_values) }}</div></div>{% endif %}
+{% if entry.restart %}<div class="alert alert--warning" role="status"><div class="alert__body">
+  {{ t('plugin_manager.status.' ~ entry.restart ~ '_pending') }}. {{ t('plugin_manager.restart.' ~ restart_mode) }}
+</div></div>{% endif %}
+<div class="card">
+  <dl class="pm-facts">
+    <dt>{{ t('plugin_manager.col.id') }}</dt><dd class="mono">{{ entry.id }}</dd>
+    <dt>{{ t('plugin_manager.col.kind') }}</dt><dd>{{ pm.kind(entry) }}</dd>
+    <dt>{{ t('common.status') }}</dt><dd>{{ pm.status(entry) }}</dd>
+    {% if entry.version %}<dt>{{ t('plugin_manager.col.version') }}</dt><dd>{{ entry.version }}</dd>{% endif %}
+    {% if entry.author %}<dt>{{ t('plugin_manager.col.author') }}</dt><dd>{{ entry.author }}</dd>{% endif %}
+    {% if entry.lock %}<dt>{{ t('plugin_manager.col.lock') }}</dt><dd>{{ t(entry.lock) }}</dd>{% endif %}
+    {% if requires %}<dt>{{ t('plugin_manager.col.requires') }}</dt><dd>{% for id, name in requires %}{{ name }}{% if not loop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
+    {% if required_by %}<dt>{{ t('plugin_manager.col.required_by') }}</dt><dd>{% for id, name in required_by %}{{ name }}{% if not loop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
+    {% if entry.path %}<dt>{{ t('plugin_manager.col.folder') }}</dt><dd class="mono small">{{ entry.path }}</dd>{% endif %}
+    {% if data_tables %}<dt>{{ t('plugin_manager.col.tables') }}</dt><dd class="mono small">{{ data_tables|join(', ') }}</dd>{% endif %}
+  </dl>
+</div>
+{% if entry.kind == 'external' and entry.has_files %}
+<div class="card card--danger">
+  <h2>{{ t('plugin_manager.delete.title') }}</h2>
+  <p>{{ t('plugin_manager.delete.intro') }}</p>
+  <form method="post" action="{{ url_for('plugin_manager.delete', plugin_id=entry.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn--danger">{{ t('plugin_manager.action.delete') }}</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

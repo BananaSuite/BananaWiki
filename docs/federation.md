@@ -1,72 +1,106 @@
 # Federation
 
 Two BananaWiki installations can pair with each other and share individual
-pages read only. It is off by default and does nothing until an administrator
-on each side turns it on and enters the other's details.
+pages read only. It is off by default and does nothing until the operator
+turns it on and an administrator on each side enters the other's details.
 
 Set `BW_FEDERATION_ENABLED=1` to enable it. While it is off every federation
-route answers 404, including the endpoint peers would call, so a wiki that has
-not opted in is indistinguishable from one that never had the feature.
+URL answers 404, including the endpoint peers call, so a wiki that has not
+opted in looks like one that never had the feature. There is no
+administrator switch.
+
+The wire protocol is unchanged from 1.4, so 1.4 and 1.6 wikis pair with each
+other.
 
 ## Pairing
 
-`/admin/federation` shows this wiki's own identifier and the list of peers.
-Pairing takes four things: the other wiki's identifier, a name for it, its
-base URL, and a shared secret. The page generates a fresh 32 byte secret for
-you; send it to the other administrator over a channel you trust, and they
-enter the same value. Nothing synchronizes until both sides have done this.
+`/admin/federation` shows this wiki's identifier and the paired wikis.
+Pairing takes the other wiki's identifier, a name, its HTTPS origin (no
+credentials, path or query) and a shared 64-character key. The page proposes
+a fresh key; send it to the other administrator over a channel you trust.
+Nothing synchronises until both sides have added each other.
 
-A pairing carries an audience category. Pages received from that peer are
-visible to whoever can read that category, plus administrators and owners.
-Leaving it empty means administrators only.
+A pairing has an audience category: received pages are visible to whoever
+can read that category, plus administrators. Without one, only
+administrators see them.
+
+The key is needed in clear to sign requests, so it is stored encrypted with
+the instance secret key rather than hashed. Keys stored in plain text by 1.4
+keep working and are encrypted by the next poll. After moving the wiki to a
+different secret key the key can no longer be read; the admin page says so,
+and the pairing has to be made again.
+
+A wiki is only contacted at public internet addresses. For a peer on the
+same private network, tick *The other wiki is on a private network* when
+pairing; loopback and private addresses are then allowed for that peer only.
+Link-local (cloud metadata), multicast and reserved addresses are always
+refused, the address is resolved once and the connection goes to the checked
+address, redirects are not followed, and answers are capped at 8 MiB and 25
+seconds (`bananawiki/core/http.py`).
 
 At most 16 peers, and at most 32 shared pages per peer.
 
-## Sharing pages out
+## Sharing pages
 
-Editors use `/federation/sharing` to grant a page to a named peer. A grant is
-per page and per peer; there is no "share everything". Later edits to a shared
-page are sent on the next synchronization until the grant is withdrawn, and
-withdrawing it stops further sends. Editors see their own grants;
-administrators and owners see all of them. A page above 128 KiB is refused.
+Editors use `/federation/sharing` to share one page with one paired wiki.
+Only an active Markdown page the editor may edit can be shared (not hidden,
+pending deletion or page-builder pages), at most 128 KiB with a title of at
+most 300 characters. Later edits are sent on each synchronisation. A share is
+withdrawn automatically when the page stops qualifying, when the person who
+shared it may no longer edit it, or when the page moves to another category:
+sharing again is a deliberate act. Editors see and withdraw their own shares;
+administrators see all of them.
 
 ## Receiving pages
 
-`/federation` lists what this wiki has received and the reader is allowed to
-see. Copies are read only. A copy that has not synchronized successfully for
-48 hours stops being shown, so a peer that goes quiet does not leave stale
-content on display indefinitely.
+`/federation` lists received copies the reader may see; each copy is shown
+as plain text, and nothing from the other wiki is executed or loaded. A copy
+that has not synchronised for 48 hours stops being shown.
 
-An administrator can fork a copy into an ordinary local page. The fork gets a
-random slug, so a remote title cannot overwrite an existing page, and its first
-lines record where it came from and at which revision. Forking is refused when
-the pairing has no audience category, because the fork would otherwise land
-somewhere broader than the copy was.
+An administrator can fork a copy into an ordinary local page in the
+pairing's audience category (refused without one). The fork gets a random
+slug, records its source and revision in its first lines, and is created
+through the pages service, so it has history, is searchable and other
+features hear about it.
 
 ## What goes over the wire
 
-A peer fetches `GET /federation/v1/snapshot`. There are no cookies and no
-browser involved. Each request carries the caller's wiki identifier, a
-timestamp, a random nonce and an HMAC-SHA256 signature over all of them
-computed with the shared secret. Timestamps outside a two minute window are
-refused, and a nonce is accepted once. The response body is signed the same
-way and is capped at 8 MiB.
+A peer fetches `GET /federation/v1/snapshot` without cookies. The request
+carries the caller's wiki id (`BW-Wiki`), a Unix timestamp (`BW-Time`), a
+random 128-bit nonce (`BW-Nonce`) and `BW-Signature`: HMAC-SHA256 with the
+pairing key over `BW-FED-1`, method, path, both wiki ids, timestamp and nonce.
+Timestamps outside two minutes are refused and each nonce is accepted once
+(`federation_nonces`). A peer is served at most once every 30 seconds (429).
+The JSON answer is signed the same way (`BW-FED-1-RESPONSE`, bound to the
+request nonce and the SHA-256 of the body) and validated before anything is
+stored.
 
-The background runtime wakes every 30 seconds and synchronizes the peers whose
-next attempt is due. A successful synchronization schedules the next one five
-minutes later. A failure doubles the wait, from 30 seconds up to an hour, and
-the admin page shows the reason without repeating anything the remote sent.
-An administrator can also synchronize one peer immediately from that page.
+The `federation.poll` job runs every 30 seconds and synchronises the peers
+whose next attempt is due; a lease in `federation_peers` makes sure only one
+worker polls a peer at a time. A success schedules the next poll five minutes
+later; a failure doubles the wait from 30 seconds up to an hour and shows the
+reason on the admin page, without repeating anything the remote sent. An
+administrator can synchronise a peer immediately. Nothing is fetched before
+setup is finished, in maintenance mode, or when the hosting storage quota is
+reached.
 
-Synchronization is skipped entirely before setup is finished, while the wiki
-is in maintenance mode or banana mode, and, on the hosting platform, when the
-instance is at its storage quota.
-
-Federation responses are sent with `Cache-Control: no-store` and
+Federation responses carry `Cache-Control: no-store` and
 `Referrer-Policy: no-referrer`.
 
 ## Removing a pairing
 
-Deleting a pairing removes the peer, the grants pointing at it, and the local
-copies received from it. The remote wiki keeps whatever it had already
-received; there is no way to reach into another installation and delete it.
+Disconnecting deletes the peer, the shares pointing at it and the copies
+received from it. The other wiki keeps what it already received.
+
+## Tables
+
+`federation_identity` (this wiki's id and sequence), `federation_peers`
+(pairings, poll state; 1.6 adds `allow_private_network`),
+`federation_page_ids` (stable public id per shared page),
+`federation_shares`, `federation_copies`, `federation_nonces`. Times in these
+tables are Unix seconds, as in 1.4.
+
+## On the hosting platform
+
+Hosted wikis get `BW_FEDERATION_ENABLED=1` only when the operator lists their
+wiki id (or `*`) in `HOSTING_FEDERATION_INSTANCES`.

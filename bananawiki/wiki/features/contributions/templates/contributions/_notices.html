@@ -1,0 +1,16 @@
+{% import "macros/forms.html" as forms with context %}
+{% if own %}
+<div class="alert" role="status"><div class="alert__body split">
+  <span>{{ t('contributions.notice.own_pending', date=own.created_at|datetime) }}</span>
+  <span class="cluster">
+    <a class="btn btn--small" href="{{ url_for('contributions.edit', slug=page.slug, contribution_id=own.id) }}">{{ t('common.edit') }}</a>
+    {{ forms.post_button(url_for('contributions.withdraw', slug=page.slug, contribution_id=own.id), t('contributions.withdraw'), cls='btn btn--small', confirm=t('contributions.withdraw_confirm')) }}
+  </span>
+</div></div>
+{% endif %}
+{% if waiting %}
+<div class="alert alert--warning" role="status"><div class="alert__body split">
+  <span>{{ t('contributions.notice.waiting', count=waiting|length) }}</span>
+  <a class="btn btn--small" href="{{ url_for('contributions.review_detail', contribution_id=waiting[0].id) }}">{{ t('contributions.review') }}</a>
+</div></div>
+{% endif %}

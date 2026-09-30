@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ t('chat.dm.new') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('chat.css', blueprint='chat') }}">{% endblock %}
+{% block content %}
+<header class="page-header"><h1>{{ t('chat.dm.new') }}</h1></header>
+<div class="card">
+  <form method="post" class="form" action="{{ url_for('chat.dm_new') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field">
+      <label for="dm-username">{{ t('chat.dm.username') }}</label>
+      <input id="dm-username" name="username" value="{{ username }}" required maxlength="50" autocomplete="off"
+             autocapitalize="off" spellcheck="false" list="chat-user-suggestions"
+             data-user-suggest="{{ url_for('chat.user_suggestions') }}">
+      <datalist id="chat-user-suggestions"></datalist>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn--primary" type="submit">{{ t('chat.dm.start') }}</button>
+      <a class="btn" href="{{ url_for('chat.dm_list') }}">{{ t('common.cancel') }}</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ asset_url('chat.js', blueprint='chat') }}"></script>{% endblock %}

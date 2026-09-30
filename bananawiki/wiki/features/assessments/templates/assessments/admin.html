@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ t('assessments.admin_title') }}{% endblock %}
+{% block content %}
+<div class="page-header"><h1>{{ t('assessments.admin_title') }}</h1></div>
+<form method="post" class="card form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label class="check">
+    <input type="checkbox" name="assessment_points_badge_enabled" value="1"{% if points_enabled %} checked{% endif %}>
+    <span>{{ t('assessments.points_setting') }}<small>{{ t('assessments.points_setting_hint') }}</small></span>
+  </label>
+  <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('common.save') }}</button></div>
+</form>
+<h2>{{ t('assessments.all_quizzes') }}</h2>
+{% if not assessments %}
+<div class="empty-state">{{ t('assessments.none_yet') }}</div>
+{% else %}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr>
+      <th scope="col">{{ t('assessments.quiz') }}</th>
+      <th scope="col">{{ t('assessments.page') }}</th>
+      <th scope="col">{{ t('assessments.questions') }}</th>
+      <th scope="col">{{ t('assessments.takers') }}</th>
+      <th scope="col">{{ t('assessments.attempts') }}</th>
+      <th scope="col"><span class="visually-hidden">{{ t('common.actions') }}</span></th>
+    </tr></thead>
+    <tbody>
+    {% for a in assessments %}
+      <tr>
+        <td>{{ a.title }}</td>
+        <td><a href="{{ url_for('pages.view', slug=a.page_slug) }}">{{ a.page_title }}</a></td>
+        <td>{{ a.question_count }}</td>
+        <td>{{ a.taker_count }}</td>
+        <td>{{ a.attempt_count }}</td>
+        <td class="actions">
+          <a class="btn btn--small btn--ghost" href="{{ url_for('assessments.results', slug=a.page_slug) }}">{{ t('assessments.results') }}</a>
+          <a class="btn btn--small btn--ghost" href="{{ url_for('assessments.manage', slug=a.page_slug) }}">{{ t('assessments.manage') }}</a>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

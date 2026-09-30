@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ t('api_service.docs.title') }}{% endblock %}
+{% block content %}
+<div class="page-header"><h1>{{ t('api_service.docs.title') }}</h1></div>
+<p>{{ t('api_service.docs.intro') }}</p>
+<section class="card">
+  <h2>{{ t('api_service.docs.auth') }}</h2>
+  <p>{{ t('api_service.docs.auth_body') }}</p>
+  <pre class="mono">curl -H "Authorization: Bearer $TOKEN" {{ example_url }}/api/v1/pages</pre>
+  <p>{{ t('api_service.docs.scopes') }} {% for scope in scopes %}<code>{{ scope }}</code>{{ ', ' if not loop.last }}{% endfor %}</p>
+  <p>{{ t('api_service.docs.errors') }}</p>
+  <pre class="mono">{"ok": false, "error": "…", "code": "page_not_found"}</pre>
+  <p><a href="{{ url_for('api_v1.openapi_description') }}">{{ t('api_service.docs.openapi') }}</a></p>
+</section>
+<section class="card">
+  <h2>{{ t('api_service.docs.conventions') }}</h2>
+  <p>{{ t('api_service.docs.conventions_body') }}</p>
+</section>
+{% for group, endpoints in groups.items() %}
+<section class="card">
+  <h2>{{ t('api_service.docs.group.' ~ group) }}</h2>
+  <div class="table-wrap"><table class="table">
+    <thead><tr>
+      <th scope="col">{{ t('api_service.docs.method') }}</th>
+      <th scope="col">{{ t('api_service.docs.path') }}</th>
+      <th scope="col">{{ t('api_service.docs.scope') }}</th>
+      <th scope="col">{{ t('common.description') }}</th>
+    </tr></thead>
+    <tbody>
+    {% for endpoint in endpoints %}
+    <tr>
+      <td><span class="badge">{{ endpoint.method }}</span></td>
+      <td class="mono">/api/v1{{ endpoint.path }}</td>
+      <td>{% if endpoint.scope %}<code>{{ endpoint.scope }}</code>{% if endpoint.write %} + {{ t('api_service.docs.write') }}{% endif %}{% else %}—{% endif %}</td>
+      <td>{{ t('api_service.endpoint.' ~ endpoint.method|lower ~ ' ' ~ endpoint.path) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endfor %}
+{% endblock %}

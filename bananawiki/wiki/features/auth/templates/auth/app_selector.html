@@ -1,0 +1,15 @@
+{% extends "base_minimal.html" %}
+{% block title %}{{ t('auth.app_selector.title') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('auth.css', blueprint='auth') }}">{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>{{ t('auth.app_selector.title') }}</h1>
+  <p class="muted">{{ t('auth.app_selector.subtitle') }}</p>
+  <ul class="auth-apps">
+    <li><a class="auth-apps__item" href="/"><strong>{{ t('auth.app_selector.wiki') }}</strong><span class="small muted">{{ t('auth.app_selector.wiki_desc') }}</span></a></li>
+    {% for app in apps %}
+    <li><a class="auth-apps__item" href="{{ app.url }}"><strong>{{ app.label }}</strong>{% if app.badge %} <span class="count-pill">{{ app.badge }}</span>{% endif %}</a></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

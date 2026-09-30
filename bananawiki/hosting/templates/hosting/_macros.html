@@ -1,0 +1,57 @@
+{#- Import with {% import "hosting/_macros.html" as ui with context %}. -#}
+{% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
+
+{% macro post(action, label, cls='btn btn--small', confirm='', hidden={}) -%}
+<form class="inline" method="post" action="{{ action }}"{% if confirm %} data-confirm="{{ confirm }}"{% endif %}>
+  {{ csrf() }}{% for k, v in hidden.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+  <button type="submit" class="{{ cls }}">{{ label }}</button>
+</form>
+{%- endmacro %}
+
+{% macro field(name, label, value='', type='text', hint='', required=false, attrs={}) -%}
+<div class="field">
+  <label for="f-{{ name }}">{{ label }}</label>
+  <input id="f-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value if value is not none else '' }}"{% if required %} required{% endif %}{% for k, v in attrs.items() %} {{ k }}="{{ v }}"{% endfor %}>
+  {% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro check(name, label, checked=false, hint='', value='1') -%}
+<label class="check"><input type="checkbox" name="{{ name }}" value="{{ value }}"{% if checked %} checked{% endif %}><span>{{ label }}{% if hint %}<small>{{ hint }}</small>{% endif %}</span></label>
+{%- endmacro %}
+
+{% macro status(value) -%}
+<span class="badge {{ {'running': 'badge--success', 'stopped': '', 'suspended': 'badge--danger', 'terminated': 'badge--warning'}.get(value, '') }}">{{ t('hosting.status.' ~ value) }}</span>
+{%- endmacro %}
+
+{% macro duration_fields(prefix, units=('days', 'hours', 'minutes')) -%}
+<div class="cluster">
+  {% for unit in units %}
+  <label class="small">{{ t('hosting.time.' ~ unit) }} <input type="number" min="0" name="{{ prefix }}_{{ unit }}" value="0" class="hosting-num"></label>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+{% macro suspension_form(action, show_instances=false) -%}
+<form method="post" action="{{ action }}" class="form">
+  {{ csrf() }}
+  <div class="field">
+    <label for="sd-{{ action|length }}">{{ t('hosting.suspend.duration') }}</label>
+    <select id="sd-{{ action|length }}" name="suspend_duration">
+      <option value="permanent">{{ t('hosting.suspend.permanent') }}</option>
+      <option value="24">{{ t('hosting.suspend.hours', count=24) }}</option>
+      <option value="168">{{ t('hosting.suspend.hours', count=168) }}</option>
+      <option value="custom_relative">{{ t('hosting.suspend.relative') }}</option>
+      <option value="custom_datetime">{{ t('hosting.suspend.until') }}</option>
+    </select>
+  </div>
+  {{ duration_fields('suspend_rel') }}
+  {{ field('suspend_custom_datetime', t('hosting.suspend.until_utc'), type='datetime-local') }}
+  <div class="field"><label for="sr-{{ action|length }}">{{ t('hosting.suspend.reason') }}</label><textarea id="sr-{{ action|length }}" name="suspend_reason" rows="2" maxlength="500"></textarea></div>
+  {{ check('suspend_reason_visible', t('hosting.suspend.reason_visible')) }}
+  {{ check('suspend_time_visible', t('hosting.suspend.time_visible')) }}
+  {% if show_instances %}{{ check('suspend_instances', t('hosting.suspend.instances_too')) }}{% endif %}
+  {{ check('notify_user', t('hosting.admin.notify_user'), checked=true) }}
+  <p><button class="btn btn--danger" type="submit">{{ t('hosting.suspend.submit') }}</button></p>
+</form>
+{%- endmacro %}

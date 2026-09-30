@@ -1,0 +1,5 @@
+<section class="card" aria-labelledby="export-heading">
+  <h2 id="export-heading">{{ t('export.title') }}</h2>
+  <p>{{ t('export.help') }}</p>
+  <a class="btn" href="{{ url_for('user_data_export.own_export') }}" download>{{ t('export.download') }}</a>
+</section>

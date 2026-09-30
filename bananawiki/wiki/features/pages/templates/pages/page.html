@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ page.title }}{% endblock %}
+{% block main_class %}main--wide{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('pages.css', blueprint='pages') }}">{% endblock %}
+{% block content %}
+<div class="wiki-page">
+  <div class="wiki-page__main">
+    {% if breadcrumbs or not page.is_home %}
+    <nav class="breadcrumbs" aria-label="{{ t('pages.breadcrumbs') }}">
+      <ol>
+        <li><a href="{{ url_for('pages.home') }}">{{ t('pages.nav.home') }}</a></li>
+        {% for crumb in breadcrumbs %}<li><a href="{{ url_for('pages.category', category_id=crumb.id) }}">{{ crumb.name }}</a></li>{% endfor %}
+        {% if not page.is_home %}<li aria-current="page">{{ page.title }}</li>{% endif %}
+      </ol>
+    </nav>
+    {% endif %}
+    <header class="page-header">
+      <h1>{{ page.title }}</h1>
+      <div class="page-header__actions no-print">
+        {% if can_edit %}
+        <a class="btn btn--primary btn--small" href="{{ url_for('pages.edit', slug=page.slug) }}"{% if blocked %} aria-disabled="true" title="{{ t(blocked) }}"{% endif %}>{{ t('common.edit') }}</a>
+        {% endif %}
+        {{ slot('page.header_actions', page=page) }}
+        {% if can_view_history or can_edit_metadata or can_deindex or can_delete or can_set_home %}
+        <details class="menu">
+          <summary class="btn btn--small">{{ t('pages.actions.more') }}</summary>
+          <div class="menu__panel" role="menu">
+            {% if can_view_history and feature_enabled('page_history') %}<a role="menuitem" href="{{ url_for('pages.history', slug=page.slug) }}">{{ t('pages.actions.history') }}</a>{% endif %}
+            {% if can_edit_metadata and not blocked %}
+            <button type="button" role="menuitem" data-dialog-open="dlg-title">{{ t('pages.actions.rename_title') }}</button>
+            {% if not page.is_home %}
+            <button type="button" role="menuitem" data-dialog-open="dlg-move">{{ t('pages.actions.move') }}</button>
+            <button type="button" role="menuitem" data-dialog-open="dlg-slug">{{ t('pages.actions.change_url') }}</button>
+            {% endif %}
+            {% endif %}
+            {% if can_deindex and not blocked %}
+            <form method="post" action="{{ url_for('pages.deindex', slug=page.slug) }}" data-confirm="{{ t('pages.confirm.unhide') if page.is_deindexed else t('pages.confirm.hide') }}">
+              {{ forms.csrf() }}<button type="submit" role="menuitem">{{ t('pages.actions.unhide') if page.is_deindexed else t('pages.actions.hide') }}</button>
+            </form>
+            {% endif %}
+            {% if can_set_home and not page.is_home %}
+            <form method="post" action="{{ url_for('pages.set_home', slug=page.slug) }}" data-confirm="{{ t('pages.confirm.set_home') }}">
+              {{ forms.csrf() }}<button type="submit" role="menuitem">{{ t('pages.actions.set_home') }}</button>
+            </form>
+            {% endif %}
+            <button type="button" role="menuitem" data-print>{{ t('pages.actions.print') }}</button>
+            {% if can_delete and not blocked %}
+            <hr>
+            <form method="post" action="{{ url_for('pages.delete', slug=page.slug) }}" data-confirm="{{ t('pages.confirm.delete', title=page.title) }}">
+              {{ forms.csrf() }}<button type="submit" role="menuitem" class="text-danger">{{ t('common.delete') }}</button>
+            </form>
+            {% endif %}
+          </div>
+        </details>
+        {% endif %}
+      </div>
+      <div class="page-header__meta">
+        {% if page.is_deindexed %}<span class="badge badge--warning">{{ t('pages.badge.hidden') }}</span>{% endif %}
+        {% if page.pending_deletion %}<span class="badge badge--danger">{{ t('pages.badge.pending_deletion') }}</span>{% endif %}
+        {% if can_edit %}<span class="badge badge--primary" data-presence data-url="{{ url_for('pages.api_editing_check', slug=page.slug) }}" hidden></span>{% endif %}
+      </div>
+    </header>
+    {% if blocked and can_edit %}<div class="alert alert--warning"><div class="alert__body">{{ t(blocked) }}</div></div>{% endif %}
+    <div class="alert alert--info" data-page-updated hidden>
+      <div class="alert__body">{{ t('pages.sync.updated') }} <a href="{{ request.path }}">{{ t('pages.sync.reload') }}</a></div>
+    </div>
+    {{ slot('page.above_content', page=page) }}
+    <article class="prose" id="page-content">{{ body }}</article>
+    {{ slot('page.below_content', page=page) }}
+    {% if previous or following %}
+    <nav class="seq-nav no-print" aria-label="{{ t('pages.seq.label') }}">
+      {% if previous %}<a class="btn" rel="prev" href="{{ url_for('pages.view', slug=previous.slug) }}">← {{ previous.title }}</a>{% else %}<span></span>{% endif %}
+      {% if following %}<a class="btn" rel="next" href="{{ url_for('pages.view', slug=following.slug) }}">{{ following.title }} →</a>{% endif %}
+    </nav>
+    {% endif %}
+    {% if last_edit %}
+    <p class="page-edit-info small muted">
+      {% if last_edit.username %}
+        {{ t('pages.edit_info.by') }} {% if last_edit.profile_url %}<a href="{{ last_edit.profile_url }}">{{ last_edit.username }}</a>{% else %}<strong>{{ last_edit.username }}</strong>{% endif %}
+      {% else %}
+        {{ t('pages.edit_info.by_system') }}
+      {% endif %}
+      <time datetime="{{ last_edit.at }}" title="{{ last_edit.at|datetime }}">{{ last_edit.at|time_ago }}</time>
+      {% if can_view_history and feature_enabled('page_history') %} · <a href="{{ url_for('pages.history', slug=page.slug) }}">{{ t('pages.actions.history') }}</a>{% endif %}
+    </p>
+    {% endif %}
+  </div>
+  {% set panel = slot('page.sidebar_panel', page=page) %}
+  {% if toc|length > 1 or panel %}
+  <aside class="wiki-page__aside no-print">
+    {% if toc|length > 1 %}
+    <nav class="card toc-card" aria-labelledby="toc-title">
+      <p class="sidebar__section-title" id="toc-title">{{ t('pages.toc.title') }}</p>
+      <ol class="toc-list">
+        {% for item in toc %}<li class="toc-level-{{ item.level }}"><a href="#{{ item.id }}">{{ item.text }}</a></li>{% endfor %}
+      </ol>
+    </nav>
+    {% endif %}
+    {{ panel }}
+  </aside>
+  {% endif %}
+</div>
+
+{% if can_edit_metadata and not blocked %}
+<dialog id="dlg-title" aria-labelledby="dlg-title-h">
+  <h2 id="dlg-title-h">{{ t('pages.actions.rename_title') }}</h2>
+  <form method="post" action="{{ url_for('pages.edit_title', slug=page.slug) }}" class="form">
+    {{ forms.csrf() }}
+    {{ forms.field('title', t('pages.field.title'), page.title, required=true, attrs={'maxlength': 200}) }}
+    <div class="btn-row btn-row--end"><button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button><button class="btn btn--primary">{{ t('common.save') }}</button></div>
+  </form>
+</dialog>
+{% if not page.is_home %}
+<dialog id="dlg-move" aria-labelledby="dlg-move-h">
+  <h2 id="dlg-move-h">{{ t('pages.actions.move') }}</h2>
+  <form method="post" action="{{ url_for('pages.move', slug=page.slug) }}" class="form">
+    {{ forms.csrf() }}
+    <div class="field">
+      <label for="move-category">{{ t('pages.field.category') }}</label>
+      <select id="move-category" name="category_id">
+        <option value="">{{ t('pages.nav.uncategorized') }}</option>
+        {% for c in category_choices %}<option value="{{ c.id }}"{% if c.id == page.category_id %} selected{% endif %}>{{ c.path }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="btn-row btn-row--end"><button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button><button class="btn btn--primary">{{ t('pages.actions.move') }}</button></div>
+  </form>
+</dialog>
+<dialog id="dlg-slug" aria-labelledby="dlg-slug-h">
+  <h2 id="dlg-slug-h">{{ t('pages.actions.change_url') }}</h2>
+  <form method="post" action="{{ url_for('pages.rename', slug=page.slug) }}" class="form">
+    {{ forms.csrf() }}
+    {{ forms.field('new_slug', t('pages.field.slug'), page.slug, required=true, hint=t('pages.hint.slug'), attrs={'maxlength': 180}) }}
+    <div class="btn-row btn-row--end"><button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button><button class="btn btn--primary">{{ t('common.save') }}</button></div>
+  </form>
+</dialog>
+{% endif %}
+{% endif %}
+<script type="application/json" id="page-state">{{ {'sync': url_for('pages.api_page_sync', slug=page.slug) if current_user else '', 'revision': page.revision}|json_script }}</script>
+{% endblock %}
+{% block scripts %}<script src="{{ asset_url('page.js', blueprint='pages') }}"></script>{% endblock %}

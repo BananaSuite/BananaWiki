@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% import "assessments/_macros.html" as quiz with context %}
+{% block title %}{{ t('assessments.results_title', title=assessment.title) }}{% endblock %}
+{% block content %}
+{{ quiz.breadcrumbs(page) }}
+<div class="page-header">
+  <h1>{{ t('assessments.results_title', title=assessment.title) }}</h1>
+  <div class="page-header__actions">
+    <a class="btn btn--small" href="{{ url_for('assessments.manage', slug=page.slug) }}">{{ t('assessments.manage') }}</a>
+  </div>
+</div>
+{% if not attempts %}
+<div class="empty-state">{{ t('assessments.no_submissions') }}</div>
+{% else %}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr>
+      <th scope="col">{{ t('assessments.user') }}</th>
+      <th scope="col">{{ t('assessments.attempt') }}</th>
+      <th scope="col">{{ t('assessments.score') }}</th>
+      <th scope="col">{{ t('assessments.submitted_at') }}</th>
+      <th scope="col"><span class="visually-hidden">{{ t('common.actions') }}</span></th>
+    </tr></thead>
+    <tbody>
+    {% for a in attempts %}
+      <tr>
+        <td>{{ a.username }}</td>
+        <td>{{ a.attempt_number }}</td>
+        <td><strong>{{ a.total_points }}/{{ a.max_points }}</strong></td>
+        <td class="nowrap">{{ a.submitted_at|datetime }}</td>
+        <td class="actions">
+          <a class="btn btn--small btn--ghost" href="{{ url_for('assessments.attempt', slug=page.slug, attempt_id=a.id) }}">{{ t('assessments.details') }}</a>
+          {% if loop.first or loop.previtem.user_id != a.user_id %}
+          <form class="inline" method="post" action="{{ url_for('assessments.reset', slug=page.slug, user_id=a.user_id) }}"
+                data-confirm="{{ t('assessments.reset_confirm', user=a.username) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn--small">{{ t('assessments.allow_retake') }}</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

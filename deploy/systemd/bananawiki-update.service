@@ -1,0 +1,16 @@
+# Managed by BananaSuite
+[Unit]
+Description=Optional BananaWiki source update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+UMask=0077
+WorkingDirectory=/opt/bananawiki/current
+ExecStart=/usr/bin/python3 /opt/bananawiki/current/banana --root /opt/bananawiki update --automatic
+TimeoutStartSec=3600
+PrivateTmp=true
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

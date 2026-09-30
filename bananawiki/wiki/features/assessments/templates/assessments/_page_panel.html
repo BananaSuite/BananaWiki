@@ -1,0 +1,26 @@
+<section class="card assessment-panel" aria-labelledby="assessment-panel-title">
+  <div class="split">
+    <h2 id="assessment-panel-title">{{ assessment.title }}</h2>
+    <span class="badge">{{ t('assessments.question_count', n=question_count) }}</span>
+  </div>
+  {% if assessment.description %}<p class="assessment-text">{{ assessment.description }}</p>{% endif %}
+  {% if attempts %}
+  <p class="muted">{{ t('assessments.last_score', score=attempts[0].total_points, maximum=attempts[0].max_points) }}</p>
+  {% endif %}
+  <div class="cluster">
+    {% if user is none %}
+      <a class="btn btn--primary" href="{{ url_for('auth.login', next=url_for('assessments.take', slug=page.slug)) }}">{{ t('assessments.sign_in_to_take') }}</a>
+    {% elif can_take and not block_reason %}
+      <a class="btn btn--primary" href="{{ url_for('assessments.take', slug=page.slug) }}">
+        {{- t('assessments.take_again') if attempts else t('assessments.take') -}}
+      </a>
+    {% elif can_take and attempts %}
+      <a class="btn" href="{{ url_for('assessments.attempt', slug=page.slug, attempt_id=attempts[0].id) }}">{{ t('assessments.view_result') }}</a>
+    {% elif can_take %}
+      <span class="muted">{{ t(block_reason) }}</span>
+    {% endif %}
+    {% if can_manage %}
+      <a class="btn btn--ghost" href="{{ url_for('assessments.results', slug=page.slug) }}">{{ t('assessments.results') }}</a>
+    {% endif %}
+  </div>
+</section>

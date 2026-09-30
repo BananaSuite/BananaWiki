@@ -1,9 +1,0 @@
-{% extends 'base.html' %}
-{% block title %}Federated pages | {{ settings.site_name }}{% endblock %}
-{% block content %}
-<h1>Federated pages</h1>
-<p>Read-only Markdown copies from paired wikis. Copies expire from this view after 48 hours without a successful synchronization.</p>
-{% if current_user.role in ('editor', 'admin', 'owner') %}<p><a href="{{ url_for('federation_sharing') }}">Share local pages</a></p>{% endif %}
-{% if current_user.role in ('admin', 'owner') %}<p><a href="{{ url_for('admin_federation') }}">Manage pairings</a></p>{% endif %}
-<ul>{% for copy in copies %}<li><a href="{{ url_for('federation_copy', remote_id=copy.peer_id, page_id=copy.page_id) }}">{{ copy.title }}</a>: {{ copy.name }}{% if copy.last_error %} (sync delayed){% endif %}</li>{% else %}<li>No received pages available to you.</li>{% endfor %}</ul>
-{% endblock %}

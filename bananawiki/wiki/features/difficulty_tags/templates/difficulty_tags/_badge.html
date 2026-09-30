@@ -1,0 +1,5 @@
+<link rel="stylesheet" href="{{ asset_url('tags.css', blueprint='difficulty_tags') }}">
+<p class="difficulty-tag-line">
+  {%- if tag == 'custom' %}<span class="difficulty-tag difficulty-tag--custom" style="--tag-color: {{ color }}">{{ label }}</span>
+  {%- else %}<span class="difficulty-tag difficulty-tag--{{ tag }}">{{ t('difficulty_tags.level.' ~ tag) }}</span>{% endif -%}
+</p>

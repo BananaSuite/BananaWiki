@@ -1,0 +1,16 @@
+{#- Wrapper for author HTML: the document itself is loaded from a sandboxed route with an opaque origin. -#}
+<!doctype html>
+<html lang="{{ lang }}" class="cp-sandbox-host">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page.title or site_name() }}</title>
+  {% if page.meta_description %}<meta name="description" content="{{ page.meta_description }}">{% endif %}
+  <link rel="icon" href="{{ favicon_url() }}">
+  <link rel="stylesheet" href="{{ asset_url('custom_pages.css', blueprint='custom_pages') }}">
+</head>
+<body>
+  <iframe class="cp-sandbox" src="{{ url_for('custom_pages.document', page_id=page.id) }}"
+          sandbox="{{ sandbox }}" title="{{ page.title or site_name() }}" referrerpolicy="same-origin"></iframe>
+</body>
+</html>

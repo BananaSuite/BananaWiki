@@ -1,0 +1,12 @@
+{% extends "base_minimal.html" %}
+{% block title %}{{ t('auth.logout.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('auth.logout.title') }}</h1>
+  <form method="post" action="{{ url_for('auth.logout') }}" class="btn-row">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn--primary" type="submit">{{ t('nav.sign_out') }}</button>
+    <a class="btn" href="/">{{ t('common.cancel') }}</a>
+  </form>
+</div>
+{% endblock %}

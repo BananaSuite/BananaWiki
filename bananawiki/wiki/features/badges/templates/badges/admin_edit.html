@@ -1,0 +1,55 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ badge.name }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1><span aria-hidden="true">{{ badge.icon }}</span> {{ badge.name }}</h1>
+  <div class="page-header__actions"><a class="btn" href="{{ url_for('badges.admin_list') }}">{{ t('common.back') }}</a></div>
+</header>
+<div class="stack">
+<section class="card">
+  <form method="post" class="form">
+    {{ forms.csrf() }}
+    {% with values = badge %}{% include "badges/_form.html" %}{% endwith %}
+    <div class="btn-row">
+      <button class="btn btn--primary" type="submit" name="action" value="save">{{ t('common.save') }}</button>
+      <button class="btn btn--danger" type="submit" name="action" value="delete" formnovalidate data-confirm="{{ t('badges.admin.delete_confirm') }}">{{ t('common.delete') }}</button>
+    </div>
+  </form>
+</section>
+<section class="card">
+  <h2>{{ t('badges.admin.award_title') }}</h2>
+  <form method="post" action="{{ url_for('badges.admin_award', badge_id=badge.id) }}" class="cluster">
+    {{ forms.csrf() }}
+    <label for="award-username">{{ t('auth.field.username') }}</label>
+    <input id="award-username" name="username" maxlength="50" required>
+    <button class="btn btn--primary btn--small" type="submit">{{ t('badges.admin.award') }}</button>
+  </form>
+  <form method="post" action="{{ url_for('badges.admin_revoke', badge_id=badge.id) }}" class="cluster users-spaced">
+    {{ forms.csrf() }}
+    <label for="revoke-username">{{ t('auth.field.username') }}</label>
+    <input id="revoke-username" name="username" maxlength="50" required>
+    <label class="check"><input type="checkbox" name="permanent" value="1"> <span>{{ t('badges.admin.permanent') }}</span></label>
+    <button class="btn btn--small" type="submit">{{ t('badges.admin.revoke') }}</button>
+  </form>
+  <form method="post" action="{{ url_for('badges.admin_revoke_all', badge_id=badge.id) }}" class="cluster users-spaced" data-confirm="{{ t('badges.admin.revoke_all_confirm') }}">
+    {{ forms.csrf() }}
+    <label class="check"><input type="checkbox" name="permanent" value="1"> <span>{{ t('badges.admin.permanent') }}</span></label>
+    <button class="btn btn--small btn--danger" type="submit">{{ t('badges.admin.revoke_all') }}</button>
+  </form>
+</section>
+<section class="card">
+  <h2>{{ t('badges.admin.holders') }}</h2>
+  {% if holders %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('auth.field.username') }}</th><th>{{ t('badges.admin.earned') }}</th><th>{{ t('badges.admin.awarded_by') }}</th><th>{{ t('common.status') }}</th></tr></thead>
+    <tbody>{% for holder in holders %}
+      <tr><td>{{ holder.username }}</td><td>{{ holder.earned_at|datetime }}</td>
+        <td>{{ holder.awarded_by_username or t('badges.admin.automatic') }}</td>
+        <td>{% if holder.revoked %}<span class="badge badge--danger">{{ t('badges.admin.revoked') }}</span>{% else %}<span class="badge badge--success">{{ t('badges.admin.active') }}</span>{% endif %}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">{{ t('badges.admin.no_holders') }}</p>{% endif %}
+</section>
+</div>
+{% endblock %}

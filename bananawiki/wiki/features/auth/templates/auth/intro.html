@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ t('auth.intro.title') }}{% endblock %}
+{% block content %}
+<div class="page-header"><h1>{{ t('auth.intro.heading', site=site_name()) }}</h1></div>
+{% if preview %}<p class="badge">{{ t('auth.intro.preview') }}</p>{% endif %}
+<div class="card stack">
+  <p>{{ t('auth.intro.description') }}</p>
+  <h2>{{ t('auth.intro.what_next') }}</h2>
+  <ol>
+    {% for step in steps %}<li>{{ t('auth.tour.' ~ step.id ~ '.title') }}</li>{% endfor %}
+  </ol>
+  <form method="post" action="{{ url_for('auth.tour_start') }}" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if role_options|length > 1 %}
+    <fieldset class="stack">
+      <legend>{{ t('auth.intro.choose_view') }}</legend>
+      <p class="hint">{{ t('auth.intro.choose_view_help') }}</p>
+      {% for role in role_options %}
+      <label class="check"><input type="radio" name="tour_role" value="{{ role }}"{% if role == own_role %} checked{% endif %}>
+        <span>{{ t('auth.role.' ~ role) }}{% if role == own_role %}<small>{{ t('auth.intro.current_role') }}</small>{% endif %}</span></label>
+      {% endfor %}
+    </fieldset>
+    {% else %}
+    <input type="hidden" name="tour_role" value="{{ own_role }}">
+    {% endif %}
+    <button class="btn btn--primary" type="submit">{{ t('auth.intro.start_tour') }}</button>
+  </form>
+  <form method="post" action="{{ url_for('auth.intro') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <button class="btn" type="submit">{{ t('common.close') if preview else t('auth.intro.skip') }}</button>
+  </form>
+</div>
+{% endblock %}

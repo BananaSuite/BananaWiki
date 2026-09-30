@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('contributions.propose_title', title=page.title) }}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>{{ t('contributions.propose_title', title=page.title) }}</h1>
+  <div class="page-header__meta"><a href="{{ url_for('pages.view', slug=page.slug) }}">{{ t('common.back') }}</a></div>
+</header>
+<p class="muted">{{ t('contributions.propose_intro') }}</p>
+{% if others %}<div class="alert alert--warning"><div class="alert__body">{{ t('contributions.others_waiting', count=others) }}</div></div>{% endif %}
+<form method="post" class="form stack">
+  {{ forms.csrf() }}
+  {{ forms.field('title', t('contributions.field.title'), value=form.title, required=true, attrs={'maxlength': 200}) }}
+  {{ forms.textarea('content', t('contributions.field.content'), value=form.content, rows=20, cls='mono') }}
+  <div class="field">
+    <label for="f-reason">{{ t('contributions.field.reason') }}</label>
+    <textarea id="f-reason" name="reason" rows="3" maxlength="{{ max_reason }}" required>{{ form.reason }}</textarea>
+    <p class="hint">{{ t('contributions.field.reason_hint') }}</p>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn--primary" type="submit">{{ t('contributions.update') if contribution else t('contributions.submit') }}</button>
+    <a class="btn btn--ghost" href="{{ url_for('pages.view', slug=page.slug) }}">{{ t('common.cancel') }}</a>
+  </div>
+</form>
+{% endblock %}

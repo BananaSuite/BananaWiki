@@ -1,0 +1,42 @@
+/* People: profiles, member list, sessions and display settings. */
+.users-profile__header { display: flex; flex-wrap: wrap; gap: 1rem 1.25rem; align-items: flex-start; }
+.users-profile__meta { flex: 1 1 16rem; min-width: 0; }
+.users-profile__meta h1 { margin: 0 0 .15rem; overflow-wrap: anywhere; }
+.users-profile__name { margin: 0 0 .5rem; color: var(--muted); font-size: 1.05rem; }
+.users-profile__bio { white-space: pre-line; overflow-wrap: anywhere; }
+.users-contributions { list-style: none; margin: 0; padding: 0; display: grid; gap: .45rem; }
+.users-contributions li { overflow-wrap: anywhere; }
+
+.users-calendar { overflow-x: auto; padding-bottom: .35rem; }
+.users-calendar__grid { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 12px); gap: 3px; width: max-content; }
+.users-calendar__cell { width: 12px; height: 12px; border-radius: 2px; border: 0; padding: 0; background: var(--surface-3); cursor: pointer; }
+.users-calendar__cell[disabled] { visibility: hidden; cursor: default; }
+.users-calendar__cell[data-level="1"] { background: color-mix(in srgb, var(--success) 35%, var(--surface-3)); }
+.users-calendar__cell[data-level="2"] { background: color-mix(in srgb, var(--success) 55%, var(--surface-3)); }
+.users-calendar__cell[data-level="3"] { background: color-mix(in srgb, var(--success) 75%, var(--surface-3)); }
+.users-calendar__cell[data-level="4"] { background: var(--success); }
+.users-calendar__cell[aria-pressed="true"] { outline: 2px solid var(--focus); outline-offset: 1px; }
+.users-calendar__details ul { list-style: none; padding: 0; margin: .5rem 0 0; display: grid; gap: .3rem; }
+
+.users-members { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: .6rem;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.users-member { display: flex; gap: .75rem; align-items: center; padding: .75rem .9rem; }
+.users-member + .users-member { margin-top: 0; }
+.users-member__text { display: grid; min-width: 0; }
+.users-member__text > * { overflow: hidden; text-overflow: ellipsis; }
+
+.users-sessions { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+.users-session { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem; padding: .7rem .85rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.users-session.is-current { border-color: var(--success); }
+.users-session__main { display: grid; gap: .2rem; min-width: 0; }
+
+.users-background-preview { max-width: 100%; max-height: 180px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+.users-spaced { margin-top: 1rem; }
+.users-search { margin-bottom: 1rem; }
+
+/* Custom profile fields (user_profiles feature). */
+.profiles-fields { display: grid; gap: .6rem 1.5rem; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin: 0; }
+.profiles-fields dt { font-size: .8rem; color: var(--muted); font-weight: 600; }
+.profiles-fields dd { margin: 0; overflow-wrap: anywhere; }
+.profiles-value { white-space: pre-line; }

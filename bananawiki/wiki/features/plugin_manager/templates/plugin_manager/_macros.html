@@ -1,0 +1,46 @@
+{#- Shared pieces of the plugin pages. -#}
+{% import "macros/forms.html" as forms with context %}
+
+{% macro status(entry) -%}
+{% if entry.kind == 'retired' %}<span class="badge">{{ t('plugin_manager.status.retired') }}</span>
+{% elif entry.error_key and entry.stored %}<span class="badge badge--danger">{{ t('plugin_manager.status.failed') }}</span>
+{% elif entry.restart == 'enable' %}<span class="badge badge--warning">{{ t('plugin_manager.status.enable_pending') }}</span>
+{% elif entry.restart == 'disable' %}<span class="badge badge--warning">{{ t('plugin_manager.status.disable_pending') }}</span>
+{% elif entry.enabled %}<span class="badge badge--success">{{ t('common.enabled') }}</span>
+{% else %}<span class="badge">{{ t('common.disabled') }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro kind(entry) -%}
+{% if entry.kind == 'external' %}{{ t('plugin_manager.kind.external') }}{% if entry.legacy %} · {{ t('plugin_manager.kind.legacy') }}{% endif %}
+{% elif entry.kind == 'retired' %}{{ t('plugin_manager.kind.retired') }}
+{% else %}{{ t('plugin_manager.toggle.' ~ entry.toggle) }}{% endif %}
+{%- endmacro %}
+
+{% macro actions(entry) -%}
+<div class="cluster">
+{% if entry.can_disable %}
+  {{ forms.post_button(url_for('plugin_manager.disable', plugin_id=entry.id), t('plugin_manager.action.disable'), 'btn btn--small') }}
+{% elif entry.can_enable %}
+  {{ forms.post_button(url_for('plugin_manager.enable', plugin_id=entry.id), t('plugin_manager.action.enable'), 'btn btn--small btn--primary') }}
+{% endif %}
+{% if entry.lock %}<span class="small muted">{{ t(entry.lock) }}</span>{% endif %}
+{% if entry.kind == 'retired' or (entry.kind == 'external' and not entry.has_files) %}
+  {{ forms.post_button(url_for('plugin_manager.delete', plugin_id=entry.id), t('plugin_manager.action.remove_row'), 'btn btn--small btn--danger', confirm=t('plugin_manager.confirm.remove_row', name=entry.name)) }}
+{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro password_field() -%}
+<div class="field">
+  <label for="f-password">{{ t('plugin_manager.field.password') }}</label>
+  <input id="f-password" name="password" type="password" required maxlength="1024" autocomplete="current-password">
+</div>
+{%- endmacro %}
+
+{% macro full_privileges_warning() -%}
+<div class="alert alert--warning" role="note"><div class="alert__body">
+  <strong>{{ t('plugin_manager.warning.title') }}</strong>
+  <p>{{ t('plugin_manager.warning.body') }}</p>
+  <p class="small">{{ t('plugin_manager.warning.admins') }}</p>
+</div></div>
+{%- endmacro %}

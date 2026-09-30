@@ -1,0 +1,26 @@
+{#- One canvas or board embed for the editor's live preview (loaded in a same-origin iframe).
+    The body is document.render() of a validated embed block: the published page's own placeholder. -#}
+{%- set prefs = accessibility_prefs() -%}
+<!doctype html>
+<html lang="{{ lang }}" dir="{{ 'rtl' if rtl else 'ltr' }}" data-theme="{{ prefs.theme }}"
+      data-font-scale="{{ prefs.font_scale }}" data-contrast="{{ prefs.contrast }}"
+      data-reduce-motion="{{ 'true' if prefs.reduce_motion else 'false' }}"
+      data-dyslexic="{{ 'true' if prefs.dyslexic else 'false' }}" data-line-height="{{ prefs.line_height }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <meta name="color-scheme" content="dark light">
+  <title>{{ t('page_builder.editor.embed_preview') }}</title>
+  <base target="_blank">
+  <link rel="stylesheet" href="{{ asset_url('css/bananawiki.css') }}">
+  <link rel="stylesheet" href="{{ asset_url('css/content.css') }}">
+  <style nonce="{{ csp_nonce() }}">{{ theme_css() }}</style>
+</head>
+<body class="builder-embed-frame-body">
+  <main class="prose">{{ body }}</main>
+  <script type="application/json" id="bw-strings">{{ js_strings()|json_script }}</script>
+  <script src="{{ asset_url('js/bananawiki.js') }}"></script>
+  {{ slot('page.scripts') }}
+</body>
+</html>

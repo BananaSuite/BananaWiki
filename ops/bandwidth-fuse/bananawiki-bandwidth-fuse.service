@@ -1,7 +1,0 @@
-[Unit]
-Description=BananaWiki monthly bandwidth fuse
-Documentation=file:/opt/BananaWiki/ops/bandwidth-fuse/README.md
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/bananawiki-bandwidth-fuse

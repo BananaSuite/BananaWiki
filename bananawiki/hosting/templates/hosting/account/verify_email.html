@@ -1,0 +1,13 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.verify.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow"><h1>{{ t('hosting.verify.title') }}</h1>
+<p>{{ t('hosting.verify.body', email=current_account.email) }}</p>
+{% if email_configured %}
+<form method="post" action="{{ url_for('account.resend_verification') }}">{{ ui.csrf() }}
+  <button class="btn" type="submit"{% if cooldown %} disabled{% endif %}>{{ t('hosting.verify.resend') }}</button>
+  {% if cooldown %}<span class="small muted">{{ t('hosting.verify.wait', seconds=cooldown) }}</span>{% endif %}</form>
+{% else %}<p class="muted">{{ t('hosting.email.not_configured') }}</p>{% endif %}
+<p class="small"><a href="{{ url_for('account.account') }}">{{ t('hosting.verify.change_address') }}</a></p></div>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% import "macros/forms.html" as forms with context %}
+{% set here = request.path %}
+{% if can_reserve and reservation %}
+  {% if reservation.mine %}
+  {{ forms.post_button(url_for('page_governance.release', slug=page.slug), t('page_governance.reservation.release'), cls='btn btn--small', hidden={'next': here}) }}
+  {% elif not reservation.reservation and not reservation.cooldown_until %}
+  {{ forms.post_button(url_for('page_governance.reserve', slug=page.slug), t('page_governance.reservation.reserve'), cls='btn btn--small', hidden={'next': here}) }}
+  {% endif %}
+{% endif %}
+{% if protection and protection.is_controller %}
+  {{ forms.post_button(url_for('page_governance.update_protection', slug=page.slug), t('page_governance.protection.unprotect'), cls='btn btn--small', hidden={'action': 'unprotect', 'next': here}) }}
+{% elif can_protect and not protection %}
+  {{ forms.post_button(url_for('page_governance.update_protection', slug=page.slug), t('page_governance.protection.protect'), cls='btn btn--small', confirm=t('page_governance.protection.protect_confirm'), hidden={'action': 'protect', 'next': here}) }}
+{% endif %}

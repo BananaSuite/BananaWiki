@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('page_governance.directory.title') }}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>{{ t('page_governance.directory.title') }}</h1>
+  <div class="page-header__meta">
+    <span>{{ t('page_governance.directory.usage', count=active_count, quota=(t('page_governance.quota.unlimited') if quota == -1 else quota)) }}</span>
+    <a href="{{ url_for('page_governance.my_quota') }}">{{ t('page_governance.nav.quota') }}</a>
+  </div>
+</header>
+{% if rows %}
+<div class="table-wrap">
+<table class="table">
+  <thead><tr>
+    <th>{{ t('page_governance.col.page') }}</th><th>{{ t('page_governance.col.category') }}</th>
+    <th>{{ t('common.status') }}</th><th>{{ t('common.actions') }}</th>
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+  {% set r = row.reservation %}
+  <tr>
+    <td><a href="{{ url_for('pages.view', slug=row.page.slug) }}">{{ row.page.title }}</a></td>
+    <td>{{ row.category or t('page_governance.directory.uncategorized') }}</td>
+    <td>
+      {% if r and r.user_id == current_user.id %}<span class="badge badge--success">{{ t('page_governance.directory.yours', until=r.expires_at|datetime) }}</span>
+      {% elif r %}<span class="badge badge--warning">{{ t('page_governance.directory.reserved_by', user=r.username, until=r.expires_at|datetime) }}</span>
+      {% elif row.cooldown_until %}<span class="badge">{{ t('page_governance.directory.cooldown', until=row.cooldown_until|datetime) }}</span>
+      {% else %}<span class="muted">{{ t('page_governance.directory.free') }}</span>{% endif %}
+    </td>
+    <td>
+      {% if r and r.user_id == current_user.id %}
+      {{ forms.post_button(url_for('page_governance.release', slug=row.page.slug), t('page_governance.reservation.release'), cls='btn btn--small', hidden={'next': request.full_path}) }}
+      {% elif not r and not row.cooldown_until %}
+      {{ forms.post_button(url_for('page_governance.reserve', slug=row.page.slug), t('page_governance.reservation.reserve'), cls='btn btn--small btn--primary', hidden={'next': request.full_path}) }}
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{{ forms.pagination(page_number, total_pages, 'page_governance.directory') }}
+{% else %}
+<div class="empty-state"><p>{{ t('page_governance.directory.empty') }}</p></div>
+{% endif %}
+{% endblock %}

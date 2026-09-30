@@ -1,0 +1,4 @@
+<section class="card chat-profile-groups">
+  <h2>{{ t('chat.badges.profile_heading') }}</h2>
+  <p class="cluster">{% for g in groups %}<span class="badge">{{ t('chat.groups.global_name') if g.is_global else g.name }}</span>{% endfor %}</p>
+</section>

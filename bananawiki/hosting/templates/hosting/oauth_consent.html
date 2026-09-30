@@ -1,0 +1,14 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.oauth.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('hosting.oauth.title') }}</h1>
+  <p>{{ t('hosting.oauth.body', wiki=instance.subdomain, username=current_account.username) }}</p>
+  <p class="small muted">{{ t('hosting.oauth.shared') }}</p>
+  <form method="post" class="btn-row">{{ ui.csrf() }}
+    <button class="btn btn--primary" type="submit" name="action" value="allow">{{ t('hosting.oauth.allow') }}</button>
+    <button class="btn" type="submit" name="action" value="deny">{{ t('hosting.oauth.deny') }}</button>
+  </form>
+</div>
+{% endblock %}

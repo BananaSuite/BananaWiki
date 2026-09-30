@@ -1,0 +1,8 @@
+{
+  "export.admin_download": "Download {user}'s data",
+  "export.download": "Download my data",
+  "export.help": "Download a ZIP archive with your account, profile, preferences, contributions and uploaded files.",
+  "export.title": "Your data",
+  "feature.user_data_export.description": "Members download a ZIP archive of everything their account owns.",
+  "feature.user_data_export.name": "Personal data export"
+}

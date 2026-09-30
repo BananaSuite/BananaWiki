@@ -1,9 +1,0 @@
-{
-    "id": "assessments",
-    "name": "Assessments",
-    "version": "1.0.0",
-    "author": "BananaWiki",
-    "description": "Page-level polls/tests with points, attempt control, and admin results",
-    "builtin": true,
-    "bananawiki_api_version": "1.0"
-}

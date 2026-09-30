@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ t('chat.groups.new') }}{% endblock %}
+{% block content %}
+<header class="page-header"><h1>{{ t('chat.groups.new') }}</h1></header>
+<div class="card">
+  {% if error %}<div class="alert alert--error"><div class="alert__body">{{ error }}</div></div>{% endif %}
+  <form method="post" class="form" action="{{ url_for('chat.group_new') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field">
+      <label for="group-name">{{ t('common.name') }}</label>
+      <input id="group-name" name="name" required maxlength="100" value="{{ form.get('name', '') }}">
+    </div>
+    <div class="field">
+      <label for="group-description">{{ t('common.description') }} <span class="muted">({{ t('common.optional') }})</span></label>
+      <textarea id="group-description" name="description" rows="3" maxlength="500">{{ form.get('description', '') }}</textarea>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn--primary" type="submit">{{ t('common.create') }}</button>
+      <a class="btn" href="{{ url_for('chat.group_list') }}">{{ t('common.cancel') }}</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

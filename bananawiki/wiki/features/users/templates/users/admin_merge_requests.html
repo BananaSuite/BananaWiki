@@ -1,0 +1,43 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('users.admin.merge_title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('users.admin.merge_title') }}</h1>
+  <div class="page-header__actions"><a class="btn btn--primary" href="{{ url_for('users.admin_merge') }}">{{ t('users.admin.merge_direct') }}</a></div>
+</header>
+<nav class="tabs">
+  <a href="{{ url_for('users.admin_merge_requests') }}"{% if status == 'pending' %} aria-current="page"{% endif %}>{{ t('users.admin.open') }}</a>
+  <a href="{{ url_for('users.admin_merge_requests', status='all') }}"{% if status == 'all' %} aria-current="page"{% endif %}>{{ t('common.all') }}</a>
+</nav>
+{% if requests %}
+<div class="table-wrap"><table class="table">
+  <thead><tr><th>{{ t('users.admin.source') }}</th><th>{{ t('users.admin.target') }}</th><th>{{ t('users.admin.requested_by') }}</th><th>{{ t('common.status') }}</th><th>{{ t('common.created') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>
+  <tbody>
+  {% for req in requests %}
+  <tr>
+    <td>@{{ req.source_username or t('common.unknown_user') }}</td>
+    <td>@{{ req.target_username or t('common.unknown_user') }}</td>
+    <td>{{ req.creator_username or t('common.unknown_user') }}{% if req.request_reason %}<br><span class="small muted">{{ req.request_reason }}</span>{% endif %}</td>
+    <td><span class="badge">{{ t('users.merge.status.' ~ req.status) }}</span></td>
+    <td>{{ req.created_at|date }}</td>
+    <td class="actions">
+      {% if req.status == 'approved_by_both' %}
+      <form class="inline" method="post" action="{{ url_for('users.admin_merge_approve', merge_id=req.id) }}" data-confirm="{{ t('users.admin.approve_confirm') }}">
+        {{ forms.csrf() }}
+        <label class="check small"><input type="checkbox" name="delete_source" value="1"> <span>{{ t('users.admin.delete_source') }}</span></label>
+        <button class="btn btn--small btn--primary" type="submit">{{ t('users.admin.approve') }}</button>
+      </form>
+      {% endif %}
+      {% if req.status in ('pending', 'approved_by_both') %}
+      {{ forms.post_button(url_for('users.admin_merge_deny', merge_id=req.id), t('users.merge.deny'), cls='btn btn--small btn--danger') }}
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<div class="card empty-state"><p>{{ t('users.admin.no_requests') }}</p></div>
+{% endif %}
+{% endblock %}

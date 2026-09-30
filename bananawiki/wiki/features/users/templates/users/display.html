@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('users.display.title') }}{% endblock %}
+{% block content %}
+<header class="page-header"><h1>{{ t('users.display.title') }}</h1></header>
+{% if current_user %}{% include "users/_tabs.html" %}{% endif %}
+<form method="post" action="{{ url_for('users.display') }}" class="stack">
+  {{ forms.csrf() }}
+  <section class="card form" aria-labelledby="look-heading">
+    <h2 id="look-heading">{{ t('users.display.appearance') }}</h2>
+    <div class="form-grid">
+      {{ forms.select('theme_mode', t('users.display.theme'), [('default', t('users.display.site_default')), ('dark', t('users.display.theme_dark')), ('light', t('users.display.theme_light'))], display_prefs.theme_mode) }}
+      {{ forms.select('interface_language', t('auth.field.language'), [('default', t('users.display.site_default'))] + languages.items()|list, display_prefs.interface_language) }}
+      {{ forms.select('font_scale', t('users.display.text_size'), [(0.85, 'XS'), (0.9, 'S'), (1.0, 'M'), (1.1, 'L'), (1.2, 'XL'), (1.35, 'XXL')], display_prefs.font_scale) }}
+      {{ forms.select('contrast', t('users.display.contrast'), [(0, t('users.display.off'))] + [(1, '1'), (2, '2'), (3, '3'), (4, '4'), (5, t('users.display.maximum'))], display_prefs.contrast) }}
+      {{ forms.select('line_height', t('users.display.line_spacing'), [(0, t('users.display.normal')), (1, t('users.display.wide')), (2, t('users.display.extra_wide'))], display_prefs.line_height) }}
+      {{ forms.select('letter_spacing', t('users.display.letter_spacing'), [(0, t('users.display.normal')), (1, t('users.display.wide')), (2, t('users.display.extra_wide'))], display_prefs.letter_spacing) }}
+    </div>
+    {{ forms.checkbox('reduce_motion', t('users.display.reduce_motion'), display_prefs.reduce_motion) }}
+    {{ forms.checkbox('dyslexic_font', t('users.display.dyslexic_font'), display_prefs.dyslexic_font, hint=t('users.display.dyslexic_font_hint')) }}
+  </section>
+
+  <section class="card form" aria-labelledby="colors-heading">
+    <h2 id="colors-heading">{{ t('users.display.colors') }}</h2>
+    <p class="hint">{{ t('users.display.colors_hint') }}</p>
+    <div class="form-grid">
+      {% for key in ('custom_bg', 'custom_text', 'custom_primary', 'custom_secondary', 'custom_accent', 'custom_sidebar') %}
+      <div class="field">
+        <label class="check"><input type="checkbox" name="{{ key }}_on" value="1"{% if display_prefs[key] %} checked{% endif %}> <span>{{ t('users.display.' ~ key) }}</span></label>
+        <input type="color" name="{{ key }}" value="{{ display_prefs[key] if display_prefs[key].startswith('#') else '#808080' }}" aria-label="{{ t('users.display.' ~ key) }}">
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card form" aria-labelledby="reading-heading">
+    <h2 id="reading-heading">{{ t('users.display.reading') }}</h2>
+    <p class="hint">{{ t('users.display.semantic_hint') }}</p>
+    <div class="form-grid">
+      {% for key in ('semantic_bold', 'semantic_italic', 'semantic_code', 'semantic_link', 'semantic_heading') %}
+      {{ forms.select(key, t('users.display.' ~ key), [(0, t('users.display.off')), (1, t('users.display.subtle')), (2, t('users.display.strong'))], display_prefs[key]) }}
+      {% endfor %}
+      {{ forms.field('sidebar_width', t('users.display.sidebar_width'), display_prefs.sidebar_width or '', type='number', hint=t('users.display.pixels_hint'), attrs={'min': 0, 'max': 500}) }}
+      {{ forms.field('content_max_width', t('users.display.content_width'), display_prefs.content_max_width or '', type='number', hint=t('users.display.pixels_hint'), attrs={'min': 0, 'max': 5000}) }}
+    </div>
+  </section>
+  <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+</form>
+
+{% if current_user %}
+<section class="card users-spaced" aria-labelledby="bg-heading">
+  <h2 id="bg-heading">{{ t('users.display.background') }}</h2>
+  {% if background_url %}<p><img src="{{ background_url }}" alt="" class="users-background-preview"></p>{% endif %}
+  <form method="post" action="{{ url_for('users.background_upload') }}" enctype="multipart/form-data" class="form">
+    {{ forms.csrf() }}
+    <div class="field">
+      <label for="f-background">{{ t('users.display.background_file') }}</label>
+      <input id="f-background" name="background" type="file" accept="image/png,image/jpeg,image/gif,image/webp" required aria-describedby="f-background-hint">
+      <p class="hint" id="f-background-hint">{{ t('users.display.background_hint', size=max_background_mb) }}</p>
+    </div>
+    <div class="btn-row"><button class="btn" type="submit">{{ t('users.display.background_upload') }}</button></div>
+  </form>
+  {% if background_url %}
+  {{ forms.post_button(url_for('users.background_remove'), t('users.display.background_remove'), cls='btn btn--small') }}
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="card users-spaced">
+  {{ forms.post_button(url_for('users.display_reset'), t('users.display.reset'), cls='btn', confirm=t('users.display.reset_confirm')) }}
+</section>
+{% endblock %}

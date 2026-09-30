@@ -1,0 +1,98 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('page_governance.admin.checkouts_title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('page_governance.admin.checkouts_title') }}</h1>
+  <div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('page_governance.governance') }}">{{ t('page_governance.nav.governance') }}</a></div>
+</header>
+{% if not reservations_active %}<div class="alert alert--warning"><div class="alert__body">{{ t('page_governance.admin.reservations_off') }}</div></div>{% endif %}
+<div class="stack">
+<section class="card">
+  <h2>{{ t('page_governance.admin.active_reservations') }}</h2>
+  {% if reservations %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('page_governance.col.page') }}</th><th>{{ t('page_governance.col.holder') }}</th><th>{{ t('page_governance.col.expires') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+    <tbody>
+    {% for r in reservations %}
+    <tr>
+      <td><a href="{{ url_for('pages.view', slug=r.slug) }}">{{ r.title }}</a></td>
+      <td>{{ r.username }}</td>
+      <td>{{ r.expires_at|datetime }}</td>
+      <td class="cluster">
+        {{ forms.post_button(url_for('page_governance.force_release', page_id=r.page_id), t('page_governance.admin.release'), cls='btn btn--small btn--danger', confirm=t('page_governance.admin.release_confirm', title=r.title)) }}
+        <form class="inline cluster" method="post" action="{{ url_for('page_governance.assign', page_id=r.page_id) }}">
+          {{ forms.csrf() }}
+          <label class="visually-hidden" for="assign-{{ r.page_id }}">{{ t('page_governance.admin.assign_to') }}</label>
+          <select id="assign-{{ r.page_id }}" name="user_id">
+            {% for u in editors %}<option value="{{ u.id }}">{{ u.username }}</option>{% endfor %}
+          </select>
+          <button class="btn btn--small" type="submit">{{ t('page_governance.admin.reassign') }}</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted">{{ t('page_governance.admin.no_reservations') }}</p>{% endif %}
+</section>
+
+<section class="card">
+  <h2>{{ t('page_governance.admin.assign_new') }}</h2>
+  <form class="form form-grid" method="post" action="{{ url_for('page_governance.assign_new') }}">
+    {{ forms.csrf() }}
+    <div class="field">
+      <label for="f-page_slug">{{ t('page_governance.admin.page_slug') }}</label>
+      <input id="f-page_slug" name="page_slug" list="gov-pages" required>
+      <datalist id="gov-pages">{% for p in page_choices %}<option value="{{ p.slug }}">{{ p.title }}</option>{% endfor %}</datalist>
+    </div>
+    <div class="field">
+      <label for="f-assign-user">{{ t('page_governance.admin.assign_to') }}</label>
+      <select id="f-assign-user" name="user_id">{% for u in editors %}<option value="{{ u.id }}">{{ u.username }}</option>{% endfor %}</select>
+    </div>
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('page_governance.admin.assign') }}</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>{{ t('page_governance.admin.cooldowns') }}</h2>
+  {% if cooldowns %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('page_governance.col.page') }}</th><th>{{ t('page_governance.col.user') }}</th><th>{{ t('page_governance.col.until') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+    <tbody>
+    {% for c in cooldowns %}
+    <tr>
+      <td><a href="{{ url_for('pages.view', slug=c.slug) }}">{{ c.title }}</a></td>
+      <td>{{ c.username }}</td>
+      <td>{{ c.cooldown_until|datetime }}</td>
+      <td>{{ forms.post_button(url_for('page_governance.clear_cooldown', page_id=c.page_id), t('page_governance.admin.clear_cooldown'), cls='btn btn--small', hidden={'user_id': c.user_id}) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted">{{ t('page_governance.admin.no_cooldowns') }}</p>{% endif %}
+</section>
+
+<section class="card">
+  <h2>{{ t('page_governance.admin.quota_requests') }}</h2>
+  {% if quota_requests %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('page_governance.col.user') }}</th><th>{{ t('page_governance.quota.requested') }}</th><th>{{ t('page_governance.quota.reason') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+    <tbody>
+    {% for q in quota_requests %}
+    <tr>
+      <td><a href="{{ url_for('page_governance.user_quota', user_id=q.user_id) }}">{{ q.username }}</a></td>
+      <td>{{ t('page_governance.quota.unlimited') if q.requested_quota == -1 else q.requested_quota }}</td>
+      <td>{{ q.reason }}</td>
+      <td class="cluster">
+        {{ forms.post_button(url_for('page_governance.user_quota', user_id=q.user_id), t('page_governance.quota.approve'), cls='btn btn--small btn--primary', hidden={'action': 'approve_request', 'request_id': q.id, 'next': url_for('page_governance.checkouts')}) }}
+        {{ forms.post_button(url_for('page_governance.user_quota', user_id=q.user_id), t('page_governance.quota.deny'), cls='btn btn--small btn--danger', hidden={'action': 'deny_request', 'request_id': q.id, 'next': url_for('page_governance.checkouts')}) }}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted">{{ t('page_governance.admin.no_quota_requests') }}</p>{% endif %}
+</section>
+</div>
+{% endblock %}

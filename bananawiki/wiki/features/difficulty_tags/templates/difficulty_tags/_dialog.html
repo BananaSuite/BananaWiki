@@ -1,0 +1,10 @@
+{% import "macros/forms.html" as forms with context %}
+<button type="button" class="btn btn--small" data-dialog-open="dlg-difficulty-tag">{{ t('difficulty_tags.action') }}</button>
+<dialog id="dlg-difficulty-tag" aria-labelledby="dlg-difficulty-tag-h">
+  <h2 id="dlg-difficulty-tag-h">{{ t('difficulty_tags.dialog.title') }}</h2>
+  <form method="post" action="{{ url_for('difficulty_tags.set_tag', slug=page.slug) }}" class="form">
+    {{ forms.csrf() }}
+    {% with prefix='dialog' %}{% include "difficulty_tags/_fields.html" %}{% endwith %}
+    <div class="btn-row btn-row--end"><button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button><button class="btn btn--primary">{{ t('common.save') }}</button></div>
+  </form>
+</dialog>

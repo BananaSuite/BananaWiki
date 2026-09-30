@@ -1,0 +1,19 @@
+# Moving a deployment to a new domain: send every <name>.old.example.com
+# visitor to <name>.new.example.net with a permanent redirect.
+#
+# This replaces the 1.4 legacy_redirect/ daemon (a Python WSGI server with an
+# nginx block and a root-run shell installer): Caddy already terminates TLS in
+# front of BananaWiki and can do the redirect itself. Replace the domains,
+# add the block to your Caddyfile and reload Caddy. Certificates for arbitrary
+# old subdomains are issued on demand, so keep an `on_demand_tls { ask … }`
+# endpoint in the global options (the hosting Caddyfile already has one) or
+# list the old subdomains explicitly instead of the wildcard.
+
+*.old.example.com, old.example.com {
+	tls {
+		on_demand
+	}
+	@tenant header_regexp tenant Host ^([a-z0-9-]+)\.old\.example\.com$
+	redir @tenant https://{re.tenant.1}.new.example.net{uri} permanent
+	redir https://new.example.net{uri} permanent
+}

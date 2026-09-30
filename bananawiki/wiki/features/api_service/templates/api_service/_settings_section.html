@@ -1,0 +1,11 @@
+<section class="card" id="api-tokens">
+  <h2>{{ t('api_service.tokens.title') }}</h2>
+  {% if not service.enabled %}
+  <p class="hint">{{ t('api_service.tokens.service_off') }}</p>
+  {% elif not has_access %}
+  <p class="hint">{{ t('api_service.tokens.no_access') }}</p>
+  {% else %}
+  <p class="hint">{{ t('api_service.tokens.summary', count=token_count) }}</p>
+  {% endif %}
+  <a class="btn" href="{{ url_for('api_service.tokens_page') }}">{{ t('api_service.tokens.manage') }}</a>
+</section>

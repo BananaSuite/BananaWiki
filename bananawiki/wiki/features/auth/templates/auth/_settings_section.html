@@ -1,0 +1,11 @@
+<section class="card" id="guided-tour">
+  <h2>{{ t('auth.settings.tour_title') }}</h2>
+  <p class="hint">{{ t('auth.settings.tour_help') }}</p>
+  <p><a class="btn" href="{{ url_for('auth.intro') }}">{{ t('auth.settings.tour_open') }}</a></p>
+</section>
+{% if oauth_enabled %}
+<section class="card" id="platform-account">
+  <h2>{{ t('auth.oauth.settings_title') }}</h2>
+  <p><a class="btn" href="{{ url_for('auth.platform_oauth_link_account') }}">{{ t('auth.oauth.manage') }}</a></p>
+</section>
+{% endif %}

@@ -1,0 +1,33 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('admin.sessions.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('admin.sessions.title') }}</h1>
+  <div class="page-header__actions">
+    {{ forms.post_button(url_for('admin.mass_logout'), t('admin.sessions.mass_logout'), 'btn btn--danger', confirm=t('admin.sessions.mass_logout_confirm')) }}
+  </div>
+</header>
+
+<section class="card">
+  <h2>{{ t('admin.sessions.auto_title') }}</h2>
+  <form method="post" action="{{ url_for('admin.auto_logout_settings') }}" class="form">
+    {{ forms.csrf() }}
+    {{ forms.checkbox('auto_logout_enabled', t('admin.sessions.auto_enabled'), checked=auto_logout_enabled, hint=t('admin.sessions.auto_hint')) }}
+    <div class="field">
+      <label for="f-auto_logout_hour">{{ t('admin.sessions.auto_hour') }}</label>
+      <select id="f-auto_logout_hour" name="auto_logout_hour">
+        {% for hour in range(24) %}<option value="{{ hour }}"{% if hour == auto_logout_hour %} selected{% endif %}>{{ '%02d:00'|format(hour) }}</option>{% endfor %}
+      </select>
+      <p class="hint">{{ t('admin.site_time_hint') }}</p>
+    </div>
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>{{ t('admin.sessions.active', count=sessions|length) }}</h2>
+  {% set show_user = true %}
+  {% include "admin/_sessions_table.html" %}
+</section>
+{% endblock %}

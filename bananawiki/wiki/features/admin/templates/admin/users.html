@@ -1,0 +1,75 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('admin.users.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('admin.users.title') }}</h1>
+  <div class="page-header__actions">
+    <a class="btn btn--primary" href="{{ url_for('admin.create_user') }}">{{ t('admin.users.create') }}</a>
+    {{ forms.post_button(url_for('admin.mass_logout'), t('admin.sessions.mass_logout'), 'btn btn--danger', confirm=t('admin.sessions.mass_logout_confirm'), hidden={'next': url_for('admin.users')}) }}
+  </div>
+</header>
+
+{% if pending %}
+<div class="alert alert--warning"><div class="alert__body">
+  <a href="{{ url_for('admin.users', approval='pending') }}">{{ t('admin.users.pending_notice', count=pending) }}</a>
+</div></div>
+{% endif %}
+
+<form method="get" action="{{ url_for('admin.users') }}" class="admin-filters" role="search">
+  <div class="field field--wide">
+    <label for="f-q">{{ t('common.search') }}</label>
+    <input id="f-q" type="search" name="q" value="{{ flt.query }}" maxlength="50" placeholder="{{ t('admin.users.search_placeholder') }}">
+  </div>
+  {{ forms.select('role', t('admin.users.col.role'), [('', t('common.all'))] + [('user', t('admin.role.user')), ('editor', t('admin.role.editor')), ('admin', t('admin.role.admin')), ('owner', t('admin.role.owner'))], flt.role) }}
+  {{ forms.select('status', t('common.status'), [('', t('common.all')), ('active', t('admin.users.status.active')), ('suspended', t('admin.users.status.suspended'))], flt.status) }}
+  {{ forms.select('approval', t('admin.users.col.approval'), [('', t('common.all')), ('pending', t('admin.approval.pending')), ('approved', t('admin.approval.approved_state')), ('denied', t('admin.approval.denied_state'))], flt.approval) }}
+  {% if custom_roles %}
+  <div class="field">
+    <label for="f-custom_role">{{ t('admin.users.col.custom_role') }}</label>
+    <select id="f-custom_role" name="custom_role">
+      <option value="">{{ t('common.all') }}</option>
+      {% for role in custom_roles %}<option value="{{ role.id }}"{% if flt.custom_role == role.id %} selected{% endif %}>{{ role.name }}</option>{% endfor %}
+    </select>
+  </div>
+  {% endif %}
+  <button class="btn" type="submit">{{ t('admin.users.filter') }}</button>
+</form>
+
+<p class="muted small">{{ t('admin.users.count', count=total) }}</p>
+{% if users %}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr>
+      <th scope="col">{{ t('admin.users.col.username') }}</th>
+      <th scope="col">{{ t('admin.users.col.role') }}</th>
+      <th scope="col">{{ t('common.status') }}</th>
+      <th scope="col">{{ t('admin.users.col.last_login') }}</th>
+      <th scope="col">{{ t('common.created') }}</th>
+    </tr></thead>
+    <tbody>
+    {% for user in users %}
+      <tr>
+        <td><a href="{{ url_for('admin.user_detail', user_id=user.id) }}">{{ user.username }}</a>
+          {% if user.is_superuser %}<span class="badge badge--primary">{{ t('admin.users.superuser') }}</span>{% endif %}</td>
+        <td><span class="badge">{{ t('admin.role.' ~ user.role) }}</span>
+          {% if user.custom_role_name %}<span class="badge badge--primary">{{ user.custom_role_name }}</span>{% endif %}</td>
+        <td>
+          {% if user.suspended %}<span class="badge badge--danger">{{ t('admin.users.status.suspended') }}{% if user.suspended_until %} · {{ user.suspended_until|datetime }}{% endif %}</span>
+          {% elif user.approval_status == 'pending' %}<span class="badge badge--warning">{{ t('admin.approval.pending') }}</span>
+          {% elif user.approval_status == 'denied' %}<span class="badge badge--danger">{{ t('admin.approval.denied_state') }}</span>
+          {% else %}<span class="badge badge--success">{{ t('admin.users.status.active') }}</span>{% endif %}
+          {% if user.chat_disabled %}<span class="badge">{{ t('admin.users.chat_disabled') }}</span>{% endif %}
+        </td>
+        <td class="nowrap">{{ user.last_login_at|time_ago if user.last_login_at else t('common.never') }}</td>
+        <td class="nowrap">{{ user.created_at|date }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{{ forms.pagination(page, pages, 'admin.users', flt.as_args()) }}
+{% else %}
+<div class="empty-state">{{ t('admin.users.none') }}</div>
+{% endif %}
+{% endblock %}

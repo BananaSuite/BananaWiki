@@ -1,0 +1,25 @@
+/* Sign-in feature: app selector and guided-tour illustrations. */
+.auth-apps { list-style: none; margin: 0; padding: 0; display: grid; gap: .75rem;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); }
+.auth-apps__item { display: flex; flex-direction: column; gap: .25rem; padding: 1rem; border-radius: .5rem;
+  border: 1px solid color-mix(in srgb, var(--bw-text) 18%, transparent); text-decoration: none; color: inherit; }
+.auth-apps__item:hover, .auth-apps__item:focus-visible { border-color: var(--bw-accent); }
+
+.tour-figure { margin: 0; }
+.tour-mock { border: 1px solid color-mix(in srgb, var(--bw-text) 20%, transparent); border-radius: .5rem;
+  overflow: hidden; font-size: .85rem; background: var(--bw-bg); user-select: none; }
+.tour-mock__topbar { display: flex; gap: .5rem; padding: .5rem .75rem; background: var(--bw-secondary); }
+.tour-mock__spacer { flex: 1; }
+.tour-mock__body { display: flex; min-height: 11rem; }
+.tour-mock__sidebar { width: 34%; min-width: 7rem; padding: .5rem; background: var(--bw-sidebar);
+  display: flex; flex-direction: column; gap: .35rem; }
+.tour-mock__search, .tour-mock__row, .tour-mock__button, .tour-mock__box { padding: .3rem .5rem; border-radius: .3rem;
+  border: 1px solid color-mix(in srgb, var(--bw-text) 15%, transparent); }
+.tour-mock__item--child { padding-left: 1rem; }
+.tour-mock__main { flex: 1; padding: .75rem; display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
+.tour-mock__title { font-weight: 600; }
+.tour-mock__line { height: .5rem; border-radius: .25rem; background: color-mix(in srgb, var(--bw-text) 15%, transparent); }
+.tour-mock__line--short { width: 60%; }
+.tour-mock__box { min-height: 3rem; font-family: monospace; }
+.tour-mock__button { align-self: flex-start; }
+.tour-mock__hl { outline: 2px solid var(--bw-accent); outline-offset: 1px; }

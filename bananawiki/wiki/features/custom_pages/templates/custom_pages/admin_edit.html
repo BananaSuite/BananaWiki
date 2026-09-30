@@ -1,0 +1,152 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% set title = t('custom_pages.admin.edit_title') if page else t('custom_pages.admin.create_title') %}
+{% block title %}{{ title }}{% endblock %}
+{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('custom_pages.css', blueprint='custom_pages') }}">{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ title }}</h1>
+  <div class="page-header__actions">
+    {% if is_builder and builder_available %}<a class="btn btn--primary" href="{{ url_for('page_builder.custom_editor', page_id=page.id) }}">{{ t('custom_pages.admin.open_builder') }}</a>{% endif %}
+    {% if page %}<a class="btn" href="{{ page.path }}" target="_blank" rel="noopener">{{ t('custom_pages.admin.open') }}</a>{% endif %}
+    <a class="btn btn--ghost" href="{{ url_for('custom_pages.admin_list') }}">{{ t('common.back') }}</a>
+  </div>
+</header>
+
+<form method="post" enctype="multipart/form-data" class="form card" id="cp-form"
+      action="{{ url_for('custom_pages.admin_edit', page_id=page.id) if page else url_for('custom_pages.admin_create') }}">
+  {{ forms.csrf() }}
+  <script type="application/json" id="cp-type-fields">{{ type_fields|json_script }}</script>
+  <div class="form-grid">
+    {{ forms.field('path', t('custom_pages.field.path'), form.path, required=true, hint=t('custom_pages.hint.path'), attrs={'maxlength': 500, 'class': 'mono', 'placeholder': '/about'}) }}
+    {{ forms.field('title', t('custom_pages.field.title'), form.title, attrs={'maxlength': 200}) }}
+    <div class="field">
+      <label for="f-content_type">{{ t('custom_pages.field.content_type') }}</label>
+      <select id="f-content_type" name="content_type" data-cp-type>
+        {% for group, kinds in groups.items() %}
+        <optgroup label="{{ t('custom_pages.group.' ~ group) }}">
+          {% for kind in kinds if kind != 'builder' or builder_available or form.content_type == 'builder' %}
+          <option value="{{ kind }}" data-help="{{ t('custom_pages.type_help.' ~ kind) }}"{% if form.content_type == kind %} selected{% endif %}>{{ t('custom_pages.type.' ~ kind) }}</option>
+          {% endfor %}
+        </optgroup>
+        {% endfor %}
+      </select>
+      <p class="hint" data-cp-type-help>{{ t('custom_pages.type_help.' ~ (form.content_type or 'wiki_page')) }}</p>
+    </div>
+  </div>
+  {{ forms.checkbox('is_published', t('custom_pages.field.published'), checked=form.is_published, hint=t('custom_pages.hint.published')) }}
+
+  <fieldset data-cp-section="meta">
+    <legend>{{ t('custom_pages.section.meta') }}</legend>
+    {{ forms.field('meta_description', t('custom_pages.field.meta_description'), form.meta_description, attrs={'maxlength': 300}) }}
+  </fieldset>
+
+  <fieldset data-cp-section="builder">
+    <legend>{{ t('custom_pages.section.builder') }}</legend>
+    {% if is_builder and builder_available %}
+    <p><a class="btn" href="{{ url_for('page_builder.custom_editor', page_id=page.id) }}">{{ t('custom_pages.admin.open_builder') }}</a></p>
+    <p class="hint">{{ t('custom_pages.hint.builder') }}</p>
+    {% elif builder_available %}
+    <p class="hint">{{ t('custom_pages.hint.builder_new') }}</p>
+    {% else %}
+    <p class="hint">{{ t('custom_pages.hint.builder_off') }}</p>
+    {% endif %}
+  </fieldset>
+
+  <fieldset data-cp-section="content">
+    <legend>{{ t('custom_pages.section.content') }}</legend>
+    {{ forms.textarea('content', t('custom_pages.field.content'), form.content, rows=14, cls='code') }}
+  </fieldset>
+
+  <fieldset data-cp-section="css">
+    <legend>{{ t('custom_pages.section.css') }}</legend>
+    {{ forms.textarea('css', t('custom_pages.field.css'), form.css, rows=8, cls='code', hint=t('custom_pages.hint.sandboxed')) }}
+  </fieldset>
+
+  <fieldset data-cp-section="js">
+    <legend>{{ t('custom_pages.section.js') }}</legend>
+    {{ forms.textarea('js', t('custom_pages.field.js'), form.js, rows=8, cls='code', hint=t('custom_pages.hint.js')) }}
+  </fieldset>
+
+  <fieldset data-cp-section="redirect">
+    <legend>{{ t('custom_pages.section.redirect') }}</legend>
+    {{ forms.field('redirect_url', t('custom_pages.field.redirect_url'), form.redirect_url, hint=t('custom_pages.hint.redirect_url'), attrs={'maxlength': 2048}) }}
+    {{ forms.select('redirect_code', t('custom_pages.field.redirect_code'), [('302', t('custom_pages.redirect.302')), ('301', t('custom_pages.redirect.301'))], form.redirect_code) }}
+  </fieldset>
+
+  <fieldset data-cp-section="iframe">
+    <legend>{{ t('custom_pages.section.iframe') }}</legend>
+    {{ forms.field('iframe_url', t('custom_pages.field.iframe_url'), form.iframe_url, type='url', hint=t('custom_pages.hint.iframe_url'), attrs={'maxlength': 2048, 'placeholder': 'https://example.com'}) }}
+    <div class="form-grid">
+      {{ forms.field('iframe_height', t('custom_pages.field.iframe_height'), form.iframe_height, hint=t('custom_pages.hint.iframe_height'), attrs={'maxlength': 20}) }}
+      {{ forms.field('iframe_allow', t('custom_pages.field.iframe_allow'), form.iframe_allow, hint=t('custom_pages.hint.iframe_allow'), attrs={'maxlength': 500, 'placeholder': 'fullscreen; autoplay'}) }}
+      {{ forms.field('iframe_sandbox', t('custom_pages.field.iframe_sandbox'), form.iframe_sandbox, hint=t('custom_pages.hint.iframe_sandbox'), attrs={'maxlength': 500, 'placeholder': 'allow-scripts allow-same-origin allow-popups'}) }}
+    </div>
+  </fieldset>
+
+  <fieldset data-cp-section="youtube">
+    <legend>{{ t('custom_pages.section.youtube') }}</legend>
+    {{ forms.field('video_url', t('custom_pages.field.video_url'), form.video_url, hint=t('custom_pages.hint.video_url'), attrs={'maxlength': 2048}) }}
+  </fieldset>
+
+  <fieldset data-cp-section="video">
+    <legend>{{ t('custom_pages.section.video') }}</legend>
+    <div class="cluster">
+      {{ forms.checkbox('video_autoplay', t('custom_pages.field.video_autoplay'), checked=form.video_autoplay) }}
+      {{ forms.checkbox('video_controls', t('custom_pages.field.video_controls'), checked=form.video_controls) }}
+      {{ forms.checkbox('video_loop', t('custom_pages.field.video_loop'), checked=form.video_loop) }}
+      {{ forms.checkbox('video_muted', t('custom_pages.field.video_muted'), checked=form.video_muted) }}
+    </div>
+    <p class="hint">{{ t('custom_pages.hint.video_size', size=max_video_mb) }}</p>
+  </fieldset>
+
+  <fieldset data-cp-section="code">
+    <legend>{{ t('custom_pages.section.code') }}</legend>
+    {{ forms.field('code_language', t('custom_pages.field.code_language'), form.code_language, hint=t('custom_pages.hint.code_language'), attrs={'maxlength': 40}) }}
+  </fieldset>
+
+  <fieldset data-cp-section="links">
+    <legend>{{ t('custom_pages.section.links') }}</legend>
+    {{ forms.textarea('links_json', t('custom_pages.field.links_json'), form.links_json, rows=8, cls='code', hint=t('custom_pages.hint.links_json')) }}
+  </fieldset>
+
+  <fieldset data-cp-section="file">
+    <legend>{{ t('custom_pages.section.file') }}</legend>
+    <div class="field">
+      <label for="f-file">{{ t('custom_pages.field.file') }}</label>
+      <input id="f-file" name="file" type="file" multiple>
+      <p class="hint">{{ t('custom_pages.hint.file') }}</p>
+    </div>
+  </fieldset>
+
+  <div class="btn-row">
+    <button class="btn btn--primary" type="submit">{{ t('common.save') if page else t('common.create') }}</button>
+    <a class="btn btn--ghost" href="{{ url_for('custom_pages.admin_list') }}">{{ t('common.cancel') }}</a>
+  </div>
+</form>
+
+{% if files %}
+<section class="card" aria-labelledby="cp-files">
+  <div class="card__header"><h2 id="cp-files">{{ t('custom_pages.admin.files') }}</h2></div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>{{ t('common.name') }}</th><th>{{ t('custom_pages.col.size') }}</th><th>{{ t('custom_pages.col.type') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>
+      <tbody>
+      {% for f in files %}
+      <tr>
+        <td>{{ f.original_name }}</td>
+        <td class="nowrap">{{ f.file_size|filesize }}</td>
+        <td><code>{{ f.mime_type }}</code></td>
+        <td class="actions">
+          <a class="btn btn--small" href="{{ url_for('custom_pages.file_download', file_id=f.id, filename=f.original_name) }}" target="_blank" rel="noopener">{{ t('custom_pages.admin.view_file') }}</a>
+          {{ forms.post_button(url_for('custom_pages.admin_file_delete', file_id=f.id), t('common.delete'), cls='btn btn--small btn--danger', confirm=t('custom_pages.admin.delete_file_confirm')) }}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
+{% block admin_scripts %}<script src="{{ asset_url('custom_pages_admin.js', blueprint='custom_pages') }}"></script>{% endblock %}

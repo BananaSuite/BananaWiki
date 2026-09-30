@@ -1,0 +1,5 @@
+<nav class="tabs" aria-label="{{ t('chat.admin.title') }}">
+  <a href="{{ url_for('chat.admin_chats') }}"{% if tab == 'dm' %} aria-current="page"{% endif %}>{{ t('chat.admin.tab_dm') }}</a>
+  <a href="{{ url_for('chat.admin_groups') }}"{% if tab == 'groups' %} aria-current="page"{% endif %}>{{ t('chat.admin.tab_groups') }}</a>
+  <a href="{{ url_for('chat.admin_settings') }}"{% if tab == 'settings' %} aria-current="page"{% endif %}>{{ t('chat.admin.tab_settings') }}</a>
+</nav>

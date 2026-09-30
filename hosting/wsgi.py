@@ -1,7 +1,8 @@
-"""WSGI entry point for the BananaWiki managed hosting portal."""
+"""WSGI entry point for ``gunicorn -c hosting/gunicorn.conf.py hosting.wsgi:app``."""
 
-from .app import create_hosting_app
-from banana_ops.gate import MaintenanceGate
+from bananawiki.hosting import create_app
 
-app = create_hosting_app()
-app.wsgi_app = MaintenanceGate(app.wsgi_app)
+app = create_app()
+application = app
+
+__all__ = ["app", "application"]

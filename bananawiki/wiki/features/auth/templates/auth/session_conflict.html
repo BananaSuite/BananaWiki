@@ -1,0 +1,16 @@
+{% extends "base_minimal.html" %}
+{% block title %}{{ t('auth.session_conflict.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('auth.session_conflict.title') }}</h1>
+  <div class="alert alert--warning" role="status"><div class="alert__body">
+    <p>{{ t('auth.session_conflict.line1') }}</p>
+    <p>{{ t('auth.session_conflict.line2') }}</p>
+  </div></div>
+  <p>{{ t('auth.session_conflict.instructions') }}</p>
+  {% with action=url_for('auth.session_conflict_force'), submit_label=t('auth.session_conflict.submit'), show_remember=false %}
+    {% include "auth/_login_form.html" %}
+  {% endwith %}
+  <p class="small"><a href="{{ url_for('auth.login') }}">{{ t('auth.session_conflict.back') }}</a></p>
+</div>
+{% endblock %}

@@ -1,0 +1,4 @@
+<footer class="site-footer">
+  <span>{{ t('footer.powered_by', version=app_version) }}</span>
+  <span>{{ slot('footer.links') }}<a href="{{ url_for('source_code') }}" rel="noopener">{{ t('footer.source') }}</a></span>
+</footer>

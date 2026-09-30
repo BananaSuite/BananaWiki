@@ -1,0 +1,24 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('site_admin.server.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('site_admin.server.title') }}</h1>
+  <div class="page-header__actions"><a class="btn" href="{{ url_for('site_admin.error_log') }}">{{ t('site_admin.log.title') }}</a></div>
+</header>
+<section class="card">
+  <h2>{{ t('site_admin.server.restart') }}</h2>
+  <p>{{ t('site_admin.server.restart_intro', seconds=cooldown_seconds) }}</p>
+  {% if not can_restart %}
+  <div class="alert alert--warning"><div class="alert__body">{{ t('site_admin.server.not_gunicorn') }}</div></div>
+  {% elif cooldown %}
+  <p class="muted">{{ t('site_admin.server.cooldown', seconds=cooldown) }}</p>
+  {% else %}
+  <form method="post" action="{{ url_for('site_admin.restart') }}" class="form" data-confirm="{{ t('site_admin.server.restart_confirm') }}">
+    {{ forms.csrf() }}
+    {{ forms.checkbox('confirm', t('site_admin.server.confirm_label')) }}
+    <div class="btn-row"><button class="btn btn--danger" type="submit">{{ t('site_admin.server.restart_button') }}</button></div>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

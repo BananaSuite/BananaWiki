@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% import "assessments/_macros.html" as quiz with context %}
+{% block title %}{{ assessment.title }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('assessments.css', blueprint='assessments') }}">{% endblock %}
+{% block content %}
+{{ quiz.breadcrumbs(page) }}
+<div class="page-header">
+  <h1>{{ assessment.title }}</h1>
+  {% if can_manage %}{{ quiz.manager_actions(page) }}{% endif %}
+  <div class="page-header__meta">
+    <span>{{ t('assessments.attempt_by', user=attempt.username, n=attempt.attempt_number) }}</span>
+    <span>{{ attempt.submitted_at|datetime }}</span>
+  </div>
+</div>
+
+<div class="card cluster">
+  <div class="stat">
+    <span class="stat__value">{{ attempt.total_points }}/{{ attempt.max_points }}</span>
+    <span class="stat__label">{{ t('assessments.score') }}</span>
+  </div>
+</div>
+
+{% if not reveal %}
+<p class="hint">{{ t('assessments.key_hidden') }}</p>
+{% endif %}
+
+<ol class="assessment-answers stack">
+  {% for a in answers %}
+  <li class="card">
+    <p class="assessment-text"><strong>{{ a.prompt }}</strong></p>
+    <p>{{ t('assessments.given') }}: {{ quiz.answer_text(a.answer) }}</p>
+    {% if reveal and a.correct_answers %}
+    <p>{{ t('assessments.correct_answers') }}: {{ a.correct_answers|join(', ') }}</p>
+    {% endif %}
+    <p class="cluster">
+      {% if a.is_correct is none %}<span class="badge">{{ t('assessments.ungraded') }}</span>
+      {% elif a.is_correct %}<span class="badge badge--success">{{ t('assessments.correct') }}</span>
+      {% else %}<span class="badge badge--danger">{{ t('assessments.wrong') }}</span>{% endif %}
+      <span class="muted">{{ t('assessments.points_awarded', n=a.awarded_points) }}</span>
+    </p>
+  </li>
+  {% endfor %}
+</ol>
+<p><a class="btn" href="{{ url_for('assessments.take', slug=page.slug) }}">{{ t('assessments.back_to_quiz') }}</a></p>
+{% endblock %}

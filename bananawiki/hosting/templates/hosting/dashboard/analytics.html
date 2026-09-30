@@ -1,0 +1,16 @@
+{% extends "hosting/base.html" %}
+{% block title %}{{ t('hosting.analytics.title') }}{% endblock %}
+{% block content %}
+<nav class="breadcrumbs"><a href="{{ url_for('dashboard.instance_detail', instance_id=instance.id) }}">{{ instance.subdomain }}</a></nav>
+<h1>{{ t('hosting.analytics.title') }}</h1>
+<form method="get" class="cluster"><label for="f-days">{{ t('hosting.analytics.days') }}</label>
+  <select id="f-days" name="days" data-autosubmit>{% for d in (7, 30, 90, 365) %}<option value="{{ d }}"{% if d == days %} selected{% endif %}>{{ d }}</option>{% endfor %}</select></form>
+<div class="grid grid--3">
+  {% for kind in ('request', 'page_view', 'error') %}<div class="card stat"><span class="stat__value">{{ summary.totals.get(kind, 0) }}</span><span class="stat__label">{{ t('hosting.analytics.' ~ kind) }}</span></div>{% endfor %}
+</div>
+<section class="card"><h2>{{ t('hosting.analytics.page_view') }}</h2>
+<div class="bars" role="img" aria-label="{{ t('hosting.analytics.chart') }}">{% for row in summary.daily %}<span style="height: {{ (row.page_view or 0) * 100 // peak }}%" title="{{ row.day }}: {{ row.page_view }}"></span>{% endfor %}</div></section>
+<div class="table-wrap"><table class="table"><thead><tr><th>{{ t('hosting.analytics.day') }}</th><th>{{ t('hosting.analytics.request') }}</th><th>{{ t('hosting.analytics.page_view') }}</th><th>{{ t('hosting.analytics.error') }}</th></tr></thead><tbody>
+{% for row in summary.daily|reverse %}<tr><td>{{ row.day }}</td><td>{{ row.request }}</td><td>{{ row.page_view }}</td><td>{{ row.error }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

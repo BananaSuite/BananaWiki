@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% import "announcements/_form.html" as ann with context %}
+{% block title %}{{ t('announcements.admin_title') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('announcements.css', blueprint='announcements') }}">{% endblock %}
+{% block content %}
+<div class="page-header"><h1>{{ t('announcements.admin_title') }}</h1></div>
+<section class="card">
+  <h2>{{ t('announcements.create') }}</h2>
+  {{ ann.error_list(errors) }}
+  <form method="post" action="{{ url_for('announcements.create') }}" class="form stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {{ ann.fields(form, service) }}
+    <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('announcements.create') }}</button></div>
+  </form>
+</section>
+
+<h2>{{ t('announcements.existing') }}</h2>
+{% if not announcements %}
+<div class="empty-state">{{ t('announcements.empty') }}</div>
+{% else %}
+<div class="stack">
+  {% for a in announcements %}
+  <article class="card announcement-admin announcement-admin--{{ a.color }}">
+    <div class="split">
+      <div class="cluster">
+        <strong>#{{ a.id }}</strong>
+        {% if not a.is_active %}<span class="badge">{{ t('announcements.inactive') }}</span>
+        {% elif a.expired %}<span class="badge badge--warning">{{ t('announcements.expired') }}</span>
+        {% else %}<span class="badge badge--success">{{ t('announcements.active') }}</span>{% endif %}
+        <span class="badge">{{ t('announcements.visibility.' + a.visibility) }}</span>
+        {% if a.audience_mode != 'all' %}<span class="badge">{{ t('announcements.audience.' + a.audience_mode) }}: {{ a.audience_names or '—' }}</span>{% endif %}
+        {% if a.not_removable %}<span class="badge">{{ t('announcements.not_removable_short') }}</span>{% endif %}
+      </div>
+      <div class="cluster">
+        <a class="btn btn--small" href="{{ url_for('announcements.edit', announcement_id=a.id) }}">{{ t('common.edit') }}</a>
+        <form class="inline" method="post" action="{{ url_for('announcements.delete', announcement_id=a.id) }}" data-confirm="{{ t('announcements.delete_confirm') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn--small btn--danger">{{ t('common.delete') }}</button>
+        </form>
+      </div>
+    </div>
+    <div class="content">{{ a.content|markdown }}</div>
+    <p class="hint">
+      {{ t('announcements.created_by', user=a.creator_name or t('common.unknown_user'), when=a.created_at|time_ago) }}
+      {% if a.expires_at %} · {{ t('announcements.expires', date=a.expires_at|datetime) }}{% endif %}
+    </p>
+  </article>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

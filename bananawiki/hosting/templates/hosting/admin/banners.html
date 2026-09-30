@@ -1,0 +1,30 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.admin.nav.banners') }}{% endblock %}
+{% block content %}
+<h1>{{ t('hosting.admin.nav.banners') }}</h1>
+{% include "hosting/admin/_nav.html" %}
+{% macro banner_fields(b=None) %}
+  <div class="field"><label>{{ t('hosting.banners.content') }}<textarea name="content" maxlength="2000" rows="2" required>{{ b.content if b else '' }}</textarea></label></div>
+  <div class="form-grid">
+    <label>{{ t('hosting.banners.color') }}<select name="color">{% for c in colors %}<option value="{{ c }}"{% if b and b.color == c %} selected{% endif %}>{{ t('hosting.banners.color_' ~ c) }}</option>{% endfor %}</select></label>
+    <label>{{ t('hosting.banners.visibility') }}<select name="visibility">{% for v in visibilities %}<option value="{{ v }}"{% if b and b.visibility == v %} selected{% endif %}>{{ t('hosting.banners.visibility_' ~ v) }}</option>{% endfor %}</select></label>
+    <label>{{ t('hosting.banners.audience') }}<select name="audience_mode">{% for a in audiences %}<option value="{{ a }}"{% if b and b.audience_mode == a %} selected{% endif %}>{{ t('hosting.banners.audience_' ~ a) }}</option>{% endfor %}</select></label>
+    <label>{{ t('hosting.banners.expires') }}<input type="datetime-local" name="expires_at" value="{{ b.expires_at.replace(' ', 'T')[:16] if b and b.expires_at else '' }}"></label>
+  </div>
+  <label>{{ t('hosting.banners.accounts') }}<select name="audience_account_ids" multiple size="4">{% for a in accounts %}<option value="{{ a.id }}"{% if b and a.id in b.audience_ids %} selected{% endif %}>{{ a.username }}</option>{% endfor %}</select></label>
+  {{ ui.check('not_removable', t('hosting.banners.not_removable'), b.not_removable if b else true) }}
+  {{ ui.check('show_countdown', t('hosting.banners.countdown'), b.show_countdown if b else false) }}
+  {{ ui.check('custom_colors', t('hosting.banners.custom_colors'), b and b.custom_background) }}
+  <div class="cluster"><label>{{ t('hosting.banners.background') }} <input type="color" name="custom_background" value="{{ b.custom_background if b and b.custom_background else '#333344' }}"></label>
+  <label>{{ t('hosting.banners.text') }} <input type="color" name="custom_text_color" value="{{ b.custom_text_color if b and b.custom_text_color else '#ffffff' }}"></label></div>
+{% endmacro %}
+<details class="card" open><summary>{{ t('hosting.banners.new') }}</summary>
+<form method="post" action="{{ url_for('admin.create_banner') }}" class="form">{{ ui.csrf() }}{{ banner_fields() }}<p><button class="btn btn--primary" type="submit">{{ t('hosting.banners.create') }}</button></p></form></details>
+{% for b in all_banners %}
+<details class="card"><summary>{{ b.content[:80] }} · {{ t('hosting.banners.active') if b.is_active else t('hosting.banners.inactive') }}</summary>
+<form method="post" action="{{ url_for('admin.edit_banner', banner_id=b.id) }}" class="form">{{ ui.csrf() }}{{ banner_fields(b) }}
+  {{ ui.check('is_active', t('hosting.banners.active'), b.is_active) }}<p><button class="btn btn--small btn--primary" type="submit">{{ t('common.save') }}</button></p></form>
+{{ ui.post(url_for('admin.delete_banner', banner_id=b.id), t('hosting.banners.delete'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}</details>
+{% endfor %}
+{% endblock %}

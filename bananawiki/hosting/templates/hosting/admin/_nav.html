@@ -1,0 +1,5 @@
+<nav class="tabs" aria-label="{{ t('hosting.nav.admin') }}">
+  {% for endpoint, label in [('admin.dashboard', 'hosting.admin.nav.overview'), ('admin.attention', 'hosting.admin.nav.attention'), ('admin.settings_page', 'hosting.admin.nav.settings'), ('admin.banners_page', 'hosting.admin.nav.banners'), ('admin.merge_requests', 'hosting.admin.nav.merges'), ('admin.moderation', 'hosting.admin.nav.moderation'), ('admin.import_instance', 'hosting.admin.nav.import')] %}
+  <a href="{{ url_for(endpoint) }}"{% if request.endpoint == endpoint %} aria-current="page"{% endif %}>{{ t(label) }}</a>
+  {% endfor %}
+</nav>

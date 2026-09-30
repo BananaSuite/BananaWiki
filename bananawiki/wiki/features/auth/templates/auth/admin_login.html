@@ -1,0 +1,12 @@
+{% extends "base_minimal.html" %}
+{% block title %}{{ t('auth.admin_login.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('auth.admin_login.title') }}</h1>
+  <p class="muted">{{ t('auth.admin_login.intro') }}</p>
+  {% with action=url_for('auth.admin_login'), submit_label=t('auth.login.submit'), show_remember=true %}
+    {% include "auth/_login_form.html" %}
+  {% endwith %}
+  <p class="small"><a href="{{ url_for('auth.login') }}">{{ t('auth.admin_login.regular') }}</a></p>
+</div>
+{% endblock %}

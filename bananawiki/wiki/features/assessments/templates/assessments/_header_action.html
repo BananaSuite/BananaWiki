@@ -1,0 +1,3 @@
+<a class="btn btn--small" href="{{ url_for('assessments.manage', slug=page.slug) }}">
+  {{- t('assessments.manage') if has_assessment else t('assessments.add') -}}
+</a>

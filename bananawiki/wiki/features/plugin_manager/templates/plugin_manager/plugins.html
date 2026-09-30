@@ -1,0 +1,133 @@
+{% extends "admin/_layout.html" %}
+{% import "plugin_manager/_macros.html" as pm with context %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('plugin_manager.title') }}{% endblock %}
+{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('plugins.css', blueprint='plugin_manager') }}">{% endblock %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('plugin_manager.title') }}</h1></header>
+<p class="muted">{{ t('plugin_manager.intro') }}</p>
+
+{% if pending %}
+<div class="alert alert--warning" role="status" id="restart"><div class="alert__body">
+  <strong>{{ t('plugin_manager.restart.title') }}</strong>
+  <ul>{% for entry in pending %}<li>{{ entry.name }}: {{ t('plugin_manager.status.' ~ entry.restart ~ '_pending') }}</li>{% endfor %}</ul>
+  <p>{{ t('plugin_manager.restart.' ~ restart_mode) }}</p>
+  {% if restart_mode == 'gunicorn' %}
+  {{ forms.post_button(url_for('plugin_manager.restart'), t('plugin_manager.action.restart'), 'btn btn--primary', confirm=t('plugin_manager.confirm.restart')) }}
+  {% endif %}
+</div></div>
+{% endif %}
+
+<section class="card" aria-labelledby="features-title">
+  <h2 id="features-title">{{ t('plugin_manager.features.title') }}</h2>
+  <p class="small muted">{{ t('plugin_manager.features.intro') }}</p>
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('common.name') }}</th><th>{{ t('plugin_manager.col.switch') }}</th><th>{{ t('common.status') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+    <tbody>
+    {% for entry in features %}
+    <tr>
+      <td><a href="{{ url_for('plugin_manager.detail', plugin_id=entry.id) }}"><strong>{{ entry.name }}</strong></a>
+        {% if entry.description %}<br><span class="small muted">{{ entry.description }}</span>{% endif %}</td>
+      <td class="small">{{ pm.kind(entry) }}</td>
+      <td>{{ pm.status(entry) }}</td>
+      <td>{{ pm.actions(entry) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+<section class="card" aria-labelledby="external-title">
+  <h2 id="external-title">{{ t('plugin_manager.external.title') }}</h2>
+  <p class="small muted">{{ t('plugin_manager.external.intro') }}</p>
+  {% if external_allowed %}
+  {{ pm.full_privileges_warning() }}
+  <form class="form" method="post" action="{{ url_for('plugin_manager.import_plugin') }}" enctype="multipart/form-data">
+    {{ forms.csrf() }}
+    <div class="form-grid">
+      <div class="field">
+        <label for="f-plugin-file">{{ t('plugin_manager.field.file') }}</label>
+        <input id="f-plugin-file" name="plugin_file" type="file" accept=".bwplugin" required aria-describedby="f-plugin-file-hint">
+        <p class="hint" id="f-plugin-file-hint">{{ t('plugin_manager.field.file_hint', size=max_archive_mb) }}</p>
+      </div>
+      {{ pm.password_field() }}
+    </div>
+    <button type="submit" class="btn btn--primary">{{ t('plugin_manager.action.import') }}</button>
+  </form>
+  {% else %}
+  <div class="alert" role="note"><div class="alert__body">{{ t('plugin_manager.lock.external_off_managed' if managed else 'plugin_manager.lock.external_off') }}</div></div>
+  {% endif %}
+
+  {% if externals %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('common.name') }}</th><th>{{ t('plugin_manager.col.version') }}</th><th>{{ t('plugin_manager.col.author') }}</th><th>{{ t('common.status') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+    <tbody>
+    {% for entry in externals %}
+    <tr>
+      <td><a href="{{ url_for('plugin_manager.detail', plugin_id=entry.id) }}"><strong>{{ entry.name }}</strong></a>
+        <span class="small muted mono">{{ entry.id }}</span>
+        {% if entry.legacy %}<span class="badge">{{ t('plugin_manager.kind.legacy') }}</span>{% endif %}
+        {% if entry.error_key %}<br><span class="small text-danger">{{ t(entry.error_key, **entry.error_values) }}</span>{% endif %}</td>
+      <td>{{ entry.version }}</td>
+      <td>{{ entry.author }}</td>
+      <td>{{ pm.status(entry) }}</td>
+      <td>{{ pm.actions(entry) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="empty-state">{{ t('plugin_manager.external.empty') }}</p>
+  {% endif %}
+
+  {% if invalid %}
+  <h3>{{ t('plugin_manager.invalid.title') }}</h3>
+  <ul>{% for state in invalid %}<li><span class="mono">{{ state.id }}</span>: {{ t(state.error_key, **state.error_values) }}</li>{% endfor %}</ul>
+  {% endif %}
+  <p><a class="btn btn--small" href="{{ url_for('plugin_manager.sdk_download') }}">{{ t('plugin_manager.action.download_kit') }}</a>
+    <span class="small muted">{{ t('plugin_manager.kit_hint') }}</span></p>
+</section>
+
+{% if retired %}
+<section class="card" aria-labelledby="retired-title">
+  <h2 id="retired-title">{{ t('plugin_manager.retired.title') }}</h2>
+  <p class="small muted">{{ t('plugin_manager.retired.intro') }}</p>
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('common.name') }}</th><th>{{ t('common.status') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+    <tbody>
+    {% for entry in retired %}
+    <tr><td><strong>{{ entry.name }}</strong> <span class="small muted mono">{{ entry.id }}</span></td>
+      <td>{{ pm.status(entry) }}</td><td>{{ pm.actions(entry) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endif %}
+
+<section class="card" aria-labelledby="sidebar-order-title" id="sidebar-order">
+  <h2 id="sidebar-order-title">{{ t('plugin_manager.order.title') }}</h2>
+  <p class="small muted">{{ t('plugin_manager.order.intro') }}</p>
+  {% if apps %}
+  <form method="post" action="{{ url_for('plugin_manager.save_order') }}" data-sidebar-order>
+    {{ forms.csrf() }}
+    <ol class="pm-order" data-order-list>
+      {% for app in apps %}
+      <li class="pm-order__item" draggable="true" data-id="{{ app.id }}">
+        <input type="hidden" name="order" value="{{ app.id }}">
+        <span class="pm-order__handle" aria-hidden="true">⋮⋮</span>
+        <span class="pm-order__label">{{ app.label }}{% if not app.enabled %} <span class="badge">{{ t('common.disabled') }}</span>{% endif %}</span>
+        <button type="submit" class="btn btn--small btn--ghost" name="move" value="{{ app.id }}:up" data-move="up"
+                aria-label="{{ t('plugin_manager.order.up', name=app.label) }}"{% if loop.first %} disabled{% endif %}>↑</button>
+        <button type="submit" class="btn btn--small btn--ghost" name="move" value="{{ app.id }}:down" data-move="down"
+                aria-label="{{ t('plugin_manager.order.down', name=app.label) }}"{% if loop.last %} disabled{% endif %}>↓</button>
+      </li>
+      {% endfor %}
+    </ol>
+    <button type="submit" class="btn btn--primary">{{ t('plugin_manager.order.save') }}</button>
+  </form>
+  {% else %}
+  <p class="empty-state">{{ t('plugin_manager.order.empty') }}</p>
+  {% endif %}
+</section>
+{% endblock %}
+{% block admin_scripts %}<script src="{{ asset_url('plugins.js', blueprint='plugin_manager') }}"></script>{% endblock %}

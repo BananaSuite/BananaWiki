@@ -1,0 +1,2 @@
+{% if deletion %}<div class="alert alert--warning" role="status"><div class="alert__body">{{ t('temporary_accounts.notice.page_deletion', date=deletion.expires_at|datetime) }}</div></div>{% endif %}
+{% if visibility %}<div class="alert" role="status"><div class="alert__body">{{ t('temporary_accounts.notice.page_hidden_until' if visibility.target_state else 'temporary_accounts.notice.page_shown_until', date=visibility.expires_at|datetime) }}</div></div>{% endif %}

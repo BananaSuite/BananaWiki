@@ -1,0 +1,7 @@
+{#- Tabs shared by the account settings pages. Expects `tab`. -#}
+<nav class="tabs" aria-label="{{ t('users.settings.sections') }}">
+  <a href="{{ url_for('users.settings') }}"{% if tab == 'account' %} aria-current="page"{% endif %}>{{ t('users.tab.account') }}</a>
+  {% if has_permission('profile.edit_own') %}<a href="{{ url_for('users.edit_profile') }}"{% if tab == 'profile' %} aria-current="page"{% endif %}>{{ t('users.tab.profile') }}</a>{% endif %}
+  <a href="{{ url_for('users.display') }}"{% if tab == 'display' %} aria-current="page"{% endif %}>{{ t('users.tab.display') }}</a>
+  <a href="{{ url_for('users.sessions_page') }}"{% if tab == 'sessions' %} aria-current="page"{% endif %}>{{ t('users.tab.sessions') }}</a>
+</nav>

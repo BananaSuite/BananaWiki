@@ -1,9 +1,0 @@
-{
-    "id": "user_profiles",
-    "name": "User Profiles",
-    "version": "1.0.0",
-    "author": "BananaWiki",
-    "description": "User profiles \u2013 public profile pages with bio, avatar, and contribution heatmap",
-    "builtin": true,
-    "bananawiki_api_version": "1.0"
-}

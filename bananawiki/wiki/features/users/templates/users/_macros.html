@@ -1,0 +1,13 @@
+{#- Small form helpers for the account pages. -#}
+{% macro password(id, label, name='password', autocomplete='current-password', hint='') -%}
+<div class="field">
+  <label for="{{ id }}">{{ label }}</label>
+  <input id="{{ id }}" name="{{ name }}" type="password" required maxlength="1024" autocomplete="{{ autocomplete }}"
+    {%- if hint %} aria-describedby="{{ id }}-hint"{% endif %}>
+  {% if hint %}<p class="hint" id="{{ id }}-hint">{{ hint }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro avatar(url, username, cls='avatar') -%}
+{% if url %}<img class="{{ cls }}" src="{{ url }}" alt="" width="32" height="32">{% else %}<span class="{{ cls }}" aria-hidden="true">{{ username[:1]|upper }}</span>{% endif %}
+{%- endmacro %}

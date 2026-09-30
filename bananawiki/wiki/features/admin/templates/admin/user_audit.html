@@ -1,0 +1,87 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('admin.audit.title') }} · {{ target.username }}{% endblock %}
+{% block admin_content %}
+{% set attr_url = url_for('admin.attributions', user_id=target.id) %}
+<nav class="breadcrumbs" aria-label="{{ t('common.back') }}"><ol>
+  <li><a href="{{ url_for('admin.users') }}">{{ t('admin.users.title') }}</a></li>
+  <li><a href="{{ url_for('admin.user_detail', user_id=target.id) }}">{{ target.username }}</a></li>
+  <li>{{ t('admin.audit.title') }}</li>
+</ol></nav>
+<header class="page-header"><h1>{{ t('admin.audit.heading', username=target.username) }}</h1></header>
+
+<section class="card">
+  <h2>{{ t('admin.audit.roles') }}</h2>
+  {% if trail.roles %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th scope="col">{{ t('admin.audit.date') }}</th><th scope="col">{{ t('admin.audit.change') }}</th><th scope="col">{{ t('admin.audit.by') }}</th><th scope="col"><span class="visually-hidden">{{ t('common.actions') }}</span></th></tr></thead>
+    <tbody>
+    {% for entry in trail.roles %}
+      <tr><td class="nowrap">{{ entry.changed_at|datetime }}</td>
+        <td>{{ t('admin.role.' ~ entry.old_role, entry.old_role) }} → {{ t('admin.role.' ~ entry.new_role, entry.new_role) }}</td>
+        <td>{{ entry.changed_by_username or '—' }}</td>
+        <td class="actions">{% if not protection %}{{ forms.post_button(attr_url, t('common.delete'), 'btn btn--small', confirm=t('common.are_you_sure'), hidden={'action': 'delete_role_history_entry', 'entry_id': entry.id}) }}{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% if not protection %}<p>{{ forms.post_button(attr_url, t('admin.audit.delete_role_history'), 'btn btn--small', confirm=t('common.are_you_sure'), hidden={'action': 'delete_all_role_history'}) }}</p>{% endif %}
+  {% else %}<p class="muted">{{ t('admin.audit.empty') }}</p>{% endif %}
+</section>
+
+<section class="card">
+  <h2>{{ t('admin.audit.suspensions') }}</h2>
+  {% if trail.suspensions %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th scope="col">{{ t('admin.audit.date') }}</th><th scope="col">{{ t('admin.audit.action') }}</th><th scope="col">{{ t('admin.suspend.duration') }}</th><th scope="col">{{ t('admin.suspend.reason') }}</th><th scope="col">{{ t('admin.audit.by') }}</th></tr></thead>
+    <tbody>
+    {% for entry in trail.suspensions %}
+      <tr><td class="nowrap">{{ entry.created_at|datetime }}</td>
+        <td>{% if entry.action == 'suspend' %}<span class="badge badge--danger">{{ t('admin.audit.suspended') }}</span>{% else %}<span class="badge badge--success">{{ t('admin.audit.unsuspended') }}</span>{% endif %}</td>
+        <td>{{ entry.duration or '—' }}{% if entry.suspended_until %}<br><span class="muted small">{{ entry.suspended_until|datetime }}</span>{% endif %}</td>
+        <td>{{ entry.reason or '—' }}{% if entry.reason %}<br><span class="muted small">{{ t('admin.audit.shown_to_user') if entry.reason_visible else t('admin.audit.internal_only') }}</span>{% endif %}</td>
+        <td>{{ entry.performed_by_username or '—' }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted">{{ t('admin.audit.empty') }}</p>{% endif %}
+</section>
+
+<section class="card">
+  <h2>{{ t('admin.audit.usernames') }}</h2>
+  {% if trail.usernames %}
+  <ul class="small">{% for entry in trail.usernames %}<li>{{ entry.changed_at|datetime }}: {{ entry.old_username }} → {{ entry.new_username }}</li>{% endfor %}</ul>
+  {% else %}<p class="muted">{{ t('admin.audit.empty') }}</p>{% endif %}
+</section>
+
+<section class="card">
+  <h2>{{ t('admin.audit.impersonation') }}</h2>
+  {% if trail.impersonated or trail.impersonating %}
+  <ul class="small">
+    {% for entry in trail.impersonated %}<li>{{ entry.started_at|datetime }}: {{ t('admin.audit.impersonated_by', username=entry.other_username or '—') }}{% if entry.ended_at %} ({{ t('admin.audit.until', when=entry.ended_at|datetime) }}){% endif %}</li>{% endfor %}
+    {% for entry in trail.impersonating %}<li>{{ entry.started_at|datetime }}: {{ t('admin.audit.impersonating', username=entry.other_username or '—') }}{% if entry.ended_at %} ({{ t('admin.audit.until', when=entry.ended_at|datetime) }}){% endif %}</li>{% endfor %}
+  </ul>
+  {% else %}<p class="muted">{{ t('admin.audit.empty') }}</p>{% endif %}
+</section>
+
+{% if trail.invites %}
+<section class="card">
+  <h2>{{ t('admin.audit.invites') }}</h2>
+  <ul class="small">{% for entry in trail.invites %}<li><span class="code-value">{{ entry.code }}</span> · {{ entry.used_at|datetime }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>{{ t('admin.attributions.title') }}</h2>
+  <p>{{ t('admin.attributions.count', count=contributions) }}</p>
+  {% if contributions and not protection %}
+  <div class="stack">
+    {{ forms.post_button(attr_url, t('admin.attributions.remove_all'), 'btn btn--danger', confirm=t('admin.attributions.remove_confirm'), hidden={'action': 'deattribute_all'}) }}
+    <form method="post" action="{{ attr_url }}" class="form" data-confirm="{{ t('common.are_you_sure') }}">
+      {{ forms.csrf() }}<input type="hidden" name="action" value="mass_reattribute">
+      {{ forms.field('to_username', t('admin.attributions.recipient'), required=true, attrs={'maxlength': 50}) }}
+      <div class="btn-row"><button class="btn" type="submit">{{ t('admin.attributions.move_all') }}</button></div>
+    </form>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

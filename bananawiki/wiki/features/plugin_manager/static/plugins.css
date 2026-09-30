@@ -1,0 +1,14 @@
+/* Plugin manager: sidebar order list and fact list. */
+.pm-order { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: .4rem; max-width: 32rem; }
+.pm-order__item {
+  display: flex; align-items: center; gap: .5rem; padding: .4rem .6rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
+}
+.pm-order__item.is-dragging { opacity: .5; }
+.pm-order__item.is-over { border-color: var(--focus); }
+.pm-order__handle { cursor: grab; color: var(--muted); user-select: none; }
+.pm-order__label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.pm-facts { display: grid; grid-template-columns: minmax(7rem, max-content) 1fr; gap: .4rem 1rem; margin: 0; }
+.pm-facts dt { color: var(--muted); }
+.pm-facts dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .pm-facts { grid-template-columns: 1fr; } .pm-facts dd { margin-bottom: .5rem; } }

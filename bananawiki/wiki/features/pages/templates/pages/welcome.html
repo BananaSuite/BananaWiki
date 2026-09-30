@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('pages.css', blueprint='pages') }}">{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>{{ site_name() }}</h1>
+  {% if can_create %}<div class="page-header__actions"><a class="btn btn--primary" href="{{ url_for('pages.create') }}">{{ t('pages.nav.new_page') }}</a></div>{% endif %}
+</header>
+<p class="muted">{{ t('pages.welcome.body') }}</p>
+{% if nav.categories or nav.uncategorized.count %}
+{% with manage_order=false %}{% include "pages/_tree.html" %}{% endwith %}
+{% else %}
+<div class="card empty-state"><h2>{{ t('pages.welcome.empty_title') }}</h2><p>{{ t('pages.welcome.empty_body') }}</p></div>
+{% endif %}
+{% endblock %}

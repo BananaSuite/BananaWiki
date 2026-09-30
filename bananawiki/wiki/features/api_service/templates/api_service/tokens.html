@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('api_service.tokens.title') }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{{ t('api_service.tokens.title') }}</h1>
+  <div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('api_service.docs') }}">{{ t('api_service.docs.link') }}</a></div>
+</div>
+<p class="muted">{{ t('api_service.tokens.intro') }}</p>
+
+{% if new_token %}
+<div class="alert alert--success" role="status"><div class="alert__body">
+  <p><strong>{{ t('api_service.tokens.created') }}</strong> {{ t('api_service.tokens.copy_now') }}</p>
+  <p><code class="mono">{{ new_token }}</code></p>
+  <button type="button" class="btn btn--small" data-copy="{{ new_token }}">{{ t('api_service.tokens.copy') }}</button>
+</div></div>
+{% endif %}
+
+{% if not service.enabled %}
+<div class="alert alert--warning"><div class="alert__body">{{ t('api_service.tokens.service_off') }}</div></div>
+{% elif not has_access %}
+<div class="alert alert--warning"><div class="alert__body">{{ t('api_service.tokens.no_access') }}</div></div>
+{% else %}
+<section class="card">
+  <h2>{{ t('api_service.tokens.create') }}</h2>
+  {% if token_count >= service.max_tokens_per_user %}
+  <p class="hint">{{ t('api_service.error.token_limit', maximum=service.max_tokens_per_user) }}</p>
+  {% else %}
+  <form method="post" action="{{ url_for('api_service.create_token') }}" class="form">
+    {{ forms.csrf() }}
+    {{ forms.field('name', t('api_service.tokens.name'), hint=t('api_service.tokens.name_hint'), attrs={'maxlength': 64}) }}
+    <fieldset class="field">
+      <legend>{{ t('api_service.tokens.scopes') }}</legend>
+      {% for scope in scopes %}
+      {{ forms.checkbox('scopes', t('api_service.scope.' ~ scope), checked=(scope == 'pages'), value=scope) }}
+      {% endfor %}
+    </fieldset>
+    {{ forms.checkbox('read_only', t('api_service.tokens.read_only'), hint=t('api_service.tokens.read_only_hint')) }}
+    {{ forms.field('expires_at', t('api_service.tokens.expires_at'), type='datetime-local', hint=t('api_service.tokens.expires_hint')) }}
+    <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('api_service.tokens.create_button') }}</button></div>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>{{ t('api_service.tokens.yours') }}</h2>
+  {% if not tokens %}
+  <div class="empty-state">{{ t('api_service.tokens.none') }}</div>
+  {% else %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr>
+      <th scope="col">{{ t('common.name') }}</th>
+      <th scope="col">{{ t('api_service.tokens.scopes') }}</th>
+      <th scope="col">{{ t('api_service.tokens.access') }}</th>
+      <th scope="col">{{ t('api_service.tokens.last_used') }}</th>
+      <th scope="col">{{ t('api_service.tokens.expires') }}</th>
+      <th scope="col"><span class="visually-hidden">{{ t('common.actions') }}</span></th>
+    </tr></thead>
+    <tbody>
+    {% for token in tokens %}
+    <tr>
+      <td>{{ token.name or t('api_service.tokens.unnamed') }}</td>
+      <td>{% for scope in token.grant.scopes %}<span class="badge">{{ scope }}</span> {% endfor %}</td>
+      <td>{{ t('api_service.tokens.read_write') if token.grant.write else t('api_service.tokens.read_only_badge') }}</td>
+      <td>{{ token.last_used_at|time_ago if token.last_used_at else t('common.never') }}</td>
+      <td>{{ token.expires_at|datetime if token.expires_at else t('common.never') }}</td>
+      <td>{{ forms.post_button(url_for('api_service.revoke_token', token_id=token.id), t('api_service.tokens.revoke'), cls='btn btn--small btn--danger', confirm=t('api_service.tokens.revoke_confirm')) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+</section>
+
+<section class="card" id="userbot">
+  <h2>{{ t('api_service.userbot.title') }}</h2>
+  <p class="hint">{{ t('api_service.userbot.help') }}</p>
+  {% if new_userbot_key %}
+  <div class="alert alert--success" role="status"><div class="alert__body">
+    <p>{{ t('api_service.userbot.copy_now') }}</p>
+    <p><code class="mono">{{ new_userbot_key }}</code></p>
+    <button type="button" class="btn btn--small" data-copy="{{ new_userbot_key }}">{{ t('api_service.tokens.copy') }}</button>
+  </div></div>
+  {% endif %}
+  {% set lock = user.userbot_mode_lock or 'unlocked' %}
+  {% if lock == 'force_enabled' %}<p class="hint">{{ t('api_service.userbot.locked_on') }}</p>{% endif %}
+  {% if lock == 'force_disabled' %}<p class="hint">{{ t('api_service.userbot.locked_off') }}</p>{% endif %}
+  <p>{{ t('api_service.userbot.state_on') if user.userbot_enabled else t('api_service.userbot.state_off') }}
+    {% if userbot_token %}· {{ t('api_service.tokens.last_used') }}: {{ userbot_token.last_used_at|time_ago if userbot_token.last_used_at else t('common.never') }}{% endif %}</p>
+  <div class="btn-row">
+    {% if lock != 'force_disabled' and service.enabled and has_access %}
+    {{ forms.post_button(url_for('api_service.userbot_mode'), t('api_service.userbot.new_key') if user.userbot_enabled else t('api_service.userbot.enable'), cls='btn btn--primary', hidden={'enable': '1'}) }}
+    {% endif %}
+    {% if user.userbot_enabled and lock != 'force_enabled' %}
+    {{ forms.post_button(url_for('api_service.userbot_mode'), t('api_service.userbot.disable'), cls='btn btn--danger', hidden={'enable': '0'}) }}
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

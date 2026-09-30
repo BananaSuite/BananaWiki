@@ -1,0 +1,55 @@
+/* Pages feature: page layout, table of contents, editor, navigation tree. */
+.wiki-page { display: grid; gap: 2rem; grid-template-columns: minmax(0, 1fr); max-width: 1180px; margin: 0 auto; }
+@media (min-width: 1100px) { .wiki-page:has(.wiki-page__aside) { grid-template-columns: minmax(0, 1fr) 240px; } }
+.wiki-page__main { min-width: 0; max-width: var(--content-width); }
+.wiki-page__aside { display: flex; flex-direction: column; gap: 1rem; }
+@media (min-width: 1100px) { .wiki-page__aside { position: sticky; top: calc(var(--topbar-height) + 1rem); align-self: start; max-height: calc(100vh - var(--topbar-height) - 2rem); overflow-y: auto; } }
+.toc-card { padding: .75rem .9rem; }
+.toc-list { list-style: none; margin: 0; padding: 0; font-size: .88rem; display: grid; gap: .2rem; }
+.toc-list a { color: var(--bw-text); }
+.toc-level-3 { padding-left: .8rem; } .toc-level-4 { padding-left: 1.6rem; }
+.seq-nav { display: flex; justify-content: space-between; gap: 1rem; margin: 2rem 0 1rem; flex-wrap: wrap; }
+.seq-nav .btn { white-space: normal; max-width: 48%; }
+.page-edit-info { margin-top: 2rem; border-top: 1px solid var(--border); padding-top: .75rem; }
+.page-list { display: grid; gap: .35rem; padding-left: 1.25rem; }
+.menu__form { display: grid; gap: .3rem; padding: .45rem .65rem; }
+.h3 { font-size: 1.15rem; }
+
+/* Navigation tree */
+.bw-nav { display: flex; flex-direction: column; gap: .5rem; }
+.nav-tree details > .nav-list, .nav-tree__children { margin-left: .75rem; padding-left: .5rem; border-left: 1px solid var(--border); }
+.nav-tree summary .nav-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-link--hidden .nav-label { text-decoration: line-through; opacity: .75; }
+.nav-more a { color: var(--muted); font-size: .85rem; }
+.nav-search-results { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: .35rem; display: grid; gap: .15rem; font-size: .9rem; }
+.nav-search-results a { display: block; padding: .25rem .4rem; border-radius: var(--radius-sm); color: var(--bw-text); }
+.nav-search-results a:hover, .nav-search-results a:focus { background: var(--surface-2); text-decoration: none; }
+.nav-search-results small { display: block; color: var(--muted); }
+.nav-tree--page summary { font-size: 1rem; }
+.nav-tree--page .tree-root { border: 0; margin: 0; padding: 0; }
+.reorder-buttons { display: inline-flex; gap: .1rem; }
+[data-reorder-item].is-dragging { opacity: .45; }
+[data-reorder-item].is-drop-target { outline: 2px dashed var(--bw-primary); }
+
+/* Editor */
+.editor { display: grid; gap: 0; }
+.editor .toolbar { position: sticky; top: var(--topbar-height); z-index: 5; }
+.editor__tabs { display: none; gap: .25rem; margin: .4rem 0; }
+.editor__panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+.editor__textarea { min-height: 60vh; border-top-left-radius: 0; border-top-right-radius: 0; }
+.editor__textarea.is-over { outline: 2px dashed var(--bw-primary); }
+.editor__preview { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1rem; min-height: 60vh; max-height: 80vh; overflow: auto; background: var(--surface); }
+.editor__status { display: flex; flex-wrap: wrap; gap: 1rem; padding: .3rem 0; }
+.editor.is-fullscreen { position: fixed; inset: 0; z-index: 150; background: var(--bw-bg); padding: 1rem; overflow: auto; }
+.editor.is-fullscreen .editor__textarea, .editor.is-fullscreen .editor__preview { min-height: calc(100vh - 8rem); max-height: none; }
+@media (max-width: 900px) {
+  .editor__tabs { display: flex; }
+  .editor__panes { grid-template-columns: minmax(0, 1fr); }
+  .editor:not(.show-preview) .editor__preview, .editor.show-preview .editor__write { display: none; }
+}
+.link-results { list-style: none; margin: .35rem 0 0; padding: 0; max-height: 12rem; overflow: auto; }
+.link-results button { width: 100%; text-align: left; background: none; border: 0; color: var(--bw-text); padding: .3rem .4rem; border-radius: var(--radius-sm); cursor: pointer; font: inherit; }
+.link-results button:hover, .link-results button:focus { background: var(--surface-2); }
+.conflict pre.diff, pre.diff { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .8rem; max-height: 60vh; overflow: auto; }
+.diff-rendered ins { background: var(--success-bg); text-decoration: none; }
+.diff-rendered del { background: var(--danger-bg); }

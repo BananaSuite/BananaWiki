@@ -1,0 +1,24 @@
+<section class="card" id="group-badges">
+  <h2>{{ t('chat.badges.settings_heading') }}</h2>
+  <p class="muted small">{{ t('chat.badges.settings_help') }}</p>
+  {% if groups %}
+  <ul class="stack chat-badge-list">
+    {% for g in groups %}
+    <li class="split">
+      <span>{{ t('chat.groups.global_name') if g.is_global else g.name }}</span>
+      <form class="inline" method="post" action="{{ url_for('chat.badge_toggle') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="group_id" value="{{ g.id }}">
+        <input type="hidden" name="visible" value="{{ '0' if g.visible else '1' }}">
+        <input type="hidden" name="next" value="{{ request.path }}#group-badges">
+        <button class="btn btn--small{% if not g.visible %} btn--primary{% endif %}" type="submit">
+          {{ t('chat.badges.hide') if g.visible else t('chat.badges.show') }}
+        </button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">{{ t('chat.badges.no_groups') }}</p>
+  {% endif %}
+</section>

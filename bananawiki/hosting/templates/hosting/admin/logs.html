@@ -1,0 +1,10 @@
+{% extends "hosting/base.html" %}
+{% block title %}{{ t('hosting.admin.logs') }}{% endblock %}
+{% block column_class %}wide{% endblock %}
+{% block content %}
+<nav class="breadcrumbs"><a href="{{ url_for('admin.instance', instance_id=instance.id) }}">{{ instance.subdomain }}</a></nav>
+<h1>{{ t('hosting.admin.logs') }}: {{ name }}</h1>
+<nav class="tabs">{% for log in ('error.log', 'access.log') %}<a href="{{ url_for('admin.instance_logs', instance_id=instance.id, log=log) }}"{% if log == name %} aria-current="page"{% endif %}>{{ log }}</a>{% endfor %}</nav>
+{% if tail.truncated %}<p class="small muted">{{ t('hosting.admin.logs_truncated', size=tail.size_bytes|filesize) }}</p>{% endif %}
+<pre class="card mono">{{ tail.content or t('hosting.admin.logs_empty') }}</pre>
+{% endblock %}

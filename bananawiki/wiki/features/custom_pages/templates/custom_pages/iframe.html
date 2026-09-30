@@ -1,0 +1,10 @@
+{% extends "custom_pages/_page.html" %}
+{% block page_body %}
+{% if url %}
+<iframe class="cp-frame" src="{{ url }}" style="height: {{ height }}" title="{{ page.title or url }}"
+        allow="{{ allow }}"{% if sandbox %} sandbox="{{ sandbox }}"{% endif %} allowfullscreen loading="lazy"
+        referrerpolicy="no-referrer"></iframe>
+{% else %}
+<p class="empty-state">{{ t('custom_pages.view.no_embed') }}</p>
+{% endif %}
+{% endblock %}

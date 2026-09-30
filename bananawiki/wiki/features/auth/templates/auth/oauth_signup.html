@@ -1,0 +1,27 @@
+{% extends "base_minimal.html" %}
+{% block title %}{{ t('auth.oauth.signup_title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('auth.oauth.signup_title') }}</h1>
+  <p>{{ t('auth.oauth.signup_body', name=pending.username) }}</p>
+  {% if approval_required %}<p class="muted">{{ t('auth.signup.approval_notice') }}</p>{% endif %}
+  {% if error %}<div class="alert alert--error" role="alert"><div class="alert__body">{{ error }}</div></div>{% endif %}
+  <form method="post" action="{{ url_for('auth.platform_oauth_signup') }}" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field">
+      <label for="username">{{ t('auth.field.username') }}</label>
+      <input id="username" name="username" value="{{ username }}" required minlength="3" maxlength="50"
+             pattern="[A-Za-z0-9_\-]+" autocomplete="username" aria-describedby="username-hint">
+      <p class="hint" id="username-hint">{{ t('auth.hint.username') }}</p>
+    </div>
+    {% if invite_required %}
+    <div class="field">
+      <label for="invite_code">{{ t('auth.signup.invite_code') }}</label>
+      <input id="invite_code" name="invite_code" value="{{ invite }}" required maxlength="40" class="mono" autocomplete="one-time-code">
+    </div>
+    {% endif %}
+    <button class="btn btn--primary" type="submit">{{ t('auth.signup.submit') }}</button>
+  </form>
+  <p class="small"><a href="{{ url_for('auth.login') }}">{{ t('auth.session_conflict.back') }}</a></p>
+</div>
+{% endblock %}

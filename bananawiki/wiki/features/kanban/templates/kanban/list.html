@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('kanban.list.title') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('kanban.css', blueprint='kanban') }}">{% endblock %}
+{% block main_class %}main--wide{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>{{ t('kanban.list.title') }}</h1>
+  <div class="page-header__actions">
+    {% if show_mine %}<a class="btn" href="{{ url_for('kanban.mine') }}">{{ t('kanban.mine.title') }}</a>{% endif %}
+    {% if archived_count %}
+    {% if show_archived %}<a class="btn" href="{{ url_for('kanban.index') }}">{{ t('kanban.list.hide_archived') }}</a>
+    {% else %}<a class="btn" href="{{ url_for('kanban.index', archived=1) }}#kanban-archived-boards">{{ t('kanban.list.show_archived', count=archived_count) }}</a>{% endif %}
+    {% endif %}
+    {% if show_settings %}
+    <button type="button" class="btn" data-dialog-open="kanban-settings-dialog">{{ t('kanban.settings.button') }}</button>
+    {% endif %}
+    {% if can_create %}
+    <button type="button" class="btn" data-dialog-open="kanban-import-dialog">{{ t('kanban.list.import') }}</button>
+    <button type="button" class="btn btn--primary" data-dialog-open="kanban-create-dialog">{{ t('kanban.list.new') }}</button>
+    {% endif %}
+  </div>
+</header>
+
+{% if boards %}
+<p class="hint">{% if can_reorder %}{{ t('kanban.list.reorder_hint') }}{% endif %}</p>
+<ul class="kanban-boards" id="kanban-board-list" data-reorderable="{{ 'true' if can_reorder else 'false' }}"
+    data-open-access="{{ 'true' if open_access else 'false' }}" data-order-version="{{ order_version }}">
+  {% for board in boards %}
+  <li class="kanban-boards__item card" data-board-id="{{ board.id }}">
+    <a class="kanban-boards__title" href="{{ url_for('kanban.board', board_id=board.id) }}">{{ board.title }}</a>
+    {% if board.visibility == 'private' %}<span class="badge">{{ t('kanban.visibility.private') }}</span>
+    {% elif board.visibility == 'shared' %}<span class="badge">{{ t('kanban.visibility.shared') }}</span>{% endif %}
+    {% if board.excerpt %}<p class="kanban-boards__desc">{{ board.excerpt }}</p>{% endif %}
+    <p class="small muted">{{ board.creator_username or t('common.unknown_user') }} · {{ board.created_at|time_ago }}</p>
+    {% if can_reorder %}
+    <div class="kanban-boards__move">
+      <button type="button" class="btn btn--small btn--ghost" data-move="-1" aria-label="{{ t('kanban.list.move_up', title=board.title) }}">↑</button>
+      <button type="button" class="btn btn--small btn--ghost" data-move="1" aria-label="{{ t('kanban.list.move_down', title=board.title) }}">↓</button>
+    </div>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="empty-state card">
+  <h2>{{ t('kanban.list.empty') }}</h2>
+  {% if can_create %}<p>{{ t('kanban.list.empty_help') }}</p>{% endif %}
+</div>
+{% endif %}
+
+{% if show_archived and archived_boards %}
+<section class="kanban-archived-boards" id="kanban-archived-boards" aria-labelledby="kanban-archived-boards-title">
+  <h2 id="kanban-archived-boards-title">{{ t('kanban.list.archived_title') }} <span class="badge">{{ archived_boards|length }}</span></h2>
+  <p class="hint">{{ t('kanban.list.archived_hint') }}</p>
+  <ul class="kanban-boards">
+    {% for board in archived_boards %}
+    <li class="kanban-boards__item card kanban-boards__item--archived">
+      <a class="kanban-boards__title" href="{{ url_for('kanban.board', board_id=board.id) }}">{{ board.title }}</a>
+      <span class="badge badge--warning">{{ t('kanban.board.archived_badge') }}</span>
+      {% if board.excerpt %}<p class="kanban-boards__desc">{{ board.excerpt }}</p>{% endif %}
+      <p class="small muted">{{ t('kanban.list.archived_on', date=board.archived_at|date) }}</p>
+      {% if board.can_restore %}{{ forms.post_button(url_for('kanban.restore', board_id=board.id), t('kanban.board.restore'), 'btn btn--small') }}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if can_create %}
+<dialog id="kanban-create-dialog" aria-labelledby="kanban-create-title">
+  <h2 id="kanban-create-title">{{ t('kanban.list.new') }}</h2>
+  <form class="form" method="post" action="{{ url_for('kanban.create') }}">
+    {{ forms.csrf() }}
+    {{ forms.field('title', t('kanban.field.title'), required=true, attrs={'maxlength': 200}) }}
+    {{ forms.textarea('description', t('kanban.field.description_optional'), rows=3) }}
+    <div class="btn-row btn-row--end">
+      <button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button>
+      <button type="submit" class="btn btn--primary">{{ t('common.create') }}</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="kanban-import-dialog" aria-labelledby="kanban-import-title">
+  <h2 id="kanban-import-title">{{ t('kanban.list.import') }}</h2>
+  <form class="form" method="post" action="{{ url_for('kanban.import_board') }}" enctype="multipart/form-data">
+    {{ forms.csrf() }}
+    <div class="field">
+      <label for="kanban-import-file">{{ t('kanban.list.import_file') }}</label>
+      <input id="kanban-import-file" type="file" name="import_file" accept=".json,.zip,application/json,application/zip" required>
+      <p class="hint">{{ t('kanban.list.import_hint') }}</p>
+    </div>
+    <div class="btn-row btn-row--end">
+      <button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button>
+      <button type="submit" class="btn btn--primary">{{ t('kanban.list.import_submit') }}</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
+
+{% if show_settings %}
+<dialog id="kanban-settings-dialog" aria-labelledby="kanban-settings-title">
+  <h2 id="kanban-settings-title">{{ t('kanban.settings.title') }}</h2>
+  <form class="form" method="post" action="{{ url_for('kanban.save_settings') }}">
+    {{ forms.csrf() }}
+    {% set levels = [('admin', t('kanban.settings.level.admin')), ('editor', t('kanban.settings.level.editor')), ('all', t('kanban.settings.level.all'))] %}
+    {{ forms.select('kanban_access', t('kanban.settings.access'), levels, kanban_settings.kanban_access or 'admin', t('kanban.settings.access_hint')) }}
+    {{ forms.select('kanban_write_access', t('kanban.settings.write_access'), levels, kanban_settings.kanban_write_access or 'admin', t('kanban.settings.write_access_hint')) }}
+    {{ forms.checkbox('kanban_open_access', t('kanban.settings.open_access'), kanban_settings.kanban_open_access, t('kanban.settings.open_access_hint')) }}
+    {{ forms.checkbox('kanban_public_access_enabled', t('kanban.settings.public_access'), kanban_settings.kanban_public_access_enabled, t('kanban.settings.public_access_hint')) }}
+    <div class="btn-row btn-row--end">
+      <button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button>
+      <button type="submit" class="btn btn--primary">{{ t('common.save') }}</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ asset_url('kanban-list.js', blueprint='kanban') }}" defer></script>
+{% endblock %}

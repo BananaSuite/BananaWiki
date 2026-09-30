@@ -1,8 +1,0 @@
-{% extends "base.html" %}
-{% block title %}{{ page.title or t('custom_page.wiki.fallback_title') }}{# Custom Page #} | {{ settings.site_name }}{% endblock %}
-{% block content %}
-<article class="wiki-content">
-    {% if page.title %}<h1>{{ page.title }}</h1>{% endif %}
-    {{ rendered_content | safe }}
-</article>
-{% endblock %}

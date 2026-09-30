@@ -1,0 +1,20 @@
+/* Custom pages: public templates and the administration screens. */
+.cp-description { color: var(--muted); margin-top: -.5rem; }
+.cp-types { display: grid; gap: .35rem 1rem; grid-template-columns: minmax(10rem, 16rem) 1fr; margin: 0 0 1rem; }
+.cp-types dt { font-weight: 600; }
+.cp-types dd { margin: 0; color: var(--muted); }
+.cp-frame { display: block; width: 100%; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.cp-video { display: block; width: 100%; max-height: 80vh; border-radius: var(--radius); background: #000; }
+.cp-youtube { position: relative; aspect-ratio: 16 / 9; }
+.cp-youtube iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: var(--radius); }
+.cp-gallery { display: grid; gap: 1.25rem; justify-items: center; }
+.cp-gallery figure { margin: 0; text-align: center; }
+.cp-gallery img { max-width: 100%; height: auto; border-radius: var(--radius); }
+.cp-gallery figcaption { color: var(--muted); font-size: .85rem; margin-top: .35rem; }
+.cp-links { list-style: none; padding: 0; display: grid; gap: .75rem; }
+.cp-links li { padding: .8rem 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.cp-links a { font-weight: 600; overflow-wrap: anywhere; }
+.cp-links p { margin: .3rem 0 0; color: var(--muted); }
+html.cp-sandbox-host, html.cp-sandbox-host body { margin: 0; height: 100%; overflow: hidden; }
+.cp-sandbox { display: block; width: 100%; height: 100%; border: 0; }
+@media (max-width: 600px) { .cp-types { grid-template-columns: 1fr; } }

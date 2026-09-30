@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ category.name if category else t('pages.nav.uncategorized') }}{% endblock %}
+{% block content %}
+<h1>{{ category.name if category else t('pages.nav.uncategorized') }}</h1>
+<ul>
+  {% for p in listing.pages %}<li><a href="{{ url_for('pages.view', slug=p.slug) }}">{{ p.title }}</a></li>{% endfor %}
+</ul>
+{% if listing.more is not none %}
+<a class="btn" href="{{ url_for('pages.navigation_pages', category_id=category_id or 0, after=listing.more) }}">{{ t('pages.nav.more') }}</a>
+{% endif %}
+{% endblock %}

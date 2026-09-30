@@ -1,0 +1,29 @@
+{#- Category checkboxes. Call with: field (input name), selected (set of ids), all_categories. -#}
+{% macro category_list(field, selected, all_categories) -%}
+{% if all_categories %}
+<div class="category-list">
+  {% for category in all_categories %}
+  <label class="check"><input type="checkbox" name="{{ field }}" value="{{ category.id }}"{% if category.id in selected %} checked{% endif %}> <span>{{ category.name }}</span></label>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">{{ t('admin.permissions.no_categories') }}</p>
+{% endif %}
+{%- endmacro %}
+
+{#- Permission checkboxes grouped as permissions.grouped_for() returns them. -#}
+{% macro permission_groups(groups, enabled, editor_only=none) -%}
+<div class="perm-groups">
+  {% for group_id, label, items in groups %}
+  <fieldset>
+    <legend>{{ t('permission_group.' ~ group_id, label) }}</legend>
+    {% for p in items %}
+    <label class="check"{% if editor_only is not none and p.key in editor_only %} data-editor-only{% endif %}>
+      <input type="checkbox" name="permissions" value="{{ p.key }}"{% if p.key in enabled %} checked{% endif %}>
+      <span>{{ t('permission.' ~ p.key, p.label) }}<small>{{ t('permission.' ~ p.key ~ '.hint', p.description) }}</small></span>
+    </label>
+    {% endfor %}
+  </fieldset>
+  {% endfor %}
+</div>
+{%- endmacro %}

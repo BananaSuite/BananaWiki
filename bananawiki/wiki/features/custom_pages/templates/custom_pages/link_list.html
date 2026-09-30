@@ -1,0 +1,15 @@
+{% extends "custom_pages/_page.html" %}
+{% block page_body %}
+{% if links %}
+<ul class="cp-links">
+  {% for link in links %}
+  <li>
+    <a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.title or link.url }}</a>
+    {% if link.description %}<p>{{ link.description }}</p>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="empty-state">{{ t('custom_pages.view.no_links') }}</p>
+{% endif %}
+{% endblock %}

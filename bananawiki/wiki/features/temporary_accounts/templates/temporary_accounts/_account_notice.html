@@ -1,0 +1,5 @@
+<section class="card">
+  <h2>{{ t('temporary_accounts.notice.title') }}</h2>
+  {% if deletion %}<p>{{ t('temporary_accounts.notice.own_deletion' if own else 'temporary_accounts.notice.user_deletion', user=subject.username, date=deletion.expires_at|datetime) }}</p>{% endif %}
+  {% if role %}<p>{{ t('temporary_accounts.notice.own_role' if own else 'temporary_accounts.notice.user_role', user=subject.username, role=t('temporary_accounts.role.' ~ role.original_role), date=role.expires_at|datetime) }}</p>{% endif %}
+</section>

@@ -1,0 +1,29 @@
+{% import "macros/forms.html" as forms with context %}
+{% if fields or tags or is_own or can_moderate %}
+<section class="card" aria-labelledby="profile-about-heading">
+  <div class="card__header">
+    <h2 id="profile-about-heading">{{ t('profiles.about') }}</h2>
+    <div class="btn-row">
+      {% if is_own and has_permission('profile.edit_own') %}<a class="btn btn--small" href="{{ url_for('user_profiles.own_fields') }}">{{ t('profiles.edit_fields') }}</a>{% endif %}
+      {% if can_moderate %}<a class="btn btn--small" href="{{ url_for('user_profiles.admin_profile', user_id=profile_user.id) }}">{{ t('profiles.moderate') }}</a>{% endif %}
+    </div>
+  </div>
+  {% if tags %}
+  <p class="cluster">{% for tag in tags %}<span class="badge profiles-tag" style="border:1px solid {{ tag.color }};color:{{ tag.color }}">{{ tag.label }}</span>{% endfor %}</p>
+  {% endif %}
+  {% if fields %}
+  <dl class="profiles-fields">
+    {% for field in fields %}
+    <div>
+      <dt>{{ field.label }}{% if not field.visible %} <span class="badge">{{ t('profiles.hidden') }}</span>{% endif %}</dt>
+      <dd>{% if field.href %}<a href="{{ field.href }}" rel="nofollow noopener ugc" target="_blank">{{ field.value }}</a>
+        {% elif field.field_type == 'date' %}{{ field.value }}
+        {% else %}<span class="profiles-value">{{ field.value }}</span>{% endif %}</dd>
+    </div>
+    {% endfor %}
+  </dl>
+  {% elif is_own %}
+  <p class="muted">{{ t('profiles.no_fields') }}</p>
+  {% endif %}
+</section>
+{% endif %}

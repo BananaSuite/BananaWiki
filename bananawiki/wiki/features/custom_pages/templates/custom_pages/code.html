@@ -1,0 +1,5 @@
+{% extends "custom_pages/_page.html" %}
+{% block page_body %}
+<p class="small muted">{{ t('custom_pages.view.language') }} <code>{{ page.code_language or 'text' }}</code></p>
+<div class="prose">{{ code }}</div>
+{% endblock %}

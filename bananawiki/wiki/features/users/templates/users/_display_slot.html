@@ -1,0 +1,4 @@
+<link rel="stylesheet" href="{{ asset_url('users.css', blueprint='users') }}">
+<style nonce="{{ csp_nonce() }}">{{ css }}</style>
+<script type="application/json" id="users-display-config">{{ {'url': url_for('users.api_save_preferences')}|json_script }}</script>
+<script src="{{ asset_url('display.js', blueprint='users') }}"></script>

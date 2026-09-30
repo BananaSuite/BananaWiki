@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('canvas.list.title') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('canvas.css', blueprint='canvas') }}">{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>{{ t('canvas.list.title') }}</h1>
+  {% if can_create %}
+  <div class="page-header__actions">
+    <button type="button" class="btn" data-dialog-open="canvas-import-dialog">{{ t('canvas.list.import') }}</button>
+    <button type="button" class="btn btn--primary" data-dialog-open="canvas-create-dialog">{{ t('canvas.list.new') }}</button>
+  </div>
+  {% endif %}
+</header>
+
+{% if layouts %}
+<p class="hint" id="canvas-order-hint">{% if can_reorder %}{{ t('canvas.list.reorder_hint') }}{% endif %}</p>
+<ul class="canvas-list" id="canvas-list"
+    {% if can_reorder %}data-order-url="{{ url_for('canvas.save_order') }}" data-version-url="{{ url_for('canvas.list_order_version') }}"
+    data-order-version="{{ order_version }}"{% if shared_order %} data-shared-order{% endif %}{% endif %}
+    aria-describedby="canvas-order-hint">
+  {% for layout in layouts %}
+  <li class="card canvas-list__item" data-layout-id="{{ layout.id }}">
+    {% if can_reorder %}
+    <div class="canvas-list__move">
+      <button type="button" class="btn btn--ghost btn--icon btn--small" data-move="up" aria-label="{{ t('canvas.list.move_up', title=layout.title) }}">▲</button>
+      <button type="button" class="btn btn--ghost btn--icon btn--small" data-move="down" aria-label="{{ t('canvas.list.move_down', title=layout.title) }}">▼</button>
+    </div>
+    {% endif %}
+    <div class="canvas-list__body">
+      <h2 class="canvas-list__title"><a href="{{ url_for('canvas.view', slug=layout.slug) }}">{{ layout.title }}</a>
+        {% if layout.visibility != 'public' %}<span class="badge">{{ t('canvas.visibility.' ~ layout.visibility) }}</span>{% endif %}
+        {% if layout.is_archived %}<span class="badge badge--warning">{{ t('canvas.list.archived') }}</span>{% endif %}
+        {% if layout.level == 'edit' %}<span class="badge badge--primary">{{ t('canvas.list.can_edit') }}</span>{% endif %}
+      </h2>
+      {% if layout.description %}<p class="canvas-list__desc">{{ layout.description|truncate(160) }}</p>{% endif %}
+      <p class="small muted">{{ layout.creator_username or t('common.unknown_user') }} · <span title="{{ layout.updated_at|datetime }}">{{ t('canvas.list.updated', when=layout.updated_at|time_ago) }}</span></p>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="empty-state">
+  <h2>{{ t('canvas.list.empty') }}</h2>
+  {% if can_create %}<p>{{ t('canvas.list.empty_help') }}</p>{% endif %}
+</div>
+{% endif %}
+
+{% if can_create %}
+<dialog id="canvas-create-dialog" aria-labelledby="canvas-create-title">
+  <h2 id="canvas-create-title">{{ t('canvas.list.new') }}</h2>
+  <form class="form" method="post" action="{{ url_for('canvas.create') }}">
+    {{ forms.csrf() }}
+    {{ forms.field('title', t('canvas.field.title'), required=true, attrs={'maxlength': 200}) }}
+    {{ forms.textarea('description', t('canvas.field.description'), rows=3) }}
+    <div class="field">
+      <label for="canvas-template">{{ t('canvas.field.template') }}</label>
+      <select id="canvas-template" name="template">
+        <option value="">{{ t('canvas.preset.blank') }}</option>
+        {% for name in templates %}<option value="{{ name }}">{{ t('canvas.preset.' ~ name) }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="btn-row btn-row--end">
+      <button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button>
+      <button type="submit" class="btn btn--primary">{{ t('common.create') }}</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="canvas-import-dialog" aria-labelledby="canvas-import-title">
+  <h2 id="canvas-import-title">{{ t('canvas.list.import') }}</h2>
+  <form class="form" method="post" action="{{ url_for('canvas.import_canvas') }}" enctype="multipart/form-data">
+    {{ forms.csrf() }}
+    <div class="field">
+      <label for="canvas-import-file">{{ t('canvas.list.import_file') }}</label>
+      <input id="canvas-import-file" type="file" name="import_file" accept=".json,.zip,application/json,application/zip" required>
+      <p class="hint">{{ t('canvas.list.import_hint') }}</p>
+    </div>
+    <div class="btn-row btn-row--end">
+      <button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button>
+      <button type="submit" class="btn btn--primary">{{ t('canvas.list.import_submit') }}</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="{{ asset_url('canvas-list.js', blueprint='canvas') }}"></script>{% endblock %}

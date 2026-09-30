@@ -1,0 +1,109 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('site_admin.appearance.title') }}{% endblock %}
+{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('site_admin.css', blueprint='site_admin') }}">{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('site_admin.appearance.title') }}</h1>
+  <div class="page-header__actions">
+    <a class="btn" href="{{ url_for('site_admin.theme_export') }}">{{ t('site_admin.appearance.export') }}</a>
+  </div>
+</header>
+
+<section class="card">
+  <h2>{{ t('site_admin.appearance.colors') }}</h2>
+  <form method="post" action="{{ url_for('site_admin.save_colors') }}" class="form" data-theme-editor>
+    {{ forms.csrf() }}
+    {{ forms.select('default_theme_mode', t('site_admin.appearance.default_mode'),
+                    [('dark', t('site_admin.appearance.mode.dark')), ('light', t('site_admin.appearance.mode.light'))],
+                    selected=default_mode, hint=t('site_admin.appearance.default_mode.hint')) }}
+    <div class="grid grid--2">
+      {% for mode in ('dark', 'light') %}
+      <fieldset class="stack">
+        <legend>{{ t('site_admin.appearance.mode.' ~ mode) }}</legend>
+        {% for name, value in palettes[mode].items() %}
+        <div class="field theme-color">
+          <label for="f-{{ column(mode, name) }}">{{ t('site_admin.appearance.color.' ~ name) }}</label>
+          <input id="f-{{ column(mode, name) }}" type="color" name="{{ column(mode, name) }}" value="{{ value }}"
+                 data-preview-mode="{{ mode }}" data-preview-var="--bw-{{ name }}" data-default="{{ defaults[mode][name] }}">
+        </div>
+        {% endfor %}
+        <div class="theme-preview" data-preview="{{ mode }}" aria-label="{{ t('site_admin.appearance.preview') }}">
+          <div class="theme-preview__sidebar">{{ t('site_admin.appearance.preview.sidebar') }}</div>
+          <div class="theme-preview__main">
+            <strong class="theme-preview__title">{{ t('site_admin.appearance.preview.title') }}</strong>
+            <p>{{ t('site_admin.appearance.preview.text') }} <a href="#" class="theme-preview__link" tabindex="-1">{{ t('site_admin.appearance.preview.link') }}</a></p>
+            <span class="theme-preview__card">{{ t('site_admin.appearance.preview.card') }}</span>
+            <span class="theme-preview__button">{{ t('site_admin.appearance.preview.button') }}</span>
+          </div>
+        </div>
+      </fieldset>
+      {% endfor %}
+    </div>
+    <div class="btn-row">
+      <button class="btn btn--primary" type="submit">{{ t('common.save') }}</button>
+    </div>
+  </form>
+  <div class="btn-row">
+    {{ forms.post_button(url_for('site_admin.reset_colors'), t('site_admin.appearance.reset'), 'btn btn--ghost', confirm=t('site_admin.appearance.reset_confirm')) }}
+  </div>
+</section>
+
+<section class="card">
+  <h2>{{ t('site_admin.appearance.import') }}</h2>
+  <form method="post" action="{{ url_for('site_admin.theme_import') }}" enctype="multipart/form-data" class="form">
+    {{ forms.csrf() }}
+    <div class="field">
+      <label for="f-theme_file">{{ t('site_admin.appearance.import_file') }}</label>
+      <input id="f-theme_file" type="file" name="theme_file" accept=".bwtheme,.json,application/json" required>
+      <p class="hint">{{ t('site_admin.appearance.import_hint') }}</p>
+    </div>
+    <div class="btn-row"><button class="btn" type="submit">{{ t('site_admin.appearance.import_button') }}</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>{{ t('site_admin.favicon.title') }}</h2>
+  <form method="post" action="{{ url_for('site_admin.favicon_enabled') }}" class="form">
+    {{ forms.csrf() }}
+    <input type="hidden" name="favicon_enabled" value="{{ '0' if favicon_enabled else '1' }}">
+    <p>{{ t('site_admin.favicon.enabled' if favicon_enabled else 'site_admin.favicon.disabled') }}</p>
+    <div class="btn-row"><button class="btn" type="submit">{{ t('site_admin.favicon.disable' if favicon_enabled else 'site_admin.favicon.enable') }}</button></div>
+  </form>
+  <ul class="favicon-grid">
+    {% for preset in presets %}
+    {% set chosen = selected_type == preset %}
+    <li class="favicon-tile{% if chosen %} favicon-tile--selected{% endif %}">
+      <img src="{{ url_for('static', filename='favicons/banana_' ~ preset ~ '.png') }}" alt="" width="32" height="32">
+      <span>{{ t('site_admin.favicon.preset.' ~ preset) }}</span>
+      {% if chosen %}<span class="badge badge--success">{{ t('site_admin.favicon.in_use') }}</span>
+      {% else %}{{ forms.post_button(url_for('site_admin.favicon_select'), t('site_admin.favicon.use'), 'btn btn--small', hidden={'favicon_type': preset}) }}{% endif %}
+    </li>
+    {% endfor %}
+    {% for name in customs %}
+    {% set chosen = selected_type == 'custom' and selected_custom == name %}
+    <li class="favicon-tile{% if chosen %} favicon-tile--selected{% endif %}">
+      <img src="{{ url_for('favicon_file', filename=name) }}" alt="" width="32" height="32">
+      <span>{{ t('site_admin.favicon.custom', number=loop.index) }}</span>
+      {% if chosen %}<span class="badge badge--success">{{ t('site_admin.favicon.in_use') }}</span>
+      {% else %}{{ forms.post_button(url_for('site_admin.favicon_select'), t('site_admin.favicon.use'), 'btn btn--small', hidden={'favicon_type': 'custom', 'favicon_custom': name}) }}{% endif %}
+      <span class="cluster">
+        {% if not loop.first %}{{ forms.post_button(url_for('site_admin.favicon_reorder'), '↑', 'btn btn--small btn--ghost', hidden={'filename': name, 'direction': 'up'}) }}{% endif %}
+        {% if not loop.last %}{{ forms.post_button(url_for('site_admin.favicon_reorder'), '↓', 'btn btn--small btn--ghost', hidden={'filename': name, 'direction': 'down'}) }}{% endif %}
+        {{ forms.post_button(url_for('site_admin.favicon_delete'), t('common.delete'), 'btn btn--small btn--danger', confirm=t('site_admin.favicon.delete_confirm'), hidden={'filename': name}) }}
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  <form method="post" action="{{ url_for('site_admin.favicon_upload') }}" enctype="multipart/form-data" class="form">
+    {{ forms.csrf() }}
+    <div class="field">
+      <label for="f-favicon">{{ t('site_admin.favicon.upload') }}</label>
+      <input id="f-favicon" type="file" name="file" accept=".png,.jpg,.jpeg,.gif,.webp" required>
+      <p class="hint">{{ t('site_admin.favicon.upload_hint') }}</p>
+    </div>
+    <div class="btn-row"><button class="btn" type="submit">{{ t('site_admin.favicon.upload_button') }}</button></div>
+  </form>
+</section>
+{% endblock %}
+{% block admin_scripts %}<script src="{{ asset_url('appearance.js', blueprint='site_admin') }}"></script>{% endblock %}

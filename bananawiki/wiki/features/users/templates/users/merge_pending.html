@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% import "users/_macros.html" as m with context %}
+{% block title %}{{ t('users.merge.title') }}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>{{ t('users.merge.title') }}</h1>
+  <div class="page-header__actions"><a class="btn btn--primary" href="{{ url_for('users.merge_request') }}">{{ t('users.merge.new') }}</a></div>
+</header>
+<div class="stack">
+{% for req in active %}
+  <section class="card">
+    <h2>{{ t('users.merge.summary', source=req.source_username or t('common.unknown_user'), target=req.target_username or t('common.unknown_user')) }}</h2>
+    <p class="small muted">{{ t('users.merge.created', when=req.created_at|datetime) }}{% if req.request_reason %} — {{ req.request_reason }}{% endif %}</p>
+    <p class="cluster">
+      <span class="badge{% if req.source_approved %} badge--success{% endif %}">{{ t('users.merge.source_confirmed' if req.source_approved else 'users.merge.source_waiting') }}</span>
+      <span class="badge{% if req.target_approved %} badge--success{% endif %}">{{ t('users.merge.target_confirmed' if req.target_approved else 'users.merge.target_waiting') }}</span>
+      {% if req.status == 'approved_by_both' %}<span class="badge badge--warning">{{ t('users.merge.waiting_admin') }}</span>{% endif %}
+    </p>
+    {% set my_side_open = (req.source_user_id == current_user.id and not req.source_approved) or (req.target_user_id == current_user.id and not req.target_approved) %}
+    {% if my_side_open and req.status == 'pending' %}
+    <form method="post" action="{{ url_for('users.merge_confirm', merge_id=req.id) }}" class="form">
+      {{ forms.csrf() }}
+      {{ m.password('confirm-' ~ req.id, t('auth.field.current_password')) }}
+      <div><button class="btn btn--primary" type="submit">{{ t('users.merge.confirm') }}</button></div>
+    </form>
+    {% endif %}
+    <p class="btn-row">
+      {% if req.created_by == current_user.id or req.source_user_id == current_user.id %}
+      {{ forms.post_button(url_for('users.merge_cancel', merge_id=req.id), t('users.merge.cancel'), cls='btn btn--small', confirm=t('common.are_you_sure')) }}
+      {% else %}
+      {{ forms.post_button(url_for('users.merge_deny', merge_id=req.id), t('users.merge.deny'), cls='btn btn--small btn--danger', confirm=t('common.are_you_sure')) }}
+      {% endif %}
+    </p>
+  </section>
+{% else %}
+  <div class="card empty-state"><p>{{ t('users.merge.none') }}</p></div>
+{% endfor %}
+{% if finished %}
+  <section class="card">
+    <h2>{{ t('users.merge.history') }}</h2>
+    <ul class="users-contributions">
+      {% for req in finished %}
+      <li>{{ t('users.merge.summary', source=req.source_username or t('common.unknown_user'), target=req.target_username or t('common.unknown_user')) }}
+        <span class="badge">{{ t('users.merge.status.' ~ req.status) }}</span>
+        <span class="small muted">{{ (req.completed_at or req.created_at)|datetime }}</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+{% endif %}
+</div>
+{% endblock %}

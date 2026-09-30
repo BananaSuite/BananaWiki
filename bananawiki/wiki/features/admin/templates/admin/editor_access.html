@@ -1,0 +1,33 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% from "admin/_categories.html" import category_list with context %}
+{% block title %}{{ t('admin.editor_access.title') }} · {{ target.username }}{% endblock %}
+{% block admin_content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.back') }}"><ol>
+  <li><a href="{{ url_for('admin.users') }}">{{ t('admin.users.title') }}</a></li>
+  <li><a href="{{ url_for('admin.user_detail', user_id=target.id) }}">{{ target.username }}</a></li>
+  <li>{{ t('admin.editor_access.title') }}</li>
+</ol></nav>
+<header class="page-header"><h1>{{ t('admin.editor_access.heading', username=target.username) }}</h1></header>
+{% if protection %}
+<div class="alert alert--warning"><div class="alert__body">{{ t(protection) }}</div></div>
+{% elif target.role != 'editor' %}
+<div class="alert"><div class="alert__body">{{ t('admin.editor_access.error.not_editor') }}</div></div>
+{% elif target.custom_role_id %}
+<div class="alert"><div class="alert__body">{{ t('admin.permissions.error.custom_role') }}</div></div>
+{% else %}
+<form method="post" class="card form">
+  {{ forms.csrf() }}
+  <p class="muted">{{ t('admin.editor_access.intro') }}</p>
+  <fieldset>
+    <legend>{{ t('admin.editor_access.mode') }}</legend>
+    <label class="check"><input type="radio" name="restricted" value="0"{% if not access.write_restricted %} checked{% endif %}> <span>{{ t('admin.editor_access.all') }}</span></label>
+    <label class="check"><input type="radio" name="restricted" value="1"{% if access.write_restricted %} checked{% endif %}> <span>{{ t('admin.editor_access.some') }}</span></label>
+  </fieldset>
+  <div data-reveal-for="restricted" data-reveal-values="1"{% if not access.write_restricted %} hidden{% endif %}>
+    {{ category_list('category_ids', access.write_ids, all_categories) }}
+  </div>
+  <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+</form>
+{% endif %}
+{% endblock %}

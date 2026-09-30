@@ -1,14 +1,9 @@
-"""
-WSGI entry point for BananaWiki.
+"""WSGI entry point kept at the repository root for ``gunicorn -c gunicorn.conf.py wsgi:app``.
 
-Usage with Gunicorn:
-    gunicorn wsgi:app -c gunicorn.conf.py
-
-Or with default settings:
-    gunicorn wsgi:app --bind 0.0.0.0:5001 --workers 2
+Managed servers and container images run exactly this command (the 1.4
+updater writes it into the systemd unit), so the name must not change.
 """
 
-from app import app  # noqa: F401
-from banana_ops.gate import MaintenanceGate
+from bananawiki.ops.wsgi import app, application
 
-app.wsgi_app = MaintenanceGate(app.wsgi_app)
+__all__ = ["app", "application"]

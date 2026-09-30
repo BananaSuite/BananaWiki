@@ -1,0 +1,16 @@
+{{ slot('sidebar.top') }}
+{% set apps = nav_items('apps') %}
+{% if apps %}
+<div>
+  <p class="sidebar__section-title">{{ t('nav.apps') }}</p>
+  <ul class="nav-list">
+    {% for item in apps %}
+    <li><a href="{{ item.url }}" {% if item.active %}aria-current="page"{% endif %}>
+      <span class="nav-label">{{ item.label }}</span>{% if item.badge %}<span class="count-pill">{{ item.badge }}</span>{% endif %}
+    </a></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+{{ slot('sidebar.navigation') }}
+{{ slot('sidebar.bottom') }}

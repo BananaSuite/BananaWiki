@@ -1,0 +1,17 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.admin.nav.merges') }}{% endblock %}
+{% block content %}
+<h1>{{ t('hosting.admin.nav.merges') }}</h1>
+{% include "hosting/admin/_nav.html" %}
+<p><a class="btn btn--small" href="{{ url_for('admin.merge_accounts') }}">{{ t('hosting.merges.admin_title') }}</a></p>
+{% for m in merges %}
+<div class="card"><p>{{ t('hosting.merges.summary', source=m.source_username, target=m.target_username) }} · <strong>{{ t('hosting.merges.status.' ~ m.status) }}</strong></p>
+{% if m.request_reason %}<p class="small">{{ m.request_reason }}</p>{% endif %}
+<p class="small muted">{{ t('hosting.merges.approvals', source=t('hosting.common.yes') if m.source_approved else t('hosting.common.no'), target=t('hosting.common.yes') if m.target_approved else t('hosting.common.no')) }}</p>
+{% if m.status in ('pending', 'approved') %}<div class="btn-row">
+  {% if m.status == 'approved' %}{{ ui.post(url_for('admin.execute_merge', merge_id=m.id), t('hosting.merges.execute'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}
+  {% else %}{{ ui.post(url_for('admin.approve_merge', merge_id=m.id), t('hosting.merges.force_approve'), 'btn btn--small btn--primary') }}{% endif %}
+  {{ ui.post(url_for('admin.deny_merge', merge_id=m.id), t('hosting.admin.deny')) }}{{ ui.post(url_for('admin.cancel_merge', merge_id=m.id), t('common.cancel')) }}</div>{% endif %}</div>
+{% else %}<p class="muted">{{ t('hosting.common.none') }}</p>{% endfor %}
+{% endblock %}

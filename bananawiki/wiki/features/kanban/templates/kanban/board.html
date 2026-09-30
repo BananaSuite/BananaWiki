@@ -1,0 +1,329 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ board.title }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('kanban.css', blueprint='kanban') }}">{% endblock %}
+{% block main_class %}main--wide{% endblock %}
+{% block content %}
+<nav class="breadcrumbs no-print" aria-label="{{ t('kanban.breadcrumbs') }}">
+  <ol><li><a href="{{ url_for('kanban.index') }}">{{ t('kanban.list.title') }}</a></li></ol>
+</nav>
+<header class="page-header kanban-header">
+  <h1 id="kanban-board-title">{{ board.title }}</h1>
+  <div class="page-header__actions">
+    {% if can_write %}
+    <button type="button" class="btn btn--small" data-dialog-open="kanban-edit-dialog">{{ t('kanban.board.edit') }}</button>
+    <button type="button" class="btn btn--small" id="kanban-bulk-toggle" aria-pressed="false">{{ t('kanban.bulk.toggle') }}</button>
+    {% endif %}
+    {% if can_export %}<a class="btn btn--small" href="{{ url_for('kanban.export', board_id=board.id) }}">{{ t('kanban.board.export') }}</a>{% endif %}
+    <button type="button" class="btn btn--small" id="kanban-archive-toggle" aria-expanded="false" aria-controls="kanban-archive">{{ t('kanban.board.archived_tickets') }} <span class="badge" id="kanban-archive-count">{{ data.state.archived_count }}</span></button>
+    <button type="button" class="btn btn--small" id="kanban-activity-toggle" aria-expanded="false" aria-controls="kanban-activity">{{ t('kanban.board.activity') }}</button>
+    <a class="btn btn--small" href="{{ url_for('kanban.board_history', board_id=board.id) }}">{{ t('kanban.board.history') }}</a>
+    <button type="button" class="btn btn--small" data-print>{{ t('kanban.board.print') }}</button>
+    {% if is_owner %}
+    <button type="button" class="btn btn--small" data-dialog-open="kanban-share-dialog">{{ t('kanban.board.sharing') }}</button>
+    {% if board.archived_at %}
+    {{ forms.post_button(url_for('kanban.restore', board_id=board.id), t('kanban.board.restore'), 'btn btn--small') }}
+    {% else %}
+    {{ forms.post_button(url_for('kanban.archive', board_id=board.id), t('kanban.board.archive'), 'btn btn--small', confirm=t('kanban.board.archive_confirm')) }}
+    {% endif %}
+    <button type="button" class="btn btn--small btn--danger" data-dialog-open="kanban-delete-dialog">{{ t('kanban.board.delete') }}</button>
+    {% endif %}
+  </div>
+  <div class="page-header__meta">
+    <span>{{ t('kanban.board.owner', username=board.creator_username or t('common.unknown_user')) }}</span>
+    <span>{{ t('kanban.visibility.' ~ (board.visibility or 'public')) }}</span>
+  </div>
+</header>
+{% if board.description %}<div class="kanban-description wiki-content" id="kanban-board-description">{{ board.description|markdown }}</div>{% endif %}
+
+{% if board.archived_at %}
+<div class="alert alert--info" role="status" id="kanban-archived-notice">{{ t('kanban.board.archived_notice', date=board.archived_at|date) }}{% if is_owner %} {{ t('kanban.board.archived_notice_owner') }}{% endif %}</div>
+{% endif %}
+<div class="alert alert--warning" id="kanban-offline" hidden role="status">{{ t('kanban.board.offline') }}</div>
+<p class="visually-hidden" id="kanban-live" aria-live="polite"></p>
+{% if can_write %}<p class="hint no-print">{{ t('kanban.board.keyboard_hint') }}</p>{% endif %}
+
+<section class="card kanban-activity no-print" id="kanban-activity" hidden aria-labelledby="kanban-activity-title">
+  <div class="card__header"><h2 id="kanban-activity-title">{{ t('kanban.board.activity') }}</h2></div>
+  <ol class="kanban-activity__list" id="kanban-activity-list"></ol>
+</section>
+
+<section class="card kanban-archive no-print" id="kanban-archive" hidden aria-labelledby="kanban-archive-title">
+  <div class="card__header"><h2 id="kanban-archive-title">{{ t('kanban.board.archived_tickets') }}</h2></div>
+  <p class="hint">{{ t('kanban.board.archived_hint') }}</p>
+  <ul class="kanban-archive__list" id="kanban-archive-list"></ul>
+</section>
+
+{% if can_write %}
+<section class="kanban-bulk card no-print" id="kanban-bulk" hidden aria-label="{{ t('kanban.bulk.toggle') }}">
+  <p class="kanban-bulk__count" id="kanban-bulk-count" aria-live="polite"></p>
+  <div class="kanban-bulk__actions">
+    <label class="kanban-bulk__control"><span>{{ t('kanban.bulk.move') }}</span><select id="kanban-bulk-column"></select></label>
+    <button type="button" class="btn btn--small" data-bulk="move">{{ t('kanban.bulk.apply') }}</button>
+    <label class="kanban-bulk__control"><span>{{ t('kanban.field.priority') }}</span>
+      <select id="kanban-bulk-priority">
+        {% for p in ('low', 'medium', 'high', 'critical') %}<option value="{{ p }}">{{ t('kanban.priority.' ~ p) }}</option>{% endfor %}
+      </select></label>
+    <button type="button" class="btn btn--small" data-bulk="priority">{{ t('kanban.bulk.apply') }}</button>
+    <label class="kanban-bulk__control"><span>{{ t('kanban.field.assignees') }}</span><select id="kanban-bulk-assignee"></select></label>
+    <button type="button" class="btn btn--small" data-bulk="assign">{{ t('kanban.bulk.apply') }}</button>
+    <label class="kanban-bulk__control"><span>{{ t('kanban.field.due_date') }}</span><input type="date" id="kanban-bulk-due"></label>
+    <button type="button" class="btn btn--small" data-bulk="due_date">{{ t('kanban.bulk.apply') }}</button>
+    <label class="kanban-bulk__control"><span>{{ t('kanban.field.color') }}</span><input type="color" id="kanban-bulk-color" value="#4caf50"></label>
+    <button type="button" class="btn btn--small" data-bulk="color">{{ t('kanban.bulk.apply') }}</button>
+    <button type="button" class="btn btn--small" data-bulk="clear_color">{{ t('kanban.bulk.clear_color') }}</button>
+    <button type="button" class="btn btn--small" data-bulk="archive">{{ t('kanban.bulk.archive') }}</button>
+    <button type="button" class="btn btn--small btn--danger" data-bulk="delete">{{ t('kanban.bulk.delete') }}</button>
+    <button type="button" class="btn btn--small btn--danger" data-bulk="delete_columns">{{ t('kanban.bulk.delete_columns') }}</button>
+  </div>
+</section>
+{% endif %}
+
+<form class="kanban-filter no-print" id="kanban-filter" role="search" aria-label="{{ t('kanban.filter.label') }}">
+  <div class="kanban-filter__field kanban-filter__field--search">
+    <label for="kanban-filter-q">{{ t('kanban.filter.search') }}</label>
+    <input type="search" id="kanban-filter-q" name="q" maxlength="200" autocomplete="off" placeholder="{{ t('kanban.filter.search_placeholder') }}" aria-describedby="kanban-filter-hint">
+  </div>
+  <div class="kanban-filter__field">
+    <label for="kanban-filter-who">{{ t('kanban.field.assignees') }}</label>
+    <select id="kanban-filter-who" name="who">
+      <option value="">{{ t('kanban.filter.anyone') }}</option>
+      {% if data.user_id %}<option value="me">{{ t('kanban.filter.me') }}</option>{% endif %}
+      <option value="none">{{ t('kanban.filter.unassigned') }}</option>
+    </select>
+  </div>
+  <div class="kanban-filter__field">
+    <label for="kanban-filter-label">{{ t('kanban.field.labels') }}</label>
+    <select id="kanban-filter-label" name="label"><option value="">{{ t('kanban.filter.any_label') }}</option></select>
+  </div>
+  <div class="kanban-filter__field">
+    <label for="kanban-filter-priority">{{ t('kanban.field.priority') }}</label>
+    <select id="kanban-filter-priority" name="priority">
+      <option value="">{{ t('kanban.filter.any_priority') }}</option>
+      {% for p in ('critical', 'high', 'medium', 'low') %}<option value="{{ p }}">{{ t('kanban.priority.' ~ p) }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="kanban-filter__field">
+    <label for="kanban-filter-due">{{ t('kanban.field.due_date') }}</label>
+    <select id="kanban-filter-due" name="due">
+      <option value="">{{ t('kanban.filter.any_due') }}</option>
+      {% for d in ('overdue', 'soon', 'week', 'none') %}<option value="{{ d }}">{{ t('kanban.filter.due.' ~ d) }}</option>{% endfor %}
+    </select>
+  </div>
+  <button type="button" class="btn btn--small" id="kanban-filter-clear" hidden>{{ t('kanban.filter.clear') }}</button>
+  <p class="kanban-filter__status" id="kanban-filter-status"></p>
+  <p class="visually-hidden" id="kanban-filter-hint">{{ t('kanban.filter.hint') }}</p>
+</form>
+
+<div class="kanban-view no-print">
+  <label for="kanban-lanes">{{ t('kanban.lanes.title') }}</label>
+  <select id="kanban-lanes" name="lanes"{% if can_write %} aria-describedby="kanban-lanes-hint"{% endif %}>
+    <option value="">{{ t('kanban.lanes.none') }}</option>
+    {% for lane in ('assignee', 'priority', 'label') %}<option value="{{ lane }}">{{ t('kanban.lanes.' ~ lane) }}</option>{% endfor %}
+  </select>
+  {% if can_write %}<span class="hint" id="kanban-lanes-hint">{{ t('kanban.lanes.hint') }}</span>{% endif %}
+</div>
+
+<div class="kanban-board" id="kanban-board" aria-label="{{ t('kanban.board.columns_label') }}"></div>
+<noscript>
+  <div class="kanban-board">
+    {% for column in data.state.columns %}
+    <section class="kanban-column"><h2 class="kanban-column__title">{{ column.title }}</h2>
+      <ul class="kanban-noscript">{% for ticket_id in column.tickets %}<li>{{ data.state.tickets[ticket_id|string].title }}</li>{% endfor %}</ul>
+    </section>
+    {% endfor %}
+  </div>
+</noscript>
+
+<dialog id="kanban-ticket-dialog" class="kanban-ticket-dialog" aria-labelledby="kanban-ticket-heading">
+  <div class="alert alert--info kanban-ticket-dialog__archived" id="kanban-ticket-archived" role="status" hidden></div>
+  <div class="kanban-ticket-dialog__head">
+    <h2 id="kanban-ticket-heading" class="visually-hidden">{{ t('kanban.ticket.heading') }}</h2>
+    <input type="text" id="kanban-ticket-title" class="kanban-ticket-dialog__title" maxlength="300" aria-label="{{ t('kanban.field.title') }}">
+    <button type="button" class="btn btn--ghost btn--icon" data-dialog-close aria-label="{{ t('common.close') }}">×</button>
+  </div>
+  <div class="kanban-ticket-dialog__body">
+    <div class="kanban-ticket-dialog__main">
+      <nav class="tabs" role="tablist" aria-label="{{ t('kanban.ticket.sections') }}">
+        <a href="#kanban-tab-description" role="tab" data-tab="description" aria-current="page">{{ t('kanban.field.description') }}</a>
+        <a href="#kanban-tab-comments" role="tab" data-tab="comments">{{ t('kanban.ticket.comments') }}</a>
+        <a href="#kanban-tab-attachments" role="tab" data-tab="attachments">{{ t('kanban.ticket.attachments') }}</a>
+        <a href="#kanban-tab-history" role="tab" data-tab="history">{{ t('kanban.ticket.history') }}</a>
+      </nav>
+      <section id="kanban-tab-description" role="tabpanel" data-panel="description">
+        <div class="wiki-content kanban-ticket-dialog__description" id="kanban-ticket-description"></div>
+        <div id="kanban-ticket-description-editor" hidden>
+          <textarea id="kanban-ticket-description-input" rows="10" maxlength="10000" aria-label="{{ t('kanban.field.description') }}"></textarea>
+          <p class="hint">{{ t('kanban.ticket.description_hint') }}</p>
+          <div class="btn-row">
+            <button type="button" class="btn btn--primary btn--small" id="kanban-ticket-description-save">{{ t('common.save') }}</button>
+            <button type="button" class="btn btn--small" id="kanban-ticket-description-cancel">{{ t('common.cancel') }}</button>
+          </div>
+        </div>
+        <button type="button" class="btn btn--small" id="kanban-ticket-description-edit" hidden>{{ t('kanban.ticket.edit_description') }}</button>
+        <section class="kanban-checklist" aria-labelledby="kanban-checklist-heading">
+          <h3 id="kanban-checklist-heading" class="kanban-checklist__heading">{{ t('kanban.ticket.checklist') }} <span class="small muted" id="kanban-checklist-progress"></span></h3>
+          <progress id="kanban-checklist-bar" class="kanban-checklist__bar" max="1" value="0" hidden aria-labelledby="kanban-checklist-heading"></progress>
+          <ul class="kanban-checklist__items" id="kanban-ticket-checklist"></ul>
+          <form id="kanban-checklist-form" class="kanban-checklist__add" hidden>
+            <label class="visually-hidden" for="kanban-checklist-input">{{ t('kanban.ticket.checklist_new') }}</label>
+            <input type="text" id="kanban-checklist-input" maxlength="300" required placeholder="{{ t('kanban.ticket.checklist_new') }}">
+            <button type="submit" class="btn btn--small">{{ t('kanban.ticket.checklist_add') }}</button>
+          </form>
+        </section>
+      </section>
+      <section id="kanban-tab-comments" role="tabpanel" data-panel="comments" hidden>
+        <ol class="kanban-comments" id="kanban-ticket-comments"></ol>
+        <form id="kanban-comment-form" class="form" hidden>
+          <label class="visually-hidden" for="kanban-comment-input">{{ t('kanban.ticket.new_comment') }}</label>
+          <textarea id="kanban-comment-input" rows="3" maxlength="2000" placeholder="{{ t('kanban.ticket.new_comment') }}" required></textarea>
+          <div class="btn-row"><button type="submit" class="btn btn--primary btn--small">{{ t('kanban.ticket.add_comment') }}</button></div>
+        </form>
+      </section>
+      <section id="kanban-tab-attachments" role="tabpanel" data-panel="attachments" hidden>
+        <ul class="kanban-files" id="kanban-ticket-attachments"></ul>
+        <div id="kanban-upload" hidden>
+          <label class="btn btn--small" for="kanban-upload-input">{{ t('kanban.ticket.upload') }}</label>
+          <input type="file" id="kanban-upload-input" class="visually-hidden">
+        </div>
+      </section>
+      <section id="kanban-tab-history" role="tabpanel" data-panel="history" hidden>
+        <ul class="kanban-history" id="kanban-ticket-history"></ul>
+        <div class="diff" id="kanban-ticket-diff" hidden></div>
+      </section>
+    </div>
+    <aside class="kanban-ticket-dialog__side">
+      <div class="field"><label for="kanban-ticket-column">{{ t('kanban.field.column') }}</label><select id="kanban-ticket-column"></select></div>
+      <div class="field"><label for="kanban-ticket-priority">{{ t('kanban.field.priority') }}</label>
+        <select id="kanban-ticket-priority">
+          {% for p in ('low', 'medium', 'high', 'critical') %}<option value="{{ p }}">{{ t('kanban.priority.' ~ p) }}</option>{% endfor %}
+        </select></div>
+      <fieldset class="kanban-assignees"><legend>{{ t('kanban.field.assignees') }}</legend><div id="kanban-ticket-assignees"></div></fieldset>
+      <div class="field"><label for="kanban-ticket-due">{{ t('kanban.field.due_date') }}</label><input type="date" id="kanban-ticket-due"></div>
+      <div class="field"><label for="kanban-ticket-labels">{{ t('kanban.field.labels') }}</label>
+        <input type="text" id="kanban-ticket-labels" maxlength="400" aria-describedby="kanban-ticket-labels-hint">
+        <p class="hint" id="kanban-ticket-labels-hint">{{ t('kanban.ticket.labels_hint') }}</p></div>
+      <div class="field"><label for="kanban-ticket-color">{{ t('kanban.field.color') }}</label>
+        <div class="input-group"><input type="color" id="kanban-ticket-color" value="#4caf50">
+          <button type="button" class="btn btn--small" id="kanban-ticket-color-clear">{{ t('kanban.ticket.no_color') }}</button></div></div>
+      <p class="small muted" id="kanban-ticket-created"></p>
+      <div class="btn-row">
+        <button type="button" class="btn btn--primary btn--small" id="kanban-ticket-save">{{ t('common.save') }}</button>
+        <button type="button" class="btn btn--small" id="kanban-ticket-archive" hidden>{{ t('kanban.ticket.archive') }}</button>
+        <button type="button" class="btn btn--small" id="kanban-ticket-restore" hidden>{{ t('kanban.ticket.restore') }}</button>
+        <button type="button" class="btn btn--danger btn--small" id="kanban-ticket-delete">{{ t('common.delete') }}</button>
+      </div>
+    </aside>
+  </div>
+</dialog>
+
+{% if can_write %}
+<dialog id="kanban-edit-dialog" aria-labelledby="kanban-edit-title">
+  <h2 id="kanban-edit-title">{{ t('kanban.board.edit') }}</h2>
+  <form class="form" method="post" action="{{ url_for('kanban.edit', board_id=board.id) }}">
+    {{ forms.csrf() }}
+    {{ forms.field('title', t('kanban.field.title'), board.title, required=true, attrs={'maxlength': 200}) }}
+    {{ forms.textarea('description', t('kanban.field.description'), board.description, rows=4) }}
+    <div class="btn-row btn-row--end">
+      <button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button>
+      <button type="submit" class="btn btn--primary">{{ t('common.save') }}</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
+
+{% if is_owner %}
+<dialog id="kanban-delete-dialog" aria-labelledby="kanban-delete-title">
+  <h2 id="kanban-delete-title">{{ t('kanban.board.delete_title') }}</h2>
+  <p>{{ t('kanban.board.delete_body', title=board.title) }}</p>
+  <form method="post" action="{{ url_for('kanban.delete', board_id=board.id) }}" class="btn-row btn-row--end">
+    {{ forms.csrf() }}
+    <button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button>
+    <button type="submit" class="btn btn--danger">{{ t('kanban.board.delete') }}</button>
+  </form>
+</dialog>
+
+<dialog id="kanban-share-dialog" class="kanban-share-dialog" aria-labelledby="kanban-share-title">
+  <h2 id="kanban-share-title">{{ t('kanban.board.sharing') }}</h2>
+  {% set share_url = url_for('kanban.share', board_id=board.id) %}
+  <form class="form" method="post" action="{{ share_url }}">
+    {{ forms.csrf() }}<input type="hidden" name="action" value="set_visibility">
+    {{ forms.select('visibility', t('kanban.field.visibility'), [('public', t('kanban.visibility.public')), ('shared', t('kanban.visibility.shared')), ('private', t('kanban.visibility.private'))], board.visibility or 'public', t('kanban.share.visibility_hint')) }}
+    <div class="btn-row"><button type="submit" class="btn btn--small">{{ t('common.save') }}</button></div>
+  </form>
+
+  <h3>{{ t('kanban.share.current') }}</h3>
+  {% if shares %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('kanban.share.target') }}</th><th>{{ t('kanban.share.access') }}</th><th><span class="visually-hidden">{{ t('common.actions') }}</span></th></tr></thead>
+    <tbody>
+    {% for share in shares %}
+    <tr>
+      <td>{% if share.share_type == 'user' %}{{ share.username or t('common.unknown_user') }}{% else %}{{ t('kanban.role.' ~ share.target) }}{% endif %}</td>
+      <td>{{ t('kanban.share.level.' ~ share.access_level) }}</td>
+      <td class="actions">
+        {% if share.share_type == 'user' %}
+        {{ forms.post_button(share_url, t('kanban.share.remove'), 'btn btn--small', hidden={'action': 'remove_user', 'user_id': share.target}) }}
+        {% else %}
+        {{ forms.post_button(share_url, t('kanban.share.remove'), 'btn btn--small', hidden={'action': 'remove_role', 'role': share.target}) }}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">{{ t('kanban.share.none') }}</p>
+  {% endif %}
+
+  {% set levels = [('view', t('kanban.share.level.view')), ('write', t('kanban.share.level.write'))] %}
+  <h3>{{ t('kanban.share.add_user') }}</h3>
+  <form class="form-grid" method="post" action="{{ share_url }}">
+    {{ forms.csrf() }}<input type="hidden" name="action" value="add_user">
+    <div class="field"><label for="kanban-share-user">{{ t('kanban.share.user') }}</label>
+      <select id="kanban-share-user" name="user_id" required>
+        <option value="">{{ t('kanban.share.choose_user') }}</option>
+        {% for u in share_users %}<option value="{{ u.id }}">{{ u.username }} ({{ t('kanban.role.' ~ u.role) }})</option>{% endfor %}
+      </select></div>
+    {{ forms.select('access_level', t('kanban.share.access'), levels) }}
+    <div class="btn-row"><button type="submit" class="btn btn--small">{{ t('kanban.share.add') }}</button></div>
+  </form>
+
+  {% if shareable_roles %}
+  <h3>{{ t('kanban.share.add_role') }}</h3>
+  <form class="form-grid" method="post" action="{{ share_url }}">
+    {{ forms.csrf() }}<input type="hidden" name="action" value="add_role">
+    <div class="field"><label for="kanban-share-role">{{ t('kanban.share.role') }}</label>
+      <select id="kanban-share-role" name="role">
+        {% for role in shareable_roles %}<option value="{{ role }}">{{ t('kanban.role.' ~ role) }}</option>{% endfor %}
+      </select>
+      <p class="hint">{{ t('kanban.share.role_hint') }}</p></div>
+    {{ forms.select('access_level', t('kanban.share.access'), levels) }}
+    <div class="btn-row"><button type="submit" class="btn btn--small">{{ t('kanban.share.add') }}</button></div>
+  </form>
+  {% endif %}
+
+  <h3>{{ t('kanban.share.transfer') }}</h3>
+  <form class="form" method="post" action="{{ share_url }}" data-confirm="{{ t('kanban.share.transfer_confirm') }}">
+    {{ forms.csrf() }}<input type="hidden" name="action" value="transfer_ownership">
+    <div class="field"><label for="kanban-transfer-user">{{ t('kanban.share.new_owner') }}</label>
+      <select id="kanban-transfer-user" name="user_id" required>
+        <option value="">{{ t('kanban.share.choose_user') }}</option>
+        {% for u in share_users if u.id != board.created_by %}<option value="{{ u.id }}">{{ u.username }}</option>{% endfor %}
+      </select></div>
+    <div class="btn-row"><button type="submit" class="btn btn--small btn--danger">{{ t('kanban.share.transfer') }}</button></div>
+  </form>
+  <div class="btn-row btn-row--end"><button type="button" class="btn" data-dialog-close>{{ t('common.close') }}</button></div>
+</dialog>
+{% endif %}
+
+<script type="application/json" id="kanban-data">{{ data|json_script }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="{{ asset_url('kanban-board.js', blueprint='kanban') }}" defer></script>
+<script src="{{ asset_url('kanban-filter.js', blueprint='kanban') }}" defer></script>
+<script src="{{ asset_url('kanban-lanes.js', blueprint='kanban') }}" defer></script>
+<script src="{{ asset_url('kanban-archive.js', blueprint='kanban') }}" defer></script>
+<script src="{{ asset_url('kanban-ticket.js', blueprint='kanban') }}" defer></script>
+{% if can_write %}<script src="{{ asset_url('kanban-bulk.js', blueprint='kanban') }}" defer></script>{% endif %}
+{% endblock %}

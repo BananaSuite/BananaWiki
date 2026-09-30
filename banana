@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
-"""Managed server lifecycle entry point."""
+"""Managed server lifecycle: ``sudo ./banana install --mode wiki`` (see bananawiki/ops).
 
-from banana_ops.cli import main
+Runs with the system Python and the standard library only; the installed
+``/usr/local/bin/<service>`` wrapper executes the current release's copy.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from bananawiki.ops.cli import main  # noqa: E402
 
 if __name__ == "__main__":
     raise SystemExit(main())

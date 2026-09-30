@@ -1,0 +1,28 @@
+/* Portal additions on top of the BananaWiki design system (bananawiki.css). */
+.hosting-topbar { position: sticky; top: 0; z-index: 50; min-height: var(--topbar-height); flex-wrap: wrap; }
+.hosting-nav { flex-wrap: wrap; gap: .6rem; }
+.hosting-nav a { color: var(--bw-text); font-weight: 550; }
+.hosting-nav a[aria-current="page"] { color: var(--bw-accent); }
+.hosting-lang { width: auto; min-height: 2rem; padding: .2rem .4rem; }
+.hosting-main { padding-top: 1.5rem; }
+.content-column.wide { max-width: 1240px; }
+.hosting-num { width: 5.5rem; }
+.hosting-banner { display: flex; gap: .5rem; justify-content: center; align-items: center; }
+.hosting-banner--red { background: var(--danger-bg); }
+.hosting-banner--orange, .hosting-banner--yellow { background: var(--warning-bg); }
+.hosting-banner--blue { background: var(--info-bg); }
+.hosting-banner--green { background: var(--success-bg); }
+.secret-box { font-family: var(--font-mono); font-size: 1.05rem; padding: .6rem .8rem; background: var(--surface-2);
+  border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.qr { background: #fff; padding: .5rem; border-radius: var(--radius-sm); width: 220px; height: 220px; }
+.kv { display: grid; grid-template-columns: minmax(8rem, max-content) 1fr; gap: .35rem 1rem; margin: 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.bars { display: flex; align-items: flex-end; gap: 2px; height: 140px; border-bottom: 1px solid var(--border); }
+.bars span { flex: 1; background: var(--bw-primary); min-height: 1px; }
+.nav-attention { display: inline-flex; align-items: center; gap: .35rem; }
+.nav-attention .attention-dot { position: static; box-shadow: none; }
+.banner--notice { display: flex; gap: .5rem; justify-content: center; align-items: center; }
+details.card > summary { cursor: pointer; font-weight: 650; }
+details.card[open] > summary { margin-bottom: .8rem; }
+@media (max-width: 600px) { .kv { grid-template-columns: 1fr; } .hosting-nav { width: 100%; } }

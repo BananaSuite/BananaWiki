@@ -1,0 +1,187 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ target.username }}{% endblock %}
+{% block admin_content %}
+{% set edit_url = url_for('admin.edit_user', user_id=target.id) %}
+{% set locked = protection is not none %}
+<nav class="breadcrumbs" aria-label="{{ t('common.back') }}"><ol>
+  <li><a href="{{ url_for('admin.users') }}">{{ t('admin.users.title') }}</a></li><li>{{ target.username }}</li>
+</ol></nav>
+<header class="page-header">
+  <h1>{{ target.username }}</h1>
+  <div class="page-header__actions">
+    {% if profile_url %}<a class="btn" href="{{ profile_url }}">{{ t('admin.users.profile') }}</a>{% endif %}
+    <a class="btn" href="{{ url_for('admin.user_audit', user_id=target.id) }}">{{ t('admin.audit.title') }}</a>
+    {% if target.role in ('user', 'editor') %}
+    <a class="btn" href="{{ url_for('admin.user_permissions', user_id=target.id) }}">{{ t('admin.permissions.title') }}</a>
+    {% endif %}
+    {% if target.role == 'editor' and not target.custom_role_id %}
+    <a class="btn" href="{{ url_for('admin.editor_access', user_id=target.id) }}">{{ t('admin.editor_access.title') }}</a>
+    {% endif %}
+    {% if not impersonation and not impersonating %}
+    {{ forms.post_button(url_for('admin.impersonate', user_id=target.id), t('admin.impersonate.start'), 'btn', confirm=t('admin.impersonate.confirm', username=target.username)) }}
+    {% endif %}
+  </div>
+</header>
+
+{% if locked %}
+<div class="alert alert--warning"><div class="alert__body">{{ t(protection) }}</div></div>
+{% endif %}
+
+<section class="card">
+  <dl class="definition-list">
+    <dt>{{ t('admin.users.col.role') }}</dt>
+    <dd><span class="badge">{{ t('admin.role.' ~ target.role) }}</span>
+      {% if custom_role %}<a class="badge badge--primary" href="{{ url_for('admin.edit_role', role_id=custom_role.id) }}">{{ custom_role.name }}</a>{% endif %}
+      {% if target.is_superuser %}<span class="badge badge--primary">{{ t('admin.users.superuser') }}</span>{% endif %}</dd>
+    <dt>{{ t('common.status') }}</dt>
+    <dd>
+      {% if target.suspended %}<span class="badge badge--danger">{{ t('admin.users.status.suspended') }}</span>
+        {% if target.suspended_until %}{{ t('admin.suspend.until', when=target.suspended_until|datetime) }}{% else %}{{ t('admin.suspend.permanent') }}{% endif %}
+        {% if target.suspend_reason %}<br><span class="muted">{{ t('admin.suspend.reason') }}: {{ target.suspend_reason }}</span>{% endif %}
+      {% else %}<span class="badge badge--success">{{ t('admin.users.status.active') }}</span>{% endif %}
+    </dd>
+    <dt>{{ t('admin.users.col.approval') }}</dt>
+    <dd>{{ t('admin.approval.state.' ~ (target.approval_status or 'approved')) }}{% if target.approved_denied_at %} · {{ target.approved_denied_at|datetime }}{% endif %}</dd>
+    <dt>{{ t('common.created') }}</dt><dd>{{ target.created_at|datetime }}</dd>
+    <dt>{{ t('admin.users.col.last_login') }}</dt><dd>{{ target.last_login_at|datetime if target.last_login_at else t('common.never') }}</dd>
+    {% if target.invite_code %}<dt>{{ t('admin.users.invite_code') }}</dt><dd class="mono">{{ target.invite_code }}</dd>{% endif %}
+    <dt>{{ t('admin.users.contributions') }}</dt><dd>{{ contributions }}</dd>
+    <dt>{{ t('admin.users.chat') }}</dt><dd>{{ t('common.disabled') if target.chat_disabled else t('common.enabled') }}</dd>
+  </dl>
+</section>
+
+{% if target.approval_status == 'pending' %}
+<section class="card">
+  <h2>{{ t('admin.approval.title') }}</h2>
+  <p>{{ t('admin.approval.pending_body') }}</p>
+  <div class="btn-row">
+    {{ forms.post_button(edit_url, t('admin.approval.approve'), 'btn btn--primary', hidden={'action': 'approve_user'}) }}
+    {{ forms.post_button(edit_url, t('admin.approval.deny'), 'btn btn--danger', confirm=t('admin.approval.deny_confirm', username=target.username), hidden={'action': 'deny_user'}) }}
+  </div>
+</section>
+{% endif %}
+
+{% if not locked %}
+<section class="card">
+  <h2>{{ t('admin.users.role_title') }}</h2>
+  {% if is_self and target.role != 'owner' %}
+  <p class="muted">{{ t('admin.users.error.own_role') }}</p>
+  {% else %}
+  <form method="post" action="{{ url_for('admin.assign_role', user_id=target.id) }}" class="form">
+    {{ forms.csrf() }}
+    <div class="field">
+      <label for="f-identity">{{ t('admin.users.col.role') }}</label>
+      <select id="f-identity" name="identity">
+        <optgroup label="{{ t('admin.users.standard_roles') }}">
+          {% for role in ('user', 'editor', 'admin', 'owner') %}
+          {% if role != 'owner' or can_grant_owner %}
+          <option value="std:{{ role }}"{% if target.role == role and not target.custom_role_id %} selected{% endif %}>{{ t('admin.role.' ~ role) }}</option>
+          {% endif %}
+          {% endfor %}
+        </optgroup>
+        {% if custom_roles and target.role in ('user', 'editor') %}
+        <optgroup label="{{ t('admin.roles.title') }}">
+          {% for role in custom_roles %}
+          <option value="custom:{{ role.id }}"{% if target.custom_role_id == role.id %} selected{% endif %}>{{ role.name }} ({{ t('admin.role.' ~ role.base_role) }})</option>
+          {% endfor %}
+        </optgroup>
+        {% endif %}
+      </select>
+      <p class="hint">{{ t('admin.users.role_hint') }}</p>
+    </div>
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+  </form>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>{{ t('admin.users.rename') }}</h2>
+  <form method="post" action="{{ edit_url }}" class="form">
+    {{ forms.csrf() }}<input type="hidden" name="action" value="change_username">
+    {{ forms.field('username', t('auth.field.username'), target.username, required=true, hint=t('auth.hint.username'), attrs={'maxlength': 50}) }}
+    <div class="btn-row"><button class="btn" type="submit">{{ t('common.save') }}</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>{{ t('admin.password.title') }}</h2>
+  <form method="post" action="{{ edit_url }}" class="form">
+    {{ forms.csrf() }}<input type="hidden" name="action" value="change_password">
+    {{ forms.field('password', t('auth.field.new_password'), type='password', required=true, hint=t('auth.hint.password'), attrs={'autocomplete': 'new-password', 'maxlength': 1024}) }}
+    {{ forms.field('confirm_password', t('auth.field.confirm_password'), type='password', required=true, attrs={'autocomplete': 'new-password', 'maxlength': 1024}) }}
+    {% if not is_self %}{{ forms.checkbox('force_password_change', t('admin.password.require_change'), checked=true) }}{% endif %}
+    {{ forms.checkbox('keep_original', t('admin.password.keep_original'), hint=t('admin.password.keep_original_hint')) }}
+    <p class="hint">{{ t('admin.password.signs_out') }}</p>
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('admin.password.submit') }}</button></div>
+  </form>
+  {% if target.original_password_backup %}
+  <p>{{ t('admin.password.backup_exists') }}</p>
+  {{ forms.post_button(edit_url, t('admin.password.restore'), 'btn', confirm=t('common.are_you_sure'), hidden={'action': 'revert_password'}) }}
+  {% endif %}
+</section>
+
+{% if not is_self %}
+<section class="card">
+  <h2>{{ t('admin.suspend.title') }}</h2>
+  {% if target.suspended %}
+  {{ forms.post_button(edit_url, t('admin.suspend.lift'), 'btn btn--primary', hidden={'action': 'unsuspend'}) }}
+  {% else %}
+  <form method="post" action="{{ edit_url }}" class="form">
+    {{ forms.csrf() }}<input type="hidden" name="action" value="suspend">
+    <div class="field">
+      <label for="f-suspend_duration">{{ t('admin.suspend.duration') }}</label>
+      <select id="f-suspend_duration" name="suspend_duration">
+        <option value="permanent">{{ t('admin.suspend.permanent') }}</option>
+        {% for value, hours in presets.items() %}<option value="{{ value }}">{{ t('admin.suspend.hours', count=hours) }}</option>{% endfor %}
+        <option value="custom_relative">{{ t('admin.suspend.custom_relative') }}</option>
+        <option value="custom_datetime">{{ t('admin.suspend.custom_datetime') }}</option>
+      </select>
+    </div>
+    <div class="form-grid" data-reveal-for="suspend_duration" data-reveal-values="custom_relative" hidden>
+      {{ forms.field('suspend_rel_hours', t('admin.suspend.rel_hours'), '0', type='number', attrs={'min': 0}) }}
+      {{ forms.field('suspend_rel_minutes', t('admin.suspend.rel_minutes'), '0', type='number', attrs={'min': 0, 'max': 59}) }}
+    </div>
+    <div data-reveal-for="suspend_duration" data-reveal-values="custom_datetime" hidden>
+      {{ forms.field('suspend_custom_datetime', t('admin.suspend.end'), type='datetime-local', hint=t('admin.site_time_hint')) }}
+    </div>
+    {{ forms.textarea('suspend_reason', t('admin.suspend.reason'), rows=3, hint=t('admin.suspend.reason_hint')) }}
+    {{ forms.checkbox('suspend_reason_visible', t('admin.suspend.reason_visible')) }}
+    {{ forms.checkbox('suspend_time_visible', t('admin.suspend.time_visible')) }}
+    <p class="hint">{{ t('admin.suspend.signs_out') }}</p>
+    <div class="btn-row"><button class="btn btn--danger" type="submit">{{ t('admin.suspend.submit') }}</button></div>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>{{ t('admin.users.chat') }}</h2>
+  {{ forms.post_button(url_for('admin.toggle_chat', user_id=target.id), t('admin.users.chat_enable') if target.chat_disabled else t('admin.users.chat_disable'), 'btn') }}
+</section>
+{% endif %}
+
+{% if actor_superuser and not is_self %}
+<section class="card">
+  <h2>{{ t('admin.users.superuser') }}</h2>
+  <p class="muted">{{ t('admin.users.superuser_hint') }}</p>
+  {{ forms.post_button(edit_url, t('admin.users.superuser_revoke') if target.is_superuser else t('admin.users.superuser_grant'), 'btn', confirm=t('common.are_you_sure'), hidden={'action': 'toggle_superuser'}) }}
+</section>
+{% endif %}
+
+<section class="card">
+  <div class="card__header">
+    <h2>{{ t('admin.sessions.title') }}</h2>
+    {% if sessions and not locked %}{{ forms.post_button(url_for('admin.revoke_sessions', user_id=target.id), t('admin.sessions.revoke_all'), 'btn btn--small btn--danger', confirm=t('common.are_you_sure')) }}{% endif %}
+  </div>
+  {% include "admin/_sessions_table.html" %}
+</section>
+
+{% if not locked and not is_self %}
+<section class="card danger-zone">
+  <h2>{{ t('admin.users.delete_title') }}</h2>
+  <p>{{ t('admin.users.delete_body') }}</p>
+  {{ forms.post_button(edit_url, t('admin.users.delete'), 'btn btn--danger', confirm=t('admin.users.delete_confirm', username=target.username), hidden={'action': 'delete'}) }}
+</section>
+{% endif %}
+{% endblock %}

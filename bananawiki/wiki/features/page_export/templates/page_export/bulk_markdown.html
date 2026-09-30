@@ -1,0 +1,39 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('page_export.bulk.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('page_export.bulk.title') }}</h1></header>
+<section class="card" aria-labelledby="bulk-import-h">
+  <h2 id="bulk-import-h">{{ t('page_export.bulk.import_title') }}</h2>
+  <ul class="small">
+    <li>{{ t('page_export.bulk.bullet.formats', limit=max_files) }}</li>
+    <li>{{ t('page_export.bulk.bullet.title') }}</li>
+    <li>{{ t('page_export.bulk.bullet.categories') }}</li>
+    <li>{{ t('page_export.bulk.bullet.assets') }}</li>
+  </ul>
+  <form method="post" action="{{ url_for('page_export.bulk_import') }}" enctype="multipart/form-data" class="form">
+    {{ forms.csrf() }}
+    <div class="field">
+      <label for="bulk-files">{{ t('page_export.bulk.files') }}</label>
+      <input id="bulk-files" type="file" name="import_file" accept=".md,.markdown,.zip" multiple required>
+    </div>
+    <fieldset class="field">
+      <legend>{{ t('page_export.bulk.existing') }}</legend>
+      {% for mode in modes %}
+      <label class="check"><input type="radio" name="mode" value="{{ mode }}"{% if mode == 'skip' %} checked{% endif %}>
+        <span>{{ t('page_export.bulk.mode.' ~ mode) }}</span></label>
+      {% endfor %}
+    </fieldset>
+    {{ forms.checkbox('attribute_to_me', t('page_export.bulk.attribute_to_me'), hint=t('page_export.bulk.attribute_hint')) }}
+    <div class="btn-row"><button class="btn btn--primary">{{ t('page_export.bulk.import_button') }}</button></div>
+  </form>
+</section>
+<section class="card" aria-labelledby="bulk-export-h">
+  <h2 id="bulk-export-h">{{ t('page_export.bulk.export_title') }}</h2>
+  <p class="hint">{{ t('page_export.bulk.export_intro') }}</p>
+  <form method="post" action="{{ url_for('page_export.bulk_export') }}">
+    {{ forms.csrf() }}
+    <button class="btn">{{ t('page_export.bulk.export_button') }}</button>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% import "chat/_macros.html" as ui with context %}
+{% block title %}{{ name }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('chat.css', blueprint='chat') }}">{% endblock %}
+{% macro action(endpoint, label, user_id, cls='btn btn--small', confirm='', extra={}) -%}
+<form class="inline" method="post" action="{{ url_for(endpoint, group_id=group.id) }}"{% if confirm %} data-confirm="{{ confirm }}"{% endif %}>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% if user_id %}<input type="hidden" name="user_id" value="{{ user_id }}">{% endif %}
+  {% for key, val in extra.items() %}<input type="hidden" name="{{ key }}" value="{{ val }}">{% endfor %}
+  <button type="submit" class="{{ cls }}">{{ label }}</button>
+</form>
+{%- endmacro %}
+{% block content %}
+<header class="page-header">
+  <h1>{{ name }}</h1>
+  <div class="page-header__actions">
+    <a class="btn btn--small" href="{{ url_for('chat.group_list') }}">{{ t('common.back') }}</a>
+    {% if actor.can_manage %}<a class="btn btn--small" href="{{ url_for('chat.group_export', group_id=group.id) }}">{{ t('chat.export.button') }}</a>{% endif %}
+    {% if actor.admin or actor.is_moderator %}
+    {{ action('chat.group_clear', t('chat.clear.button'), None, 'btn btn--small btn--danger',
+              t('chat.clear.group_confirm', messages=counts[0], attachments=counts[1])) }}
+    {% endif %}
+  </div>
+  {% if group.description %}<p class="page-header__meta">{{ group.description }}</p>{% endif %}
+</header>
+
+{% if group.is_global and not group.is_active %}
+<div class="alert alert--warning"><div class="alert__body">{{ t('chat.groups.global_paused') }}</div></div>
+{% endif %}
+{% if actor.admin and not actor.is_member %}
+<div class="alert"><div class="alert__body">{{ t('chat.groups.admin_override') }}</div></div>
+{% endif %}
+{% if timed_out %}
+<div class="alert alert--warning"><div class="alert__body">
+  {% if indefinite(actor.membership.timed_out_until) %}{{ t('chat.groups.timed_out_indefinitely') }}
+  {% else %}{{ t('chat.groups.timed_out_until', when=actor.membership.timed_out_until|datetime) }}
+  <span data-chat-countdown="{{ actor.membership.timed_out_until }}"></span>{% endif %}
+</div></div>
+{% endif %}
+{{ ui.retention_notice(retention) }}
+
+<details class="card chat-panel">
+  <summary>{{ t('chat.groups.info_members', count=members|length) }}</summary>
+  <div class="stack">
+    {% if not group.is_global and (actor.is_member or actor.admin) %}
+    <p>{{ t('chat.groups.invite_code') }}: <code class="mono">{{ group.invite_code }}</code>
+      <button type="button" class="btn btn--ghost btn--small" data-copy="{{ group.invite_code }}">{{ t('chat.groups.copy') }}</button></p>
+    {% if actor.can_manage %}
+    <form class="cluster" method="post" action="{{ url_for('chat.group_regenerate_code', group_id=group.id) }}" data-confirm="{{ t('chat.groups.regenerate_confirm') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="visually-hidden" for="custom-code">{{ t('chat.groups.custom_code') }}</label>
+      <input id="custom-code" name="custom_code" maxlength="32" minlength="6" pattern="[A-Za-z0-9]{6,32}" placeholder="{{ t('chat.groups.custom_code') }}" autocomplete="off">
+      <button class="btn btn--small" type="submit">{{ t('chat.groups.regenerate') }}</button>
+    </form>
+    {% endif %}
+    {% endif %}
+
+    {% if actor.admin or actor.is_moderator %}
+    <form class="cluster" method="post" action="{{ url_for('chat.group_add_member', group_id=group.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="visually-hidden" for="add-member">{{ t('chat.dm.username') }}</label>
+      <input id="add-member" name="username" required maxlength="50" autocomplete="off" list="chat-user-suggestions"
+             placeholder="{{ t('chat.dm.username') }}" data-user-suggest="{{ url_for('chat.user_suggestions') }}">
+      <datalist id="chat-user-suggestions"></datalist>
+      <button class="btn btn--small" type="submit">{{ t('chat.groups.add_member') }}</button>
+    </form>
+    {% endif %}
+
+    <div class="cluster">
+      {% if actor.admin and not actor.is_owner %}{{ action('chat.group_admin_takeover', t('chat.groups.take_over'), None, 'btn btn--small', t('chat.groups.take_over_confirm')) }}{% endif %}
+      {% if group.is_global and actor.admin %}
+      {{ action('chat.group_toggle_active', t('chat.groups.reactivate') if not group.is_active else t('chat.groups.deactivate'), None) }}
+      {% endif %}
+      {% if not group.is_global and actor.can_manage %}{{ action('chat.group_delete', t('chat.groups.delete'), None, 'btn btn--small btn--danger', t('chat.groups.delete_confirm', name=group.name)) }}{% endif %}
+      {% if actor.role == 'moderator' %}{{ action('chat.group_self_downgrade', t('chat.groups.step_down'), None, 'btn btn--small', t('chat.groups.step_down_confirm')) }}{% endif %}
+      {% if actor.is_member and not (actor.is_owner and not group.is_global) %}{{ action('chat.group_leave', t('chat.groups.leave'), None, 'btn btn--small btn--danger', t('chat.groups.leave_confirm')) }}{% endif %}
+    </div>
+
+    {% if actor.can_moderate %}<p class="small muted">{{ t('chat.groups.moderation_help') }}</p>{% endif %}
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>{{ t('chat.groups.col.user') }}</th><th>{{ t('chat.groups.col.role') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>
+        <tbody>
+        {% for m in members %}
+          <tr>
+            <td>{{ m.username }}</td>
+            <td>{{ t('chat.groups.role.' ~ m.role) }}
+              {% if m.timed_out_until and is_future(m.timed_out_until) %}<span class="badge badge--warning">{{ t('chat.groups.muted') }}</span>{% endif %}</td>
+            <td class="actions">
+            {% if m.user_id != actor.user.id %}
+              {% if actor.can_manage and m.role == 'member' %}{{ action('chat.group_promote', t('chat.groups.promote'), m.user_id) }}{% endif %}
+              {% if actor.can_manage and m.role == 'moderator' %}{{ action('chat.group_demote', t('chat.groups.demote'), m.user_id) }}{% endif %}
+              {% if actor.is_owner and not group.is_global %}{{ action('chat.group_transfer', t('chat.groups.transfer'), m.user_id, confirm=t('chat.groups.transfer_confirm', user=m.username)) }}{% endif %}
+              {% if actor.can_moderate and m.role != 'owner' and (actor.admin or actor.is_owner or m.role == 'member') %}
+                {% if m.timed_out_until and is_future(m.timed_out_until) %}
+                {{ action('chat.group_untimeout', t('chat.groups.unmute'), m.user_id) }}
+                {% else %}
+                <form class="inline" method="post" action="{{ url_for('chat.group_timeout', group_id=group.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="user_id" value="{{ m.user_id }}">
+                  <label class="visually-hidden" for="duration-{{ loop.index }}">{{ t('chat.groups.duration') }}</label>
+                  <select id="duration-{{ loop.index }}" name="duration">
+                    {% for minutes in timeout_choices %}<option value="{{ minutes }}">{{ t('chat.groups.minutes.' ~ minutes) }}</option>{% endfor %}
+                    <option value="indefinite">{{ t('chat.groups.indefinite') }}</option>
+                  </select>
+                  <button class="btn btn--small" type="submit">{{ t('chat.groups.mute') }}</button>
+                </form>
+                {% endif %}
+                {{ action('chat.group_kick', t('chat.groups.remove'), m.user_id, confirm=t('chat.groups.remove_confirm', user=m.username)) }}
+                {{ action('chat.group_kick', t('chat.groups.ban'), m.user_id, 'btn btn--small btn--danger', t('chat.groups.ban_confirm', user=m.username), {'permanent': '1'}) }}
+              {% endif %}
+            {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if banned %}
+    <h3>{{ t('chat.groups.banned_heading', count=banned|length) }}</h3>
+    <ul class="stack">
+      {% for b in banned %}
+      <li class="split"><span>{{ b.username }}</span>{{ action('chat.group_unban', t('chat.groups.unban'), b.user_id, confirm=t('chat.groups.unban_confirm', user=b.username)) }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</details>
+
+{% set view_url = url_for('chat.group_view', group_id=group.id) %}
+{{ ui.log(conversation, view_url, url_for('chat.group_delete_message', group_id=group.id),
+            {"poll": url_for('chat.group_messages', group_id=group.id), "read": url_for('chat.group_read', group_id=group.id), "mark_read": actor.is_member}) }}
+{% if can_send and not timed_out %}
+{{ ui.composer(url_for('chat.group_send', group_id=group.id), can_upload, max_length, max_attachment_bytes, per_day) }}
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="{{ asset_url('chat.js', blueprint='chat') }}"></script>{% endblock %}

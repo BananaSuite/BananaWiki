@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('pages.nav.all_pages') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('pages.css', blueprint='pages') }}">{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>{{ t('pages.nav.all_pages') }}</h1>
+  <div class="page-header__actions">
+    {% if can_create %}<a class="btn btn--primary btn--small" href="{{ url_for('pages.create') }}">{{ t('pages.nav.new_page') }}</a>{% endif %}
+  </div>
+</header>
+{% set manage_order = current_user and has_role('editor') and has_permission('category.reorder') %}
+{% if manage_order %}<p class="hint">{{ t('pages.order.hint') }}</p>{% endif %}
+{% if nav.categories or nav.uncategorized.count %}
+{% include "pages/_tree.html" %}
+{% else %}
+<div class="card empty-state"><p>{{ t('pages.welcome.empty_body') }}</p></div>
+{% endif %}
+{% if can_create_category %}
+<section class="card" id="new-category">
+  <h2 class="h3">{{ t('pages.category.create') }}</h2>
+  <form method="post" action="{{ url_for('pages.create_category') }}" class="form">
+    {{ forms.csrf() }}
+    {{ forms.field('name', t('common.name'), required=true, attrs={'maxlength': 100}) }}
+    <div class="field">
+      <label for="new-parent">{{ t('pages.category.parent') }}</label>
+      <select id="new-parent" name="parent_id">
+        <option value="">{{ t('pages.category.top_level') }}</option>
+        {% for c in nav.categories recursive %}<option value="{{ c.id }}">{{ c.name }}</option>{{ loop(c.children) }}{% endfor %}
+      </select>
+    </div>
+    <div class="btn-row"><button class="btn btn--primary">{{ t('common.create') }}</button></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

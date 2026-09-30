@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% import "users/_macros.html" as m with context %}
+{% block title %}{{ t('users.settings.title') }}{% endblock %}
+{% block content %}
+<header class="page-header"><h1>{{ t('users.settings.title') }}</h1></header>
+{% include "users/_tabs.html" %}
+<div class="stack">
+  <section class="card" aria-labelledby="status-heading">
+    <h2 id="status-heading">{{ t('users.settings.status') }}</h2>
+    <p class="cluster">
+      <span class="badge badge--primary">{{ t('users.role.' ~ user.role) }}</span>
+      {% if user.is_superuser %}<span class="badge">{{ t('users.settings.protected_account') }}</span>{% endif %}
+      <span class="muted small">{{ t('users.settings.member_since', when=user.created_at|date) }}</span>
+    </p>
+    <p class="btn-row">
+      <a class="btn btn--small" href="{{ url_for('users.my_profile') }}">{{ t('users.settings.view_profile') }}</a>
+      <a class="btn btn--small" href="{{ url_for('users.merge_pending') }}">{{ t('users.merge.title') }}</a>
+    </p>
+  </section>
+
+  <section class="card" aria-labelledby="username-heading">
+    <h2 id="username-heading">{{ t('users.settings.change_username') }}</h2>
+    <form method="post" action="{{ url_for('users.change_username') }}" class="form">
+      {{ forms.csrf() }}
+      {{ forms.field('new_username', t('users.settings.new_username'), user.username, required=true, hint=t('auth.hint.username'), attrs={'maxlength': 50, 'autocomplete': 'username', 'pattern': '[A-Za-z0-9_\\-]{3,50}'}) }}
+      {{ m.password('username-password', t('auth.field.current_password')) }}
+      <p class="hint">{{ t('users.settings.username_mentions_hint') }}</p>
+      <div><button class="btn btn--primary" type="submit">{{ t('users.settings.change_username') }}</button></div>
+    </form>
+  </section>
+
+  <section class="card" aria-labelledby="password-heading">
+    <h2 id="password-heading">{{ t('users.settings.change_password') }}</h2>
+    <form method="post" action="{{ url_for('users.change_password') }}" class="form">
+      {{ forms.csrf() }}
+      {{ m.password('current-password', t('auth.field.current_password'), name='current_password') }}
+      {{ m.password('new-password', t('auth.field.new_password'), name='new_password', autocomplete='new-password', hint=t('auth.hint.password')) }}
+      {{ m.password('confirm-password', t('auth.field.confirm_password'), name='confirm_password', autocomplete='new-password') }}
+      <p class="hint">{{ t('users.settings.password_sessions_hint') }}</p>
+      <div><button class="btn btn--primary" type="submit">{{ t('users.settings.change_password') }}</button></div>
+    </form>
+  </section>
+
+  <section class="card" aria-labelledby="language-heading">
+    <h2 id="language-heading">{{ t('auth.field.language') }}</h2>
+    <form method="post" action="{{ url_for('users.change_language') }}" class="form">
+      {{ forms.csrf() }}
+      <input type="hidden" name="next" value="{{ request.path }}">
+      {{ forms.select('language', t('auth.field.language'), [('default', t('users.display.site_default'))] + languages.items()|list, display_prefs.interface_language) }}
+      <div><button class="btn" type="submit">{{ t('common.save') }}</button></div>
+    </form>
+  </section>
+
+  {% if is_admin %}
+  <section class="card" aria-labelledby="owner-heading">
+    <h2 id="owner-heading">{{ t('users.settings.owner_status') }}</h2>
+    <p>{{ t('users.settings.owner_on' if user.role == 'owner' else 'users.settings.owner_off') }}</p>
+    <form method="post" action="{{ url_for('users.toggle_owner') }}" class="form">
+      {{ forms.csrf() }}
+      {{ m.password('owner-password', t('auth.field.current_password')) }}
+      <div><button class="btn" type="submit">{{ t('users.settings.demote' if user.role == 'owner' else 'users.settings.promote') }}</button></div>
+    </form>
+  </section>
+  {% endif %}
+
+  {{ slot('account.settings_sections') }}
+
+  {% if not user.is_superuser %}
+  <section class="card card--danger" aria-labelledby="delete-heading">
+    <h2 id="delete-heading">{{ t('users.settings.delete_account') }}</h2>
+    <p>{{ t('users.settings.delete_warning') }}</p>
+    <form method="post" action="{{ url_for('users.delete_account') }}" class="form" data-confirm="{{ t('users.settings.delete_confirm') }}">
+      {{ forms.csrf() }}
+      {{ m.password('delete-password', t('auth.field.current_password')) }}
+      <div><button class="btn btn--danger" type="submit">{{ t('users.settings.delete_account') }}</button></div>
+    </form>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('kanban.history.entry_title', title=board.title) }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('kanban.css', blueprint='kanban') }}">{% endblock %}
+{% block main_class %}main--wide{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('kanban.breadcrumbs') }}">
+  <ol><li><a href="{{ url_for('kanban.index') }}">{{ t('kanban.list.title') }}</a></li>
+    <li><a href="{{ url_for('kanban.board', board_id=board.id) }}">{{ board.title }}</a></li>
+    <li><a href="{{ url_for('kanban.board_history', board_id=board.id) }}">{{ t('kanban.board.history') }}</a></li></ol>
+</nav>
+<header class="page-header">
+  <h1>{{ entry.title }}</h1>
+  <div class="page-header__actions">
+    {% if can_revert %}{{ forms.post_button(url_for('kanban.revert', board_id=board.id, entry_id=entry.id), t('kanban.history.revert'), 'btn btn--primary', confirm=t('kanban.history.revert_confirm')) }}{% endif %}
+  </div>
+  <div class="page-header__meta">
+    <span>{{ entry.created_at|datetime }}</span>
+    <span>{{ entry.username or t('common.unknown_user') }}</span>
+    <span>{{ entry.edit_message or '—' }}</span>
+    {% if entry.is_revert %}<span class="badge badge--warning">{{ t('kanban.history.revert_badge') }}</span>{% endif %}
+  </div>
+</header>
+{% if entry.description %}<div class="wiki-content kanban-description">{{ entry.description|markdown }}</div>{% endif %}
+
+<section class="card kanban-changes" aria-labelledby="kanban-changes-title">
+  <h2 id="kanban-changes-title" class="kanban-changes__title">{{ t('kanban.history.changes') }}</h2>
+  {% if changes is none %}
+  <p class="muted">{{ t('kanban.history.first_entry') }}</p>
+  {% elif changes %}
+  <ul class="kanban-changes__list">{% for line in changes %}<li>{{ line }}</li>{% endfor %}</ul>
+  {% else %}
+  <p class="muted">{{ t('kanban.history.no_changes') }}</p>
+  {% endif %}
+</section>
+
+{% if state.columns %}
+<div class="kanban-board kanban-board--static">
+  {% for column in state.columns %}
+  <section class="kanban-column" aria-labelledby="kanban-snapshot-column-{{ loop.index }}">
+    <div class="kanban-column__head">
+      <h2 class="kanban-column__title" id="kanban-snapshot-column-{{ loop.index }}">{{ column.title or '—' }}</h2>
+      {% set active = column.tickets|rejectattr('archived')|list %}
+      <span class="kanban-column__count">{% if column.wip_limit %}{{ t('kanban.history.wip', count=active|length, limit=column.wip_limit) }}{% else %}{{ active|length }}{% endif %}</span>
+    </div>
+    <ol class="kanban-snapshot">
+      {% for ticket in column.tickets %}
+      <li class="kanban-card kanban-card--static{% if ticket.archived %} kanban-card--archived{% endif %}">
+        <strong>{{ ticket.title or '—' }}</strong>
+        {% if ticket.archived %}<span class="badge badge--warning">{{ t('kanban.history.archived') }}</span>{% endif %}
+        {% if ticket.priority %}<span class="badge kanban-priority--{{ ticket.priority }}">{{ t('kanban.priority.' ~ ticket.priority, ticket.priority) }}</span>{% endif %}
+        {% if ticket.due_date %}<span class="badge">{{ t('kanban.mine.due', date=(ticket.due_date|string)[:10]) }}</span>{% endif %}
+        {% for label in ticket.labels or [] %}<span class="badge badge--primary">+{{ label }}</span>{% endfor %}
+        {% if ticket.assignee_usernames %}<p class="small muted">{{ t('kanban.history.assigned', names=ticket.assignee_usernames|join(', ')) }}</p>{% endif %}
+        {% if ticket.checklist %}
+        {% set done = ticket.checklist|selectattr('done')|list|length %}
+        <details class="kanban-snapshot__checklist">
+          <summary>{{ t('kanban.history.checklist', done=done, total=ticket.checklist|length) }}</summary>
+          <ul>{% for item in ticket.checklist %}<li>{{ '☑' if item.done else '☐' }} {{ item.text }}</li>{% endfor %}</ul>
+        </details>
+        {% endif %}
+        {% if ticket.description %}<pre class="kanban-snapshot__description">{{ ticket.description }}</pre>{% endif %}
+      </li>
+      {% else %}
+      <li class="muted">{{ t('kanban.history.no_tickets') }}</li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty-state">{{ t('kanban.history.no_columns') }}</p>
+{% endif %}
+{% endblock %}

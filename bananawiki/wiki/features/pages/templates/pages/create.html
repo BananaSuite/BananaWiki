@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ t('pages.create.title') }}{% endblock %}
+{% block main_class %}main--wide{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('pages.css', blueprint='pages') }}">{% endblock %}
+{% block content %}
+<h1>{{ t('pages.create.title') }}</h1>
+<form method="post" action="{{ url_for('pages.create') }}" class="form" id="page-editor-form" data-page-editor>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="form-grid">
+    <div class="field"><label for="editor-title">{{ t('pages.field.title') }}</label>
+      <input id="editor-title" name="title" value="{{ form.title }}" maxlength="200" required autofocus></div>
+    <div class="field"><label for="editor-category">{{ t('pages.field.category') }}</label>
+      <select id="editor-category" name="category_id">
+        {% if can_uncategorized %}<option value="">{{ t('pages.nav.uncategorized') }}</option>{% endif %}
+        {% for c in category_choices %}<option value="{{ c.id }}"{% if c.id == form.category_id %} selected{% endif %}>{{ c.path }}</option>{% endfor %}
+      </select></div>
+  </div>
+  {% with content=form.content, can_upload=true, page=none %}{% include "pages/_editor.html" %}{% endwith %}
+  <div class="field"><label for="edit-message">{{ t('pages.field.summary') }}</label>
+    <input id="edit-message" name="edit_message" maxlength="500" value="{{ form.edit_message or '' }}"></div>
+  {{ slot('editor.below_form', page=none) }}
+  <div class="btn-row"><button class="btn btn--primary">{{ t('pages.create.submit') }}</button>
+    <a class="btn" href="{{ url_for('pages.home') }}">{{ t('common.cancel') }}</a></div>
+</form>
+{% endblock %}
+{% block scripts %}<script src="{{ asset_url('editor.js', blueprint='pages') }}"></script>{% endblock %}

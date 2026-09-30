@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('canvas.history.entry_title', title=layout.title) }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('canvas.css', blueprint='canvas') }}">{% endblock %}
+{% block main_class %}main--wide{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('canvas.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('canvas.index') }}">{{ t('canvas.list.title') }}</a></li>
+  <li><a href="{{ url_for('canvas.view', slug=layout.slug) }}">{{ layout.title }}</a></li>
+  <li><a href="{{ url_for('canvas.history', slug=layout.slug) }}">{{ t('canvas.history.heading') }}</a></li>
+</ol></nav>
+<header class="page-header">
+  <h1>{{ entry.title }}</h1>
+  <div class="page-header__actions">
+    {% if can_revert %}{{ forms.post_button(url_for('canvas.revert', slug=layout.slug, entry_id=entry.id), t('canvas.history.revert'), cls='btn btn--primary', confirm=t('canvas.history.revert_confirm')) }}{% endif %}
+  </div>
+  <p class="page-header__meta">
+    <span>{{ entry.created_at|datetime }}</span>
+    <span>{{ entry.username or t('common.unknown_user') }}</span>
+    <span>{{ canvas_history_message(entry.edit_message) }}</span>
+    <span>{{ t('canvas.history.counts', nodes=snapshot.data.nodes|length, edges=snapshot.data.edges|length) }}</span>
+  </p>
+</header>
+{% if entry.description %}<p>{{ entry.description }}</p>{% endif %}
+<div class="canvas-frame canvas-frame--static" data-canvas-static data-source="canvas-snapshot"
+     aria-label="{{ t('canvas.history.preview') }}"></div>
+<script type="application/json" id="canvas-snapshot">{{ snapshot|json_script }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="{{ asset_url('canvas-core.js', blueprint='canvas') }}" defer></script>
+<script src="{{ asset_url('canvas-static.js', blueprint='canvas') }}" defer></script>
+{% endblock %}

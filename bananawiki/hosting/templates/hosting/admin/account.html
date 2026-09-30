@@ -1,0 +1,55 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ target.username }}{% endblock %}
+{% block content %}
+{% include "hosting/admin/_nav.html" %}
+<div class="page-header"><h1>{{ target.username }}</h1>{% if target.is_admin %}<span class="badge badge--primary">{{ t('hosting.admin.admin_badge') }}</span>{% endif %}</div>
+<section class="card"><dl class="kv">
+  <dt>ID</dt><dd class="mono">{{ target.id }}</dd>
+  <dt>{{ t('hosting.field.email') }}</dt><dd>{{ target.email or '—' }}{% if target.email_verified_at %} ✓{% endif %}{% if target.email_flagged_invalid %} <span class="badge badge--warning">{{ t('hosting.admin.email_flagged_badge') }}</span>{% endif %}</dd>
+  <dt>{{ t('hosting.instance.created') }}</dt><dd>{{ target.created_at|datetime }}</dd>
+  <dt>{{ t('hosting.admin.approval') }}</dt><dd>{{ t('hosting.approval.' ~ target.approval_status) }}{% if target.decision_reason %} — {{ target.decision_reason }}{% endif %}</dd>
+  <dt>{{ t('hosting.mfa.title') }}</dt><dd>{{ t('hosting.mfa.enabled_state') if target.totp_enabled else t('hosting.mfa.disabled_state') }}</dd>
+  {% if target.suspended %}<dt>{{ t('hosting.status.suspended') }}</dt><dd>{{ target.suspend_reason }} {% if target.suspended_until %}({{ target.suspended_until|datetime }}){% endif %}</dd>{% endif %}
+  {% if target.pending_deletion %}<dt>{{ t('hosting.admin.deletion_pending') }}</dt><dd>{{ (deletion_remaining or 0)|duration }}</dd>{% endif %}
+  {% if target.signup_use_case %}<dt>{{ t('hosting.signup.use_case') }}</dt><dd>{{ target.signup_use_case }}</dd>{% endif %}
+</dl></section>
+{% if not target.deleted_at %}
+<section class="card"><h2>{{ t('hosting.admin.actions') }}</h2><div class="btn-row">
+  {% if target.id != current_account.id %}
+  {{ ui.post(url_for('admin.toggle_admin', account_id=target.id), t('hosting.admin.revoke_admin') if target.is_admin else t('hosting.admin.grant_admin'), confirm=t('hosting.common.are_you_sure')) }}
+  {% if not target.is_admin and not target.suspended and target.approval_status == 'approved' %}{{ ui.post(url_for('admin.impersonate', account_id=target.id), t('hosting.admin.impersonate')) }}{% endif %}
+  {% endif %}
+  {% if target.approval_status != 'approved' %}{{ ui.post(url_for('admin.approve_account', account_id=target.id), t('hosting.admin.approve'), 'btn btn--small btn--primary') }}{% endif %}
+  {% if target.approval_status == 'pending' %}{{ ui.post(url_for('admin.deny_account', account_id=target.id), t('hosting.admin.deny'), 'btn btn--small btn--danger') }}{% endif %}
+  {% if target.suspended %}{{ ui.post(url_for('admin.unsuspend_account', account_id=target.id), t('hosting.admin.unsuspend'), 'btn btn--small btn--primary', hidden={'unsuspend_instances': '1'}) }}{% endif %}
+  {% if target.email_flagged_invalid %}{{ ui.post(url_for('admin.unflag_email', account_id=target.id), t('hosting.admin.unflag_email')) }}{% endif %}
+  {% if target.pending_deletion %}{{ ui.post(url_for('admin.cancel_deletion', account_id=target.id), t('hosting.admin.cancel_deletion')) }}{% endif %}
+  <a class="btn btn--small btn--danger" href="{{ url_for('admin.delete_account', account_id=target.id) }}">{{ t('hosting.admin.delete_account') }}</a>
+</div></section>
+<details class="card"><summary>{{ t('hosting.admin.edit_account') }}</summary>
+<form method="post" action="{{ url_for('admin.edit_account', account_id=target.id) }}" class="form" autocomplete="off">{{ ui.csrf() }}
+  {{ ui.field('new_username', t('hosting.field.username'), target.username) }}{{ ui.field('new_email', t('hosting.field.email'), target.email, type='email') }}
+  {{ ui.field('new_password', t('hosting.field.new_password'), type='password', attrs={'autocomplete': 'new-password'}) }}{{ ui.field('confirm_password', t('hosting.field.confirm_password'), type='password', attrs={'autocomplete': 'new-password'}) }}
+  <p><button class="btn btn--small btn--primary" type="submit">{{ t('common.save') }}</button></p></form></details>
+{% if not target.suspended and target.id != current_account.id %}
+<details class="card"><summary>{{ t('hosting.admin.suspend_account') }}</summary>{{ ui.suspension_form(url_for('admin.suspend_account', account_id=target.id), show_instances=true) }}</details>
+{% endif %}
+<details class="card"><summary>{{ t('hosting.admin.flag_email') }}</summary>
+<form method="post" action="{{ url_for('admin.flag_email', account_id=target.id) }}" class="form">{{ ui.csrf() }}
+  {{ ui.field('reason', t('hosting.suspend.reason')) }}{{ ui.check('reason_visible', t('hosting.suspend.reason_visible')) }}
+  {{ ui.field('new_email', t('hosting.admin.replacement_email'), type='email', hint=t('hosting.admin.replacement_hint')) }}
+  <p><button class="btn btn--small" type="submit">{{ t('hosting.admin.flag_email') }}</button></p></form></details>
+{% if not target.pending_deletion and target.id != current_account.id %}
+<details class="card"><summary>{{ t('hosting.admin.schedule_deletion') }}</summary>
+<form method="post" action="{{ url_for('admin.schedule_deletion', account_id=target.id) }}" class="form">{{ ui.csrf() }}
+  {{ ui.duration_fields('deletion', ('hours', 'minutes', 'seconds')) }}{{ ui.field('deletion_reason', t('hosting.suspend.reason')) }}
+  {{ ui.check('notify_user', t('hosting.admin.notify_user'), checked=true) }}
+  <p><button class="btn btn--small btn--danger" type="submit">{{ t('hosting.admin.schedule_deletion') }}</button></p></form></details>
+{% endif %}
+{% endif %}
+<section class="card"><h2>{{ t('hosting.admin.instances') }}</h2><ul>{% for inst in owned %}<li><a href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ inst.subdomain }}</a> {{ ui.status(inst.status) }}</li>{% else %}<li class="muted">{{ t('hosting.common.none') }}</li>{% endfor %}</ul></section>
+<details class="card"><summary>{{ t('hosting.admin.history') }}</summary><ul class="small">
+{% for row in history %}<li>{{ row.created_at|datetime }} · {{ row.action }} · {{ row.performed_by_name or '—' }} · {{ row.reason or '' }}</li>{% endfor %}
+{% for ev in events %}<li>{{ ev.created_at|datetime }} · {{ ev.action }} · {{ ev.actor_name or '—' }} · {{ ev.reason }}</li>{% endfor %}</ul></details>
+{% endblock %}

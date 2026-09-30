@@ -1,0 +1,15 @@
+{% extends "custom_pages/_page.html" %}
+{% block page_body %}
+{% if files %}
+<div class="cp-gallery">
+  {% for f in files %}
+  <figure>
+    <img src="{{ url_for('custom_pages.file_download', file_id=f.id, filename=f.original_name) }}" alt="{{ f.original_name }}" loading="lazy">
+    <figcaption>{{ f.original_name }}</figcaption>
+  </figure>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty-state">{{ t('custom_pages.view.no_images') }}</p>
+{% endif %}
+{% endblock %}

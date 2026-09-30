@@ -1,0 +1,34 @@
+{% extends layout %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('chat.admin.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('chat.admin.title') }}</h1></header>
+{% with tab='dm' %}{% include "chat/_admin_tabs.html" %}{% endwith %}
+<p class="muted small">{{ t('chat.admin.privacy_note') }}</p>
+<form class="cluster" method="get" action="{{ url_for('chat.admin_chats') }}">
+  <label for="filter-user">{{ t('chat.admin.filter_user') }}</label>
+  <input id="filter-user" name="user" value="{{ username }}" maxlength="50">
+  <button class="btn btn--small" type="submit">{{ t('common.search') }}</button>
+  {% if username %}<a class="btn btn--small btn--ghost" href="{{ url_for('chat.admin_chats') }}">{{ t('common.all') }}</a>{% endif %}
+</form>
+{% if chats %}
+<div class="table-wrap">
+<table class="table">
+  <thead><tr><th>{{ t('chat.admin.participants') }}</th><th>{{ t('chat.admin.messages') }}</th><th>{{ t('chat.admin.last_activity') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>
+  <tbody>
+  {% for c in chats %}
+  <tr>
+    <td>{{ c.user1_name or t('common.unknown_user') }} ↔ {{ c.user2_name or t('common.unknown_user') }}</td>
+    <td>{{ c.message_count }}</td>
+    <td>{{ c.last_message_at|time_ago if c.last_message_at else '—' }}</td>
+    <td class="actions"><a class="btn btn--small" href="{{ url_for('chat.admin_chat_view', chat_id=c.id) }}">{{ t('chat.admin.read') }}</a></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{{ forms.pagination(page, pages, 'chat.admin_chats', {'user': username} if username else {}) }}
+{% else %}
+<div class="empty-state"><p>{{ t('chat.admin.no_chats') }}</p></div>
+{% endif %}
+{% endblock %}

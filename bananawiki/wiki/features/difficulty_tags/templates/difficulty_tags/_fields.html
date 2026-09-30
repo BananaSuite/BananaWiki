@@ -1,0 +1,23 @@
+{#- Tag fields. Context: prefix (unique id prefix), levels, allow_custom, tag, label, color, max_label. -#}
+<div class="difficulty-tag-fields" data-tag-fields>
+  <div class="field">
+    <label for="{{ prefix }}-difficulty-tag">{{ t('difficulty_tags.field.tag') }}</label>
+    <select id="{{ prefix }}-difficulty-tag" name="difficulty_tag" data-tag-select>
+      <option value="">{{ t('difficulty_tags.level.none') }}</option>
+      {% for level in levels %}<option value="{{ level }}"{% if tag == level %} selected{% endif %}>{{ t('difficulty_tags.level.' ~ level) }}</option>{% endfor %}
+      {% if allow_custom %}<option value="custom"{% if tag == 'custom' %} selected{% endif %}>{{ t('difficulty_tags.level.custom') }}</option>{% endif %}
+      {% if tag and tag not in levels and tag != 'custom' or (tag == 'custom' and not allow_custom) %}<option value="{{ tag }}" selected>{{ label or t('difficulty_tags.level.' ~ tag) }}</option>{% endif %}
+    </select>
+  </div>
+  {% if allow_custom %}
+  <div class="form-grid" data-tag-custom>
+    <div class="field"><label for="{{ prefix }}-tag-label">{{ t('difficulty_tags.field.label') }}</label>
+      <input id="{{ prefix }}-tag-label" name="tag_custom_label" value="{{ label }}" maxlength="{{ max_label }}" placeholder="{{ t('difficulty_tags.field.label_placeholder') }}"></div>
+    <div class="field"><label for="{{ prefix }}-tag-color">{{ t('difficulty_tags.field.color') }}</label>
+      <input id="{{ prefix }}-tag-color" name="tag_custom_color" type="color" value="{{ color }}"></div>
+  </div>
+  {% else %}
+  <input type="hidden" name="tag_custom_label" value="{{ label }}"><input type="hidden" name="tag_custom_color" value="{{ color }}">
+  {% endif %}
+</div>
+<script src="{{ asset_url('tags.js', blueprint='difficulty_tags') }}" defer></script>

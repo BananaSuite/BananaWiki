@@ -1,0 +1,20 @@
+{% import "attention/_macros.html" as m with context %}
+{% if login_total %}
+<div class="banner banner--attention" role="status">
+  <span>{{ m.plural('attention.banner', login_total) }}</span>
+  <a class="btn btn--small btn--primary" href="{{ url_for('attention.index') }}">{{ t('attention.banner.open') }}</a>
+  <button type="button" class="alert__close" data-dismiss aria-label="{{ t('common.close') }}">×</button>
+</div>
+{% endif %}
+{% for notice in notices %}
+<div class="banner banner--{{ 'success' if notice.outcome == 'approved' else 'warning' }}" role="status">
+  <span>{{ notice_text(notice) }}</span>
+  {% set link = notice_url(notice) %}
+  {% if notice.endpoint and link %}<a class="btn btn--small" href="{{ link }}">{{ t('attention.notice.open') }}</a>{% endif %}
+  <form class="inline" method="post" action="{{ url_for('attention.dismiss_notice', notice_id=notice.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ request.full_path }}">
+    <button type="submit" class="alert__close" aria-label="{{ t('attention.notices.dismiss') }}">×</button>
+  </form>
+</div>
+{% endfor %}

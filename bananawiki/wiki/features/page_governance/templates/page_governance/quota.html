@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}{{ t('page_governance.quota.title') }}{% endblock %}
+{% block content %}
+<header class="page-header"><h1>{{ t('page_governance.quota.title') }}</h1></header>
+<div class="stack">{% include "page_governance/_quota_body.html" %}</div>
+{% endblock %}

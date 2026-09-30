@@ -1,9 +1,0 @@
-{
-    "id": "page_history",
-    "name": "Page History",
-    "version": "1.0.0",
-    "author": "BananaWiki",
-    "description": "Page revision history with diff viewing and revert support",
-    "builtin": true,
-    "bananawiki_api_version": "1.0"
-}

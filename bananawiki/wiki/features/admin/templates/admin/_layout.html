@@ -1,0 +1,39 @@
+{#- Administration layout. Extend it from any admin page:
+
+      {% extends "admin/_layout.html" %}
+      {% block title %}…{% endblock %}
+      {% block admin_content %}…{% endblock %}
+
+    Optional blocks: admin_head (tags in <head>), admin_scripts (end of body).
+    The side menu lists the NavItem(area="admin") entries of enabled features;
+    see bananawiki/wiki/features/admin/__init__.py. -#}
+{% extends "base.html" %}
+{% block head %}
+<link rel="stylesheet" href="{{ asset_url('admin.css', blueprint='admin') }}">
+{% block admin_head %}{% endblock %}
+{% endblock %}
+{% block main_class %}main--wide{% endblock %}
+{% block content %}
+{% set admin_menu = nav_items('admin') %}
+<div class="admin-shell{% if not admin_menu %} admin-shell--single{% endif %}">
+  {% if admin_menu %}
+  <nav class="admin-nav" aria-label="{{ t('admin.nav.label') }}">
+    <p class="sidebar__section-title">{{ t('admin.nav.label') }}</p>
+    <ul class="nav-list">
+      {% for item in admin_menu %}
+      <li><a href="{{ item.url }}"{% if item.active %} aria-current="page"{% endif %}>
+        <span class="nav-label">{{ item.label }}</span>{% if item.badge %}<span class="count-pill">{{ item.badge }}</span>{% endif %}
+      </a></li>
+      {% endfor %}
+    </ul>
+  </nav>
+  {% endif %}
+  <div class="admin-main">
+    {% block admin_content %}{% endblock %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ asset_url('admin.js', blueprint='admin') }}"></script>
+{% block admin_scripts %}{% endblock %}
+{% endblock %}

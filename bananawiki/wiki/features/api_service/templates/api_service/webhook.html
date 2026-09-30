@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('api_service.webhooks.deliveries') }}{% endblock %}
+{% block main_class %}main--wide{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{{ t('api_service.webhooks.deliveries') }}</h1>
+  <div class="page-header__actions">
+    <a class="btn btn--small" href="{{ url_for('api_service.admin', _anchor='webhooks') }}">{{ t('api_service.webhooks.back') }}</a>
+    {{ forms.post_button(url_for('api_service.admin_ping_webhook', webhook_id=hook.id), t('api_service.webhooks.ping'), cls='btn btn--small') }}
+  </div>
+</div>
+<section class="card">
+  {% if hook.disabled_reason and not hook.active %}
+  <div class="alert alert--error" role="status"><div class="alert__body">
+    <p>{{ t('api_service.webhooks.auto_disabled', when=hook.disabled_at|time_ago) }} {{ t('api_service.webhooks.auto_disabled_hint') }}</p>
+    {{ forms.post_button(url_for('api_service.admin_toggle_webhook', webhook_id=hook.id), t('api_service.webhooks.enable'), cls='btn btn--small') }}
+  </div></div>
+  {% endif %}
+  <p><code class="mono">{{ hook.url }}</code></p>
+  {% if hook.description %}<p class="muted">{{ hook.description }}</p>{% endif %}
+  <p>{% for event in events %}<span class="badge">{{ event }}</span> {% endfor %}</p>
+  <p class="hint">{{ t('api_service.webhooks.delivery_hint') }}</p>
+</section>
+<section class="card">
+  {% if not deliveries %}<div class="empty-state">{{ t('api_service.webhooks.no_deliveries') }}</div>{% else %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr>
+      <th scope="col">{{ t('api_service.admin.time') }}</th>
+      <th scope="col">{{ t('api_service.webhooks.event') }}</th>
+      <th scope="col">{{ t('common.status') }}</th>
+      <th scope="col">{{ t('api_service.webhooks.attempts') }}</th>
+      <th scope="col">{{ t('api_service.webhooks.response') }}</th>
+      <th scope="col"><span class="visually-hidden">{{ t('common.actions') }}</span></th>
+    </tr></thead>
+    <tbody>
+    {% for row in deliveries %}
+    <tr>
+      <td class="nowrap">{{ row.created_at|datetime }}</td>
+      <td><code class="mono">{{ row.event }}</code><br><small class="muted mono">{{ row.delivery_uuid }}</small></td>
+      <td>
+        <span class="badge {{ 'badge--success' if row.state == 'delivered' else 'badge--danger' if row.state == 'failed' else '' }}">{{ t('api_service.webhooks.state.' ~ row.state) }}</span>
+        {% if row.state == 'pending' and row.attempts %}<br><small class="muted">{{ t('api_service.webhooks.next_attempt', when=row.next_attempt_at|datetime) }}</small>{% endif %}
+      </td>
+      <td>{{ row.attempts }}</td>
+      <td>{% if row.response_status %}{{ row.response_status }}{% endif %}{% if row.error %} <small class="muted mono">{{ row.error }}</small>{% endif %}{% if row.duration_ms is not none %}<br><small class="muted">{{ row.duration_ms }} ms</small>{% endif %}</td>
+      <td>{% if row.state != 'pending' %}{{ forms.post_button(url_for('api_service.admin_redeliver', webhook_id=hook.id, delivery_id=row.id), t('api_service.webhooks.redeliver'), cls='btn btn--small') }}{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends "base_minimal.html" %}
+{% block title %}{{ t('attention.unsubscribe.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('attention.unsubscribe.title') }}</h1>
+  {% if done %}
+  <p>{{ t('attention.unsubscribe.done.' ~ kind) }}</p>
+  {% else %}
+  <p>{{ t('attention.unsubscribe.confirm.' ~ kind) }}</p>
+  <form method="post" action="{{ url_for('attention.unsubscribe', token=token) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn--primary" type="submit">{{ t('attention.unsubscribe.submit') }}</button>
+  </form>
+  {% endif %}
+  <p class="hint">{{ t('attention.unsubscribe.settings_hint') }}</p>
+</div>
+{% endblock %}

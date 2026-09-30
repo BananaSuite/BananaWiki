@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ t('auth.oauth.settings_title') }}{% endblock %}
+{% block content %}
+<div class="page-header"><h1>{{ t('auth.oauth.settings_title') }}</h1></div>
+<div class="card stack">
+  {% if link %}
+  <p>{{ t('auth.oauth.linked_to', name=link.portal_username) }}</p>
+  <form method="post" action="{{ url_for('auth.platform_oauth_unlink_account') }}" class="form" data-confirm="{{ t('common.are_you_sure') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field"><label for="unlink-password">{{ t('auth.field.current_password') }}</label>
+      <input id="unlink-password" name="password" type="password" autocomplete="current-password" required maxlength="1024"></div>
+    <button class="btn btn--danger" type="submit">{{ t('auth.oauth.unlink') }}</button>
+  </form>
+  {% else %}
+  <p>{{ t('auth.oauth.not_linked') }}</p>
+  <form method="post" action="{{ url_for('auth.platform_oauth_link_account') }}" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field"><label for="link-password">{{ t('auth.field.current_password') }}</label>
+      <input id="link-password" name="password" type="password" autocomplete="current-password" required maxlength="1024"></div>
+    <button class="btn btn--primary" type="submit">{{ t('auth.oauth.link') }}</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

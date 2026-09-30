@@ -1,0 +1,15 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('canvas.admin.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('canvas.admin.title') }}</h1></header>
+<form class="form card" method="post" action="{{ url_for('canvas.admin_settings') }}">
+  {{ forms.csrf() }}
+  {% set options = [] %}{% for value in choices %}{% set _ = options.append((value, t('canvas.admin.level.' ~ value))) %}{% endfor %}
+  {{ forms.select('canvas_access', t('canvas.admin.access'), options, selected=current.canvas_access or 'admin', hint=t('canvas.admin.access_hint')) }}
+  {{ forms.select('canvas_write_access', t('canvas.admin.write_access'), options, selected=current.canvas_write_access or 'admin', hint=t('canvas.admin.write_access_hint')) }}
+  {{ forms.checkbox('canvas_open_access', t('canvas.admin.open_access'), checked=current.canvas_open_access, hint=t('canvas.admin.open_access_hint')) }}
+  {{ forms.checkbox('canvas_public_access_enabled', t('canvas.admin.public_access'), checked=current.canvas_public_access_enabled, hint=t('canvas.admin.public_access_hint')) }}
+  <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('common.save') }}</button></div>
+</form>
+{% endblock %}

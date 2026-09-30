@@ -1,0 +1,47 @@
+# Managed by BananaSuite
+# bananawiki-ops: 2
+[Unit]
+Description=BananaWiki hosting (bananawiki)
+After=network-online.target bananawiki-agent.service
+Wants=network-online.target bananawiki-agent.service
+
+[Service]
+Type=simple
+User=bananawiki
+Group=bananawiki
+WorkingDirectory=/opt/bananawiki/current
+EnvironmentFile=/opt/bananawiki/config/app.env
+Environment=HOME=/opt/bananawiki/data
+ExecStart="/opt/bananawiki/current/.venv/bin/gunicorn" "-c" "hosting/gunicorn.conf.py" "--timeout" "180" "hosting.wsgi:app"
+Restart=always
+RestartSec=5
+TimeoutStartSec=180
+TimeoutStopSec=180
+KillMode=mixed
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths=/opt/bananawiki/data
+
+[Install]
+WantedBy=multi-user.target

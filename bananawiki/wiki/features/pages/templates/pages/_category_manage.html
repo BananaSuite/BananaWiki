@@ -1,0 +1,60 @@
+{#- Category management forms. Context: category, page_count, parent_choices, move_targets, manage. -#}
+{% if manage.edit or manage.move or manage.sequential or manage.delete or manage.create %}
+<section class="card category-manage" aria-labelledby="manage-{{ category.id }}">
+  <h2 class="h3" id="manage-{{ category.id }}">{{ t('pages.category.manage') }}</h2>
+  <div class="stack">
+  {% if manage.edit %}
+  <form method="post" action="{{ url_for('pages.rename_category', category_id=category.id) }}" class="input-group">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input name="name" value="{{ category.name }}" maxlength="100" required aria-label="{{ t('common.name') }}">
+    <button class="btn">{{ t('pages.category.rename') }}</button>
+  </form>
+  {% endif %}
+  {% if manage.create %}
+  <form method="post" action="{{ url_for('pages.create_category') }}" class="input-group">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="parent_id" value="{{ category.id }}">
+    <input name="name" maxlength="100" required placeholder="{{ t('pages.category.new_sub') }}" aria-label="{{ t('pages.category.new_sub') }}">
+    <button class="btn">{{ t('common.create') }}</button>
+  </form>
+  {% endif %}
+  {% if manage.move %}
+  <form method="post" action="{{ url_for('pages.move_category', category_id=category.id) }}" class="input-group">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <select name="parent_id" aria-label="{{ t('pages.category.parent') }}">
+      {% if manage.top_level %}<option value="">{{ t('pages.category.top_level') }}</option>{% endif %}
+      {% for c in parent_choices %}<option value="{{ c.id }}"{% if c.id == category.parent_id %} selected{% endif %}>{{ c.path }}</option>{% endfor %}
+    </select>
+    <button class="btn">{{ t('pages.category.move') }}</button>
+  </form>
+  {% endif %}
+  {% if manage.sequential %}
+  <form method="post" action="{{ url_for('pages.sequential_nav', category_id=category.id) }}" class="cluster">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="sequential_nav" value="0">
+    <label class="check"><input type="checkbox" name="sequential_nav" value="1"{% if category.sequential_nav %} checked{% endif %}> <span>{{ t('pages.category.sequential') }}<small>{{ t('pages.category.sequential_hint') }}</small></span></label>
+    <button class="btn btn--small">{{ t('common.save') }}</button>
+  </form>
+  {% endif %}
+  {% if manage.delete %}
+  <form method="post" action="{{ url_for('pages.delete_category', category_id=category.id) }}" class="form card card--danger" data-confirm="{{ t('pages.confirm.delete_category', name=category.name) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <p class="small">{{ t('pages.category.page_count', count=page_count) }}</p>
+    {% if page_count %}
+    <label class="check"><input type="radio" name="page_action" value="uncategorize" checked> <span>{{ t('pages.category.delete_uncategorize') }}</span></label>
+    {% if move_targets %}
+    <label class="check"><input type="radio" name="page_action" value="move"> <span>{{ t('pages.category.delete_move') }}</span></label>
+    <select name="target_category_id" aria-label="{{ t('pages.category.delete_move') }}">
+      {% for c in move_targets %}<option value="{{ c.id }}">{{ c.path }}</option>{% endfor %}
+    </select>
+    {% endif %}
+    {% if manage.delete_pages %}<label class="check"><input type="radio" name="page_action" value="delete"> <span>{{ t('pages.category.delete_pages') }}</span></label>{% endif %}
+    {% else %}
+    <input type="hidden" name="page_action" value="uncategorize">
+    {% endif %}
+    <div class="btn-row"><button class="btn btn--danger">{{ t('pages.category.delete') }}</button></div>
+  </form>
+  {% endif %}
+  </div>
+</section>
+{% endif %}

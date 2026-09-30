@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('users.sessions.title') }}{% endblock %}
+{% macro session_card(item, history=false) -%}
+<li class="users-session{% if item.is_current %} is-current{% endif %}">
+  <div class="users-session__main">
+    <strong>{{ item.device }}</strong>
+    {% if item.is_current %}<span class="badge badge--success">{{ t('users.sessions.current') }}</span>{% endif %}
+    {% if item.remember_me %}<span class="badge">{{ t('users.sessions.remembered') }}</span>{% endif %}
+    {% if history %}<span class="badge">{{ t('users.sessions.ended' if item.revoked_at else 'users.sessions.expired') }}</span>{% endif %}
+    <div class="small muted cluster">
+      <span>{{ t('users.sessions.signed_in', when=item.created_at|datetime) }}</span>
+      {% if history %}<span>{{ t('users.sessions.ended_at', when=item.ended_at|datetime) }}</span>
+      {% else %}<span>{{ t('users.sessions.last_active', when=item.last_seen_at|time_ago) }}</span>{% endif %}
+      {% if item.last_ip %}<span>{{ t('users.sessions.ip', address=item.last_ip) }}</span>{% endif %}
+      <span>{{ t('users.sessions.method', method=item.auth_method) }}</span>
+    </div>
+  </div>
+  {% if not history %}
+  {{ forms.post_button(url_for('users.revoke_session', session_id=item.id), t('users.sessions.revoke'), cls='btn btn--small', confirm=t('users.sessions.revoke_confirm')) }}
+  {% endif %}
+</li>
+{%- endmacro %}
+{% block content %}
+<header class="page-header"><h1>{{ t('users.settings.title') }}</h1></header>
+{% include "users/_tabs.html" %}
+{% if impersonating_view %}
+<div class="alert alert--warning"><div class="alert__body">{{ t('users.sessions.impersonating') }}</div></div>
+{% else %}
+<section class="card" id="active-sessions" aria-labelledby="active-heading">
+  <div class="card__header">
+    <h2 id="active-heading">{{ t('users.sessions.active') }}</h2>
+    {{ forms.post_button(url_for('users.logout_everywhere'), t('users.sessions.logout_all'), cls='btn btn--danger btn--small', confirm=t('users.sessions.logout_all_confirm')) }}
+  </div>
+  <p class="hint">{{ t('users.sessions.active_help') }}</p>
+  <ul class="users-sessions">{% for item in active %}{{ session_card(item) }}{% endfor %}</ul>
+</section>
+<section class="card" id="session-history" aria-labelledby="history-heading">
+  <div class="card__header">
+    <h2 id="history-heading">{{ t('users.sessions.history') }}</h2>
+    {% if history %}{{ forms.post_button(url_for('users.clear_session_history'), t('users.sessions.clear_history'), cls='btn btn--small', confirm=t('users.sessions.clear_history_confirm')) }}{% endif %}
+  </div>
+  {% if history %}
+  <ul class="users-sessions">{% for item in history %}{{ session_card(item, true) }}{% endfor %}</ul>
+  {% else %}<p class="muted">{{ t('users.sessions.no_history') }}</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

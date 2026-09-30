@@ -1,0 +1,37 @@
+{% extends "base_minimal.html" %}
+{% block title %}{{ t('auth.signup.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('auth.signup.title') }}</h1>
+  {% if approval_required %}<p class="muted">{{ t('auth.signup.approval_notice') }}</p>{% endif %}
+  {% if error %}<div class="alert alert--error" role="alert"><div class="alert__body">{{ error }}</div></div>{% endif %}
+  <form method="post" action="{{ url_for('auth.signup') }}" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% include "auth/_bot_fields.html" %}
+    <div class="field">
+      <label for="username">{{ t('auth.field.username') }}</label>
+      <input id="username" name="username" value="{{ form.get('username', '') }}" autocomplete="username"
+             required minlength="3" maxlength="50" pattern="[A-Za-z0-9_\-]+" autofocus aria-describedby="username-hint">
+      <p class="hint" id="username-hint">{{ t('auth.hint.username') }}</p>
+    </div>
+    <div class="field">
+      <label for="password">{{ t('auth.field.password') }}</label>
+      <input id="password" name="password" type="password" autocomplete="new-password" required minlength="8" maxlength="1024" aria-describedby="password-hint">
+      <p class="hint" id="password-hint">{{ t('auth.hint.password') }}</p>
+    </div>
+    <div class="field">
+      <label for="confirm_password">{{ t('auth.field.confirm_password') }}</label>
+      <input id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" required maxlength="1024">
+    </div>
+    {% if invite_required %}
+    <div class="field">
+      <label for="invite_code">{{ t('auth.signup.invite_code') }}</label>
+      <input id="invite_code" name="invite_code" value="{{ form.get('invite_code') or invite }}" required maxlength="40"
+             autocomplete="one-time-code" placeholder="XXXX-XXXX" autocapitalize="characters" class="mono">
+    </div>
+    {% endif %}
+    <button class="btn btn--primary" type="submit">{{ t('auth.signup.submit') }}</button>
+  </form>
+  <p class="small">{{ t('auth.signup.have_account') }} <a href="{{ url_for('auth.login') }}">{{ t('auth.login.submit') }}</a></p>
+</div>
+{% endblock %}

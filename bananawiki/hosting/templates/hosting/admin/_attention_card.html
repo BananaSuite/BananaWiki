@@ -1,0 +1,18 @@
+{% set entries = attention_items() %}
+<section class="card attention-card" aria-labelledby="attention-card-title">
+  <div class="card__header">
+    <h2 id="attention-card-title">{{ t('hosting.attention.title') }}</h2>
+    <a class="btn btn--small" href="{{ url_for('admin.attention') }}">{{ t('hosting.attention.see_all') }}</a>
+  </div>
+  {% if entries %}
+  <ul class="attention-list">
+    {% for entry in entries %}
+    <li class="attention-list__item">
+      <a href="{{ entry.url }}">{{ t(entry.label) }}</a>
+      <span class="cluster"><span class="count-pill" aria-label="{{ t('hosting.attention.waiting_one' if entry.count == 1 else 'hosting.attention.waiting_other', count=entry.count) }}">{{ entry.count }}</span>
+        <a class="btn btn--small" href="{{ entry.url }}">{{ t('hosting.attention.review') }}</a></span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="muted">{{ t('hosting.attention.empty') }}</p>{% endif %}
+</section>

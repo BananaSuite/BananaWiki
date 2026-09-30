@@ -1,0 +1,10 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.email_flagged.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow"><h1>{{ t('hosting.email_flagged.title') }}</h1><p>{{ t('hosting.email_flagged.body') }}</p>
+{% if reason %}<p><strong>{{ t('hosting.activation.reason') }}</strong> {{ reason }}</p>{% endif %}
+<form method="post" class="form">{{ ui.csrf() }}
+  {{ ui.field('email', t('hosting.field.email'), type='email', required=true, attrs={'maxlength': 254}) }}
+  <button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></form></div>
+{% endblock %}

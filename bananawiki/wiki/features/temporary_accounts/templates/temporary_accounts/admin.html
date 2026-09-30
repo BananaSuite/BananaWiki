@@ -1,0 +1,102 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('temporary_accounts.title') }}{% endblock %}
+{% macro remove_button(endpoint, key_name, key) %}
+{{ forms.post_button(url_for(endpoint, **{key_name: key}), t('temporary_accounts.remove'), cls='btn btn--small', confirm=t('common.are_you_sure')) }}
+{% endmacro %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('temporary_accounts.title') }}</h1></header>
+<p class="muted">{{ t('temporary_accounts.intro') }}</p>
+<datalist id="tmp-pages">{% for p in page_choices %}<option value="{{ p.slug }}">{{ p.title }}</option>{% endfor %}</datalist>
+<datalist id="tmp-users">{% for u in user_choices %}<option value="{{ u.username }}">{{ u.role }}</option>{% endfor %}</datalist>
+<div class="stack">
+
+<section class="card">
+  <h2>{{ t('temporary_accounts.pages_title') }}</h2>
+  {% if items.pages %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('temporary_accounts.col.page') }}</th><th>{{ t('temporary_accounts.col.expires') }}</th><th>{{ t('temporary_accounts.col.countdown') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+    <tbody>{% for i in items.pages %}<tr>
+      <td><a href="{{ url_for('pages.view', slug=i.slug) }}">{{ i.title }}</a></td><td>{{ i.expires_at|datetime }}</td>
+      <td>{{ t('common.yes') if i.show_countdown else t('common.no') }}</td>
+      <td>{{ remove_button('temporary_accounts.remove_page', 'page_id', i.page_id) }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+  <form method="post" action="{{ url_for('temporary_accounts.schedule_page') }}" class="form form-grid">
+    {{ forms.csrf() }}
+    <div class="field"><label for="tp-page">{{ t('temporary_accounts.field.page') }}</label><input id="tp-page" name="page_slug" list="tmp-pages" required></div>
+    <div class="field"><label for="tp-when">{{ t('temporary_accounts.field.expires_at') }}</label><input id="tp-when" name="expires_at" type="datetime-local" required></div>
+    {{ forms.checkbox('show_countdown', t('temporary_accounts.field.show_countdown'), checked=true) }}
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('temporary_accounts.schedule') }}</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>{{ t('temporary_accounts.visibility_title') }}</h2>
+  {% if items.visibility %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('temporary_accounts.col.page') }}</th><th>{{ t('temporary_accounts.col.state') }}</th><th>{{ t('temporary_accounts.col.expires') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+    <tbody>{% for i in items.visibility %}<tr>
+      <td><a href="{{ url_for('pages.view', slug=i.slug) }}">{{ i.title }}</a></td>
+      <td>{{ t('temporary_accounts.state.hidden') if i.target_state else t('temporary_accounts.state.shown') }}</td>
+      <td>{{ i.expires_at|datetime }}</td>
+      <td>{{ remove_button('temporary_accounts.remove_visibility', 'page_id', i.page_id) }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+  <form method="post" action="{{ url_for('temporary_accounts.schedule_visibility') }}" class="form form-grid">
+    {{ forms.csrf() }}
+    <div class="field"><label for="tv-page">{{ t('temporary_accounts.field.page') }}</label><input id="tv-page" name="page_slug" list="tmp-pages" required></div>
+    {{ forms.select('state', t('temporary_accounts.field.state'), [('hide', t('temporary_accounts.state.hide_until')), ('show', t('temporary_accounts.state.show_until'))]) }}
+    <div class="field"><label for="tv-when">{{ t('temporary_accounts.field.expires_at') }}</label><input id="tv-when" name="expires_at" type="datetime-local" required></div>
+    {{ forms.checkbox('show_countdown', t('temporary_accounts.field.show_countdown'), checked=true) }}
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('temporary_accounts.schedule') }}</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>{{ t('temporary_accounts.users_title') }}</h2>
+  {% if items.users %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('temporary_accounts.col.user') }}</th><th>{{ t('temporary_accounts.col.expires') }}</th><th>{{ t('temporary_accounts.col.countdown') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+    <tbody>{% for i in items.users %}<tr>
+      <td>{{ i.username }}</td><td>{{ i.expires_at|datetime }}</td>
+      <td>{{ t('common.yes') if i.show_countdown else t('common.no') }}</td>
+      <td>{{ remove_button('temporary_accounts.remove_user', 'user_id', i.user_id) }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+  <form method="post" action="{{ url_for('temporary_accounts.schedule_user') }}" class="form form-grid">
+    {{ forms.csrf() }}
+    <div class="field"><label for="tu-user">{{ t('temporary_accounts.field.user') }}</label><input id="tu-user" name="username" list="tmp-users" required></div>
+    <div class="field"><label for="tu-when">{{ t('temporary_accounts.field.expires_at') }}</label><input id="tu-when" name="expires_at" type="datetime-local" required></div>
+    {{ forms.checkbox('show_countdown', t('temporary_accounts.field.show_countdown'), checked=true) }}
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('temporary_accounts.schedule') }}</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>{{ t('temporary_accounts.roles_title') }}</h2>
+  {% if items.roles %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('temporary_accounts.col.user') }}</th><th>{{ t('temporary_accounts.col.role') }}</th><th>{{ t('temporary_accounts.col.expires') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+    <tbody>{% for i in items.roles %}<tr>
+      <td>{{ i.username }}</td>
+      <td>{{ t('temporary_accounts.role.' ~ i.current_role) }} → {{ t('temporary_accounts.role.' ~ i.original_role) }}</td>
+      <td>{{ i.expires_at|datetime }}</td>
+      <td>{{ remove_button('temporary_accounts.remove_role', 'user_id', i.user_id) }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+  <form method="post" action="{{ url_for('temporary_accounts.schedule_role') }}" class="form form-grid">
+    {{ forms.csrf() }}
+    <div class="field"><label for="tr-user">{{ t('temporary_accounts.field.user') }}</label><input id="tr-user" name="username" list="tmp-users" required></div>
+    {{ forms.select('original_role', t('temporary_accounts.field.original_role'), [('user', t('temporary_accounts.role.user')), ('editor', t('temporary_accounts.role.editor')), ('admin', t('temporary_accounts.role.admin'))]) }}
+    <div class="field"><label for="tr-when">{{ t('temporary_accounts.field.expires_at') }}</label><input id="tr-when" name="expires_at" type="datetime-local" required></div>
+    {{ forms.checkbox('show_countdown', t('temporary_accounts.field.show_countdown'), checked=true) }}
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('temporary_accounts.schedule') }}</button></div>
+  </form>
+</section>
+</div>
+{% endblock %}

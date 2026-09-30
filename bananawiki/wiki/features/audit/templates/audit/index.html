@@ -1,0 +1,70 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('audit.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('audit.title') }}</h1>
+  <p class="page-header__meta">{{ t('audit.intro') }}</p>
+</header>
+
+<section class="card">
+  <form method="get" action="{{ url_for('audit.index') }}" class="toolbar" role="search">
+    <div class="field">
+      <label for="f-action">{{ t('audit.filter.action') }}</label>
+      <select id="f-action" name="action">
+        <option value="">{{ t('common.all') }}</option>
+        {% for name in actions %}
+        <option value="{{ name }}"{% if name == action %} selected{% endif %}>{{ t('audit.action.' ~ name, name) }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="f-actor">{{ t('audit.filter.actor') }}</label>
+      <input id="f-actor" name="actor" value="{{ actor }}" maxlength="100">
+    </div>
+    <div class="btn-row"><button class="btn" type="submit">{{ t('audit.filter.apply') }}</button></div>
+  </form>
+
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">{{ t('audit.col.time') }}</th>
+          <th scope="col">{{ t('audit.col.action') }}</th>
+          <th scope="col">{{ t('audit.col.actor') }}</th>
+          <th scope="col">{{ t('audit.col.target') }}</th>
+          <th scope="col">{{ t('audit.col.details') }}</th>
+          <th scope="col">{{ t('audit.col.ip') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="nowrap" title="{{ row.created_at|datetime }}">{{ row.created_at|time_ago }}</td>
+          <td>{{ t('audit.action.' ~ row.action, row.action) }}</td>
+          <td>{% if row.actor_username %}<a href="{{ url_for('audit.index', actor=row.actor_username) }}">{{ row.actor_username }}</a>{% elif row.actor_id %}<span class="mono">{{ row.actor_id }}</span>{% else %}<span class="muted">{{ t('audit.system') }}</span>{% endif %}</td>
+          <td>{% if row.target_type %}{{ t('audit.target.' ~ row.target_type, row.target_type) }} <span class="mono">{{ row.target_id }}</span>{% endif %}</td>
+          <td class="small">{% for key, value in row.details.items() %}<span class="nowrap"><strong>{{ key }}</strong>: {{ value if value is not none else '—' }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+          <td class="mono small">{{ row.ip or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ forms.pagination(page, pages, 'audit.index', {'action': action, 'actor': actor}) }}
+  {% else %}
+  <p class="empty-state">{{ t('audit.empty') }}</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>{{ t('audit.retention.title') }}</h2>
+  <form method="post" action="{{ url_for('audit.retention') }}" class="form">
+    {{ forms.csrf() }}
+    {{ forms.field('audit_log_retention_days', t('audit.retention.days'), retention_days, type='number',
+                   hint=t('audit.retention.hint'), attrs={'min': bounds[0], 'max': bounds[1], 'required': 'required'}) }}
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+  </form>
+</section>
+{% endblock %}

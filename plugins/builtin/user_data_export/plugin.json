@@ -1,9 +1,0 @@
-{
-    "id": "user_data_export",
-    "name": "User Data Export",
-    "version": "1.0.0",
-    "author": "BananaWiki",
-    "description": "User data export \u2013 download all personal data as a ZIP archive",
-    "builtin": true,
-    "bananawiki_api_version": "1.0"
-}

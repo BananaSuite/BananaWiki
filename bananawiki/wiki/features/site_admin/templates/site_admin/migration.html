@@ -1,0 +1,44 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('site_admin.migration.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('site_admin.migration.title') }}</h1>
+  <p class="page-header__meta">{{ t('site_admin.migration.intro') }}</p>
+</header>
+
+<section class="card">
+  <h2>{{ t('site_admin.migration.export') }}</h2>
+  <p>{{ t('site_admin.migration.export_intro') }}</p>
+  <form method="post" action="{{ url_for('site_admin.migration_export') }}" class="form">
+    {{ forms.csrf() }}
+    {{ forms.field('password', t('site_admin.migration.password'), type='password', required=true,
+                   hint=t('site_admin.migration.password_hint'), attrs={'autocomplete': 'current-password'}) }}
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('site_admin.migration.export_button') }}</button></div>
+  </form>
+</section>
+
+<section class="card card--danger">
+  <h2>{{ t('site_admin.migration.import') }}</h2>
+  {% if not import_allowed %}
+  <div class="alert alert--warning"><div class="alert__body">{{ t('site_admin.migration.error.not_allowed') }}</div></div>
+  {% else %}
+  <p>{{ t('site_admin.migration.import_intro') }}</p>
+  <form method="post" action="{{ url_for('site_admin.migration_import') }}" enctype="multipart/form-data" class="form"
+        data-confirm="{{ t('site_admin.migration.import_confirm') }}">
+    {{ forms.csrf() }}
+    <div class="field">
+      <label for="f-import_file">{{ t('site_admin.migration.file') }}</label>
+      <input id="f-import_file" type="file" name="import_file" accept=".zip,application/zip" required>
+      <p class="hint">{{ t('site_admin.migration.file_hint', limit_mb=limit_mb) }}</p>
+    </div>
+    <div class="field">
+      <label for="f-import-password">{{ t('site_admin.migration.password') }}</label>
+      <input id="f-import-password" name="password" type="password" required autocomplete="current-password">
+    </div>
+    {{ forms.checkbox('confirm_replace', t('site_admin.migration.confirm_label')) }}
+    <div class="btn-row"><button class="btn btn--danger" type="submit">{{ t('site_admin.migration.import_button') }}</button></div>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

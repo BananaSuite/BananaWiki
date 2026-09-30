@@ -1,0 +1,18 @@
+{% import "macros/forms.html" as forms with context %}
+<section class="card" aria-labelledby="profile-page-heading">
+  <h2 id="profile-page-heading">{{ t('profiles.page.title') }}</h2>
+  {% if profile.page_disabled_by_admin %}
+  <p>{{ t('profiles.page.disabled') }}</p>
+  {% elif profile.page_published %}
+  <p>{{ t('profiles.page.public') }}</p>
+  {% else %}
+  <p>{{ t('profiles.page.hidden') }}</p>
+  {% endif %}
+  <div class="btn-row">
+    {% if not profile.page_disabled_by_admin %}
+    {{ forms.post_button(url_for('user_profiles.publish'), t('profiles.page.hide' if profile.page_published else 'profiles.page.publish'), cls='btn btn--small' if profile.page_published else 'btn btn--small btn--primary', hidden={'published': '0' if profile.page_published else '1'}) }}
+    {% endif %}
+    {% if has_fields %}<a class="btn btn--small" href="{{ url_for('user_profiles.own_fields') }}">{{ t('profiles.edit_fields') }}</a>{% endif %}
+    {% if profile %}{{ forms.post_button(url_for('user_profiles.delete_own'), t('profiles.page.delete'), cls='btn btn--small btn--danger', confirm=t('profiles.page.delete_confirm')) }}{% endif %}
+  </div>
+</section>

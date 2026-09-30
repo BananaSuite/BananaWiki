@@ -1,0 +1,80 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% from "admin/_categories.html" import category_list, permission_groups with context %}
+{% block title %}{{ role.name if role else t('admin.roles.create') }}{% endblock %}
+{% block admin_content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.back') }}"><ol>
+  <li><a href="{{ url_for('admin.roles') }}">{{ t('admin.roles.title') }}</a></li><li>{{ role.name if role else t('admin.roles.create') }}</li>
+</ol></nav>
+<header class="page-header"><h1>{{ role.name if role else t('admin.roles.create') }}</h1></header>
+
+<form method="post" action="{{ url_for('admin.edit_role', role_id=role.id) if role else url_for('admin.create_role') }}" class="form">
+  {{ forms.csrf() }}
+  <section class="card form">
+    {{ forms.field('name', t('common.name'), values.name, required=true, attrs={'maxlength': 100}) }}
+    {{ forms.textarea('description', t('common.description'), values.description, rows=2) }}
+    <div class="field">
+      <label for="f-base_role">{{ t('admin.roles.base_role') }}</label>
+      <select id="f-base_role" name="base_role" data-base-role>
+        {% for base in ('user', 'editor') %}<option value="{{ base }}"{% if values.base_role == base %} selected{% endif %}>{{ t('admin.role.' ~ base) }}</option>{% endfor %}
+      </select>
+      <p class="hint">{{ t('admin.roles.base_role_hint') }}</p>
+    </div>
+  </section>
+  <h2>{{ t('admin.roles.permissions') }}</h2>
+  {{ permission_groups(groups, values['keys'], editor_only) }}
+  <fieldset>
+    <legend>{{ t('admin.permissions.read_access') }}</legend>
+    {{ forms.checkbox('read_restricted', t('admin.permissions.read_restricted'), checked=values.read_restricted) }}
+    <div data-reveal-for="read_restricted" data-reveal-values="1"{% if not values.read_restricted %} hidden{% endif %}>
+      {{ category_list('read_category_ids', values.read_ids, all_categories) }}
+    </div>
+  </fieldset>
+  <fieldset data-editor-only{% if values.base_role != 'editor' %} hidden{% endif %}>
+    <legend>{{ t('admin.permissions.write_access') }}</legend>
+    {{ forms.checkbox('write_restricted', t('admin.permissions.write_restricted'), checked=values.write_restricted, hint=t('admin.roles.write_implies_read')) }}
+    <div data-reveal-for="write_restricted" data-reveal-values="1"{% if not values.write_restricted %} hidden{% endif %}>
+      {{ category_list('write_category_ids', values.write_ids, all_categories) }}
+    </div>
+  </fieldset>
+  <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') if role else t('common.create') }}</button></div>
+</form>
+
+{% if role %}
+<section class="card">
+  <h2>{{ t('admin.roles.holders') }}</h2>
+  {% if holders %}
+  <ul class="stack small">
+    {% for user in holders %}
+    <li class="split"><a href="{{ url_for('admin.user_detail', user_id=user.id) }}">{{ user.username }}</a>
+      {{ forms.post_button(url_for('admin.unassign_role_user', role_id=role.id), t('admin.roles.unassign'), 'btn btn--small', hidden={'user_id': user.id}) }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="muted">{{ t('admin.roles.no_holders') }}</p>{% endif %}
+  {% if candidates %}
+  <form method="post" action="{{ url_for('admin.assign_role_user', role_id=role.id) }}" class="input-group">
+    {{ forms.csrf() }}
+    <label class="visually-hidden" for="f-assign">{{ t('admin.roles.assign_user') }}</label>
+    <select id="f-assign" name="user_id">{% for user in candidates %}<option value="{{ user.id }}">{{ user.username }}</option>{% endfor %}</select>
+    <button class="btn" type="submit">{{ t('admin.roles.assign') }}</button>
+  </form>
+  {% endif %}
+</section>
+
+<section class="card danger-zone">
+  <h2>{{ t('admin.roles.delete_title') }}</h2>
+  <form method="post" action="{{ url_for('admin.delete_role', role_id=role.id) }}" class="form" data-confirm="{{ t('admin.roles.delete_confirm', name=role.name) }}">
+    {{ forms.csrf() }}
+    <div class="field">
+      <label for="f-replacement">{{ t('admin.roles.replacement') }}</label>
+      <select id="f-replacement" name="replacement_role_id">
+        <option value="auto">{{ t('admin.roles.replacement_auto') }}</option>
+        <option value="none">{{ t('admin.roles.replacement_none') }}</option>
+        {% for other in other_roles %}<option value="{{ other.id }}">{{ other.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="btn-row"><button class="btn btn--danger" type="submit">{{ t('admin.roles.delete') }}</button></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

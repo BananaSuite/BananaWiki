@@ -1,0 +1,26 @@
+/* Read-aloud player and admin page. */
+.tts-panel { margin-top: 1.5rem; display: grid; gap: .75rem; }
+.tts-panel__header { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem; }
+.tts-panel__title { font-size: 1.05rem; margin: 0; }
+.tts-panel__status { margin: 0; }
+.tts-panel__status[data-kind="failed"] { color: var(--danger); }
+.tts-panel__controls, .tts-panel__actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
+.tts-panel__speed { display: inline-flex; align-items: center; gap: .4rem; }
+.tts-panel__audio { width: 100%; color-scheme: light dark; }
+.tts-panel__player { display: grid; gap: .5rem; }
+[data-tts-content] [data-tts-word].is-current {
+  background: color-mix(in srgb, var(--bw-accent) 32%, transparent);
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bw-accent) 32%, transparent);
+}
+html[data-reduce-motion="true"] [data-tts-word].is-current { transition: none; }
+
+.tts-stats { margin-bottom: 1rem; }
+.tts-languages { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: .25rem .75rem;
+  max-height: 18rem; overflow-y: auto; padding: .25rem; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.tts-voices { list-style: none; padding: 0; margin: 0; display: grid; gap: .35rem;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.tts-error { margin: .25rem 0 0; max-width: 32rem; overflow-wrap: anywhere; }
+.tts-badge--completed, .tts-voice--ready { background: var(--success-bg); color: var(--success); }
+.tts-badge--processing, .tts-badge--pending, .tts-voice--downloadable { background: var(--info-bg); color: var(--info); }
+.tts-badge--failed, .tts-voice--missing, .tts-voice--unmapped { background: var(--danger-bg); color: var(--danger); }

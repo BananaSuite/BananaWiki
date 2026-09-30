@@ -1,0 +1,45 @@
+{#- Shared pieces of the assessment pages. -#}
+
+{% macro breadcrumbs(page) -%}
+<nav class="breadcrumbs" aria-label="{{ t('assessments.breadcrumbs') }}">
+  <ol><li><a href="{{ url_for('pages.view', slug=page.slug) }}">{{ page.title }}</a></li><li>{{ t('assessments.quiz') }}</li></ol>
+</nav>
+{%- endmacro %}
+
+{% macro manager_actions(page) -%}
+<div class="page-header__actions">
+  <a class="btn btn--small" href="{{ url_for('assessments.manage', slug=page.slug) }}">{{ t('assessments.manage') }}</a>
+  <a class="btn btn--small" href="{{ url_for('assessments.results', slug=page.slug) }}">{{ t('assessments.results') }}</a>
+</div>
+{%- endmacro %}
+
+{% macro answer_text(value) -%}
+{%- if value is none or value == [] or value == '' %}<span class="muted">{{ t('assessments.no_answer') }}</span>
+{%- elif value is string %}{{ value }}
+{%- else %}{{ value|join(', ') }}{% endif -%}
+{%- endmacro %}
+
+{% macro attempts_table(page, attempts, show_user=false) -%}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr>
+      {% if show_user %}<th scope="col">{{ t('assessments.user') }}</th>{% endif %}
+      <th scope="col">{{ t('assessments.attempt') }}</th>
+      <th scope="col">{{ t('assessments.score') }}</th>
+      <th scope="col">{{ t('assessments.submitted_at') }}</th>
+      <th scope="col"><span class="visually-hidden">{{ t('common.actions') }}</span></th>
+    </tr></thead>
+    <tbody>
+    {% for a in attempts %}
+      <tr>
+        {% if show_user %}<td>{{ a.username }}</td>{% endif %}
+        <td>{{ a.attempt_number }}</td>
+        <td><strong>{{ a.total_points }}/{{ a.max_points }}</strong></td>
+        <td class="nowrap">{{ a.submitted_at|datetime }}</td>
+        <td class="actions"><a href="{{ url_for('assessments.attempt', slug=page.slug, attempt_id=a.id) }}">{{ t('assessments.details') }}</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{%- endmacro %}

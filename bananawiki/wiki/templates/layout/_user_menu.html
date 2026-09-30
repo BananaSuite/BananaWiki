@@ -1,0 +1,40 @@
+{% if current_user %}
+{% set attention = attention_items() %}
+{% set attention_total = attention|sum(attribute='count') %}
+<details class="menu">
+  <summary class="btn btn--ghost" aria-label="{{ t('attention.menu.aria_one' if attention_total == 1 else 'attention.menu.aria_other', count=attention_total) if attention_total else t('nav.account_menu') }}">
+    <span class="avatar-wrap" aria-hidden="true">
+      <span class="avatar">{{ current_user.username[:1]|upper }}</span>
+      {% if attention_total %}<span class="attention-dot" data-attention-count="{{ attention_total }}">{{ attention_total if attention_total < 100 else '99+' }}</span>{% endif %}
+    </span>
+    <span class="visually-hidden">{{ current_user.username }}</span>
+  </summary>
+  <div class="menu__panel" role="menu">
+    <div class="menu__label">{{ t('nav.signed_in_as', user=current_user.username) }}</div>
+    {% if attention %}
+    <div class="menu__label menu__label--attention">{{ t('attention.menu.title') }}</div>
+    {% for entry in attention %}
+    <a role="menuitem" href="{{ entry.url }}">{{ t(entry.label) }} <span class="count-pill">{{ entry.count }}</span></a>
+    {% endfor %}
+    <a role="menuitem" href="{{ url_for('attention.index') }}">{{ t('attention.menu.all') }}</a>
+    <hr>
+    {% endif %}
+    {% for item in nav_items('user') %}
+    <a role="menuitem" href="{{ item.url }}">{{ item.label }}{% if item.badge %} <span class="count-pill">{{ item.badge }}</span>{% endif %}</a>
+    {% endfor %}
+    {% if is_admin %}
+    <hr>
+    {% for item in nav_items('admin') %}
+    <a role="menuitem" href="{{ item.url }}">{{ item.label }}{% if item.badge %} <span class="count-pill">{{ item.badge }}</span>{% endif %}</a>
+    {% endfor %}
+    {% endif %}
+    <hr>
+    <form method="post" action="{{ url_for('auth.logout') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button role="menuitem" type="submit">{{ t('nav.sign_out') }}</button>
+    </form>
+  </div>
+</details>
+{% else %}
+<a class="btn btn--primary btn--small" href="{{ url_for('auth.login') }}">{{ t('nav.sign_in') }}</a>
+{% endif %}

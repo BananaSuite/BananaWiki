@@ -1,0 +1,57 @@
+{#- Page shell. Blocks: title, head, body_class, topbar_actions, sidebar, main_class, content, scripts. -#}
+{%- set prefs = accessibility_prefs() -%}
+<!doctype html>
+<html lang="{{ lang }}" dir="{{ 'rtl' if rtl else 'ltr' }}" data-theme="{{ prefs.theme }}"
+      data-font-scale="{{ prefs.font_scale }}" data-contrast="{{ prefs.contrast }}"
+      data-reduce-motion="{{ 'true' if prefs.reduce_motion else 'false' }}"
+      data-dyslexic="{{ 'true' if prefs.dyslexic else 'false' }}" data-line-height="{{ prefs.line_height }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <meta name="color-scheme" content="dark light">
+  <title>{% block title %}{{ site_name() }}{% endblock %}{% if self.title() != site_name() %} · {{ site_name() }}{% endif %}</title>
+  <link rel="icon" href="{{ favicon_url() }}">
+  <link rel="stylesheet" href="{{ asset_url('css/bananawiki.css') }}">
+  <link rel="stylesheet" href="{{ asset_url('css/content.css') }}">
+  <link rel="stylesheet" href="{{ asset_url('css/pygments.css') }}">
+  <style nonce="{{ csp_nonce() }}">{{ theme_css() }}</style>
+  {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <a class="skip-link" href="#main">{{ t('a11y.skip_to_content') }}</a>
+  {% include "layout/_banners.html" %}
+  {% block shell %}
+  <div class="shell">
+    <header class="topbar">
+      <button type="button" class="btn btn--ghost btn--icon topbar__menu-toggle" data-sidebar-toggle
+              aria-controls="sidebar" aria-expanded="false" aria-label="{{ t('nav.menu') }}">☰</button>
+      <a class="topbar__brand" href="/">
+        <img src="{{ favicon_url() }}" alt="" width="26" height="26"><span>{{ site_name() }}</span>
+      </a>
+      <div class="topbar__spacer"></div>
+      <div class="topbar__actions">
+        {% block topbar_actions %}{% endblock %}
+        {{ slot('topbar.actions') }}
+        <button type="button" class="btn btn--ghost btn--icon" data-theme-toggle aria-label="{{ t('nav.toggle_theme') }}">◐</button>
+        {% include "layout/_user_menu.html" %}
+      </div>
+    </header>
+    <nav class="sidebar" id="sidebar" aria-label="{{ t('nav.sidebar') }}">
+      {% block sidebar %}{% include "layout/_sidebar.html" %}{% endblock %}
+    </nav>
+    <main id="main" class="main {% block main_class %}{% endblock %}" tabindex="-1">
+      <div class="content-column">
+        {% block content %}{% endblock %}
+        {% include "layout/_footer.html" %}
+      </div>
+    </main>
+  </div>
+  {% endblock %}
+  {% include "layout/_flashes.html" %}
+  <script type="application/json" id="bw-strings">{{ js_strings()|json_script }}</script>
+  <script src="{{ asset_url('js/bananawiki.js') }}"></script>
+  {{ slot('page.scripts') }}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

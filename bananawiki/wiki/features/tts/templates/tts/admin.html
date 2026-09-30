@@ -1,0 +1,141 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('tts.admin.title') }}{% endblock %}
+{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('tts.css', blueprint='tts') }}">{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('tts.admin.title') }}</h1>
+  <p class="muted">{{ t('tts.admin.intro') }}</p>
+</header>
+
+{% if system.host_disabled %}
+<div class="alert alert--warning"><div class="alert__body">{{ t('tts.blocked.disabled_by_host') }}</div></div>
+{% elif system.backend_problem %}
+<div class="alert alert--warning"><div class="alert__body">{{ t('tts.admin.backend_problem', problem=system.backend_problem) }}</div></div>
+{% endif %}
+
+<div class="grid grid--3 tts-stats">
+  <div class="card stat"><span class="stat__value">{{ stats.counts.completed }}</span><span class="stat__label">{{ t('tts.status.completed') }} · {{ stats.completion }}%</span></div>
+  <div class="card stat"><span class="stat__value">{{ stats.counts.pending + stats.counts.processing }}</span><span class="stat__label">{{ t('tts.admin.stat.active', processing=stats.counts.processing) }}</span></div>
+  <div class="card stat"><span class="stat__value">{{ stats.counts.failed }}</span><span class="stat__label">{{ t('tts.status.failed') }}</span></div>
+  <div class="card stat"><span class="stat__value">{{ stats.missing }}</span><span class="stat__label">{{ t('tts.admin.stat.missing', pages=stats.pages) }}</span></div>
+  <div class="card stat"><span class="stat__value">{{ stats.bytes|filesize }}</span><span class="stat__label">{{ t('tts.admin.stat.storage') }}</span></div>
+</div>
+
+<section class="card">
+  <h2>{{ t('tts.admin.actions') }}</h2>
+  <div class="btn-row">
+    {{ forms.post_button(url_for('tts.admin_backfill'), t('tts.admin.backfill', count=stats.missing), cls='btn btn--primary') }}
+    {{ forms.post_button(url_for('tts.admin_retry_failed'), t('tts.admin.retry_failed'), cls='btn') }}
+    {{ forms.post_button(url_for('tts.admin_clear'), t('tts.admin.clear'), cls='btn btn--danger', confirm=t('tts.admin.clear_confirm')) }}
+  </div>
+  <p class="hint">{{ t('tts.admin.backfill_hint') }}</p>
+</section>
+
+<section class="card">
+  <h2>{{ t('tts.admin.queue') }}</h2>
+  <nav class="tabs" aria-label="{{ t('tts.admin.queue') }}">
+    <a href="{{ url_for('tts.admin') }}"{% if not status_filter %} aria-current="page"{% endif %}>{{ t('common.all') }}</a>
+    {% for value in ('pending', 'processing', 'completed', 'failed') %}
+    <a href="{{ url_for('tts.admin', status=value) }}"{% if status_filter == value %} aria-current="page"{% endif %}>{{ t('tts.status.' ~ value) }} ({{ stats.counts[value] }})</a>
+    {% endfor %}
+  </nav>
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr>
+        <th>{{ t('tts.admin.col.page') }}</th><th>{{ t('tts.admin.col.language') }}</th><th>{{ t('common.status') }}</th>
+        <th>{{ t('tts.admin.col.size') }}</th><th>{{ t('tts.admin.col.requested') }}</th><th>{{ t('common.actions') }}</th>
+      </tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td><a href="{{ url_for('pages.view', slug=row.page_slug) }}">{{ row.page_title }}</a></td>
+          <td>{{ labels.get(row.language, row.language) }}</td>
+          <td>
+            <span class="badge tts-badge--{{ row.status }}">{{ t('tts.status.' ~ row.status) }}</span>
+            {% if row.retry_count %}<span class="small muted">{{ t('tts.admin.retries', count=row.retry_count) }}</span>{% endif %}
+            {% if row.error_message and row.status in ('failed', 'pending') %}<p class="small text-danger tts-error">{{ row.error_message }}</p>{% endif %}
+          </td>
+          <td class="nowrap">{{ row.file_size|filesize if row.file_size else '—' }}</td>
+          <td class="nowrap">{{ row.requested_at|time_ago }}{% if row.requested_by_name %}<br><span class="small muted">{{ row.requested_by_name }}</span>{% endif %}</td>
+          <td class="nowrap">
+            {% if row.status in ('failed', 'pending') %}{{ forms.post_button(url_for('tts.admin_retry', generation_id=row.id, status=status_filter), t('tts.admin.retry'), cls='btn btn--small') }}{% endif %}
+            {{ forms.post_button(url_for('tts.admin_delete', generation_id=row.id, status=status_filter), t('common.delete'), cls='btn btn--small btn--ghost', confirm=t('tts.admin.delete_confirm')) }}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ forms.pagination(page, pages, 'tts.admin', {'status': status_filter} if status_filter else {}) }}
+  {% else %}
+  <p class="empty-state">{{ t('tts.admin.queue_empty') }}</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>{{ t('tts.admin.settings') }}</h2>
+  <form class="form" method="post" action="{{ url_for('tts.admin_settings') }}">
+    {{ forms.csrf() }}
+    {{ forms.checkbox('tts_page_panel_enabled', t('tts.admin.panel'), values.tts_page_panel_enabled, t('tts.admin.panel_hint')) }}
+    {{ forms.checkbox('tts_public_access_enabled', t('tts.admin.public'), values.tts_public_access_enabled, t('tts.admin.public_hint')) }}
+    <fieldset class="field">
+      <legend>{{ t('tts.admin.mode') }}</legend>
+      <label class="check"><input type="radio" name="generation_mode" value="on_demand"{% if not values.tts_auto_generate_enabled %} checked{% endif %}><span>{{ t('tts.admin.mode_on_demand') }}<small>{{ t('tts.admin.mode_on_demand_hint') }}</small></span></label>
+      <label class="check"><input type="radio" name="generation_mode" value="auto"{% if values.tts_auto_generate_enabled %} checked{% endif %}><span>{{ t('tts.admin.mode_auto') }}<small>{{ t('tts.admin.mode_auto_hint') }}</small></span></label>
+    </fieldset>
+    {{ forms.select('tts_performance_mode', t('tts.admin.performance'), [('auto', t('tts.admin.perf.auto')), ('balanced', t('tts.admin.perf.balanced')), ('fast', t('tts.admin.perf.fast'))], values.tts_performance_mode or 'auto', t('tts.admin.performance_hint')) }}
+    <fieldset class="field">
+      <legend>{{ t('tts.admin.languages') }}</legend>
+      <p class="hint">{{ t('tts.admin.languages_hint') }}</p>
+      <div class="tts-languages">
+        {% for code, label in languages %}
+        <label class="check"><input type="checkbox" name="languages" value="{{ code }}"{% if code in enabled %} checked{% endif %}><span>{{ label }}</span></label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    {% if system.gpu_managed %}
+    <p class="hint">{{ t('tts.admin.gpu_managed') }}</p>
+    {% else %}
+    <details class="field"{% if values.tts_gpu_enabled %} open{% endif %}>
+      <summary>{{ t('tts.admin.gpu') }}</summary>
+      <p class="hint">{{ t('tts.admin.gpu_hint') }}</p>
+      {% if system.gpu_from_env %}<p class="hint">{{ t('tts.admin.gpu_env') }}</p>{% endif %}
+      {{ forms.checkbox('tts_gpu_enabled', t('tts.admin.gpu_enabled'), values.tts_gpu_enabled) }}
+      {{ forms.field('tts_gpu_url', t('tts.admin.gpu_url'), values.tts_gpu_url, type='url', hint=t('tts.admin.gpu_url_hint'), attrs={'placeholder': 'http://100.64.0.2:8787'}) }}
+      {{ forms.field('tts_gpu_auth_token', t('tts.admin.gpu_token'), '', type='password', hint=t('tts.admin.gpu_token_set') if values.tts_gpu_auth_token else t('tts.admin.gpu_token_hint'), attrs={'autocomplete': 'off'}) }}
+      {% if values.tts_gpu_auth_token %}{{ forms.checkbox('clear_gpu_token', t('tts.admin.gpu_token_clear')) }}{% endif %}
+      {{ forms.field('tts_gpu_timeout', t('tts.admin.gpu_timeout'), values.tts_gpu_timeout or 120, type='number', attrs={'min': 1, 'max': 3600}) }}
+    </details>
+    {% endif %}
+    <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('common.save') }}</button></div>
+  </form>
+  {% if system.backend == 'remote-gpu' %}
+  {{ forms.post_button(url_for('tts.admin_gpu_test'), t('tts.admin.gpu_test'), cls='btn btn--small') }}
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>{{ t('tts.admin.system') }}</h2>
+  <div class="table-wrap">
+    <table class="table">
+      <tbody>
+        <tr><th scope="row">{{ t('tts.admin.sys.backend') }}</th><td>{{ t('tts.backend.' ~ system.backend) }}</td></tr>
+        <tr><th scope="row">{{ t('tts.admin.sys.worker') }}</th><td>{{ t('tts.admin.sys.worker_inline' if system.inline_worker else 'tts.admin.sys.worker_service', count=system.worker_count) }}</td></tr>
+        <tr><th scope="row">{{ t('tts.admin.sys.limits') }}</th><td>{{ t('tts.admin.sys.limits_value', total=system.limits[0], per_user=system.limits[1]) }}</td></tr>
+        <tr><th scope="row">Piper</th><td>{{ t('common.yes') if system.piper_installed else t('tts.admin.sys.not_installed') }}</td></tr>
+        <tr><th scope="row">ffmpeg</th><td>{{ t('common.yes') if system.ffmpeg else t('tts.admin.sys.ffmpeg_missing') }}</td></tr>
+        <tr><th scope="row">langdetect</th><td>{{ t('common.yes') if system.langdetect else t('tts.admin.sys.langdetect_missing') }}</td></tr>
+        <tr><th scope="row">{{ t('tts.admin.sys.voice_dir') }}</th><td class="mono small">{{ system.voice_dir }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>{{ t('tts.admin.sys.voices') }}</h3>
+  <ul class="tts-voices">
+    {% for code, label, state in system.voices %}
+    <li><span>{{ label }}</span> <span class="badge tts-voice--{{ state }}">{{ t('tts.voice.' ~ state) }}</span></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

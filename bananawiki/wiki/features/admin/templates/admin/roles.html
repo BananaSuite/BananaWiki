@@ -1,0 +1,40 @@
+{% extends "admin/_layout.html" %}
+{% block title %}{{ t('admin.roles.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('admin.roles.title') }}</h1>
+  <div class="page-header__actions"><a class="btn btn--primary" href="{{ url_for('admin.create_role') }}">{{ t('admin.roles.create') }}</a></div>
+</header>
+<p class="muted">{{ t('admin.roles.intro') }}</p>
+{% if roles %}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr>
+      <th scope="col">{{ t('common.name') }}</th>
+      <th scope="col">{{ t('admin.roles.base_role') }}</th>
+      <th scope="col">{{ t('admin.roles.permissions') }}</th>
+      <th scope="col">{{ t('admin.roles.restrictions') }}</th>
+      <th scope="col">{{ t('admin.roles.holders') }}</th>
+    </tr></thead>
+    <tbody>
+    {% for role in roles %}
+      <tr>
+        <td><a href="{{ url_for('admin.edit_role', role_id=role.id) }}">{{ role.name }}</a>
+          {% if role.description %}<br><span class="muted small">{{ role.description }}</span>{% endif %}</td>
+        <td><span class="badge">{{ t('admin.role.' ~ role.base_role) }}</span></td>
+        <td>{{ role.permission_count }}</td>
+        <td>
+          {% if role.read_restricted %}<span class="badge badge--warning">{{ t('admin.roles.read_limited') }}</span>{% endif %}
+          {% if role.write_restricted %}<span class="badge badge--warning">{{ t('admin.roles.write_limited') }}</span>{% endif %}
+          {% if not role.read_restricted and not role.write_restricted %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td><a href="{{ url_for('admin.users', custom_role=role.id) }}">{{ role.user_count }}</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">{{ t('admin.roles.none') }}</div>
+{% endif %}
+{% endblock %}

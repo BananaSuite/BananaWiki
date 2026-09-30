@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('profiles.fields.title') }}{% endblock %}
+{% block content %}
+<header class="page-header"><h1>{{ t('profiles.fields.title') }}</h1>
+  <p class="page-header__meta">@{{ target.username }}</p></header>
+<section class="card">
+  {% if definitions %}
+  <form method="post" action="{{ action }}" class="form">
+    {{ forms.csrf() }}
+    <p class="hint">{{ t('profiles.fields.help') }}</p>
+    {% for field in definitions %}
+    {% set current = values.get(field.id, {}) %}
+    <fieldset>
+      <legend>{{ field.label }}</legend>
+      <div class="field">
+        <label for="value-{{ field.id }}" class="visually-hidden">{{ field.label }}</label>
+        {% if field.field_type == 'longtext' %}
+        <textarea id="value-{{ field.id }}" name="value_{{ field.id }}" rows="3" maxlength="2000">{{ current.value }}</textarea>
+        {% else %}
+        <input id="value-{{ field.id }}" name="value_{{ field.id }}" value="{{ current.value or '' }}"
+          type="{{ {'number': 'number', 'url': 'url', 'date': 'date'}.get(field.field_type, 'text') }}"{% if field.field_type == 'number' %} step="any"{% endif %}{% if field.field_type in ('text', 'url') %} maxlength="500"{% endif %}>
+        {% endif %}
+      </div>
+      {{ forms.checkbox('visible_' ~ field.id, t('profiles.fields.visible'), current.visible) }}
+    </fieldset>
+    {% endfor %}
+    <div class="btn-row">
+      <button class="btn btn--primary" type="submit">{{ t('common.save') }}</button>
+      <a class="btn" href="{{ back }}">{{ t('common.back') }}</a>
+    </div>
+  </form>
+  {% else %}
+  <p class="muted">{{ t('profiles.fields.none_defined') }}</p>
+  {% endif %}
+</section>
+{% endblock %}

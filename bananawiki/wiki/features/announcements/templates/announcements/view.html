@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ t('announcements.title') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('announcements.css', blueprint='announcements') }}">{% endblock %}
+{% block content %}
+<div class="page-header"><h1>{{ t('announcements.title') }}</h1></div>
+<article class="announcement-full announcement--{{ announcement.color }} announcement--{{ announcement.text_size }}"
+         {% if style %}style="{{ style }}"{% endif %}>
+  <div class="content">{{ content_html }}</div>
+  {% if announcement.expires_at %}
+  <p class="announcement-full__expiry">{{ t('announcements.expires', date=announcement.expires_at|datetime) }}</p>
+  {% endif %}
+</article>
+<p><a class="btn" href="/">{{ t('common.back') }}</a></p>
+{% endblock %}

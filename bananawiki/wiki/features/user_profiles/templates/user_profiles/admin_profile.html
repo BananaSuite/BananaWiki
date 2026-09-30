@@ -1,0 +1,83 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('profiles.admin.profile_title', user=target.username) }}{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ t('profiles.admin.profile_title', user=target.username) }}</h1>
+  <div class="page-header__actions"><a class="btn" href="{{ url_for('users.profile', username=target.username) }}">{{ t('profiles.admin.view_profile') }}</a></div>
+</header>
+<div class="stack">
+<section class="card">
+  <h2>{{ t('profiles.admin.status') }}</h2>
+  <p class="cluster">
+    {% if profile.page_disabled_by_admin %}<span class="badge badge--warning">{{ t('profiles.admin.disabled') }}</span>
+    {% elif profile.page_published %}<span class="badge badge--success">{{ t('profiles.admin.published') }}</span>
+    {% else %}<span class="badge">{{ t('profiles.admin.hidden') }}</span>{% endif %}
+  </p>
+  <form method="post" class="btn-row">
+    {{ forms.csrf() }}
+    {% if not profile.page_disabled_by_admin %}
+      {% if profile.page_published %}<button class="btn" name="action" value="unpublish_profile">{{ t('profiles.admin.unpublish') }}</button>
+      {% else %}<button class="btn" name="action" value="publish_profile">{{ t('profiles.admin.publish') }}</button>{% endif %}
+      <button class="btn btn--danger" name="action" value="disable_profile" data-confirm="{{ t('profiles.admin.disable_confirm') }}">{{ t('profiles.admin.disable') }}</button>
+    {% else %}
+      <button class="btn" name="action" value="enable_profile">{{ t('profiles.admin.enable') }}</button>
+    {% endif %}
+    {% if profile %}<button class="btn btn--danger" name="action" value="delete_profile" data-confirm="{{ t('profiles.page.delete_confirm') }}">{{ t('profiles.page.delete') }}</button>{% endif %}
+  </form>
+</section>
+
+<section class="card">
+  <h2>{{ t('users.profile_edit.title') }}</h2>
+  <form method="post" enctype="multipart/form-data" class="form">
+    {{ forms.csrf() }}
+    {{ forms.field('real_name', t('users.profile_edit.real_name'), profile.real_name, attrs={'maxlength': 100}) }}
+    {{ forms.textarea('bio', t('users.profile_edit.bio'), profile.bio, rows=4) }}
+    {{ forms.field('birth_date', t('users.profile_edit.birth_date'), profile.birth_date, type='date') }}
+    <div class="field">
+      <label for="f-avatar">{{ t('users.profile_edit.avatar') }}</label>
+      {% if avatar_url %}<img class="avatar avatar--large" src="{{ avatar_url }}" alt="">{% endif %}
+      <input id="f-avatar" name="avatar" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn--primary" name="action" value="edit_profile">{{ t('common.save') }}</button>
+      {% if avatar_url %}<button class="btn" name="action" value="remove_avatar">{{ t('users.profile_edit.remove_avatar') }}</button>{% endif %}
+      <a class="btn" href="{{ url_for('user_profiles.admin_fields', user_id=target.id) }}">{{ t('profiles.edit_fields') }}</a>
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>{{ t('profiles.tags.title') }}</h2>
+  <p class="hint">{{ t('profiles.tags.help') }}</p>
+  {% if tags %}
+  <ul class="users-sessions">
+    {% for tag in tags %}
+    <li class="users-session">
+      <form method="post" action="{{ url_for('user_profiles.admin_tags', user_id=target.id) }}" class="cluster">
+        {{ forms.csrf() }}
+        <input type="hidden" name="tag_id" value="{{ tag.id }}">
+        <label class="visually-hidden" for="tag-label-{{ tag.id }}">{{ t('profiles.tags.label') }}</label>
+        <input id="tag-label-{{ tag.id }}" name="tag_label" value="{{ tag.label }}" maxlength="50" required>
+        <label class="visually-hidden" for="tag-color-{{ tag.id }}">{{ t('profiles.tags.color') }}</label>
+        <input id="tag-color-{{ tag.id }}" type="color" name="tag_color" value="{{ tag.color }}">
+        <button class="btn btn--small" name="action" value="update_tag">{{ t('common.save') }}</button>
+        {% if not loop.first %}<button class="btn btn--small" name="action" value="move_up" aria-label="{{ t('profiles.move_up') }}">↑</button>{% endif %}
+        {% if not loop.last %}<button class="btn btn--small" name="action" value="move_down" aria-label="{{ t('profiles.move_down') }}">↓</button>{% endif %}
+        <button class="btn btn--small btn--danger" name="action" value="delete_tag" data-confirm="{{ t('common.are_you_sure') }}">{{ t('common.delete') }}</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <form method="post" action="{{ url_for('user_profiles.admin_tags', user_id=target.id) }}" class="cluster users-spaced">
+    {{ forms.csrf() }}
+    <label for="new-tag-label">{{ t('profiles.tags.label') }}</label>
+    <input id="new-tag-label" name="tag_label" maxlength="50" required>
+    <label for="new-tag-color">{{ t('profiles.tags.color') }}</label>
+    <input id="new-tag-color" type="color" name="tag_color" value="#9b59b6">
+    <button class="btn btn--primary btn--small" name="action" value="add_tag">{{ t('profiles.tags.add') }}</button>
+  </form>
+</section>
+</div>
+{% endblock %}

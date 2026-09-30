@@ -1,0 +1,45 @@
+{#- Sidebar navigation (slot sidebar.navigation). -#}
+<link rel="stylesheet" href="{{ asset_url('pages.css', blueprint='pages') }}">
+<div class="bw-nav" data-nav-tree>
+  <p class="sidebar__section-title">
+    <span>{{ t('pages.nav.title') }}</span>
+    <span class="cluster">
+      {% if can_create %}<a class="btn btn--ghost btn--small" href="{{ url_for('pages.create', category_id=current.category_id if current and current.category_id else None) }}" title="{{ t('pages.nav.new_page') }}">+ {{ t('pages.nav.page') }}</a>{% endif %}
+      {% if can_create_category %}<a class="btn btn--ghost btn--small" href="{{ url_for('pages.navigation_page') }}#new-category" title="{{ t('pages.nav.new_category') }}">+ {{ t('pages.nav.category') }}</a>{% endif %}
+    </span>
+  </p>
+  <form class="sidebar__search" role="search" method="get" action="{{ url_for('pages.search_page') }}"
+        data-sidebar-search data-api="{{ url_for('pages.api_sidebar_search') }}">
+    <input type="search" name="q" autocomplete="off" maxlength="200" placeholder="{{ t('pages.nav.search_placeholder') }}"
+           aria-label="{{ t('pages.nav.search_label') }}">
+    <label class="check small"><input type="checkbox" data-search-content> <span>{{ t('pages.nav.search_content') }}</span></label>
+    <div class="nav-search-results" data-search-results hidden aria-live="polite"></div>
+  </form>
+  <ul class="nav-list">
+    <li><a href="{{ url_for('pages.home') }}"{% if request.endpoint == 'pages.home' or (current and current.is_home) %} aria-current="page"{% endif %}><span class="nav-label">{{ t('pages.nav.home') }}</span></a></li>
+    {% if current and not current_listed and not current.is_home %}
+    <li><a href="{{ url_for('pages.view', slug=current.slug) }}" aria-current="page"><span class="nav-label">{{ current.title }}</span></a></li>
+    {% endif %}
+  </ul>
+  <div class="nav-tree">
+    {% for node in nav.categories recursive %}
+    <details data-node="c{{ node.id }}"{% if node.id in open_ids %} open data-current{% endif %}>
+      <summary><span class="nav-label">{{ node.name }}</span><span class="nav-count">{{ node.count }}</span></summary>
+      <ul class="nav-list" data-reorder-list data-reorder-url="{{ url_for('pages.api_reorder_pages') }}">
+        {% with pages=node.pages, more=node.more, category_id=node.id %}{% include "pages/_nav_pages.html" %}{% endwith %}
+      </ul>
+      {% if node.children %}<div class="nav-tree__children">{{ loop(node.children) }}</div>{% endif %}
+    </details>
+    {% endfor %}
+    {% if nav.uncategorized.count %}
+    <details data-node="c0"{% if current and current.category_id is none and not current.is_home %} open data-current{% endif %}>
+      <summary><span class="nav-label">{{ t('pages.nav.uncategorized') }}</span><span class="nav-count">{{ nav.uncategorized.count }}</span></summary>
+      <ul class="nav-list" data-reorder-list data-reorder-url="{{ url_for('pages.api_reorder_pages') }}">
+        {% with pages=nav.uncategorized.pages, more=nav.uncategorized.more, category_id=none %}{% include "pages/_nav_pages.html" %}{% endwith %}
+      </ul>
+    </details>
+    {% endif %}
+  </div>
+  <p class="small"><a href="{{ url_for('pages.navigation_page') }}">{{ t('pages.nav.all_pages') }}</a></p>
+</div>
+<script src="{{ asset_url('navigation.js', blueprint='pages') }}" defer></script>

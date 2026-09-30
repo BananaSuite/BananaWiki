@@ -1,0 +1,29 @@
+<link rel="stylesheet" href="{{ asset_url('announcements.css', blueprint='announcements') }}">
+<div class="announcements-bar" id="announcements-bar" role="region" aria-label="{{ t('announcements.bar_label') }}"
+     data-viewer-id="{{ viewer_id }}"
+     data-unit-days="{{ t('announcements.unit.days') }}" data-unit-hours="{{ t('announcements.unit.hours') }}"
+     data-unit-minutes="{{ t('announcements.unit.minutes') }}" data-unit-seconds="{{ t('announcements.unit.seconds') }}"
+     data-counter="{{ t('announcements.counter') }}">
+  {% for item in items %}
+  <div class="announcement announcement--{{ item.color }} announcement--{{ item.text_size }}"
+       {% if item.style %}style="{{ item.style }}"{% endif %}
+       data-announcement-id="{{ item.id }}" data-revision="{{ item.revision }}"
+       data-removable="{{ '0' if item.not_removable else '1' }}"
+       data-countdown="{{ '1' if item.show_countdown else '0' }}" data-expires-at="{{ item.expires_iso }}">
+    <div class="announcement__body content">
+      {{ item.html }}
+      {% if item.truncated %}<a class="announcement__more" href="{{ url_for('announcements.view', announcement_id=item.id) }}">{{ t('announcements.read_more') }}</a>{% endif %}
+    </div>
+    <div class="announcement__controls">
+      <span class="announcement__countdown" hidden></span>
+      <button type="button" class="announcement__nav" data-announcement-prev hidden aria-label="{{ t('announcements.previous') }}">‹</button>
+      <span class="announcement__counter" hidden></span>
+      <button type="button" class="announcement__nav" data-announcement-next hidden aria-label="{{ t('announcements.next') }}">›</button>
+      {% if not item.not_removable %}
+      <button type="button" class="announcement__close" data-announcement-dismiss aria-label="{{ t('announcements.dismiss') }}">×</button>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<script src="{{ asset_url('announcements.js', blueprint='announcements') }}"></script>

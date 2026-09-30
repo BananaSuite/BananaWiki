@@ -1,0 +1,10 @@
+/* Assessments: quiz pages and the question editor. */
+.assessment-text { white-space: pre-line; overflow-wrap: anywhere; }
+.assessment-question { display: grid; gap: .45rem; }
+.assessment-question legend { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.assessment-question--missing { border-color: var(--danger); }
+.assessment-answers { list-style: none; padding: 0; margin: 1rem 0; }
+.assessment-answers p { margin: 0 0 .35rem; }
+.assessment-editor__question { background: var(--surface); }
+.assessment-editor__question[data-removed] { opacity: .55; }
+.assessment-editor__question ul.field-error { margin: 0; padding-left: 1.2rem; }

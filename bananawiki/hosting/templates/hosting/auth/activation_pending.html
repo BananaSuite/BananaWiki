@@ -1,0 +1,6 @@
+{% extends "hosting/base.html" %}
+{% block title %}{{ t('hosting.activation.pending_title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow"><h1>{{ t('hosting.activation.pending_title') }}</h1><p>{{ t('hosting.activation.pending_body') }}</p>
+<p class="small muted">{{ t('hosting.common.contact', email=contact_email) }}</p></div>
+{% endblock %}

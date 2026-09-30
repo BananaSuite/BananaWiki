@@ -1,0 +1,40 @@
+{% extends "base_minimal.html" %}
+{% block title %}{{ t('auth.status.' ~ state ~ '.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('auth.status.' ~ state ~ '.title') }}</h1>
+  <p>{{ t('auth.status.' ~ state ~ '.body') }}</p>
+  {% if state == 'suspended' %}
+    {% if user.suspend_reason and user.suspend_reason_visible %}
+      <p><strong>{{ t('auth.status.suspended.reason') }}</strong> {{ user.suspend_reason }}</p>
+    {% endif %}
+    {% if user.suspended_until and user.suspend_time_visible %}
+      <p>{{ t('auth.status.suspended.until', when=user.suspended_until|datetime) }}</p>
+    {% elif not user.suspended_until %}
+      <p>{{ t('auth.status.suspended.permanent') }}</p>
+    {% endif %}
+    <p class="small muted">{{ t('auth.status.suspended.contact') }}</p>
+  {% elif state == 'denied' and deletion_time %}
+    <p>{{ t('auth.status.denied.deletion', when=deletion_time|datetime) }}</p>
+  {% endif %}
+  {{ slot('auth.account_status', state=state, user=user) }}
+  <form method="post" action="{{ url_for('auth.logout') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn" type="submit">{{ t('nav.sign_out') }}</button>
+  </form>
+</div>
+{% if can_delete %}
+<div class="card card--narrow card--danger">
+  <h2>{{ t('auth.status.delete.title') }}</h2>
+  <p>{{ t('auth.status.delete.warning') }}</p>
+  <form method="post" action="{{ url_for('auth.suspended_delete') }}" class="form" data-confirm="{{ t('auth.status.delete.confirm') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field">
+      <label for="delete-password">{{ t('auth.field.current_password') }}</label>
+      <input id="delete-password" name="password" type="password" autocomplete="current-password" required maxlength="1024">
+    </div>
+    <button class="btn btn--danger" type="submit">{{ t('auth.status.delete.submit') }}</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

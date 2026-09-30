@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+{% block title %}{{ layout.title }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('canvas.css', blueprint='canvas') }}">{% endblock %}
+{% block main_class %}main--wide canvas-main{% endblock %}
+{% macro tool(action, label, icon, cls='') -%}
+<button type="button" class="btn btn--small {{ cls }}" data-action="{{ action }}" title="{{ label }}" aria-label="{{ label }}"><span aria-hidden="true">{{ icon }}</span><span class="canvas-tool__label">{{ label }}</span></button>
+{%- endmacro %}
+{% macro toggle(action, label, icon) -%}
+<button type="button" class="btn btn--small canvas-toggle" data-action="{{ action }}" aria-pressed="false" title="{{ label }}" aria-label="{{ label }}"><span aria-hidden="true">{{ icon }}</span></button>
+{%- endmacro %}
+{% macro menu_item(action, label, min=1) -%}
+<button type="button" class="canvas-menu__item" data-action="{{ action }}" data-min="{{ min }}">{{ label }}</button>
+{%- endmacro %}
+{% block content %}
+<header class="page-header canvas-header">
+  <h1>{{ layout.title }}</h1>
+  <div class="page-header__actions">
+    <a class="btn btn--small" href="{{ url_for('canvas.history', slug=layout.slug) }}">{{ t('canvas.view.history') }}</a>
+    <a class="btn btn--small" href="{{ url_for('canvas.outline', slug=layout.slug) }}">{{ t('canvas.view.outline') }}</a>
+    {% if can_edit %}
+    <a class="btn btn--small" href="{{ url_for('canvas.export', slug=layout.slug) }}">{{ t('canvas.view.export') }}</a>
+    <a class="btn btn--small" href="{{ url_for('canvas.manage', slug=layout.slug) }}">{{ t('canvas.view.settings') }}</a>
+    {% endif %}
+    <button type="button" class="btn btn--small" data-print>{{ t('canvas.view.print') }}</button>
+  </div>
+  {% if layout.description %}<p class="page-header__meta">{{ layout.description }}</p>{% endif %}
+</header>
+
+<div class="canvas-app" id="canvas-app"
+     data-can-edit="{{ 'true' if can_edit else 'false' }}"
+     data-data-url="{{ url_for('canvas.get_data', slug=layout.slug) }}"
+     data-sync-url="{{ url_for('canvas.sync', slug=layout.slug) }}"
+     {% if can_edit %}
+     data-ops-url="{{ url_for('canvas.apply_ops', slug=layout.slug) }}"
+     data-upload-url="{{ url_for('canvas.upload', slug=layout.slug) }}"
+     data-pages-url="{{ url_for('canvas.page_search', slug=layout.slug) }}"
+     data-render-url="{{ url_for('canvas.render_node', slug=layout.slug) }}"
+     {% endif %}
+     data-storage-key="canvas-view-{{ layout.id }}" data-filename="{{ layout.slug }}">
+  <div class="canvas-toolbar no-print" role="toolbar" aria-label="{{ t('canvas.view.toolbar') }}">
+    {% if can_edit %}
+    <div class="canvas-toolbar__group">
+      {{ tool('add-text', t('canvas.node.text'), 'T', 'btn--primary') }}
+      {{ tool('add-shape', t('canvas.node.shape'), '◆') }}
+      {{ tool('add-code', t('canvas.node.code'), '{ }') }}
+      {{ tool('add-image', t('canvas.node.image'), '▣') }}
+      {{ tool('add-video', t('canvas.node.video'), '▶') }}
+      {{ tool('add-wiki_page', t('canvas.node.wiki_page'), '📄') }}
+      {{ tool('add-external_link', t('canvas.node.external_link'), '🔗') }}
+    </div>
+    <div class="canvas-toolbar__group" data-needs-selection>
+      {{ tool('edit', t('canvas.action.edit'), '✎') }}
+      {{ tool('connect', t('canvas.action.connect'), '→') }}
+      {{ tool('duplicate', t('canvas.action.duplicate'), '⧉') }}
+      {{ tool('front', t('canvas.action.front'), '⤒') }}
+      {{ tool('back', t('canvas.action.back'), '⤓') }}
+      {{ tool('delete', t('canvas.action.delete'), '✕') }}
+    </div>
+    <div class="canvas-toolbar__group" data-needs-selection>
+      <details class="canvas-menu" data-arrange-menu>
+        <summary class="btn btn--small">{{ t('canvas.action.arrange') }}</summary>
+        <div class="canvas-menu__panel" role="group" aria-label="{{ t('canvas.action.arrange') }}">
+          <p class="canvas-menu__heading">{{ t('canvas.arrange.align') }}</p>
+          {{ menu_item('align-left', t('canvas.arrange.left'), 2) }}
+          {{ menu_item('align-center', t('canvas.arrange.center'), 2) }}
+          {{ menu_item('align-right', t('canvas.arrange.right'), 2) }}
+          {{ menu_item('align-top', t('canvas.arrange.top'), 2) }}
+          {{ menu_item('align-middle', t('canvas.arrange.middle'), 2) }}
+          {{ menu_item('align-bottom', t('canvas.arrange.bottom'), 2) }}
+          <p class="canvas-menu__heading">{{ t('canvas.arrange.distribute') }}</p>
+          {{ menu_item('distribute-h', t('canvas.arrange.horizontal'), 3) }}
+          {{ menu_item('distribute-v', t('canvas.arrange.vertical'), 3) }}
+          <p class="canvas-menu__heading">{{ t('canvas.arrange.more') }}</p>
+          {{ menu_item('group', t('canvas.arrange.group'), 2) }}
+          {{ menu_item('ungroup', t('canvas.arrange.ungroup')) }}
+          {{ menu_item('lock', t('canvas.arrange.lock')) }}
+          {{ menu_item('fit-selection', t('canvas.arrange.zoom_selection')) }}
+        </div>
+      </details>
+    </div>
+    <div class="canvas-toolbar__group">
+      {{ tool('undo', t('canvas.action.undo'), '↶') }}
+      {{ tool('redo', t('canvas.action.redo'), '↷') }}
+      {{ toggle('snap', t('canvas.action.snap'), '#') }}
+    </div>
+    {% endif %}
+    <div class="canvas-toolbar__group">
+      {{ tool('zoom-out', t('canvas.action.zoom_out'), '−') }}
+      {{ tool('zoom-in', t('canvas.action.zoom_in'), '+') }}
+      {{ tool('fit', t('canvas.action.fit'), '⤢') }}
+      {{ toggle('minimap', t('canvas.action.minimap'), '▦') }}
+      <details class="canvas-menu">
+        <summary class="btn btn--small">{{ t('canvas.action.image') }}</summary>
+        <div class="canvas-menu__panel" role="group" aria-label="{{ t('canvas.action.image') }}">
+          <button type="button" class="canvas-menu__item" data-action="export-png">{{ t('canvas.action.export_png') }}</button>
+          <button type="button" class="canvas-menu__item" data-action="export-svg">{{ t('canvas.action.export_svg') }}</button>
+        </div>
+      </details>
+    </div>
+    <span class="canvas-status" role="status" aria-live="polite" data-status></span>
+  </div>
+  <div class="canvas-frame" data-canvas-stage tabindex="0" role="application"
+       aria-label="{{ t('canvas.view.stage_label', title=layout.title) }}" aria-describedby="canvas-keys">
+    <canvas class="canvas-minimap no-print" data-minimap aria-hidden="true" width="200" height="140" hidden></canvas>
+  </div>
+  <details class="canvas-keys no-print" id="canvas-keys">
+    <summary>{{ t('canvas.keys.title') }}</summary>
+    <ul class="small">
+      <li>{{ t('canvas.keys.navigate') }}</li>
+      <li>{{ t('canvas.keys.pan') }}</li>
+      <li>{{ t('canvas.keys.zoom') }}</li>
+      <li><a href="{{ url_for('canvas.outline', slug=layout.slug) }}">{{ t('canvas.keys.outline') }}</a></li>
+      {% if can_edit %}
+      <li>{{ t('canvas.keys.move') }}</li>
+      <li>{{ t('canvas.keys.resize') }}</li>
+      <li>{{ t('canvas.keys.edit') }}</li>
+      <li>{{ t('canvas.keys.select') }}</li>
+      <li>{{ t('canvas.keys.clipboard') }}</li>
+      <li>{{ t('canvas.keys.connect') }}</li>
+      <li>{{ t('canvas.keys.undo') }}</li>
+      <li>{{ t('canvas.keys.snap') }}</li>
+      <li>{{ t('canvas.keys.guides') }}</li>
+      <li>{{ t('canvas.keys.group') }}</li>
+      {% endif %}
+    </ul>
+  </details>
+</div>
+
+{% if can_edit %}
+<dialog id="canvas-node-dialog" aria-labelledby="canvas-node-dialog-title">
+  <form class="form" method="dialog" data-node-form>
+    <h2 id="canvas-node-dialog-title" data-dialog-title></h2>
+    <div class="field" data-field="display_text">
+      <label for="cn-display">{{ t('canvas.field.display_text') }}</label>
+      <input id="cn-display" name="display_text" type="text" maxlength="200">
+    </div>
+    <div class="field" data-field="content">
+      <label for="cn-content" data-content-label data-text-label="{{ t('canvas.field.content') }}" data-code-label="{{ t('canvas.field.code') }}">{{ t('canvas.field.content') }}</label>
+      <textarea id="cn-content" name="content" rows="8" maxlength="20000" aria-describedby="cn-content-hint"></textarea>
+      <p class="hint" id="cn-content-hint" data-field="markdown_hint">{{ t('canvas.field.markdown_hint') }}</p>
+    </div>
+    <div class="field" data-field="language">
+      <label for="cn-language">{{ t('canvas.field.language') }}</label>
+      <input id="cn-language" name="language" type="text" maxlength="32" placeholder="python">
+    </div>
+    <div class="field" data-field="url">
+      <label for="cn-url" data-url-label data-image-label="{{ t('canvas.field.image_url') }}" data-video-label="{{ t('canvas.field.video_url') }}" data-link-label="{{ t('canvas.field.link_url') }}">{{ t('canvas.field.link_url') }}</label>
+      <input id="cn-url" name="url" type="text" maxlength="2000" inputmode="url" placeholder="https://">
+    </div>
+    <div class="field" data-field="upload">
+      <label for="cn-file">{{ t('canvas.field.upload') }}</label>
+      <input id="cn-file" name="file" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
+      <p class="hint" data-upload-status role="status"></p>
+    </div>
+    <div class="field" data-field="alt">
+      <label for="cn-alt">{{ t('canvas.field.alt') }}</label>
+      <input id="cn-alt" name="alt" type="text" maxlength="300">
+    </div>
+    <div class="field" data-field="page">
+      <label for="cn-page-search">{{ t('canvas.field.page') }}</label>
+      <input id="cn-page-search" type="search" autocomplete="off" maxlength="200" aria-controls="cn-page-results" placeholder="{{ t('canvas.field.page_search') }}">
+      <ul class="canvas-page-results" id="cn-page-results" role="listbox" aria-label="{{ t('canvas.field.page_results') }}"></ul>
+      <p class="hint" data-page-selected role="status"></p>
+    </div>
+    <div class="form-grid">
+      <div class="field" data-field="shape">
+        <label for="cn-shape">{{ t('canvas.field.shape') }}</label>
+        <select id="cn-shape" name="shape">
+          {% for shape in ('rectangle', 'rounded', 'pill', 'ellipse', 'diamond', 'note', 'parallelogram', 'hexagon') %}<option value="{{ shape }}">{{ t('canvas.shape.' ~ shape) }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="cn-color">{{ t('canvas.field.color') }}</label>
+        <select id="cn-color" name="color">
+          <option value="">{{ t('canvas.color.none') }}</option>
+          {% for name, value in (('red', '#e91e63'), ('orange', '#ff9800'), ('yellow', '#ffeb3b'), ('green', '#4caf50'), ('blue', '#2196f3'), ('purple', '#9c27b0'), ('grey', '#9e9e9e')) %}
+          <option value="{{ value }}">{{ t('canvas.color.' ~ name) }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="cn-text-size">{{ t('canvas.field.text_size') }}</label>
+        <input id="cn-text-size" name="text_size" type="number" min="8" max="96" step="1">
+      </div>
+      <div class="field">
+        <label for="cn-width">{{ t('canvas.field.width') }}</label>
+        <input id="cn-width" name="width" type="number" min="40" max="4000" step="10">
+      </div>
+      <div class="field">
+        <label for="cn-height">{{ t('canvas.field.height') }}</label>
+        <input id="cn-height" name="height" type="number" min="30" max="4000" step="10">
+      </div>
+    </div>
+    <p class="field-error" data-form-error role="alert"></p>
+    <div class="btn-row btn-row--end">
+      <button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button>
+      <button type="submit" class="btn btn--primary" value="save">{{ t('common.save') }}</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="canvas-edge-dialog" aria-labelledby="canvas-edge-dialog-title">
+  <form class="form" method="dialog" data-edge-form>
+    <h2 id="canvas-edge-dialog-title">{{ t('canvas.edge.title') }}</h2>
+    <div class="field">
+      <label for="ce-label">{{ t('canvas.edge.label') }}</label>
+      <input id="ce-label" name="label" type="text" maxlength="200">
+    </div>
+    <div class="form-grid">
+      <div class="field">
+        <label for="ce-arrow">{{ t('canvas.edge.arrow') }}</label>
+        <select id="ce-arrow" name="arrow">
+          {% for arrow in ('end', 'start', 'both', 'none') %}<option value="{{ arrow }}">{{ t('canvas.edge.arrow_' ~ arrow) }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="ce-style">{{ t('canvas.edge.style') }}</label>
+        <select id="ce-style" name="style">
+          {% for style in ('solid', 'dashed', 'dotted') %}<option value="{{ style }}">{{ t('canvas.edge.style_' ~ style) }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="ce-route">{{ t('canvas.edge.route') }}</label>
+        <select id="ce-route" name="route">
+          {% for route in ('curved', 'straight', 'elbow') %}<option value="{{ route }}">{{ t('canvas.edge.route_' ~ route) }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="ce-from-side">{{ t('canvas.edge.from_side') }}</label>
+        <select id="ce-from-side" name="from_side">
+          {% for side in ('auto', 'top', 'right', 'bottom', 'left') %}<option value="{{ side }}">{{ t('canvas.edge.side_' ~ side) }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="ce-to-side">{{ t('canvas.edge.to_side') }}</label>
+        <select id="ce-to-side" name="to_side">
+          {% for side in ('auto', 'top', 'right', 'bottom', 'left') %}<option value="{{ side }}">{{ t('canvas.edge.side_' ~ side) }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="ce-text-size">{{ t('canvas.field.text_size') }}</label>
+        <input id="ce-text-size" name="text_size" type="number" min="8" max="96" step="1">
+      </div>
+    </div>
+    <div class="btn-row btn-row--end">
+      <button type="button" class="btn btn--danger" data-edge-delete>{{ t('canvas.action.delete') }}</button>
+      <button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button>
+      <button type="submit" class="btn btn--primary" value="save">{{ t('common.save') }}</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ asset_url('canvas-core.js', blueprint='canvas') }}" defer></script>
+<script src="{{ asset_url('canvas-export.js', blueprint='canvas') }}" defer></script>
+<script src="{{ asset_url('canvas-editor.js', blueprint='canvas') }}" defer></script>
+{% endblock %}

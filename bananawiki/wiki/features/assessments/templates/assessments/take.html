@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% import "assessments/_macros.html" as quiz with context %}
+{% block title %}{{ assessment.title }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('assessments.css', blueprint='assessments') }}">{% endblock %}
+{% block content %}
+{{ quiz.breadcrumbs(page) }}
+<div class="page-header">
+  <h1>{{ assessment.title }}</h1>
+  {% if can_manage %}{{ quiz.manager_actions(page) }}{% endif %}
+</div>
+{% if assessment.description %}<p class="assessment-text">{{ assessment.description }}</p>{% endif %}
+
+{% if attempts %}
+<section class="card">
+  <h2>{{ t('assessments.your_attempts') }}</h2>
+  {{ quiz.attempts_table(page, attempts) }}
+</section>
+{% endif %}
+
+{% if block_reason %}
+<div class="alert alert--info"><div class="alert__body">{{ t(block_reason) }}</div></div>
+{% elif not questions %}
+<div class="empty-state">{{ t('assessments.no_questions') }}</div>
+{% else %}
+{% if error %}<div class="alert alert--error" role="alert"><div class="alert__body">{{ error }}</div></div>{% endif %}
+<form method="post" action="{{ url_for('assessments.submit', slug=page.slug) }}" class="stack assessment-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% for q in questions %}
+  {% set given = answers.get(q.id) %}
+  <fieldset class="assessment-question{% if q.id in missing %} assessment-question--missing{% endif %}"
+            {% if q.id in missing %}aria-invalid="true"{% endif %}>
+    <legend>
+      <span class="assessment-text">{{ loop.index }}. {{ q.prompt }}</span>
+      {% if q.is_required %}<span class="badge">{{ t('assessments.required') }}</span>{% endif %}
+    </legend>
+    {% if q.question_type == 'single_choice' %}
+      {% for option in q.options %}
+      <label class="check"><input type="radio" name="q_{{ q.id }}" value="{{ loop.index0 }}"
+        {%- if given == option %} checked{% endif %}{% if q.is_required %} required{% endif %}> <span>{{ option }}</span></label>
+      {% endfor %}
+    {% elif q.question_type == 'multiple_choice' %}
+      <p class="hint">{{ t('assessments.choose_all') }}</p>
+      {% for option in q.options %}
+      <label class="check"><input type="checkbox" name="q_{{ q.id }}" value="{{ loop.index0 }}"
+        {%- if given and given is not string and option in given %} checked{% endif %}> <span>{{ option }}</span></label>
+      {% endfor %}
+    {% else %}
+      <div class="field">
+        <label class="visually-hidden" for="q-{{ q.id }}">{{ t('assessments.your_answer') }}</label>
+        <textarea id="q-{{ q.id }}" name="q_{{ q.id }}" rows="3" maxlength="2000"
+          placeholder="{{ t('assessments.type_answer') }}"{% if q.is_required %} required{% endif %}>{{ given or '' }}</textarea>
+      </div>
+    {% endif %}
+    {% if q.id in missing %}<p class="field-error">{{ t('assessments.error.this_answer_required') }}</p>{% endif %}
+  </fieldset>
+  {% endfor %}
+  <div class="btn-row">
+    <button type="submit" class="btn btn--primary"
+      {%- if not assessment.allow_multiple_attempts %} data-confirm="{{ t('assessments.submit_confirm_once') }}"{% endif %}>
+      {{- t('assessments.submit') -}}
+    </button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,9 @@
+{% import "attention/_macros.html" as m with context %}
+{% set entries = attention_items() %}
+<section class="card attention-card" aria-labelledby="attention-card-title">
+  <div class="card__header">
+    <h2 id="attention-card-title">{{ t('attention.menu.title') }}</h2>
+    <a class="btn btn--small" href="{{ url_for('attention.index') }}">{{ t('attention.menu.all') }}</a>
+  </div>
+  {% if entries %}{{ m.entry_list(entries) }}{% else %}<p class="muted">{{ t('attention.empty.body') }}</p>{% endif %}
+</section>

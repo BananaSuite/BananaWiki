@@ -1,416 +1,348 @@
 # Configuration
 
-
-BananaWiki uses a two-layer configuration model: **static settings** in
-`config.py` (read at server start) and **runtime settings** stored in the
-SQLite database (editable from Admin → Site Settings, effective
-immediately).
-
----
-
-## Layer 1: Static configuration (`config.py`)
-
-Most static settings support `BW_*` environment variable overrides. The
-hosting platform uses these to isolate per-instance configuration without
-modifying the file.
-
-### Networking
-
-| Setting | Env var | Default | Purpose |
-|---|---|---|---|
-| `PORT` | `BW_PORT` | `5001` | Gunicorn bind port |
-| `HOST` | `BW_HOST` | `"127.0.0.1"` | Gunicorn bind address |
-| `PROXY_MODE` | `BW_PROXY_MODE` | `False` | Enable `ProxyFix` middleware for nginx / reverse proxy.  **Default flipped to off after the security audit**: production deployments behind nginx must set `BW_PROXY_MODE=1` explicitly (`banana install --domain ...` configures this in the private environment file). |
-
-### Security
-
-| Setting | Env var | Default | Purpose |
-|---|---|---|---|
-| `SECRET_KEY` | `SECRET_KEY` | Auto-generated, persisted to `instance/.secret_key` | Flask secret key for session signing |
-| `SESSION_COOKIE_NAME` | `BW_SESSION_COOKIE_NAME` | `"bw_session"` | Session cookie identifier |
-
-BananaWiki generates the secret key on first run, saves it to
-`instance/.secret_key` and reloads it on later starts. If the
-`SECRET_KEY` environment variable is set, it takes precedence.
-
-### Database
-
-| Setting | Env var | Default | Purpose |
-|---|---|---|---|
-| `DATABASE_PATH` | `BW_DATABASE_PATH` | `bananawiki.db` under the instance directory | SQLite database file location |
-
-The database operates in WAL (Write-Ahead Logging) mode for concurrent
-read performance.
-
-### Image uploads
-
-| Setting | Env var | Default | Purpose |
-|---|---|---|---|
-| `UPLOAD_FOLDER` | `BW_UPLOAD_FOLDER` | `app/static/uploads` | Directory for user image uploads |
-| `MAX_CONTENT_LENGTH` | `BW_MAX_CONTENT_LENGTH_BYTES` | `16 MB` (16,777,216 bytes) | Maximum upload size (Flask-enforced) |
-| `ALLOWED_EXTENSIONS` | - | `png, jpg, jpeg, gif, webp` | Permitted image file types (SVG intentionally excluded) |
-
-### Page attachments
-
-| Setting | Env var | Default | Purpose |
-|---|---|---|---|
-| `ATTACHMENT_FOLDER` | `BW_ATTACHMENT_FOLDER` | `instance/attachments` | Page attachment storage directory |
-| `MAX_ATTACHMENT_SIZE` | `BW_MAX_ATTACHMENT_SIZE_BYTES` | `5 MB` (5,242,880 bytes) | Per-attachment size cap |
-| `ATTACHMENT_ALLOWED_EXTENSIONS` | - | `pdf, doc, docx, xls, xlsx, ppt, pptx, txt, md, csv, json, xml, zip, tar, gz, png, jpg, jpeg, gif, webp, mp4, webm, mp3, ogg, py, js, ts, html, css, sh` | Permitted attachment file types |
-
-### Chat attachments
-
-| Setting | Env var | Default | Purpose |
-|---|---|---|---|
-| `CHAT_ATTACHMENT_FOLDER` | `BW_CHAT_ATTACHMENT_FOLDER` | `instance/chat_attachments` | Chat file attachment storage directory |
-| `CHAT_ALLOWED_EXTENSIONS` | - | `pdf, doc, docx, xls, xlsx, ppt, pptx, txt, md, csv, json, xml, zip, tar, gz, png, jpg, jpeg, gif, webp` | Permitted chat attachment file types |
-
-### Kanban attachments
-
-| Setting | Env var | Default | Purpose |
-|---|---|---|---|
-| `KANBAN_ATTACHMENT_FOLDER` | `BW_KANBAN_ATTACHMENT_FOLDER` | `instance/kanban_attachments` | Kanban ticket attachment storage directory |
-| `KANBAN_MAX_ATTACHMENT_SIZE` | - | `5 MB` (5,242,880 bytes) | Per-attachment size cap |
-| `KANBAN_ATTACHMENT_ALLOWED_EXTENSIONS` | - | `pdf, doc, docx, xls, xlsx, ppt, pptx, txt, md, csv, json, xml, zip, tar, gz, png, jpg, jpeg, gif, webp, mp4, webm, mp3, ogg, py, js, ts, html, css, sh` | Permitted Kanban attachment file types |
-
-### Custom page files
-
-| Setting | Env var | Default | Purpose |
-|---|---|---|---|
-| `CUSTOM_PAGE_FILES_FOLDER` | `BW_CUSTOM_PAGE_FILES_FOLDER` | `instance/custom_page_files` | Custom page binary file storage |
-| `CUSTOM_PAGE_MAX_FILE_SIZE` | - | `16 MB` (16,777,216 bytes) | Per-file size cap (non-video) |
-| `CUSTOM_PAGE_MAX_VIDEO_SIZE` | - | `100 MB` (104,857,600 bytes) | Per-video file size cap (overridable via site settings) |
-
-### Logging
-
-| Setting | Env var | Default | Purpose |
-|---|---|---|---|
-| `LOGGING_LEVEL` | - | `"verbose"` | Log verbosity level |
-| `LOG_FILE` | `BW_LOG_FILE` | `logs/bananawiki.log` | Log file path |
-
-Available log levels:
-
-| Level | What is logged |
-|---|---|
-| `off` | Nothing |
-| `minimal` | Critical events only |
-| `medium` | Critical + important auth/admin actions |
-| `verbose` | All user actions (default) |
-| `debug` | All above + HTTP request details |
-
-### Feature toggles
-
-| Setting | Env var | Default | Purpose |
-|---|---|---|---|
-| `PAGE_HISTORY_ENABLED` | - | `True` | Enable page revision history feature |
-| `EXPERIMENTAL_OBSIDIAN_SYNC` | - | `False` | Enable Obsidian vault pull/push CLI commands (no web routes) |
-
-### Time-based settings
-
-| Setting | Env var | Default | Purpose |
-|---|---|---|---|
-| `INVITE_CODE_EXPIRY_HOURS` | - | `48` | Hours until invite codes expire |
-| `PAGE_RESERVATION_DURATION_HOURS` | - | `48` | Hours a page reservation lasts |
-| `PAGE_RESERVATION_COOLDOWN_HOURS` | - | `24` | Cooldown hours after a reservation is released |
-| `SERVER_RESTART_COOLDOWN_SECONDS` | - | `60` | Minimum seconds between admin-triggered server restarts (**code-only**, no UI / DB / `BW_*` override). See [Operations](operations.md). |
-
-### Import / export limits
-
-| Setting | Env var | Default | Purpose |
-|---|---|---|---|
-| `MAX_IMPORT_UNCOMPRESSED_SIZE` | - | `500 MB` (524,288,000 bytes) | Maximum total uncompressed size for migration ZIP imports |
-| `MAX_IMPORT_MEMBER_SIZE` | - | `200 MB` (209,715,200 bytes) | Maximum uncompressed size for any single file in the import ZIP |
-| `MAX_PLUGIN_UNCOMPRESSED_SIZE` | - | `50 MB` (52,428,800 bytes) | Maximum total uncompressed size for `.bwplugin` ZIP files |
-
-### Google Drive backup fallbacks
-
-These are not `config.py` constants. They are keys in the `hosting_settings`
-table, managed through Admin → Site Settings. `_read_settings()` in
-`hosting/gdrive_backup.py` supplies the defaults below when a column is missing
-or `NULL`.
-
-| Setting | Env var | Default | Purpose |
-|---|---|---|---|
-| `gdrive_backup_enabled` | - | `0` | Google Drive backup enable flag |
-| `gdrive_folder_id` | - | `""` | Target Google Drive folder ID |
-| `gdrive_credentials_path` | - | `CREDENTIALS_PATH_DEFAULT` | Path to Google service-account JSON key |
-| `gdrive_retention_days` | - | `7` | Number of days to keep old backups |
-| `gdrive_backup_time` | - | `"03:00"` | Time of day for the nightly backup (HH:MM) |
-
----
-
-## Layer 2: Runtime settings (Admin → Site Settings)
-
-Runtime settings are stored in the `site_settings` table (single row,
-`id = 1`). Changes take effect immediately without a server restart.
-
-Settings that hold sensitive values are transparently encrypted at rest. See
-[Architecture & Security](architecture-and-security.md#213-settings-encryption).
-
-### General
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `site_name` | TEXT | `"BananaWiki"` | Displayed in the sidebar, browser title, and header |
-| `interface_language` | TEXT | `"en"` | Default interface language code when users do not set a personal override |
-| `interface_language_fallback` | TEXT | `"en"` | Built-in fallback (`en` or `it`) used when custom language selections cannot render built-in content |
-| `interface_languages_json` | TEXT | `"{}"` | Custom language packs metadata (code, display name, enabled state) managed from Admin → Site Settings |
-| `timezone` | TEXT | `"UTC"` | Site-wide timezone for displayed dates and times |
-| `setup_done` | INTEGER | `0` | Set to `1` after the first-run setup wizard completes |
-
-### Appearance: Dark theme
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `primary_color` | TEXT | `"#8fa0d4"` | Primary UI colour (dark mode) |
-| `secondary_color` | TEXT | `"#1e1e2c"` | Secondary colour (dark mode) |
-| `accent_color` | TEXT | `"#7e9ada"` | Accent colour (dark mode) |
-| `text_color` | TEXT | `"#c8ccd8"` | Text colour (dark mode) |
-| `sidebar_color` | TEXT | `"#1a1a24"` | Sidebar background colour (dark mode) |
-| `bg_color` | TEXT | `"#16161f"` | Page background colour (dark mode) |
-
-### Appearance: Light theme
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `light_primary_color` | TEXT | `"#4b63b6"` | Primary UI colour (light mode) |
-| `light_secondary_color` | TEXT | `"#ffffff"` | Secondary colour (light mode) |
-| `light_accent_color` | TEXT | `"#3553c7"` | Accent colour (light mode) |
-| `light_text_color` | TEXT | `"#202534"` | Text colour (light mode) |
-| `light_sidebar_color` | TEXT | `"#e9edf5"` | Sidebar background colour (light mode) |
-| `light_bg_color` | TEXT | `"#f6f7fb"` | Page background colour (light mode) |
-
-### Appearance: General
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `default_theme_mode` | TEXT | `"dark"` | Default theme (`"dark"` or `"light"`) |
-| `favicon_enabled` | INTEGER | `0` | Enable custom favicon |
-| `favicon_type` | TEXT | `"yellow"` | Preset favicon colour (`yellow`, `blue`, `green`, etc.) |
-| `favicon_custom` | TEXT | `""` | Base64-encoded custom favicon data |
-
-### Access control
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `maintenance_mode` | INTEGER | `0` | When `1`, non-admins are redirected to `/maintenance`; admins sign in at `/admin` (legacy `/lockdown` redirects to `/maintenance`) |
-| `maintenance_message` | TEXT | `""` | Custom message displayed on the maintenance page |
-| `session_limit_enabled` | INTEGER | `0` | Enforce one active session per user (disabled by default; admins can enable via Site Settings) |
-| `public_mode` | INTEGER | `0` | When `1`, unauthenticated visitors can read wiki pages |
-| `public_mode_until` | TEXT | `NULL` | UTC ISO datetime to auto-disable public mode (optional) |
-| `public_mode_message` | TEXT | `""` | Banner message shown in public mode |
-| `public_mode_show_message` | INTEGER | `0` | Whether to show the public mode message banner |
-| `open_signup` | INTEGER | `0` | When `1`, new users can register without an invite code |
-| `open_signup_until` | TEXT | `NULL` | UTC ISO datetime to auto-disable open signup (optional) |
-| `auto_logout_enabled` | INTEGER | `0` | Enable daily automatic mass logout |
-| `auto_logout_hour` | INTEGER | `0` | Hour (0–23 UTC) for automatic mass logout |
-
-### Chat: Direct messages
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `chat_dm_enabled` | INTEGER | `1` | Enable the direct messaging feature |
-| `chat_allow_dm_creation` | INTEGER | `1` | Allow users to start new DM conversations |
-| `chat_dm_auto_clear_messages` | INTEGER | `0` | Auto-clear DM messages during cleanup |
-| `chat_dm_auto_clear_attachments` | INTEGER | `1` | Auto-clear DM attachments during cleanup |
-| `chat_dm_message_retention_days` | INTEGER | `0` | DM message retention (0 = keep forever) |
-| `chat_dm_attachment_retention_days` | INTEGER | `7` | DM attachment retention in days |
-
-### Chat: Group messages
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `chat_group_enabled` | INTEGER | `1` | Enable the group chat feature |
-| `chat_allow_group_creation` | INTEGER | `1` | Allow users to create new group chats |
-| `chat_group_auto_clear_messages` | INTEGER | `0` | Auto-clear group messages during cleanup |
-| `chat_group_auto_clear_attachments` | INTEGER | `1` | Auto-clear group attachments during cleanup |
-| `chat_group_message_retention_days` | INTEGER | `0` | Group message retention (0 = keep forever) |
-| `chat_group_attachment_retention_days` | INTEGER | `7` | Group attachment retention in days |
-
-### Chat: Global settings
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `chat_max_message_length` | INTEGER | `5000` | Maximum characters per chat message |
-| `chat_attachments_enabled` | INTEGER | `1` | Enable file attachments in chats |
-| `chat_max_attachment_size_mb` | INTEGER | `5` | Maximum chat attachment size in MB |
-| `chat_attachments_per_day_limit` | INTEGER | `10` | Maximum chat attachments per user per day |
-| `chat_auto_clear_messages` | INTEGER | `0` | Legacy: auto-clear messages (superseded by per-type settings) |
-| `chat_auto_clear_attachments` | INTEGER | `1` | Legacy: auto-clear attachments |
-| `chat_message_retention_days` | INTEGER | `0` | Legacy: message retention days |
-| `chat_attachment_retention_days` | INTEGER | `7` | Legacy: attachment retention days |
-
-### Chat cleanup scheduling
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `chat_cleanup_enabled` | INTEGER | `1` | Enable the periodic chat cleanup job |
-| `chat_cleanup_frequency_days` | INTEGER | `7` | Days between cleanup runs |
-| `chat_cleanup_hour` | INTEGER | `3` | Hour (0–23 UTC) to run the cleanup |
-| `chat_cleanup_split_configured` | INTEGER | `0` | Whether DM/group cleanup settings have been individually configured |
-| `last_chat_cleanup_at` | TEXT | `NULL` | UTC timestamp of the last cleanup run |
-
-### Page reservations
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `page_reservations_enabled` | INTEGER | `0` | Enable the page checkout / reservation system |
-| `page_reservation_duration_hours` | INTEGER | `48` | Hours a reservation lasts (overrides `config.py`) |
-| `page_reservation_cooldown_hours` | INTEGER | `24` | Cooldown hours after release (overrides `config.py`) |
-| `default_reserved_pages_quota` | INTEGER | `5` | Default max concurrent reservations per user |
-
-### Kanban
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `kanban_access` | TEXT | `"admin"` | Who can see Kanban boards: `"admin"`, `"editor"`, or `"all"` |
-| `kanban_write_access` | TEXT | `"admin"` | Who can create/edit boards: `"admin"`, `"editor"`, or `"all"` |
-
-Users individually shared on a board bypass the global access level.
-
-### Canvas
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `canvas_access` | TEXT | `"admin"` | Who can see canvas layouts: `"admin"`, `"editor"`, or `"all"` |
-| `canvas_write_access` | TEXT | `"admin"` | Who can create/edit canvas layouts: `"admin"`, `"editor"`, or `"all"` |
-
-### Google Drive backup
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `gdrive_backup_enabled` | INTEGER | `0` | Enable nightly Google Drive backup |
-| `gdrive_folder_id` | TEXT | `""` | Target Google Drive folder ID |
-| `gdrive_credentials_path` | TEXT | `""` | Path to Google service-account JSON key |
-| `gdrive_retention_days` | INTEGER | `30` | Number of days to keep old backups |
-| `gdrive_backup_time` | TEXT | `"02:00"` | Time of day for the nightly backup (HH:MM) |
-| `last_backup_sent_at` | REAL | `0` | Unix timestamp of the last backup sent |
-
-### Banana mode
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `banana_mode` | INTEGER | `0` | When `1`, non-admin users see a full-screen 🍌 overlay |
-
-Banana mode is controlled by the built-in API Service plugin from
-`/admin/api-service#banana-mode` or via `GET`/`POST /api/v1/banana-mode`.
-
-### PDF export
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `pdf_export_enabled` | INTEGER | `0` | Enable PDF export of wiki pages (requires the `page.export_pdf` permission) |
-
-When enabled, users with the `page.export_pdf` permission can download any
-accessible wiki page as a PDF document. The server generates the PDF with the
-fpdf2 library.
-
-### Upload controls
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `upload_mode` | TEXT | `"whitelist"` | Upload filter mode: `"whitelist"` or `"blacklist"` |
-| `upload_whitelist` | TEXT | `""` | Comma-separated allowed extensions (whitelist mode) |
-| `upload_blacklist` | TEXT | *(long default list of dangerous extensions)* | Comma-separated blocked extensions (blacklist mode) |
-| `upload_max_size_mb` | INTEGER | `5` | Per-file upload size cap in MB |
-
-### Custom pages
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `custom_pages_max_video_size_mb` | INTEGER | `100` | Override for maximum video file size on custom pages (MB) |
-
-### Documentation
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `docs_category_id` | INTEGER | `NULL` | Category ID of the spawned wiki documentation |
-| `docs_bypass_deletion_slowdown` | INTEGER | `1` | Whether spawned docs bypass the deletion slowdown queue |
-
-### User profiles
-
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `profile_group_badges_enabled` | INTEGER | `0` | Show group membership badges on user profiles |
-
----
-
-## Environment variable quick reference
-
-`config.py` holds almost all of them, each next to its default, and is the
-place to look when something here is not enough. `BW_EXTERNAL_PLUGINS_DIR` is
-the exception: it is read in `plugin_loader.py` and points at
-`plugins/external/`, which matters for a deployment whose install tree is read
-only. The ones a single installation is most likely to set:
-
-```bash
-BW_INSTANCE_DIR=/var/lib/bananawiki      # data directory; see the note below
-BW_ENV=production
-BW_PORT=5001
-BW_HOST=127.0.0.1
-BW_PROXY_MODE=1                          # only behind a trusted reverse proxy
-BW_PREFERRED_URL_SCHEME=https
-BW_SESSION_COOKIE_NAME=bw_session
-BW_PASSWORD_HASH_METHOD=auto
-BW_LOG_FILE=logs/bananawiki.log
-BW_LOGGING_LEVEL=INFO
-BW_SOURCE_URL=https://github.com/you/your-fork   # AGPL source offer
-BW_SETUP_TOKEN=...                       # generated if unset
-```
-
-The storage paths do not all follow the same base. `BW_DATABASE_PATH` and
-`BW_TTS_FOLDER` default under `BW_INSTANCE_DIR`. `BW_ATTACHMENT_FOLDER`,
-`BW_CHAT_ATTACHMENT_FOLDER`, `BW_KANBAN_ATTACHMENT_FOLDER` and
-`BW_CUSTOM_PAGE_FILES_FOLDER` default to `instance/` beside the source, and
-`BW_UPLOAD_FOLDER` and `BW_FAVICON_UPLOAD_FOLDER` default inside `app/static/`.
-Setting `BW_INSTANCE_DIR` alone therefore moves the database but leaves attachments
-and uploads in the checkout, where an update that replaces the source tree
-would take them with it.
-
-`banana install` and the hosting platform set all of them explicitly, so this
-only affects an installation configured by hand. If that is yours, set each
-one, or keep the whole checkout somewhere an update does not replace. See
-[MIGRATION.md](../MIGRATION.md) for what to move and when.
-
-Size and rate limits (`BW_MAX_CONTENT_LENGTH_BYTES`,
-`BW_MAX_ATTACHMENT_SIZE_BYTES`, the `BW_BACKGROUND_IMAGE_*` and
-`BW_SITE_EXPORT_*` groups, the `BW_TTS_*` group) and the feature switches
-(`BW_ALLOW_EXTERNAL_PLUGINS`, `BW_PLUGIN_ISOLATION`, `BW_EASY_WIKI`,
-`BW_FEDERATION_ENABLED`, the `BW_FORBID_*` group) are documented next to their
-defaults in `config.py`. [Federation](federation.md) covers
-`BW_FEDERATION_ENABLED` in full.
-
-`BW_ALLOW_EXTERNAL_PLUGINS` is on unless set to `0` on a self-hosted wiki.
-While it is on, any admin can upload a `.bwplugin` file, and a plugin that is
-enabled runs inside the wiki with the wiki's own privileges, which gives
-complete control of the wiki (see
-[Plugins](plugins/overview.md#what-an-external-plugin-can-do)).  Set it to
-`0` and the upload form disappears and external plugin folders are ignored.
-Under `BW_MANAGED_HOSTING` it also needs `BW_PLUGIN_ISOLATION=container`.
-
-`BW_MANAGED_HOSTING`, `BW_PLATFORM_INSTANCE_ID`, `BW_INSTANCE_EXPIRES_AT`,
-`BW_STORAGE_LIMIT_BYTES`, `BW_MEMORY_LIMIT_MB`, `BW_NOFILE_LIMIT`, the
-`BW_MANAGED_*` group and the `BW_PLATFORM_OAUTH_*` group are set by the hosting
-platform for each tenant container. A standalone installation leaves them
-unset. See [hosting](hosting.md) and
-[platform OAuth SSO](platform-oauth-sso.md). Under `BW_MANAGED_HOSTING` the
-wiki refuses, with status 411, any request whose body is sent without a
-`Content-Length` header (for example with `Transfer-Encoding: chunked`),
-because the storage quota check sizes the body from that header. Browsers
-and the usual HTTP libraries send it for form posts, file uploads and JSON;
-an API client that streams a request body has to send a length instead.
-
-`SECRET_KEY` is read without the prefix. Leave it unset and the application
-keeps a generated key in `.secret_key` inside the instance directory, which is
-what you want unless several processes need to share a key you manage
-yourself.
-
----
-
-## Further reading
-
-- **[Getting Started](getting-started.md)**: installation and first steps.
-- **[Architecture & Security](architecture-and-security.md)**: request
-  lifecycle and security measures.
-- **[Permissions](permissions.md)**: the custom permission system.
-- **[Hosting](hosting.md)**: multi-tenant hosting platform configuration.
+BananaWiki has two kinds of settings:
+
+* **Environment variables** (this page). They are read once when a process
+  starts; change them and restart. They decide where data lives, how the
+  server listens, and what a host allows.
+* **Site settings**, stored in the `site_settings` row of the database and
+  edited by administrators under **Admin** (`/admin/settings` and the feature
+  pages). They apply at once. See [features](features.md) for the settings of
+  each feature.
+
+Every `BW_*` variable that BananaWiki 1.4 honoured is still honoured with the
+same meaning, so an existing systemd unit, container environment or `.env`
+file keeps working. Defaults that changed are marked below.
+
+## How values are read
+
+* **Booleans** accept `1`/`0`, `true`/`false`, `yes`/`no`, `on`/`off`
+  (any case). Anything else stops the wiki at start-up with a message naming
+  the variable. (The `HOSTING_PROXY_MODE`, `HOSTING_EMAIL_SMTP_TLS` and
+  `HOSTING_AUTO_FLATTEN_DOMAIN_LAYOUT` flags of the portal keep the 1.4 rule:
+  anything except a false word is on.)
+* **Numbers** outside the documented range stop the wiki at start-up.
+  Exception: the `BW_TTS_*` variables only log a warning and use their
+  default, so a typo in an optional feature never keeps the wiki down.
+* **Paths** may use `~` and are made absolute.
+* **Lists** are comma-separated.
+
+`bananawiki config check` validates the environment and prints warnings (for
+example a production server without `BW_PROXY_MODE` listening on a public
+address, or a data folder that is not writable).
+
+## Where the wiki keeps its data
+
+Everything the wiki writes goes into the **instance directory**. Every folder
+can be moved individually; unset folders follow `BW_INSTANCE_DIR`.
+
+| Variable | Default | What it is |
+|---|---|---|
+| `BW_INSTANCE_DIR` | `<source tree>/instance`, or `./instance` in the working directory for an installed package | Instance directory holding the database, secret key and every data folder. Set it explicitly in production. |
+| `BW_DATABASE_PATH` | `<instance>/bananawiki.db` | The SQLite database (WAL mode; `-wal`, `-shm`, `.initialized` and `.schema.lock` files sit next to it). |
+| `BW_UPLOAD_FOLDER` | `<instance>/uploads` | Images embedded in pages (served at `/static/uploads/<name>`), avatars and display backgrounds. **1.4 default:** `<source>/app/static/uploads`. |
+| `BW_FAVICON_UPLOAD_FOLDER` | `<instance>/favicons` | Custom favicons. **1.4 default:** `<source>/app/static/favicons`. |
+| `BW_ATTACHMENT_FOLDER` | `<instance>/attachments` | Page attachments. **1.4 default:** `<source>/instance/attachments`. |
+| `BW_CHAT_ATTACHMENT_FOLDER` | `<instance>/chat_attachments` | Files sent in direct messages and groups. |
+| `BW_KANBAN_ATTACHMENT_FOLDER` | `<instance>/kanban_attachments` | Kanban ticket files. |
+| `BW_CUSTOM_PAGE_FILES_FOLDER` | `<instance>/custom_page_files` | Files of custom pages. |
+| `BW_TTS_FOLDER` | `<instance>/tts` | Generated read-aloud audio. |
+| `BW_TTS_PIPER_VOICE_DIR` | `<instance>/piper-voices` | Piper voice models. |
+| `BW_SITE_EXPORT_TEMP_DIR` | `<instance>/tmp_exports` | Scratch space for whole-site export and import. |
+| `BW_EXTERNAL_PLUGINS_DIR` | `<instance>/plugins` | Third-party plugins. |
+| `BW_LOG_FILE` | `<instance>/logs/bananawiki.log` | Application log, rotated at 10 MB with 5 old files. **1.4 default:** `<source>/logs/bananawiki.log`. |
+
+The instance directory also holds `.secret_key`, uploaded interface languages
+(`translations/`), automatic database copies (`backups/`) and plugin safety
+snapshots (`plugin_safety_snapshots/`).
+
+When a 1.4 installation starts 1.6 and one of the folder variables above is
+**not** set, the files found at the 1.4 default location are moved into the
+instance directory (never overwriting anything). See [UPGRADING](../UPGRADING.md).
+
+## Core settings
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BW_ENV` | `production` | `production`, `development` (`dev`) or `test` (`testing`). Production refuses a secret key shorter than 32 characters and a key file readable by other users, and sends HSTS on HTTPS requests. `bananawiki serve` defaults to `development`. |
+| `SECRET_KEY` (alias `BW_SECRET_KEY`) | generated | Signs sessions and derives the keys for encrypted settings, API token digests and the setup token. When unset, 64 hex characters are generated once into `<instance>/.secret_key` (mode 0600). **Changing it signs everyone out, invalidates every API token and makes encrypted settings unreadable.** |
+| `BW_SETUP_TOKEN` | derived | Token needed to create the first account at `/setup`. Default: HMAC-SHA256 of the secret key and `initial-admin-setup` (hex). Print it with `bananawiki setup-token`. |
+| `BW_HOST` | `127.0.0.1` | Listen address (Gunicorn and `bananawiki serve`). |
+| `BW_PORT` | `5001` | Listen port (1–65535). |
+| `BW_PROXY_MODE` | `0` | Trust `X-Forwarded-For`, `-Proto` and `-Host` from **one** proxy in front. Turn it on only when the port is reachable through that proxy alone. `X-Forwarded-Prefix` is never trusted. |
+| `BW_PREFERRED_URL_SCHEME` | `https` with proxy mode, else `http` | Scheme of absolute links the wiki generates. |
+| `BW_SESSION_COOKIE_NAME` | `bw_session` | Name of the session cookie (hosted wikis use `bw_session_<slug>`). |
+| `BW_SECURE_COOKIES` | follows the request | `1` always marks cookies `Secure`, `0` never; unset: `Secure` on HTTPS requests. |
+| `BW_PASSWORD_HASH_METHOD` (alias `HASH_METHOD`) | `auto` | `auto` (scrypt when available, else PBKDF2-SHA256), `scrypt` or `pbkdf2`. Existing hashes of any Werkzeug format keep working. |
+| `BW_SOURCE_URL` | `https://github.com/OverloadedTech/BananaWiki` | Where `/source` redirects (AGPL section 13). Must be an http(s) URL without credentials. Point it at the source of the version you run. |
+| `BW_LOGGING_LEVEL` | `medium` | `off`, `minimal` (warnings), `medium` (information), `verbose` (same as `medium`) or `debug`. **1.4 default:** `verbose`. |
+| `BW_DEFAULT_INTERFACE_LANGUAGE` | `en` | Interface language used until an administrator chooses one. |
+| `BW_BACKGROUND_JOBS` | `1` | `0` stops the scheduler thread in the web workers; run `bananawiki jobs run` from cron instead. Replaces 1.4's `BANANAWIKI_SKIP_BACKGROUND_SERVICES`. |
+| `BW_MAINTENANCE_FILE` (alias `BANANA_MAINTENANCE_FILE`) | none | While this file exists every request except `/health` and `/healthz` gets a plain 503. The managed updater uses it during updates. (Not the same as the administrator's maintenance mode.) |
+
+## Limits
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BW_MAX_CONTENT_LENGTH_BYTES` | 16 MiB (at least 1 MiB) | Largest ordinary request and image upload. |
+| `BW_MAX_ATTACHMENT_SIZE_BYTES` | 100 MiB (at least 1 KiB) | Largest page, canvas or chat attachment (chat also has its own admin limit). |
+| `BW_BACKGROUND_IMAGE_MAX_UPLOAD_SIZE_BYTES` | 4 MiB | Largest display background picture a member can upload. |
+| `BW_BACKGROUND_IMAGE_MAX_PIXELS` | 16000000 | Largest background picture in pixels. |
+| `BW_BACKGROUND_IMAGE_MAX_DIMENSION` | 2560 (at least 16) | Background pictures are scaled down to this width/height. |
+| `BW_MIN_FORM_SECONDS` | 0.4 | With bot protection on, sign-up forms sent faster than this are refused. |
+| `BW_MEMORY_LIMIT_MB` | 0 (none) | Address-space limit (`RLIMIT_AS`) for each process. |
+| `BW_NOFILE_LIMIT` | 0 (none) | Open-files limit (`RLIMIT_NOFILE`) for each process. |
+
+Fixed limits (not configurable): whole-site import archives up to 500 MiB,
+custom page files 16 MiB, hosted videos on custom pages 100 MiB (lowered by
+the `custom_pages_max_video_size_mb` setting), JSON request bodies 2 MiB,
+form fields 2 MiB in memory, sessions 7 days (30 days with "remember me";
+without it the cookie ends with the browser session).
+
+## Database tuning
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BW_DB_BUSY_TIMEOUT_MS` | 5000 (100–30000) | How long a connection waits for SQLite's write lock. |
+| `BW_DB_CACHE_KIB` | 4096 (256–65536) | Page cache per connection. |
+| `BW_DB_SYNCHRONOUS` | `full` | `full` or `normal`. `normal` is faster; a power loss may lose the last transactions (never corrupt the file) in WAL mode. |
+| `BW_DB_INTEGRITY_CHECK_INTERVAL_SECONDS` | 3600 | Accepted for compatibility; 1.6 does not run periodic integrity checks. Use `bananawiki db check`. |
+
+`BW_DB_OBSERVABILITY` from 1.4 is no longer read.
+
+## Features and plugins
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BW_FEDERATION_ENABLED` | `0` | Turns on [federation](federation.md). There is no administrator switch. |
+| `BW_ALLOW_SITE_IMPORT` | `1` (`0` under managed hosting) | Allows **Admin → Site migration → Import**, which replaces the whole database. |
+| `BW_ALLOW_EXTERNAL_PLUGINS` | `1` | `0` refuses plugin uploads and loads no third-party plugin. Under managed hosting plugins stay off unless `BW_PLUGIN_ISOLATION=container`. |
+| `BW_PLUGIN_ISOLATION` | none | `container` tells a managed wiki that it runs in its own container, which allows third-party plugins. |
+| `BW_EXTERNAL_PLUGINS_DIR` | `<instance>/plugins` | See the data table above. |
+| `BW_MANAGED_PLUGIN_DENYLIST` | none | Feature and plugin ids that never load. |
+| `BW_EASY_WIKI` | `0` | Hides and keeps off the advanced features (chat, kanban, canvas, assessments, custom pages, page builder, page governance, contributions, federation, read aloud). |
+
+## Email
+
+The wiki sends email only for notifications (requests waiting for
+administrators and reviewers, decisions on someone's own request), and only
+after an administrator switches them on in **Admin → Notifications**. The mail
+server can be configured there (the SMTP password and API key are stored
+encrypted with the secret key) or with these variables. **When
+`BW_MAIL_PROVIDER` or `BW_SMTP_HOST` is set, the environment wins** and the
+administrator's server form is locked. Under managed hosting
+(`BW_MANAGED_HOSTING=1`) only the environment counts: the host decides whether
+tenant wikis can send email.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BW_MAIL_PROVIDER` | `smtp` when `BW_SMTP_HOST` is set, else none | `smtp`, `brevo` or `resend`. |
+| `BW_MAIL_FROM` | none | Sender, `wiki@example.org` or `Wiki <wiki@example.org>`. Required. |
+| `BW_MAIL_REPLY_TO` | none | Reply-to address. |
+| `BW_MAIL_API_KEY` | none | API key for Brevo or Resend. |
+| `BW_SMTP_HOST` | none | SMTP server. |
+| `BW_SMTP_PORT` | 587 | SMTP port. |
+| `BW_SMTP_SECURITY` | `ssl` on port 465, else `starttls` | `starttls`, `ssl` (implicit TLS) or `none`. A password is never sent unencrypted except to `localhost`. |
+| `BW_SMTP_USERNAME`, `BW_SMTP_PASSWORD` | none | SMTP credentials. |
+| `BW_MAIL_TIMEOUT` | 15 (1–120) | Seconds before a connection to the mail server gives up. |
+| `BW_MAIL_DAILY_LIMIT` | 0 (none) | Not used by the wiki's notifications (they are throttled per recipient); accepted for symmetry with the portal. |
+| `BW_BASE_URL` | the administrator's setting | Public address of the wiki (`https://wiki.example.org`) for links in emails. Without it, the address saved in **Admin → Notifications** is used; with neither, emails carry no links. |
+
+## Hosting platform (set by the host)
+
+These are set by the hosting portal or the desktop launcher. On a server you
+run yourself, leave them unset.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BW_MANAGED_HOSTING` (alias `BW_HOSTED_MODE`) | `0` | The wiki is a tenant of a hosting platform: plugins off unless isolated, site import off, upload size and remote GPU settings owned by the host, builder pages never public. |
+| `BW_FORBID_PUBLIC_MODE` | `0` | The host forbids public mode. |
+| `BW_FORBID_PAGE_BUILDER` | `0` | The host forbids the page builder. |
+| `BW_FORBID_PUBLIC_BUILDER_PAGES` | same as `BW_MANAGED_HOSTING` | Page-builder pages are never shown to anonymous visitors. |
+| `BW_MANAGED_TTS_DISABLED` | `0` | The host switched read-aloud generation off (existing audio stays playable). |
+| `BW_STORAGE_LIMIT_BYTES` | 0 (none) | Uploads are refused once the stored files reach this size. |
+| `BW_PLATFORM_UPLOAD_BLACKLIST` | none | File extensions the host refuses, on top of the administrator's rules. |
+| `BW_PLATFORM_INSTANCE_ID` | none | This wiki's id on the portal (used by platform sign-in). |
+| `BW_INSTANCE_EXPIRES_AT` | none | Accepted for compatibility; the portal enforces expiry. |
+| `BW_EASY_DEPLOYMENT` | `0` | Set by the desktop launcher; accepted for compatibility. |
+| `BW_PLATFORM_OAUTH_ENABLED` | `0` | Sign in with the hosting portal. When on, the portal also sets `BW_PLATFORM_OAUTH_CLIENT_ID`, `_CLIENT_SECRET`, `_AUTHORIZE_URL`, `_TOKEN_URL`, `_USERINFO_URL`, `_PORTAL_BASE`, `_LINK_URL`, `_LINK_STATUS_URL`, `_UNLINK_URL` and `_VERIFY_URL`. |
+
+## Web server (Gunicorn)
+
+Read by `gunicorn.conf.py` (`bananawiki/ops/gunicorn_conf.py`). Out-of-range
+values are clamped.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BW_HOST`, `BW_PORT` | `127.0.0.1`, `5001` | Bind address. |
+| `BW_WORKERS` | 2 (1–16) | Worker processes. SQLite serialises writes, so a few workers with threads work better than many processes. |
+| `BW_THREADS` | 4 (1–32) | Threads per worker. |
+| `BW_WORKER_TIMEOUT` | 120 (10–600) | Seconds before a stuck worker is replaced. |
+| `BW_ACCESS_LOG` | `-` | Access log: `-` for standard output, `off`, or a file path. |
+
+The application is not preloaded in the Gunicorn master: every worker runs its
+own scheduler thread (a lease in `job_runs` makes sure each job runs in one
+worker at a time) and loads plugins itself.
+
+## Read aloud (text-to-speech)
+
+Invalid values log a warning and fall back to the default.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BW_TTS_BACKEND` | chosen from the admin page | `piper` (local; `local` and `offline` also mean this), `remote-gpu` or `stub` (silent clips, for development). |
+| `BW_TTS_INLINE_WORKER` | `0` | `1` runs the synthesis worker as threads inside the web workers instead of a separate `scripts/tts_worker.py` process. |
+| `BW_TTS_WORKER_COUNT` | 1 (1–8) | Worker threads. |
+| `BW_TTS_MANUAL_MAX_ACTIVE_JOBS` | 1 | Generations that may be pending or running at once, site-wide, before readers are told the queue is full. |
+| `BW_TTS_MANUAL_MAX_ACTIVE_PER_USER` | 1 | The same, per reader who asked. |
+| `BW_TTS_MIN_START_INTERVAL_SECONDS` | 0.25 | Minimum pause between two jobs. |
+| `BW_TTS_MAX_AUTO_RESUME_ATTEMPTS` | 3 (0–50) | Retries of a failed job. |
+| `BW_TTS_AUTO_RESUME_BASE_DELAY_SECONDS` | 2.0 | First retry delay (doubles each time). |
+| `BW_TTS_AUTO_RESUME_MAX_DELAY_SECONDS` | 30.0 | Longest retry delay. |
+| `BW_TTS_RATE_LIMIT_COOLDOWN_SECONDS` | 900 | Pause after the GPU server answers `429`. |
+| `BW_TTS_SHUTDOWN_GRACE_SECONDS` | 20 | Jobs still running this long after a stop request go back to the queue. |
+| `BW_TTS_PERFORMANCE_MODE` | from the admin page | `auto`, `balanced` or `fast`. |
+| `BW_TTS_PIPER_AUTO_DOWNLOAD` | `1` | Download missing Piper voices on first use. |
+| `BW_TTS_PIPER_VOICE_MAP` | built-in voices | Extra or replacement voices: JSON (`{"de": "de_DE-thorsten-high"}`) or `de=de_DE-thorsten-high,pt=pt_BR-faber-medium`. |
+| `BW_TTS_PIPER_OUTPUT_FORMAT` | `auto` | `auto`, `wav` or `mp3` (MP3 needs ffmpeg). |
+| `BW_TTS_PIPER_LENGTH_SCALE`, `BW_TTS_PIPER_NOISE_SCALE`, `BW_TTS_PIPER_NOISE_W_SCALE` | voice defaults | Piper voice parameters. |
+| `BW_TTS_FFMPEG` | `ffmpeg` on `PATH` | Path or name of ffmpeg. |
+| `BW_TTS_REMOTE_GPU_URL` | none | GPU speech server address. Takes precedence over the admin page (and is the only source under managed hosting). |
+| `BW_TTS_REMOTE_GPU_AUTH_TOKEN` | none | Its bearer token. |
+| `BW_TTS_REMOTE_GPU_TIMEOUT` | 120 | Seconds per request (at most 3600). |
+| `BW_TTS_WORKER_LOG_LEVEL` | `INFO` | Log level of the separate worker process. |
+
+The GPU speech server itself is configured with `TTS_*` variables; see
+[read aloud](tts.md#the-gpu-speech-server).
+
+## Managed servers
+
+`banana install` writes `config/app.env` and the systemd units load it. The
+controller fills in defaults it owns and never overwrites a value you set,
+except for these, which it manages: `BANANA_MAINTENANCE_FILE`,
+`PYTHONDONTWRITEBYTECODE`, and on hosting servers `HOSTING_CONTAINER_IMAGE`
+and `BW_RUNTIME_AGENT_SOCKET`. A wiki installation starts with:
+
+`BW_HOST=127.0.0.1`, `BW_PORT=<port>`, `BW_PROXY_MODE` (1 with a domain),
+`BW_PREFERRED_URL_SCHEME` (`https` with a domain), `BW_ENV=production`, a
+random `BW_SETUP_TOKEN`, `BW_SOURCE_URL` (the web page of the update source),
+`BW_SYSTEMD_SERVICE` (informational), and every folder variable pointing into
+`<root>/data`.
+
+## Hosting portal
+
+The portal reads its own variables. Every variable of BananaWiki Hosting 1.4
+is honoured with the same default. Paths default to `<source tree>/hosting/data`
+like 1.4; managed installations set them to `<root>/data`.
+
+### Server and storage
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `HOSTING_ENV` | value of `BW_ENV`, else `production` | Same values as `BW_ENV`. |
+| `HOSTING_HOST`, `HOSTING_PORT` | `127.0.0.1`, `5099` | Listen address. |
+| `HOSTING_PROXY_MODE` | off | Trust one proxy's `X-Forwarded-For`, `-Proto`, `-Host`. |
+| `HOSTING_PREFERRED_URL_SCHEME` | none | Scheme of generated absolute links. |
+| `HOSTING_SECRET_KEY` | from the key file | Portal signing key. Also derives the MFA and encrypted-settings keys: changing it disables every account's authenticator. |
+| `HOSTING_SECRET_KEY_PATH` | `<source>/hosting/data/.secret_key` | Generated key file (0600). |
+| `HOSTING_BOOTSTRAP_TOKEN` | none | Required to create the first (administrator) account at `/signup`. Without it the first sign-up is locked. |
+| `HOSTING_DATABASE_PATH` | `<source>/hosting/data/hosting.db` | Portal database. |
+| `HOSTING_BACKUP_KEY_PATH` | `<database dir>/.backup_encryption_key` | Key for platform backups. |
+| `INSTANCES_DIR` | `<source>/hosting/data/instances` | Tenant data directories (`<slug>` or `<slug>__apex`). |
+| `HOSTING_PLATFORM_STATE_DIR` | `<database dir>/platform_state` | Portal state; must not be inside `INSTANCES_DIR`. |
+| `HOSTING_DB_BUSY_TIMEOUT_MS` | 5000 (100–30000) | SQLite write-lock wait. |
+| `HOSTING_LOG_LEVEL` | `info` | `debug`, `info`, `warning` or `error`. |
+| `BANANA_MAINTENANCE_FILE` (alias `BW_MAINTENANCE_FILE`) | none | 503 for everything but `/health` while it exists. |
+| `BW_SOURCE_URL` | `https://github.com/OverloadedTech/BananaWiki` | Source link shown by the portal (managed installs set it to the update source). |
+| `HOSTING_WORKERS`, `HOSTING_THREADS`, `HOSTING_WORKER_TIMEOUT`, `HOSTING_ACCESS_LOG` | 2, 4, 120, `-` | Read by `hosting/gunicorn.conf.py`. |
+
+### Addresses
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BASE_DOMAIN` | none | The platform's domain. |
+| `PORTAL_DOMAIN` | `BASE_DOMAIN` | Where the portal answers. |
+| `INSTANCE_URL_SUFFIX` | `hosting` | Wikis live at `<slug>-<suffix>.<BASE_DOMAIN>`. Set it to an empty value for `<slug>.<BASE_DOMAIN>`. |
+| `HOSTING_AUTO_FLATTEN_DOMAIN_LAYOUT` | on | With only `BASE_DOMAIN=hosting.example.com` set, read it as base `example.com`, portal `hosting.example.com`, suffix `hosting` (single-level wiki hosts, as in 1.4). |
+| `HOSTING_MODE` | detected | `subdomain`, `port` or `onion`. Detected as `subdomain` when `BASE_DOMAIN` is a domain name, otherwise `port`. |
+| `HOSTING_PUBLIC_HOST` | base domain, or the outbound interface address | Host name used in port mode links. 1.4 asked public IP-echo services; 1.6 never does. |
+| `HOSTING_PUBLIC_SCHEME` | `https` | Scheme of wiki links. |
+| `INSTANCE_PORT_START`, `INSTANCE_PORT_END` | 6001, 7000 | Port range in port mode. |
+| `SUBDOMAIN_MIN_LENGTH`, `SUBDOMAIN_MAX_LENGTH` | 3, 40 | Wiki name length. |
+| `HOSTING_CUSTOM_DOMAIN_TARGET` | none | Host name customers point their CNAME at. |
+| `HOSTING_CUSTOM_DOMAIN_IPS` | none | Addresses accepted for A/AAAA records of custom domains. |
+| `HOSTING_CONTACT_EMAIL` | reply-to address, else `contact@<BASE_DOMAIN>` | Shown in the help centre and emails. |
+| `HOSTING_STATUS_URL` | none | Link to a status page. |
+
+### Tenants
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `HOSTING_RUNTIME_BACKEND` | `agent` | Module under `bananawiki/hosting/runtime/` that runs tenants. |
+| `BW_RUNTIME_AGENT_SOCKET` | set by the controller | Socket of the runtime agent. |
+| `HOSTING_INSTANCE_RUNTIME` | `docker` | `docker` or `process` (validated; tenants run in Docker). |
+| `HOSTING_CONTAINER_IMAGE` | `bananawiki-tenant:latest` | Tenant image; the managed updater sets `bananawiki-tenant:<revision>`. |
+| `HOSTING_CONTAINER_INTERNAL_PORT` | 5001 | Port inside tenant containers. |
+| `HOSTING_TENANT_NETWORK` | `isolated` in subdomain mode, else `outbound` | `isolated`: no network except the proxy. Port and onion mode need `outbound`. |
+| `HOSTING_TENANT_PLUGIN_DENYLIST` | none | Plugin ids tenants may never load. |
+| `HOSTING_FEDERATION_INSTANCES` | none | Wiki ids (from the portal) whose tenants get `BW_FEDERATION_ENABLED=1`; `*` for every wiki. |
+| `MAX_INSTANCES_PER_ACCOUNT` | 5 | Wikis per customer. |
+| `INSTANCE_DURATION_DAYS` | 14 | Lifetime of a new wiki. |
+| `INSTANCE_STORAGE_LIMIT_MB` | 500 | Storage per wiki. |
+| `INSTANCE_MAX_UPLOAD_MB`, `INSTANCE_MAX_ATTACHMENT_MB` | 16, 100 | Upload limits passed to tenants. |
+| `INSTANCE_MEMORY_LIMIT_MB` | 768 (at least 128) | Container memory. |
+| `INSTANCE_CPU_LIMIT` | `1.0` | Container CPUs. |
+| `INSTANCE_PIDS_LIMIT` | 256 (at least 32) | Container processes. |
+| `INSTANCE_NOFILE_LIMIT` | 1024 (at least 128) | Container open files. |
+| `INSTANCE_STARTUP_TIMEOUT_SECONDS` | 120 (30–600) | How long a starting wiki may take. |
+| `HOSTING_AGENT_MAX_MEMORY_MB`, `HOSTING_AGENT_MAX_CPUS`, `HOSTING_AGENT_MAX_PIDS`, `HOSTING_AGENT_MAX_NOFILE` | 4096, 4, 4096, 65536 | Ceilings the runtime agent enforces whatever the portal asks. |
+
+`HOSTING_BACKUP_ENCRYPTION_KEY` (URL-safe base64 of 32 bytes) may replace the
+key file at `HOSTING_BACKUP_KEY_PATH`. `BW_HOSTING_RECOVERY_MAX_WORKERS`
+(default 2, 1–16) in `config/app.env` tells the updater how many wikis are
+restarted in parallel, which sets how long it waits for all of them to become
+healthy. `HOSTING_ROUTES_DIR` is only a placeholder in the example
+`deploy/Caddyfile.hosting` (default `/var/lib/bananawiki-routes`): the
+directory where the agent writes the per-wiki Caddy routes.
+
+Inside a tenant container: `BW_INSTANCE_GUNICORN_WORKERS` (1),
+`BW_INSTANCE_GUNICORN_THREADS` (4), `BW_INSTANCE_STARTUP_TIMEOUT_SECONDS`
+(120) and `BW_HOSTING_TTS_WORKER_POLL_INTERVAL_SECONDS` (30) tune the tenant
+entry point; the runtime also passes `BW_MANAGED_PLUGIN_QUARANTINE` when an
+administrator quarantined a wiki's plugins.
+
+### Sign-up and email
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `HOSTING_DEFAULT_SIGNUP_MODE` | `open` | Sign-up mode of a new platform: `open`, `invite`, `approval` or `closed`. |
+| `HOSTING_EMAIL_PROVIDER` | none | `brevo`, `resend` or `smtp`. Without it no email is sent. |
+| `HOSTING_EMAIL_API_KEY` | none | API key for Brevo or Resend. |
+| `HOSTING_EMAIL_FROM`, `HOSTING_EMAIL_REPLY_TO` | none | Sender and reply-to. |
+| `HOSTING_EMAIL_SMTP_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD`, `_TLS` | —, 587, —, —, on | SMTP server. With TLS on, port 465 uses implicit TLS and every other port STARTTLS. |
+| `HOSTING_EMAIL_TOKEN_TTL_SECONDS` | 86400 (at least 300) | Lifetime of verification and reset links. |
+| `HOSTING_EMAIL_DAILY_LIMIT` | 300 (0 = none) | Messages per day in total (plus 15 per recipient). |
+
+### Archives
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `HOSTING_IMPORT_CHUNK_BYTES` | 8 MiB | Upload chunk size for imports. |
+| `HOSTING_IMPORT_MAX_BYTES` | 10 GiB | Largest archive. |
+| `HOSTING_IMPORT_MAX_EXTRACTED_BYTES` | 3 × the above | Largest unpacked size. |
+| `HOSTING_IMPORT_MAX_MEMBERS` | 250000 | Most files in an archive. |
+| `HOSTING_IMPORT_MIN_FREE_BYTES` | 512 MiB | Free disk space kept during imports. |
+| `HOSTING_IMPORT_TEMP_DIR`, `HOSTING_EXPORT_TEMP_DIR` | `<source>/hosting/data/tmp_imports`, `tmp_exports` | Scratch folders. |
+| `HOSTING_EXPORT_COMPRESS_LEVEL` | 1 (0–9) | ZIP compression level. |
+| `HOSTING_EXPORT_STORE_FILE_BYTES` | 64 MiB | Files larger than this are stored uncompressed. |
+| `HOSTING_EXPORT_STORE_EXTENSIONS` | media and archive types | Extensions that are always stored uncompressed. |
+
+`STATIC_SITE_DIR` is only used by the Caddy configuration (the apex website).
+
+## Removed variables
+
+These 1.4 variables are no longer read: `BW_SITE_EXPORT_JSON_DB_SIZE_LIMIT_BYTES`,
+`BW_SITE_EXPORT_COMPRESS_LEVEL`, `BW_SITE_EXPORT_STORE_FILE_BYTES`,
+`BW_SITE_EXPORT_STORE_EXTENSIONS`, `BW_DB_OBSERVABILITY`,
+`BANANAWIKI_SKIP_BACKGROUND_SERVICES` (use `BW_BACKGROUND_JOBS=0`) and
+`HOSTING_DEBUG`. Leaving them set does no harm.

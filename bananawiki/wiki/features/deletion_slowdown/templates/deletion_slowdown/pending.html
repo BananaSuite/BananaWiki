@@ -1,0 +1,38 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('deletion_slowdown.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('deletion_slowdown.title') }}</h1></header>
+<p class="muted">{{ t('deletion_slowdown.intro', hours=grace_hours) }}</p>
+<div class="stack">
+<section class="card">
+  {% if pending %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('deletion_slowdown.col.page') }}</th><th>{{ t('deletion_slowdown.col.category') }}</th><th>{{ t('deletion_slowdown.col.deleted_by') }}</th><th>{{ t('deletion_slowdown.col.purge_at') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+    <tbody>
+    {% for p in pending %}
+    <tr>
+      <td><a href="{{ url_for('pages.view', slug=p.slug) }}">{{ p.title }}</a></td>
+      <td>{{ p.category_name or '—' }}</td>
+      <td>{{ p.deleted_by_name or t('common.unknown_user') }}</td>
+      <td>{{ p.purge_at|datetime if p.purge_at else '—' }}</td>
+      <td class="cluster">
+        {{ forms.post_button(url_for('deletion_slowdown.restore', page_id=p.id), t('deletion_slowdown.restore'), cls='btn btn--small btn--primary') }}
+        {{ forms.post_button(url_for('deletion_slowdown.purge', page_id=p.id), t('deletion_slowdown.purge'), cls='btn btn--small btn--danger', confirm=t('deletion_slowdown.purge_confirm', title=p.title)) }}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="empty-state">{{ t('deletion_slowdown.empty') }}</p>{% endif %}
+</section>
+<section class="card">
+  <h2>{{ t('deletion_slowdown.settings') }}</h2>
+  <form method="post" action="{{ url_for('deletion_slowdown.save_settings') }}" class="form">
+    {{ forms.csrf() }}
+    {{ forms.checkbox('docs_bypass_deletion_slowdown', t('deletion_slowdown.docs_bypass'), checked=docs_bypass, hint=t('deletion_slowdown.docs_bypass_hint')) }}
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+  </form>
+</section>
+</div>
+{% endblock %}

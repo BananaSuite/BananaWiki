@@ -1,9 +1,0 @@
-{
-    "id": "attachments",
-    "name": "Attachments",
-    "version": "1.0.0",
-    "author": "BananaWiki",
-    "description": "Page file attachments \u2013 upload, download, and manage files attached to wiki pages",
-    "builtin": true,
-    "bananawiki_api_version": "1.0"
-}

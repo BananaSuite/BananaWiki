@@ -1,0 +1,53 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('profiles.admin.fields_title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('profiles.admin.fields_title') }}</h1></header>
+<div class="stack">
+<section class="card">
+  <p class="hint">{{ t('profiles.admin.fields_help') }}</p>
+  {% if definitions %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('profiles.admin.label') }}</th><th>{{ t('profiles.admin.type') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>
+    <tbody>
+    {% for field in definitions %}
+    <tr>
+      <td colspan="3">
+        <form method="post" class="cluster">
+          {{ forms.csrf() }}
+          <input type="hidden" name="field_id" value="{{ field.id }}">
+          <label class="visually-hidden" for="label-{{ field.id }}">{{ t('profiles.admin.label') }}</label>
+          <input id="label-{{ field.id }}" name="label" value="{{ field.label }}" maxlength="80" required>
+          <label class="visually-hidden" for="type-{{ field.id }}">{{ t('profiles.admin.type') }}</label>
+          <select id="type-{{ field.id }}" name="field_type">
+            {% for type in types %}<option value="{{ type }}"{% if type == field.field_type %} selected{% endif %}>{{ t('profiles.type.' ~ type) }}</option>{% endfor %}
+          </select>
+          <button class="btn btn--small" name="action" value="update">{{ t('common.save') }}</button>
+          {% if not loop.first %}<button class="btn btn--small" name="action" value="move_up" aria-label="{{ t('profiles.move_up') }}">↑</button>{% endif %}
+          {% if not loop.last %}<button class="btn btn--small" name="action" value="move_down" aria-label="{{ t('profiles.move_down') }}">↓</button>{% endif %}
+          <button class="btn btn--small btn--danger" name="action" value="delete" data-confirm="{{ t('profiles.admin.delete_field_confirm') }}">{{ t('common.delete') }}</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted">{{ t('profiles.fields.none_defined') }}</p>{% endif %}
+</section>
+<section class="card">
+  <h2>{{ t('profiles.admin.new_field') }}</h2>
+  <form method="post" class="form">
+    {{ forms.csrf() }}
+    <input type="hidden" name="action" value="create">
+    <div class="form-grid">
+      {{ forms.field('label', t('profiles.admin.label'), required=true, attrs={'maxlength': 80}) }}
+      <div class="field">
+        <label for="f-field_type">{{ t('profiles.admin.type') }}</label>
+        <select id="f-field_type" name="field_type">{% for type in types %}<option value="{{ type }}">{{ t('profiles.type.' ~ type) }}</option>{% endfor %}</select>
+      </div>
+    </div>
+    <div><button class="btn btn--primary" type="submit">{{ t('common.create') }}</button></div>
+  </form>
+</section>
+</div>
+{% endblock %}

@@ -1,0 +1,12 @@
+{% extends layout %}
+{% import "chat/_macros.html" as ui with context %}
+{% block title %}{{ t('chat.admin.title') }}{% endblock %}
+{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('chat.css', blueprint='chat') }}">{% endblock %}
+{% block admin_content %}
+<header class="page-header">
+  <h1>{{ first.username if first else t('common.unknown_user') }} ↔ {{ second.username if second else t('common.unknown_user') }}</h1>
+  <div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('chat.admin_chats') }}">{{ t('common.back') }}</a></div>
+</header>
+<p class="muted small">{{ t('chat.admin.deleted_note') }}</p>
+{{ ui.log(conversation, url_for('chat.admin_chat_view', chat_id=chat.id)) }}
+{% endblock %}

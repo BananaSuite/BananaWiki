@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% import "auth/_tour_figure.html" as figures with context %}
+{% block title %}{{ t('auth.tour.' ~ step.id ~ '.title') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('auth.css', blueprint='auth') }}">{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{{ t('auth.tour.' ~ step.id ~ '.title') }}</h1>
+  <p class="page-header__meta">{{ t('auth.tour.progress', step=index + 1, total=total) }} · {{ t('auth.tour.perspective', role=t('auth.role.' ~ role)) }}</p>
+</div>
+<progress class="progress" max="{{ total }}" value="{{ index + 1 }}">{{ index + 1 }}/{{ total }}</progress>
+<div class="card stack">
+  <p>{{ t('auth.tour.' ~ step.id ~ '.body') }}</p>
+  <figure class="tour-figure" aria-label="{{ t('auth.tour.illustration') }}">
+    {{ figures.figure(step.figure, apps) }}
+    <figcaption class="small muted">{{ t('auth.tour.illustration_note') }}</figcaption>
+  </figure>
+  <div class="btn-row">
+    {% if index > 0 %}<a class="btn" href="{{ url_for('auth.tour_step', step=index - 1, role=role) }}">‹ {{ t('common.previous') }}</a>{% endif %}
+    {% if index + 1 < total %}
+      <a class="btn btn--primary" href="{{ url_for('auth.tour_step', step=index + 1, role=role) }}">{{ t('common.next') }} ›</a>
+    {% else %}
+      <form class="inline" method="post" action="{{ url_for('auth.tour_finish') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn--primary" type="submit">{{ t('auth.tour.finish') }}</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+{% if role_options|length > 1 %}
+<div class="cluster">
+  <span class="small muted">{{ t('auth.intro.choose_view') }}:</span>
+  {% for option in role_options %}
+  <form class="inline" method="post" action="{{ url_for('auth.tour_role', role=option) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn--small{% if option == role %} btn--primary{% endif %}" type="submit"{% if option == role %} aria-pressed="true"{% endif %}>{{ t('auth.role.' ~ option) }}</button>
+  </form>
+  {% endfor %}
+</div>
+{% endif %}
+<form method="post" action="{{ url_for('auth.tour_finish') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button class="btn btn--ghost btn--small" type="submit">{{ t('auth.tour.end') }}</button>
+</form>
+{% endblock %}

@@ -1,0 +1,62 @@
+{#- Form helpers. Import with {% import "macros/forms.html" as forms %}. -#}
+
+{% macro csrf() -%}
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{%- endmacro %}
+
+{% macro field(name, label, value='', type='text', hint='', required=false, error='', attrs={}) -%}
+<div class="field">
+  <label for="f-{{ name }}">{{ label }}</label>
+  <input id="f-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value if value is not none else '' }}"
+    {%- if required %} required{% endif %}{% if hint %} aria-describedby="f-{{ name }}-hint"{% endif %}
+    {%- for key, val in attrs.items() %} {{ key }}="{{ val }}"{% endfor %}>
+  {% if hint %}<p class="hint" id="f-{{ name }}-hint">{{ hint }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro textarea(name, label, value='', rows=6, hint='', required=false, cls='') -%}
+<div class="field">
+  <label for="f-{{ name }}">{{ label }}</label>
+  <textarea id="f-{{ name }}" name="{{ name }}" rows="{{ rows }}" class="{{ cls }}"{% if required %} required{% endif %}>{{ value if value is not none else '' }}</textarea>
+  {% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro checkbox(name, label, checked=false, hint='', value='1') -%}
+<label class="check">
+  <input type="checkbox" name="{{ name }}" value="{{ value }}"{% if checked %} checked{% endif %}>
+  <span>{{ label }}{% if hint %}<small>{{ hint }}</small>{% endif %}</span>
+</label>
+{%- endmacro %}
+
+{% macro select(name, label, options, selected='', hint='') -%}
+{#- options: list of (value, label) pairs -#}
+<div class="field">
+  <label for="f-{{ name }}">{{ label }}</label>
+  <select id="f-{{ name }}" name="{{ name }}">
+    {% for value, text in options %}
+    <option value="{{ value }}"{% if value|string == selected|string %} selected{% endif %}>{{ text }}</option>
+    {% endfor %}
+  </select>
+  {% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro post_button(action, label, cls='btn', confirm='', hidden={}) -%}
+<form class="inline" method="post" action="{{ action }}"{% if confirm %} data-confirm="{{ confirm }}"{% endif %}>
+  {{ csrf() }}
+  {% for key, val in hidden.items() %}<input type="hidden" name="{{ key }}" value="{{ val }}">{% endfor %}
+  <button type="submit" class="{{ cls }}">{{ label }}</button>
+</form>
+{%- endmacro %}
+
+{% macro pagination(page, pages, endpoint, args={}) -%}
+{% if pages > 1 %}
+<nav class="pagination" aria-label="{{ t('common.pagination') }}">
+  {% if page > 1 %}<a class="btn btn--small" href="{{ url_for(endpoint, page=page - 1, **args) }}">‹ {{ t('common.previous') }}</a>{% endif %}
+  <span class="btn btn--small btn--ghost" aria-current="page">{{ t('common.page_of', page=page, pages=pages) }}</span>
+  {% if page < pages %}<a class="btn btn--small" href="{{ url_for(endpoint, page=page + 1, **args) }}">{{ t('common.next') }} ›</a>{% endif %}
+</nav>
+{% endif %}
+{%- endmacro %}

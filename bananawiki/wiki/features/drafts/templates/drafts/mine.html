@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('drafts.mine.title') }}{% endblock %}
+{% block content %}
+<header class="page-header"><h1>{{ t('drafts.mine.title') }}</h1></header>
+<p class="hint">{{ t('drafts.mine.intro') }}</p>
+{% if drafts %}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th scope="col">{{ t('drafts.mine.page') }}</th><th scope="col">{{ t('drafts.mine.saved') }}</th><th scope="col" class="actions">{{ t('common.actions') }}</th></tr></thead>
+    <tbody>
+      {% for d in drafts %}
+      <tr>
+        <td>{% if d.page_slug %}{{ d.page_title }}{% else %}{{ d.title or t('drafts.mine.untitled') }} <span class="badge badge--warning">{{ t('drafts.mine.unavailable') }}</span>{% endif %}</td>
+        <td class="nowrap"><time datetime="{{ d.updated_at }}" title="{{ d.updated_at|datetime }}">{{ d.updated_at|time_ago }}</time></td>
+        <td class="actions">
+          <div class="cluster">
+            {% if d.editable %}<a class="btn btn--small btn--primary" href="{{ url_for('pages.edit', slug=d.page_slug) }}">{{ t('drafts.mine.continue') }}</a>{% endif %}
+            {% if can_delete %}{{ forms.post_button(url_for('drafts.discard', page_id=d.page_id), t('drafts.editor.discard'), cls='btn btn--small btn--ghost text-danger', confirm=t('drafts.mine.discard_confirm'), hidden={'next': url_for('drafts.mine')}) }}{% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state"><p>{{ t('drafts.mine.empty') }}</p></div>
+{% endif %}
+{% endblock %}

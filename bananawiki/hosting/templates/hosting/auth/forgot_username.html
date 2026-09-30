@@ -1,0 +1,14 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.forgot_username.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('hosting.forgot_username.title') }}</h1>
+  <p>{{ t('hosting.forgot_username.intro') }}</p>
+  <form method="post" class="form">{{ ui.csrf() }}
+    {{ ui.field('email', t('hosting.field.email'), type='email', required=true, attrs={'autocomplete': 'email', 'maxlength': 254}) }}
+    <button class="btn btn--primary" type="submit">{{ t('hosting.forgot_username.submit') }}</button>
+  </form>
+  <p class="small"><a href="{{ url_for('auth.login') }}">{{ t('hosting.common.back_to_login') }}</a></p>
+</div>
+{% endblock %}

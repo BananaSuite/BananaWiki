@@ -1,0 +1,13 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('page_builder.settings.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('page_builder.settings.title') }}</h1></header>
+<form method="post" class="form card">
+  {{ forms.csrf() }}
+  {{ forms.select('page_builder_access', t('page_builder.settings.access'),
+                  [('admin', t('page_builder.settings.access_admin')), ('editor', t('page_builder.settings.access_editor')), ('user', t('page_builder.settings.access_user'))],
+                  current, hint=t('page_builder.settings.access_hint')) }}
+  <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+</form>
+{% endblock %}

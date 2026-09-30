@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% import "users/_macros.html" as m with context %}
+{% block title %}{{ t('users.members.title') }}{% endblock %}
+{% block content %}
+<header class="page-header"><h1>{{ t('users.members.title') }}</h1></header>
+<form method="get" action="{{ url_for('users.members') }}" class="input-group users-search" role="search">
+  <input type="search" name="q" value="{{ query }}" maxlength="100" placeholder="{{ t('users.members.search') }}" aria-label="{{ t('users.members.search') }}">
+  <button class="btn" type="submit">{{ t('common.search') }}</button>
+</form>
+{% if members %}
+<ul class="users-members">
+  {% for member in members %}
+  <li class="users-member card">
+    {{ m.avatar(member.avatar_filename and url_for('uploaded_file', filename=member.avatar_filename), member.username) }}
+    <div class="users-member__text">
+      {% if can_open %}<a href="{{ url_for('users.profile', username=member.username) }}"><strong>{{ member.real_name or member.username }}</strong></a>
+      {% else %}<strong>{{ member.real_name or member.username }}</strong>{% endif %}
+      <span class="small muted">@{{ member.username }}</span>
+      {% if is_admin %}
+      <span class="cluster">
+        {% if member.suspended %}<span class="badge badge--danger">{{ t('users.members.suspended') }}</span>{% endif %}
+        {% if member.page_disabled_by_admin %}<span class="badge badge--warning">{{ t('users.members.disabled') }}</span>
+        {% elif not member.page_published %}<span class="badge">{{ t('users.members.private') }}</span>{% endif %}
+      </span>
+      {% endif %}
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{{ forms.pagination(page, pages, 'users.members', {'q': query} if query else {}) }}
+{% else %}
+<div class="card empty-state"><p>{{ t('users.members.none_matching', query=query) if query else t('users.members.none') }}</p></div>
+{% endif %}
+{% endblock %}

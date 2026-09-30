@@ -1,0 +1,97 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% set inst = instance %}
+{% block title %}{{ inst.original_slug }}{% endblock %}
+{% block column_class %}wide{% endblock %}
+{% block content %}
+{% include "hosting/admin/_nav.html" %}
+<div class="page-header"><h1>{{ inst.original_slug }}</h1>{{ ui.status(inst.status) }}
+  <div class="page-header__actions">{% if inst.status != 'terminated' %}<a class="btn btn--small" href="{{ url_for('dashboard.instance_detail', instance_id=inst.id) }}">{{ t('hosting.admin.owner_view') }}</a>{% endif %}</div></div>
+<section class="card"><dl class="kv">
+  <dt>ID</dt><dd class="mono">{{ inst.id }}</dd>
+  {% if inst.url %}<dt>{{ t('hosting.instance.url') }}</dt><dd><a href="{{ inst.url }}" rel="noopener">{{ inst.url }}</a></dd>{% endif %}
+  <dt>{{ t('hosting.instance.owner') }}</dt><dd>{% if owner %}<a href="{{ url_for('admin.account_page', account_id=owner.id) }}">{{ owner.username }}</a>{% endif %}</dd>
+  <dt>{{ t('hosting.instance.expires') }}</dt><dd>{{ inst.expires_at|datetime if inst.expires_at else t('hosting.instance.never') }}</dd>
+  <dt>{{ t('hosting.instance.storage') }}</dt><dd>{{ inst.storage_mb }} MB / {{ inst.storage_limit_effective_mb or '∞' }} MB</dd>
+  <dt>{{ t('hosting.instance.health') }}</dt><dd>{{ t('hosting.health.' ~ inst.health, inst.health) }}</dd>
+  <dt>{{ t('hosting.instance.use_case') }}</dt><dd>{{ inst.declared_use_case or '—' }}</dd>
+  {% if inst.status == 'terminated' %}<dt>{{ t('hosting.instance.retained_until') }}</dt><dd>{{ inst.data_retained_until|datetime if inst.data_retained_until else '—' }}</dd>{% endif %}
+</dl></section>
+
+{% if inst.status == 'terminated' %}
+<section class="card"><h2>{{ t('hosting.admin.terminated_actions') }}</h2><div class="btn-row">
+  {% if inst.grace_active %}
+  <form method="post" action="{{ url_for('admin.restore_instance', instance_id=inst.id) }}" class="cluster">{{ ui.csrf() }}
+    <input type="number" name="extend_days" min="0" max="36500" class="hosting-num" aria-label="{{ t('hosting.admin.days') }}" placeholder="{{ t('hosting.admin.days') }}">
+    <button class="btn btn--small btn--primary">{{ t('hosting.admin.restore') }}</button></form>
+  <a class="btn btn--small" href="{{ url_for('admin.download_instance', instance_id=inst.id) }}">{{ t('hosting.instance.download') }}</a>
+  {{ ui.post(url_for('admin.grace_unsuspend' if inst.grace_period_suspended else 'admin.grace_suspend', instance_id=inst.id), t('hosting.admin.grace_unsuspend') if inst.grace_period_suspended else t('hosting.admin.grace_suspend')) }}
+  {% endif %}
+  {{ ui.post(url_for('admin.delete_terminated', instance_id=inst.id), t('hosting.admin.delete_permanently'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}
+</div></section>
+{% else %}
+<section class="card"><h2>{{ t('hosting.admin.lifecycle') }}</h2><div class="btn-row">
+  {% if inst.status == 'running' %}{{ ui.post(url_for('admin.stop_instance', instance_id=inst.id), t('hosting.instance.stop')) }}{{ ui.post(url_for('admin.force_restart', instance_id=inst.id), t('hosting.admin.force_restart')) }}
+  {% elif inst.status == 'stopped' %}{{ ui.post(url_for('admin.restart_instance', instance_id=inst.id), t('hosting.instance.start'), 'btn btn--small btn--primary') }}{% endif %}
+  {% if inst.status == 'suspended' %}{{ ui.post(url_for('admin.unsuspend_instance', instance_id=inst.id), t('hosting.admin.unsuspend'), 'btn btn--small btn--primary') }}{% endif %}
+  {{ ui.post(url_for('admin.reset_instance_password', instance_id=inst.id), t('hosting.instance.reset_password'), confirm=t('hosting.common.are_you_sure')) }}
+  {{ ui.post(url_for('admin.reset_wiki', instance_id=inst.id), t('hosting.instance.reset_wiki'), 'btn btn--small btn--danger', confirm=t('hosting.instance.reset_wiki_confirm')) }}
+  {{ ui.post(url_for('admin.terminate_instance', instance_id=inst.id), t('hosting.instance.terminate'), 'btn btn--small btn--danger', confirm=t('hosting.instance.terminate_confirm'), hidden={'notify_user': '1'}) }}
+  <a class="btn btn--small" href="{{ url_for('admin.instance_logs', instance_id=inst.id) }}">{{ t('hosting.admin.logs') }}</a>
+  <a class="btn btn--small" href="{{ url_for('admin.download_instance', instance_id=inst.id) }}">{{ t('hosting.instance.download') }}</a>
+  <a class="btn btn--small" href="{{ url_for('dashboard.instance_domain', instance_id=inst.id) }}">{{ t('hosting.domains.title') }}</a>
+  {{ ui.post(url_for('admin.rotate_oauth', instance_id=inst.id), t('hosting.admin.rotate_oauth'), confirm=t('hosting.common.are_you_sure')) }}
+</div></section>
+
+<div class="grid grid--2">
+<details class="card"><summary>{{ t('hosting.admin.expiry') }}</summary>
+  <form method="post" action="{{ url_for('admin.extend', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}{{ ui.duration_fields('extra') }}<p><button class="btn btn--small">{{ t('hosting.admin.extend') }}</button></p></form>
+  <form method="post" action="{{ url_for('admin.shorten', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}{{ ui.duration_fields('shorten') }}<p><button class="btn btn--small">{{ t('hosting.admin.shorten') }}</button></p></form>
+  <form method="post" action="{{ url_for('admin.set_expiry', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}{{ ui.field('expiry_datetime', t('hosting.admin.set_expiry_utc'), type='datetime-local') }}<p><button class="btn btn--small">{{ t('common.save') }}</button></p></form>
+  {{ ui.post(url_for('admin.make_indefinite', instance_id=inst.id), t('hosting.admin.make_indefinite')) }}
+</details>
+{% if inst.status != 'suspended' %}<details class="card"><summary>{{ t('hosting.admin.suspend_instance') }}</summary>{{ ui.suspension_form(url_for('admin.suspend_instance', instance_id=inst.id)) }}</details>{% endif %}
+<details class="card"><summary>{{ t('hosting.admin.limits') }}</summary>
+  <form method="post" action="{{ url_for('admin.storage_limit', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}
+    {{ ui.field('storage_limit_mb', t('hosting.admin.storage_limit_mb'), inst.storage_limit_mb or '', type='number', attrs={'min': 1}) }}{{ ui.check('unlimited', t('hosting.admin.unlimited')) }}
+    <p><button class="btn btn--small">{{ t('common.save') }}</button></p></form>
+  <form method="post" action="{{ url_for('admin.upload_policy', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}
+    {{ ui.field('upload_max_size_mb', t('hosting.admin.upload_max_mb'), inst.upload_max_size_mb or '', type='number', attrs={'min': 1, 'max': 2048}) }}
+    {{ ui.check('inherit_upload_size', t('hosting.admin.inherit'), checked=upload_policy.inherits_size) }}
+    {{ ui.field('upload_blocked_extensions', t('hosting.admin.blocked_extensions'), inst.upload_blocked_extensions or '') }}
+    <p><button class="btn btn--small">{{ t('common.save') }}</button></p></form></details>
+<details class="card"><summary>{{ t('hosting.admin.name_owner') }}</summary>
+  <form method="post" action="{{ url_for('admin.rename_instance', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}
+    {{ ui.field('subdomain', t('hosting.create.subdomain'), inst.subdomain, required=true) }}
+    <select name="domain_mode" aria-label="{{ t('hosting.create.domain_mode') }}"><option value="hosting">{{ t('hosting.create.mode_hosting') }}</option><option value="apex"{% if inst.domain_mode == 'apex' %} selected{% endif %}>{{ t('hosting.create.mode_apex') }}</option></select>
+    <p><button class="btn btn--small">{{ t('hosting.admin.rename') }}</button></p></form>
+  <form method="post" action="{{ url_for('admin.transfer_instance', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}{{ ui.field('username', t('hosting.transfers.to'), required=true) }}<p><button class="btn btn--small">{{ t('hosting.admin.transfer') }}</button></p></form>
+  <form method="post" action="{{ url_for('admin.duplicate_instance', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}
+    {{ ui.field('subdomain', t('hosting.admin.duplicate_name'), required=true) }}{{ ui.field('owner_username', t('hosting.admin.duplicate_owner'), hint=t('hosting.admin.duplicate_owner_hint')) }}
+    <input type="hidden" name="domain_mode" value="hosting"><p><button class="btn btn--small">{{ t('hosting.admin.duplicate') }}</button></p></form></details>
+<details class="card"><summary>{{ t('hosting.features.title') }}</summary>
+  {% for feature, column in {'public_access': 'public_wiki_allowed', 'page_builder': 'page_builder_allowed'}.items() %}
+  <p>{{ t('hosting.features.' ~ feature) }}: {{ t('hosting.admin.granted') if inst[column] else t('hosting.admin.not_granted') }}
+  {{ ui.post(url_for('admin.set_entitlement', instance_id=inst.id, feature=feature), t('hosting.admin.revoke') if inst[column] else t('hosting.admin.grant'), hidden={'allowed': '0' if inst[column] else '1'}) }}</p>
+  {% endfor %}
+  <ul class="small">{% for req in feature_history %}<li>{{ req.requested_at|date }} · {{ t('hosting.features.' ~ req.feature) }} · {{ t('hosting.features.status.' ~ req.status) }} · {{ req.reason }}</li>{% endfor %}</ul></details>
+<details class="card"><summary>{{ t('hosting.admin.wiki_users', count=users_total) }}</summary>
+  <ul class="small">{% for user in users %}<li>{{ user.username }} ({{ user.role }})</li>{% endfor %}</ul>
+  <form method="post" action="{{ url_for('admin.set_user_password', instance_id=inst.id) }}" class="form" autocomplete="off">{{ ui.csrf() }}
+    {{ ui.field('username', t('hosting.field.username'), required=true) }}{{ ui.field('password', t('hosting.field.password'), type='password', required=true, attrs={'autocomplete': 'new-password'}) }}
+    <select name="role" aria-label="{{ t('hosting.instance.role') }}">{% for role in ('user', 'editor', 'admin', 'owner') %}<option>{{ role }}</option>{% endfor %}</select>
+    <p><button class="btn btn--small">{{ t('hosting.admin.set_user_password') }}</button></p></form>
+  <form method="post" action="{{ url_for('admin.remove_user', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}{{ ui.field('username', t('hosting.field.username'), required=true) }}<p><button class="btn btn--small btn--danger">{{ t('hosting.admin.remove_user') }}</button></p></form></details>
+<details class="card"><summary>{{ t('hosting.admin.plugin_safety') }}</summary>
+  <p>{{ t('hosting.admin.quarantined') if quarantined else t('hosting.admin.not_quarantined') }}</p>
+  <div class="btn-row">{{ ui.post(url_for('admin.lift_quarantine' if quarantined else 'admin.quarantine_plugins', instance_id=inst.id), t('hosting.admin.lift_quarantine') if quarantined else t('hosting.admin.quarantine'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}
+  {{ ui.post(url_for('admin.capture_snapshot', instance_id=inst.id), t('hosting.admin.capture_snapshot')) }}</div>
+  {% if snapshots %}<form method="post" action="{{ url_for('admin.restore_snapshot', instance_id=inst.id) }}" class="cluster" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ ui.csrf() }}
+    <select name="snapshot" aria-label="{{ t('hosting.admin.snapshot') }}">{% for s in snapshots %}<option value="{{ s.name }}">{{ s.created_at }} · {{ s.label }}</option>{% endfor %}</select>
+    <button class="btn btn--small">{{ t('hosting.admin.restore_snapshot') }}</button></form>{% endif %}</details>
+</div>
+{% endif %}
+<details class="card"><summary>{{ t('hosting.admin.history') }}</summary><ul class="small">
+{% for row in history %}<li>{{ row.created_at|datetime }} · {{ row.action }} · {{ row.performed_by_name or '—' }} · {{ row.reason or '' }} {{ row.duration or '' }}</li>{% endfor %}
+{% for ev in events %}<li>{{ ev.created_at|datetime }} · {{ ev.action }} · {{ ev.actor_name or '—' }} · {{ ev.reason }}</li>{% endfor %}</ul></details>
+{% endblock %}

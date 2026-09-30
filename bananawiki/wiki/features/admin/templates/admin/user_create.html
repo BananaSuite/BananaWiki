@@ -1,0 +1,18 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('admin.users.create') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('admin.users.create') }}</h1></header>
+<form method="post" class="card form">
+  {{ forms.csrf() }}
+  {{ forms.field('username', t('auth.field.username'), form.get('username', ''), required=true, hint=t('auth.hint.username'), attrs={'maxlength': 50, 'autocomplete': 'off'}) }}
+  {{ forms.field('password', t('auth.field.password'), type='password', required=true, hint=t('auth.hint.password'), attrs={'autocomplete': 'new-password', 'maxlength': 1024}) }}
+  {{ forms.field('confirm_password', t('auth.field.confirm_password'), type='password', required=true, attrs={'autocomplete': 'new-password', 'maxlength': 1024}) }}
+  {{ forms.select('role', t('admin.users.col.role'), [('user', t('admin.role.user')), ('editor', t('admin.role.editor')), ('admin', t('admin.role.admin'))], form.get('role', 'user')) }}
+  {{ forms.checkbox('force_password_change', t('admin.password.require_change'), checked=(not form) or form.get('force_password_change') == '1') }}
+  <div class="btn-row">
+    <button type="submit" class="btn btn--primary">{{ t('common.create') }}</button>
+    <a class="btn btn--ghost" href="{{ url_for('admin.users') }}">{{ t('common.cancel') }}</a>
+  </div>
+</form>
+{% endblock %}

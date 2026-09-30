@@ -1,0 +1,11 @@
+{% extends "page_builder/_editor.html" %}
+{% block title %}{{ t('page_builder.custom.title', path=page.path) }}{% endblock %}
+{% block heading %}{{ t('page_builder.custom.heading', path=page.path) }}{% endblock %}
+{% block publish_label %}{{ t('common.save') }}{% endblock %}
+{% block conflict_text %}{{ t('page_builder.custom.conflict') }}{% endblock %}
+{% block publish_panel %}
+<h2 id="builder-publish-title" class="builder-panel-title">{{ t('page_builder.custom.saving') }}</h2>
+<p class="hint">{{ t('page_builder.custom.published_hint') if page.is_published else t('page_builder.custom.unpublished_hint') }}</p>
+<p class="hint">{{ t('page_builder.custom.no_drafts') }}</p>
+<p><a href="{{ urls.exit }}">{{ t('page_builder.custom.settings') }}</a></p>
+{% endblock %}

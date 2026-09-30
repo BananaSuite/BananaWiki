@@ -1,0 +1,27 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('users.admin.merge_direct') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('users.admin.merge_direct') }}</h1></header>
+<section class="card">
+  <p>{{ t('users.admin.merge_intro') }}</p>
+  <form method="post" action="{{ url_for('users.admin_merge') }}" class="form">
+    {{ forms.csrf() }}
+    <div class="form-grid">
+      {{ forms.field('source_username', t('users.admin.source'), source_name, required=true, hint=t('users.admin.source_hint'), attrs={'maxlength': 50}) }}
+      {{ forms.field('target_username', t('users.admin.target'), target_name, required=true, hint=t('users.admin.target_hint'), attrs={'maxlength': 50}) }}
+    </div>
+    {{ forms.checkbox('delete_source', t('users.admin.delete_source'), delete_source, hint=t('users.admin.delete_source_hint')) }}
+    {% if preview is not none %}
+    <h2>{{ t('users.admin.preview') }}</h2>
+    {% if preview %}
+    <ul>{% for name, count in preview.items() %}<li><code>{{ name }}</code>: {{ count }}</li>{% endfor %}</ul>
+    {% else %}<p class="muted">{{ t('users.admin.nothing_to_move') }}</p>{% endif %}
+    {% endif %}
+    <div class="btn-row">
+      <button class="btn" type="submit" name="action" value="preview">{{ t('users.admin.preview') }}</button>
+      {% if preview is not none %}<button class="btn btn--danger" type="submit" name="action" value="execute" data-confirm="{{ t('users.admin.execute_confirm') }}">{{ t('users.admin.execute') }}</button>{% endif %}
+    </div>
+  </form>
+</section>
+{% endblock %}

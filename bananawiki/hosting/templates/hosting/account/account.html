@@ -1,0 +1,110 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.account.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('hosting.account.title') }}</h1>
+<div class="stack">
+<section class="card">
+  <h2>{{ t('hosting.account.details') }}</h2>
+  <form method="post" action="{{ url_for('account.account') }}" class="form">{{ ui.csrf() }}
+    {{ ui.field('username', t('hosting.field.username'), current_account.username, required=true, attrs={'maxlength': 30}) }}
+    {{ ui.field('email', t('hosting.field.email'), current_account.email, type='email', required=email_required, attrs={'maxlength': 254}) }}
+    {% if current_account.email %}<p class="hint">{% if current_account.email_verified_at %}{{ t('hosting.account.email_verified') }}{% else %}{{ t('hosting.account.email_unverified') }}{% endif %}</p>{% endif %}
+    {{ ui.field('current_password', t('hosting.field.current_password'), type='password', hint=t('hosting.account.password_for_identity'), attrs={'autocomplete': 'current-password'}) }}
+    <p><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></p>
+  </form>
+</section>
+
+<section class="card">
+  <h2>{{ t('hosting.account.change_password') }}</h2>
+  <form method="post" action="{{ url_for('account.change_password') }}" class="form">{{ ui.csrf() }}
+    {{ ui.field('current_password', t('hosting.field.current_password'), type='password', required=true, attrs={'autocomplete': 'current-password'}) }}
+    {{ ui.field('new_password', t('hosting.field.new_password'), type='password', required=true, hint=t('hosting.field.password_hint'), attrs={'autocomplete': 'new-password', 'minlength': 8}) }}
+    {{ ui.field('confirm_new_password', t('hosting.field.confirm_password'), type='password', required=true, attrs={'autocomplete': 'new-password'}) }}
+    <p><button class="btn btn--primary" type="submit">{{ t('hosting.account.change_password') }}</button></p>
+  </form>
+</section>
+
+<section class="card">
+  <div class="card__header"><h2>{{ t('hosting.mfa.title') }}</h2>
+    <a class="btn btn--small" href="{{ url_for('account.mfa') }}">{{ t('hosting.mfa.manage') }}</a></div>
+  <p>{{ t('hosting.mfa.enabled_state') if current_account.totp_enabled else t('hosting.mfa.disabled_state') }}</p>
+</section>
+
+<section class="card" id="sessions">
+  <h2>{{ t('hosting.account.sessions.title') }}</h2>
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ t('hosting.account.sessions.device') }}</th><th>{{ t('hosting.account.sessions.ip') }}</th><th>{{ t('hosting.account.sessions.last_seen') }}</th><th></th></tr></thead>
+    <tbody>
+    {% for row in sessions %}
+    <tr><td>{{ row.user_agent[:80] or '—' }}{% if row.id == current_session_id %} <span class="badge badge--primary">{{ t('hosting.account.sessions.current') }}</span>{% endif %}</td>
+      <td class="mono">{{ row.last_ip }}</td><td>{{ row.last_seen_at|time_ago }}</td>
+      <td class="actions">{{ ui.post(url_for('account.revoke_session', session_id=row.id), t('hosting.account.sessions.end')) }}</td></tr>
+    {% else %}<tr><td colspan="4" class="muted">{{ t('hosting.common.none') }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  <div class="btn-row">
+    {{ ui.post(url_for('account.logout_everywhere'), t('hosting.account.sessions.everywhere_button'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}
+    {% if history %}{{ ui.post(url_for('account.clear_session_history'), t('hosting.account.sessions.clear_history')) }}{% endif %}
+  </div>
+</section>
+
+{% if show_tokens %}
+{% if current_account.is_admin and not impersonating %}
+<section class="card" id="notifications">
+  <h2>{{ t('hosting.account.notifications.title') }}</h2>
+  <p class="hint">{{ t('hosting.account.notifications.hint') }}</p>
+  <form method="post" action="{{ url_for('account.notification_preferences') }}" class="form">{{ ui.csrf() }}
+    {{ ui.check('attention_emails', t('hosting.account.notifications.attention'), current_account.attention_emails) }}
+    <p><button class="btn btn--primary btn--small" type="submit">{{ t('common.save') }}</button></p>
+  </form>
+</section>
+{% endif %}
+
+<section class="card" id="api-tokens">
+  <h2>{{ t('hosting.api_tokens.title') }}</h2>
+  {% if new_token %}
+  <div class="alert alert--success"><div class="alert__body"><p>{{ t('hosting.api_tokens.shown_once') }}</p>
+    <p class="secret-box">{{ new_token }}</p><button type="button" class="btn btn--small" data-copy="{{ new_token }}">{{ t('common.copy') }}</button></div></div>
+  {% endif %}
+  <div class="table-wrap"><table class="table"><thead><tr><th>{{ t('hosting.api_tokens.name') }}</th><th>{{ t('hosting.api_tokens.scopes') }}</th><th>{{ t('hosting.api_tokens.expires') }}</th><th></th></tr></thead><tbody>
+  {% for token in tokens %}
+    <tr><td>{{ token.name }} <span class="mono small muted">{{ token.prefix }}…</span>{% if token.expired %} <span class="badge badge--warning">{{ t('hosting.api_tokens.expired') }}</span>{% endif %}</td>
+      <td class="small">{{ token.scopes|join(', ') }}</td><td>{{ token.expires_at|date if token.expires_at else t('hosting.api_tokens.never') }}</td>
+      <td class="actions">{{ ui.post(url_for('account.revoke_api_token', token_id=token.id), t('hosting.api_tokens.revoke'), 'btn btn--small btn--danger') }}</td></tr>
+  {% else %}<tr><td colspan="4" class="muted">{{ t('hosting.common.none') }}</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% if token_nonce %}
+  <form method="post" action="{{ url_for('account.create_api_token') }}" class="form">{{ ui.csrf() }}
+    <input type="hidden" name="form_nonce" value="{{ token_nonce }}">
+    {{ ui.field('name', t('hosting.api_tokens.name'), required=true, attrs={'maxlength': 60}) }}
+    <fieldset><legend>{{ t('hosting.api_tokens.scopes') }}</legend>
+      {% for scope in token_scopes %}{{ ui.check('scopes', scope, value=scope) }}{% endfor %}</fieldset>
+    <div class="field"><label for="f-exp">{{ t('hosting.api_tokens.expires') }}</label><select id="f-exp" name="expires_in">
+      <option value="30">30</option><option value="90" selected>90</option><option value="365">365</option><option value="never">{{ t('hosting.api_tokens.never') }}</option></select></div>
+    {{ ui.field('current_password', t('hosting.field.current_password'), type='password', required=true) }}
+    <p><button class="btn btn--primary" type="submit">{{ t('hosting.api_tokens.create') }}</button> <span class="small muted">{{ t('hosting.api_tokens.limit', max=token_limit) }}</span></p>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>{{ t('hosting.account.more') }}</h2>
+  <div class="btn-row">
+    <a class="btn" href="{{ url_for('account.merge_request') }}">{{ t('hosting.merges.request_title') }}</a>
+    {% if merges %}<a class="btn" href="{{ url_for('account.merge_pending') }}">{{ t('hosting.merges.pending_title') }}</a>{% endif %}
+    {{ ui.post(url_for('account.export_account'), t('hosting.account.export'), 'btn') }}
+    {{ ui.post(url_for('oauth.revoke'), t('hosting.oauth.revoke_all'), 'btn') }}
+  </div>
+</section>
+
+<section class="card card--danger">
+  <h2>{{ t('hosting.account.delete_title') }}</h2>
+  <p>{{ t('hosting.account.delete_body') }}</p>
+  <form method="post" action="{{ url_for('account.delete_account') }}" class="form" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ ui.csrf() }}
+    {{ ui.field('current_password', t('hosting.field.current_password'), type='password', required=true) }}
+    <p><button class="btn btn--danger" type="submit">{{ t('hosting.account.delete_button') }}</button></p>
+  </form>
+</section>
+</div>
+{% endblock %}

@@ -1,0 +1,12 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.archives.import_title') }}{% endblock %}
+{% block content %}
+{% include "hosting/admin/_nav.html" %}
+<div class="card"><h1>{{ t('hosting.archives.import_title') }}</h1><p>{{ t('hosting.archives.import_body') }}</p>
+<form method="post" enctype="multipart/form-data" class="form" data-chunked-upload="{{ url_for('admin.import_instance') }}/chunk">{{ ui.csrf() }}
+  {{ ui.field('subdomain', t('hosting.create.subdomain'), required=true) }}
+  <div class="field"><label for="f-mode">{{ t('hosting.create.domain_mode') }}</label><select id="f-mode" name="domain_mode"><option value="hosting">{{ t('hosting.create.mode_hosting') }}</option><option value="apex">{{ t('hosting.create.mode_apex') }}</option></select></div>
+  <div class="field"><label for="f-archive">{{ t('hosting.archives.file') }}</label><input id="f-archive" type="file" name="archive" accept=".zip" required></div>
+  <p><button class="btn btn--primary" type="submit">{{ t('hosting.archives.import') }}</button> <span class="small" data-upload-status role="status"></span></p></form></div>
+{% endblock %}
