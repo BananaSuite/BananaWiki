@@ -31,7 +31,7 @@ urllib3>=2.8,<3
 # built-in heuristic: langdetect is published only as a source distribution,
 # so it cannot be part of a wheels-only install. Install it by hand
 # (pip install langdetect==1.0.9) on a server where building it is acceptable.
-piper-tts==1.4.2
+piper-tts==1.8.0
 
 # Hosting portal: custom-domain DNS checks and Google Drive backups
 dnspython>=2.8,<3
