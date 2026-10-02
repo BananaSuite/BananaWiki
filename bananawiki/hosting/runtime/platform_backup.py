@@ -15,6 +15,7 @@ cannot guarantee.
 
 from __future__ import annotations
 
+import errno
 import logging
 import os
 import shutil
@@ -151,12 +152,22 @@ def _installation_empty(cfg: HostingConfig) -> bool:
         conn.close()
 
 
+def check_restore_target(cfg: HostingConfig) -> None:
+    """A web restore may only write into a fresh platform, before touching containers."""
+    if not _installation_empty(cfg) or tenant_names(cfg.instances_dir):
+        raise RuntimeFailure("data_exists", "restore onto a fresh installation without wikis or tenant data")
+
+
 def _stage(parts: Sequence[Path], stage: Path, cfg: HostingConfig, key: Callable[[], bytes]) -> None:
     count = total = 0
     seen: set[str] = set()
     for index, part in enumerate(parts):
         path = Path(part)
+        if path.stat().st_size > cfg.archives.import_max_bytes:
+            raise RuntimeFailure("too_large", "a backup part exceeds the configured upload limit")
         if crypto.is_encrypted(path):
+            if shutil.disk_usage(stage).free < path.stat().st_size + cfg.archives.import_min_free_bytes:
+                raise RuntimeFailure("no_space", "not enough free space to decrypt the backup")
             path = crypto.decrypt_file(path, stage / f".part-{index}.zip", key())
         try:
             archive = zipfile.ZipFile(path)
@@ -175,6 +186,8 @@ def _stage(parts: Sequence[Path], stage: Path, cfg: HostingConfig, key: Callable
                     continue
                 if str(relative) in seen:
                     raise RuntimeFailure("archive_invalid", "the backup contains duplicate files")
+                if shutil.disk_usage(stage).free < entry.file_size + cfg.archives.import_min_free_bytes:
+                    raise RuntimeFailure("no_space", "not enough free space to restore the backup")
                 seen.add(str(relative))
                 target = stage / relative
                 target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -228,12 +241,18 @@ def _install_tenants(staged: Path, cfg: HostingConfig) -> None:
 
 def restore(cfg: HostingConfig, parts: Sequence[Path], key: Callable[[], bytes], secret_key_path: str) -> None:
     """Validate every part, then install tenants, keys and finally ``hosting.db``."""
-    if not _installation_empty(cfg):
-        raise RuntimeFailure("data_exists", "restore onto a fresh installation without wikis")
+    check_restore_target(cfg)
     data_dir = Path(cfg.database_path).parent
     with tempfile.TemporaryDirectory(prefix="restore-", dir=data_dir) as temporary:
         stage = Path(temporary)
-        _stage(parts, stage, cfg, key)
+        try:
+            _stage(parts, stage, cfg, key)
+        except (zipfile.BadZipFile, EOFError, ValueError, RuntimeError, NotImplementedError):
+            raise RuntimeFailure("archive_invalid", "a backup part is damaged or unsupported") from None
+        except OSError as error:
+            if error.errno in (errno.ENOSPC, errno.EDQUOT):
+                raise RuntimeFailure("no_space", "not enough free space to restore the backup") from None
+            raise RuntimeFailure("archive_invalid", "a backup part cannot be read") from None
         database = stage / "hosting.db"
         if not database.is_file():
             raise RuntimeFailure("archive_invalid", "the backup holds no hosting database")

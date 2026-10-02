@@ -121,12 +121,16 @@ def create(
 
 
 def set_password(user_id: str, new_password: str, *, keep_session_id: str | None = None,
-                 require_change: bool = False) -> None:
+                 require_change: bool = False, expected_password_hash: str | None = None) -> None:
     """Change a password and sign the account out everywhere else."""
     from .auth import revoke_sessions
 
     hashed = hash_password(validate_password(new_password))
     with db.transaction():
+        if expected_password_hash is not None and db.scalar(
+            "SELECT password FROM users WHERE id = ?", (user_id,)
+        ) != expected_password_hash:
+            raise AccountError("auth.error.current_password_wrong")
         db.execute(
             "UPDATE users SET password = ?, force_password_change = ? WHERE id = ?",
             (hashed, 1 if require_change else 0, user_id),
@@ -157,13 +161,25 @@ def owners_count() -> int:
     return int(db.scalar("SELECT COUNT(*) FROM users WHERE role = 'owner'", default=0))
 
 
-def delete(user: dict[str, Any], *, deleted_by: str | None = None) -> None:
+def delete(user: dict[str, Any], *, deleted_by: str | None = None, protect_last_admin: bool = False,
+           protect_superuser: bool = False, expected_password_hash: str | None = None) -> None:
     """Delete an account and everything it owns (authorship becomes anonymous)."""
-    if user["role"] == "owner" and owners_count() <= 1:
-        raise AccountError("admin.users.error.last_owner")
     with db.transaction():
+        current = by_id(user["id"])
+        if current is None:
+            return
+        if expected_password_hash is not None and current["password"] != expected_password_hash:
+            raise AccountError("auth.error.current_password_wrong")
+        if protect_superuser and current.get("is_superuser"):
+            raise AccountError("users.error.protected_account")
+        if current["role"] == "owner" and owners_count() <= 1:
+            raise AccountError("admin.users.error.last_owner")
+        if protect_last_admin and current["role"] in ("admin", "owner") and not current.get("suspended"):
+            active = db.scalar("SELECT COUNT(*) FROM users WHERE role IN ('admin', 'owner') AND suspended = 0")
+            if active <= 1:
+                raise AccountError("users.error.last_admin")
         db.execute("DELETE FROM users WHERE id = ?", (user["id"],))
-    emit("user.deleted", user=user, deleted_by=deleted_by)
+    emit("user.deleted", user=current, deleted_by=deleted_by)
 
 
 def display_name(user: dict[str, Any] | None) -> str:

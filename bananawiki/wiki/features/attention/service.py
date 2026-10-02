@@ -79,7 +79,10 @@ def clean_base_url(value: str) -> str:
     value = (value or "").strip().rstrip("/")
     if not value:
         return ""
-    parts = urlsplit(value)
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        raise NotificationError("attention.admin.error.base_url") from None
     if parts.scheme not in ("http", "https") or not parts.netloc or parts.username or parts.password \
             or parts.query or parts.fragment or len(value) > 300:
         raise NotificationError("attention.admin.error.base_url")

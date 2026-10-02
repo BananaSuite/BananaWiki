@@ -65,6 +65,23 @@ def require_manageable(actor: dict[str, Any], target: dict[str, Any]) -> None:
         raise AccountError(error)
 
 
+def _current_accounts(actor: dict[str, Any], target: dict[str, Any], *, manageable: bool = True
+                      ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Reload account authority inside the caller's write transaction.
+
+    A request's snapshots may precede a promotion, suspension or password
+    reset. Check those changes before changing another account.
+    """
+    current_actor = accounts.by_id(actor["id"])
+    current_target = accounts.by_id(target["id"])
+    if current_actor is None or current_target is None or not auth.is_admin(current_actor) \
+            or auth.account_block(current_actor) or current_actor["password"] != actor["password"]:
+        raise AccountError("error.forbidden")
+    if manageable:
+        require_manageable(current_actor, current_target)
+    return current_actor, current_target
+
+
 def _require_other(actor: dict[str, Any], target: dict[str, Any], key: str) -> None:
     if actor["id"] == target["id"]:
         raise AccountError(key)
@@ -224,8 +241,9 @@ def create_user(username: str, password: str, role: str, *, force_password_chang
 
 
 def rename(actor: dict[str, Any], target: dict[str, Any], new_username: str) -> dict[str, Any]:
-    require_manageable(actor, target)
-    return accounts.rename(target, new_username, changed_by=actor["id"])
+    with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        return accounts.rename(target, new_username, changed_by=actor["id"])
 
 
 def clear_overrides(user_id: str) -> None:
@@ -246,12 +264,12 @@ def change_role(actor: dict[str, Any], target: dict[str, Any], new_role: str) ->
     """Set a base role (dropping any custom role and per-user overrides)."""
     if new_role not in perms.ROLES:
         raise AccountError("auth.error.invalid_role")
-    require_manageable(actor, target)
-    if actor["id"] == target["id"] and not (target["role"] == "owner" and new_role != "owner"):
-        raise AccountError("admin.users.error.own_role")
-    if new_role == "owner" and not _is_top(actor):
-        raise AccountError("admin.users.error.owner_grant")
     with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        if actor["id"] == target["id"] and not (target["role"] == "owner" and new_role != "owner"):
+            raise AccountError("admin.users.error.own_role")
+        if new_role == "owner" and not _is_top(actor):
+            raise AccountError("admin.users.error.owner_grant")
         if target["role"] == "owner" and new_role != "owner" and accounts.owners_count() <= 1:
             raise AccountError("admin.users.error.last_owner")
         if new_role == target["role"] and not target.get("custom_role_id"):
@@ -268,10 +286,10 @@ def change_role(actor: dict[str, Any], target: dict[str, Any], new_role: str) ->
 
 def assign_custom_role(actor: dict[str, Any], target: dict[str, Any], role: dict[str, Any]) -> dict[str, Any]:
     """Give *target* a custom role; its base role becomes the role's base role."""
-    require_manageable(actor, target)
-    if target["role"] in perms.ADMIN_ROLES:
-        raise AccountError("admin.roles.error.admin_target")
     with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        if target["role"] in perms.ADMIN_ROLES:
+            raise AccountError("admin.roles.error.admin_target")
         db.execute("UPDATE users SET custom_role_id = ?, role = ? WHERE id = ?",
                    (role["id"], role["base_role"], target["id"]))
         clear_overrides(target["id"])
@@ -285,10 +303,10 @@ def assign_custom_role(actor: dict[str, Any], target: dict[str, Any], role: dict
 
 
 def remove_custom_role(actor: dict[str, Any], target: dict[str, Any]) -> None:
-    require_manageable(actor, target)
-    if not target.get("custom_role_id"):
-        raise AccountError("admin.roles.error.not_assigned")
     with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        if not target.get("custom_role_id"):
+            raise AccountError("admin.roles.error.not_assigned")
         db.execute("UPDATE users SET custom_role_id = NULL WHERE id = ?", (target["id"],))
         clear_overrides(target["id"])
 
@@ -324,12 +342,12 @@ def suspension_end(duration: str, custom_datetime: datetime | None, rel_hours: s
 def suspend(actor: dict[str, Any], target: dict[str, Any], *, until: str | None, label: str, reason: str,
             reason_visible: bool, time_visible: bool) -> None:
     """Suspend an account and end all of its sessions at once (1.4 audit H2)."""
-    _require_other(actor, target, "admin.users.error.self_suspend")
-    require_manageable(actor, target)
     reason = (reason or "").strip()[:MAX_SUSPEND_REASON]
     reason_visible = reason_visible and bool(reason)
     time_visible = time_visible and until is not None
     with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        _require_other(actor, target, "admin.users.error.self_suspend")
         db.update("users", {
             "suspended": 1, "suspended_until": until, "suspend_reason": reason or None,
             "suspend_reason_visible": int(reason_visible), "suspend_time_visible": int(time_visible),
@@ -344,8 +362,8 @@ def suspend(actor: dict[str, Any], target: dict[str, Any], *, until: str | None,
 
 
 def unsuspend(actor: dict[str, Any], target: dict[str, Any]) -> None:
-    require_manageable(actor, target)
     with db.transaction():
+        actor, target = _current_accounts(actor, target)
         db.update("users", {
             "suspended": 0, "suspended_until": None, "suspend_reason": None,
             "suspend_reason_visible": 0, "suspend_time_visible": 0,
@@ -366,19 +384,22 @@ def expire_suspensions() -> int:
 
 
 def approve(actor: dict[str, Any], target: dict[str, Any]) -> None:
-    changed = db.execute(
-        "UPDATE users SET approval_status = 'approved', approved_by = ?, approved_denied_at = ? "
-        "WHERE id = ? AND approval_status = 'pending'",
-        (actor["id"], now_sql(), target["id"]),
-    ).rowcount
-    if not changed:
-        raise AccountError("admin.approval.error.not_pending")
+    with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        changed = db.execute(
+            "UPDATE users SET approval_status = 'approved', approved_by = ?, approved_denied_at = ? "
+            "WHERE id = ? AND approval_status = 'pending'",
+            (actor["id"], now_sql(), target["id"]),
+        ).rowcount
+        if not changed:
+            raise AccountError("admin.approval.error.not_pending")
     attention.decided(target["id"], "admin.signups", "approved")
 
 
 def deny(actor: dict[str, Any], target: dict[str, Any]) -> None:
     now = now_sql()
     with db.transaction():
+        actor, target = _current_accounts(actor, target)
         changed = db.execute(
             "UPDATE users SET approval_status = 'denied', denied_by = ?, denied_at = ?, approved_denied_at = ?, "
             "denied_notified = 0 WHERE id = ? AND approval_status = 'pending'",
@@ -393,9 +414,9 @@ def deny(actor: dict[str, Any], target: dict[str, Any]) -> None:
 def reset_password(actor: dict[str, Any], target: dict[str, Any], password: str, *, require_change: bool,
                    keep_original: bool) -> None:
     """Set a new password, signing the account out everywhere (except the actor's own session)."""
-    require_manageable(actor, target)
-    own = actor["id"] == target["id"]
     with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        own = actor["id"] == target["id"]
         if keep_original and not target.get("original_password_backup"):
             db.execute("UPDATE users SET original_password_backup = ? WHERE id = ?",
                        (target["password"], target["id"]))
@@ -406,11 +427,11 @@ def reset_password(actor: dict[str, Any], target: dict[str, Any], password: str,
 
 def restore_password(actor: dict[str, Any], target: dict[str, Any]) -> None:
     """Put back the password saved before a temporary password was set."""
-    require_manageable(actor, target)
-    if not target.get("original_password_backup"):
-        raise AccountError("admin.password.error.no_backup")
-    own = actor["id"] == target["id"]
     with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        if not target.get("original_password_backup"):
+            raise AccountError("admin.password.error.no_backup")
+        own = actor["id"] == target["id"]
         db.execute(
             "UPDATE users SET password = original_password_backup, original_password_backup = NULL, "
             "force_password_change = 0 WHERE id = ?",
@@ -421,39 +442,44 @@ def restore_password(actor: dict[str, Any], target: dict[str, Any]) -> None:
 
 
 def delete_user(actor: dict[str, Any], target: dict[str, Any]) -> None:
-    _require_other(actor, target, "admin.users.error.self_delete")
-    require_manageable(actor, target)
-    accounts.delete(target, deleted_by=actor["id"])
+    with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        _require_other(actor, target, "admin.users.error.self_delete")
+        accounts.delete(target, deleted_by=actor["id"])
 
 
 def toggle_chat(actor: dict[str, Any], target: dict[str, Any]) -> bool:
     """Flip chat access; returns True when chat is now disabled."""
-    require_manageable(actor, target)
-    disabled = not target.get("chat_disabled")
-    db.execute("UPDATE users SET chat_disabled = ? WHERE id = ?", (int(disabled), target["id"]))
+    with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        disabled = not target.get("chat_disabled")
+        db.execute("UPDATE users SET chat_disabled = ? WHERE id = ?", (int(disabled), target["id"]))
     return disabled
 
 
 def toggle_superuser(actor: dict[str, Any], target: dict[str, Any]) -> bool:
     """Grant or revoke superuser status; returns the new state."""
-    if not is_superuser(actor):
-        raise AccountError("admin.users.error.superuser_only")
-    _require_other(actor, target, "admin.users.error.own_superuser")
-    enabled = not is_superuser(target)
-    db.execute("UPDATE users SET is_superuser = ? WHERE id = ?", (int(enabled), target["id"]))
+    with db.transaction():
+        actor, target = _current_accounts(actor, target, manageable=False)
+        if not is_superuser(actor):
+            raise AccountError("admin.users.error.superuser_only")
+        _require_other(actor, target, "admin.users.error.own_superuser")
+        enabled = not is_superuser(target)
+        db.execute("UPDATE users SET is_superuser = ? WHERE id = ?", (int(enabled), target["id"]))
     return enabled
 
 
 def revoke_session(actor: dict[str, Any], target: dict[str, Any], session_id: str | None = None) -> int:
     """End one session of *target*, or all of them."""
-    require_manageable(actor, target)
-    if session_id is None:
-        own = actor["id"] == target["id"]
-        return auth.revoke_sessions(target["id"], except_session_id=auth.current_session_id() if own else None)
-    return db.execute(
-        "UPDATE user_sessions SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
-        (now_sql(), session_id, target["id"]),
-    ).rowcount
+    with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        if session_id is None:
+            own = actor["id"] == target["id"]
+            return auth.revoke_sessions(target["id"], except_session_id=auth.current_session_id() if own else None)
+        return db.execute(
+            "UPDATE user_sessions SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
+            (now_sql(), session_id, target["id"]),
+        ).rowcount
 
 
 def mass_logout(actor: dict[str, Any]) -> int:
@@ -464,39 +490,43 @@ def mass_logout(actor: dict[str, Any]) -> int:
     if session_id:
         extra = " AND id != ?"
         params.append(session_id)
-    return db.execute(f"UPDATE user_sessions SET revoked_at = ? WHERE revoked_at IS NULL{extra}", params).rowcount
+    with db.transaction():
+        _current_accounts(actor, actor, manageable=False)
+        return db.execute(f"UPDATE user_sessions SET revoked_at = ? WHERE revoked_at IS NULL{extra}", params).rowcount
 
 
 def start_impersonation(actor: dict[str, Any], target: dict[str, Any]) -> None:
     if auth.is_impersonating():
         raise AccountError("admin.impersonate.error.nested")
-    error = impersonation_error(actor, target)
-    if error:
-        raise AccountError(error)
-    db.execute(
-        "INSERT INTO impersonation_logs (admin_id, target_user_id, started_at) VALUES (?, ?, ?)",
-        (actor["id"], target["id"], now_sql()),
-    )
-    auth.start_impersonation(target)
+    with db.transaction():
+        actor, target = _current_accounts(actor, target, manageable=False)
+        error = impersonation_error(actor, target)
+        if error:
+            raise AccountError(error)
+        db.execute(
+            "INSERT INTO impersonation_logs (admin_id, target_user_id, started_at) VALUES (?, ?, ?)",
+            (actor["id"], target["id"], now_sql()),
+        )
+        auth.start_impersonation(target)
 
 
 # ── Attribution and history clean-up ─────────────────────────────────────────
 
 
 def deattribute_all(actor: dict[str, Any], target: dict[str, Any]) -> int:
-    require_manageable(actor, target)
     with db.transaction():
+        actor, target = _current_accounts(actor, target)
         count = db.execute("UPDATE page_history SET edited_by = NULL WHERE edited_by = ?", (target["id"],)).rowcount
         db.execute("UPDATE pages SET last_edited_by = NULL WHERE last_edited_by = ?", (target["id"],))
     return count
 
 
 def reattribute_all(actor: dict[str, Any], target: dict[str, Any], recipient: dict[str, Any]) -> int:
-    require_manageable(actor, target)
-    require_manageable(actor, recipient)
     if recipient["id"] == target["id"]:
         raise AccountError("admin.attributions.error.same_user")
     with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        actor, recipient = _current_accounts(actor, recipient)
         count = db.execute("UPDATE page_history SET edited_by = ? WHERE edited_by = ?",
                            (recipient["id"], target["id"])).rowcount
         db.execute("UPDATE pages SET last_edited_by = ? WHERE last_edited_by = ?", (recipient["id"], target["id"]))
@@ -506,13 +536,14 @@ def reattribute_all(actor: dict[str, Any], target: dict[str, Any], recipient: di
 def delete_role_history(actor: dict[str, Any], target: dict[str, Any], entry_id: int | None = None) -> int:
     # Not one's own: the history is how others see who promoted themselves.
     _require_other(actor, target, "admin.attributions.error.own_history")
-    require_manageable(actor, target)
-    if entry_id is None:
-        return db.execute("DELETE FROM role_history WHERE user_id = ?", (target["id"],)).rowcount
-    count = db.execute("DELETE FROM role_history WHERE id = ? AND user_id = ?", (entry_id, target["id"])).rowcount
-    if not count:
-        raise AccountError("admin.attributions.error.entry_not_found")
-    return count
+    with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        if entry_id is None:
+            return db.execute("DELETE FROM role_history WHERE user_id = ?", (target["id"],)).rowcount
+        count = db.execute("DELETE FROM role_history WHERE id = ? AND user_id = ?", (entry_id, target["id"])).rowcount
+        if not count:
+            raise AccountError("admin.attributions.error.entry_not_found")
+        return count
 
 
 # ── Per-user permission overrides ────────────────────────────────────────────
@@ -579,11 +610,12 @@ def _write_access(user_id: str, access_type: str, restricted: bool, category_ids
 
 def save_overrides(actor: dict[str, Any], target: dict[str, Any], *, keys: list[str], read_restricted: bool,
                    read_ids: list[int], write_restricted: bool, write_ids: list[int]) -> None:
-    _require_overridable(actor, target)
-    granted = perms.sanitize(target["role"], keys)
-    if target["role"] != "editor":
-        write_restricted, write_ids = False, []
     with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        _require_overridable(actor, target)
+        granted = perms.sanitize(target["role"], keys)
+        if target["role"] != "editor":
+            write_restricted, write_ids = False, []
         db.execute("DELETE FROM user_permissions WHERE user_id = ?", (target["id"],))
         db.executemany("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, ?)",
                        [(target["id"], key) for key in sorted(granted)])
@@ -594,11 +626,12 @@ def save_overrides(actor: dict[str, Any], target: dict[str, Any], *, keys: list[
 def save_editor_access(actor: dict[str, Any], target: dict[str, Any], *, restricted: bool,
                        category_ids: list[int]) -> None:
     """Limit which categories an editor may write to, keeping their other permissions."""
-    _require_overridable(actor, target)
-    if target["role"] != "editor":
-        raise AccountError("admin.editor_access.error.not_editor")
-    current = user_access(target)
     with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        _require_overridable(actor, target)
+        if target["role"] != "editor":
+            raise AccountError("admin.editor_access.error.not_editor")
+        current = user_access(target)
         if not current.customized:
             db.executemany("INSERT OR IGNORE INTO user_permissions (user_id, permission_key) VALUES (?, ?)",
                            [(target["id"], key) for key in sorted(current.keys)])
@@ -607,8 +640,9 @@ def save_editor_access(actor: dict[str, Any], target: dict[str, Any], *, restric
 
 
 def reset_overrides(actor: dict[str, Any], target: dict[str, Any]) -> None:
-    _require_overridable(actor, target)
     with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        _require_overridable(actor, target)
         clear_overrides(target["id"])
 
 

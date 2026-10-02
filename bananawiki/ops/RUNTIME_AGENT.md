@@ -126,6 +126,12 @@ a JSON object with `ok` (untrusted: the tenant controls that process), or
 the request fails with `docker_failed` or `timeout`. This is how the portal
 works on tenant databases without opening them host-side.
 
+Start, stop and task operations serialize per tenant. Running-container tasks
+also use `/usr/bin/timeout` inside the container, so killing the Docker client
+cannot leave an exec process running indefinitely. One-shot tasks have unique
+container names and are forcibly removed after the request, including timeout
+and failure paths.
+
 `proxy.routes` stores the wanted table (`hosts`: 1–16 lowercase DNS names
 per tenant, each hostname once) in `routes.json` and renders
 `/var/lib/<service>-routes/tenants.caddy`: one site block per *running*
@@ -137,11 +143,22 @@ and `X-Forwarded-Prefix` stripped. Each block also answers plain HTTP
 retries a container that is still starting for 5 s and then hands the
 request to the portal (`127.0.0.1:<HOSTING_PORT>`), which shows the wiki's
 status page. The portal cannot choose upstreams or write Caddy directives. When the file changes the agent runs `systemctl
-reload caddy`. It re-renders after every `tenant.start` and `tenant.stop`,
+reload caddy`. A root-owned checksum records the last successfully reloaded
+table; failed reloads are retried on the next sync, including after an agent
+restart. It re-renders after every `tenant.start` and `tenant.stop`,
 so a recreated container is routed at once. The Caddyfile written by
 `bananawiki proxy` imports `/var/lib/<service>-routes/*.caddy`; without the
 routes directory (in-process fallback) the operation answers
 `not_configured`.
+
+A stopped tenant's bridge is kept until Caddy acknowledges the table without
+its old upstream. This prevents Docker from reallocating a still-routed IP
+to another tenant during a reload outage. Retired bridges are tracked in
+`retired-networks.json` and cleaned after a successful sync, including after
+an agent restart. Cleanup attempts at most four bridges per sync and rotates
+failed removals to the end, so restarted tenants cannot indefinitely block
+cleanup of later stopped bridges. A change between isolated and outbound networking also
+waits for that acknowledgement before releasing the former bridge.
 
 The controller keeps both ends in step on every `update` (including the
 convergence of a release the 1.4 updater installed) and `restart`: it creates

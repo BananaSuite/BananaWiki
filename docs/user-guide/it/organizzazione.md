@@ -3,6 +3,9 @@
 Quello che puoi fare dipende dai tuoi permessi; gli amministratori possono
 fare tutto.
 
+Usa **Nuova pagina** nella barra laterale per iniziare una pagina. L'editor
+ha i comandi **Crea pagina** o **Salva**, e **Annulla**, in alto e in fondo.
+
 ## Categorie
 
 Le categorie sono le cartelle della barra laterale e possono contenere
@@ -24,7 +27,7 @@ trovi una categoria che ti aspetti, probabilmente non hai accesso.
 
 ## Spostare, rinominare e cambiare indirizzo
 
-Dal menu **Altro** della pagina:
+Dal menu **Azioni pagina** della pagina:
 
 * **Rinomina** cambia il titolo.
 * **Cambia indirizzo** cambia `/page/<indirizzo>`; i collegamenti al vecchio

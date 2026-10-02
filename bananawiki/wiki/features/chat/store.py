@@ -18,13 +18,13 @@ deleting a group remove rows, files and blobs together.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
 from flask import url_for
 
-from ....core.timeutil import now_sql
+from ....core.timeutil import now_sql, sql_in
 from ... import storage
 from ...db import db
 from ...i18n import t
@@ -56,6 +56,14 @@ class Store:
 
 DM = Store("dm", "chat_messages", "chat_attachments", "chat_id", "chat.dm_attachment", False)
 GROUP = Store("group", "group_messages", "group_attachments", "group_id", "chat.group_attachment", True)
+
+
+class AttachmentLimitExceeded(ValueError):
+    """A concurrent upload consumed the account's remaining daily allowance."""
+
+    def __init__(self, limit: int):
+        super().__init__("chat.error.daily_limit")
+        self.limit = limit
 
 
 # ── System messages ──────────────────────────────────────────────────────────
@@ -193,13 +201,10 @@ def attachment(store: Store, attachment_id: int) -> dict[str, Any] | None:
 
 
 def attachments_sent_since(user_id: str, since: str) -> int:
-    """Attachments *user_id* sent in direct messages and groups since *since*."""
+    """Uploads made since *since*, including files deleted from conversations."""
     return int(db.scalar(
-        "SELECT (SELECT COUNT(*) FROM chat_attachments a JOIN chat_messages m ON m.id = a.message_id "
-        "WHERE m.sender_id = ? AND a.created_at >= ?) + "
-        "(SELECT COUNT(*) FROM group_attachments a JOIN group_messages m ON m.id = a.message_id "
-        "WHERE m.sender_id = ? AND a.created_at >= ?)",
-        (user_id, since, user_id, since),
+        "SELECT COUNT(*) FROM chat__upload_usage WHERE user_id = ? AND created_at >= ?",
+        (user_id, since),
         default=0,
     ) or 0)
 
@@ -258,6 +263,15 @@ def insert(
     system: bool = False,
 ) -> int:
     """Add a message (and its attachment); call inside the caller's transaction."""
+    if stored is not None and sender_id is not None:
+        from . import policy
+
+        # The early form check avoids unnecessary uploads. Recheck under the
+        # caller's write transaction so simultaneous DM/group uploads cannot
+        # both claim the final available attachment.
+        limit = policy.attachments_per_day()
+        if attachments_sent_since(sender_id, sql_in(days=-1)) >= limit:
+            raise AttachmentLimitExceeded(limit)
     now = now_sql()
     values: dict[str, Any] = {store.parent: parent_id, "sender_id": sender_id, "content": content,
                               "ip_address": ip_address, "created_at": now}
@@ -265,9 +279,12 @@ def insert(
         values["is_system"] = 1 if system else 0
     message_id = db.insert(store.messages, values)
     if stored is not None:
-        db.insert(store.attachments, {"message_id": message_id, "filename": stored.filename,
-                                      "original_name": stored.original_name, "file_size": stored.size,
-                                      "created_at": now})
+        attachment_id = db.insert(store.attachments, {"message_id": message_id, "filename": stored.filename,
+                                                     "original_name": stored.original_name,
+                                                     "file_size": stored.size, "created_at": now})
+        if sender_id is not None:
+            db.insert("chat__upload_usage", {"source": f"{store.kind}:{attachment_id}", "user_id": sender_id,
+                                             "created_at": now})
     return message_id
 
 
@@ -294,9 +311,11 @@ def remove_files(filenames: Iterable[str]) -> None:
         storage.delete(FOLDER, name)
 
 
-def wipe(store: Store, message_id: int) -> None:
+def wipe(store: Store, message_id: int, *, authorize: Callable[[], None] | None = None) -> None:
     """Delete a message for everyone: text, attachments, files and blobs."""
     with db.transaction():
+        if authorize is not None:
+            authorize()
         files = _remove_attachments(store, "message_id = ?", (message_id,))
         db.execute(
             f"UPDATE {store.messages} SET content = '', is_deleted = 1, deleted_at = ? WHERE id = ?",

@@ -3,7 +3,7 @@
 {% block head %}<link rel="stylesheet" href="{{ asset_url('chat.css', blueprint='chat') }}">{% endblock %}
 {% block content %}
 <header class="page-header"><h1>{{ t('chat.dm.new') }}</h1></header>
-<div class="card">
+<div class="stack">
   <form method="post" class="form" action="{{ url_for('chat.dm_new') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="field">

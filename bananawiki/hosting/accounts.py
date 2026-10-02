@@ -233,7 +233,9 @@ def set_contact_email(account: dict[str, Any], address: str) -> None:
 
 
 def set_password(account_id: str, password: str, *, actor_id: str | None, reason: str) -> int:
-    """Replace the password and end every session and API token. Returns the new session version."""
+    """Replace the password and end sessions, API/OAuth tokens and grants. Returns the session version."""
+    from . import oauth
+
     password_hash = hash_password(password)
     with db.transaction():
         db.execute("UPDATE accounts SET password = ?, session_version = session_version + 1 WHERE id = ?",
@@ -241,6 +243,7 @@ def set_password(account_id: str, password: str, *, actor_id: str | None, reason
         db.execute("UPDATE hosting_account_sessions SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL",
                    (now_sql(), account_id))
         api_tokens.revoke_all(account_id, actor_id, reason)
+        oauth.revoke_account_credentials(account_id)
         return int(db.scalar("SELECT session_version FROM accounts WHERE id = ?", (account_id,), default=0))
 
 

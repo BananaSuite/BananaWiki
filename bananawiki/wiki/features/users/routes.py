@@ -83,7 +83,8 @@ def change_password():
             raise service.ProfileError("auth.error.passwords_differ")
         if passwords.verify_password(user["password"], new):
             raise service.ProfileError("auth.error.password_unchanged")
-        accounts.set_password(user["id"], new, keep_session_id=auth.current_session_id())
+        accounts.set_password(user["id"], new, keep_session_id=auth.current_session_id(),
+                              expected_password_hash=user["password"])
     except (service.ProfileError, accounts.AccountError) as error:
         return _fail(error, "users.settings")
     auth.flash_t("users.flash.password_changed", "success")

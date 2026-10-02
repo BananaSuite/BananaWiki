@@ -14,6 +14,8 @@ bananawiki/
     passwords.py   Werkzeug password hashes
     timeutil.py    UTC timestamps ("YYYY-MM-DD HH:MM:SS")
     web.py         CSRF, CSP nonce, security headers, safe redirects
+    assets.py      shared static serving and content-hash asset URLs
+    static/        one design-system stylesheet for both applications
     ratelimit.py   in-memory and SQL-backed rate limiters
     i18n.py        JSON translation catalogues
     mail.py        outgoing email: SMTP (STARTTLS/SSL), Brevo, Resend, test outbox
@@ -32,10 +34,10 @@ bananawiki/
     markdown.py    Markdown -> sanitised HTML
     templating.py  template globals and filters
     i18n.py        request language and t()
-    migrations/    schema versions (baseline_v3.sql + v4_takeover.py)
+    migrations/    schema versions (baseline_v3.sql + numbered Python upgrades)
     takeover.py    first start on a 1.4 installation
     templates/     base layout, macros, error page
-    static/        design system CSS, core JS, bundled favicons
+    static/        wiki content CSS, core JS, bundled favicons
     translations/  core strings (en, it)
     features/      one package per feature (see below)
   hosting/         the hosting portal (multi-tenant wiki provisioning); runtime/ drives
@@ -107,11 +109,13 @@ zone). Convert `datetime-local` form input with `templating.from_local_input`.
 ### Schema changes
 
 The schema is versioned (`PRAGMA user_version`). BananaWiki 1.4 databases are
-at version 3; version 4 is the 1.6 takeover migration and is still open
-until 1.6 is released. A feature that needs tables or columns adds
-`features/<name>/schema.py` with an idempotent `upgrade_v4(conn)` (use
-`CREATE TABLE IF NOT EXISTS`, `core.sqlite.add_columns`). It runs for
-upgraded and new databases alike. Never change `baseline_v3.sql`; it is the
+at version 3; version 4 is the 1.6 takeover migration and version 5 adds the
+durable chat upload usage ledger. New schema changes need a numbered migration
+registered in `migrations/__init__.py` so existing installations receive them.
+Feature schema helpers must be idempotent (use `CREATE TABLE IF NOT EXISTS`
+and `core.sqlite.add_columns`). The takeover still calls `upgrade_v4(conn)`;
+later migrations call the relevant feature helper. Never change
+`baseline_v3.sql`; it is the
 1.4 schema. Existing tables and columns keep their names and meaning so an
 upgrade needs no data rewrite.
 
@@ -149,6 +153,12 @@ FEATURE = Feature(
 * Templates live in `features/<id>/templates/<id>/…` and extend `base.html`
   (or `base_minimal.html`). Static files live in `features/<id>/static/` and
   are linked with `asset_url('file.js', blueprint='<blueprint name>')`.
+* Ordinary pages use the shared 1120px content frame. Article prose uses the
+  800px reading measure inside it. Only spatial workspaces such as the page
+  editor, Kanban board and canvas use `main--wide`; authentication screens
+  and modal dialogs may be narrow. Use the shared form macros and button
+  classes, and `section-stack` for settings sections rather than nested
+  cards. Feature styles should not introduce arbitrary page width caps.
 * Strings live in `features/<id>/translations/{en,it}.json`; both languages
   are required and must have the same keys. Keys under `js.` are shipped to
   the browser (`BW.t('key')` without the `js.` prefix).
@@ -306,9 +316,14 @@ used, so bookmarks and links in page content keep working.
   `data-autosubmit`, `data-toggle-target`, `data-print`).
 * Build user-supplied text into the DOM with `textContent`, never
   `innerHTML`.
-* Use the design-system classes in `static/css/bananawiki.css` (`btn`,
-  `card`, `field`, `table`, `alert`, `badge`, `tabs`, `menu`, …) and its
-  colour tokens. Feature CSS goes in the feature's static folder.
+* Use the design-system classes in `bananawiki/core/static/css/bananawiki.css`
+  (`btn`, `card`, `field`, `form-section`, `table`, `alert`, `badge`, `tabs`,
+  `menu`, …) and its colour and control tokens. Both applications serve this
+  source at `/static/css/bananawiki.css`; do not copy it into an application.
+  Feature CSS goes in the feature's static folder and defines feature layout.
+* Settings use `form-section` inside `section-stack`. Reserve `card` for
+  standalone surfaces; avoid styling a card and then cancelling its surface.
+  Keep each component's base, state and responsive rules together.
 * Pages must work at 360 px wide and with the keyboard alone.
 
 ## Rules

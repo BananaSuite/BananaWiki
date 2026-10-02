@@ -155,7 +155,7 @@ run yourself, leave them unset.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `BW_MANAGED_HOSTING` (alias `BW_HOSTED_MODE`) | `0` | The wiki is a tenant of a hosting platform: plugins off unless isolated, site import off, upload size and remote GPU settings owned by the host, builder pages never public. |
+| `BW_MANAGED_HOSTING` (alias `BW_HOSTED_MODE`) | `0` | The wiki is a tenant of a hosting platform: third-party plugins require the operator's `HOSTING_ALLOW_TENANT_PLUGINS` opt-in, site import off, upload size and remote GPU settings owned by the host, builder pages never public. |
 | `BW_FORBID_PUBLIC_MODE` | `0` | The host forbids public mode. |
 | `BW_FORBID_PAGE_BUILDER` | `0` | The host forbids the page builder. |
 | `BW_FORBID_PUBLIC_BUILDER_PAGES` | same as `BW_MANAGED_HOSTING` | Page-builder pages are never shown to anonymous visitors. |
@@ -247,7 +247,7 @@ like 1.4; managed installations set them to `<root>/data`.
 | `HOSTING_SECRET_KEY_PATH` | `<source>/hosting/data/.secret_key` | Generated key file (0600). |
 | `HOSTING_BOOTSTRAP_TOKEN` | none | Required to create the first (administrator) account at `/signup`. Without it the first sign-up is locked. |
 | `HOSTING_DATABASE_PATH` | `<source>/hosting/data/hosting.db` | Portal database. |
-| `HOSTING_BACKUP_KEY_PATH` | `<database dir>/.backup_encryption_key` | Key for platform backups. |
+| `HOSTING_BACKUP_KEY_PATH` | `<database dir>/.backup_encryption_key` | Key for platform backups: a 32-byte regular file owned by the portal service user with mode 0600. Public files, links and special files are refused. |
 | `INSTANCES_DIR` | `<source>/hosting/data/instances` | Tenant data directories (`<slug>` or `<slug>__apex`). |
 | `HOSTING_PLATFORM_STATE_DIR` | `<database dir>/platform_state` | Portal state; must not be inside `INSTANCES_DIR`. |
 | `HOSTING_DB_BUSY_TIMEOUT_MS` | 5000 (100–30000) | SQLite write-lock wait. |
@@ -284,7 +284,8 @@ like 1.4; managed installations set them to `<root>/data`.
 | `HOSTING_INSTANCE_RUNTIME` | `docker` | `docker` or `process` (validated; tenants run in Docker). |
 | `HOSTING_CONTAINER_IMAGE` | `bananawiki-tenant:latest` | Tenant image; the managed updater sets `bananawiki-tenant:<revision>`. |
 | `HOSTING_CONTAINER_INTERNAL_PORT` | 5001 | Port inside tenant containers. |
-| `HOSTING_TENANT_NETWORK` | `isolated` in subdomain mode, else `outbound` | `isolated`: no network except the proxy. Port and onion mode need `outbound`. |
+| `HOSTING_TENANT_NETWORK` | `isolated` in subdomain mode, else `outbound` | `isolated`: a Docker internal bridge for each tenant, blocking traffic beyond its subnet. Host gateway listeners still require host firewall INPUT rules; bind host-only services to loopback. Port and onion mode need `outbound`. |
+| `HOSTING_ALLOW_TENANT_PLUGINS` | `0` | Operator opt-in for third-party Python plugins in hosted wikis. Built-in features remain available. Existing plugin files and settings are retained while disabled; set `1` only for tenants whose code you trust, with host filesystem quotas and tested container isolation. Quarantine still overrides this setting. |
 | `HOSTING_TENANT_PLUGIN_DENYLIST` | none | Plugin ids tenants may never load. |
 | `HOSTING_TTS_GPU_TENANT_TOKENS` | `1` | Give each wiki its own GPU speech token derived from the master token instead of the master token itself. Needs the GPU server from this release; set `0` only while an older GPU server is still running. |
 | `HOSTING_FEDERATION_INSTANCES` | none | Wiki ids (from the portal) whose tenants get `BW_FEDERATION_ENABLED=1`; `*` for every wiki. |

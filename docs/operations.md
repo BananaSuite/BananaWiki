@@ -248,7 +248,8 @@ sudo bananawiki rollback [--package FILE]
 
 * `restore` first saves the current state as `backups/before-restore-<time>.tar.gz`,
   then deploys the package's source and data. If the restored release fails
-  its readiness checks, the previous state is put back. A package cannot
+  its readiness checks, the previous state, repository credentials and update
+  signer trust are put back. A package cannot
   change the mode (wiki or hosting). Automatic updates and backup schedules
   stay off afterwards until you enable them again.
 * `rollback` restores the package recorded by the last successful update
@@ -260,6 +261,12 @@ sudo bananawiki rollback [--package FILE]
 * `sudo bananawiki recover` finishes an interrupted operation (power loss
   during an update): it puts the recorded state back. Every other command
   does this first automatically.
+
+New managed packages include `config/repo.allowed_signers` when updates require
+SSH signatures. Packages from earlier releases may omit it. Recover the
+operator's original allowed signers file and configure
+`source set --require-signatures FILE` before updating that restored
+installation; verification fails closed while the trust file is missing.
 
 Without the managed controller: stop the wiki, put the instance directory
 (or `db backup` copy plus the files) back, start it. A database from a newer

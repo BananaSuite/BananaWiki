@@ -12,6 +12,7 @@
   <meta name="color-scheme" content="dark light">
   <title>{% block title %}{{ site_name() }}{% endblock %}{% if self.title() != site_name() %} · {{ site_name() }}{% endif %}</title>
   <link rel="icon" href="{{ favicon_url() }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='favicons/banana_yellow.png') }}">
   <link rel="stylesheet" href="{{ asset_url('css/bananawiki.css') }}">
   <link rel="stylesheet" href="{{ asset_url('css/content.css') }}">
   <link rel="stylesheet" href="{{ asset_url('css/pygments.css') }}">
@@ -27,12 +28,13 @@
       <button type="button" class="btn btn--ghost btn--icon topbar__menu-toggle" data-sidebar-toggle
               aria-controls="sidebar" aria-expanded="false" aria-label="{{ t('nav.menu') }}"><svg class="icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button>
       <a class="topbar__brand" href="/">
-        {% if site().favicon_enabled %}<img src="{{ favicon_url() }}" alt="" width="24" height="24">{% endif %}<span>{{ site_name() }}</span>
+        <img src="{{ url_for('static', filename='favicons/banana_yellow.png') }}" alt="" width="24" height="24"><span>{{ site_name() }}</span>
       </a>
       <div class="topbar__spacer"></div>
       <div class="topbar__actions">
         {% block topbar_actions %}{% endblock %}
         {{ slot('topbar.actions') }}
+        {% include "layout/_topbar_shortcuts.html" %}
         <button type="button" class="btn btn--ghost btn--icon" data-theme-toggle aria-label="{{ t('nav.toggle_theme') }}" title="{{ t('nav.toggle_theme') }}"><svg class="icon" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="10" cy="10" r="6.5" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M10 3.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg></button>
         {% include "layout/_user_menu.html" %}
       </div>

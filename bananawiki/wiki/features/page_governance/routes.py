@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from flask import abort, jsonify, redirect, render_template, request, url_for
+from flask import abort, jsonify, make_response, redirect, render_template, request, url_for
 
 from ....core.web import safe_next
 from ... import auth
@@ -114,14 +114,14 @@ def update_protection(slug: str):
 
 def _api_page(page_id: int) -> dict[str, Any]:
     if not reservations.active():
-        abort(jsonify({"error": t("page_governance.reservation.error.disabled")}), 403)
+        abort(make_response(jsonify({"error": t("page_governance.reservation.error.disabled")}), 403))
     page = pages.get(page_id, with_content=False)
     if page is None or not pages.can_view(page):
-        abort(jsonify({"error": t("error.404.title")}), 404)
+        abort(make_response(jsonify({"error": t("error.404.title")}), 404))
     if page["is_home"]:
-        abort(jsonify({"error": t("page_governance.reservation.error.home")}), 400)
+        abort(make_response(jsonify({"error": t("page_governance.reservation.error.home")}), 400))
     if not pages.can_edit(page):
-        abort(jsonify({"error": t("page_governance.error.cannot_edit")}), 403)
+        abort(make_response(jsonify({"error": t("page_governance.error.cannot_edit")}), 403))
     return page
 
 

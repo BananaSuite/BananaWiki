@@ -16,10 +16,10 @@
 html[data-reduce-motion="true"] [data-tts-word].is-current { transition: none; }
 
 .tts-stats { margin-bottom: 1rem; }
-.tts-languages { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: .25rem .75rem;
+.tts-languages { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: .25rem .75rem;
   max-height: 18rem; overflow-y: auto; padding: .25rem; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .tts-voices { list-style: none; padding: 0; margin: 0; display: grid; gap: .35rem;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); }
 .tts-error { margin: .25rem 0 0; max-width: 32rem; overflow-wrap: anywhere; }
 .tts-badge--completed, .tts-voice--ready { background: var(--success-bg); color: var(--success); }
 .tts-badge--processing, .tts-badge--pending, .tts-voice--downloadable { background: var(--info-bg); color: var(--info); }

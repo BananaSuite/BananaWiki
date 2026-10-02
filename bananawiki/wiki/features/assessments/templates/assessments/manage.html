@@ -34,13 +34,13 @@
   </div>
   <div class="field" data-options-field>
     <label for="q{{ index }}-options">{{ t('assessments.options') }}</label>
-    <textarea id="q{{ index }}-options" name="questions-{{ index }}-options" rows="4">{{ q.options|join('\n') }}</textarea>
-    <p class="hint">{{ t('assessments.options_hint') }}</p>
+    <textarea id="q{{ index }}-options" name="questions-{{ index }}-options" rows="4" aria-describedby="q{{ index }}-options-hint">{{ q.options|join('\n') }}</textarea>
+    <p class="hint" id="q{{ index }}-options-hint">{{ t('assessments.options_hint') }}</p>
   </div>
   <div class="field">
     <label for="q{{ index }}-correct">{{ t('assessments.correct_answers') }}</label>
-    <textarea id="q{{ index }}-correct" name="questions-{{ index }}-correct" rows="2">{{ q.correct_answers|join('\n') }}</textarea>
-    <p class="hint">{{ t('assessments.correct_hint') }}</p>
+    <textarea id="q{{ index }}-correct" name="questions-{{ index }}-correct" rows="2" aria-describedby="q{{ index }}-correct-hint">{{ q.correct_answers|join('\n') }}</textarea>
+    <p class="hint" id="q{{ index }}-correct-hint">{{ t('assessments.correct_hint') }}</p>
   </div>
   <div class="split">
     <label class="check"><input type="checkbox" name="questions-{{ index }}-required" value="1"{% if q.is_required %} checked{% endif %}> <span>{{ t('assessments.required') }}</span></label>
@@ -69,7 +69,7 @@
 <div class="alert alert--warning"><div class="alert__body">{{ t('assessments.edit_after_attempts', n=attempt_count) }}</div></div>
 {% endif %}
 
-<form method="post" action="{{ url_for('assessments.manage', slug=page.slug) }}" class="stack assessment-editor" data-assessment-editor>
+<form method="post" action="{{ url_for('assessments.manage', slug=page.slug) }}" class="form section-stack assessment-editor" data-assessment-editor>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <section class="card stack">
     <div class="field">
@@ -92,8 +92,8 @@
     </fieldset>
     <div class="field">
       <label for="a-banned-users">{{ t('assessments.banned_users') }}</label>
-      <input id="a-banned-users" name="banned_users" value="{{ form.banned_users }}" autocomplete="off">
-      <p class="hint">{{ t('assessments.banned_users_hint') }}</p>
+      <input id="a-banned-users" name="banned_users" value="{{ form.banned_users }}" autocomplete="off" aria-describedby="a-banned-users-hint">
+      <p class="hint" id="a-banned-users-hint">{{ t('assessments.banned_users_hint') }}</p>
     </div>
   </section>
 
@@ -102,7 +102,7 @@
     {% for q in rows %}{{ question_fields(loop.index0, q) }}{% endfor %}
   </div>
   <template data-question-template>{{ question_fields('__INDEX__', blank) }}</template>
-  <div class="btn-row">
+  <div class="btn-row form-actions--sticky">
     <button type="submit" name="add_question" value="1" class="btn" data-question-add formnovalidate>{{ t('assessments.add_question') }}</button>
     <button type="submit" class="btn btn--primary">{{ t('common.save') }}</button>
   </div>

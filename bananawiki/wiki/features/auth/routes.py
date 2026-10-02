@@ -241,7 +241,8 @@ def suspended_delete():
         auth.flash_t("auth.status.delete.last_admin", "error")
         return redirect(url_for("auth.account_status"))
     try:
-        accounts.delete(user, deleted_by=user["id"])
+        accounts.delete(user, deleted_by=user["id"], protect_superuser=True,
+                        expected_password_hash=user["password"])
     except accounts.AccountError as exc:
         auth.flash_t(exc.key, "error", **exc.values)
         return redirect(url_for("auth.account_status"))
@@ -294,9 +295,11 @@ def force_password_change():
             error = t("auth.error.password_unchanged")
         else:
             try:
-                if new_username and new_username != user["username"]:
-                    accounts.rename(user, new_username, changed_by=user["id"])
-                accounts.set_password(user["id"], new, keep_session_id=auth.current_session_id())
+                with db.transaction():
+                    if new_username and new_username != user["username"]:
+                        accounts.rename(user, new_username, changed_by=user["id"])
+                    accounts.set_password(user["id"], new, keep_session_id=auth.current_session_id(),
+                                          expected_password_hash=user["password"])
             except accounts.AccountError as exc:
                 error = t(exc.key, **exc.values)
             else:

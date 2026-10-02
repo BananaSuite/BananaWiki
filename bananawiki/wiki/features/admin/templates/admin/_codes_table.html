@@ -16,7 +16,7 @@
       <tr>
         <td><span class="code-value">{{ code.code }}</span>
           {% if code.deleted %}<span class="badge badge--danger">{{ t('admin.codes.deactivated_state') }}</span>{% endif %}
-          {% if code.used_by %}<details class="small"><summary>{{ t('admin.codes.used_by') }}</summary>
+          {% if code.used_by %}<details class="disclosure small"><summary>{{ t('admin.codes.used_by') }}</summary>
             <ul>{% for use in code.used_by %}<li>{{ use.username or t('common.unknown_user') }} · {{ use.used_at|datetime }}</li>{% endfor %}</ul></details>{% endif %}</td>
         <td class="nowrap">{{ code.use_count }} / {{ code.max_uses if code.max_uses else '∞' }}</td>
         <td class="nowrap">{{ code.expires_at|datetime if code.expires_at else t('common.never') }}</td>

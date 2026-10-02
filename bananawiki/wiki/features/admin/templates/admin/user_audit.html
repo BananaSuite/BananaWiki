@@ -74,7 +74,7 @@
   <h2>{{ t('admin.attributions.title') }}</h2>
   <p>{{ t('admin.attributions.count', count=contributions) }}</p>
   {% if contributions and not protection %}
-  <div class="stack">
+  <div class="section-stack">
     {{ forms.post_button(attr_url, t('admin.attributions.remove_all'), 'btn btn--danger', confirm=t('admin.attributions.remove_confirm'), hidden={'action': 'deattribute_all'}) }}
     <form method="post" action="{{ attr_url }}" class="form" data-confirm="{{ t('common.are_you_sure') }}">
       {{ forms.csrf() }}<input type="hidden" name="action" value="mass_reattribute">

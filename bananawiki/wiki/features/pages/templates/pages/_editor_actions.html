@@ -1,0 +1,12 @@
+{# Shared editor actions; the surrounding form and its fields stay with each page. #}
+{% macro page_actions(submit_label, cancel_url, form_id=none, compact=false) -%}
+<button class="btn btn--primary{% if compact %} btn--small{% endif %}" type="submit"{% if form_id %} form="{{ form_id }}"{% endif %}>{{ submit_label }}</button>
+<a class="btn{% if compact %} btn--small{% endif %}" href="{{ cancel_url }}" data-editor-cancel>{{ t('common.cancel') }}</a>
+{%- endmacro %}
+
+{% macro dialog_actions(kind) -%}
+<div class="btn-row btn-row--end">
+  <button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button>
+  <button type="button" class="btn btn--primary" data-insert="{{ kind }}">{{ t('pages.editor.insert') }}</button>
+</div>
+{%- endmacro %}

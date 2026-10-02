@@ -27,7 +27,7 @@
 {% if impersonating_view %}
 <div class="alert alert--warning"><div class="alert__body">{{ t('users.sessions.impersonating') }}</div></div>
 {% else %}
-<section class="card" id="active-sessions" aria-labelledby="active-heading">
+<section class="users-session-section" id="active-sessions" aria-labelledby="active-heading">
   <div class="card__header">
     <h2 id="active-heading">{{ t('users.sessions.active') }}</h2>
     {{ forms.post_button(url_for('users.logout_everywhere'), t('users.sessions.logout_all'), cls='btn btn--danger btn--small', confirm=t('users.sessions.logout_all_confirm')) }}
@@ -35,7 +35,7 @@
   <p class="hint">{{ t('users.sessions.active_help') }}</p>
   <ul class="users-sessions">{% for item in active %}{{ session_card(item) }}{% endfor %}</ul>
 </section>
-<section class="card" id="session-history" aria-labelledby="history-heading">
+<section class="users-session-section" id="session-history" aria-labelledby="history-heading">
   <div class="card__header">
     <h2 id="history-heading">{{ t('users.sessions.history') }}</h2>
     {% if history %}{{ forms.post_button(url_for('users.clear_session_history'), t('users.sessions.clear_history'), cls='btn btn--small', confirm=t('users.sessions.clear_history_confirm')) }}{% endif %}

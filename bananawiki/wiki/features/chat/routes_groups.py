@@ -15,7 +15,7 @@ from flask import abort, jsonify, redirect, render_template, request, url_for
 
 from ....core.ratelimit import SqlLimiter
 from ....core.timeutil import is_future, sql_in
-from ....core.web import client_ip
+from ....core.web import client_ip, safe_next
 from ... import accounts, auth, storage
 from ...db import db
 from ...i18n import t
@@ -83,11 +83,13 @@ class Actor:
     @property
     def can_manage(self) -> bool:
         """Owner-level actions: roles, invite code, export, deletion."""
+        if self.group["is_global"]:
+            return self.admin
         return self.admin or self.is_owner
 
     @property
     def can_delete_any(self) -> bool:
-        return self.admin or self.is_moderator
+        return self.can_moderate
 
     def outranks(self, target: dict[str, Any]) -> bool:
         """Moderators may not act on the owner or other moderators; nobody acts on the owner."""
@@ -108,6 +110,15 @@ def _actor(group_id: int) -> Actor:
         halt(auth.deny(404, "chat.error.not_found"))
     user = auth.current_user()
     return Actor(user, group, groups.member(group_id, user["id"]), auth.is_admin(user))
+
+
+def _authority(group_id: int, *, manage: bool = False) -> Actor:
+    """Current authority, re-read while the caller holds its writer transaction."""
+    actor = _actor(group_id)
+    if not (actor.can_manage if manage else actor.can_moderate):
+        key = "chat.groups.error.owner_only" if manage else "chat.groups.error.not_allowed"
+        halt(refuse(key, _back(group_id), 403))
+    return actor
 
 
 def _reader(group_id: int) -> Actor:
@@ -285,6 +296,14 @@ def group_send(group_id: int):
         return refused(error, back)
     try:
         message_id = groups.send(actor.group, actor.user["id"], content, ip_address=client_ip(), stored=stored)
+    except groups.SendRefused as error:
+        if stored is not None:
+            storage.delete(store.FOLDER, stored.filename)
+        return refused(Refused(error.key, error.status), back)
+    except store.AttachmentLimitExceeded as error:
+        if stored is not None:
+            storage.delete(store.FOLDER, stored.filename)
+        return refused(Refused("chat.error.daily_limit", 429, limit=error.limit), back)
     except BaseException:
         if stored is not None:
             storage.delete(store.FOLDER, stored.filename)
@@ -306,8 +325,19 @@ def group_delete_message(group_id: int):
     own = message["sender_id"] == actor.user["id"]
     if not own and not actor.can_delete_any:
         return refuse("chat.error.not_your_message", back, 403)
+
+    def authorize_deletion():
+        current_actor = _reader(group_id)
+        current = store.message(GROUP, message["id"])
+        if current is None or current["parent_id"] != group_id:
+            halt(refuse("chat.error.message_not_found", back, 404))
+        if current["is_system"]:
+            halt(refuse("chat.groups.error.system_message", back, 403))
+        if current["sender_id"] != current_actor.user["id"] and not current_actor.can_delete_any:
+            halt(refuse("chat.error.not_your_message", back, 403))
+
     if not message["is_deleted"]:
-        store.wipe(GROUP, message["id"])
+        store.wipe(GROUP, message["id"], authorize=authorize_deletion)
         if not own:
             groups.system(group_id, "chat.system.message_deleted", actor=actor.user["username"])
     return succeed(back, "chat.message.deleted_flash", message_id=message["id"])
@@ -346,20 +376,21 @@ def group_export(group_id: int):
 def group_add_member(group_id: int):
     actor = _actor(group_id)
     back = _back(group_id)
-    if not (actor.admin or actor.is_moderator):
+    if not actor.can_moderate:
         return refuse("chat.groups.error.not_allowed", back, 403)
     if _throttled():
         return too_many()
     username = (request.form.get("username") or "").strip()
-    target = accounts.by_username(username) if username else None
-    if target is None or not policy.can_join_groups(target):
-        return refuse("chat.error.user_unavailable", back, 404)
-    row = groups.membership(group_id, target["id"])
-    if row and row["banned"]:
-        return refuse("chat.groups.error.target_banned", back, 409)
-    if row:
-        return refuse("chat.groups.error.already_member", back, 409)
     with db.transaction():
+        actor = _authority(group_id)
+        target = accounts.by_username(username) if username else None
+        if target is None or not policy.can_join_groups(target):
+            return refuse("chat.error.user_unavailable", back, 404)
+        row = groups.membership(group_id, target["id"])
+        if row and row["banned"]:
+            return refuse("chat.groups.error.target_banned", back, 409)
+        if row:
+            return refuse("chat.groups.error.already_member", back, 409)
         groups.add_member(group_id, target["id"])
         groups.system(group_id, "chat.system.added", user=target["username"], actor=actor.user["username"])
     return succeed(back, "chat.groups.member_added", values={"user": target["username"]})
@@ -367,12 +398,12 @@ def group_add_member(group_id: int):
 
 @bp.route("/groups/<int:group_id>/leave", methods=["POST"])
 def group_leave(group_id: int):
-    actor = _actor(group_id)
-    if not actor.is_member:
-        return refuse("chat.groups.error.not_member", url_for("chat.group_list"), 403)
-    if actor.is_owner and not actor.group["is_global"]:
-        return refuse("chat.groups.error.owner_must_transfer", _back(group_id), 409)
     with db.transaction():
+        actor = _actor(group_id)
+        if not actor.is_member:
+            return refuse("chat.groups.error.not_member", url_for("chat.group_list"), 403)
+        if actor.is_owner and not actor.group["is_global"]:
+            return refuse("chat.groups.error.owner_must_transfer", _back(group_id), 409)
         groups.remove_member(group_id, actor.user["id"])
         groups.system(group_id, "chat.system.left", user=actor.user["username"])
     return succeed(url_for("chat.group_list"), "chat.groups.left")
@@ -383,19 +414,20 @@ def group_kick(group_id: int):
     """Remove a member, or ban them with ``permanent=1``."""
     actor = _actor(group_id)
     back = _back(group_id)
-    if not actor.can_moderate:
-        return refuse("chat.groups.error.not_allowed", back, 403)
     if _throttled():
         return too_many()
-    target = _target(actor)
-    if target is None:
-        return refuse("chat.groups.error.target_not_member", back, 404)
-    if target["user_id"] == actor.user["id"]:
-        return refuse("chat.groups.error.not_self", back, 409)
-    if not actor.outranks(target):
-        return refuse("chat.groups.error.outranked", back, 403)
     ban = request.form.get("permanent") == "1"
     with db.transaction():
+        actor = _actor(group_id)
+        if not actor.can_moderate:
+            return refuse("chat.groups.error.not_allowed", back, 403)
+        target = _target(actor)
+        if target is None:
+            return refuse("chat.groups.error.target_not_member", back, 404)
+        if target["user_id"] == actor.user["id"]:
+            return refuse("chat.groups.error.not_self", back, 409)
+        if not actor.outranks(target):
+            return refuse("chat.groups.error.outranked", back, 403)
         if ban:
             groups.ban(group_id, target["user_id"])
         else:
@@ -407,19 +439,19 @@ def group_kick(group_id: int):
 
 @bp.route("/groups/<int:group_id>/unban", methods=["POST"])
 def group_unban(group_id: int):
-    actor = _actor(group_id)
     back = _back(group_id)
-    if not actor.can_moderate:
-        return refuse("chat.groups.error.not_allowed", back, 403)
     user_id = request.form.get("user_id") or ""
-    if user_id == actor.user["id"] and not actor.admin:
-        return refuse("chat.groups.error.not_allowed", back, 403)
-    row = groups.membership(group_id, user_id) if user_id else None
-    if row is None or not row["banned"]:
-        return refuse("chat.groups.error.not_banned", back, 404)
-    account = accounts.by_id(user_id)
-    name = account["username"] if account else t("common.unknown_user")
     with db.transaction():
+        actor = _actor(group_id)
+        if not actor.can_moderate:
+            return refuse("chat.groups.error.not_allowed", back, 403)
+        if user_id == actor.user["id"] and not actor.admin:
+            return refuse("chat.groups.error.not_allowed", back, 403)
+        row = groups.membership(group_id, user_id) if user_id else None
+        if row is None or not row["banned"]:
+            return refuse("chat.groups.error.not_banned", back, 404)
+        account = accounts.by_id(user_id)
+        name = account["username"] if account else t("common.unknown_user")
         groups.remove_member(group_id, user_id)
         groups.system(group_id, "chat.system.unbanned", user=name, actor=actor.user["username"])
     return succeed(back, "chat.groups.unbanned", values={"user": name})
@@ -436,16 +468,16 @@ def group_demote(group_id: int):
 
 
 def _change_role(group_id: int, current: str, new: str, system_key: str, flash_key: str):
-    actor = _actor(group_id)
     back = _back(group_id)
-    if not actor.can_manage:
-        return refuse("chat.groups.error.owner_only", back, 403)
     if _throttled():
         return too_many()
-    target = _target(actor)
-    if target is None or target["role"] != current:
-        return refuse("chat.groups.error.wrong_role", back, 409)
     with db.transaction():
+        actor = _actor(group_id)
+        if not actor.can_manage:
+            return refuse("chat.groups.error.owner_only", back, 403)
+        target = _target(actor)
+        if target is None or target["role"] != current:
+            return refuse("chat.groups.error.wrong_role", back, 409)
         groups.set_role(group_id, target["user_id"], new)
         groups.system(group_id, system_key, user=target["username"], actor=actor.user["username"])
     return succeed(back, flash_key, values={"user": target["username"]})
@@ -453,12 +485,12 @@ def _change_role(group_id: int, current: str, new: str, system_key: str, flash_k
 
 @bp.route("/groups/<int:group_id>/self-downgrade", methods=["POST"])
 def group_self_downgrade(group_id: int):
-    actor = _actor(group_id)
     back = _back(group_id)
-    if actor.role != "moderator":
-        key = "chat.groups.error.owner_must_transfer" if actor.is_owner else "chat.groups.error.wrong_role"
-        return refuse(key, back, 409)
     with db.transaction():
+        actor = _actor(group_id)
+        if actor.role != "moderator":
+            key = "chat.groups.error.owner_must_transfer" if actor.is_owner else "chat.groups.error.wrong_role"
+            return refuse(key, back, 409)
         groups.set_role(group_id, actor.user["id"], "member")
         groups.system(group_id, "chat.system.stepped_down", user=actor.user["username"])
     return succeed(back, "chat.groups.stepped_down")
@@ -475,9 +507,12 @@ def group_transfer(group_id: int):
     target = _target(actor)
     if target is None or target["user_id"] == actor.user["id"]:
         return refuse("chat.groups.error.target_not_member", back, 404)
-    with db.transaction():
-        groups.transfer(group_id, actor.user["id"], target["user_id"])
-        groups.system(group_id, "chat.system.transferred", user=target["username"], actor=actor.user["username"])
+    try:
+        with db.transaction():
+            groups.transfer(group_id, actor.user["id"], target["user_id"])
+            groups.system(group_id, "chat.system.transferred", user=target["username"], actor=actor.user["username"])
+    except groups.TransferRefused as error:
+        return refuse(error.key, back, 403)
     return succeed(back, "chat.groups.transferred", values={"user": target["username"]})
 
 
@@ -489,13 +524,6 @@ def group_timeout(group_id: int):
         return refuse("chat.groups.error.not_allowed", back, 403)
     if _throttled():
         return too_many()
-    target = _target(actor)
-    if target is None:
-        return refuse("chat.groups.error.target_not_member", back, 404)
-    if target["user_id"] == actor.user["id"]:
-        return refuse("chat.groups.error.not_self", back, 409)
-    if not actor.outranks(target):
-        return refuse("chat.groups.error.outranked", back, 403)
     duration = (request.form.get("duration") or "").strip()
     if duration == "indefinite":
         until, system_key, minutes = groups.INDEFINITE, "chat.system.timed_out_indefinitely", 0
@@ -508,6 +536,14 @@ def group_timeout(group_id: int):
             return refuse("chat.groups.error.bad_duration", back)
         until, system_key = sql_in(minutes=minutes), "chat.system.timed_out"
     with db.transaction():
+        actor = _authority(group_id)
+        target = _target(actor)
+        if target is None:
+            return refuse("chat.groups.error.target_not_member", back, 404)
+        if target["user_id"] == actor.user["id"]:
+            return refuse("chat.groups.error.not_self", back, 409)
+        if not actor.outranks(target):
+            return refuse("chat.groups.error.outranked", back, 403)
         groups.set_timeout(group_id, target["user_id"], until)
         groups.system(group_id, system_key, user=target["username"], actor=actor.user["username"], minutes=minutes)
     return succeed(back, "chat.groups.timed_out", values={"user": target["username"]})
@@ -519,10 +555,11 @@ def group_untimeout(group_id: int):
     back = _back(group_id)
     if not actor.can_moderate:
         return refuse("chat.groups.error.not_allowed", back, 403)
-    target = _target(actor)
-    if target is None:
-        return refuse("chat.groups.error.target_not_member", back, 404)
     with db.transaction():
+        actor = _authority(group_id)
+        target = _target(actor)
+        if target is None:
+            return refuse("chat.groups.error.target_not_member", back, 404)
         groups.set_timeout(group_id, target["user_id"], None)
         groups.system(group_id, "chat.system.timeout_removed", user=target["username"], actor=actor.user["username"])
     return succeed(back, "chat.groups.timeout_removed", values={"user": target["username"]})
@@ -545,10 +582,12 @@ def group_regenerate_code(group_id: int):
         return refuse("chat.groups.error.bad_custom_code", back, 400, minimum=groups.CUSTOM_CODE_MIN,
                       maximum=groups.CUSTOM_CODE_MAX)
     try:
-        code = groups.set_invite_code(group_id, custom or None)
+        with db.transaction():
+            actor = _authority(group_id, manage=True)
+            code = groups.set_invite_code(group_id, custom or None)
+            groups.system(group_id, "chat.system.code_regenerated", actor=actor.user["username"])
     except groups.CodeTaken:
         return refuse("chat.groups.error.code_taken", back, 409)
-    groups.system(group_id, "chat.system.code_regenerated", actor=actor.user["username"])
     return succeed(back, "chat.groups.code_regenerated", values={"invite": code})
 
 
@@ -556,12 +595,12 @@ def group_regenerate_code(group_id: int):
 def group_clear(group_id: int):
     actor = _actor(group_id)
     back = _back(group_id)
-    if not (actor.admin or actor.is_moderator):
+    if not actor.can_moderate:
         return refuse("chat.groups.error.not_allowed", back, 403)
     if _throttled():
         return too_many()
     messages, attachments = store.count(GROUP, group_id)
-    groups.clear(group_id, actor.user)
+    groups.clear(group_id, actor.user, authorize=lambda: _authority(group_id).user)
     log.info("Group %s cleared by %s", group_id, actor.user["id"])
     return succeed(back, "chat.clear.done", values={"messages": messages, "attachments": attachments})
 
@@ -573,7 +612,7 @@ def group_delete(group_id: int):
         return refuse("chat.groups.error.global_undeletable", _back(group_id), 409)
     if not actor.can_manage:
         return refuse("chat.groups.error.owner_only", _back(group_id), 403)
-    groups.delete(group_id)
+    groups.delete(group_id, authorize=lambda: _authority(group_id, manage=True))
     log.info("Group %s deleted by %s", group_id, actor.user["id"])
     target = url_for("chat.admin_groups") if request.form.get("from") == "admin" and actor.admin \
         else url_for("chat.group_list")
@@ -614,8 +653,7 @@ def badge_toggle():
 
     _require_groups()
     user = auth.current_user()
-    back = request.form.get("next") or url_for("chat.group_list")
-    back = back if back.startswith("/") and not back.startswith("//") else url_for("chat.group_list")
+    back = safe_next(url_for("chat.group_list"), request.form.get("next"))
     if not badges.enabled():
         return refuse("chat.badges.error.disabled", back, 403)
     group_id = request.form.get("group_id", type=int) or 0

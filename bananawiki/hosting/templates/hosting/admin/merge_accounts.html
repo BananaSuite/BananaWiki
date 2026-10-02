@@ -3,8 +3,9 @@
 {% block title %}{{ t('hosting.merges.admin_title') }}{% endblock %}
 {% block content %}
 {% include "hosting/admin/_nav.html" %}
-<div class="card card--narrow"><h1>{{ t('hosting.merges.admin_title') }}</h1><p>{{ t('hosting.merges.admin_body') }}</p>
+<h1>{{ t('hosting.merges.admin_title') }}</h1><p class="page-intro">{{ t('hosting.merges.admin_body') }}</p>
+<section class="page-form">
 <form method="post" class="form" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ ui.csrf() }}
   {{ ui.field('source_username', t('hosting.merges.source'), required=true) }}{{ ui.field('target_username', t('hosting.merges.target'), required=true) }}
-  <input type="hidden" name="action" value="execute"><button class="btn btn--danger" type="submit">{{ t('hosting.merges.execute') }}</button></form></div>
+  <input type="hidden" name="action" value="execute"><p><button class="btn btn--danger" type="submit">{{ t('hosting.merges.execute') }}</button></p></form></section>
 {% endblock %}

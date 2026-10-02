@@ -32,6 +32,13 @@
   }
 
   BW.onReady(function () {
+    var navigation = document.querySelector("[data-admin-nav]");
+    if (navigation) {
+      var mobile = window.matchMedia("(max-width: 760px)");
+      function resizeNavigation() { navigation.open = !mobile.matches; }
+      resizeNavigation();
+      mobile.addEventListener("change", resizeNavigation);
+    }
     document.querySelectorAll("form").forEach(function (form) {
       if (!form.querySelector("[data-reveal-for], [data-base-role]")) return;
       form.addEventListener("change", function () { refresh(form); });

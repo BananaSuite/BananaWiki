@@ -38,6 +38,8 @@ log = logging.getLogger("bananawiki.tts")
 
 MAX_REMOTE_AUDIO_BYTES = 64 * 1024 * 1024
 FFMPEG_TIMEOUT = 300
+MAX_ENCODER_DIAGNOSTICS = 64 * 1024
+_AUDIO_DECODERS = "pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_f64le,pcm_u8,mp3,mp3float"
 _VOICE_NAME = re.compile(r"^[\w.-]{1,120}$")
 
 DEFAULT_VOICES: dict[str, str] = {
@@ -125,6 +127,41 @@ def ffmpeg_available() -> bool:
     return ffmpeg_binary() is not None
 
 
+def _run_encoder(command: list[str]) -> tuple[int, bytes]:
+    """Keep encoder diagnostics and execution time bounded, including failed inputs."""
+    diagnostics = bytearray()
+    too_large = threading.Event()
+    with subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                          stderr=subprocess.PIPE, bufsize=0) as process:
+        assert process.stderr is not None
+
+        def read_errors() -> None:
+            assert process.stderr is not None
+            while chunk := process.stderr.read(4096):
+                if len(diagnostics) + len(chunk) > MAX_ENCODER_DIAGNOSTICS:
+                    too_large.set()
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                    return
+                diagnostics.extend(chunk)
+
+        reader = threading.Thread(target=read_errors, daemon=True)
+        reader.start()
+        try:
+            process.wait(timeout=FFMPEG_TIMEOUT)
+        except BaseException:
+            process.kill()
+            process.wait()
+            raise
+        finally:
+            reader.join(timeout=1)
+        if too_large.is_set():
+            raise SynthesisError("The audio encoder exceeded its diagnostic limit.", retryable=False)
+        return process.returncode, bytes(diagnostics)
+
+
 def encode_mp3(source: Path, target: Path, *, speed: float = 1.0) -> None:
     """Encode *source* as MP3 into *target*, optionally changing the tempo (pitch kept)."""
     binary = ffmpeg_binary()
@@ -132,16 +169,29 @@ def encode_mp3(source: Path, target: Path, *, speed: float = 1.0) -> None:
         raise SynthesisError("ffmpeg is not available.", retryable=False)
     if not 0.5 <= speed <= 2.0:
         raise SynthesisError(f"Unsupported speed {speed!r}.", retryable=False)
-    command = [binary, "-y", "-nostdin", "-loglevel", "error", "-i", str(source), "-vn"]
+    try:
+        with source.open("rb") as audio:
+            kind = looks_like_audio(audio.read(16))
+    except OSError as error:
+        raise SynthesisError(f"Cannot read the source audio: {error}") from error
+    if kind is None:
+        raise SynthesisError("The audio encoder accepts only MP3 or PCM WAV audio.", retryable=False)
+    # Speech files need two local demuxers and audio decoders, never URLs,
+    # playlists, subtitles, pictures or hardware/video codecs. Selecting the
+    # demuxer explicitly also prevents probing a disguised non-audio input.
+    command = [binary, "-y", "-nostdin", "-hide_banner", "-loglevel", "error",
+               "-protocol_whitelist", "file", "-codec_whitelist", _AUDIO_DECODERS,
+               "-f", kind, "-threads", "1", "-filter_threads", "1",
+               "-i", str(source.resolve()), "-map", "0:a:0", "-vn", "-sn", "-dn", "-map_metadata", "-1"]
     if abs(speed - 1.0) > 1e-6:
         command += ["-filter:a", f"atempo={speed:.4f}"]
-    command += ["-acodec", "libmp3lame", "-q:a", "4", "-f", "mp3", str(target)]
+    command += ["-acodec", "libmp3lame", "-threads", "1", "-q:a", "4", "-f", "mp3", str(target.resolve())]
     try:
-        result = subprocess.run(command, capture_output=True, timeout=FFMPEG_TIMEOUT, check=False)
+        returncode, diagnostics = _run_encoder(command)
     except (OSError, subprocess.SubprocessError) as error:
         raise SynthesisError(f"ffmpeg could not run: {error}") from error
-    if result.returncode != 0 or not target.is_file() or target.stat().st_size == 0:
-        log.warning("ffmpeg failed (%s): %s", result.returncode, result.stderr[:400].decode("utf-8", "replace"))
+    if returncode != 0 or not target.is_file() or target.stat().st_size == 0:
+        log.warning("ffmpeg failed (%s): %s", returncode, diagnostics[:400].decode("utf-8", "replace"))
         raise SynthesisError("ffmpeg could not encode the audio.")
 
 

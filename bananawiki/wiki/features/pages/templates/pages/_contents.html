@@ -1,0 +1,3 @@
+<ol class="toc-list">
+  {% for item in toc %}<li class="toc-level-{{ item.level }}"><a href="#{{ item.id }}">{{ item.text }}</a></li>{% endfor %}
+</ol>

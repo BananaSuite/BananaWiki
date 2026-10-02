@@ -3,6 +3,7 @@
 {% block content %}
 <div class="page-header"><h1>{{ t('api_service.docs.title') }}</h1></div>
 <p>{{ t('api_service.docs.intro') }}</p>
+<div class="section-stack">
 <section class="card">
   <h2>{{ t('api_service.docs.auth') }}</h2>
   <p>{{ t('api_service.docs.auth_body') }}</p>
@@ -39,4 +40,5 @@
   </table></div>
 </section>
 {% endfor %}
+</div>
 {% endblock %}

@@ -57,8 +57,8 @@ def base_url(value: Any) -> str:
     """An HTTPS origin without credentials, path, query or fragment."""
     if not isinstance(value, str) or len(value) > 512 or any(ord(c) <= 32 or ord(c) >= 127 for c in value):
         raise ProtocolError("federation.error.base_url")
-    parsed = urlsplit(value)
     try:
+        parsed = urlsplit(value)
         port = parsed.port
     except ValueError:
         raise ProtocolError("federation.error.base_url") from None

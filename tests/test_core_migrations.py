@@ -41,7 +41,7 @@ def test_v3_database_is_taken_over(tmp_path):
     path = tmp_path / "wiki.db"
     build_v3(path)
     db = make_db(path)
-    assert db.initialize() == 1
+    assert db.initialize() == len(migrations.MIGRATIONS)
     conn = db.connect()
     page = conn.execute("SELECT last_edited_by, last_edited_at, revision FROM pages").fetchone()
     assert page == {"last_edited_by": None, "last_edited_at": "2026-05-01 08:11:12", "revision": 0}

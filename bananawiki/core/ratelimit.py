@@ -71,19 +71,32 @@ class SqlLimiter:
     def exceeded(self, key: str, bucket: str, limit: int, window_seconds: int) -> bool:
         return self.count(key, bucket, window_seconds) >= limit
 
-    def record(self, key: str, bucket: str) -> None:
-        self.db.execute(
+    def record(self, key: str, bucket: str) -> int:
+        cursor = self.db.execute(
             f"INSERT INTO {self.TABLE} (ip, bucket, hit_at) VALUES (?, ?, ?)",
             (key, bucket, sql_in(seconds=0)),
         )
+        return int(cursor.lastrowid)
+
+    def reserve(self, key: str, bucket: str, limit: int, window_seconds: int) -> int | None:
+        """Atomically reserve a hit before an expensive operation; return its row id.
+
+        Call :meth:`release` after a successful credential check when only
+        failed attempts should consume the budget. Unfinished checks retain
+        their hit, so concurrent requests cannot all pass the same counter.
+        """
+        with self.db.transaction():
+            if self.exceeded(key, bucket, limit, window_seconds):
+                return None
+            return self.record(key, bucket)
+
+    def release(self, reservation_id: int) -> None:
+        """Release this attempt only, preserving other requests' counters."""
+        self.db.execute(f"DELETE FROM {self.TABLE} WHERE id = ?", (reservation_id,))
 
     def hit(self, key: str, bucket: str, limit: int, window_seconds: int) -> bool:
         """Record a hit unless over the limit; return whether it was allowed."""
-        with self.db.transaction():
-            if self.exceeded(key, bucket, limit, window_seconds):
-                return False
-            self.record(key, bucket)
-            return True
+        return self.reserve(key, bucket, limit, window_seconds) is not None
 
     def clear(self, key: str, bucket: str) -> None:
         self.db.execute(f"DELETE FROM {self.TABLE} WHERE ip = ? AND bucket = ?", (key, bucket))

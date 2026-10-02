@@ -43,6 +43,8 @@
   "users.display.letter_spacing": "Letter spacing",
   "users.display.line_spacing": "Line spacing",
   "users.display.maximum": "Maximum",
+  "users.display.more_options": "More display options",
+  "users.display.more_options_hint": "Colours, text emphasis and page widths.",
   "users.display.normal": "Normal",
   "users.display.off": "Off",
   "users.display.pixels_hint": "In pixels; leave empty for the default.",

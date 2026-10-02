@@ -1,6 +1,6 @@
 # Your account
 
-Open **Settings** from the account menu (top right).
+Open **Settings** at the top right. On phones, open it from the account menu.
 
 ## Profile
 
@@ -11,7 +11,8 @@ it.
 
 ## Display preferences
 
-**Display preferences** change how the wiki looks for you only: light or dark
+Open **Customize** in the topbar for your **Display preferences**. These change
+how the wiki looks for you only: light or dark
 theme, text size, line and letter spacing, content and sidebar width,
 contrast, your own colours, a background picture, a dyslexia-friendly font,
 reduced motion, and how strongly bold text, links, headings and code stand

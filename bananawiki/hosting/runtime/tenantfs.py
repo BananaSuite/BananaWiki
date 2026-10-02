@@ -21,6 +21,7 @@ import stat
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import BinaryIO
 
 from . import RuntimeFailure
 
@@ -129,10 +130,21 @@ def copy_out(root: Path, relative: str, destination: Path) -> int:
         os.close(dir_fd)
     with os.fdopen(fd, "rb") as source, open(destination, "xb") as target:
         os.fchmod(target.fileno(), 0o600)
-        shutil.copyfileobj(source, target, 1024 * 1024)
+        copy_observed(source, target, os.fstat(source.fileno()).st_size)
         target.flush()
         os.fsync(target.fileno())
         return target.tell()
+
+
+def copy_observed(source: BinaryIO, target: BinaryIO, size: int) -> None:
+    """Copy the observed bytes of a hostile file; later appends cannot prolong the copy."""
+    remaining = size
+    while remaining:
+        block = source.read(min(remaining, 1024 * 1024))
+        if not block:
+            raise RuntimeFailure("failed", "a tenant file shrank during the copy; retry the operation")
+        target.write(block)
+        remaining -= len(block)
 
 
 def write_into(root: Path, relative_dir: str, name: str, source: Path) -> None:
@@ -302,6 +314,8 @@ def usage(root: Path, *, deadline_seconds: float = 10.0) -> int:
             if time.monotonic() >= deadline:
                 break
             for name in filenames:
+                if time.monotonic() >= deadline:
+                    return total
                 try:
                     info = os.stat(name, dir_fd=walk_fd, follow_symlinks=False)
                 except OSError:
@@ -321,7 +335,7 @@ def copy_tree(source_root: Path, relative: str, target: Path) -> None:
     except OSError:
         return
     try:
-        for name, fd, _info in iter_files(dir_fd):
+        for name, fd, info in iter_files(dir_fd):
             destination = target / name
             destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             with os.fdopen(fd, "rb") as source:
@@ -330,6 +344,7 @@ def copy_tree(source_root: Path, relative: str, target: Path) -> None:
                 except FileExistsError:
                     continue
                 with output:
-                    shutil.copyfileobj(source, output, 1024 * 1024)
+                    os.fchmod(output.fileno(), 0o600)
+                    copy_observed(source, output, info.st_size)
     finally:
         os.close(dir_fd)

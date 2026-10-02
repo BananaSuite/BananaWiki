@@ -17,6 +17,7 @@ replayed: its nonce is recorded in ``rate_limit_hits`` on first use.
 from __future__ import annotations
 
 import hmac
+import re
 import secrets
 import time
 
@@ -31,6 +32,7 @@ HONEYPOT_FIELD = "website"
 TOKEN_FIELD = "_form_time"
 MAX_AGE_SECONDS = 2 * 3600
 USED_BUCKET = "bot:form_token"
+_TOKEN = re.compile(r"([0-9]{1,16})\.([A-Za-z0-9_-]{16})\.([0-9a-f]{32})")
 
 
 def enabled() -> bool:
@@ -53,10 +55,10 @@ def rejection() -> str | None:
         return None
     if request.form.get(HONEYPOT_FIELD):
         return "honeypot"
-    parts = (request.form.get(TOKEN_FIELD) or "").split(".")
-    if len(parts) != 3 or not parts[0].isdigit():
+    match = _TOKEN.fullmatch(request.form.get(TOKEN_FIELD) or "")
+    if match is None:
         return "missing_token"
-    issued, nonce, signature = parts
+    issued, nonce, signature = match.groups()
     if not hmac.compare_digest(signature, _signature(f"{issued}.{nonce}")):
         return "invalid_token"
     age = time.time() - int(issued) / 1000

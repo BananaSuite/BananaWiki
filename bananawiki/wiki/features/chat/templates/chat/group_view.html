@@ -39,14 +39,14 @@
 {% endif %}
 {{ ui.retention_notice(retention) }}
 
-<details class="card chat-panel">
+<details class="disclosure chat-panel">
   <summary>{{ t('chat.groups.info_members', count=members|length) }}</summary>
   <div class="stack">
     {% if not group.is_global and (actor.is_member or actor.admin) %}
     <p>{{ t('chat.groups.invite_code') }}: <code class="mono">{{ group.invite_code }}</code>
       <button type="button" class="btn btn--ghost btn--small" data-copy="{{ group.invite_code }}">{{ t('chat.groups.copy') }}</button></p>
     {% if actor.can_manage %}
-    <form class="cluster" method="post" action="{{ url_for('chat.group_regenerate_code', group_id=group.id) }}" data-confirm="{{ t('chat.groups.regenerate_confirm') }}">
+    <form class="inline-fields" method="post" action="{{ url_for('chat.group_regenerate_code', group_id=group.id) }}" data-confirm="{{ t('chat.groups.regenerate_confirm') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label class="visually-hidden" for="custom-code">{{ t('chat.groups.custom_code') }}</label>
       <input id="custom-code" name="custom_code" maxlength="32" minlength="6" pattern="[A-Za-z0-9]{6,32}" placeholder="{{ t('chat.groups.custom_code') }}" autocomplete="off">
@@ -56,7 +56,7 @@
     {% endif %}
 
     {% if actor.admin or actor.is_moderator %}
-    <form class="cluster" method="post" action="{{ url_for('chat.group_add_member', group_id=group.id) }}">
+    <form class="inline-fields" method="post" action="{{ url_for('chat.group_add_member', group_id=group.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label class="visually-hidden" for="add-member">{{ t('chat.dm.username') }}</label>
       <input id="add-member" name="username" required maxlength="50" autocomplete="off" list="chat-user-suggestions"
@@ -95,7 +95,7 @@
                 {% if m.timed_out_until and is_future(m.timed_out_until) %}
                 {{ action('chat.group_untimeout', t('chat.groups.unmute'), m.user_id) }}
                 {% else %}
-                <form class="inline" method="post" action="{{ url_for('chat.group_timeout', group_id=group.id) }}">
+                <form class="inline-fields" method="post" action="{{ url_for('chat.group_timeout', group_id=group.id) }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="user_id" value="{{ m.user_id }}">
                   <label class="visually-hidden" for="duration-{{ loop.index }}">{{ t('chat.groups.duration') }}</label>

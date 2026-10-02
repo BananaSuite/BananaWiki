@@ -2,38 +2,43 @@
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('kanban.list.title') }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ asset_url('kanban.css', blueprint='kanban') }}">{% endblock %}
-{% block main_class %}main--wide{% endblock %}
 {% block content %}
 <header class="page-header">
   <h1>{{ t('kanban.list.title') }}</h1>
   <div class="page-header__actions">
+    {% if can_create %}<button type="button" class="btn btn--primary" data-dialog-open="kanban-create-dialog">{{ t('kanban.list.new') }}</button>{% endif %}
     {% if show_mine %}<a class="btn" href="{{ url_for('kanban.mine') }}">{{ t('kanban.mine.title') }}</a>{% endif %}
-    {% if archived_count %}
-    {% if show_archived %}<a class="btn" href="{{ url_for('kanban.index') }}">{{ t('kanban.list.hide_archived') }}</a>
-    {% else %}<a class="btn" href="{{ url_for('kanban.index', archived=1) }}#kanban-archived-boards">{{ t('kanban.list.show_archived', count=archived_count) }}</a>{% endif %}
-    {% endif %}
-    {% if show_settings %}
-    <button type="button" class="btn" data-dialog-open="kanban-settings-dialog">{{ t('kanban.settings.button') }}</button>
-    {% endif %}
-    {% if can_create %}
-    <button type="button" class="btn" data-dialog-open="kanban-import-dialog">{{ t('kanban.list.import') }}</button>
-    <button type="button" class="btn btn--primary" data-dialog-open="kanban-create-dialog">{{ t('kanban.list.new') }}</button>
+    {% if can_create or show_settings or archived_count %}
+    <details class="menu">
+      <summary class="btn" aria-label="{{ t('kanban.list.options_label') }}">{{ t('kanban.list.options') }} <span aria-hidden="true">▾</span></summary>
+      <div class="menu__panel" role="menu">
+        {% if can_create %}<button type="button" role="menuitem" data-dialog-open="kanban-import-dialog">{{ t('kanban.list.import') }}</button>{% endif %}
+        {% if archived_count %}
+        {% if show_archived %}<a role="menuitem" href="{{ url_for('kanban.index') }}">{{ t('kanban.list.hide_archived') }}</a>
+        {% else %}<a role="menuitem" href="{{ url_for('kanban.index', archived=1) }}#kanban-archived-boards">{{ t('kanban.list.show_archived', count=archived_count) }}</a>{% endif %}
+        {% endif %}
+        {% if show_settings %}<button type="button" role="menuitem" data-dialog-open="kanban-settings-dialog">{{ t('kanban.settings.button') }}</button>{% endif %}
+      </div>
+    </details>
     {% endif %}
   </div>
 </header>
 
 {% if boards %}
-<p class="hint">{% if can_reorder %}{{ t('kanban.list.reorder_hint') }}{% endif %}</p>
 <ul class="kanban-boards" id="kanban-board-list" data-reorderable="{{ 'true' if can_reorder else 'false' }}"
     data-open-access="{{ 'true' if open_access else 'false' }}" data-order-version="{{ order_version }}">
   {% for board in boards %}
-  <li class="kanban-boards__item card" data-board-id="{{ board.id }}">
+  <li class="kanban-boards__item" data-board-id="{{ board.id }}">
+    <div class="kanban-boards__body">
+    <div class="kanban-boards__heading">
     <a class="kanban-boards__title" href="{{ url_for('kanban.board', board_id=board.id) }}">{{ board.title }}</a>
     {% if board.visibility == 'private' %}<span class="badge">{{ t('kanban.visibility.private') }}</span>
     {% elif board.visibility == 'shared' %}<span class="badge">{{ t('kanban.visibility.shared') }}</span>{% endif %}
+    </div>
     {% if board.excerpt %}<p class="kanban-boards__desc">{{ board.excerpt }}</p>{% endif %}
     <p class="small muted">{{ board.creator_username or t('common.unknown_user') }} · {{ board.created_at|time_ago }}</p>
-    {% if can_reorder %}
+    </div>
+    {% if can_reorder and boards|length > 1 %}
     <div class="kanban-boards__move">
       <button type="button" class="btn btn--small btn--ghost" data-move="-1" aria-label="{{ t('kanban.list.move_up', title=board.title) }}">↑</button>
       <button type="button" class="btn btn--small btn--ghost" data-move="1" aria-label="{{ t('kanban.list.move_down', title=board.title) }}">↓</button>
@@ -42,8 +47,14 @@
   </li>
   {% endfor %}
 </ul>
+{% if can_reorder and boards|length > 1 %}
+<details class="kanban-list-order">
+  <summary>{{ t('kanban.list.reorder') }}</summary>
+  <p class="hint">{{ t('kanban.list.reorder_hint') }}</p>
+</details>
+{% endif %}
 {% else %}
-<div class="empty-state card">
+<div class="empty-state">
   <h2>{{ t('kanban.list.empty') }}</h2>
   {% if can_create %}<p>{{ t('kanban.list.empty_help') }}</p>{% endif %}
 </div>
@@ -55,11 +66,15 @@
   <p class="hint">{{ t('kanban.list.archived_hint') }}</p>
   <ul class="kanban-boards">
     {% for board in archived_boards %}
-    <li class="kanban-boards__item card kanban-boards__item--archived">
+    <li class="kanban-boards__item kanban-boards__item--archived">
+      <div class="kanban-boards__body">
+      <div class="kanban-boards__heading">
       <a class="kanban-boards__title" href="{{ url_for('kanban.board', board_id=board.id) }}">{{ board.title }}</a>
       <span class="badge badge--warning">{{ t('kanban.board.archived_badge') }}</span>
+      </div>
       {% if board.excerpt %}<p class="kanban-boards__desc">{{ board.excerpt }}</p>{% endif %}
       <p class="small muted">{{ t('kanban.list.archived_on', date=board.archived_at|date) }}</p>
+      </div>
       {% if board.can_restore %}{{ forms.post_button(url_for('kanban.restore', board_id=board.id), t('kanban.board.restore'), 'btn btn--small') }}{% endif %}
     </li>
     {% endfor %}

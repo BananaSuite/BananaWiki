@@ -90,6 +90,7 @@ def test_start_rejects_unsafe_requests(runtime, args, code):
         runtime.call("tenant.start", args)
     assert error.value.code == code
     assert not any(call[1] == "run" for call in runtime.docker_calls.calls)
+    assert not any(call[1] == "rm" for call in runtime.docker_calls.calls), "invalid settings must keep the live wiki"
 
 
 def test_symlinked_or_root_owned_tenants_are_refused(runtime, tmp_path):

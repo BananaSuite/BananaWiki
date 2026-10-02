@@ -1,9 +1,15 @@
 {% extends "base.html" %}
+{% from "pages/_editor_actions.html" import page_actions with context %}
 {% block title %}{{ t('pages.create.title') }}{% endblock %}
 {% block main_class %}main--wide{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ asset_url('pages.css', blueprint='pages') }}">{% endblock %}
 {% block content %}
-<h1>{{ t('pages.create.title') }}</h1>
+<header class="page-header">
+  <h1>{{ t('pages.create.title') }}</h1>
+  <div class="page-header__actions">
+    {{ page_actions(t('pages.create.submit'), url_for('pages.home'), form_id='page-editor-form', compact=true) }}
+  </div>
+</header>
 <form method="post" action="{{ url_for('pages.create') }}" class="form" id="page-editor-form" data-page-editor>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="form-grid">
@@ -19,8 +25,7 @@
   <div class="field"><label for="edit-message">{{ t('pages.field.summary') }}</label>
     <input id="edit-message" name="edit_message" maxlength="500" value="{{ form.edit_message or '' }}"></div>
   {{ slot('editor.below_form', page=none) }}
-  <div class="btn-row"><button class="btn btn--primary">{{ t('pages.create.submit') }}</button>
-    <a class="btn" href="{{ url_for('pages.home') }}">{{ t('common.cancel') }}</a></div>
+  <div class="btn-row">{{ page_actions(t('pages.create.submit'), url_for('pages.home')) }}</div>
 </form>
 {% endblock %}
 {% block scripts %}<script src="{{ asset_url('editor.js', blueprint='pages') }}"></script>{% endblock %}

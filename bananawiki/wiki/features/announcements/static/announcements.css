@@ -10,7 +10,7 @@
 .announcement__more { margin-left: .4rem; font-size: .85em; color: inherit; text-decoration: underline; white-space: nowrap; }
 .announcement__controls { display: flex; align-items: center; gap: .25rem; flex-shrink: 0; margin-left: auto; }
 .announcement__nav, .announcement__close {
-  background: none; border: 0; color: inherit; cursor: pointer; font-size: 1.15rem; line-height: 1;
+  background: none; border: 0; color: inherit; cursor: pointer; font: inherit; font-size: 1.15rem; line-height: 1;
   padding: .2rem .45rem; border-radius: var(--radius-sm); opacity: .75;
 }
 .announcement__nav:hover, .announcement__close:hover, .announcement__nav:focus-visible, .announcement__close:focus-visible {
@@ -31,7 +31,15 @@
 
 .announcement-full { padding: 1rem 1.25rem; border-radius: var(--radius); margin-bottom: 1rem; }
 .announcement-full__expiry { font-size: .82rem; opacity: .8; margin: .75rem 0 0; }
-.announcement-admin { border-left-width: 4px; }
+.announcement-admin-list { display: grid; border-top: 1px solid var(--border); }
+.announcement-admin { display: grid; gap: .65rem; padding: .9rem .5rem .9rem .75rem;
+  border-left: 3px solid var(--border); border-bottom: 1px solid var(--border); }
+.announcement-admin .content > :first-child { margin-top: 0; }
+.announcement-admin .content > :last-child { margin-bottom: 0; }
+.announcement__nav, .announcement__close { min-width: 2rem; min-height: 2rem; }
+@media (pointer: coarse) {
+  .announcement__nav, .announcement__close { min-width: 2.75rem; min-height: 2.75rem; }
+}
 .announcement-admin--red { border-left-color: #e5646e; }
 .announcement-admin--orange { border-left-color: #d4905a; }
 .announcement-admin--yellow { border-left-color: #d2aa5a; }

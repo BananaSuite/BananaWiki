@@ -4,9 +4,9 @@
 {% block content %}
 <header class="page-header"><h1>{{ t('users.display.title') }}</h1></header>
 {% if current_user %}{% include "users/_tabs.html" %}{% endif %}
-<form method="post" action="{{ url_for('users.display') }}" class="stack">
+<form method="post" action="{{ url_for('users.display') }}" class="section-stack users-display">
   {{ forms.csrf() }}
-  <section class="card form" aria-labelledby="look-heading">
+  <section class="form-section" aria-labelledby="look-heading">
     <h2 id="look-heading">{{ t('users.display.appearance') }}</h2>
     <div class="form-grid">
       {{ forms.select('theme_mode', t('users.display.theme'), [('default', t('users.display.site_default')), ('dark', t('users.display.theme_dark')), ('light', t('users.display.theme_light'))], display_prefs.theme_mode) }}
@@ -20,36 +20,44 @@
     {{ forms.checkbox('dyslexic_font', t('users.display.dyslexic_font'), display_prefs.dyslexic_font, hint=t('users.display.dyslexic_font_hint')) }}
   </section>
 
-  <section class="card form" aria-labelledby="colors-heading">
-    <h2 id="colors-heading">{{ t('users.display.colors') }}</h2>
-    <p class="hint">{{ t('users.display.colors_hint') }}</p>
-    <div class="form-grid">
-      {% for key in ('custom_bg', 'custom_text', 'custom_primary', 'custom_secondary', 'custom_accent', 'custom_sidebar') %}
-      <div class="field">
-        <label class="check"><input type="checkbox" name="{{ key }}_on" value="1"{% if display_prefs[key] %} checked{% endif %}> <span>{{ t('users.display.' ~ key) }}</span></label>
-        <input type="color" name="{{ key }}" value="{{ display_prefs[key] if display_prefs[key].startswith('#') else '#808080' }}" aria-label="{{ t('users.display.' ~ key) }}">
+  {% set advanced = namespace(customized=false) %}
+  {% for key in ('custom_bg', 'custom_text', 'custom_primary', 'custom_secondary', 'custom_accent', 'custom_sidebar', 'semantic_bold', 'semantic_italic', 'semantic_code', 'semantic_link', 'semantic_heading', 'sidebar_width', 'content_max_width') %}
+    {% if display_prefs[key] %}{% set advanced.customized = true %}{% endif %}
+  {% endfor %}
+  <details class="disclosure users-display__advanced"{% if advanced.customized %} open{% endif %}>
+    <summary><span>{{ t('users.display.more_options') }}<small class="hint">{{ t('users.display.more_options_hint') }}</small></span></summary>
+    <section class="form-section" aria-labelledby="colors-heading">
+      <h2 id="colors-heading">{{ t('users.display.colors') }}</h2>
+      <p class="hint">{{ t('users.display.colors_hint') }}</p>
+      <div class="form-grid">
+        {% for key in ('custom_bg', 'custom_text', 'custom_primary', 'custom_secondary', 'custom_accent', 'custom_sidebar') %}
+        <div class="field">
+          <label class="check"><input type="checkbox" name="{{ key }}_on" value="1"{% if display_prefs[key] %} checked{% endif %}> <span>{{ t('users.display.' ~ key) }}</span></label>
+          <input type="color" name="{{ key }}" value="{{ display_prefs[key] if display_prefs[key].startswith('#') else '#808080' }}" aria-label="{{ t('users.display.' ~ key) }}">
+        </div>
+        {% endfor %}
       </div>
-      {% endfor %}
-    </div>
-  </section>
+    </section>
 
-  <section class="card form" aria-labelledby="reading-heading">
-    <h2 id="reading-heading">{{ t('users.display.reading') }}</h2>
-    <p class="hint">{{ t('users.display.semantic_hint') }}</p>
-    <div class="form-grid">
-      {% for key in ('semantic_bold', 'semantic_italic', 'semantic_code', 'semantic_link', 'semantic_heading') %}
-      {{ forms.select(key, t('users.display.' ~ key), [(0, t('users.display.off')), (1, t('users.display.subtle')), (2, t('users.display.strong'))], display_prefs[key]) }}
-      {% endfor %}
-      {{ forms.field('sidebar_width', t('users.display.sidebar_width'), display_prefs.sidebar_width or '', type='number', hint=t('users.display.pixels_hint'), attrs={'min': 0, 'max': 500}) }}
-      {{ forms.field('content_max_width', t('users.display.content_width'), display_prefs.content_max_width or '', type='number', hint=t('users.display.pixels_hint'), attrs={'min': 0, 'max': 5000}) }}
-    </div>
-  </section>
+    <section class="form-section" aria-labelledby="reading-heading">
+      <h2 id="reading-heading">{{ t('users.display.reading') }}</h2>
+      <p class="hint">{{ t('users.display.semantic_hint') }}</p>
+      <div class="form-grid">
+        {% for key in ('semantic_bold', 'semantic_italic', 'semantic_code', 'semantic_link', 'semantic_heading') %}
+        {{ forms.select(key, t('users.display.' ~ key), [(0, t('users.display.off')), (1, t('users.display.subtle')), (2, t('users.display.strong'))], display_prefs[key]) }}
+        {% endfor %}
+        {{ forms.field('sidebar_width', t('users.display.sidebar_width'), display_prefs.sidebar_width or '', type='number', hint=t('users.display.pixels_hint'), attrs={'min': 0, 'max': 500}) }}
+        {{ forms.field('content_max_width', t('users.display.content_width'), display_prefs.content_max_width or '', type='number', hint=t('users.display.pixels_hint'), attrs={'min': 0, 'max': 5000}) }}
+      </div>
+    </section>
+  </details>
   <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
 </form>
 
+<div class="section-stack users-settings">
 {% if current_user %}
-<section class="card users-spaced" aria-labelledby="bg-heading">
-  <h2 id="bg-heading">{{ t('users.display.background') }}</h2>
+<details class="disclosure users-display__background"{% if background_url %} open{% endif %}>
+  <summary>{{ t('users.display.background') }}</summary>
   {% if background_url %}<p><img src="{{ background_url }}" alt="" class="users-background-preview"></p>{% endif %}
   <form method="post" action="{{ url_for('users.background_upload') }}" enctype="multipart/form-data" class="form">
     {{ forms.csrf() }}
@@ -63,10 +71,11 @@
   {% if background_url %}
   {{ forms.post_button(url_for('users.background_remove'), t('users.display.background_remove'), cls='btn btn--small') }}
   {% endif %}
-</section>
+</details>
 {% endif %}
 
-<section class="card users-spaced">
+<section class="form-section">
   {{ forms.post_button(url_for('users.display_reset'), t('users.display.reset'), cls='btn', confirm=t('users.display.reset_confirm')) }}
 </section>
+</div>
 {% endblock %}

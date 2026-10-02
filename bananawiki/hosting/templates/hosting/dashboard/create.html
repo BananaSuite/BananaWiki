@@ -1,29 +1,29 @@
 {% extends "hosting/base.html" %}
 {% import "hosting/_macros.html" as ui with context %}
 {% block title %}{{ t('hosting.create.title') }}{% endblock %}
-{% block column_class %}narrow{% endblock %}
 {% block content %}
-<div class="card">
+<nav class="breadcrumbs"><a href="{{ url_for('dashboard.dashboard') }}">{{ t('hosting.dashboard.title') }}</a></nav>
 <h1>{{ t('hosting.create.title') }}</h1>
-<p class="muted">{{ t('hosting.create.limits', days=duration_days, mb=storage_limit_mb) }}</p>
+<p class="page-intro">{{ t('hosting.create.limits', days=duration_days, mb=storage_limit_mb) }}</p>
+<section class="page-form">
 <form method="post" class="form">{{ ui.csrf() }}
   {{ ui.field('subdomain', t('hosting.create.subdomain'), form.get('subdomain', ''), required=true,
       hint=(t('hosting.create.subdomain_hint', example='name-' ~ suffix ~ '.' ~ base_domain) if base_domain and suffix else ''), attrs={'maxlength': 63, 'pattern': '[a-z0-9-]+'}) }}
   {% if current_account.is_admin %}
   <div class="field"><label for="f-mode">{{ t('hosting.create.domain_mode') }}</label><select id="f-mode" name="domain_mode">
-    <option value="hosting">{{ t('hosting.create.mode_hosting') }}</option><option value="apex">{{ t('hosting.create.mode_apex') }}</option></select></div>
+    <option value="hosting">{{ t('hosting.create.mode_hosting') }}</option><option value="apex"{% if form.get('domain_mode') == 'apex' %} selected{% endif %}>{{ t('hosting.create.mode_apex') }}</option></select></div>
   {% endif %}
-  <div class="field"><label for="f-use">{{ t('hosting.create.use_case') }}</label>
-    <textarea id="f-use" name="declared_use_case" minlength="20" maxlength="2000" required>{{ form.get('declared_use_case', '') }}</textarea>
-    <p class="hint">{{ t('hosting.create.use_case_hint') }}</p></div>
-  {{ ui.check('easy_wiki', t('hosting.create.easy_wiki'), hint=t('hosting.create.easy_wiki_hint')) }}
-  <details><summary>{{ t('hosting.create.custom_credentials') }}</summary>
-    <div class="form">{{ ui.check('set_admin_credentials', t('hosting.create.set_credentials')) }}
-    {{ ui.field('admin_username', t('hosting.field.username'), attrs={'maxlength': 30}) }}
+  {{ ui.textarea('declared_use_case', t('hosting.create.use_case'), form.get('declared_use_case', ''),
+      hint=t('hosting.create.use_case_hint'), required=true, attrs={'minlength': 20, 'maxlength': 2000, 'rows': 3}, id='f-use') }}
+  {{ ui.check('easy_wiki', t('hosting.create.easy_wiki'), checked=form.get('easy_wiki') == '1', hint=t('hosting.create.easy_wiki_hint')) }}
+  <details{% if form.get('set_admin_credentials') == '1' %} open{% endif %}><summary>{{ t('hosting.create.custom_credentials') }}</summary>
+    <div class="form">{{ ui.check('set_admin_credentials', t('hosting.create.set_credentials'), checked=form.get('set_admin_credentials') == '1') }}
+    {{ ui.field('admin_username', t('hosting.field.username'), form.get('admin_username', ''), attrs={'maxlength': 30}) }}
     {{ ui.field('admin_password', t('hosting.field.password'), type='password', attrs={'autocomplete': 'new-password'}) }}
     {{ ui.field('admin_confirm_password', t('hosting.field.confirm_password'), type='password', attrs={'autocomplete': 'new-password'}) }}</div>
   </details>
-  {{ ui.check('compliance_declared', t('hosting.create.compliance')) }}
-  <p><button class="btn btn--primary" type="submit">{{ t('hosting.create.submit') }}</button></p>
-</form></div>
+  {{ ui.check('compliance_declared', t('hosting.create.compliance'), checked=form.get('compliance_declared') == '1') }}
+  <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('hosting.create.submit') }}</button>
+    <a class="btn btn--ghost" href="{{ url_for('dashboard.dashboard') }}">{{ t('common.cancel') }}</a></div>
+</form></section>
 {% endblock %}

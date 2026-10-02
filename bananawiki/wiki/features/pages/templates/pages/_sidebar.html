@@ -1,18 +1,19 @@
 {#- Sidebar navigation (slot sidebar.navigation). -#}
+{% from "macros/icons.html" import icon %}
 <link rel="stylesheet" href="{{ asset_url('pages.css', blueprint='pages') }}">
 <div class="bw-nav" data-nav-tree>
-  <p class="sidebar__section-title">
+  <div class="sidebar__section-title">
     <span>{{ t('pages.nav.title') }}</span>
-    <span class="cluster">
-      {% if can_create %}<a class="btn btn--ghost btn--small" href="{{ url_for('pages.create', category_id=current.category_id if current and current.category_id else None) }}" title="{{ t('pages.nav.new_page') }}">+ {{ t('pages.nav.page') }}</a>{% endif %}
-      {% if can_create_category %}<a class="btn btn--ghost btn--small" href="{{ url_for('pages.navigation_page') }}#new-category" title="{{ t('pages.nav.new_category') }}">+ {{ t('pages.nav.category') }}</a>{% endif %}
-    </span>
-  </p>
+    {% if can_create %}<a class="btn btn--small nav-create" href="{{ url_for('pages.create', category_id=current.category_id if current and current.category_id else None) }}">{{ t('pages.nav.new_page') }}</a>{% endif %}
+  </div>
   <form class="sidebar__search" role="search" method="get" action="{{ url_for('pages.search_page') }}"
         data-sidebar-search data-api="{{ url_for('pages.api_sidebar_search') }}">
-    <input type="search" name="q" autocomplete="off" maxlength="200" placeholder="{{ t('pages.nav.search_placeholder') }}"
-           aria-label="{{ t('pages.nav.search_label') }}">
-    <label class="check small"><input type="checkbox" data-search-content> <span>{{ t('pages.nav.search_content') }}</span></label>
+    <div class="sidebar__search-field">
+      {{ icon('search', 16) }}
+      <input type="search" name="q" autocomplete="off" maxlength="200" placeholder="{{ t('pages.nav.search_placeholder') }}"
+             aria-label="{{ t('pages.nav.search_label') }}">
+    </div>
+    <label class="check small sidebar__search-scope"><input type="checkbox" name="scope" value="content" data-search-content> <span>{{ t('pages.nav.search_content') }}</span></label>
     <div class="nav-search-results" data-search-results hidden aria-live="polite"></div>
   </form>
   <ul class="nav-list">
@@ -40,6 +41,9 @@
     </details>
     {% endif %}
   </div>
-  <p class="small"><a href="{{ url_for('pages.navigation_page') }}">{{ t('pages.nav.all_pages') }}</a></p>
+  <div class="nav-manage small">
+    <a href="{{ url_for('pages.navigation_page') }}">{{ t('pages.nav.all_pages') }}</a>
+    {% if can_create_category %}<a href="{{ url_for('pages.navigation_page') }}#new-category">{{ t('pages.nav.new_category') }}</a>{% endif %}
+  </div>
 </div>
 <script src="{{ asset_url('navigation.js', blueprint='pages') }}" defer></script>

@@ -51,9 +51,15 @@
   <label class="check"><input type="checkbox" name="not_removable" value="1"{% if form.not_removable %} checked{% endif %}> <span>{{ t('announcements.not_removable') }}</span></label>
   <label class="check"><input type="checkbox" name="show_countdown" value="1"{% if form.show_countdown %} checked{% endif %}> <span>{{ t('announcements.show_countdown') }}</span></label>
   <label class="check"><input type="checkbox" name="custom_colors" value="1"{% if form.custom_colors %} checked{% endif %}> <span>{{ t('announcements.custom_colors') }}</span></label>
-  <div class="cluster">
-    <label class="cluster" for="a-bg">{{ t('announcements.background') }} <input id="a-bg" type="color" name="custom_background" value="{{ form.custom_background or '#24304f' }}"></label>
-    <label class="cluster" for="a-fg">{{ t('announcements.text_color') }} <input id="a-fg" type="color" name="custom_text_color" value="{{ form.custom_text_color or '#ffffff' }}"></label>
+  <div class="form-grid">
+    <div class="field">
+      <label for="a-bg">{{ t('announcements.background') }}</label>
+      <input id="a-bg" type="color" name="custom_background" value="{{ form.custom_background or '#24304f' }}">
+    </div>
+    <div class="field">
+      <label for="a-fg">{{ t('announcements.text_color') }}</label>
+      <input id="a-fg" type="color" name="custom_text_color" value="{{ form.custom_text_color or '#ffffff' }}">
+    </div>
   </div>
 </fieldset>
 {%- endmacro %}

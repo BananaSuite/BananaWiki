@@ -142,7 +142,7 @@ def tenant_environment(spec: TenantSpec, cfg: HostingConfig, *, quarantined: boo
         "BW_MEMORY_LIMIT_MB": str(policy.memory_mb),
         "BW_NOFILE_LIMIT": str(policy.nofile_limit),
         "BW_INSTANCE_STARTUP_TIMEOUT_SECONDS": str(cfg.limits.startup_timeout_seconds),
-        "BW_ALLOW_EXTERNAL_PLUGINS": _flag(not quarantined),
+        "BW_ALLOW_EXTERNAL_PLUGINS": _flag(cfg.allow_tenant_plugins and not quarantined),
         "BW_MANAGED_PLUGIN_QUARANTINE": _flag(quarantined),
         "BW_PLATFORM_OAUTH_ENABLED": "0",
     }
@@ -696,15 +696,11 @@ class AgentRuntime:
 
     def restore_platform(self, archives: Sequence[Path]) -> None:
         cfg = self._cfg()
-        try:
-            running = [name for name, item in self._container_map(fresh=True).items() if item.get("running")]
-        except RuntimeFailure:
-            running = []
-        for name in running:
-            try:
-                self._call("tenant.stop", {"tenant": name, "timeout": 15}, "stop_failed")
-            except RuntimeFailure as error:
-                log.warning("Could not stop %s before the restore: %s", name, error)
+        # Refuse a populated platform before changing its runtime. A rejected
+        # backup must never pause every live wiki as a side effect.
+        platform_backup.check_restore_target(cfg)
+        if self._container_map(fresh=True):
+            raise RuntimeFailure("data_exists", "restore onto a fresh installation without tenant containers")
         secret_path = Env().path("HOSTING_SECRET_KEY_PATH", str(LEGACY_DATA_DIR / ".secret_key"))
         platform_backup.restore(cfg, [Path(item) for item in archives], self.backup_key, secret_path)
 

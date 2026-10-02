@@ -8,7 +8,7 @@
 </ol></nav>
 <header class="page-header"><h1>{{ role.name if role else t('admin.roles.create') }}</h1></header>
 
-<form method="post" action="{{ url_for('admin.edit_role', role_id=role.id) if role else url_for('admin.create_role') }}" class="form">
+<form method="post" action="{{ url_for('admin.edit_role', role_id=role.id) if role else url_for('admin.create_role') }}" class="form section-stack">
   {{ forms.csrf() }}
   <section class="card form">
     {{ forms.field('name', t('common.name'), values.name, required=true, attrs={'maxlength': 100}) }}
@@ -52,7 +52,7 @@
   </ul>
   {% else %}<p class="muted">{{ t('admin.roles.no_holders') }}</p>{% endif %}
   {% if candidates %}
-  <form method="post" action="{{ url_for('admin.assign_role_user', role_id=role.id) }}" class="input-group">
+  <form method="post" action="{{ url_for('admin.assign_role_user', role_id=role.id) }}" class="inline-fields">
     {{ forms.csrf() }}
     <label class="visually-hidden" for="f-assign">{{ t('admin.roles.assign_user') }}</label>
     <select id="f-assign" name="user_id">{% for user in candidates %}<option value="{{ user.id }}">{{ user.username }}</option>{% endfor %}</select>

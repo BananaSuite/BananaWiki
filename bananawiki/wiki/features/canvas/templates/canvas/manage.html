@@ -8,6 +8,7 @@
 </ol></nav>
 <header class="page-header"><h1>{{ t('canvas.manage.heading') }}</h1></header>
 
+<div class="section-stack">
 <section class="card">
   <h2>{{ t('canvas.manage.info') }}</h2>
   <form class="form" method="post" action="{{ url_for('canvas.edit_info', slug=layout.slug) }}">
@@ -62,7 +63,7 @@
       <input type="hidden" name="action" value="add_user">
       <h3>{{ t('canvas.manage.add_user') }}</h3>
       {{ forms.field('username', t('canvas.manage.username'), required=true, attrs={'autocomplete': 'off', 'maxlength': 50}) }}
-      {{ forms.select('permission', t('canvas.manage.permission'), permission_options) }}
+      {{ forms.select('permission', t('canvas.manage.permission'), permission_options, id='canvas-share-user-permission') }}
       <div class="btn-row"><button type="submit" class="btn">{{ t('canvas.manage.share') }}</button></div>
     </form>
     {% if roles %}
@@ -72,7 +73,7 @@
       <h3>{{ t('canvas.manage.add_role') }}</h3>
       {% set role_options = [] %}{% for role in roles %}{% set _ = role_options.append((role, t('canvas.role.' ~ role))) %}{% endfor %}
       {{ forms.select('role', t('canvas.manage.role'), role_options) }}
-      {{ forms.select('permission', t('canvas.manage.permission'), permission_options) }}
+      {{ forms.select('permission', t('canvas.manage.permission'), permission_options, id='canvas-share-role-permission') }}
       <div class="btn-row"><button type="submit" class="btn">{{ t('canvas.manage.share') }}</button></div>
     </form>
     {% endif %}
@@ -94,4 +95,5 @@
   {{ forms.post_button(url_for('canvas.delete', slug=layout.slug), t('canvas.manage.delete'), cls='btn btn--danger', confirm=t('canvas.manage.delete_confirm', title=layout.title)) }}
 </section>
 {% endif %}
+</div>
 {% endblock %}

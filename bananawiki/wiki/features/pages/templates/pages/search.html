@@ -2,7 +2,7 @@
 {% block title %}{{ t('pages.search.title') }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ asset_url('pages.css', blueprint='pages') }}">{% endblock %}
 {% block content %}
-<h1>{{ t('pages.search.title') }}</h1>
+<header class="page-header"><h1>{{ t('pages.search.title') }}</h1></header>
 <form method="get" action="{{ url_for('pages.search_page') }}" class="form search-form" role="search">
   <div class="input-group">
     <input type="search" name="q" value="{{ q }}" maxlength="300" aria-label="{{ t('pages.search.title') }}" autofocus>
@@ -24,14 +24,14 @@
   {% if results.categories %}
   <h2 class="h3">{{ t('pages.search.categories') }}</h2>
   <ul class="search-results">
-    {% for c in results.categories %}<li class="card"><a href="{{ url_for('pages.category', category_id=c.id) }}">{{ c.path_html }}</a></li>{% endfor %}
+    {% for c in results.categories %}<li class="search-result"><a href="{{ url_for('pages.category', category_id=c.id) }}">{{ c.path_html }}</a></li>{% endfor %}
   </ul>
   {% endif %}
   {% if results.pages %}
   <h2 class="h3">{{ t('pages.search.pages_count', count=results.total) }}</h2>
   <ul class="search-results">
     {% for r in results.pages %}
-    <li class="card">
+    <li class="search-result">
       <a class="search-result__title" href="{{ url_for('pages.home') if r.is_home else url_for('pages.view', slug=r.slug) }}">{{ r.title }}</a>
       {% if r.category_path %}<span class="small muted"> · {{ r.category_path }}</span>{% endif %}
       {% if r.is_deindexed %}<span class="badge badge--warning">{{ t('pages.badge.hidden') }}</span>{% endif %}

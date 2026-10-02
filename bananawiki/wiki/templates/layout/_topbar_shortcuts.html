@@ -1,0 +1,15 @@
+{% if current_user %}
+{% from "macros/icons.html" import icon %}
+<div class="topbar__shortcuts">
+<a class="btn btn--ghost btn--small topbar__customize" href="{{ url_for('users.display') }}"
+   aria-label="{{ t('nav.customize') }}" title="{{ t('nav.customize') }}"{% if request.endpoint == 'users.display' %} aria-current="page"{% endif %}>
+  {{ icon('sliders') }}
+  <span class="topbar__shortcut-label">{{ t('nav.customize') }}</span>
+</a>
+<a class="btn btn--ghost btn--small topbar__desktop-action" href="{{ url_for('users.settings') }}"{% if request.endpoint == 'users.settings' %} aria-current="page"{% endif %}>{{ t('users.nav.settings') }}</a>
+<form class="inline topbar__desktop-action" method="post" action="{{ url_for('auth.logout') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button class="btn btn--ghost btn--small" type="submit">{{ t('nav.sign_out') }}</button>
+</form>
+</div>
+{% endif %}

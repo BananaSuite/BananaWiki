@@ -36,6 +36,20 @@ The contract between the portal and the agent is
   directory at `/data`), memory, CPU, process and open-file limits, rotated
   Docker logs, and its own network: `isolated` (an internal bridge, the
   default in subdomain mode) or `outbound`.
+  An internal bridge blocks traffic to other tenant bridges and destinations
+  outside its subnet, but can still reach services listening on its host
+  gateway. Bind host-only services to loopback. Configure host firewall INPUT
+  rules to allow established/related replies to host-initiated connections,
+  allow only explicitly required host endpoints (for example public HTTPS
+  for OAuth or the configured GPU service), then drop other traffic from
+  tenant bridges to the host. DOCKER-USER/FORWARD rules alone do not cover
+  host-bound traffic. Cover every managed tenant
+  bridge before tenant traffic starts, including bridges created or recreated
+  later. Test Caddy proxying and the intended integrations, and verify tenants
+  cannot connect to a disposable host gateway listener outside that allowlist.
+  Docker's `inhibit_ipv4=true` and `gateway_mode_ipv4=isolated` bridge options
+  remove the host bridge address, but also break Caddy's TCP connection from
+  the host to each wiki; they cannot replace this firewall policy.
 * Secrets for a tenant (its OAuth client secret, the shared GPU token, the
   first administrator's password) reach it through a private `--env-file`,
   never on a command line.
@@ -45,11 +59,12 @@ The contract between the portal and the agent is
   running wiki, a one-shot container for a stopped one), never in the portal.
 * Tenants run with `BW_MANAGED_HOSTING=1`: site import off, the host owns the
   upload limits and the GPU settings, public builder pages off, third-party
-  plugins only in container isolation and never those in
+  plugins off by default. The operator can set `HOSTING_ALLOW_TENANT_PLUGINS=1`
+  to allow them in container isolation; never those in
   `HOSTING_TENANT_PLUGIN_DENYLIST`.
 
-A wiki's administrators can install third-party plugins, which run as Python
-inside their container. Treat everything the container holds as readable by
+When the operator enables third-party plugins, a wiki's administrators can
+install Python code inside their container. Treat everything the container holds as readable by
 them: its environment, its files and its database. That is why a wiki gets
 its own GPU speech token (derived from the master token, revocable on the GPU
 server with `TTS_REVOKED_TENANTS`) and never a platform-wide secret, and why
@@ -60,10 +75,25 @@ honest administrators within the plan but are not a security boundary against
 one who installs a plugin to lift them; use `HOSTING_TENANT_PLUGIN_DENYLIST`
 and plugin quarantine for wikis you do not trust.
 
+Upgrading leaves existing third-party plugin files and database settings in
+place, but stops loading them unless the operator explicitly sets
+`HOSTING_ALLOW_TENANT_PLUGINS=1` and restarts the portal and tenants. Lifting
+a wiki's plugin quarantine does not override the operator's choice. Built-in
+wiki features are unaffected.
+
 Not yet isolated: all tenant containers run as the service account's UID (the
 portal reads tenant files for backups and exports), and the storage limit is
 enforced by the wiki inside the container (use file-system quotas on the host
 if tenants must not be able to fill the disk).
+
+Before offering public hosting, configure a hard quota for each tenant's
+directory on the host filesystem (for example an XFS project quota), including
+an inode limit for many small files. Reserve
+disk space for the portal and backups, and test that a container cannot write
+past that quota. Also test network isolation, resource limits and a complete
+backup restore on the deployment itself. Disabling plugins reduces exposure
+to arbitrary tenant code; it does not provide a hard disk quota or replace
+those deployment checks.
 
 ## Addresses
 
@@ -126,6 +156,11 @@ mode): [deployment](deployment.md#behind-cloudflare).
 * Two-step sign-in with an authenticator app and one-time recovery codes
   (administrators can be required to use it); sessions listed and revocable;
   "sign out everywhere".
+* Password sign-in reserves its rate-limit budget before checking the hash,
+  so concurrent requests cannot bypass it. Limits over 15 minutes are 20 per
+  address, 8 per account from one address and 100 per account across addresses.
+  A successful sign-in refunds its own attempt and clears the account-and-
+  address failures; it preserves the address budget used to guess other accounts.
 * Account merges (both sides confirm, or an administrator decides), account
   deletion with a grace period, suspension, flagged email addresses.
 * Personal access tokens for the portal API.

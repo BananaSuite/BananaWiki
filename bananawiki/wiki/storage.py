@@ -20,14 +20,17 @@ import secrets
 import shutil
 import tempfile
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
+from filelock import FileLock, Timeout
 from flask import Response, abort, current_app, send_file
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
+from ..core.sqlite import DatabaseUnavailable
 from . import settings
 from .db import db
 
@@ -122,6 +125,11 @@ def storage_used(ttl: float = 60.0) -> int:
             continue
         for dirpath, _dirs, files in os.walk(root):
             for name in files:
+                # Pending writes have their own byte limits. Count them only
+                # when published, so concurrent uploads do not reject each
+                # other before either file is actually kept.
+                if name.startswith((".upload-", ".write-")):
+                    continue
                 try:
                     info = os.stat(os.path.join(dirpath, name))
                 except OSError:
@@ -233,16 +241,28 @@ def save(
         if ext in _IMAGE_FORMATS:
             _sanitize_image(tmp, ext)
             size = tmp.stat().st_size
+            if size > max_bytes:
+                raise UploadError("upload.error.too_large", limit_mb=max(1, max_bytes // (1024 * 1024)))
             digest = hashlib.sha256(tmp.read_bytes())
-        if not quota_allows(size):
-            raise UploadError("upload.error.quota")
         name = _new_name(ext)
-        os.chmod(tmp, 0o640)
-        os.replace(tmp, target_dir / name)
+        cfg = current_app.config["BW"]
+        guard = (FileLock(str(Path(cfg.instance_dir) / ".storage-quota.lock"), timeout=20, mode=0o600)
+                 if cfg.storage_limit_bytes else nullcontext())
+        try:
+            with guard:
+                # Usage caches are private to each worker. Refresh under one
+                # shared lock before publishing so their upload allowances
+                # cannot overlap or overlook files another worker just kept.
+                if cfg.storage_limit_bytes and storage_used(ttl=0) + size > cfg.storage_limit_bytes:
+                    raise UploadError("upload.error.quota")
+                os.chmod(tmp, 0o640)
+                os.replace(tmp, target_dir / name)
+                _note_usage(size)
+        except Timeout as error:
+            raise DatabaseUnavailable("Upload storage is busy. Try again shortly.") from error
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
-    _note_usage(size)
     mime = mimetypes.guess_type(original)[0] or "application/octet-stream"
     return StoredFile(folder, name, original, size, mime, digest.hexdigest())
 
@@ -264,21 +284,35 @@ def save_bytes(data: bytes, folder: str, ext: str) -> str:
 
 def resolve(folder: str, filename: str, *, blob_id: int | None = None) -> Path | None:
     """Absolute path of a stored file, or None. Refuses anything outside *folder*."""
-    if not filename or filename != os.path.normpath(filename) or filename.startswith(("/", "..")):
+    if not isinstance(filename, str) or not filename or "\x00" in filename \
+            or filename != os.path.normpath(filename) or filename.startswith(("/", "..")):
         return None
     root = folder_path(folder).resolve()
-    candidate = (root / filename).resolve()
-    if root not in candidate.parents:
+    try:
+        candidate = (root / filename).resolve()
+        if root not in candidate.parents:
+            return None
+        if candidate.is_file():
+            return candidate
+    except (OSError, ValueError, RuntimeError):
+        # Invalid path lengths, malformed names and symlink loops are missing
+        # resources, rather than an application error on a public file route.
         return None
-    if candidate.is_file():
-        return candidate
     if blob_id:
         row = db.one("SELECT content FROM file_blobs WHERE id = ?", (blob_id,))
         if row and row["content"] is not None:
             candidate.parent.mkdir(parents=True, exist_ok=True)
-            tmp = candidate.with_name(candidate.name + ".restore")
-            tmp.write_bytes(row["content"])
-            os.replace(tmp, candidate)
+            # Different workers may restore the same legacy blob together.
+            # Each writer needs its own staging inode so one rename cannot
+            # remove or expose another writer's unfinished file.
+            fd, tmp_name = tempfile.mkstemp(dir=candidate.parent, prefix=".restore-")
+            tmp = Path(tmp_name)
+            try:
+                with os.fdopen(fd, "wb") as out:
+                    out.write(row["content"])
+                os.replace(tmp, candidate)
+            finally:
+                tmp.unlink(missing_ok=True)
             return candidate
     return None
 
@@ -308,14 +342,18 @@ def send(
         abort(404)
     guessed = mimetypes.guess_type(download_name or filename)[0] or "application/octet-stream"
     show_inline = inline and guessed in INLINE_SAFE_TYPES
-    response = send_file(
-        path,
-        mimetype=guessed if show_inline else "application/octet-stream",
-        as_attachment=not show_inline,
-        download_name=download_name or filename,
-        max_age=max_age,
-        conditional=True,
-    )
+    try:
+        response = send_file(
+            path,
+            mimetype=guessed if show_inline else "application/octet-stream",
+            as_attachment=not show_inline,
+            download_name=download_name or filename,
+            max_age=max_age,
+            conditional=True,
+        )
+    except FileNotFoundError:
+        # Deletion may commit after resolve() and before send_file opens it.
+        abort(404)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Content-Security-Policy"] = "default-src 'none'; sandbox"
     response.headers["Cache-Control"] = f"private, max-age={max_age}"

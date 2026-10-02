@@ -55,10 +55,16 @@ jobs:
           python -m pip install --only-binary=:all: -r requirements.txt pytest pytest-xdist
       - name: Tests
         run: python -m pytest tests -q -n 2 -p no:cacheprovider -o addopts=""
+      - name: Root filesystem boundary tests
+        run: sudo "$(command -v python)" -m pytest tests/ops/test_ops_tenant_files.py -q -p no:cacheprovider -o addopts=""
 
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        install: [requirements, package]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -67,8 +73,26 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install pip-audit
+      - name: Install runtime environment (wheels only)
+        env:
+          INSTALL_METHOD: ${{ matrix.install }}
+        run: |
+          python -m venv "$RUNNER_TEMP/runtime-audit"
+          runtime_python="$RUNNER_TEMP/runtime-audit/bin/python"
+          "$runtime_python" -m pip install --only-binary=:all: --no-deps --upgrade 'pip>=26.2.1'
+          if [ "$INSTALL_METHOD" = requirements ]; then
+            "$runtime_python" -m pip install --only-binary=:all: -r requirements.txt
+          else
+            "$runtime_python" -m pip install --only-binary=:all: '.[hosting,tts]'
+          fi
+          "$runtime_python" -m pip check
+          # The checkout is reviewed by lint/tests; audit its resolved third-party
+          # dependencies without requiring the unreleased project on PyPI.
+          if [ "$INSTALL_METHOD" = package ]; then
+            "$runtime_python" -m pip uninstall -y bananawiki
+          fi
       - name: Known vulnerabilities in runtime dependencies
-        run: python -m pip_audit --requirement requirements.txt --strict --progress-spinner off
+        run: python -m pip_audit --path "$RUNNER_TEMP/runtime-audit/lib/python3.12/site-packages" --strict --progress-spinner off
 
   images:
     runs-on: ubuntu-latest
@@ -83,6 +107,15 @@ jobs:
           persist-credentials: false
       - name: Build
         run: docker build -f ${{ matrix.dockerfile }} -t bananawiki-ci:${{ strategy.job-index }} .
+      - name: Check image for high and critical vulnerabilities with available fixes
+        run: |
+          curl --fail --silent --show-error --location \
+            https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz \
+            --output "$RUNNER_TEMP/trivy.tar.gz"
+          printf '%s  %s\n' 2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a "$RUNNER_TEMP/trivy.tar.gz" | sha256sum --check
+          tar --extract --gzip --file "$RUNNER_TEMP/trivy.tar.gz" --directory "$RUNNER_TEMP" trivy
+          "$RUNNER_TEMP/trivy" image --scanners vuln --severity HIGH,CRITICAL \
+            --ignore-unfixed --exit-code 1 --timeout 5m bananawiki-ci:${{ strategy.job-index }}
       - name: Start read-only, unprivileged, as an arbitrary UID, and wait for /health
         run: |
           mkdir -p "$RUNNER_TEMP/data" && sudo chown 4242:4242 "$RUNNER_TEMP/data"

@@ -16,8 +16,19 @@
     var input = form.querySelector('input[name="q"]');
     var content = form.querySelector("[data-search-content]");
     var box = form.querySelector("[data-search-results]");
-    var timer = null, controller = null;
+    var timer = null, controller = null, searchVersion = 0;
+    function cancel() {
+      clearTimeout(timer);
+      if (controller) controller.abort();
+      searchVersion += 1;
+    }
     function hide() { box.hidden = true; box.textContent = ""; }
+    function appendAllLink() {
+      var all = el("a", "", BW.t("pages.search_all"));
+      all.href = form.action + "?q=" + encodeURIComponent(input.value.trim()) + (content && content.checked ? "&scope=content" : "");
+      box.appendChild(all);
+      box.hidden = false;
+    }
     function render(data) {
       box.textContent = "";
       (data.categories || []).forEach(function (c) {
@@ -33,23 +44,35 @@
         box.appendChild(a);
       });
       if (!box.children.length) box.appendChild(el("p", "small muted", BW.t("pages.search_none")));
-      var all = el("a", "", BW.t("pages.search_all"));
-      all.href = form.action + "?q=" + encodeURIComponent(input.value.trim());
-      box.appendChild(all);
-      box.hidden = false;
+      appendAllLink();
     }
     function run() {
+      cancel();
+      hide();
       var q = input.value.trim();
-      if (!q) { hide(); return; }
-      if (controller) controller.abort();
+      if (!q) return;
+      var version = searchVersion;
       controller = window.AbortController ? new AbortController() : null;
       var url = form.getAttribute("data-api") + "?q=" + encodeURIComponent(q) + "&scope=" + (content && content.checked ? "content" : "title");
-      BW.fetchJSON(url, { signal: controller ? controller.signal : undefined }).then(render).catch(function () {});
+      BW.fetchJSON(url, { signal: controller ? controller.signal : undefined }).then(function (data) {
+        if (version === searchVersion) render(data);
+      }).catch(function (error) {
+        if (version !== searchVersion || error.name === "AbortError") return;
+        box.textContent = "";
+        box.appendChild(el("p", "small muted", error.message || BW.t("error")));
+        appendAllLink();
+      });
     }
-    input.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(run, 250); });
+    input.addEventListener("input", function () {
+      cancel();
+      hide();
+      if (input.value.trim()) timer = setTimeout(run, 250);
+    });
     if (content) content.addEventListener("change", run);
-    input.addEventListener("keydown", function (e) { if (e.key === "Escape") { input.value = ""; hide(); } });
-    document.addEventListener("click", function (e) { if (!form.contains(e.target)) box.hidden = true; });
+    input.addEventListener("keydown", function (e) { if (e.key === "Escape") { cancel(); input.value = ""; hide(); } });
+    document.addEventListener("click", function (e) {
+      if (!form.contains(e.target)) { cancel(); hide(); }
+    });
   }
 
   // "More pages" ------------------------------------------------------------
@@ -57,6 +80,7 @@
     var link = event.target.closest && event.target.closest("a[data-nav-more]");
     if (!link) return;
     event.preventDefault();
+    if (link.getAttribute("aria-busy") === "true") return;
     var item = link.closest("li");
     link.setAttribute("aria-busy", "true");
     BW.fetchJSON(link.getAttribute("data-nav-more")).then(function (data) {
@@ -73,11 +97,16 @@
   function items(list) {
     return Array.prototype.filter.call(list.children, function (c) { return c.hasAttribute("data-reorder-item"); });
   }
+  var orderSaves = new WeakMap();
   function save(list) {
     var ids = items(list).map(function (item) { return Number(item.getAttribute("data-id")); });
-    BW.fetchJSON(list.getAttribute("data-reorder-url"), { method: "POST", body: { ids: ids } })
+    // Keep rapid moves in order even when an earlier request is slow or fails.
+    var saving = (orderSaves.get(list) || Promise.resolve()).then(function () {
+      return BW.fetchJSON(list.getAttribute("data-reorder-url"), { method: "POST", body: { ids: ids } });
+    })
       .then(function (data) { BW.toast(data.message || BW.t("saved"), "success"); })
       .catch(function (error) { BW.toast(error.message || BW.t("error"), "error"); });
+    orderSaves.set(list, saving);
   }
   var dragged = null;
   document.addEventListener("dragstart", function (e) {

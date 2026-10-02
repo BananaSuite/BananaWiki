@@ -6,6 +6,11 @@
 {% block admin_content %}
 <header class="page-header"><h1>{{ t('plugin_manager.title') }}</h1></header>
 <p class="muted">{{ t('plugin_manager.intro') }}</p>
+<nav class="pm-section-links" aria-label="{{ t('plugin_manager.sections') }}">
+  <a href="#features">{{ t('plugin_manager.features.title') }}</a>
+  <a href="#external-title">{{ t('plugin_manager.external.title') }}</a>
+  <a href="#sidebar-order">{{ t('plugin_manager.order.title') }}</a>
+</nav>
 
 {% if pending %}
 <div class="alert alert--warning" role="status" id="restart"><div class="alert__body">
@@ -18,29 +23,45 @@
 </div></div>
 {% endif %}
 
-<section class="card" aria-labelledby="features-title">
+{% macro feature_table(entries) -%}
+<div class="table-wrap"><table class="table pm-table pm-table--features">
+  <thead><tr><th scope="col">{{ t('common.name') }}</th><th scope="col">{{ t('common.status') }}</th><th scope="col">{{ t('common.actions') }}</th></tr></thead>
+  <tbody>
+  {% for entry in entries|sort(attribute='name') %}
+  <tr data-feature-entry data-feature-search-text="{{ (entry.name ~ ' ' ~ entry.description)|lower }}">
+    <td><a class="pm-table__name" href="{{ url_for('plugin_manager.detail', plugin_id=entry.id) }}">{{ entry.name }}</a>
+      {% if entry.description %}<span class="small muted pm-table__description">{{ entry.description }}</span>{% endif %}</td>
+    <td>{{ pm.status(entry) }}</td>
+    <td class="pm-table__actions">{{ pm.actions(entry) }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{%- endmacro %}
+<section class="pm-section" aria-labelledby="features-title" id="features">
   <h2 id="features-title">{{ t('plugin_manager.features.title') }}</h2>
   <p class="small muted">{{ t('plugin_manager.features.intro') }}</p>
-  <div class="table-wrap"><table class="table">
-    <thead><tr><th>{{ t('common.name') }}</th><th>{{ t('plugin_manager.col.switch') }}</th><th>{{ t('common.status') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
-    <tbody>
-    {% for entry in features %}
-    <tr>
-      <td><a href="{{ url_for('plugin_manager.detail', plugin_id=entry.id) }}"><strong>{{ entry.name }}</strong></a>
-        {% if entry.description %}<br><span class="small muted">{{ entry.description }}</span>{% endif %}</td>
-      <td class="small">{{ pm.kind(entry) }}</td>
-      <td>{{ pm.status(entry) }}</td>
-      <td>{{ pm.actions(entry) }}</td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table></div>
+  <div class="field pm-filter" data-feature-search hidden>
+    <label for="feature-filter">{{ t('plugin_manager.filter.label') }}</label>
+    <input type="search" id="feature-filter" placeholder="{{ t('plugin_manager.filter.placeholder') }}" aria-controls="features">
+    <p class="hint" data-feature-search-status role="status" hidden></p>
+  </div>
+  {{ feature_table(features|rejectattr('toggle', 'equalto', 'always')|list) }}
+  {% set core_features = features|selectattr('toggle', 'equalto', 'always')|list %}
+  {% if core_features %}
+  <details class="disclosure pm-core" data-core-features>
+    <summary>{{ t('plugin_manager.features.core') }} <span class="muted small">{{ core_features|length }}</span></summary>
+    {{ feature_table(core_features) }}
+  </details>
+  {% endif %}
 </section>
 
-<section class="card" aria-labelledby="external-title">
+<section class="pm-section" aria-labelledby="external-title">
   <h2 id="external-title">{{ t('plugin_manager.external.title') }}</h2>
   <p class="small muted">{{ t('plugin_manager.external.intro') }}</p>
   {% if external_allowed %}
+  <details class="disclosure pm-install">
+  <summary>{{ t('plugin_manager.action.import') }}</summary>
   {{ pm.full_privileges_warning() }}
   <form class="form" method="post" action="{{ url_for('plugin_manager.import_plugin') }}" enctype="multipart/form-data">
     {{ forms.csrf() }}
@@ -54,24 +75,25 @@
     </div>
     <button type="submit" class="btn btn--primary">{{ t('plugin_manager.action.import') }}</button>
   </form>
+  </details>
   {% else %}
   <div class="alert" role="note"><div class="alert__body">{{ t('plugin_manager.lock.external_off_managed' if managed else 'plugin_manager.lock.external_off') }}</div></div>
   {% endif %}
 
   {% if externals %}
-  <div class="table-wrap"><table class="table">
-    <thead><tr><th>{{ t('common.name') }}</th><th>{{ t('plugin_manager.col.version') }}</th><th>{{ t('plugin_manager.col.author') }}</th><th>{{ t('common.status') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+  <div class="table-wrap"><table class="table pm-table">
+    <thead><tr><th scope="col">{{ t('common.name') }}</th><th scope="col">{{ t('plugin_manager.col.version') }}</th><th scope="col">{{ t('plugin_manager.col.author') }}</th><th scope="col">{{ t('common.status') }}</th><th scope="col">{{ t('common.actions') }}</th></tr></thead>
     <tbody>
     {% for entry in externals %}
     <tr>
-      <td><a href="{{ url_for('plugin_manager.detail', plugin_id=entry.id) }}"><strong>{{ entry.name }}</strong></a>
-        <span class="small muted mono">{{ entry.id }}</span>
+      <td><a class="pm-table__name" href="{{ url_for('plugin_manager.detail', plugin_id=entry.id) }}">{{ entry.name }}</a>
+        <span class="small muted mono pm-table__id">{{ entry.id }}</span>
         {% if entry.legacy %}<span class="badge">{{ t('plugin_manager.kind.legacy') }}</span>{% endif %}
         {% if entry.error_key %}<br><span class="small text-danger">{{ t(entry.error_key, **entry.error_values) }}</span>{% endif %}</td>
-      <td>{{ entry.version }}</td>
-      <td>{{ entry.author }}</td>
+      <td class="pm-table__meta" data-label="{{ t('plugin_manager.col.version') }}">{{ entry.version }}</td>
+      <td class="pm-table__meta" data-label="{{ t('plugin_manager.col.author') }}">{{ entry.author }}</td>
       <td>{{ pm.status(entry) }}</td>
-      <td>{{ pm.actions(entry) }}</td>
+      <td class="pm-table__actions">{{ pm.actions(entry) }}</td>
     </tr>
     {% endfor %}
     </tbody>
@@ -89,22 +111,22 @@
 </section>
 
 {% if retired %}
-<section class="card" aria-labelledby="retired-title">
+<section class="pm-section" aria-labelledby="retired-title">
   <h2 id="retired-title">{{ t('plugin_manager.retired.title') }}</h2>
   <p class="small muted">{{ t('plugin_manager.retired.intro') }}</p>
-  <div class="table-wrap"><table class="table">
-    <thead><tr><th>{{ t('common.name') }}</th><th>{{ t('common.status') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+  <div class="table-wrap"><table class="table pm-table">
+    <thead><tr><th scope="col">{{ t('common.name') }}</th><th scope="col">{{ t('common.status') }}</th><th scope="col">{{ t('common.actions') }}</th></tr></thead>
     <tbody>
     {% for entry in retired %}
     <tr><td><strong>{{ entry.name }}</strong> <span class="small muted mono">{{ entry.id }}</span></td>
-      <td>{{ pm.status(entry) }}</td><td>{{ pm.actions(entry) }}</td></tr>
+      <td>{{ pm.status(entry) }}</td><td class="pm-table__actions">{{ pm.actions(entry) }}</td></tr>
     {% endfor %}
     </tbody>
   </table></div>
 </section>
 {% endif %}
 
-<section class="card" aria-labelledby="sidebar-order-title" id="sidebar-order">
+<section class="pm-section" aria-labelledby="sidebar-order-title" id="sidebar-order">
   <h2 id="sidebar-order-title">{{ t('plugin_manager.order.title') }}</h2>
   <p class="small muted">{{ t('plugin_manager.order.intro') }}</p>
   {% if apps %}

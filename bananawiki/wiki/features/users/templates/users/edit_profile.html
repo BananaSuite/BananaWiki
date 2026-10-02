@@ -5,11 +5,11 @@
 {% block content %}
 <header class="page-header"><h1>{{ t('users.settings.title') }}</h1></header>
 {% include "users/_tabs.html" %}
-<section class="card" aria-labelledby="profile-heading">
-  <div class="card__header">
-    <h2 id="profile-heading">{{ t('users.profile_edit.title') }}</h2>
-    <a class="btn btn--small" href="{{ url_for('users.my_profile') }}">{{ t('users.settings.view_profile') }}</a>
-  </div>
+<div class="section-stack users-settings">
+<section class="form-section" aria-labelledby="profile-heading">
+  <h2 id="profile-heading">{{ t('users.profile_edit.title') }}</h2>
+  <div class="stack">
+  <div class="btn-row"><a class="btn btn--small" href="{{ url_for('users.my_profile') }}">{{ t('users.settings.view_profile') }}</a></div>
   {% if profile.page_disabled_by_admin %}<div class="alert alert--warning"><div class="alert__body">{{ t('users.profile_edit.disabled_notice') }}</div></div>{% endif %}
   <form method="post" action="{{ url_for('users.edit_profile') }}" enctype="multipart/form-data" class="form">
     {{ forms.csrf() }}
@@ -18,7 +18,7 @@
     {{ forms.field('birth_date', t('users.profile_edit.birth_date'), profile.birth_date, type='date', hint=t('users.profile_edit.birth_date_hint')) }}
     <div class="field">
       <label for="f-avatar">{{ t('users.profile_edit.avatar') }}</label>
-      <div class="cluster">
+      <div class="inline-fields">
         {{ m.avatar(profile.avatar_filename and url_for('uploaded_file', filename=profile.avatar_filename), user.username, 'avatar avatar--large') }}
         <input id="f-avatar" name="avatar" type="file" accept="image/png,image/jpeg,image/gif,image/webp" aria-describedby="f-avatar-hint">
       </div>
@@ -27,10 +27,12 @@
     <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
   </form>
   {% if profile.avatar_filename %}
-  <form method="post" action="{{ url_for('users.remove_avatar') }}" class="btn-row users-spaced">
+  <form method="post" action="{{ url_for('users.remove_avatar') }}" class="btn-row">
     {{ forms.csrf() }}
     <button class="btn btn--small" type="submit">{{ t('users.profile_edit.remove_avatar') }}</button>
   </form>
   {% endif %}
+  </div>
 </section>
+</div>
 {% endblock %}

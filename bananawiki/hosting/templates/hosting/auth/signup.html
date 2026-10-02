@@ -20,9 +20,8 @@
     {{ ui.field('confirm_password', t('hosting.field.confirm_password'), type='password', required=true, attrs={'autocomplete': 'new-password', 'maxlength': 1000}) }}
     {% if mode == 'invite' %}{{ ui.field('invite_code', t('hosting.field.invite_code'), form.get('invite_code', ''), required=true, attrs={'maxlength': 32}) }}{% endif %}
     {% if use_case_required %}
-    <div class="field"><label for="f-use">{{ t('hosting.signup.use_case') }}</label>
-      <textarea id="f-use" name="signup_use_case" minlength="20" maxlength="2000" required>{{ form.get('signup_use_case', '') }}</textarea>
-      <p class="hint">{{ t('hosting.signup.use_case_hint') }}</p></div>
+    {{ ui.textarea('signup_use_case', t('hosting.signup.use_case'), form.get('signup_use_case', ''),
+        hint=t('hosting.signup.use_case_hint'), required=true, attrs={'minlength': 20, 'maxlength': 2000}, id='f-use') }}
     {% endif %}
     <label class="check"><input type="checkbox" name="accept_terms" value="1" required><span>{{ t('hosting.signup.accept_terms') }} <a href="{{ url_for('public.terms') }}">{{ t('hosting.signup.terms') }}</a> · <a href="{{ url_for('public.privacy') }}">{{ t('hosting.signup.privacy') }}</a></span></label>
     <button class="btn btn--primary" type="submit">{{ t('hosting.signup.submit') }}</button>

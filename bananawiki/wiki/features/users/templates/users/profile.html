@@ -2,16 +2,16 @@
 {% import "users/_macros.html" as m with context %}
 {% block title %}{{ target.username }}{% endblock %}
 {% block content %}
-<article class="users-profile stack">
+<article class="section-stack users-profile">
   {% if birthday %}<div class="alert alert--success" role="status"><div class="alert__body">{{ t('users.profile.birthday', user=target.username) }}</div></div>{% endif %}
-  <header class="card users-profile__header">
+  <header class="users-profile__header">
     {{ m.avatar(avatar_url, target.username, 'avatar avatar--large') }}
     <div class="users-profile__meta">
       <h1>{{ target.username }}</h1>
       {% if profile.real_name %}<p class="users-profile__name">{{ profile.real_name }}</p>{% endif %}
       <p class="cluster">
         <span class="badge badge--primary">{{ t('users.role.' ~ target.role) }}</span>
-        <span class="badge">{{ t('users.profile.member_since', date=target.created_at|date) }}</span>
+        <span class="small muted">{{ t('users.profile.member_since', date=target.created_at|date) }}</span>
         {% if target.suspended %}<span class="badge badge--danger">{{ t('users.members.suspended') }}</span>{% endif %}
         {% if privileged and profile.page_disabled_by_admin %}<span class="badge badge--warning">{{ t('users.members.disabled') }}</span>
         {% elif privileged and not profile.page_published %}<span class="badge">{{ t('users.members.private') }}</span>{% endif %}
@@ -29,11 +29,11 @@
   {{ slot('profile.sections', profile_user=target) }}
 
   {% if calendar %}
-  <section class="card" aria-labelledby="calendar-heading">
+  <section class="users-profile__section" aria-labelledby="calendar-heading">
     <div class="card__header">
       <h2 id="calendar-heading">{{ t('users.profile.contributions_in', count=calendar.total, year=calendar.year) }}</h2>
       {% if years|length > 1 %}
-      <form method="get" action="{{ url_for('users.profile', username=target.username) }}" class="cluster">
+      <form method="get" action="{{ url_for('users.profile', username=target.username) }}" class="inline-fields">
         <label for="year" class="visually-hidden">{{ t('users.profile.year') }}</label>
         <select id="year" name="year" data-autosubmit>
           {% for year in years %}<option value="{{ year }}"{% if year == calendar.year %} selected{% endif %}>{{ year }}</option>{% endfor %}
@@ -49,27 +49,29 @@
   </section>
   {% endif %}
 
-  <section class="card" aria-labelledby="recent-heading">
+  <section class="users-profile__section" aria-labelledby="recent-heading">
     <h2 id="recent-heading">{{ t('users.profile.recent') }}</h2>
     {% if contributions %}
     <ul class="users-contributions">
       {% for item in contributions %}
-      <li><span class="small muted nowrap">{{ item.created_at|datetime }}</span>
+      <li><div class="users-contributions__body">
         <a href="{{ url_for('pages.view', slug=item.page_slug) }}">{{ item.page_title }}</a>
-        {% if item.edit_message %}<span class="muted">— {{ item.edit_message }}</span>{% endif %}</li>
+        {% if item.edit_message %}<span class="muted">{{ item.edit_message }}</span>{% endif %}
+        </div><span class="small muted users-contributions__date">{{ item.created_at|datetime }}</span></li>
       {% endfor %}
     </ul>
     {% else %}<p class="muted">{{ t('users.profile.no_contributions') }}</p>{% endif %}
   </section>
 
   {% if role_history %}
-  <section class="card" aria-labelledby="roles-heading">
+  <section class="users-profile__section" aria-labelledby="roles-heading">
     <h2 id="roles-heading">{{ t('users.profile.role_history') }}</h2>
     <ul class="users-contributions">
       {% for change in role_history %}
-      <li><span class="small muted nowrap">{{ change.changed_at|datetime }}</span>
+      <li><div class="users-contributions__body">
         {{ t('users.profile.role_change', old=t('users.role.' ~ change.old_role, change.old_role), new=t('users.role.' ~ change.new_role, change.new_role)) }}
-        {% if change.changed_by_username %}<span class="muted">{{ t('users.profile.changed_by', user=change.changed_by_username) }}</span>{% endif %}</li>
+        {% if change.changed_by_username %}<span class="muted">{{ t('users.profile.changed_by', user=change.changed_by_username) }}</span>{% endif %}
+        </div><span class="small muted users-contributions__date">{{ change.changed_at|datetime }}</span></li>
       {% endfor %}
     </ul>
   </section>

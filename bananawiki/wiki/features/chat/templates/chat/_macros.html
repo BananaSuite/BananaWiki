@@ -52,10 +52,12 @@
 {%- endmacro %}
 
 {% macro composer(send_url, can_upload, max_length, max_attachment_bytes, per_day) -%}
-<form class="chat-composer" id="chat-composer" method="post" action="{{ send_url }}" enctype="multipart/form-data" data-allow-resubmit>
+<form class="form chat-composer" id="chat-composer" method="post" action="{{ send_url }}" enctype="multipart/form-data" data-allow-resubmit>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <label class="visually-hidden" for="chat-input">{{ t('chat.composer.label') }}</label>
-  <textarea id="chat-input" name="content" rows="2" maxlength="{{ max_length }}" placeholder="{{ t('chat.composer.placeholder') }}"></textarea>
+  <div class="field">
+    <label class="visually-hidden" for="chat-input">{{ t('chat.composer.label') }}</label>
+    <textarea id="chat-input" name="content" rows="2" maxlength="{{ max_length }}" placeholder="{{ t('chat.composer.placeholder') }}" aria-describedby="chat-composer-hint"></textarea>
+  </div>
   <div class="chat-composer__actions">
     {% if can_upload %}
     <label class="btn btn--small chat-composer__file">
@@ -66,7 +68,7 @@
     {% endif %}
     <button type="submit" class="btn btn--primary">{{ t('chat.composer.send') }}</button>
   </div>
-  <p class="small muted chat-composer__hint">{{ t('chat.composer.hint') }}</p>
+  <p class="small muted chat-composer__hint" id="chat-composer-hint">{{ t('chat.composer.hint') }}</p>
 </form>
 {%- endmacro %}
 

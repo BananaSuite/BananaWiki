@@ -5,7 +5,7 @@
   <form method="post" action="{{ url_for('attachments.upload', slug=page.slug) }}" enctype="multipart/form-data" class="attachments__upload">
     {{ forms.csrf() }}
     <label class="visually-hidden" for="attachments-files">{{ t('attachments.add') }}</label>
-    <div class="cluster">
+    <div class="inline-fields">
       <input id="attachments-files" type="file" name="files" multiple required aria-describedby="attachments-hint">
       <button class="btn btn--small btn--primary">{{ t('attachments.upload') }}</button>
     </div>
@@ -31,10 +31,10 @@
     </li>
     {% endfor %}
   </ul>
-  {% if can_upload %}<details class="attachments__more"><summary>{{ t('attachments.add') }}</summary>{{ upload_form() }}</details>{% endif %}
+  {% if can_upload %}<details class="disclosure attachments__more"><summary>{{ t('attachments.add') }}</summary>{{ upload_form() }}</details>{% endif %}
 </section>
 {% elif can_upload %}
-<details class="attachments attachments--empty no-print" id="attachments">
+<details class="disclosure attachments attachments--empty no-print" id="attachments">
   <summary>{{ t('attachments.add') }}</summary>
   {{ upload_form() }}
 </details>

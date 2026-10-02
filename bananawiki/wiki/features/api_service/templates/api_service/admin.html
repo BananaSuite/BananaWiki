@@ -1,8 +1,7 @@
-{% extends "base.html" %}
+{% extends "admin/_layout.html" %}
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('api_service.admin.title') }}{% endblock %}
-{% block main_class %}main--wide{% endblock %}
-{% block content %}
+{% block admin_content %}
 <div class="page-header">
   <h1>{{ t('api_service.admin.title') }}</h1>
   <div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('api_service.docs') }}">{{ t('api_service.docs.link') }}</a></div>
@@ -76,7 +75,7 @@
         {% endif %}
       </td>
       <td>
-        <form class="inline" method="post" action="{{ url_for('api_service.admin_userbot_lock', user_id=user.id) }}">
+        <form class="inline-fields" method="post" action="{{ url_for('api_service.admin_userbot_lock', user_id=user.id) }}">
           {{ forms.csrf() }}
           <label class="visually-hidden" for="lock-{{ user.id }}">{{ t('api_service.userbot.lock') }}</label>
           <select id="lock-{{ user.id }}" name="mode" data-autosubmit>
@@ -157,7 +156,7 @@
   <h2>{{ t('api_service.admin.audit') }}</h2>
   <p class="hint">{{ t('api_service.admin.audit_count', count=entries|length, total=total_entries) }}</p>
   {% if current_user.is_superuser %}
-  <form method="post" action="{{ url_for('api_service.admin_clear_audit') }}" class="cluster" data-confirm="{{ t('api_service.admin.clear_confirm') }}">
+  <form method="post" action="{{ url_for('api_service.admin_clear_audit') }}" class="inline-fields" data-confirm="{{ t('api_service.admin.clear_confirm') }}">
     {{ forms.csrf() }}
     {{ forms.field('before_days', t('api_service.admin.clear_before'), value=90, type='number', attrs={'min': 1, 'max': 3650}) }}
     <button type="submit" class="btn btn--danger">{{ t('api_service.admin.clear') }}</button>

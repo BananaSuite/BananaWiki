@@ -16,6 +16,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .. import __version__
 from ..core import web
+from ..core.assets import SharedAssetsFlask
 from ..core.i18n import Catalog
 from ..core.ratelimit import MemoryLimiter
 from ..core.sqlite import Database, DatabaseUnavailable, is_unavailable
@@ -89,8 +90,8 @@ def _configure_logging(cfg: HostingConfig) -> None:
 def create_app(config: HostingConfig | None = None, *, runtime: Runtime | None = None, **overrides: Any) -> Flask:
     cfg = config or load_config(**overrides)
     _configure_logging(cfg)
-    app = Flask("bananawiki.hosting", root_path=str(PACKAGE_ROOT), template_folder="templates",
-                static_folder="static", static_url_path="/static")
+    app = SharedAssetsFlask("bananawiki.hosting", root_path=str(PACKAGE_ROOT), template_folder="templates",
+                           static_folder="static", static_url_path="/static")
     app.config["HOSTING"] = cfg
     app.config.update(
         SECRET_KEY=cfg.secret_key,

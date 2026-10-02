@@ -2,8 +2,88 @@
 
 ## Unreleased
 
+### Changed
+
+* Page editor actions and insertion dialogs share small template macros.
+  Formatting and insertion tools use a clear separator and consistent spacing.
+* Hosting textareas share label, help-text and value rendering; transfer
+  requests use one partial on both dashboard and wiki management pages.
+  Administrative utility lists use the shared panel-list component.
+* New page is a direct sidebar action, with New category alongside All pages.
+  Article contents expand before the text on phones. Editor Save and Cancel
+  actions appear in the page header and footer without covering form fields.
+* Customize keeps everyday preferences visible and puts detailed colours,
+  highlighting, layout and background settings in expandable sections. The
+  hosting dashboard uses compact summaries and wiki rows; occasional setup
+  and bulk controls open on request, and failed create forms retain choices.
+* The wiki and hosting portal now serve one shared design-system stylesheet,
+  with the existing static URL and caching behavior. Component styles are
+  consolidated, and settings use explicit form sections with a consistent
+  control and typography scale. Page edit information sits below the title.
+* Polished heading hierarchy, article spacing, menus and navigation icons.
+  Canvas tools now use consistent line icons; Kanban keyboard help opens on
+  demand. Plugin status, People links and portal controls are easier to scan.
+* Refined the wiki and hosting portal with a compact navigation shell, quieter
+  tables and lists, and divider-based settings sections. The Markdown editor
+  has a joined writing/preview surface and keeps its save actions in reach.
+* Page actions now share one menu, creation starts from the sidebar's New page button,
+  and uncommon editor commands have named menus. Administration links are
+  grouped by task; the feature list can be searched. Hosted wiki links distinguish
+  opening the wiki from managing it, with maintenance controls in disclosures.
+* Restored Customize, Settings and Sign out shortcuts in the topbar. Phones
+  keep a direct Customize icon and the account menu for the other actions.
+* Hosting account settings now have a section index. On the administrator
+  dashboard, account and invite creation forms open from their section headings.
+* Ordinary wiki and portal pages now share a 1120px content frame, with an
+  800px article reading measure and wider editor, board and canvas workspaces.
+  Forms, buttons and disclosures share their styling, labels and focus behavior;
+  settings and permission groups use dividers instead of nested cards.
+* Package installs use the same security dependency floors as server installs.
+  The speech extra installs from wheels and uses built-in language detection
+  unless an operator separately installs `langdetect`.
+* Container images use Debian 13, apply available system security updates
+  during the build, and omit Python package installers from the runtime image.
+
 ### Fixed
 
+* Speech conversion accepts only local MP3/PCM WAV inputs and the required audio
+  decoders, discards metadata and limits decoder/filter/encoder threads.
+  Oversized diagnostics and execution time stop and reap the encoder, preserving
+  ordinary MP3 generation and downloads at a different speed.
+* Managed backups retain the allowed SSH commit signers for signed updates.
+  Failed restores put back repository URLs, credentials and signer trust
+  together with the previous data and release.
+* An invalid Ctrl+S keeps the editor's unsaved-work warning. Changes to titles,
+  categories, summaries and feature fields also count as unsaved work.
+* Delayed preview and search replies cannot replace newer results or reopen
+  dismissed searches. Search errors retain navigation to the full results.
+  Repeated More clicks do not load duplicate rows, and reorder saves run in order.
+* The topbar theme switch saves the newly selected theme to display preferences;
+  rapid toggles save in order and the choice survives a reload.
+* Keyboard users can tab out of the Markdown editor and switch its mobile
+  writing/preview tabs with arrow keys. Visually hidden file inputs no longer
+  widen the editor, and stale sidebar searches cannot reappear after clearing.
+* Malformed URLs return validation errors instead of server errors; page
+  reservation API failures return their intended HTTP status.
+* Malformed bot-check tokens and API form nonces no longer cause server
+  errors. OAuth validates PKCE character sets and preserves valid Unicode
+  callback paths during authorization-code redemption.
+* Invalid Unicode CSRF tokens are rejected as bad requests. Concurrent first
+  downloads of legacy attachments restore complete files independently;
+  deleting a file during download preparation returns 404 instead of 500.
+* Runtime routing retries a failed Caddy reload, including after an agent
+  restart. Tenant tasks have bounded execution, clean up timed-out containers,
+  and serialize with container start and stop operations.
+* Stopped tenants keep their network reservation until Caddy acknowledges the
+  route removal, so a failed reload cannot send an old hostname to another
+  tenant after address reuse. Retired network cleanup survives agent restarts.
+* Archive and snapshot reads respect the observed file size and manifest
+  limits. Failed exports preserve existing backups, and rejected platform
+  restores leave running tenants untouched.
+* Container images normalize public application file permissions so restrictive
+  source checkout permissions do not prevent unprivileged startup.
+* Cancelling a portal restore stops its upload. Upload forms reject invalid
+  progress replies, prevent duplicate submissions and recover after failure.
 * Opening a hosted wiki no longer lands on the hosting portal. When Caddy
   has no route for a wiki's address (a hand-written Caddyfile, a server still
   on the 1.4 proxy setup, a container that has just restarted), the portal
@@ -25,6 +105,37 @@
 
 ### Security
 
+* Sign-in and password-protected account actions recheck the current credentials
+  and revocation state in their transaction. Administrator mutations and active
+  impersonation recheck current account authority, including hierarchy changes.
+* Hosting OAuth verification and account links reject suspended, pending and
+  denied accounts. Password changes revoke OAuth tokens and unused codes.
+* Markdown rendering bounds delimiter work, nesting and heading counts before
+  parsing. Pathological content remains readable as escaped source, including
+  malformed fences, repeated entities, escapes and generated line breaks.
+* Code fences accept only bounded display options. Authors cannot pass arbitrary
+  lexer or formatter arguments to Pygments. Automatic language detection uses
+  a short sample; code over 65,536 characters remains literal code without
+  syntax-highlighting amplification. Ordinary article formatting is preserved.
+* Tenant ZIP imports reject file/directory path collisions before writing staged
+  files. Storage walks honor their deadline within large directories.
+* Runtime-agent connections, task queues and subprocess output are bounded.
+  Inspection and execution share one deadline; timed-out or flooding tasks are
+  reaped, and stopped-tenant tasks retain an in-container deadline.
+* JSON limits apply before parsing and CSRF processing, including streams
+  without a content length. Sanitized images must still fit the upload budget;
+  final file publication serializes the storage quota check across workers.
+* Wiki and portal password verification reserve rate-limit allowance atomically.
+  Owner deletion, owner promotion and chat membership changes recheck current
+  authority inside the write transaction.
+* Direct-message and group uploads share an atomic daily allowance. Schema 5
+  adds a durable usage ledger so deleting messages or clearing conversations
+  cannot reset that allowance.
+* Outbound HTTP deadlines cover DNS, connection attempts, TLS and response
+  reads while preserving address pinning and certificate hostname validation.
+* Hosted third-party Python plugins are disabled by default. Operators may
+  explicitly enable trusted tenant code with `HOSTING_ALLOW_TENANT_PLUGINS=1`;
+  files and settings are preserved, and quarantine always disables that code.
 * Portal session cookie is `__Host-bwh_session` over HTTPS, so a wiki cannot
   plant a portal session (users sign in once more).
 * Administrators are changed only by owners and superusers everywhere: the

@@ -79,7 +79,7 @@
 {% call section('save_tts_policy', t('hosting.settings.tts')) %}
   {{ ui.check('global_tts_enabled', t('hosting.settings.tts_enabled'), s.global_tts_enabled) }}
   <div class="field"><label for="f-tm">{{ t('hosting.settings.tts_mode') }}</label><select id="f-tm" name="global_tts_mode">{% for m in ('all', 'whitelist', 'blacklist') %}<option value="{{ m }}"{% if s.global_tts_mode == m %} selected{% endif %}>{{ t('hosting.settings.tts_mode_' ~ m) }}</option>{% endfor %}</select></div>
-  <div class="field"><label for="f-tl">{{ t('hosting.settings.tts_list') }}</label><textarea id="f-tl" name="global_tts_list" rows="2">{{ s.global_tts_list }}</textarea></div>
+  {{ ui.textarea('global_tts_list', t('hosting.settings.tts_list'), s.global_tts_list, attrs={'rows': 2}, id='f-tl') }}
 {% endcall %}
 {% call section('save_tts_gpu', t('hosting.settings.tts_gpu')) %}
   {{ ui.check('global_tts_gpu_enabled', t('hosting.settings.tts_gpu_enabled'), s.global_tts_gpu_enabled) }}

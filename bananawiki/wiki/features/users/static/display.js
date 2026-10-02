@@ -7,11 +7,17 @@
   if (!node || !toggle || !window.BW) return;
   var config;
   try { config = JSON.parse(node.textContent || "{}"); } catch (e) { return; }
-  toggle.addEventListener("click", function () {
-    // The core handler has already switched data-theme when this runs.
-    var theme = document.documentElement.getAttribute("data-theme");
-    BW.fetchJSON(config.url, { method: "POST", body: { theme_mode: theme } }).catch(function () {
-      BW.toast(BW.t("error"), "error");
+  BW.onReady(function () {
+    // Register after the core's ready callback, so its theme switch runs first.
+    // Serialize saves so rapid toggles cannot persist an earlier choice last.
+    var saving = Promise.resolve();
+    toggle.addEventListener("click", function () {
+      var theme = document.documentElement.getAttribute("data-theme");
+      saving = saving.then(function () {
+        return BW.fetchJSON(config.url, { method: "POST", body: { theme_mode: theme } });
+      }).catch(function () {
+        BW.toast(BW.t("error"), "error");
+      });
     });
   });
 })();

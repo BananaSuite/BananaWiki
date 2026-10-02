@@ -153,6 +153,9 @@ def housekeeping(*, min_age_seconds: int = ORPHAN_MIN_AGE_SECONDS) -> dict[str, 
     """Erase leftovers of deleted messages and attachment files nothing refers to."""
     with db.transaction():
         files = store.purge_deleted(DM) + store.purge_deleted(GROUP)
+        # Usage needs to outlive its file, but only for the sliding daily
+        # window. Pruning shares the writer transaction used for uploads.
+        db.execute("DELETE FROM chat__upload_usage WHERE created_at < ?", (sql_in(days=-1),))
     orphans = _orphan_files(min_age_seconds)
     blobs = 0
     if orphans:

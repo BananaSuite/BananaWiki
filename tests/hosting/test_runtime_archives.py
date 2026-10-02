@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import sqlite3
 import stat
 import zipfile
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -59,6 +62,77 @@ def test_export_writes_the_unified_format(setup, tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM user_sessions").fetchone()[0] == 0, "sessions never travel"
     assert not list((root / ".bw-host").iterdir()), "the database copy is removed afterwards"
     assert agent.tasks()[-1] == "snapshot"
+
+
+def test_export_filename_collision_preserves_the_finished_archive(setup, tmp_path, monkeypatch):
+    from bananawiki.hosting.runtime import archives
+
+    runtime, _agent, spec, _root = setup
+    frozen = datetime(2026, 1, 1, tzinfo=UTC)
+    monkeypatch.setattr(archives, "datetime", SimpleNamespace(now=lambda _tz: frozen, fromtimestamp=datetime.fromtimestamp))
+    path = _export(runtime, spec, tmp_path)
+    original = path.read_bytes()
+    with pytest.raises(FileExistsError):
+        _export(runtime, spec, tmp_path)
+    assert path.read_bytes() == original
+
+
+def test_export_caps_tenant_files_at_the_size_observed_when_opened(setup, tmp_path):
+    from bananawiki.hosting.runtime import archives
+
+    runtime, _agent, _spec, root = setup
+    asset = root / "storage/uploads/growing.bin"
+    asset.write_bytes(b"original")
+    fd = os.open(asset, os.O_RDONLY)
+    info = os.fstat(fd)
+    with asset.open("ab") as output:
+        output.write(b"newly appended data")
+    path = tmp_path / "growing.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archives.write_fd(archive, fd, info, "uploads/growing.bin", runtime._cfg().archives)
+    with zipfile.ZipFile(path) as archive:
+        assert archive.read("uploads/growing.bin") == b"original"
+
+
+def test_export_refuses_a_tenant_file_that_shrank(setup, tmp_path):
+    from bananawiki.hosting.runtime import archives
+
+    runtime, _agent, _spec, root = setup
+    asset = root / "storage/uploads/shrinking.bin"
+    asset.write_bytes(b"original")
+    fd = os.open(asset, os.O_RDONLY)
+    info = os.fstat(fd)
+    asset.write_bytes(b"o")
+    with zipfile.ZipFile(tmp_path / "shrinking.zip", "w") as archive, pytest.raises(RuntimeFailure, match="shrank"):
+        archives.write_fd(archive, fd, info, "uploads/shrinking.bin", runtime._cfg().archives)
+
+
+@pytest.mark.parametrize("operation", ["copy_out", "copy_tree"])
+def test_host_copies_finish_at_the_observed_size_of_growing_tenant_files(setup, tmp_path, monkeypatch, operation):
+    from bananawiki.hosting.runtime import tenantfs
+
+    _runtime, _agent, _spec, root = setup
+    asset = root / "storage/uploads/growing.bin"
+    asset.write_bytes(b"A" * 100_000)
+    original_fstat = tenantfs.os.fstat
+    changed = []
+
+    def grow_after_check(fd):
+        info = original_fstat(fd)
+        if info.st_ino == asset.stat().st_ino:
+            changed.append(fd)
+            with asset.open("ab") as output:
+                output.write(b"B" * 100_000)
+        return info
+
+    monkeypatch.setattr(tenantfs.os, "fstat", grow_after_check)
+    if operation == "copy_out":
+        target = tmp_path / "copy.bin"
+        tenantfs.copy_out(root, "storage/uploads/growing.bin", target)
+    else:
+        tenantfs.copy_tree(root, "storage/uploads", tmp_path / "tree")
+        target = tmp_path / "tree/growing.bin"
+    assert changed and target.stat().st_size < asset.stat().st_size
 
 
 def test_export_import_round_trip(setup, tmp_path):
@@ -122,6 +196,17 @@ def _zip(tmp_path, members, name="bad.zip") -> Path:
     return path
 
 
+def _unsupported_zip(tmp_path, *, encrypted=False) -> Path:
+    path = _zip(tmp_path, [("bananawiki.db", b"database")])
+    raw = bytearray(path.read_bytes())
+    for signature, offset in ((b"PK\x03\x04", 6 if encrypted else 8),
+                              (b"PK\x01\x02", 8 if encrypted else 10)):
+        position = raw.index(signature) + offset
+        raw[position:position + 2] = (1 if encrypted else 99).to_bytes(2, "little")
+    path.write_bytes(raw)
+    return path
+
+
 def _symlink_zip(tmp_path) -> Path:
     path = tmp_path / "link.zip"
     with zipfile.ZipFile(path, "w") as archive:
@@ -138,7 +223,13 @@ def _symlink_zip(tmp_path) -> Path:
     (lambda t: _zip(t, [("uploads\\..\\x", b"x"), ("bananawiki.db", b"x")]), "archive_invalid"),
     (lambda t: _zip(t, [("uploads/a.png", b"x")]), "archive_invalid"),
     (_symlink_zip, "archive_invalid"),
+    (_unsupported_zip, "archive_invalid"),
+    (lambda t: _unsupported_zip(t, encrypted=True), "archive_invalid"),
     (lambda t: _zip(t, [("bananawiki.db", b"x"), ("storage/uploads/a", b"1"), ("uploads/a", b"2")]),
+     "archive_invalid"),
+    (lambda t: _zip(t, [("bananawiki.db", b"x"), ("uploads/folder", b"1"), ("uploads/folder/file", b"2")]),
+     "archive_invalid"),
+    (lambda t: _zip(t, [("bananawiki.db", b"x"), ("uploads/folder/file", b"2"), ("uploads/folder", b"1")]),
      "archive_invalid"),
     (lambda t: _zip(t, [("manifest.json", json.dumps({"format_version": 99})), ("bananawiki.db", b"x")]),
      "archive_invalid"),
@@ -167,6 +258,42 @@ def test_import_limits(tmp_path):
     with pytest.raises(RuntimeFailure) as error:
         runtime.import_archive(make_spec("big"), big)
     assert error.value.code == "too_large"
+
+
+@pytest.mark.parametrize("failure", [errno.ENOSPC, errno.EDQUOT])
+def test_import_storage_failures_are_reported_and_remove_staging(setup, tmp_path, monkeypatch, failure):
+    from bananawiki.hosting.runtime import archives
+
+    runtime, _agent, _spec, _root = setup
+    archive = _zip(tmp_path, [("bananawiki.db", b"database")])
+
+    def full(*_arguments):
+        raise OSError(failure, "storage full")
+
+    monkeypatch.setattr(archives.os, "fchmod", full)
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.import_archive(make_spec("target"), archive)
+    assert error.value.code == "no_space"
+    base = Path(runtime._cfg().instances_dir)
+    assert not (base / "target").exists()
+    assert not list(base.glob(".import-*"))
+
+
+def test_import_rejects_a_large_manifest_before_decompressing_it(setup, tmp_path, monkeypatch):
+    from bananawiki.hosting.runtime import archives
+
+    runtime, _agent, _spec, _root = setup
+    path = _zip(tmp_path, [("manifest.json", b" " * (archives.MAX_MANIFEST_BYTES + 1)), ("bananawiki.db", b"x")])
+    original_open = zipfile.ZipFile.open
+
+    def checked_open(self, name, *args, **kwargs):
+        assert getattr(name, "filename", name) != "manifest.json", "oversized manifests must never be decompressed"
+        return original_open(self, name, *args, **kwargs)
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", checked_open)
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.import_archive(make_spec("large-manifest"), path)
+    assert error.value.code == "archive_invalid"
 
 
 def test_import_refuses_databases_of_other_applications(setup, tmp_path):

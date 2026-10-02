@@ -108,7 +108,7 @@ def test_outbound_network_is_opt_in(tmp_path):
 
 
 def test_environment_maps_the_policy_and_keeps_portal_secrets_out(tmp_path):
-    runtime, _agent = make_runtime(tmp_path)
+    runtime, _agent = make_runtime(tmp_path, HOSTING_ALLOW_TENANT_PLUGINS="1")
     policy = TenantPolicy(
         easy_wiki=True, forbid_public_mode=False, storage_limit_bytes=5 * 1024 * 1024, upload_max_bytes=32 * 1024 ** 2,
         max_request_bytes=16 * 1024 ** 2, blocked_extensions=("exe", "bat"), expires_at="2027-01-01 00:00:00",
@@ -127,6 +127,20 @@ def test_environment_maps_the_policy_and_keeps_portal_secrets_out(tmp_path):
     assert all(key.startswith("BW_") for key in env)
     assert runtime._cfg().secret_key not in env.values()
     assert tenant_environment(make_spec(), runtime._cfg(), quarantined=True)["BW_ALLOW_EXTERNAL_PLUGINS"] == "0"
+
+
+def test_hosted_third_party_plugins_require_operator_opt_in(tmp_path):
+    runtime, agent = make_runtime(tmp_path)
+    spec = make_spec()
+    provision(runtime, spec)
+    assert agent.ops("tenant.start")[-1]["env"]["BW_ALLOW_EXTERNAL_PLUGINS"] == "0"
+    plugin_dir = Path(runtime._cfg().instances_dir) / spec.data_dir_name / "external_plugins" / "custom"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.py").write_text("# preserved on upgrade")
+    runtime._state(runtime._cfg(), spec).set_quarantine(True)
+    runtime.lift_plugin_quarantine(spec)
+    assert agent.ops("tenant.start")[-1]["env"]["BW_ALLOW_EXTERNAL_PLUGINS"] == "0"
+    assert (plugin_dir / "plugin.py").read_text() == "# preserved on upgrade"
 
 
 def test_stop_destroy_and_relocate(setup):
@@ -212,6 +226,18 @@ def test_usage_counts_files_without_following_links(setup, tmp_path):
     runtime._forget("acme")
     assert 100_000 <= runtime.usage(spec) - base < 200_000
     assert runtime.usage(make_spec("nothing")) == 0
+
+
+def test_usage_deadline_also_bounds_a_single_large_directory(tmp_path, monkeypatch):
+    from bananawiki.hosting.runtime import tenantfs
+
+    root = tmp_path / "tenant"
+    root.mkdir()
+    for number in range(6):
+        (root / str(number)).write_bytes(b"a" * 10)
+    ticks = iter(index / 4 for index in range(100))
+    monkeypatch.setattr(tenantfs.time, "monotonic", lambda: next(ticks))
+    assert tenantfs.usage(root, deadline_seconds=1) <= 20
 
 
 def test_logs_split_access_and_error_lines(setup):
@@ -385,8 +411,8 @@ def _add_plugin(runtime: AgentRuntime, plugin_id: str, *, builtin: int, folder: 
                      (plugin_id, plugin_id, builtin))
 
 
-def test_quarantine_disables_external_plugins_and_survives_restarts(setup):
-    runtime, agent = setup
+def test_quarantine_disables_external_plugins_and_survives_restarts(tmp_path):
+    runtime, agent = make_runtime(tmp_path, HOSTING_ALLOW_TENANT_PLUGINS="1")
     spec = make_spec()
     provision(runtime, spec)
     _add_plugin(runtime, "sneaky", builtin=1, folder=True)

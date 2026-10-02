@@ -9,7 +9,7 @@
     {{ forms.post_button(url_for('badges.admin_defaults'), t('badges.admin.defaults'), cls='btn') }}
   </div>
 </header>
-<div class="stack">
+<div class="section-stack">
 {% if badges %}
 <div class="table-wrap"><table class="table">
   <thead><tr><th>{{ t('common.name') }}</th><th>{{ t('badges.field.trigger') }}</th><th>{{ t('badges.admin.holders') }}</th><th>{{ t('common.status') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>

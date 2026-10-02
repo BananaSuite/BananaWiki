@@ -1,12 +1,13 @@
 {% extends "base.html" %}
+{% import "canvas/_icons.html" as icons %}
 {% block title %}{{ layout.title }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ asset_url('canvas.css', blueprint='canvas') }}">{% endblock %}
 {% block main_class %}main--wide canvas-main{% endblock %}
-{% macro tool(action, label, icon, cls='') -%}
-<button type="button" class="btn btn--small {{ cls }}" data-action="{{ action }}" title="{{ label }}" aria-label="{{ label }}"><span aria-hidden="true">{{ icon }}</span><span class="canvas-tool__label">{{ label }}</span></button>
+{% macro tool(action, label, cls='') -%}
+<button type="button" class="btn btn--small {{ cls }}" data-action="{{ action }}" title="{{ label }}" aria-label="{{ label }}">{{ icons.icon(action) }}<span class="canvas-tool__label">{{ label }}</span></button>
 {%- endmacro %}
-{% macro toggle(action, label, icon) -%}
-<button type="button" class="btn btn--small canvas-toggle" data-action="{{ action }}" aria-pressed="false" title="{{ label }}" aria-label="{{ label }}"><span aria-hidden="true">{{ icon }}</span></button>
+{% macro toggle(action, label) -%}
+<button type="button" class="btn btn--small canvas-toggle" data-action="{{ action }}" aria-pressed="false" title="{{ label }}" aria-label="{{ label }}">{{ icons.icon(action) }}</button>
 {%- endmacro %}
 {% macro menu_item(action, label, min=1) -%}
 <button type="button" class="canvas-menu__item" data-action="{{ action }}" data-min="{{ min }}">{{ label }}</button>
@@ -40,24 +41,24 @@
   <div class="canvas-toolbar no-print" role="toolbar" aria-label="{{ t('canvas.view.toolbar') }}">
     {% if can_edit %}
     <div class="canvas-toolbar__group">
-      {{ tool('add-text', t('canvas.node.text'), 'T', 'btn--primary') }}
-      {{ tool('add-shape', t('canvas.node.shape'), '◆') }}
-      {{ tool('add-code', t('canvas.node.code'), '{ }') }}
-      {{ tool('add-image', t('canvas.node.image'), '▣') }}
-      {{ tool('add-video', t('canvas.node.video'), '▶') }}
-      {{ tool('add-wiki_page', t('canvas.node.wiki_page'), '¶') }}
-      {{ tool('add-external_link', t('canvas.node.external_link'), '↗') }}
+      {{ tool('add-text', t('canvas.node.text'), 'btn--primary') }}
+      {{ tool('add-shape', t('canvas.node.shape')) }}
+      {{ tool('add-code', t('canvas.node.code')) }}
+      {{ tool('add-image', t('canvas.node.image')) }}
+      {{ tool('add-video', t('canvas.node.video')) }}
+      {{ tool('add-wiki_page', t('canvas.node.wiki_page')) }}
+      {{ tool('add-external_link', t('canvas.node.external_link')) }}
     </div>
     <div class="canvas-toolbar__group" data-needs-selection>
-      {{ tool('edit', t('canvas.action.edit'), '✎') }}
-      {{ tool('connect', t('canvas.action.connect'), '→') }}
-      {{ tool('duplicate', t('canvas.action.duplicate'), '⧉') }}
-      {{ tool('front', t('canvas.action.front'), '⤒') }}
-      {{ tool('back', t('canvas.action.back'), '⤓') }}
-      {{ tool('delete', t('canvas.action.delete'), '✕') }}
+      {{ tool('edit', t('canvas.action.edit')) }}
+      {{ tool('connect', t('canvas.action.connect')) }}
+      {{ tool('duplicate', t('canvas.action.duplicate')) }}
+      {{ tool('front', t('canvas.action.front')) }}
+      {{ tool('back', t('canvas.action.back')) }}
+      {{ tool('delete', t('canvas.action.delete')) }}
     </div>
     <div class="canvas-toolbar__group" data-needs-selection>
-      <details class="canvas-menu" data-arrange-menu>
+      <details class="menu canvas-menu" data-arrange-menu>
         <summary class="btn btn--small">{{ t('canvas.action.arrange') }}</summary>
         <div class="canvas-menu__panel" role="group" aria-label="{{ t('canvas.action.arrange') }}">
           <p class="canvas-menu__heading">{{ t('canvas.arrange.align') }}</p>
@@ -79,17 +80,17 @@
       </details>
     </div>
     <div class="canvas-toolbar__group">
-      {{ tool('undo', t('canvas.action.undo'), '↶') }}
-      {{ tool('redo', t('canvas.action.redo'), '↷') }}
-      {{ toggle('snap', t('canvas.action.snap'), '#') }}
+      {{ tool('undo', t('canvas.action.undo')) }}
+      {{ tool('redo', t('canvas.action.redo')) }}
+      {{ toggle('snap', t('canvas.action.snap')) }}
     </div>
     {% endif %}
     <div class="canvas-toolbar__group">
-      {{ tool('zoom-out', t('canvas.action.zoom_out'), '−') }}
-      {{ tool('zoom-in', t('canvas.action.zoom_in'), '+') }}
-      {{ tool('fit', t('canvas.action.fit'), '⤢') }}
-      {{ toggle('minimap', t('canvas.action.minimap'), '▦') }}
-      <details class="canvas-menu">
+      {{ tool('zoom-out', t('canvas.action.zoom_out')) }}
+      {{ tool('zoom-in', t('canvas.action.zoom_in')) }}
+      {{ tool('fit', t('canvas.action.fit')) }}
+      {{ toggle('minimap', t('canvas.action.minimap')) }}
+      <details class="menu canvas-menu">
         <summary class="btn btn--small">{{ t('canvas.action.image') }}</summary>
         <div class="canvas-menu__panel" role="group" aria-label="{{ t('canvas.action.image') }}">
           <button type="button" class="canvas-menu__item" data-action="export-png">{{ t('canvas.action.export_png') }}</button>
@@ -103,7 +104,7 @@
        aria-label="{{ t('canvas.view.stage_label', title=layout.title) }}" aria-describedby="canvas-keys">
     <canvas class="canvas-minimap no-print" data-minimap aria-hidden="true" width="200" height="140" hidden></canvas>
   </div>
-  <details class="canvas-keys no-print" id="canvas-keys">
+  <details class="disclosure canvas-keys no-print" id="canvas-keys">
     <summary>{{ t('canvas.keys.title') }}</summary>
     <ul class="small">
       <li>{{ t('canvas.keys.navigate') }}</li>

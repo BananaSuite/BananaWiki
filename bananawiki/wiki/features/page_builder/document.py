@@ -107,7 +107,10 @@ def _link(value: Any, *, required: bool) -> str:
         return ""
     if _CONTROL.search(url):
         raise DocumentError("page_builder.error.link")
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        raise DocumentError("page_builder.error.link") from None
     if parts.scheme in ("http", "https") and parts.netloc:
         return url
     if not parts.scheme and not parts.netloc and url.startswith("/") and not url.startswith("//"):
@@ -165,7 +168,10 @@ def youtube_url(value: Any, *, required: bool) -> str:
     url = _text(value, limit=2048, required=required)
     if not url:
         return ""
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        raise DocumentError("page_builder.error.youtube") from None
     host = (parts.hostname or "").lower()
     video_id = ""
     if parts.scheme in ("http", "https") and host in ("youtube.com", "www.youtube.com", "m.youtube.com"):

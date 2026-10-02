@@ -1,10 +1,10 @@
 {% set entries = attention_items() %}
+{% if entries %}
 <section class="card attention-card" aria-labelledby="attention-card-title">
   <div class="card__header">
     <h2 id="attention-card-title">{{ t('hosting.attention.title') }}</h2>
     <a class="btn btn--small" href="{{ url_for('admin.attention') }}">{{ t('hosting.attention.see_all') }}</a>
   </div>
-  {% if entries %}
   <ul class="attention-list">
     {% for entry in entries %}
     <li class="attention-list__item">
@@ -14,5 +14,8 @@
     </li>
     {% endfor %}
   </ul>
-  {% else %}<p class="muted">{{ t('hosting.attention.empty') }}</p>{% endif %}
 </section>
+{% else %}
+<div class="attention-empty"><p class="muted">{{ t('hosting.attention.empty') }}</p>
+  <a href="{{ url_for('admin.attention') }}">{{ t('hosting.attention.see_all') }}</a></div>
+{% endif %}

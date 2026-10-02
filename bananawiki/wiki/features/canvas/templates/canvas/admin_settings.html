@@ -3,7 +3,7 @@
 {% block title %}{{ t('canvas.admin.title') }}{% endblock %}
 {% block admin_content %}
 <header class="page-header"><h1>{{ t('canvas.admin.title') }}</h1></header>
-<form class="form card" method="post" action="{{ url_for('canvas.admin_settings') }}">
+<form class="form" method="post" action="{{ url_for('canvas.admin_settings') }}">
   {{ forms.csrf() }}
   {% set options = [] %}{% for value in choices %}{% set _ = options.append((value, t('canvas.admin.level.' ~ value))) %}{% endfor %}
   {{ forms.select('canvas_access', t('canvas.admin.access'), options, selected=current.canvas_access or 'admin', hint=t('canvas.admin.access_hint')) }}

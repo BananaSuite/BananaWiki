@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('badges.notifications.title') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('badges.css', blueprint='badges') }}">{% endblock %}
 {% block content %}
 <header class="page-header"><h1>{{ t('badges.notifications.title') }}</h1>
   <div class="page-header__actions"><a class="btn" href="{{ url_for('users.my_profile') }}">{{ t('users.nav.profile') }}</a></div></header>
 {% if items %}
-<ul class="stack" style="list-style:none;padding:0;margin:0">
+<ul class="badge-notices">
   {% for item in items %}
-  <li class="card"><strong><span aria-hidden="true">{{ item.icon }}</span> {{ item.name }}</strong>
+  <li><strong><span aria-hidden="true">{{ item.icon }}</span> {{ item.name }}</strong>
     {% if item.description %}<p>{{ item.description }}</p>{% endif %}
     <p class="small muted">{{ item.created_at|time_ago }}</p></li>
   {% endfor %}

@@ -1,6 +1,6 @@
 # Il tuo account
 
-Apri **Impostazioni** dal menu dell'account (in alto a destra).
+Apri **Impostazioni** in alto a destra. Sul telefono, usa il menu dell'account.
 
 ## Profilo
 
@@ -11,7 +11,8 @@ profilo** lo mostra come lo vedono gli altri.
 
 ## Preferenze di visualizzazione
 
-Le **Preferenze di visualizzazione** cambiano l'aspetto della wiki solo per
+Apri **Personalizza** nella barra superiore per le tue **Preferenze di
+visualizzazione**. Queste cambiano l'aspetto della wiki solo per
 te: tema chiaro o scuro, dimensione del testo, interlinea e spaziatura delle
 lettere, larghezza del contenuto e della barra laterale, contrasto, colori
 personali, un'immagine di sfondo, un carattere adatto alla dislessia, meno

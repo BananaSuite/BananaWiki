@@ -98,7 +98,7 @@
     {% if system.gpu_managed %}
     <p class="hint">{{ t('tts.admin.gpu_managed') }}</p>
     {% else %}
-    <details class="field"{% if values.tts_gpu_enabled %} open{% endif %}>
+    <details class="disclosure field"{% if values.tts_gpu_enabled %} open{% endif %}>
       <summary>{{ t('tts.admin.gpu') }}</summary>
       <p class="hint">{{ t('tts.admin.gpu_hint') }}</p>
       {% if system.gpu_from_env %}<p class="hint">{{ t('tts.admin.gpu_env') }}</p>{% endif %}

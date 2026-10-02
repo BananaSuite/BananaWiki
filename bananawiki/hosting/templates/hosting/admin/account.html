@@ -27,6 +27,7 @@
   {% if target.pending_deletion %}{{ ui.post(url_for('admin.cancel_deletion', account_id=target.id), t('hosting.admin.cancel_deletion')) }}{% endif %}
   <a class="btn btn--small btn--danger" href="{{ url_for('admin.delete_account', account_id=target.id) }}">{{ t('hosting.admin.delete_account') }}</a>
 </div></section>
+<div class="panel-list">
 <details class="card" id="panel-1" data-remember><summary>{{ t('hosting.admin.edit_account') }}</summary>
 <form method="post" action="{{ url_for('admin.edit_account', account_id=target.id) }}" class="form" autocomplete="off">{{ ui.csrf() }}
   {{ ui.field('new_username', t('hosting.field.username'), target.username) }}{{ ui.field('new_email', t('hosting.field.email'), target.email, type='email') }}
@@ -47,6 +48,7 @@
   {{ ui.check('notify_user', t('hosting.admin.notify_user'), checked=true) }}
   <p><button class="btn btn--small btn--danger" type="submit">{{ t('hosting.admin.schedule_deletion') }}</button></p></form></details>
 {% endif %}
+</div>
 {% endif %}
 <section class="card"><h2>{{ t('hosting.admin.instances') }}</h2><ul class="plain-list">{% for inst in owned %}<li><a href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ inst.subdomain }}</a> {{ ui.status(inst.status) }}</li>{% else %}<li class="muted">{{ t('hosting.common.none') }}</li>{% endfor %}</ul></section>
 <details class="card" id="panel-5" data-remember><summary>{{ t('hosting.admin.history') }}</summary><ul class="plain-list">

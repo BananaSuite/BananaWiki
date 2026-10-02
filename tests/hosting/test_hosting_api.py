@@ -116,3 +116,12 @@ def test_nonce_prevents_double_submission(web, make_account, login, query, api_o
     web.post("/account/api-tokens", data=data)
     web.post("/account/api-tokens", data=data)
     assert query("SELECT COUNT(*) AS n FROM hosting_api_tokens", one=True)["n"] == 1
+
+
+def test_unicode_form_nonce_is_rejected_without_creating_a_token(web, make_account, login, query, api_on):
+    login(web, make_account())
+    web.get("/account")
+    response = web.post("/account/api-tokens", data={"form_nonce": "é", "current_password": PASSWORD,
+                                                  "name": "invalid", "expires_in": "30", "scopes": "account:read"})
+    assert response.status_code == 302
+    assert query("SELECT COUNT(*) AS n FROM hosting_api_tokens", one=True)["n"] == 0

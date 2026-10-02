@@ -1,8 +1,8 @@
 {#- Category management forms. Context: category, page_count, parent_choices, move_targets, manage. -#}
 {% if manage.edit or manage.move or manage.sequential or manage.delete or manage.create %}
-<details class="card category-manage">
+<details class="disclosure category-manage">
   <summary><h2 class="h3" id="manage-{{ category.id }}">{{ t('pages.category.manage') }}</h2></summary>
-  <div class="stack">
+  <div class="section-stack">
   {% if manage.edit %}
   <form method="post" action="{{ url_for('pages.rename_category', category_id=category.id) }}" class="input-group">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -19,7 +19,7 @@
   </form>
   {% endif %}
   {% if manage.move %}
-  <form method="post" action="{{ url_for('pages.move_category', category_id=category.id) }}" class="input-group">
+  <form method="post" action="{{ url_for('pages.move_category', category_id=category.id) }}" class="inline-fields">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <select name="parent_id" aria-label="{{ t('pages.category.parent') }}">
       {% if manage.top_level %}<option value="">{{ t('pages.category.top_level') }}</option>{% endif %}

@@ -11,9 +11,43 @@ The upgrade is covered by an automated test (`tests/test_upgrade_from_1x.py`)
 that boots 1.6 on a real 1.4 instance and checks that users, sessions,
 tokens, content and files survive.
 
+The interface refresh keeps existing URLs, themes and display preferences.
+Hosting account settings have a section index, and administrators open the
+account and invite creation forms from their dashboard section headings.
+Secondary page actions are in **Page actions**, and new pages and categories
+start from **New** in the sidebar. The editor groups less common commands under
+**Formatting** and **Insert**; Tab moves to the next field. Administration links
+are grouped by task, and the feature list has a search field.
+These interface changes require no configuration or database changes.
+
+Managed backups now include the allowed SSH commit signers for required signed
+updates. Earlier packages may omit `config/repo.allowed_signers`; after restoring
+one, recover the operator's original trust file and configure
+`source set --require-signatures FILE` before updating. Failed restores now
+restore repository credentials and signer trust along with the previous data.
+
+The latest build upgrades databases at schema 3 or 4 to schema 5, with an
+automatic database backup first. The new chat upload ledger keeps the
+24-hour allowance consumed when a message or conversation is deleted.
+Retained uploads from the preceding 24 hours are counted during the upgrade;
+uploads deleted before the upgrade cannot be reconstructed.
+
+Hosted third-party Python plugins now require `HOSTING_ALLOW_TENANT_PLUGINS=1`
+in the operator's hosting environment. The default is disabled; existing
+plugin files and settings are kept, and built-in features are unaffected.
+Operators who trust their tenants' custom plugins must explicitly enable
+this setting and restart the portal and tenant containers. Quarantined wikis
+always keep external plugins disabled. Application storage limits still
+require filesystem quotas for a hard limit against tenant code.
+
+Container builds now use Debian 13 and apply available distribution updates.
+Runtime images omit `pip`, `setuptools`, `wheel`, and `ensurepip`; add custom
+dependencies during the image build. Rebuild your images to receive these
+changes. Instance data and existing plugin files remain in `/data`.
+
 ## Before you start
 
-1. **Your installation must be at database schema 3**, which every 1.4 release
+1. **Your 1.4 installation must be at database schema 3**, which every 1.4 release
    since the public release (`2d9ad2f`) writes. Check it:
 
    ```sh
@@ -159,7 +193,9 @@ restored with **Restore…**. See [docs/desktop.md](docs/desktop.md).
      leases) are added, plus indexes and a full-text search index;
    * each feature adds what it needs (for example the leaderboard's statistics
      table and the platform sign-in links).
-4. Every later start only reads the schema version.
+4. **Migration 4 → 5** adds the chat upload usage ledger and backfills the
+   preceding 24 hours of retained direct-message and group attachments.
+5. Every later start only reads the schema version.
 
 Tables of plugins that 1.6 no longer ships are left untouched. When you no
 longer need their data, `bananawiki db prune-retired` drops them after another
@@ -170,7 +206,7 @@ log names the problem. The `pre-upgrade` copy is there in any case.
 
 ## Going back to 1.4
 
-1.4 refuses a database at schema 4, so going back always means restoring the
+1.4 refuses a database at schema 4 or 5, so going back always means restoring the
 data from before the upgrade. **Changes made after the upgrade are lost.**
 
 * **Managed:** `sudo bananawiki rollback`. It restores the package the 1.4
@@ -270,7 +306,7 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   and upgraded, and saved as version 2 the next time the page is published).
   1.4 cannot open version 2 documents: this only matters if you carry pages
   back to 1.4 by hand instead of restoring the pre-upgrade backup (see
-  [Going back to 1.4](#going-back-to-1x)); their Markdown content stays
+  [Going back to 1.4](#going-back-to-14)); their Markdown content stays
   readable there. Custom pages made with the builder are stored as Markdown
   wiki pages plus a new `custom_pages.builder_json` column, so releases that
   do not know the builder show their Markdown version.

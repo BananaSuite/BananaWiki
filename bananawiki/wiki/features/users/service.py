@@ -58,12 +58,13 @@ def password_ok(user: dict[str, Any], password: str | None) -> bool:
     """
     limiter = SqlLimiter(db.session)
     key = f"user:{user['id']}"
-    if limiter.exceeded(key, "account:password", PASSWORD_CHECKS, PASSWORD_WINDOW):
+    reservation = limiter.reserve(key, "account:password", PASSWORD_CHECKS, PASSWORD_WINDOW)
+    if reservation is None:
         raise ProfileError("auth.error.too_many_attempts")
     password = password or ""
     if len(password) <= passwords.MAX_LENGTH and passwords.verify_password(user["password"], password):
+        limiter.release(reservation)
         return True
-    limiter.record(key, "account:password")
     return False
 
 
@@ -287,19 +288,20 @@ def delete_own_account(user: dict[str, Any], password: str | None) -> None:
         raise ProfileError("users.error.protected_account")
     if not password_ok(user, password):
         raise ProfileError("auth.error.current_password_wrong")
-    if user["role"] in ("admin", "owner") and not user.get("suspended") and active_admin_count() <= 1:
-        raise ProfileError("users.error.last_admin")
-    delete_account(user, deleted_by=user["id"])
+    delete_account(user, deleted_by=user["id"], protect_last_admin=True,
+                   protect_superuser=True, expected_password_hash=user["password"])
 
 
-def delete_account(user: dict[str, Any], *, deleted_by: str | None) -> None:
+def delete_account(user: dict[str, Any], *, deleted_by: str | None, protect_last_admin: bool = False,
+                   protect_superuser: bool = False, expected_password_hash: str | None = None) -> None:
     """Delete an account and the images only it referenced."""
     from . import preferences
 
     files = [(get_profile(user["id"]) or {}).get("avatar_filename"),
              preferences.stored(user).get("background_image")]
     try:
-        accounts.delete(user, deleted_by=deleted_by)
+        accounts.delete(user, deleted_by=deleted_by, protect_last_admin=protect_last_admin,
+                        protect_superuser=protect_superuser, expected_password_hash=expected_password_hash)
     except accounts.AccountError as error:
         raise ProfileError(error.key, **error.values) from error
     for name in files:
@@ -324,8 +326,14 @@ def set_owner_status(user: dict[str, Any], password: str | None) -> str:
         raise ProfileError("error.forbidden")
     if not password_ok(user, password):
         raise ProfileError("auth.error.current_password_wrong")
-    new_role = "owner" if user["role"] == "admin" else "admin"
     with db.transaction():
+        current = accounts.by_id(user["id"])
+        if current is None or not auth.is_admin(current) or auth.account_block(current):
+            raise ProfileError("error.forbidden")
+        if current["password"] != user["password"]:
+            raise ProfileError("auth.error.current_password_wrong")
+        user = current
+        new_role = "owner" if user["role"] == "admin" else "admin"
         if new_role == "owner" and not may_become_owner(user):
             raise ProfileError("users.error.owner_needs_owner")
         if new_role == "owner" and db.scalar("SELECT 1 FROM temp_roles WHERE user_id = ?", (user["id"],)):
@@ -358,9 +366,10 @@ def may_reactivate_self(user: dict[str, Any]) -> bool:
 
 def reactivate_self(user: dict[str, Any]) -> None:
     """Lift one's own suspension where :func:`may_reactivate_self` allows it."""
-    if not may_reactivate_self(user):
-        raise ProfileError("error.forbidden")
     with db.transaction():
+        current = accounts.by_id(user["id"])
+        if current is None or not may_reactivate_self(current) or current["password"] != user["password"]:
+            raise ProfileError("error.forbidden")
         db.execute(
             "UPDATE users SET suspended = 0, suspended_until = NULL, suspend_reason = NULL, "
             "suspend_reason_visible = 0, suspend_time_visible = 0 WHERE id = ?",

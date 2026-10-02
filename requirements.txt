@@ -25,6 +25,7 @@ qrcode>=7.4,<9
 
 # Security
 cryptography>=50.0.1,<51
+urllib3>=2.8,<3
 
 # Local text-to-speech (Piper; pulls onnxruntime). Language detection uses a
 # built-in heuristic: langdetect is published only as a source distribution,

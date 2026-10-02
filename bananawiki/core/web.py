@@ -48,7 +48,11 @@ def csrf_valid() -> bool:
             supplied = payload.get(CSRF_FORM_FIELD)
     if not supplied or not isinstance(supplied, str):
         return False
-    return hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8"))
+    try:
+        return hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8"))
+    except UnicodeEncodeError:
+        # JSON can carry an unpaired surrogate, which is not a valid token.
+        return False
 
 
 def csp_nonce() -> str:

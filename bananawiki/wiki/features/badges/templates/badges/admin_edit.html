@@ -6,7 +6,7 @@
   <h1><span aria-hidden="true">{{ badge.icon }}</span> {{ badge.name }}</h1>
   <div class="page-header__actions"><a class="btn" href="{{ url_for('badges.admin_list') }}">{{ t('common.back') }}</a></div>
 </header>
-<div class="stack">
+<div class="section-stack">
 <section class="card">
   <form method="post" class="form">
     {{ forms.csrf() }}
@@ -19,20 +19,20 @@
 </section>
 <section class="card">
   <h2>{{ t('badges.admin.award_title') }}</h2>
-  <form method="post" action="{{ url_for('badges.admin_award', badge_id=badge.id) }}" class="cluster">
+  <form method="post" action="{{ url_for('badges.admin_award', badge_id=badge.id) }}" class="inline-fields">
     {{ forms.csrf() }}
     <label for="award-username">{{ t('auth.field.username') }}</label>
     <input id="award-username" name="username" maxlength="50" required>
     <button class="btn btn--primary btn--small" type="submit">{{ t('badges.admin.award') }}</button>
   </form>
-  <form method="post" action="{{ url_for('badges.admin_revoke', badge_id=badge.id) }}" class="cluster users-spaced">
+  <form method="post" action="{{ url_for('badges.admin_revoke', badge_id=badge.id) }}" class="inline-fields users-spaced">
     {{ forms.csrf() }}
     <label for="revoke-username">{{ t('auth.field.username') }}</label>
     <input id="revoke-username" name="username" maxlength="50" required>
     <label class="check"><input type="checkbox" name="permanent" value="1"> <span>{{ t('badges.admin.permanent') }}</span></label>
     <button class="btn btn--small" type="submit">{{ t('badges.admin.revoke') }}</button>
   </form>
-  <form method="post" action="{{ url_for('badges.admin_revoke_all', badge_id=badge.id) }}" class="cluster users-spaced" data-confirm="{{ t('badges.admin.revoke_all_confirm') }}">
+  <form method="post" action="{{ url_for('badges.admin_revoke_all', badge_id=badge.id) }}" class="inline-fields users-spaced" data-confirm="{{ t('badges.admin.revoke_all_confirm') }}">
     {{ forms.csrf() }}
     <label class="check"><input type="checkbox" name="permanent" value="1"> <span>{{ t('badges.admin.permanent') }}</span></label>
     <button class="btn btn--small btn--danger" type="submit">{{ t('badges.admin.revoke_all') }}</button>

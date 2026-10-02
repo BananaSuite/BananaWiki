@@ -15,6 +15,7 @@ from typing import Any
 from flask import (
     Flask,
     Response,
+    abort,
     g,
     jsonify,
     redirect,
@@ -30,6 +31,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .. import __version__
 from ..core import web
+from ..core.assets import SharedAssetsFlask
 from ..core.i18n import Catalog
 from ..core.ratelimit import MemoryLimiter
 from ..core.sqlite import Database, DatabaseUnavailable, is_unavailable
@@ -161,7 +163,7 @@ def create_app(config: Config | None = None, **overrides: Any) -> Flask:
     _configure_logging(cfg)
     _apply_resource_limits(cfg)
 
-    app = Flask(
+    app = SharedAssetsFlask(
         "bananawiki.wiki",
         root_path=str(PACKAGE_ROOT),
         template_folder="templates",
@@ -257,6 +259,26 @@ def _view() -> Any:
 
 
 def _install_request_pipeline(app: Flask, cfg: Config) -> None:
+    @app.before_request
+    def _limit_json_body():
+        # CSRF may parse JSON before the authentication pipeline. Bound that
+        # read as well as endpoint reads, including chunked request streams.
+        if request.is_json:
+            limit = min(app.config["MAX_CONTENT_LENGTH"], MAX_JSON_BYTES)
+            request.max_content_length = limit
+            if request.content_length is not None and request.content_length > limit:
+                abort(413)
+            if request.content_length is None or request.environ.get("wsgi.input_terminated"):
+                # LimitedStream may return a truncated body at its boundary.
+                # Read at most one extra byte, then cache only an allowed body,
+                # so oversized JSON answers 413 before it reaches the decoder.
+                request.max_content_length = limit + 1
+                try:
+                    if len(request.get_data()) > limit:
+                        abort(413)
+                finally:
+                    request.max_content_length = limit
+
     def bearer_request() -> bool:
         # Only the token API authenticates bearer calls itself; every other
         # /api/ view relies on the session and the gates below.
@@ -282,9 +304,6 @@ def _install_request_pipeline(app: Flask, cfg: Config) -> None:
         limiter: MemoryLimiter = app.extensions["bananawiki.limiter"]
         if not limiter.hit(f"g:{web.client_ip()}", GLOBAL_RATE_LIMIT, 60):
             return _too_many_requests()
-
-        if request.is_json and (request.content_length or 0) > MAX_JSON_BYTES:
-            return jsonify({"error": "Request body too large."}), 413
 
         if bearer_request():
             return None  # the API authenticates and authorises bearer tokens itself

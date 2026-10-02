@@ -245,6 +245,28 @@ def test_reserve_and_release_routes(client, login, people, page):
     assert client.get("/reservations").status_code == 200
 
 
+@pytest.mark.parametrize("method, suffix", [("get", "/status"), ("post", ""), ("delete", "")])
+@pytest.mark.parametrize("case, status", [("disabled", 403), ("missing", 404), ("home", 400), ("readonly", 403)])
+def test_reservation_api_errors_have_correct_status(app, client, login, people, page, db, method, suffix,
+                                                  case, status):
+    login(client, people["ed1"])
+    page_id = page["id"]
+    if case == "disabled":
+        set_settings(app, page_reservations_enabled=0)
+    elif case == "missing":
+        page_id = 999999
+    elif case == "home":
+        page_id = db.scalar("SELECT id FROM pages WHERE is_home = 1")
+    elif case == "readonly":
+        from .pages_support import restrict
+
+        restrict(db, people["ed1"], keys={"page.view", "page.view_deindexed"})
+    response = getattr(client, method)(f"/api/pages/{page_id}/reservation{suffix}")
+    assert response.status_code == status
+    assert response.json["error"]
+    assert db.scalar("SELECT COUNT(*) FROM page_reservations") == 0
+
+
 def test_routes_refuse_readers_and_hidden_pages(client, login, people, page, db):
     login(client, people["reader"])
     assert client.post(f"/page/{page['slug']}/reserve").status_code == 403

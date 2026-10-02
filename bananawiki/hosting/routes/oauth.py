@@ -90,7 +90,7 @@ def authorize():
     inst = oauth.instance_for_client(client_id)
     if args.get("response_type") != "code" or inst is None or not oauth.redirect_allowed(inst, redirect_uri):
         abort(400)
-    if challenge and (method != "S256" or not 43 <= len(challenge) <= 128):
+    if challenge and (method != "S256" or not oauth.valid_pkce_challenge(challenge)):
         abort(400)
     current = auth.current_account()
     if current is None:
@@ -165,6 +165,11 @@ def verify():
     row, refusal = _bearer()
     if row is None:
         return refusal
+    account = accounts.get(row["account_id"])
+    if account is None or account["deleted_at"]:
+        return jsonify({"error": "account_not_found"}), 404
+    if not oauth.account_may_sign_in(account):
+        return jsonify({"error": "account_suspended"}), 403
     return jsonify({"active": True, "sub": row["account_id"], "client_id": row["client_id"],
                     "exp": row["expires_at"], "scope": row["scope"]})
 
@@ -204,9 +209,9 @@ def link():
         str(data.get("account_id") or "").strip()
     if not account_id or not wiki_user_id:
         return _json_error(400, "missing_parameters")
-    if not oauth.account_authorized_client(account_id, inst["oauth_client_id"]):
-        return _json_error(403, "account_not_authorized")
     with db.transaction():
+        if not oauth.account_authorized_client(account_id, inst["oauth_client_id"]):
+            return _json_error(403, "account_not_authorized")
         if db.scalar("SELECT 1 FROM hosting_oauth_account_links WHERE instance_id = ? AND account_id = ?",
                      (inst["id"], account_id)):
             return _json_error(409, "This hosting account is already linked to another wiki user on this instance.")

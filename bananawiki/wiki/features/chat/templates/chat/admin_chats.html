@@ -5,9 +5,11 @@
 <header class="page-header"><h1>{{ t('chat.admin.title') }}</h1></header>
 {% with tab='dm' %}{% include "chat/_admin_tabs.html" %}{% endwith %}
 <p class="muted small">{{ t('chat.admin.privacy_note') }}</p>
-<form class="cluster" method="get" action="{{ url_for('chat.admin_chats') }}">
-  <label for="filter-user">{{ t('chat.admin.filter_user') }}</label>
-  <input id="filter-user" name="user" value="{{ username }}" maxlength="50">
+<form class="inline-fields" method="get" action="{{ url_for('chat.admin_chats') }}">
+  <div class="field">
+    <label for="filter-user">{{ t('chat.admin.filter_user') }}</label>
+    <input id="filter-user" name="user" value="{{ username }}" maxlength="50">
+  </div>
   <button class="btn btn--small" type="submit">{{ t('common.search') }}</button>
   {% if username %}<a class="btn btn--small btn--ghost" href="{{ url_for('chat.admin_chats') }}">{{ t('common.all') }}</a>{% endif %}
 </form>

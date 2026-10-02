@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
-import os
 import re
 from datetime import datetime
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -17,6 +14,7 @@ from markupsafe import Markup, escape
 
 from .. import __version__
 from ..core import web
+from ..core.assets import asset_url
 from ..core.timeutil import parse, utcnow
 from . import attention, auth, i18n, registry, settings
 from .markdown import render as render_markdown
@@ -93,24 +91,6 @@ def human_bytes(value: Any) -> str:
             return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} GB"
-
-
-@lru_cache(maxsize=512)
-def _file_hash(path: str, mtime: float) -> str:
-    with open(path, "rb") as handle:
-        return hashlib.sha256(handle.read()).hexdigest()[:10]
-
-
-def asset_url(filename: str, *, blueprint: str | None = None) -> str:
-    """Static URL with a content hash, so browsers can cache assets forever."""
-    endpoint = f"{blueprint}.static" if blueprint else "static"
-    folder = current_app.blueprints[blueprint].static_folder if blueprint else current_app.static_folder
-    path = os.path.join(folder or "", filename)
-    try:
-        version = _file_hash(path, os.path.getmtime(path))
-    except OSError:
-        version = __version__
-    return url_for(endpoint, filename=filename, v=version)
 
 
 def favicon_url() -> str:

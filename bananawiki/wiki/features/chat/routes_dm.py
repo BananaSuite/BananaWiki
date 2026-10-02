@@ -141,6 +141,10 @@ def dm_send(chat_id: int):
         return refused(error, back)
     try:
         message_id = dms.send(chat, user["id"], content, ip_address=client_ip(), stored=stored)
+    except store.AttachmentLimitExceeded as error:
+        if stored is not None:
+            storage.delete(store.FOLDER, stored.filename)
+        return refused(Refused("chat.error.daily_limit", 429, limit=error.limit), back)
     except BaseException:
         if stored is not None:
             storage.delete(store.FOLDER, stored.filename)

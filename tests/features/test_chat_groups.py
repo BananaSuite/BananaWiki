@@ -50,6 +50,22 @@ def test_create_validation(client, login, people, db):
     assert client.post("/groups/new", data={"name": "ok"}, headers=JSON).status_code == 403
 
 
+@pytest.mark.parametrize("target", ["/\\evil.example/path", "//evil.example/path", "https://evil.example/path"])
+def test_group_badge_redirect_refuses_external_targets(client, group, db, target):
+    set_settings(db, profile_group_badges_enabled=1)
+    response = client.post("/settings/group-badges", data={"group_id": group, "visible": "1", "next": target})
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/groups"
+    assert db.scalar("SELECT visible FROM profile_group_badges WHERE group_id = ?", (group,)) == 1
+
+
+def test_group_badge_redirect_keeps_local_target(client, group, db):
+    set_settings(db, profile_group_badges_enabled=1)
+    response = client.post("/settings/group-badges", data={"group_id": group, "visible": "1",
+                                                          "next": "/settings#groups"})
+    assert response.headers["Location"] == "/settings#groups"
+
+
 def test_join_by_code_and_rate_limit(client, login, group, people, db):
     code = db.scalar("SELECT invite_code FROM group_chats WHERE id = ?", (group,))
     assert len(code) >= 10
@@ -221,6 +237,23 @@ def test_global_room(client, login, people, admin, db):
     assert post(client, global_id, "toggle_active").json["ok"]
     switch(client, login, people["outsider"])
     assert send(client, f"/groups/{global_id}/send", "paused?").status_code == 403
+
+
+def test_global_room_owner_role_does_not_grant_site_admin_powers(client, login, people, admin, db):
+    global_id = db.scalar("SELECT id FROM group_chats WHERE is_global = 1")
+    login(client, people["member"])
+    client.post("/groups/global")
+    message = send(client, f"/groups/{global_id}/send", "global message").json["message_id"]
+    switch(client, login, admin)
+    assert post(client, global_id, "admin_takeover").status_code == 200
+    # A former site administrator keeps their membership, but the global
+    # room still reserves moderation and management for current admins.
+    db.execute("UPDATE users SET role = 'user' WHERE id = ?", (admin["id"],))
+    assert post(client, global_id, "members/add", username="outsider").status_code == 403
+    assert post(client, global_id, "clear").status_code == 403
+    assert post(client, global_id, "regenerate_code").status_code == 403
+    assert post(client, global_id, "delete_message", message_id=message).status_code == 403
+    assert db.scalar("SELECT is_deleted FROM group_messages WHERE id = ?", (message,)) == 0
 
 
 def test_admin_takeover_and_admin_pages(client, login, group, people, admin, db):

@@ -7,7 +7,7 @@
   <h1>{{ t('attention.title') }}</h1>
   {% if total %}<p class="muted">{{ m.plural('attention.summary', total) }}</p>{% endif %}
 </header>
-<div class="stack">
+<div class="section-stack">
   <section class="card" aria-labelledby="queues-title">
     <div class="card__header"><h2 id="queues-title">{{ t('attention.queues') }}</h2></div>
     {% if entries %}

@@ -88,8 +88,8 @@
       {% if chosen %}<span class="badge badge--success">{{ t('site_admin.favicon.in_use') }}</span>
       {% else %}{{ forms.post_button(url_for('site_admin.favicon_select'), t('site_admin.favicon.use'), 'btn btn--small', hidden={'favicon_type': 'custom', 'favicon_custom': name}) }}{% endif %}
       <span class="cluster">
-        {% if not loop.first %}{{ forms.post_button(url_for('site_admin.favicon_reorder'), '↑', 'btn btn--small btn--ghost', hidden={'filename': name, 'direction': 'up'}) }}{% endif %}
-        {% if not loop.last %}{{ forms.post_button(url_for('site_admin.favicon_reorder'), '↓', 'btn btn--small btn--ghost', hidden={'filename': name, 'direction': 'down'}) }}{% endif %}
+        {% if not loop.first %}{{ forms.post_button(url_for('site_admin.favicon_reorder'), '↑', 'btn btn--small btn--ghost', hidden={'filename': name, 'direction': 'up'}, attrs={'aria-label': t('pages.order.up', name=t('site_admin.favicon.custom', number=loop.index))}) }}{% endif %}
+        {% if not loop.last %}{{ forms.post_button(url_for('site_admin.favicon_reorder'), '↓', 'btn btn--small btn--ghost', hidden={'filename': name, 'direction': 'down'}, attrs={'aria-label': t('pages.order.down', name=t('site_admin.favicon.custom', number=loop.index))}) }}{% endif %}
         {{ forms.post_button(url_for('site_admin.favicon_delete'), t('common.delete'), 'btn btn--small btn--danger', confirm=t('site_admin.favicon.delete_confirm'), hidden={'filename': name}) }}
       </span>
     </li>

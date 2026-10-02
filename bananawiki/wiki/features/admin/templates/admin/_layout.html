@@ -12,23 +12,53 @@
 <link rel="stylesheet" href="{{ asset_url('admin.css', blueprint='admin') }}">
 {% block admin_head %}{% endblock %}
 {% endblock %}
-{% block main_class %}main--wide{% endblock %}
 {% block content %}
 {% set admin_menu = nav_items('admin') %}
+{% set groups = namespace(overview=[], people=[], wiki=[], content=[], system=[], extensions=[]) %}
+{% for item in admin_menu %}
+  {% set feature_id = item.id.split(':')[0] %}
+  {% if item.id == 'admin:admin.dashboard' %}
+    {% set groups.overview = groups.overview + [item] %}
+  {% elif feature_id in ['admin', 'users', 'user_profiles', 'badges', 'temporary_accounts'] %}
+    {% set groups.people = groups.people + [item] %}
+  {% elif item.id in ['site_admin:site_admin.migration_page', 'site_admin:site_admin.server_page'] or feature_id in ['audit', 'api_service', 'federation'] %}
+    {% set groups.system = groups.system + [item] %}
+  {% elif feature_id in ['site_admin', 'attention', 'plugin_manager'] %}
+    {% set groups.wiki = groups.wiki + [item] %}
+  {% elif feature_id in ['assessments', 'announcements', 'bulk_manage', 'custom_pages', 'chat', 'canvas', 'deletion_slowdown', 'page_export', 'page_governance', 'page_builder', 'tts', 'contributions'] %}
+    {% set groups.content = groups.content + [item] %}
+  {% else %}
+    {% set groups.extensions = groups.extensions + [item] %}
+  {% endif %}
+{% endfor %}
+{% macro admin_links(items) -%}
+<ul class="nav-list">
+  {% for item in items %}
+  <li><a href="{{ item.url }}"{% if item.active %} aria-current="page"{% endif %}>
+    <span class="nav-label">{{ item.label }}</span>{% if item.badge %}<span class="count-pill">{{ item.badge }}</span>{% endif %}
+  </a></li>
+  {% endfor %}
+</ul>
+{%- endmacro %}
 <div class="admin-shell{% if not admin_menu %} admin-shell--single{% endif %}">
   {% if admin_menu %}
   <nav class="admin-nav" aria-label="{{ t('admin.nav.label') }}">
-    <p class="sidebar__section-title">{{ t('admin.nav.label') }}</p>
-    <ul class="nav-list">
-      {% for item in admin_menu %}
-      <li><a href="{{ item.url }}"{% if item.active %} aria-current="page"{% endif %}>
-        <span class="nav-label">{{ item.label }}</span>{% if item.badge %}<span class="count-pill">{{ item.badge }}</span>{% endif %}
-      </a></li>
-      {% endfor %}
-    </ul>
+    <details class="admin-nav__menu" data-admin-nav open>
+      <summary>{{ t('admin.nav.label') }}{% for item in admin_menu if item.active %}<span class="admin-nav__current">{{ item.label }}</span>{% endfor %}</summary>
+      <div class="admin-nav__links">
+        <p class="sidebar__section-title">{{ t('admin.nav.label') }}</p>
+        {{ admin_links(groups.overview) }}
+        {% for name, items in [('people', groups.people), ('wiki', groups.wiki), ('content', groups.content), ('system', groups.system), ('extensions', groups.extensions)] if items %}
+        <details class="admin-nav__group"{% if items|selectattr('active')|list %} open{% endif %}>
+          <summary>{{ t('admin.nav.group.' ~ name) }}{% set count = items|sum(attribute='badge') %}{% if count %}<span class="count-pill">{{ count }}</span>{% endif %}</summary>
+          {{ admin_links(items) }}
+        </details>
+        {% endfor %}
+      </div>
+    </details>
   </nav>
   {% endif %}
-  <div class="admin-main">
+  <div class="admin-main section-stack">
     {% block admin_content %}{% endblock %}
   </div>
 </div>

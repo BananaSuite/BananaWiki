@@ -1,6 +1,7 @@
+<link rel="stylesheet" href="{{ asset_url('badges.css', blueprint='badges') }}">
 <section class="card" aria-labelledby="badges-heading">
   <h2 id="badges-heading">{{ t('badges.profile.title') }}</h2>
-  <ul class="cluster" style="list-style:none;padding:0;margin:0">
+  <ul class="cluster badge-awards">
     {% for badge in badges %}
     <li class="badge" style="border:1px solid {{ badge.color }}" title="{{ badge.description }}">
       <span aria-hidden="true">{{ badge.icon }}</span> {{ badge.name }}{% if badge.times > 1 %} ×{{ badge.times }}{% endif %}

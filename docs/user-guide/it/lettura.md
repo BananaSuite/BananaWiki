@@ -22,7 +22,7 @@ dell'account.
   scrivi; spunta *Cerca anche nel testo* per cercare anche nel contenuto.
 * **Home** è la pagina iniziale della wiki. **Tutte le pagine**
   (`/navigation`) mostra l'albero completo.
-* **App** nella barra in alto apre gli strumenti attivati nella tua wiki:
+* **App** in fondo alla barra laterale elenca gli strumenti attivati nella tua wiki:
   bacheche kanban, canvas, messaggi, gruppi, persone, classifica.
 * Il pulsante del **tema** passa dal tema chiaro a quello scuro.
 
@@ -52,7 +52,7 @@ ultimo. Le pagine lunghe hanno un **Indice** dei loro titoli. Le categorie con
 *navigazione sequenziale* mostrano in fondo i collegamenti alla pagina
 precedente e successiva, comodi per corsi e tutorial.
 
-Il menu **Altro** contiene, secondo i tuoi permessi: **Cronologia**,
+Il menu **Azioni pagina** contiene, secondo i tuoi permessi: **Cronologia**,
 **Stampa**, esportazione in PDF o Markdown e le azioni per gli editor. Sotto la
 pagina puoi trovare allegati da scaricare, un quiz e il lettore audio.
 

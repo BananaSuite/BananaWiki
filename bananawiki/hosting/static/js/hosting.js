@@ -16,6 +16,13 @@
         if (event.key === "Escape" && nav.classList.contains("is-open")) {
           nav.classList.remove("is-open");
           navToggle.setAttribute("aria-expanded", "false");
+          navToggle.focus();
+        }
+      });
+      document.addEventListener("click", function (event) {
+        if (!nav.contains(event.target) && !navToggle.contains(event.target)) {
+          nav.classList.remove("is-open");
+          navToggle.setAttribute("aria-expanded", "false");
         }
       });
     }
@@ -42,6 +49,27 @@
       });
     });
 
+    // Following a section link also opens a collapsed section containing it.
+    function revealSection(hash) {
+      hash = typeof hash === "string" ? hash : location.hash;
+      if (!hash) return;
+      var target;
+      try { target = document.getElementById(decodeURIComponent(hash.slice(1))); } catch (e) { return; }
+      if (!target) return;
+      var parent = target;
+      while (parent) {
+        if (parent.tagName === "DETAILS") parent.open = true;
+        parent = parent.parentElement;
+      }
+    }
+    revealSection();
+    window.addEventListener("hashchange", revealSection);
+    document.querySelectorAll('.account-index a[href^="#"]').forEach(function (link) {
+      link.addEventListener("click", function () {
+        revealSection(link.getAttribute("href"));
+      });
+    });
+
     document.querySelectorAll("[data-banner-id]").forEach(function (banner) {
       var key = "bwh-banner-" + banner.getAttribute("data-banner-id") + "-" + banner.getAttribute("data-banner-revision");
       try { if (localStorage.getItem(key) === "1") { banner.remove(); return; } } catch (e) { /* storage off */ }
@@ -56,9 +84,11 @@
 
     document.querySelectorAll("form[data-chunked-upload]").forEach(function (form) {
       form.addEventListener("submit", function (event) {
+        if (event.defaultPrevented) return;
         var input = form.querySelector("input[type=file]");
         if (!input || !input.files || !input.files.length || !window.fetch) return;
         event.preventDefault();
+        if (form.getAttribute("aria-busy") === "true") return;
         upload(form, input.files[0]);
       });
     });
@@ -70,6 +100,10 @@
 
   function upload(form, file) {
     var status = form.querySelector("[data-upload-status]");
+    var buttons = Array.from(form.querySelectorAll("button[type=submit], button:not([type]), input[type=submit]"));
+    var disabled = buttons.map(function (button) { return button.disabled; });
+    form.setAttribute("aria-busy", "true");
+    buttons.forEach(function (button) { button.disabled = true; });
     var base = form.getAttribute("data-chunked-upload");
     var start = new FormData(form);
     start.delete(form.querySelector("input[type=file]").name);
@@ -78,12 +112,18 @@
     function say(text) { if (status) status.textContent = text; }
     post(base + "/start", start).then(function (answer) {
       var id = answer.upload_id, size = answer.chunk_size, offset = 0;
+      if (typeof id !== "string" || !id || !Number.isSafeInteger(size) || size <= 0) {
+        throw new Error(BW.t("upload_failed"));
+      }
       function next() {
         if (offset >= file.size) return post(base + "/" + id + "/complete", new FormData());
         var data = new FormData();
         data.set("offset", String(offset));
         data.set("chunk", file.slice(offset, offset + size), "chunk");
         return post(base + "/" + id, data).then(function (reply) {
+          if (!Number.isSafeInteger(reply.received) || reply.received <= offset || reply.received > file.size) {
+            throw new Error(BW.t("upload_failed"));
+          }
           offset = reply.received;
           say(BW.t("upload_progress", { percent: Math.floor(offset * 100 / file.size) }));
           return next();
@@ -95,6 +135,9 @@
       if (done.redirect) window.location.assign(done.redirect);
     }).catch(function (error) {
       say(error.message || BW.t("upload_failed"));
+    }).finally(function () {
+      form.removeAttribute("aria-busy");
+      buttons.forEach(function (button, index) { button.disabled = disabled[index]; });
     });
   }
 })();

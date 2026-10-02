@@ -43,6 +43,8 @@
   "users.display.letter_spacing": "Spaziatura delle lettere",
   "users.display.line_spacing": "Interlinea",
   "users.display.maximum": "Massimo",
+  "users.display.more_options": "Altre opzioni di visualizzazione",
+  "users.display.more_options_hint": "Colori, enfasi del testo e larghezza delle pagine.",
   "users.display.normal": "Normale",
   "users.display.off": "Disattivato",
   "users.display.pixels_hint": "In pixel; lascia vuoto per il valore predefinito.",

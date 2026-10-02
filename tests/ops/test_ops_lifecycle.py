@@ -124,6 +124,47 @@ def test_failed_readiness_rolls_back_data_and_release(managed_root, fake_system,
     assert manager.update(automatic=True)["outcome"] == "paused"
 
 
+def test_portable_backup_preserves_update_trust(managed_root, fake_system, upstream, legacy, tmp_path):
+    manager = Manager(managed_root, system=fake_system)
+    signers = tmp_path / "allowed_signers"
+    signers.write_text('fixture@example.invalid ssh-ed25519 fixture-public-key\n')
+    manager.configure_source(signers_file=signers)
+    package = manager.backup()
+    restored = Manager(tmp_path / "restored", system=FakeSystem(tmp_path / "restored-host"))
+    restored.restore(package, new=True)
+    assert restored.source()["signing"] == "ssh"
+    trust = restored.config_dir / "repo.allowed_signers"
+    assert trust.read_text() == signers.read_text()
+    assert trust.stat().st_mode & 0o777 == 0o600
+    assert restored.policy()["enabled"] is False
+
+
+def test_failed_restore_rolls_back_repository_credentials_and_update_trust(
+        managed_root, fake_system, upstream, legacy, tmp_path):
+    manager = Manager(managed_root, system=fake_system)
+    signers = tmp_path / "allowed_signers"
+    signers.write_text('old@example.invalid ssh-ed25519 old-public-key\n')
+    manager.configure_source(signers_file=signers)
+    package = manager.backup()
+    manager.configure_source(clear_signatures=True)
+    live = upstream.commit("new release")
+    manager.update()
+    signers.write_text('live@example.invalid ssh-ed25519 live-public-key\n')
+    token = tmp_path / "token"
+    token.write_text("fixture-live-repository-token")
+    manager.configure_source(url="https://example.invalid/live.git", branch="live",
+                             token_file=token, signers_file=signers)
+    configuration = manager.source()
+    fake_system.unhealthy_revisions.add(legacy)
+    with pytest.raises(RuntimeError, match="readiness"):
+        manager.restore(package)
+    assert manager.settings()["revision"] == live
+    assert manager.source() == configuration
+    assert (manager.config_dir / "repo.token").read_text().strip() == token.read_text()
+    assert (manager.config_dir / "repo.allowed_signers").read_text() == signers.read_text()
+    assert not (manager.config_dir / "transaction.json").exists()
+
+
 def test_divergent_history_pauses(managed_root, fake_system, upstream, legacy):
     upstream.orphan("unrelated history")
     manager = Manager(managed_root, system=fake_system)

@@ -40,6 +40,9 @@ _REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
 # RFC 6598 shared address space (carrier-grade NAT, Tailscale): neither global nor "private" to ipaddress.
 _SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
 _DROPPED_HEADERS = frozenset({"host", "connection", "proxy-authorization", "content-length", "transfer-encoding"})
+# System DNS APIs cannot be interrupted portably. Bound both the request's
+# wait and the number of outstanding resolver threads if DNS itself stalls.
+_DNS_SLOTS = threading.BoundedSemaphore(8)
 
 Resolver = Callable[[str, int], list[tuple]]
 
@@ -88,13 +91,18 @@ def check_url(url: str, *, schemes: tuple[str, ...] = ("https",)) -> tuple[str, 
     """Validate the shape of *url*; return (scheme, host, port)."""
     if not isinstance(url, str) or len(url) > MAX_URL_LENGTH or any(ord(c) < 33 or ord(c) == 127 for c in url):
         raise BlockedDestination("The address is not a valid URL.")
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        raise BlockedDestination("The address is not a valid URL.") from None
     if parts.scheme not in schemes or not parts.hostname:
         raise BlockedDestination("The address uses a scheme that is not allowed.")
     if parts.username is not None or parts.password is not None or parts.fragment:
         raise BlockedDestination("The address must not contain credentials or a fragment.")
     try:
-        port = parts.port or (443 if parts.scheme == "https" else 80)
+        port = parts.port if parts.port is not None else (443 if parts.scheme == "https" else 80)
+        if not 1 <= port <= 65535:
+            raise ValueError
     except ValueError:
         raise BlockedDestination("The address has an invalid port.") from None
     try:
@@ -121,17 +129,20 @@ def resolve(host: str, port: int, *, allow_private: bool, resolver: Resolver | N
     return infos
 
 
-def _dial(infos: list[tuple], timeout: float) -> socket.socket:
+def _dial(infos: list[tuple], timeout: float, deadline: _Deadline) -> socket.socket:
     last: OSError | None = None
     for family, kind, proto, _canon, sockaddr in infos:
+        remaining = deadline.remaining()
         sock = socket.socket(family, kind, proto)
         try:
-            sock.settimeout(timeout)
+            sock.settimeout(min(timeout, remaining))
+            deadline.watch(sock)
             sock.connect(sockaddr)
             return sock
         except OSError as error:
             last = error
             sock.close()
+            deadline.watch(None)
     raise last or OSError("connection failed")
 
 
@@ -140,6 +151,7 @@ class _Deadline:
 
     def __init__(self, seconds: float):
         self.expired = threading.Event()
+        self._ends = time.monotonic() + seconds
         self._sock: socket.socket | None = None
         self._timer = threading.Timer(max(0.0, seconds), self._fire)
         self._timer.daemon = True
@@ -147,17 +159,57 @@ class _Deadline:
 
     def watch(self, sock: socket.socket | None) -> None:
         self._sock = sock
+        if sock is not None and self.expired.is_set():
+            self._fire()
+
+    def remaining(self) -> float:
+        remaining = self._ends - time.monotonic()
+        if self.expired.is_set() or remaining <= 0:
+            raise HttpError("The server did not answer in time.")
+        return remaining
 
     def _fire(self) -> None:
         self.expired.set()
-        if self._sock is not None:
+        sock = self._sock
+        if sock is not None:
             try:
-                self._sock.shutdown(socket.SHUT_RDWR)
+                sock.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
 
     def cancel(self) -> None:
         self._timer.cancel()
+
+
+def _resolve_before_deadline(host: str, port: int, *, allow_private: bool, resolver: Resolver | None,
+                             deadline: _Deadline) -> list[tuple]:
+    if not _DNS_SLOTS.acquire(timeout=deadline.remaining()):
+        raise HttpError("The server name could not be resolved in time.")
+    finished = threading.Event()
+    outcome: list[list[tuple] | Exception] = []
+
+    def lookup() -> None:
+        try:
+            outcome.append(resolve(host, port, allow_private=allow_private, resolver=resolver))
+        except Exception as error:  # propagate resolver errors to the request thread
+            outcome.append(error)
+        finally:
+            _DNS_SLOTS.release()
+            finished.set()
+
+    try:
+        deadline.remaining()
+        threading.Thread(target=lookup, name="bananawiki-dns", daemon=True).start()
+    except (HttpError, RuntimeError):
+        _DNS_SLOTS.release()
+        raise
+    if not finished.wait(deadline.remaining()):
+        raise HttpError("The server name could not be resolved in time.")
+    deadline.remaining()
+    result = outcome[0]
+    if isinstance(result, Exception):
+        raise result
+    return result
 
 
 def _read_body(response: http.client.HTTPResponse, max_bytes: int, deadline: _Deadline) -> bytes:
@@ -182,22 +234,29 @@ def _send_once(method: str, url: str, headers: Mapping[str, str], body: bytes | 
                deadline: _Deadline, max_bytes: int, allow_private: bool, schemes: tuple[str, ...],
                resolver: Resolver | None) -> HttpResponse:
     scheme, host, port = check_url(url, schemes=schemes)
-    infos = resolve(host, port, allow_private=allow_private, resolver=resolver)
+    infos = _resolve_before_deadline(host, port, allow_private=allow_private, resolver=resolver, deadline=deadline)
     if scheme == "https":
         connection: http.client.HTTPConnection = http.client.HTTPSConnection(
             host, port, timeout=timeout, context=ssl.create_default_context())
     else:
         connection = http.client.HTTPConnection(host, port, timeout=timeout)
-    # Connect to the checked addresses; TLS still verifies against the host name.
-    connection._create_connection = lambda *_args, **_kwargs: _dial(infos, timeout)  # type: ignore[attr-defined]
     parts = urlsplit(url)
     target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
     clean = {name: value for name, value in headers.items() if name.lower() not in _DROPPED_HEADERS}
     clean.setdefault("User-Agent", "BananaWiki")
     clean["Connection"] = "close"
     try:
-        connection.connect()
-        deadline.watch(connection.sock)
+        # Watch the socket during connect and TLS too. HTTPSConnection's
+        # automatic handshake detaches the raw socket before we can watch the
+        # TLS socket, so open it explicitly and verify against the host name.
+        connection.sock = _dial(infos, timeout, deadline)
+        if isinstance(connection, http.client.HTTPSConnection):
+            connection.sock = connection._context.wrap_socket(
+                connection.sock, server_hostname=host, do_handshake_on_connect=False)
+            deadline.watch(connection.sock)
+            connection.sock.settimeout(min(timeout, deadline.remaining()))
+            connection.sock.do_handshake()
+        connection.sock.settimeout(min(timeout, deadline.remaining()))
         connection.request(method, target, body=body, headers=clean)
         response = connection.getresponse()
         payload = _read_body(response, max_bytes, deadline)
@@ -209,11 +268,12 @@ def _send_once(method: str, url: str, headers: Mapping[str, str], body: bytes | 
         )
     except HttpError:
         raise
-    except (OSError, http.client.HTTPException, ssl.SSLError) as error:
+    except (OSError, http.client.HTTPException, ssl.SSLError, ValueError) as error:
         if deadline.expired.is_set():
             raise HttpError("The server did not answer in time.") from error
         raise HttpError("The connection to the server failed.") from error
     finally:
+        deadline.watch(None)
         connection.close()
 
 

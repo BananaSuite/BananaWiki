@@ -12,7 +12,15 @@
   var words = editor.querySelector("[data-word-count]");
   var uploadStatus = editor.querySelector("[data-upload-status]");
   var fileInput = editor.querySelector("[data-image-input]");
-  var initial = area.value;
+  function draftState() {
+    // Include metadata and feature fields, not just the Markdown textarea.
+    var values = [];
+    new FormData(form).forEach(function (value, name) {
+      if (typeof value === "string" && name !== "csrf_token") values.push([name, value]);
+    });
+    return JSON.stringify(values);
+  }
+  var initial = draftState();
   var submitting = false;
 
   // Text helpers ---------------------------------------------------------------
@@ -78,36 +86,46 @@
     if (button && actions[button.getAttribute("data-md")]) {
       event.preventDefault();
       actions[button.getAttribute("data-md")]();
+      var menu = button.closest("details.menu");
+      if (menu) menu.removeAttribute("open");
     }
   });
 
   area.addEventListener("keydown", function (event) {
-    if (!(event.ctrlKey || event.metaKey)) {
-      if (event.key === "Tab" && !event.altKey) {
-        event.preventDefault();
-        (event.shiftKey ? actions.outdent : actions.indent)();
-      }
-      return;
-    }
+    if (!(event.ctrlKey || event.metaKey)) return;
     var key = event.key.toLowerCase();
     if (key === "b") { event.preventDefault(); actions.bold(); }
     else if (key === "i") { event.preventDefault(); actions.italic(); }
     else if (key === "k") { event.preventDefault(); openDialog("dlg-link"); }
-    else if (key === "s") { event.preventDefault(); submitting = true; form.requestSubmit ? form.requestSubmit() : form.submit(); }
+    else if (key === "s") {
+      event.preventDefault();
+      if (form.requestSubmit) form.requestSubmit();
+      else if (form.checkValidity()) { submitting = true; form.submit(); }
+      else if (form.reportValidity) form.reportValidity();
+    }
   });
 
   // Live preview and counters --------------------------------------------------
-  var previewTimer = null, previewController = null;
-  function renderPreview() {
+  var previewTimer = null, previewController = null, previewVersion = 0;
+  function cancelPreview() {
+    clearTimeout(previewTimer);
     if (previewController) previewController.abort();
+    previewVersion += 1;
+  }
+  function renderPreview() {
+    cancelPreview();
+    var version = previewVersion;
     previewController = window.AbortController ? new AbortController() : null;
     BW.fetchJSON(config.preview, { method: "POST", body: { content: area.value },
                                    signal: previewController ? previewController.signal : undefined })
       .then(function (data) {
+        if (version !== previewVersion) return;
         var holder = document.createElement("template");
         holder.innerHTML = data.html;  // sanitised by the server
         preview.replaceChildren(holder.content);
-      }).catch(function (error) { if (error.name !== "AbortError") preview.textContent = error.message; });
+      }).catch(function (error) {
+        if (version === previewVersion && error.name !== "AbortError") preview.textContent = error.message || BW.t("error");
+      });
   }
   function count() {
     var text = area.value.trim();
@@ -115,21 +133,35 @@
   }
   function changed() {
     count();
-    clearTimeout(previewTimer);
+    cancelPreview();
     previewTimer = setTimeout(renderPreview, 500);
   }
   area.addEventListener("input", changed);
 
-  editor.querySelectorAll("[data-editor-tab]").forEach(function (tab) {
-    tab.addEventListener("click", function () {
-      var showPreview = tab.getAttribute("data-editor-tab") === "preview";
-      editor.classList.toggle("show-preview", showPreview);
-      editor.querySelectorAll("[data-editor-tab]").forEach(function (other) {
-        var active = other === tab;
-        other.setAttribute("aria-selected", active ? "true" : "false");
-        other.classList.toggle("btn--ghost", !active);
-      });
-      if (showPreview) renderPreview();
+  var tabs = Array.from(editor.querySelectorAll("[data-editor-tab]"));
+  function selectTab(tab) {
+    var showPreview = tab.getAttribute("data-editor-tab") === "preview";
+    editor.classList.toggle("show-preview", showPreview);
+    tabs.forEach(function (other) {
+      var active = other === tab;
+      other.setAttribute("aria-selected", active ? "true" : "false");
+      other.setAttribute("tabindex", active ? "0" : "-1");
+      other.classList.toggle("btn--ghost", !active);
+    });
+    if (showPreview) renderPreview();
+  }
+  tabs.forEach(function (tab, index) {
+    tab.addEventListener("click", function () { selectTab(tab); });
+    tab.addEventListener("keydown", function (event) {
+      var next;
+      if (event.key === "ArrowRight") next = tabs[(index + 1) % tabs.length];
+      else if (event.key === "ArrowLeft") next = tabs[(index + tabs.length - 1) % tabs.length];
+      else if (event.key === "Home") next = tabs[0];
+      else if (event.key === "End") next = tabs[tabs.length - 1];
+      else return;
+      event.preventDefault();
+      selectTab(next);
+      next.focus();
     });
   });
 
@@ -138,6 +170,8 @@
     fullscreen.addEventListener("click", function () {
       var on = editor.classList.toggle("is-fullscreen");
       fullscreen.setAttribute("aria-pressed", on ? "true" : "false");
+      var menu = fullscreen.closest("details.menu");
+      if (menu) menu.removeAttribute("open");
       area.focus();
     });
     document.addEventListener("keydown", function (e) {
@@ -189,27 +223,44 @@
   // Dialogs: link, table, video --------------------------------------------------
   function openDialog(id) {
     var dialog = document.getElementById(id);
+    if (id === "dlg-link") prepareLinkDialog();
     if (dialog && dialog.showModal) dialog.showModal();
   }
   var linkText = document.querySelector("[data-link-text]");
   var linkUrl = document.querySelector("[data-link-url]");
   var linkSearch = document.querySelector("[data-link-search]");
   var linkResults = document.querySelector("[data-link-results]");
+  var linkDialog = document.getElementById("dlg-link");
+  var searchTimer = null, searchController = null, searchVersion = 0;
+  function cancelLinkSearch() {
+    clearTimeout(searchTimer);
+    if (searchController) searchController.abort();
+    searchVersion += 1;
+  }
+  function prepareLinkDialog() {
+    cancelLinkSearch();
+    linkText.value = area.value.slice(area.selectionStart, area.selectionEnd);
+    linkUrl.value = "";
+    linkSearch.value = "";
+    linkResults.textContent = "";
+  }
   document.querySelectorAll("[data-md-dialog='link']").forEach(function (b) {
-    b.addEventListener("click", function () {
-      linkText.value = area.value.slice(area.selectionStart, area.selectionEnd);
-      linkUrl.value = "";
-    });
+    b.addEventListener("click", prepareLinkDialog);
   });
-  var searchTimer = null;
+  if (linkDialog) linkDialog.addEventListener("close", cancelLinkSearch);
   if (linkSearch) {
     linkSearch.addEventListener("input", function () {
-      clearTimeout(searchTimer);
+      cancelLinkSearch();
+      linkResults.textContent = "";
+      var q = linkSearch.value.trim();
+      if (!q) return;
+      var version = searchVersion;
       searchTimer = setTimeout(function () {
-        var q = linkSearch.value.trim();
-        linkResults.textContent = "";
-        if (!q) return;
-        BW.fetchJSON(config.pageSearch + "?include_home=1&q=" + encodeURIComponent(q)).then(function (pages) {
+        searchController = window.AbortController ? new AbortController() : null;
+        BW.fetchJSON(config.pageSearch + "?include_home=1&q=" + encodeURIComponent(q), {
+          signal: searchController ? searchController.signal : undefined
+        }).then(function (pages) {
+          if (version !== searchVersion || (linkDialog && !linkDialog.open)) return;
           pages.forEach(function (p) {
             var li = document.createElement("li");
             var b = document.createElement("button");
@@ -222,7 +273,12 @@
             li.appendChild(b);
             linkResults.appendChild(li);
           });
-        }).catch(function () {});
+        }).catch(function (error) {
+          if (version !== searchVersion || error.name === "AbortError" || (linkDialog && !linkDialog.open)) return;
+          var message = document.createElement("li");
+          message.textContent = error.message || BW.t("error");
+          linkResults.appendChild(message);
+        });
       }, 250);
     });
   }
@@ -278,14 +334,16 @@
   }
   if (config.heartbeat) { heartbeat(); setInterval(heartbeat, 20000); }
 
-  form.addEventListener("submit", function () { submitting = true; });
+  form.addEventListener("submit", function (event) {
+    if (!event.defaultPrevented) submitting = true;
+  });
   window.addEventListener("beforeunload", function (e) {
     if (config.stop && navigator.sendBeacon) {
       var data = new FormData();
       data.append("csrf_token", BW.csrf());
       navigator.sendBeacon(config.stop, data);
     }
-    if (!submitting && area.value !== initial) { e.preventDefault(); e.returnValue = ""; }
+    if (!submitting && draftState() !== initial) { e.preventDefault(); e.returnValue = ""; }
   });
 
   count();

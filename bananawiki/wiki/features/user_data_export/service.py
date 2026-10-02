@@ -192,6 +192,7 @@ EXPORTED: tuple[Rows, ...] = (
 
 # Tables with a foreign key to users(id) that are left out, and why.
 NOT_EXPORTED = {
+    "chat__upload_usage": "short-lived upload rate limiting (24-hour window); technical source ids, no account content",
     "users": "the account itself: account.json",
     "pages": "site content; the account's own edits are in page_history",
     "user_profiles": "profile/profile.json",

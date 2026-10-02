@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 import time
 
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, session, url_for
 
-from ...core.web import safe_next
+from ...core.web import client_ip, safe_next
 from .. import accounts, auth, mfa, notifications, settings
+from ..db import _session
 from ..errors import ServiceError
 from ..i18n import t
-from ..limits import clear, exceeded, hit, rate_limit, record
+from ..limits import HostingLimiter, clear, hit, rate_limit
 from .common import flash_error
 
 bp = Blueprint("auth", __name__)
@@ -20,12 +22,14 @@ bp = Blueprint("auth", __name__)
 LOGIN_WINDOW = 15 * 60
 LOGIN_MAX_PER_IP = 20
 LOGIN_MAX_PER_ACCOUNT = 8
+LOGIN_MAX_PER_ACCOUNT_TOTAL = 100
 MFA_PENDING_KEY = "hosting_mfa_pending_id"
 MFA_STARTED_KEY = "hosting_mfa_started_at"
 MFA_VERSION_KEY = "hosting_mfa_session_version"
 MFA_NEXT_KEY = "hosting_mfa_next"
 MFA_SECONDS = 300
 _MAX_FORM_AGE = 4 * 3600
+_FORM_TOKEN = re.compile(r"([0-9]{1,16})\.([0-9a-f]{20})")
 
 
 # ── Bot protection (signed form timestamp and honeypot, as in 1.4) ────────────
@@ -46,8 +50,11 @@ def bot_blocked() -> bool:
         return False
     if request.form.get("website"):
         return True
-    stamp, _, signature = (request.form.get("_form_time") or "").partition(".")
-    if not stamp.isdigit() or not hmac.compare_digest(signature, _sign(stamp)):
+    match = _FORM_TOKEN.fullmatch(request.form.get("_form_time") or "")
+    if match is None:
+        return True
+    stamp, signature = match.groups()
+    if not hmac.compare_digest(signature, _sign(stamp)):
         return True
     age = time.time() - int(stamp)
     return age < current_app.config["HOSTING"].min_form_seconds or age > _MAX_FORM_AGE
@@ -63,9 +70,9 @@ def _redirect_if_signed_in():
 def complete_login(account: dict, next_url: str | None, method: str):
     """Open a session once every factor passed and send the account where it must go."""
     auth.start_session(account, method)
-    # Only this account's counter: clearing the per-IP bucket would let anyone with one
-    # working account reset the limit between guesses at other accounts.
-    clear("login-account", key=account["username"].lower())
+    # Clear this account-and-source only, preserving failures from other
+    # sources and the shared address budget for guessing other accounts.
+    clear("login-account-ip", key=f"{account['username'].lower()}\n{client_ip()}")
     gate = auth.pending_gate(account, None)
     if gate:
         return redirect(url_for(gate))
@@ -92,16 +99,28 @@ def login():
         return render_template("hosting/auth/login.html", form_time=form_token(), next_url=next_url,
                                username=username), status
 
-    if (exceeded("login-failed", LOGIN_MAX_PER_IP, LOGIN_WINDOW)
-            or exceeded("login-account", LOGIN_MAX_PER_ACCOUNT, LOGIN_WINDOW, key=username.lower())):
-        return refuse("hosting.login.too_many", 429)
     if bot_blocked():
         return refuse("hosting.form.rejected", 400)
+    limiter = HostingLimiter(_session())
+    reservations = []
+    try:
+        with limiter.db.transaction():
+            for key, bucket, limit in ((client_ip(), "login-failed", LOGIN_MAX_PER_IP),
+                                       (f"{username.lower()}\n{client_ip()}", "login-account-ip", LOGIN_MAX_PER_ACCOUNT),
+                                       (username.lower(), "login-account", LOGIN_MAX_PER_ACCOUNT_TOTAL)):
+                reservation = limiter.reserve(key, bucket, limit, LOGIN_WINDOW)
+                if reservation is None:
+                    # Roll back reservations in all buckets if any one is full.
+                    raise ServiceError("hosting.login.too_many")
+                reservations.append(reservation)
+    except ServiceError as error:
+        return refuse(error.key, 429)
     account = accounts.by_username(username)
     if not accounts.verify_password(account, password):
-        record("login-failed")
-        record("login-account", key=username.lower())
         return refuse("hosting.login.invalid", 401)
+    with limiter.db.transaction():
+        for reservation in reservations:
+            limiter.release(reservation)
     if accounts.is_suspended(account):  # type: ignore[arg-type]
         session[auth.SUSPENDED_KEY] = account["id"]  # type: ignore[index]
         return redirect(url_for("auth.account_suspended"))

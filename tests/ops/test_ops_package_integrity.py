@@ -21,6 +21,7 @@ from ops_fakes import FakeSystem, Upstream, legacy_install  # type: ignore[impor
 from bananawiki.ops import files as files_module
 from bananawiki.ops import manager as manager_module
 from bananawiki.ops import profile
+from bananawiki.ops import snapshot as snapshot_module
 from bananawiki.ops.files import read_json, read_package, write_package
 from bananawiki.ops.manager import Manager
 from bananawiki.ops.snapshot import Snapshot
@@ -115,6 +116,31 @@ def test_tenant_files_are_copied_into_the_snapshot_never_linked(tmp_path):
     assert index["data/uploads/platform.bin"]["method"] == "link"
     assert (snapshot.path / "data/uploads/platform.bin").stat().st_ino == (
         root / "data/uploads/platform.bin").stat().st_ino
+    snapshot.remove()
+
+
+def test_a_tenant_appending_during_snapshot_cannot_extend_the_host_copy_indefinitely(tmp_path, monkeypatch):
+    root, tenant = tenant_root(tmp_path)
+    asset = tenant / "storage/uploads/big.bin"
+    asset.write_bytes(b"A" * 200_000)
+    original_fstat = snapshot_module.os.fstat
+    changed = []
+
+    def grow_after_size_check(fd):
+        info = original_fstat(fd)
+        if info.st_ino == asset.stat().st_ino:
+            changed.append(fd)
+            with asset.open("ab") as output:
+                output.write(b"B" * 200_000)
+        return info
+
+    monkeypatch.setattr(snapshot_module.os, "fstat", grow_after_size_check)
+    snapshot = tenant_snapshot(root)
+    captured = (snapshot.path / UPLOAD).stat().st_size
+    assert changed and captured < asset.stat().st_size
+    monkeypatch.undo()
+    snapshot.refresh()
+    assert (snapshot.path / UPLOAD).read_bytes() == asset.read_bytes()
     snapshot.remove()
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import pytest
 
@@ -72,6 +72,29 @@ def test_code_works_once_and_needs_the_right_verifier(web, make_account, login, 
     assert _token(web, wiki_client, code).status_code == 400
 
 
+def test_oauth_code_with_unicode_redirect_path_can_be_redeemed(web, make_account, login, wiki_client):
+    login(web, make_account())
+    wiki = {**wiki_client, "redirect_uri": wiki_client["redirect_uri"] + "/caffè"}
+    code = _authorize(web, wiki)["code"][0]
+    assert _token(web, wiki, code).status_code == 200
+
+
+@pytest.mark.parametrize("verifier", ["é" * 64, "!" * 64])
+def test_pkce_rejects_invalid_character_sets(verifier):
+    from bananawiki.hosting import oauth
+
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii", "replace")).digest()).decode().rstrip("=")
+    assert oauth.pkce_matches(challenge, verifier) is False
+
+
+def test_authorization_rejects_unicode_pkce_challenge(web, make_account, login, wiki_client):
+    login(web, make_account())
+    params = {"response_type": "code", "client_id": wiki_client["id"],
+              "redirect_uri": wiki_client["redirect_uri"], "code_challenge": "é" * 43,
+              "code_challenge_method": "S256"}
+    assert web.get("/oauth/authorize?" + urlencode(params)).status_code == 400
+
+
 def test_replayed_code_revokes_the_token_it_produced(web, make_account, login, wiki_client):
     login(web, make_account())
     code = _authorize(web, wiki_client)["code"][0]
@@ -108,6 +131,38 @@ def test_suspended_accounts_lose_access(portal, web, make_account, login, wiki_c
     token = _token(web, wiki_client, _authorize(web, wiki_client)["code"][0]).get_json()["access_token"]
     query("UPDATE accounts SET suspended = 1 WHERE id = ?", (user["id"],))
     assert portal.test_client().get("/oauth/userinfo", headers={"Authorization": f"Bearer {token}"}).status_code == 403
+
+
+@pytest.mark.parametrize("fields", [
+    {"suspended": 1}, {"pending_deletion": 1}, {"approval_status": "denied"},
+])
+def test_ineligible_accounts_cannot_verify_or_create_oauth_links(portal, web, make_account, login, wiki_client,
+                                                             query, fields):
+    user = make_account()
+    login(web, user)
+    token = _token(web, wiki_client, _authorize(web, wiki_client)["code"][0]).get_json()["access_token"]
+    column, value = next(iter(fields.items()))
+    query(f"UPDATE accounts SET {column} = ? WHERE id = ?", (value, user["id"]))
+    client = portal.test_client()  # Wiki requests carry credentials, never a portal cookie.
+    verify = client.get("/oauth/verify", headers={"Authorization": f"Bearer {token}"})
+    assert verify.status_code == 403
+    basic = base64.b64encode(f"{wiki_client['id']}:{wiki_client['secret']}".encode()).decode()
+    linked = client.post("/oauth/link", headers={"Authorization": f"Basic {basic}"},
+                         json={"account_id": user["id"], "wiki_user_id": "new-link"})
+    assert linked.status_code == 403
+
+
+def test_password_reset_revokes_oauth_tokens_and_unused_codes(portal, web, make_account, login, wiki_client):
+    user = make_account()
+    login(web, user)
+    token = _token(web, wiki_client, _authorize(web, wiki_client)["code"][0]).get_json()["access_token"]
+    unused_code = _authorize(web, wiki_client)["code"][0]
+    with portal.app_context(), connection_scope():
+        from bananawiki.hosting import accounts
+
+        accounts.set_password(user["id"], "replacement password 42", actor_id=user["id"], reason="password reset")
+    assert web.get("/oauth/verify", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+    assert _token(web, wiki_client, unused_code).status_code == 400
 
 
 def test_rotating_credentials_revokes_issued_tokens(portal, web, make_account, login, wiki_client):

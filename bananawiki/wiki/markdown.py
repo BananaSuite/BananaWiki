@@ -19,13 +19,14 @@ are generated *after* sanitising from validated parameters only.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from html import escape
 from urllib.parse import quote
 
 import markdown as _markdown
 import nh3
 from markdown.extensions import Extension
+from markdown.extensions.fenced_code import FencedBlockPreprocessor, FencedCodeExtension
 from markdown.inlinepatterns import SimpleTagInlineProcessor
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
@@ -34,6 +35,12 @@ from pygments.token import STANDARD_TYPES
 from pygments.util import ClassNotFound
 
 MAX_SOURCE_CHARS = 1_000_000
+MAX_PARSE_WORK = 32_000_000
+MAX_MARKUP_DEPTH = 64
+MAX_HEADINGS = 1000
+MAX_HIGHLIGHT_LINES = 256
+MAX_LEXER_SAMPLE_CHARS = 4096
+MAX_HIGHLIGHT_CODE_CHARS = 64 * 1024
 
 _TAGS = {
     "a", "abbr", "acronym", "b", "blockquote", "br", "code", "dd", "del", "details", "div", "dl", "dt",
@@ -212,6 +219,102 @@ def _preprocess(text: str, fix_lists: bool) -> str:
     return _map_prose(text, _preserve_blank_runs)
 
 
+def _parser_work_exceeded(text: str) -> bool:
+    """Bound repeated delimiter searches and nesting before parsing prose.
+
+    The Markdown link parser searches the remaining paragraph for each
+    opening bracket. A byte limit alone allows quadratic work on unmatched
+    input. Estimate that search work per paragraph; fenced code is literal
+    and bypasses inline parsing, so it does not consume this allowance.
+    """
+    prose = []
+    for inside_fence, lines in _split_fences(text):
+        source = "\n".join(lines)
+        # The preprocessing helper also identifies unfinished and loosely
+        # indented fences. Only the parser's exact, complete fence syntax is
+        # safe to exempt from inline work. Unconfirmed runs remain joined so
+        # they cannot reset the paragraph's work or nesting limits.
+        fence = FencedBlockPreprocessor.FENCED_BLOCK_RE.fullmatch(source) if inside_fence else None
+        # The parser rejects a stray closing brace in its attribute capture.
+        # A brace inside a quoted value is conservatively counted as prose.
+        if fence and "}" not in (fence.group("attrs") or ""):
+            prose.extend(("", ""))
+        else:
+            prose.extend(lines)
+    source = "\n".join(prose)
+    work = headings = 0
+    for paragraph in source.split("\n\n"):
+        delimiters = sum(paragraph.count(marker) for marker in "[*_`<~&\\\n")
+        work += len(paragraph) * delimiters
+        if work > MAX_PARSE_WORK:
+            return True
+        square_depth = round_depth = 0
+        for line in paragraph.split("\n"):
+            stripped = line.lstrip()
+            if len(line) - len(stripped) > 4 * MAX_MARKUP_DEPTH and _LIST_ITEM.match(stripped):
+                return True
+            prefix_depth = 0
+            while True:
+                if stripped.startswith(">"):
+                    stripped = stripped[1:].lstrip()
+                else:
+                    marker = re.match(r"^(?:[-+*]|\d+[.)])\s+", stripped)
+                    if marker is None:
+                        break
+                    stripped = stripped[marker.end():].lstrip()
+                prefix_depth += 1
+                if prefix_depth > MAX_MARKUP_DEPTH:
+                    return True
+            if stripped.startswith("#") or re.fullmatch(r"[=-]+", stripped.rstrip()):
+                headings += 1
+                # Repeated heading slugs otherwise cause quadratic collision
+                # searches across paragraphs in the toc extension.
+                if headings > MAX_HEADINGS:
+                    return True
+        # Skip escaped characters and code spans; brackets inside literal
+        # code do not create a nested Markdown document.
+        escaped = False
+        code_ticks = 0
+        index = 0
+        while index < len(paragraph):
+            char = paragraph[index]
+            index += 1
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\" and not code_ticks:
+                escaped = True
+                continue
+            if char == "`":
+                ticks = 1
+                while index < len(paragraph) and paragraph[index] == "`":
+                    ticks += 1
+                    index += 1
+                if code_ticks == ticks:
+                    code_ticks = 0
+                elif not code_ticks:
+                    code_ticks = ticks
+                continue
+            if code_ticks:
+                continue
+            if char == "[":
+                square_depth += 1
+            elif char == "]":
+                square_depth = max(0, square_depth - 1)
+            elif char == "(":
+                round_depth += 1
+            elif char == ")":
+                round_depth = max(0, round_depth - 1)
+            if max(square_depth, round_depth) > MAX_MARKUP_DEPTH:
+                return True
+    return False
+
+
+def _plain_source(text: str) -> str:
+    """A safe, non-recursive fallback that preserves every source character."""
+    return "<pre>" + escape(text) + "</pre>"
+
+
 def _attribute_filter(tag: str, attribute: str, value: str) -> str | None:
     if attribute == "id":
         return value if _HEADING_ID.match(value) else None
@@ -386,6 +489,71 @@ class _Strikethrough(Extension):
         md.inlinePatterns.register(SimpleTagInlineProcessor(r"(~~)(.+?)~~", "del"), "bw_del", 175)
 
 
+class _SafeFencedBlocks(FencedBlockPreprocessor):
+    """Keep author display options from becoming arbitrary Pygments kwargs."""
+
+    @staticmethod
+    def _highlight_lines(value: str) -> list[int]:
+        return [int(token) for token in value.split(maxsplit=MAX_HIGHLIGHT_LINES)[:MAX_HIGHLIGHT_LINES]
+                if token.isascii() and token.isdecimal() and len(token) <= 7
+                and 1 <= int(token) <= MAX_SOURCE_CHARS]
+
+    def run(self, lines: list[str]) -> list[str]:
+        # Older documents can specify hl_lines outside the attribute list.
+        # Apply the same limit before the upstream preprocessor parses it.
+        def bounded_fence(match: re.Match[str]) -> str:
+            result = match.group(0)
+            value = match.group("hl_lines")
+            if value is not None:
+                start, end = match.span("hl_lines")
+                start -= match.start()
+                end -= match.start()
+                result = (result[:start] + " ".join(map(str, self._highlight_lines(value)))
+                          + result[end:])
+            if len(match.group("code")) > MAX_HIGHLIGHT_CODE_CHARS:
+                # Large snippets remain literal code. Highlighting can expand
+                # a short source into millions of span nodes and HTML bytes.
+                attrs = match.group("attrs")
+                if attrs is None:
+                    language = match.group("lang")
+                    attrs = "." + language if language else ""
+                opening = match.group("fence") + "{" + attrs + " use_pygments=false}"
+                result = opening + result[result.index("\n"):]
+            return result
+
+        text = self.FENCED_BLOCK_RE.sub(bounded_fence, "\n".join(lines))
+        return super().run(text.split("\n"))
+
+    def handle_attrs(self, attrs: Iterable[tuple[str, str]]) -> tuple[str, list[str], dict[str, object]]:
+        element_id = ""
+        classes = []
+        options: dict[str, object] = {"guess_lang": False}
+        for key, value in attrs:
+            if key == "id":
+                element_id = value
+            elif key == ".":
+                classes.append(value)
+            elif key in ("linenos", "use_pygments"):
+                normalized = value.lower()
+                if normalized in ("true", "yes", "on", "1"):
+                    options[key] = True
+                elif normalized in ("false", "no", "off", "0"):
+                    options[key] = False
+            elif key in ("tabsize", "linenostart"):
+                if value.isascii() and value.isdecimal() and len(value) <= 10:
+                    ceiling = 16 if key == "tabsize" else MAX_SOURCE_CHARS
+                    options[key] = max(1, min(int(value), ceiling))
+            elif key == "hl_lines":
+                options[key] = self._highlight_lines(value)
+        return element_id, classes, options
+
+
+class _SafeFencedCode(FencedCodeExtension):
+    def extendMarkdown(self, md):  # noqa: N802 - Python-Markdown API name
+        md.registerExtension(self)
+        md.preprocessors.register(_SafeFencedBlocks(md, self.getConfigs()), "fenced_code_block", 25)
+
+
 _TASK_ITEM = re.compile(r"<li>(\s*<p>)?\s*\[( |x|X)\]\s+")
 
 
@@ -415,12 +583,24 @@ def render(
         return ""
     if len(text) > MAX_SOURCE_CHARS:
         text = text[:MAX_SOURCE_CHARS]
-    html = _markdown.markdown(
-        _preprocess(text, fix_lists),
-        extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br", _Strikethrough()],
-        extension_configs={"codehilite": {"css_class": "codehilite", "guess_lang": False}},
-        output_format="html",
-    )
+    if _parser_work_exceeded(text):
+        return _plain_source(text)
+    prepared = _preprocess(text, fix_lists)
+    # Preserved blank lines introduce <br> tags. Bound the actual parser
+    # input too, so generated inline markup cannot bypass the source check.
+    if prepared != text and _parser_work_exceeded(prepared):
+        return _plain_source(text)
+    try:
+        html = _markdown.markdown(
+            prepared,
+            extensions=["tables", _SafeFencedCode(), "codehilite", "toc", "nl2br", _Strikethrough()],
+            extension_configs={"codehilite": {"css_class": "codehilite", "guess_lang": False}},
+            output_format="html",
+        )
+    except RecursionError:
+        # Keep imported content readable if an upstream extension encounters
+        # an additional recursive construct not covered by the preflight.
+        return _plain_source(text)
     html = _task_lists(sanitize(html))
     html = _embed_videos(html, bare_links=embed_videos)
     html = _embed_boards(html)
@@ -432,12 +612,14 @@ def render(
 def highlight_code(code: str | None, language: str | None = None) -> str:
     """Syntax-highlight a code snippet (used by code custom pages and the editor)."""
     code = "" if code is None else str(code)[:MAX_SOURCE_CHARS]
+    if len(code) > MAX_HIGHLIGHT_CODE_CHARS:
+        return "<pre><code>" + escape(code) + "</code></pre>"
     language = (language or "").strip()
     try:
         if language:
             lexer = get_lexer_by_name(language, stripall=False)
         elif code.strip():
-            lexer = guess_lexer(code)
+            lexer = guess_lexer(code[:MAX_LEXER_SAMPLE_CHARS])
         else:
             lexer = TextLexer()
     except ClassNotFound:

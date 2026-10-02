@@ -26,7 +26,7 @@
   </div>
 
   <div class="builder-workspace">
-    <aside class="builder-palette card" aria-labelledby="builder-blocks-title">
+    <aside class="builder-palette" aria-labelledby="builder-blocks-title">
       <h2 id="builder-blocks-title" class="builder-panel-title">{{ t('page_builder.editor.blocks') }}</h2>
       <p class="hint" id="builder-insert-hint">{{ t('page_builder.editor.insert_hint') }}</p>
       {% for group, kinds in palette %}
@@ -34,7 +34,7 @@
         <h3 class="builder-palette-heading" id="builder-group-{{ group }}">{{ t('page_builder.group.' ~ group) }}</h3>
         <div class="builder-palette-grid">
           {% for kind in kinds %}
-          <button type="button" class="builder-palette-item" draggable="true" data-block-type="{{ kind }}" aria-describedby="builder-insert-hint">{{ t('page_builder.block.' ~ kind) }}</button>
+          <button type="button" class="btn btn--small builder-palette-item" draggable="true" data-block-type="{{ kind }}" aria-describedby="builder-insert-hint">{{ t('page_builder.block.' ~ kind) }}</button>
           {% endfor %}
         </div>
       </div>
@@ -49,7 +49,7 @@
         <p class="hint" id="builder-sections-empty"{% if options.sections %} hidden{% endif %}>{{ t('page_builder.editor.sections_none') }}</p>
         <ul class="builder-sections" id="builder-sections"></ul>
         {% if options.manage_sections %}
-        <details class="builder-section-form">
+        <details class="disclosure builder-section-form">
           <summary>{{ t('page_builder.editor.section_save') }}</summary>
           <div class="field">
             <label for="builder-section-name">{{ t('page_builder.editor.section_name') }}</label>
@@ -74,7 +74,7 @@
         <h3 class="builder-palette-heading" id="builder-starters-title">{{ t('page_builder.editor.starters') }}</h3>
         <ul class="builder-starters">
           {% for starter in options.starters %}
-          <li><button type="button" class="builder-starter" data-starter="{{ starter.id }}">
+          <li><button type="button" class="btn btn--small builder-starter" data-starter="{{ starter.id }}">
             <strong>{{ starter.name }}</strong><small>{{ starter.description }}</small></button></li>
           {% endfor %}
         </ul>
@@ -82,7 +82,7 @@
       <p class="hint">{{ t('page_builder.editor.safety') }}</p>
     </aside>
 
-    <section class="builder-stage-wrap card" aria-labelledby="builder-title-label">
+    <section class="builder-stage-wrap" aria-labelledby="builder-title-label">
       <div class="field">
         <label id="builder-title-label" for="builder-title">{{ t('page_builder.editor.page_title') }}</label>
         <input type="text" id="builder-title" maxlength="200" value="{{ page.title }}">
@@ -107,7 +107,7 @@
       </section>
     </section>
 
-    <aside class="builder-publish-panel card" aria-labelledby="builder-publish-title">
+    <aside class="builder-publish-panel" aria-labelledby="builder-publish-title">
       <h2 id="builder-checks-title" class="builder-panel-title">{{ t('page_builder.editor.checks') }}</h2>
       <p class="hint" id="builder-checks-empty">{{ t('page_builder.editor.checks_none') }}</p>
       <ul class="builder-checks" id="builder-checks" aria-labelledby="builder-checks-title"></ul>

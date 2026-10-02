@@ -257,7 +257,10 @@ def is_safe_redirect(url: str | None) -> bool:
         return True
     if _URL_IGNORED.search(url):
         return False
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
     return parts.scheme.lower() in ("http", "https") and bool(parts.netloc)
 
 

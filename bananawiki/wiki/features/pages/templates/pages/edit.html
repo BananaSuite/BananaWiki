@@ -1,11 +1,16 @@
 {% extends "base.html" %}
+{% from "pages/_editor_actions.html" import page_actions with context %}
 {% block title %}{{ t('pages.edit.title', title=page.title) }}{% endblock %}
 {% block main_class %}main--wide{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ asset_url('pages.css', blueprint='pages') }}">{% endblock %}
 {% block content %}
+{% set cancel_url = url_for('pages.home') if page.is_home else url_for('pages.view', slug=page.slug) %}
 <header class="page-header">
   <h1>{{ t('pages.edit.title', title=page.title) }}</h1>
-  <div class="page-header__meta"><span class="badge badge--primary" data-presence-editor{% if not others %} hidden{% endif %}>{{ t('pages.presence.editing', names=others|join(', ')) if others else '' }}</span></div>
+  <div class="page-header__actions">
+    {{ page_actions(t('pages.edit.submit'), cancel_url, form_id='page-editor-form', compact=true) }}
+  </div>
+  <div class="page-header__status"><span class="badge badge--primary" data-presence-editor{% if not others %} hidden{% endif %}>{{ t('pages.presence.editing', names=others|join(', ')) if others else '' }}</span></div>
 </header>
 {% if conflict %}
 <section class="card card--danger conflict" aria-labelledby="conflict-h">
@@ -37,8 +42,7 @@
   <div class="field"><label for="edit-message">{{ t('pages.field.summary') }}</label>
     <input id="edit-message" name="edit_message" maxlength="500" value="{{ edit_message }}" placeholder="{{ t('pages.hint.summary') }}"></div>
   {{ slot('editor.below_form', page=page) }}
-  <div class="btn-row"><button class="btn btn--primary">{{ t('pages.edit.submit') }}</button>
-    <a class="btn" href="{{ url_for('pages.home') if page.is_home else url_for('pages.view', slug=page.slug) }}" data-editor-cancel>{{ t('common.cancel') }}</a></div>
+  <div class="btn-row">{{ page_actions(t('pages.edit.submit'), cancel_url) }}</div>
 </form>
 {% endblock %}
 {% block scripts %}<script src="{{ asset_url('editor.js', blueprint='pages') }}"></script>{% endblock %}

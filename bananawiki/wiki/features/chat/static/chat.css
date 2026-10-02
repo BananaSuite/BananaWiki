@@ -1,11 +1,15 @@
 /* Chat pages. Uses the design-system tokens only. */
-.chat-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
-.chat-list__item { display: grid; grid-template-columns: 1fr auto; gap: .15rem .75rem; padding: .75rem 1rem;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--bw-text); }
-.chat-list__item:hover { text-decoration: none; border-color: var(--border-strong); }
+.chat-list { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--border); }
+.chat-list__item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .2rem .75rem; padding: .9rem .5rem;
+  border-bottom: 1px solid var(--border); color: var(--bw-text); }
+.chat-list__item:hover { text-decoration: none; background: var(--surface-2); }
 .chat-list__name { font-weight: 600; overflow-wrap: anywhere; }
 .chat-list__preview { grid-column: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-list__time { grid-column: 2; grid-row: 1; }
+@media (max-width: 480px) {
+  .chat-list__item { grid-template-columns: minmax(0, 1fr); }
+  .chat-list__time { grid-column: 1; grid-row: auto; }
+}
 
 .chat { position: relative; margin-bottom: 1rem; }
 .chat__older, .chat__notice { text-align: center; margin: 0 0 .5rem; }
@@ -41,6 +45,7 @@
 .chat-composer__hint { margin: 0; }
 
 .chat-panel { margin-bottom: 1rem; }
-.chat-panel > summary { cursor: pointer; font-weight: 600; }
-.chat-panel[open] > summary { margin-bottom: .75rem; }
+.chat-panel .inline-fields > :is(input, select) { flex: 1 1 12rem; min-width: 0; }
+.chat-panel td .inline-fields { display: inline-flex; gap: .35rem; }
+.chat-panel td .inline-fields > select { flex-basis: 8rem; width: auto; }
 .chat-badge-list { list-style: none; padding: 0; margin: 0; gap: .5rem; }

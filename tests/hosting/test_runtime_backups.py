@@ -50,6 +50,24 @@ def test_backup_key_from_file_or_environment(tmp_path, monkeypatch):
     assert error.value.code == "not_configured"
 
 
+@pytest.mark.parametrize("kind", ["world_readable", "symlink", "fifo", "large"])
+def test_backup_key_refuses_public_or_nonregular_files(tmp_path, kind):
+    path = tmp_path / "backup.key"
+    if kind == "symlink":
+        other = tmp_path / "actual.key"
+        other.write_bytes(b"k" * 32)
+        other.chmod(0o600)
+        path.symlink_to(other)
+    elif kind == "fifo":
+        os.mkfifo(path, 0o600)
+    else:
+        path.write_bytes(b"k" * (33 if kind == "large" else 32))
+        path.chmod(0o644 if kind == "world_readable" else 0o600)
+    with pytest.raises(RuntimeFailure) as error:
+        crypto.load_key("", str(path))
+    assert error.value.code == "not_configured"
+
+
 def test_streaming_encryption_matches_the_1x_format(tmp_path):
     key = os.urandom(32)
     target = tmp_path / "out.bwenc"
@@ -65,6 +83,21 @@ def test_streaming_encryption_matches_the_1x_format(tmp_path):
     with pytest.raises(RuntimeFailure) as error:
         crypto.decrypt_file(legacy, tmp_path / "wrong", os.urandom(32))
     assert error.value.code == "archive_invalid" and not (tmp_path / "wrong").exists()
+
+
+def test_encrypted_export_name_collision_preserves_the_completed_backup(tmp_path):
+    key = os.urandom(32)
+    target = tmp_path / "out.bwenc"
+    first = crypto.EncryptedOutput(target, key)
+    first.write(b"first backup")
+    first.finish()
+    previous = target.read_bytes()
+    second = crypto.EncryptedOutput(target, key)
+    second.write(b"second backup")
+    with pytest.raises(FileExistsError):
+        second.finish()
+    assert target.read_bytes() == previous
+    assert not list(tmp_path.glob(".bwenc-*"))
 
 
 def test_platform_export_is_encrypted_while_it_is_written(tmp_path):
@@ -103,6 +136,7 @@ def test_platform_restore_onto_a_fresh_installation(tmp_path, monkeypatch):
     _hosting_db(target)
     Path(target._cfg().backup_key_path).parent.mkdir(parents=True, exist_ok=True)
     Path(target._cfg().backup_key_path).write_bytes(source.backup_key())
+    Path(target._cfg().backup_key_path).chmod(0o600)
     secret_path = tmp_path / "b" / "restored_secret"
     monkeypatch.setenv("HOSTING_SECRET_KEY_PATH", str(secret_path))
     target.restore_platform([backup])
@@ -132,6 +166,60 @@ def test_platform_restore_refuses_installations_with_wikis_and_unsafe_parts(tmp_
     with pytest.raises(RuntimeFailure) as error:
         runtime.restore_platform([unsafe])
     assert error.value.code == "data_exists"
+
+
+def test_rejected_platform_restore_keeps_live_wikis_running(tmp_path):
+    runtime, agent = make_runtime(tmp_path)
+    _hosting_db(runtime)
+    spec = make_spec()
+    provision(runtime, spec)
+    before = dict(agent.containers)
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.restore_platform([tmp_path / "missing.zip"])
+    assert error.value.code == "data_exists"
+    assert agent.containers == before and not agent.ops("tenant.stop")
+
+
+def test_platform_restore_requires_observable_empty_runtime(tmp_path):
+    from bananawiki.ops.runtime_agent import AgentError
+
+    runtime, agent = make_runtime(tmp_path)
+    _hosting_db(runtime)
+    agent.failures["tenant.list"] = AgentError("unavailable", "runtime disconnected")
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.restore_platform([tmp_path / "missing.zip"])
+    assert error.value.code == "unavailable"
+
+
+def test_damaged_backup_member_is_a_reported_restore_error(tmp_path):
+    runtime, _agent = make_runtime(tmp_path)
+    _hosting_db(runtime)
+    part = tmp_path / "damaged.zip"
+    with zipfile.ZipFile(part, "w", zipfile.ZIP_STORED) as archive:
+        archive.writestr("hosting.db", b"database contents")
+    raw = bytearray(part.read_bytes())
+    data_offset = 30 + len("hosting.db")
+    raw[data_offset] ^= 1
+    part.write_bytes(raw)
+    before = Path(runtime._cfg().database_path).read_bytes()
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.restore_platform([part])
+    assert error.value.code == "archive_invalid"
+    assert Path(runtime._cfg().database_path).read_bytes() == before
+
+
+def test_restore_checks_free_space_before_extracting_platform_members(tmp_path, monkeypatch):
+    from bananawiki.hosting.runtime import platform_backup
+
+    runtime, _agent = make_runtime(tmp_path)
+    _hosting_db(runtime)
+    part = tmp_path / "valid.zip"
+    with zipfile.ZipFile(part, "w", zipfile.ZIP_STORED) as archive:
+        archive.write(runtime._cfg().database_path, "hosting.db")
+    monkeypatch.setattr(platform_backup.shutil, "disk_usage", lambda _path: SimpleNamespace(free=0))
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.restore_platform([part])
+    assert error.value.code == "no_space"
 
 
 # ── Google Drive ──────────────────────────────────────────────────────────────

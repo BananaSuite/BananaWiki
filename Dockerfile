@@ -8,7 +8,7 @@
 # logs); the image itself can be mounted read-only. Behind a TLS proxy set
 # BW_PROXY_MODE=1 (see compose.yaml). The setup token for the first visit:
 #   docker exec <container> python -m bananawiki.cli setup-token
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-trixie
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -20,6 +20,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     BW_INSTANCE_DIR=/data
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ffmpeg libgomp1 fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 bananawiki \
@@ -30,11 +31,15 @@ RUN apt-get update \
 WORKDIR /app
 COPY requirements.txt ./
 RUN python -m pip install --no-cache-dir --only-binary=:all: --no-deps --upgrade 'pip>=26.2.1' \
-    && python -m pip install --no-cache-dir --only-binary=:all: --requirement requirements.txt
+    && python -m pip install --no-cache-dir --only-binary=:all: --requirement requirements.txt \
+    && python -m pip uninstall -y pip setuptools wheel \
+    && rm -rf /usr/local/lib/python3.12/ensurepip
 
 COPY LICENSE NOTICE wsgi.py gunicorn.conf.py ./
 COPY bananawiki ./bananawiki
-RUN python -m compileall -q bananawiki
+RUN find /app -type d -exec chmod 0755 {} + \
+    && find /app -type f -exec chmod 0644 {} + \
+    && python -m compileall -q bananawiki
 
 USER 10001:10001
 VOLUME ["/data"]

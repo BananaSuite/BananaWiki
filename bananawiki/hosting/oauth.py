@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import hmac
+import re
 import secrets
 import string
 from typing import Any
@@ -29,7 +29,7 @@ from flask import current_app
 from ..core import crypto
 from ..core.crypto import sha256_hex
 from ..core.timeutil import now_sql, sql_in
-from . import settings, urls
+from . import accounts, settings, urls
 from .db import db
 from .runtime import OAuthClient
 
@@ -56,7 +56,7 @@ def check_secret(stored: str | None, candidate: str) -> bool:
         return False
     salt, expected = stored.split("$", 1)
     actual = hashlib.sha256((salt + candidate).encode("utf-8")).hexdigest()
-    return hmac.compare_digest(actual, expected)
+    return crypto.constant_time_equals(actual, expected)
 
 
 def _new_client_id() -> str:
@@ -137,11 +137,15 @@ def issue_code(client_id: str, account_id: str, redirect_uri: str, challenge: st
     return code
 
 
+def valid_pkce_challenge(challenge: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z0-9_-]{43}", challenge))
+
+
 def pkce_matches(challenge: str, verifier: str) -> bool:
-    if not verifier or not 43 <= len(verifier) <= 128:
+    if not valid_pkce_challenge(challenge) or not re.fullmatch(r"[A-Za-z0-9._~-]{43,128}", verifier):
         return False
-    digest = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii", "replace")).digest())
-    return hmac.compare_digest(digest.decode("ascii").rstrip("="), challenge)
+    digest = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest())
+    return crypto.constant_time_equals(digest.decode("ascii").rstrip("="), challenge)
 
 
 def redeem_code(code: str, client_id: str, redirect_uri: str, verifier: str) -> str | None:
@@ -159,7 +163,9 @@ def redeem_code(code: str, client_id: str, redirect_uri: str, verifier: str) -> 
             db.execute("DELETE FROM hosting_oauth_access_tokens WHERE client_id = ? AND account_id = ?",
                        (client_id, row["account_id"]))
             return None
-        if row is None or not hmac.compare_digest(str(row["redirect_uri"] or ""), redirect_uri):
+        if row is None or not crypto.constant_time_equals(str(row["redirect_uri"] or ""), redirect_uri):
+            return None
+        if not account_may_sign_in(accounts.get(row["account_id"])):
             return None
         if row["code_challenge"] and not pkce_matches(row["code_challenge"], verifier):
             return None
@@ -191,7 +197,15 @@ def revoke_account_tokens(account_id: str) -> int:
     return db.execute("DELETE FROM hosting_oauth_access_tokens WHERE account_id = ?", (account_id,)).rowcount
 
 
+def revoke_account_credentials(account_id: str) -> None:
+    """Retire access tokens and unused grants when the account's password changes."""
+    db.execute("DELETE FROM hosting_oauth_authorization_codes WHERE account_id = ?", (account_id,))
+    revoke_account_tokens(account_id)
+
+
 def account_authorized_client(account_id: str, client_id: str) -> bool:
     """True while the account holds a live access token for this wiki."""
+    if not account_may_sign_in(accounts.get(account_id)):
+        return False
     return bool(db.scalar("SELECT 1 FROM hosting_oauth_access_tokens WHERE account_id = ? AND client_id = ? "
                           "AND expires_at > ?", (account_id, client_id, now_sql())))

@@ -2,12 +2,12 @@
 {% import "macros/forms.html" as forms with context %}
 
 {% macro status(entry) -%}
-{% if entry.kind == 'retired' %}<span class="badge">{{ t('plugin_manager.status.retired') }}</span>
-{% elif entry.error_key and entry.stored %}<span class="badge badge--danger">{{ t('plugin_manager.status.failed') }}</span>
-{% elif entry.restart == 'enable' %}<span class="badge badge--warning">{{ t('plugin_manager.status.enable_pending') }}</span>
-{% elif entry.restart == 'disable' %}<span class="badge badge--warning">{{ t('plugin_manager.status.disable_pending') }}</span>
-{% elif entry.enabled %}<span class="badge badge--success">{{ t('common.enabled') }}</span>
-{% else %}<span class="badge">{{ t('common.disabled') }}</span>{% endif %}
+{% if entry.kind == 'retired' %}<span class="pm-status">{{ t('plugin_manager.status.retired') }}</span>
+{% elif entry.error_key and entry.stored %}<span class="pm-status pm-status--danger">{{ t('plugin_manager.status.failed') }}</span>
+{% elif entry.restart == 'enable' %}<span class="pm-status pm-status--warning">{{ t('plugin_manager.status.enable_pending') }}</span>
+{% elif entry.restart == 'disable' %}<span class="pm-status pm-status--warning">{{ t('plugin_manager.status.disable_pending') }}</span>
+{% elif entry.enabled %}<span class="pm-status pm-status--success">{{ t('common.enabled') }}</span>
+{% else %}<span class="pm-status">{{ t('common.disabled') }}</span>{% endif %}
 {%- endmacro %}
 
 {% macro kind(entry) -%}
@@ -19,9 +19,9 @@
 {% macro actions(entry) -%}
 <div class="cluster">
 {% if entry.can_disable %}
-  {{ forms.post_button(url_for('plugin_manager.disable', plugin_id=entry.id), t('plugin_manager.action.disable'), 'btn btn--small') }}
+  {{ forms.post_button(url_for('plugin_manager.disable', plugin_id=entry.id), t('plugin_manager.action.disable'), 'btn btn--small btn--ghost') }}
 {% elif entry.can_enable %}
-  {{ forms.post_button(url_for('plugin_manager.enable', plugin_id=entry.id), t('plugin_manager.action.enable'), 'btn btn--small btn--primary') }}
+  {{ forms.post_button(url_for('plugin_manager.enable', plugin_id=entry.id), t('plugin_manager.action.enable'), 'btn btn--small') }}
 {% endif %}
 {% if entry.lock %}<span class="small muted">{{ t(entry.lock) }}</span>{% endif %}
 {% if entry.kind == 'retired' or (entry.kind == 'external' and not entry.has_files) %}

@@ -48,7 +48,12 @@
 {% endif %}
 <div class="alert alert--warning" id="kanban-offline" hidden role="status">{{ t('kanban.board.offline') }}</div>
 <p class="visually-hidden" id="kanban-live" aria-live="polite"></p>
-{% if can_write %}<p class="hint no-print">{{ t('kanban.board.keyboard_hint') }}</p>{% endif %}
+{% if can_write %}
+<details class="kanban-keys no-print">
+  <summary>{{ t('kanban.board.keyboard_shortcuts') }}</summary>
+  <p class="hint">{{ t('kanban.board.keyboard_hint') }}</p>
+</details>
+{% endif %}
 
 <section class="card kanban-activity no-print" id="kanban-activity" hidden aria-labelledby="kanban-activity-title">
   <div class="card__header"><h2 id="kanban-activity-title">{{ t('kanban.board.activity') }}</h2></div>
@@ -86,9 +91,8 @@
 </section>
 {% endif %}
 
-{#- Filters and rows fold away (kanban-filter.js opens them on wide screens and when a filter is set),
-    so on a phone the board is not pushed below the fold. -#}
-<details class="kanban-tools no-print" id="kanban-tools">
+{#- Filters and rows fold away until needed. Active filters, rows and the search shortcut open them. -#}
+<details class="disclosure kanban-tools no-print" id="kanban-tools">
 <summary>{{ t('kanban.filter.label') }}</summary>
 <form class="kanban-filter no-print" id="kanban-filter" role="search" aria-label="{{ t('kanban.filter.label') }}">
   <div class="kanban-filter__field kanban-filter__field--search">
@@ -297,7 +301,7 @@
         <option value="">{{ t('kanban.share.choose_user') }}</option>
         {% for u in share_users %}<option value="{{ u.id }}">{{ u.username }} ({{ t('kanban.role.' ~ u.role) }})</option>{% endfor %}
       </select></div>
-    {{ forms.select('access_level', t('kanban.share.access'), levels) }}
+    {{ forms.select('access_level', t('kanban.share.access'), levels, id='kanban-share-user-access') }}
     <div class="btn-row"><button type="submit" class="btn btn--small">{{ t('kanban.share.add') }}</button></div>
   </form>
 
@@ -310,7 +314,7 @@
         {% for role in shareable_roles %}<option value="{{ role }}">{{ t('kanban.role.' ~ role) }}</option>{% endfor %}
       </select>
       <p class="hint">{{ t('kanban.share.role_hint') }}</p></div>
-    {{ forms.select('access_level', t('kanban.share.access'), levels) }}
+    {{ forms.select('access_level', t('kanban.share.access'), levels, id='kanban-share-role-access') }}
     <div class="btn-row"><button type="submit" class="btn btn--small">{{ t('kanban.share.add') }}</button></div>
   </form>
   {% endif %}

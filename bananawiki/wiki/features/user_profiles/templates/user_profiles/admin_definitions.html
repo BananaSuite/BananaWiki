@@ -3,7 +3,7 @@
 {% block title %}{{ t('profiles.admin.fields_title') }}{% endblock %}
 {% block admin_content %}
 <header class="page-header"><h1>{{ t('profiles.admin.fields_title') }}</h1></header>
-<div class="stack">
+<div class="section-stack">
 <section class="card">
   <p class="hint">{{ t('profiles.admin.fields_help') }}</p>
   {% if definitions %}
@@ -13,7 +13,7 @@
     {% for field in definitions %}
     <tr>
       <td colspan="3">
-        <form method="post" class="cluster">
+        <form method="post" class="inline-fields">
           {{ forms.csrf() }}
           <input type="hidden" name="field_id" value="{{ field.id }}">
           <label class="visually-hidden" for="label-{{ field.id }}">{{ t('profiles.admin.label') }}</label>

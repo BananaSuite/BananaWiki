@@ -1,7 +1,39 @@
-/* Sidebar app order: drag and drop, and up/down buttons without a page reload.
+/* Feature search and sidebar order: enhancements to the server-rendered lists.
+ * App order supports drag and drop, and up/down buttons without a page reload.
  * Without JavaScript the up/down buttons submit the form and the server moves the item. */
 (function () {
   "use strict";
+  var search = document.querySelector("[data-feature-search]");
+  if (search) {
+    var filter = search.querySelector("input");
+    var status = search.querySelector("[data-feature-search-status]");
+    var rows = Array.prototype.slice.call(document.querySelectorAll("[data-feature-entry]"));
+    var core = document.querySelector("[data-core-features]");
+    var coreWasOpen = false;
+    var searching = false;
+    search.hidden = false;
+    filter.addEventListener("input", function () {
+      var query = filter.value.trim().toLocaleLowerCase();
+      if (query && !searching && core) coreWasOpen = core.open;
+      var count = 0;
+      var coreMatches = 0;
+      rows.forEach(function (row) {
+        row.hidden = row.getAttribute("data-feature-search-text").toLocaleLowerCase().indexOf(query) === -1;
+        if (!row.hidden) {
+          count += 1;
+          if (core && core.contains(row)) coreMatches += 1;
+        }
+      });
+      if (core) {
+        core.hidden = !!query && !coreMatches;
+        if (query) core.open = !!coreMatches;
+        else if (searching) core.open = coreWasOpen;
+      }
+      searching = !!query;
+      status.hidden = !query;
+      status.textContent = BW.t("plugin_manager.filter.matches", {count: count});
+    });
+  }
   var form = document.querySelector("[data-sidebar-order]");
   if (!form) return;
   var list = form.querySelector("[data-order-list]");

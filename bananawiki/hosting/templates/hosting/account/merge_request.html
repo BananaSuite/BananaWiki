@@ -5,6 +5,6 @@
 <div class="card card--narrow"><h1>{{ t('hosting.merges.request_title') }}</h1><p>{{ t('hosting.merges.request_body') }}</p>
 <form method="post" class="form">{{ ui.csrf() }}
   {{ ui.field('target_username', t('hosting.merges.target'), required=true, attrs={'maxlength': 60}) }}
-  <div class="field"><label for="f-reason">{{ t('hosting.merges.reason') }}</label><textarea id="f-reason" name="reason" maxlength="4000" rows="3"></textarea></div>
+  {{ ui.textarea('reason', t('hosting.merges.reason'), attrs={'maxlength': 4000, 'rows': 3}, id='f-reason') }}
   <button class="btn btn--primary" type="submit">{{ t('hosting.merges.send') }}</button></form></div>
 {% endblock %}

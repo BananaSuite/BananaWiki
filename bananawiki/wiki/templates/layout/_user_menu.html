@@ -19,6 +19,7 @@
     <a role="menuitem" href="{{ url_for('attention.index') }}">{{ t('attention.menu.all') }}</a>
     <hr>
     {% endif %}
+    <a role="menuitem" href="{{ url_for('users.display') }}">{{ t('nav.customize') }}</a>
     {% for item in nav_items('user') %}
     <a role="menuitem" href="{{ item.url }}">{{ item.label }}{% if item.badge %} <span class="count-pill">{{ item.badge }}</span>{% endif %}</a>
     {% endfor %}

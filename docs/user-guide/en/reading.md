@@ -21,7 +21,7 @@ short introduction. You can replay the tour later from the account menu.
   search the text as well.
 * **Home** is the wiki's front page. **All pages** (`/navigation`) shows the
   whole tree.
-* **Apps** in the top bar opens the tools your wiki has switched on: kanban
+* **Apps** at the bottom of the sidebar lists the tools your wiki has switched on: kanban
   boards, canvases, messages, groups, people, the leaderboard.
 * The **theme** button switches between light and dark.
 
@@ -51,7 +51,7 @@ pages have a **Contents** list of their headings. Categories with
 *sequential navigation* show previous/next links at the bottom, useful for
 courses and tutorials.
 
-The **More** menu has, depending on your rights: **History**, **Print**,
+The **Page actions** menu has, depending on your rights: **History**, **Print**,
 export as PDF or Markdown, and editor actions. Under the page you may find
 attachments to download, a quiz, and the audio player.
 

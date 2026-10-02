@@ -8,7 +8,7 @@
   <h1>{{ t('leaderboard.title') }}</h1>
   <div class="page-header__actions"><a class="btn" href="{{ url_for('leaderboard.export', sort=sort, range=range_key) }}">{{ t('leaderboard.export_csv') }}</a></div>
 </header>
-<form method="get" action="{{ url_for('leaderboard.index') }}" class="cluster" aria-label="{{ t('leaderboard.options') }}">
+<form method="get" action="{{ url_for('leaderboard.index') }}" class="inline-fields" aria-label="{{ t('leaderboard.options') }}">
   <label for="lb-sort">{{ t('leaderboard.sort_by') }}</label>
   <select id="lb-sort" name="sort" data-autosubmit>{% for option in sorts %}<option value="{{ option }}"{% if option == sort %} selected{% endif %}>{{ t('leaderboard.sort.' ~ option) }}</option>{% endfor %}</select>
   <label for="lb-range">{{ t('leaderboard.date_range') }}</label>

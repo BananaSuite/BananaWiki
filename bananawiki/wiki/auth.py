@@ -134,7 +134,12 @@ def load_request_user() -> None:
     g.real_user = real
     if session.get("impersonator_id"):
         target = _load_user(session.get("user_id"))
-        if target is None or real["role"] not in perms.ADMIN_ROLES:
+        if not can_impersonate(real, target):
+            db.execute(
+                "UPDATE impersonation_logs SET ended_at = ? "
+                "WHERE admin_id = ? AND target_user_id = ? AND ended_at IS NULL",
+                (now_sql(), real["id"], session.get("user_id")),
+            )
             session.pop("impersonator_id", None)
             session["user_id"] = real["id"]
             target = real
@@ -188,6 +193,13 @@ def start_session(user: dict[str, Any], *, remember: bool = False, method: str =
     days = cfg.remember_me_days if remember else cfg.session_days
     user_agent = (request.headers.get("User-Agent") or "")[:500]
     with db.transaction():
+        current = _load_user(user["id"])
+        # Hashing happens outside this write lock. A password reset may have
+        # revoked every session meanwhile; never recreate one from the old
+        # verified credentials after that revocation has committed.
+        if current is None or current["password"] != user["password"]:
+            abort(401, description=t("auth.error.invalid_credentials"))
+        user = current
         if settings.get("session_limit_enabled"):
             # One active session per account: end the others.
             db.execute(
@@ -329,6 +341,19 @@ def has_role(minimum: str, user: dict[str, Any] | None = None) -> bool:
 
 def is_admin(user: dict[str, Any] | None = None) -> bool:
     return has_role("admin", user)
+
+
+def can_impersonate(actor: dict[str, Any], target: dict[str, Any] | None) -> bool:
+    """Whether impersonation remains allowed with the accounts' current state.
+
+    Rechecked on every request: promotion of the target or removal of the
+    actor's superuser status must not leave an existing privileged session.
+    """
+    if target is None or actor["id"] == target["id"] or not is_admin(actor) or account_block(actor):
+        return False
+    if (is_admin(target) or target.get("is_superuser")) and not actor.get("is_superuser"):
+        return False
+    return account_block(target) is None
 
 
 def can_read_category(category_id: int | None, user: dict[str, Any] | None = None) -> bool:

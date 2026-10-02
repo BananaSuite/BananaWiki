@@ -5,8 +5,8 @@
 {% block content %}
 <header class="page-header"><h1>{{ t('users.settings.title') }}</h1></header>
 {% include "users/_tabs.html" %}
-<div class="stack">
-  <section class="card" aria-labelledby="status-heading">
+<div class="section-stack users-settings">
+  <section class="form-section" aria-labelledby="status-heading">
     <h2 id="status-heading">{{ t('users.settings.status') }}</h2>
     <p class="cluster">
       <span class="badge badge--primary">{{ t('users.role.' ~ user.role) }}</span>
@@ -19,7 +19,7 @@
     </p>
   </section>
 
-  <section class="card" aria-labelledby="username-heading">
+  <section class="form-section" aria-labelledby="username-heading">
     <h2 id="username-heading">{{ t('users.settings.change_username') }}</h2>
     <form method="post" action="{{ url_for('users.change_username') }}" class="form">
       {{ forms.csrf() }}
@@ -30,7 +30,7 @@
     </form>
   </section>
 
-  <section class="card" aria-labelledby="password-heading">
+  <section class="form-section" aria-labelledby="password-heading">
     <h2 id="password-heading">{{ t('users.settings.change_password') }}</h2>
     <form method="post" action="{{ url_for('users.change_password') }}" class="form">
       {{ forms.csrf() }}
@@ -42,7 +42,7 @@
     </form>
   </section>
 
-  <section class="card" aria-labelledby="language-heading">
+  <section class="form-section" aria-labelledby="language-heading">
     <h2 id="language-heading">{{ t('auth.field.language') }}</h2>
     <form method="post" action="{{ url_for('users.change_language') }}" class="form">
       {{ forms.csrf() }}
@@ -53,7 +53,7 @@
   </section>
 
   {% if is_admin and (user.role == 'owner' or may_become_owner) %}
-  <section class="card" aria-labelledby="owner-heading">
+  <section class="form-section" aria-labelledby="owner-heading">
     <h2 id="owner-heading">{{ t('users.settings.owner_status') }}</h2>
     <p>{{ t('users.settings.owner_on' if user.role == 'owner' else 'users.settings.owner_off') }}</p>
     <form method="post" action="{{ url_for('users.toggle_owner') }}" class="form">
@@ -67,7 +67,7 @@
   {{ slot('account.settings_sections') }}
 
   {% if not user.is_superuser %}
-  <section class="card card--danger" aria-labelledby="delete-heading">
+  <section class="form-section form-section--danger" aria-labelledby="delete-heading">
     <h2 id="delete-heading">{{ t('users.settings.delete_account') }}</h2>
     <p>{{ t('users.settings.delete_warning') }}</p>
     <form method="post" action="{{ url_for('users.delete_account') }}" class="form" data-confirm="{{ t('users.settings.delete_confirm') }}">

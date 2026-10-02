@@ -1,4 +1,5 @@
 {#- Import with {% import "hosting/_macros.html" as ui with context %}. -#}
+{% set field_ids = namespace(used=[]) %}
 {% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
 
 {% macro post(action, label, cls='btn btn--small', confirm='', hidden={}) -%}
@@ -8,11 +9,28 @@
 </form>
 {%- endmacro %}
 
-{% macro field(name, label, value='', type='text', hint='', required=false, attrs={}) -%}
+{% macro _field_id(name, id='') -%}
+{%- set field_id = id or 'f-' ~ name -%}
+{%- if not id and field_id in field_ids.used -%}{%- set field_id = field_id ~ '-' ~ field_ids.used|length -%}{%- endif -%}
+{%- set field_ids.used = field_ids.used + [field_id] -%}
+{{- field_id -}}
+{%- endmacro %}
+
+{% macro field(name, label, value='', type='text', hint='', required=false, attrs={}, id='') -%}
+{% set field_id = _field_id(name, id) %}
 <div class="field">
-  <label for="f-{{ name }}">{{ label }}</label>
-  <input id="f-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value if value is not none else '' }}"{% if required %} required{% endif %}{% for k, v in attrs.items() %} {{ k }}="{{ v }}"{% endfor %}>
-  {% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
+  <label for="{{ field_id }}">{{ label }}</label>
+  <input id="{{ field_id }}" name="{{ name }}" type="{{ type }}" value="{{ value if value is not none else '' }}"{% if required %} required{% endif %}{% if hint and 'aria-describedby' not in attrs %} aria-describedby="{{ field_id }}-hint"{% endif %}{% for k, v in attrs.items() %} {{ k }}="{{ v }}"{% endfor %}>
+  {% if hint %}<p class="hint" id="{{ field_id }}-hint">{{ hint }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro textarea(name, label, value='', hint='', required=false, attrs={}, id='') -%}
+{% set field_id = _field_id(name, id) %}
+<div class="field">
+  <label for="{{ field_id }}">{{ label }}</label>
+  <textarea id="{{ field_id }}" name="{{ name }}"{% if required %} required{% endif %}{% if hint and 'aria-describedby' not in attrs %} aria-describedby="{{ field_id }}-hint"{% endif %}{% for k, v in attrs.items() %} {{ k }}="{{ v }}"{% endfor %}>{{ value if value is not none else '' }}</textarea>
+  {% if hint %}<p class="hint" id="{{ field_id }}-hint">{{ hint }}</p>{% endif %}
 </div>
 {%- endmacro %}
 
@@ -25,7 +43,7 @@
 {%- endmacro %}
 
 {% macro duration_fields(prefix, units=('days', 'hours', 'minutes')) -%}
-<div class="cluster">
+<div class="cluster duration-fields">
   {% for unit in units %}
   <label class="small">{{ t('hosting.time.' ~ unit) }} <input type="number" min="0" name="{{ prefix }}_{{ unit }}" value="0" class="hosting-num"></label>
   {% endfor %}
@@ -36,8 +54,8 @@
 <form method="post" action="{{ action }}" class="form">
   {{ csrf() }}
   <div class="field">
-    <label for="sd-{{ action|length }}">{{ t('hosting.suspend.duration') }}</label>
-    <select id="sd-{{ action|length }}" name="suspend_duration">
+    <label for="sd-{{ action|replace('/', '-') }}">{{ t('hosting.suspend.duration') }}</label>
+    <select id="sd-{{ action|replace('/', '-') }}" name="suspend_duration">
       <option value="permanent">{{ t('hosting.suspend.permanent') }}</option>
       <option value="24">{{ t('hosting.suspend.hours', count=24) }}</option>
       <option value="168">{{ t('hosting.suspend.hours', count=168) }}</option>
@@ -47,7 +65,7 @@
   </div>
   {{ duration_fields('suspend_rel') }}
   {{ field('suspend_custom_datetime', t('hosting.suspend.until_utc'), type='datetime-local') }}
-  <div class="field"><label for="sr-{{ action|length }}">{{ t('hosting.suspend.reason') }}</label><textarea id="sr-{{ action|length }}" name="suspend_reason" rows="2" maxlength="500"></textarea></div>
+  {{ textarea('suspend_reason', t('hosting.suspend.reason'), attrs={'rows': 2, 'maxlength': 500}, id='sr-' ~ action|replace('/', '-')) }}
   {{ check('suspend_reason_visible', t('hosting.suspend.reason_visible')) }}
   {{ check('suspend_time_visible', t('hosting.suspend.time_visible')) }}
   {% if show_instances %}{{ check('suspend_instances', t('hosting.suspend.instances_too')) }}{% endif %}

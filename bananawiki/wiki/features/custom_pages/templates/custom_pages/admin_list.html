@@ -41,9 +41,10 @@
   </table>
 </div>
 {% else %}
-<div class="card empty-state"><p>{{ t('custom_pages.admin.empty') }}</p></div>
+<div class="empty-state"><p>{{ t('custom_pages.admin.empty') }}</p></div>
 {% endif %}
 
+<div class="section-stack">
 <section class="card" aria-labelledby="cp-settings">
   <div class="card__header"><h2 id="cp-settings">{{ t('custom_pages.admin.settings') }}</h2></div>
   <form method="post" action="{{ url_for('custom_pages.admin_settings') }}" class="form">
@@ -66,4 +67,5 @@
   {% endfor %}
 </section>
 {% endblock %}
-{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('custom_pages.css', blueprint='custom_pages') }}">{% endblock %}
+{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('custom_pages.css', blueprint='custom_pages') }}"></div>
+{% endblock %}

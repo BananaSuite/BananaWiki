@@ -7,7 +7,7 @@
   <div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('page_governance.governance') }}">{{ t('page_governance.nav.governance') }}</a></div>
 </header>
 {% if not reservations_active %}<div class="alert alert--warning"><div class="alert__body">{{ t('page_governance.admin.reservations_off') }}</div></div>{% endif %}
-<div class="stack">
+<div class="section-stack">
 <section class="card">
   <h2>{{ t('page_governance.admin.active_reservations') }}</h2>
   {% if reservations %}
@@ -21,7 +21,7 @@
       <td>{{ r.expires_at|datetime }}</td>
       <td class="cluster">
         {{ forms.post_button(url_for('page_governance.force_release', page_id=r.page_id), t('page_governance.admin.release'), cls='btn btn--small btn--danger', confirm=t('page_governance.admin.release_confirm', title=r.title)) }}
-        <form class="inline cluster" method="post" action="{{ url_for('page_governance.assign', page_id=r.page_id) }}">
+        <form class="inline-fields" method="post" action="{{ url_for('page_governance.assign', page_id=r.page_id) }}">
           {{ forms.csrf() }}
           <label class="visually-hidden" for="assign-{{ r.page_id }}">{{ t('page_governance.admin.assign_to') }}</label>
           <select id="assign-{{ r.page_id }}" name="user_id">

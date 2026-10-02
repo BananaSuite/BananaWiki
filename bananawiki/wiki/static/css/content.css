@@ -1,14 +1,14 @@
 /* Rendered wiki content (Markdown output). */
-.prose { overflow-wrap: break-word; }
+.prose { overflow-wrap: break-word; font-size: 1rem; line-height: var(--line-height); }
 .prose > :first-child { margin-top: 0; }
-.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 { margin: 1.6em 0 .6em; scroll-margin-top: calc(var(--topbar-height) + 1rem); }
+.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 { margin: 1.65em 0 .6em; color: var(--heading); scroll-margin-top: calc(var(--topbar-height) + 1rem); }
 .prose h1 { font-size: 1.75rem; }
-.prose h2 { font-size: 1.4rem; padding-bottom: .3rem; border-bottom: 1px solid var(--border); }
-.prose h3 { font-size: 1.18rem; }
+.prose h2 { font-size: 1.3rem; font-weight: 650; letter-spacing: -.02em; }
+.prose h3 { font-size: 1.12rem; font-weight: 600; }
 .prose ul, .prose ol { padding-left: 1.6rem; margin: 0 0 1em; }
 .prose li + li { margin-top: .2em; }
-.prose blockquote { margin: 0 0 1em; padding: .5rem 1rem; border-left: 4px solid var(--bw-primary);
-  background: var(--surface); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; color: var(--muted); }
+.prose blockquote { margin: 0 0 1em; padding: .5rem 1rem; border-left: 2px solid var(--bw-primary);
+  background: transparent; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; color: var(--muted); }
 .prose code { background: var(--surface-2); padding: .1em .35em; border-radius: 4px; }
 .prose pre { background: var(--surface); border: 1px solid var(--border); padding: .9rem 1rem; border-radius: var(--radius);
   overflow-x: auto; line-height: 1.45; }
@@ -16,8 +16,12 @@
 .prose .codehilite { margin: 0 0 1em; border-radius: var(--radius); }
 .prose .codehilite pre { margin: 0; }
 .prose table { border-collapse: collapse; margin: 0 0 1em; display: block; overflow-x: auto; max-width: 100%; }
-.prose th, .prose td { border: 1px solid var(--border-strong); padding: .4rem .7rem; }
-.prose th { background: var(--surface); }
+.prose th, .prose td { border: 0; border-bottom: 1px solid var(--border); padding: .55rem .8rem; }
+.prose th { background: var(--surface); color: var(--heading); font-weight: 600; text-align: left; border-top: 1px solid var(--border); }
+.prose td { font-variant-numeric: tabular-nums; }
+.prose :is(th, td)[align="left"] { text-align: left; }
+.prose :is(th, td)[align="center"] { text-align: center; }
+.prose :is(th, td)[align="right"] { text-align: right; }
 .prose img { height: auto; border-radius: var(--radius-sm); }
 .prose .media-left { float: left; margin: 0 1.25rem 1rem 0; max-width: 50%; }
 .prose .media-right { float: right; margin: 0 0 1rem 1.25rem; max-width: 50%; }

@@ -19,6 +19,9 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
 * **Everyone else** gets exactly what their role, permissions and category
   access allow, in the web interface and in the REST API alike.
 * **Hosting operators** trust neither tenant wikis nor their administrators;
+  hosted third-party plugins are disabled unless the operator sets
+  `HOSTING_ALLOW_TENANT_PLUGINS=1`. Enabling plugins allows arbitrary Python
+  inside the tenant container and requires tested host resource controls;
   see [hosting](hosting.md#isolation).
 
 ## Accounts and sessions
@@ -111,7 +114,7 @@ X-Frame-Options: SAMEORIGIN
 
 plus `Strict-Transport-Security` on HTTPS in production and
 `Cache-Control: private, no-store` for signed-in visitors. The templates
-contain no inline scripts or event handlers; the few inline script blocks
+contain no inline event handlers; the few inline script blocks
 carry the per-request nonce. `style-src-attr 'unsafe-inline'` is needed for
 the sanitised spacing styles page content may use.
 
@@ -149,6 +152,19 @@ ask editors to upload images instead of linking them.
   (`application/octet-stream`).
 * Attachments are checked against the page, chat or board they belong to on
   every download.
+
+## Speech conversion
+
+The speech encoder accepts local MP3 and PCM WAV inputs. It explicitly selects
+the audio demuxer and allows only PCM/MP3 decoders and the local-file protocol;
+video, subtitles, playlists and network protocols are not used. Encoding and
+tempo changes each use one decoder, filter and encoder thread. Embedded metadata
+is discarded. Diagnostics are capped at 64 KiB, execution is limited to five
+minutes, and failed or timed-out encoders are stopped and reaped.
+
+These application restrictions reduce exposure to unnecessary multimedia
+parsers. They do not remove libraries installed in the container or resolve
+their distribution advisories; see [production validation](production-readiness.md#image-advisories).
 
 ## Secrets at rest
 
@@ -197,6 +213,10 @@ go to the application log (`bananawiki.plugins`), and the REST API keeps its
 own log of every call (**Admin → REST API**).
 
 ## Checklist for production
+
+For public hosting, also follow the [release assessment](production-readiness.md),
+including unfixed tenant-image advisories and the required host firewall,
+storage quotas, reserve, restore and update/rollback checks.
 
 * Serve over HTTPS only; set `BW_PROXY_MODE=1` only when the port is reachable
   through your proxy alone.

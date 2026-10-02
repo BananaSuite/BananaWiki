@@ -190,13 +190,31 @@
 
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") {
+      var sidebarOpen = document.body.classList.contains("sidebar-open");
+      var sidebar = document.querySelector(".sidebar");
+      var sidebarHadFocus = sidebar && sidebar.contains(document.activeElement);
       document.body.classList.remove("sidebar-open");
-      document.querySelectorAll("details.menu[open]").forEach(function (menu) { menu.removeAttribute("open"); });
+      document.querySelectorAll("details.menu[open]").forEach(function (menu) {
+        var restoreFocus = menu.contains(document.activeElement);
+        menu.removeAttribute("open");
+        var summary = menu.querySelector("summary");
+        if (restoreFocus && summary) summary.focus();
+      });
+      var sidebarToggle = document.querySelector("[data-sidebar-toggle]");
+      if (sidebarOpen && sidebarToggle) {
+        sidebarToggle.setAttribute("aria-expanded", "false");
+        if (sidebarHadFocus) sidebarToggle.focus();
+      }
     }
   });
 
   // Sidebar (mobile drawer) and theme ---------------------------------------
   BW.onReady(function () {
+    // Feature actions can include a dialog. Keep modal forms outside dropdown
+    // panels so menu styling and a closed menu cannot hide their contents.
+    document.querySelectorAll("details.menu dialog").forEach(function (dialog) {
+      document.body.appendChild(dialog);
+    });
     // The menu button opens the drawer on phones and hides/shows the sidebar on wide
     // screens (as the 1.4 collapse button did); the wide-screen choice is remembered.
     var toggle = document.querySelector("[data-sidebar-toggle]");

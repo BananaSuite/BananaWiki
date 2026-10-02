@@ -150,8 +150,7 @@ def clean_value(field_type: str, raw: str | None) -> str:
         except ValueError:
             raise ProfileFieldError("profiles.error.number_invalid") from None
     elif field_type == "url":
-        parts = urlsplit(value)
-        if parts.scheme not in ("http", "https") or not parts.netloc:
+        if link_target(value) is None:
             raise ProfileFieldError("profiles.error.url_invalid")
     elif field_type == "date":
         try:

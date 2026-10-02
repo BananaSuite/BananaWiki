@@ -2,7 +2,7 @@
 {% block title %}{{ t('chat.groups.global_name') }}{% endblock %}
 {% block content %}
 <header class="page-header"><h1>{{ t('chat.groups.global_name') }}</h1></header>
-<div class="card">
+<div class="stack">
   <p>{{ t('chat.groups.global_intro') }}</p>
   <form method="post" class="form" action="{{ url_for('chat.group_global') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

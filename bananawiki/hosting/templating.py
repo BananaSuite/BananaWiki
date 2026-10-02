@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
-import os
-from functools import lru_cache
 from typing import Any
 
-from flask import Flask, current_app, g, request, session, url_for
+from flask import Flask, current_app, g, request, session
 from markupsafe import Markup
 
 from .. import __version__
 from ..core import web
+from ..core.assets import asset_url
 from ..core.timeutil import parse, utcnow
 from . import attention, auth, i18n, notifications, urls
 
@@ -78,21 +76,6 @@ def device(user_agent: Any) -> str:
     browser = next((name for marker, name in _BROWSERS if marker in ua), i18n.t("hosting.account.sessions.unknown_browser"))
     platform = next((name for marker, name in _PLATFORMS if marker in ua), i18n.t("hosting.account.sessions.unknown_platform"))
     return i18n.t("hosting.account.sessions.device_label", browser=browser, platform=platform)
-
-
-@lru_cache(maxsize=64)
-def _file_hash(path: str, mtime: float) -> str:
-    with open(path, "rb") as handle:
-        return hashlib.sha256(handle.read()).hexdigest()[:10]
-
-
-def asset_url(filename: str) -> str:
-    path = os.path.join(current_app.static_folder or "", filename)
-    try:
-        version = _file_hash(path, os.path.getmtime(path))
-    except OSError:
-        version = __version__
-    return url_for("static", filename=filename, v=version)
 
 
 def theme() -> str:

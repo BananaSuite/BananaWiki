@@ -13,7 +13,7 @@
   </div>
 </header>
 
-<form method="post" enctype="multipart/form-data" class="form card" id="cp-form"
+<form method="post" enctype="multipart/form-data" class="form" id="cp-form"
       action="{{ url_for('custom_pages.admin_edit', page_id=page.id) if page else url_for('custom_pages.admin_create') }}">
   {{ forms.csrf() }}
   <script type="application/json" id="cp-type-fields">{{ type_fields|json_script }}</script>
@@ -119,7 +119,7 @@
     </div>
   </fieldset>
 
-  <div class="btn-row">
+  <div class="btn-row form-actions--sticky">
     <button class="btn btn--primary" type="submit">{{ t('common.save') if page else t('common.create') }}</button>
     <a class="btn btn--ghost" href="{{ url_for('custom_pages.admin_list') }}">{{ t('common.cancel') }}</a>
   </div>

@@ -47,21 +47,26 @@ def verify(username: str, password: str, *, admin_only: bool = False) -> dict[st
     account_key = username.lower()
     source_key = f"{account_key}\n{ip}"
     limiter = _limiter()
-    if (limiter.exceeded(ip, "login:ip", MAX_PER_IP, WINDOW_SECONDS)
-            or limiter.exceeded(source_key, "login:account-ip", MAX_PER_ACCOUNT, WINDOW_SECONDS)
-            or limiter.exceeded(account_key, "login:account", MAX_PER_ACCOUNT_TOTAL, WINDOW_SECONDS)):
-        raise Refused("auth.error.too_many_attempts", 429)
+    reservations = []
+    with db.transaction():
+        for key, bucket, limit in ((ip, "login:ip", MAX_PER_IP),
+                                   (source_key, "login:account-ip", MAX_PER_ACCOUNT),
+                                   (account_key, "login:account", MAX_PER_ACCOUNT_TOTAL)):
+            reservation = limiter.reserve(key, bucket, limit, WINDOW_SECONDS)
+            if reservation is None:
+                # Roll back the earlier reservations when any bucket is full.
+                raise Refused("auth.error.too_many_attempts", 429)
+            reservations.append(reservation)
     user = accounts.by_username(username) if username and len(password) <= passwords.MAX_LENGTH else None
     if user is None:
         passwords.burn_time(password)
     if user is None or not passwords.verify_password(user["password"], password):
-        with db.transaction():
-            limiter.record(ip, "login:ip")
-            limiter.record(source_key, "login:account-ip")
-            limiter.record(account_key, "login:account")
         current_app.logger.info("Failed sign-in for %r from %s", username, ip)
         raise Refused("auth.error.invalid_credentials", 401)
-    limiter.clear(source_key, "login:account-ip")
+    with db.transaction():
+        for reservation in reservations:
+            limiter.release(reservation)
+        limiter.clear(source_key, "login:account-ip")
     if admin_only and not auth.is_admin(user):
         raise Refused("auth.admin_login.not_admin", 403)
     return user

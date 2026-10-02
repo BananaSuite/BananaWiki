@@ -1,26 +1,27 @@
-{% extends "base.html" %}
+{% extends "admin/_layout.html" %}
 {% import "announcements/_form.html" as ann with context %}
 {% block title %}{{ t('announcements.admin_title') }}{% endblock %}
-{% block head %}<link rel="stylesheet" href="{{ asset_url('announcements.css', blueprint='announcements') }}">{% endblock %}
-{% block content %}
+{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('announcements.css', blueprint='announcements') }}">{% endblock %}
+{% block admin_content %}
 <div class="page-header"><h1>{{ t('announcements.admin_title') }}</h1></div>
-<section class="card">
-  <h2>{{ t('announcements.create') }}</h2>
+<div class="section-stack">
+<details class="disclosure"{% if errors %} open{% endif %}>
+  <summary>{{ t('announcements.create') }}</summary>
   {{ ann.error_list(errors) }}
   <form method="post" action="{{ url_for('announcements.create') }}" class="form stack">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {{ ann.fields(form, service) }}
     <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('announcements.create') }}</button></div>
   </form>
-</section>
+</details>
 
 <h2>{{ t('announcements.existing') }}</h2>
 {% if not announcements %}
 <div class="empty-state">{{ t('announcements.empty') }}</div>
 {% else %}
-<div class="stack">
+<div class="announcement-admin-list">
   {% for a in announcements %}
-  <article class="card announcement-admin announcement-admin--{{ a.color }}">
+  <article class="announcement-admin announcement-admin--{{ a.color }}">
     <div class="split">
       <div class="cluster">
         <strong>#{{ a.id }}</strong>
@@ -48,4 +49,5 @@
   {% endfor %}
 </div>
 {% endif %}
+</div>
 {% endblock %}

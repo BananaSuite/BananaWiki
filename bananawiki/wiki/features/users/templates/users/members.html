@@ -11,11 +11,12 @@
 {% if members %}
 <ul class="users-members">
   {% for member in members %}
-  <li class="users-member card">
+  <li class="users-member">
+    {% if can_open %}<a class="users-member__identity" href="{{ url_for('users.profile', username=member.username) }}">
+    {% else %}<div class="users-member__identity">{% endif %}
     {{ m.avatar(member.avatar_filename and url_for('uploaded_file', filename=member.avatar_filename), member.username) }}
     <div class="users-member__text">
-      {% if can_open %}<a href="{{ url_for('users.profile', username=member.username) }}"><strong>{{ member.real_name or member.username }}</strong></a>
-      {% else %}<strong>{{ member.real_name or member.username }}</strong>{% endif %}
+      <strong>{{ member.real_name or member.username }}</strong>
       <span class="small muted">@{{ member.username }}</span>
       {% if is_admin %}
       <span class="cluster">
@@ -25,6 +26,7 @@
       </span>
       {% endif %}
     </div>
+    {% if can_open %}</a>{% else %}</div>{% endif %}
   </li>
   {% endfor %}
 </ul>

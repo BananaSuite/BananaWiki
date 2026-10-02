@@ -143,8 +143,12 @@ Open `https://wiki.example.org` and use the token at `/setup`.
 
 How the image is built:
 
-* Python 3.12 (Debian bookworm), dependencies from wheels only, plus ffmpeg,
-  and DejaVu fonts for PDF export.
+* Python 3.12 (Debian 13/trixie), dependencies from wheels only, plus ffmpeg,
+  and DejaVu fonts for PDF export. Available distribution security updates
+  are applied during the build. Rebuild regularly to receive later fixes.
+* Package installers (`pip`, `setuptools`, `wheel`, and the bundled
+  `ensurepip` installer) are omitted from the runtime image. Add any custom
+  dependencies during your image build; the running image is read-only.
 * Runs as UID 10001, works with a read-only root file system; everything is
   written to the `/data` volume (`BW_INSTANCE_DIR=/data`).
 * Listens on port 5001; a health check calls `/health`.
@@ -332,6 +336,13 @@ The database is copied to `<instance>/backups/` and upgraded on the first
 start of a release with a newer schema.
 
 ## Hosting platform
+
+Before public launch, complete the [release deployment checks](production-readiness.md#live-deployment-requirements)
+on this host: tenant-to-host firewall isolation, byte/inode quotas, reserved
+portal/backup storage, HTTPS/proxy verification, restore and managed update/
+rollback. Review the [tenant image advisories](production-readiness.md#image-advisories)
+and rebuild/rescan when distributor fixes become available. Local container
+checks do not certify the target installation.
 
 `sudo ./banana install --mode hosting --domain example.com` installs the
 portal (`bananawiki.service`), its maintenance service

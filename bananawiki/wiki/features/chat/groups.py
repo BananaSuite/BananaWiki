@@ -13,6 +13,7 @@ import re
 import secrets
 import sqlite3
 import string
+from collections.abc import Callable
 from typing import Any
 
 from ....core.timeutil import now_sql
@@ -36,6 +37,23 @@ _ALPHABET = string.ascii_letters + string.digits
 
 class CodeTaken(ValueError):
     """The requested invite code belongs to another group."""
+
+
+class TransferRefused(ValueError):
+    """Ownership or membership changed before the transfer could commit."""
+
+    def __init__(self, key: str):
+        super().__init__(key)
+        self.key = key
+
+
+class SendRefused(ValueError):
+    """A room or membership restriction changed while the message was being prepared."""
+
+    def __init__(self, key: str, status: int = 403):
+        super().__init__(key)
+        self.key = key
+        self.status = status
 
 
 def new_invite_code() -> str:
@@ -140,9 +158,15 @@ def set_timeout(group_id: int, user_id: str, until: str | None) -> None:
 
 
 def transfer(group_id: int, old_owner_id: str, new_owner_id: str) -> None:
-    set_role(group_id, old_owner_id, "moderator")
-    set_role(group_id, new_owner_id, "owner")
-    db.execute("UPDATE group_chats SET creator_id = ? WHERE id = ?", (new_owner_id, group_id))
+    with db.transaction():
+        owner = member(group_id, old_owner_id)
+        if owner is None or owner["role"] != "owner":
+            raise TransferRefused("chat.groups.error.owner_only")
+        if old_owner_id == new_owner_id or member(group_id, new_owner_id) is None:
+            raise TransferRefused("chat.groups.error.target_not_member")
+        set_role(group_id, old_owner_id, "moderator")
+        set_role(group_id, new_owner_id, "owner")
+        db.execute("UPDATE group_chats SET creator_id = ? WHERE id = ?", (new_owner_id, group_id))
 
 
 def take_over(group_id: int, admin_id: str) -> None:
@@ -224,6 +248,18 @@ def mark_read(group_id: int, user_id: str) -> None:
 def send(group: dict[str, Any], sender_id: str, content: str, *, ip_address: str,
          stored: storage.StoredFile | None) -> int:
     with db.transaction():
+        current = get(group["id"])
+        if current is None:
+            raise SendRefused("chat.error.not_found", 404)
+        membership_row = membership(group["id"], sender_id)
+        if membership_row is None:
+            raise SendRefused("chat.groups.error.not_member")
+        if membership_row["banned"]:
+            raise SendRefused("chat.groups.error.banned")
+        if is_timed_out(membership_row):
+            raise SendRefused("chat.groups.error.timed_out")
+        if current["is_global"] and not current["is_active"]:
+            raise SendRefused("chat.groups.error.global_paused")
         message_id = store.insert(GROUP, group["id"], sender_id, content, ip_address=ip_address, stored=stored)
         db.execute(
             "UPDATE group_members SET unread_count = unread_count + 1 WHERE group_id = ? AND user_id != ? "
@@ -233,17 +269,21 @@ def send(group: dict[str, Any], sender_id: str, content: str, *, ip_address: str
     return message_id
 
 
-def clear(group_id: int, actor: dict[str, Any]) -> None:
+def clear(group_id: int, actor: dict[str, Any], *, authorize: Callable[[], dict[str, Any]] | None = None) -> None:
     with db.transaction():
+        if authorize is not None:
+            actor = authorize()
         files = store.clear(GROUP, group_id)
         db.execute("UPDATE group_members SET unread_count = 0 WHERE group_id = ?", (group_id,))
         system(group_id, "chat.system.cleared", actor=actor["username"])
     store.remove_files(files)
 
 
-def delete(group_id: int) -> None:
+def delete(group_id: int, *, authorize: Callable[[], Any] | None = None) -> None:
     """Delete a group with its messages, members, attachments and badge choices."""
     with db.transaction():
+        if authorize is not None:
+            authorize()
         files = store.clear(GROUP, group_id)
         db.execute("DELETE FROM group_chats WHERE id = ?", (group_id,))
     store.remove_files(files)

@@ -10,7 +10,7 @@
     <span class="badge">{{ t('contributions.status.' ~ contribution.status) }}</span>
   </div>
 </header>
-<div class="stack">
+<div class="section-stack">
   {% if page_changed %}<div class="alert alert--warning"><div class="alert__body">{{ t('contributions.page_changed') }}</div></div>{% endif %}
   <section class="card">
     <h2>{{ t('contributions.field.reason') }}</h2>
@@ -46,7 +46,7 @@
       </div>
     </form>
     {% if is_admin %}
-    <form method="post" action="{{ url_for('contributions.set_quota', contribution_id=contribution.id) }}" class="form cluster">
+    <form method="post" action="{{ url_for('contributions.set_quota', contribution_id=contribution.id) }}" class="inline-fields users-spaced">
       {{ forms.csrf() }}
       <label for="f-quota">{{ t('contributions.quota.set_for', user=contribution.username) }}</label>
       <input id="f-quota" name="quota" placeholder="{{ t('contributions.quota.set_hint') }}" size="10">

@@ -211,7 +211,6 @@
 
   // Start from the address.
   var params = new URLSearchParams(location.search);
-  if (window.matchMedia && window.matchMedia("(min-width: 901px)").matches) openTools();
   if (params.get("lanes")) openTools();
   FIELDS.forEach(function (name) {
     var value = params.get(name) || "";

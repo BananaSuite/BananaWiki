@@ -7,21 +7,25 @@
   <h1>{{ t('canvas.list.title') }}</h1>
   {% if can_create %}
   <div class="page-header__actions">
-    <button type="button" class="btn" data-dialog-open="canvas-import-dialog">{{ t('canvas.list.import') }}</button>
     <button type="button" class="btn btn--primary" data-dialog-open="canvas-create-dialog">{{ t('canvas.list.new') }}</button>
+    <details class="menu">
+      <summary class="btn" aria-label="{{ t('canvas.list.options_label') }}">{{ t('canvas.list.options') }} <span aria-hidden="true">▾</span></summary>
+      <div class="menu__panel" role="menu">
+        <button type="button" role="menuitem" data-dialog-open="canvas-import-dialog">{{ t('canvas.list.import') }}</button>
+      </div>
+    </details>
   </div>
   {% endif %}
 </header>
 
 {% if layouts %}
-<p class="hint" id="canvas-order-hint">{% if can_reorder %}{{ t('canvas.list.reorder_hint') }}{% endif %}</p>
 <ul class="canvas-list" id="canvas-list"
     {% if can_reorder %}data-order-url="{{ url_for('canvas.save_order') }}" data-version-url="{{ url_for('canvas.list_order_version') }}"
     data-order-version="{{ order_version }}"{% if shared_order %} data-shared-order{% endif %}{% endif %}
-    aria-describedby="canvas-order-hint">
+    >
   {% for layout in layouts %}
-  <li class="card canvas-list__item" data-layout-id="{{ layout.id }}">
-    {% if can_reorder %}
+  <li class="canvas-list__item" data-layout-id="{{ layout.id }}">
+    {% if can_reorder and layouts|length > 1 %}
     <div class="canvas-list__move">
       <button type="button" class="btn btn--ghost btn--icon btn--small" data-move="up" aria-label="{{ t('canvas.list.move_up', title=layout.title) }}">▲</button>
       <button type="button" class="btn btn--ghost btn--icon btn--small" data-move="down" aria-label="{{ t('canvas.list.move_down', title=layout.title) }}">▼</button>
@@ -31,7 +35,6 @@
       <h2 class="canvas-list__title"><a href="{{ url_for('canvas.view', slug=layout.slug) }}">{{ layout.title }}</a>
         {% if layout.visibility != 'public' %}<span class="badge">{{ t('canvas.visibility.' ~ layout.visibility) }}</span>{% endif %}
         {% if layout.is_archived %}<span class="badge badge--warning">{{ t('canvas.list.archived') }}</span>{% endif %}
-        {% if layout.level == 'edit' %}<span class="badge badge--primary">{{ t('canvas.list.can_edit') }}</span>{% endif %}
       </h2>
       {% if layout.description %}<p class="canvas-list__desc">{{ layout.description|truncate(160) }}</p>{% endif %}
       <p class="small muted">{{ layout.creator_username or t('common.unknown_user') }} · <span title="{{ layout.updated_at|datetime }}">{{ t('canvas.list.updated', when=layout.updated_at|time_ago) }}</span></p>
@@ -39,6 +42,12 @@
   </li>
   {% endfor %}
 </ul>
+{% if can_reorder and layouts|length > 1 %}
+<details class="canvas-list-order">
+  <summary>{{ t('canvas.list.reorder') }}</summary>
+  <p class="hint">{{ t('canvas.list.reorder_hint') }}</p>
+</details>
+{% endif %}
 {% else %}
 <div class="empty-state">
   <h2>{{ t('canvas.list.empty') }}</h2>

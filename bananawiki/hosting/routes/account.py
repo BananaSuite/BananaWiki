@@ -3,7 +3,6 @@ API tokens, data export, deletion and account merges."""
 
 from __future__ import annotations
 
-import hmac
 import json
 import secrets
 import time
@@ -21,6 +20,7 @@ from flask import (
     url_for,
 )
 
+from ...core.crypto import constant_time_equals
 from ...core.timeutil import sql_in
 from ...core.web import safe_next
 from .. import accounts, api_tokens, attention, auth, instances, merges, mfa, notifications, settings
@@ -327,7 +327,7 @@ def create_api_token():
         flash(t("hosting.api_tokens.impersonation"), "error")
         return redirect(url_for("account.account") + "#api-tokens")
     expected = session.get(TOKEN_NONCE_KEY) or ""
-    if not expected or not hmac.compare_digest(expected, request.form.get("form_nonce") or ""):
+    if not expected or not constant_time_equals(expected, request.form.get("form_nonce") or ""):
         flash(t("hosting.api_tokens.form_used"), "info")
         return redirect(url_for("account.account") + "#api-tokens")
     if not accounts.verify_password(current, request.form.get("current_password") or ""):

@@ -24,11 +24,14 @@ else in the archive is ignored.
 
 from __future__ import annotations
 
+import errno
 import json
+import lzma
 import os
 import shutil
 import stat
 import zipfile
+import zlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -46,6 +49,7 @@ SKIPPED_DIRS = frozenset({"tts", "backups", "tmp_exports", "logs", "piper-voices
 SKIPPED_FILES = frozenset({"bananawiki.pid", "tts_worker.pid", "error.log", "access.log", ".secret_key",
                            *tenantfs.DATABASE_FILES, *tenantfs.STALE_STATE_FILES})
 MAX_RATIO = 200
+MAX_MANIFEST_BYTES = 1024 * 1024
 # ZipInfo.compress_level is public from Python 3.13; 3.11 and 3.12 read _compresslevel.
 _LEVEL_ATTRIBUTE = "compress_level" if hasattr(zipfile.ZipInfo, "compress_level") else "_compresslevel"
 
@@ -81,7 +85,9 @@ def write_fd(archive: zipfile.ZipFile, fd: int, info: os.stat_result, name: str,
             setattr(entry, _LEVEL_ATTRIBUTE, settings.export_compress_level)
         entry.file_size = info.st_size
         with archive.open(entry, "w", force_zip64=True) as target:
-            shutil.copyfileobj(source, target, 1024 * 1024)
+            # A tenant can keep appending while its files are exported. Read
+            # only the size observed when opening it, so the host finishes.
+            tenantfs.copy_observed(source, target, info.st_size)
 
 
 def add_tenant_tree(archive: zipfile.ZipFile, root: Path, prefix: str, settings: ArchiveSettings, *,
@@ -117,9 +123,12 @@ def export(root: Path, snapshot: str, destination_dir: Path, slug: str, settings
     manifest = {"format_version": FORMAT_VERSION, "source": "hosting", "exported_at": datetime.now(UTC).isoformat(),
                 "has_raw_db": True, "has_site_export_json": False, "original_subdomain": slug,
                 "bananawiki_version": __version__}
+    # Opening before the cleanup scope ensures a name collision cannot delete
+    # someone else's completed export.
+    archive = zipfile.ZipFile(path, "x", zipfile.ZIP_DEFLATED, compresslevel=settings.export_compress_level,
+                              allowZip64=True)
     try:
-        with zipfile.ZipFile(path, "x", zipfile.ZIP_DEFLATED, compresslevel=settings.export_compress_level,
-                             allowZip64=True) as archive:
+        with archive:
             archive.writestr(MANIFEST, json.dumps(manifest, indent=2, sort_keys=True))
             parent, _, name = snapshot.rpartition("/")
             dir_fd = tenantfs.open_dir(root, parent)
@@ -184,9 +193,15 @@ def destination(name: str, prefix: str) -> str | None:
 def _check_manifest(archive: zipfile.ZipFile, names: set[str]) -> None:
     if MANIFEST not in names:
         return
+    if archive.getinfo(MANIFEST).file_size > MAX_MANIFEST_BYTES:
+        raise RuntimeFailure("archive_invalid", "manifest.json is too large")
     try:
-        manifest = json.loads(archive.read(MANIFEST)[:1024 * 1024].decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
+        with archive.open(MANIFEST) as source:
+            raw = source.read(MAX_MANIFEST_BYTES + 1)
+        if len(raw) > MAX_MANIFEST_BYTES:
+            raise RuntimeFailure("archive_invalid", "manifest.json is too large")
+        manifest = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, zipfile.BadZipFile, RuntimeError, zlib.error, lzma.LZMAError, OSError):
         raise RuntimeFailure("archive_invalid", "manifest.json is not JSON") from None
     version = manifest.get("format_version") if isinstance(manifest, dict) else None
     if type(version) is not int or not 1 <= version <= FORMAT_VERSION:
@@ -202,6 +217,9 @@ def plan(archive: zipfile.ZipFile, settings: ArchiveSettings, free_bytes: int) -
     total = 0
     for info in members:
         _safe_name(info.filename.rstrip("/") if info.is_dir() else info.filename)
+        if info.flag_bits & 1 or info.compress_type not in (
+                zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED, zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA):
+            raise RuntimeFailure("archive_invalid", "encrypted or unsupported ZIP members cannot be imported")
         kind = stat.S_IFMT(info.external_attr >> 16)
         if kind not in (0, stat.S_IFREG, stat.S_IFDIR):
             raise RuntimeFailure("archive_invalid", "the archive contains links or special files")
@@ -227,6 +245,9 @@ def plan(archive: zipfile.ZipFile, settings: ArchiveSettings, free_bytes: int) -
         chosen[target] = info
     if RAW_DB not in chosen and f"{tenantfs.EXCHANGE}/{JSON_DUMP}" not in chosen:
         raise RuntimeFailure("archive_invalid", "the archive holds no BananaWiki database")
+    for target in chosen:
+        if any(str(parent) in chosen for parent in PurePosixPath(target).parents):
+            raise RuntimeFailure("archive_invalid", "the archive uses the same path as a file and a directory")
     if RAW_DB in chosen:
         chosen.pop(f"{tenantfs.EXCHANGE}/{JSON_DUMP}", None)
     return chosen, skipped
@@ -253,6 +274,10 @@ def unpack(archive_path: Path, staging: Path, settings: ArchiveSettings) -> Unpa
                 with archive.open(info) as source, open(path, "xb") as output:
                     os.fchmod(output.fileno(), 0o600)
                     shutil.copyfileobj(source, output, 1024 * 1024)
-        except (zipfile.BadZipFile, EOFError, ValueError) as error:
+        except (zipfile.BadZipFile, EOFError, ValueError, RuntimeError, zlib.error, lzma.LZMAError) as error:
             raise RuntimeFailure("archive_invalid", f"damaged archive: {error}") from None
+        except OSError as error:
+            if error.errno in (errno.ENOSPC, errno.EDQUOT):
+                raise RuntimeFailure("no_space", "not enough free space to unpack this archive") from None
+            raise RuntimeFailure("archive_invalid", "an archive member could not be extracted") from None
     return Unpacked(RAW_DB in chosen, f"{tenantfs.EXCHANGE}/{JSON_DUMP}" in chosen, skipped)

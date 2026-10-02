@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .hosting_support import PASSWORD, build_portal, csrf_token, portal_environ
 
@@ -85,3 +87,64 @@ def test_error_pages_do_not_leak_internals(portal, web, make_account, login, mon
     response = web.get("/dashboard")
     assert response.status_code == 500
     assert "secret internal detail" not in response.get_data(as_text=True)
+
+
+def test_concurrent_password_guesses_cannot_bypass_portal_signin_limits(portal, make_account, monkeypatch):
+    from bananawiki.hosting import accounts
+    from bananawiki.hosting.routes.auth import LOGIN_MAX_PER_ACCOUNT
+
+    account = make_account()
+    all_hashes_started = threading.Event()
+    release_hashes = threading.Event()
+    lock = threading.Lock()
+    attempts = []
+
+    def slow_verify(_account, _password):
+        with lock:
+            attempts.append(1)
+            if len(attempts) == LOGIN_MAX_PER_ACCOUNT:
+                all_hashes_started.set()
+        assert release_hashes.wait(10)
+        return False
+
+    monkeypatch.setattr(accounts, "verify_password", slow_verify)
+
+    def guess():
+        with portal.test_client() as client:
+            return client.post("/login", data={"username": account["username"], "password": "wrong"}).status_code
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        futures = [pool.submit(guess) for _ in range(12)]
+        try:
+            assert all_hashes_started.wait(5)
+            completed = as_completed(futures, timeout=5)
+            assert [next(completed).result() for _ in range(4)] == [429] * 4
+            assert len(attempts) == LOGIN_MAX_PER_ACCOUNT
+        finally:
+            release_hashes.set()
+        statuses = [future.result(timeout=5) for future in futures]
+    assert statuses.count(401) == LOGIN_MAX_PER_ACCOUNT and statuses.count(429) == 4
+
+
+def test_portal_signin_failures_from_one_source_do_not_lock_the_account_for_everyone(web, make_account):
+    account = make_account()
+    for _ in range(8):
+        assert web.post("/login", data={"username": account["username"], "password": "wrong"},
+                        environ_base={"REMOTE_ADDR": "203.0.113.11"}).status_code == 401
+    assert web.post("/login", data={"username": account["username"], "password": PASSWORD},
+                    environ_base={"REMOTE_ADDR": "203.0.113.12"}).status_code == 302
+
+
+def test_successful_portal_signin_refunds_its_attempt_without_erasing_other_failures(portal, web, make_account):
+    from bananawiki.hosting.db import connection_scope
+    from bananawiki.hosting.limits import HostingLimiter
+
+    account = make_account()
+    for _ in range(3):
+        assert web.post("/login", data={"username": "other-person", "password": "wrong"}).status_code == 401
+    assert web.post("/login", data={"username": account["username"], "password": PASSWORD}).status_code == 302
+    with portal.app_context(), connection_scope() as db:
+        limiter = HostingLimiter(db)
+        assert limiter.count("127.0.0.1", "login-failed", 900) == 3
+        assert limiter.count("other-person", "login-account", 900) == 3
+        assert limiter.count(account["username"].lower(), "login-account", 900) == 0

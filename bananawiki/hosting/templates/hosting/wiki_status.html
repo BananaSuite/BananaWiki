@@ -10,16 +10,16 @@
   {% if refresh %}<meta http-equiv="refresh" content="5">{% endif %}
   <title>{{ t('hosting.wiki_status.' ~ state ~ '.title') }} · {{ host }}</title>
   <style>
-    :root { --bg: #f4f4f1; --card: #fff; --text: #1d1d1b; --muted: #5c5c57; --line: #d9d9d3; --accent: #b86e00; }
+    :root { --bg: #f7f8fa; --card: #fff; --text: #252a33; --muted: #666a72; --line: #d9dce1; --accent: #3b5792; }
     @media (prefers-color-scheme: dark) {
-      :root { --bg: #16161a; --card: #1f1f24; --text: #ececea; --muted: #a3a39d; --line: #34343b; --accent: #f0a431; }
+      :root { --bg: #16161f; --card: #1e1e2c; --text: #c8ccd8; --muted: #9297a7; --line: #3e414e; --accent: #8fa0d4; }
     }
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; padding: 3rem 1rem; background: var(--bg); color: var(--text);
            font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
     main { max-width: 34rem; margin: 0 auto; background: var(--card); border: 1px solid var(--line);
-           border-top: 3px solid var(--accent); border-radius: 4px; padding: 1.5rem 1.75rem; }
-    h1 { margin: 0 0 .5rem; font-size: 1.25rem; }
+           border-radius: 6px; padding: 1.5rem 1.75rem; overflow-wrap: anywhere; }
+    h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 650; line-height: 1.25; letter-spacing: -.035em; }
     p { margin: .5rem 0; }
     .host { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; word-break: break-all; }
     .muted { color: var(--muted); font-size: .9rem; }
@@ -27,6 +27,7 @@
     dt { font-size: .8rem; color: var(--muted); }
     dd { margin: 0 0 .5rem; }
     a { color: var(--accent); }
+    a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
     footer { margin-top: 1.25rem; padding-top: .75rem; border-top: 1px solid var(--line); }
   </style>
 </head>

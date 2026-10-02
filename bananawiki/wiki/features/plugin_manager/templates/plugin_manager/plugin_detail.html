@@ -1,6 +1,7 @@
 {% extends "admin/_layout.html" %}
 {% import "plugin_manager/_macros.html" as pm with context %}
 {% block title %}{{ entry.name }}{% endblock %}
+{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('plugins.css', blueprint='plugin_manager') }}">{% endblock %}
 {% block admin_content %}
 <nav class="breadcrumbs"><a href="{{ url_for('plugin_manager.index') }}">{{ t('plugin_manager.title') }}</a></nav>
 <header class="page-header">
@@ -12,7 +13,7 @@
 {% if entry.restart %}<div class="alert alert--warning" role="status"><div class="alert__body">
   {{ t('plugin_manager.status.' ~ entry.restart ~ '_pending') }}. {{ t('plugin_manager.restart.' ~ restart_mode) }}
 </div></div>{% endif %}
-<div class="card">
+<div class="pm-section pm-detail">
   <dl class="pm-facts">
     <dt>{{ t('plugin_manager.col.id') }}</dt><dd class="mono">{{ entry.id }}</dd>
     <dt>{{ t('plugin_manager.col.kind') }}</dt><dd>{{ pm.kind(entry) }}</dd>
@@ -27,7 +28,7 @@
   </dl>
 </div>
 {% if entry.kind == 'external' and entry.has_files %}
-<div class="card card--danger">
+<div class="pm-section pm-section--danger">
   <h2>{{ t('plugin_manager.delete.title') }}</h2>
   <p>{{ t('plugin_manager.delete.intro') }}</p>
   <form method="post" action="{{ url_for('plugin_manager.delete', plugin_id=entry.id) }}">

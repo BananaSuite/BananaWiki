@@ -5,7 +5,7 @@
 {% include "hosting/admin/_nav.html" %}
 <h1>{{ t('hosting.admin.nav.banners') }}</h1>
 {% macro banner_fields(b=None) %}
-  <div class="field"><label>{{ t('hosting.banners.content') }}<textarea name="content" maxlength="2000" rows="2" required>{{ b.content if b else '' }}</textarea></label></div>
+  {{ ui.textarea('content', t('hosting.banners.content'), b.content if b else '', required=true, attrs={'maxlength': 2000, 'rows': 2}) }}
   <div class="form-grid">
     <label>{{ t('hosting.banners.color') }}<select name="color">{% for c in colors %}<option value="{{ c }}"{% if b and b.color == c %} selected{% endif %}>{{ t('hosting.banners.color_' ~ c) }}</option>{% endfor %}</select></label>
     <label>{{ t('hosting.banners.visibility') }}<select name="visibility">{% for v in visibilities %}<option value="{{ v }}"{% if b and b.visibility == v %} selected{% endif %}>{{ t('hosting.banners.visibility_' ~ v) }}</option>{% endfor %}</select></label>
@@ -19,6 +19,7 @@
   <div class="cluster"><label>{{ t('hosting.banners.background') }} <input type="color" name="custom_background" value="{{ b.custom_background if b and b.custom_background else '#333344' }}"></label>
   <label>{{ t('hosting.banners.text') }} <input type="color" name="custom_text_color" value="{{ b.custom_text_color if b and b.custom_text_color else '#ffffff' }}"></label></div>
 {% endmacro %}
+<div class="panel-list">
 <details class="card" open><summary>{{ t('hosting.banners.new') }}</summary>
 <form method="post" action="{{ url_for('admin.create_banner') }}" class="form">{{ ui.csrf() }}{{ banner_fields() }}<p><button class="btn btn--primary" type="submit">{{ t('hosting.banners.create') }}</button></p></form></details>
 {% for b in all_banners %}
@@ -27,4 +28,5 @@
   {{ ui.check('is_active', t('hosting.banners.active'), b.is_active) }}<p><button class="btn btn--small btn--primary" type="submit">{{ t('common.save') }}</button></p></form>
 {{ ui.post(url_for('admin.delete_banner', banner_id=b.id), t('hosting.banners.delete'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}</details>
 {% endfor %}
+</div>
 {% endblock %}

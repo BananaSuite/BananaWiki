@@ -24,6 +24,7 @@ import os
 import pwd
 import re
 import secrets
+import selectors
 import signal
 import socket
 import socketserver
@@ -31,6 +32,7 @@ import struct
 import subprocess
 import tempfile
 import threading
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -63,11 +65,15 @@ TASK_ACTIONS = frozenset({
 })
 MAX_TASK_REQUEST = 64 * 1024
 MAX_TASK_RESPONSE = 2 * 1024 * 1024
+MAX_CONCURRENT_REQUESTS = 16
 HOSTNAME = re.compile(r"(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?")
 MAX_ROUTES = 10_000
 MAX_HOSTS_PER_TENANT = 16
 ROUTES_FILE = "tenants.caddy"
 ROUTES_WANTED = "routes.json"
+ROUTES_RELOADED = "routes.reloaded.sha256"
+RETIRED_NETWORKS = "retired-networks.json"
+NETWORK_NAME = re.compile(r"bananawiki-[a-z0-9-]{1,28}-[a-f0-9]{12}-net")
 
 log = logging.getLogger("bananawiki.agent")
 Runner = Callable[..., subprocess.CompletedProcess]
@@ -80,6 +86,58 @@ class AgentError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+def _task_process(command: list[str], payload: str, timeout: float) -> subprocess.CompletedProcess:
+    """Drain untrusted task pipes within byte and time limits, then reap the Docker client."""
+    with subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          bufsize=0) as process:
+        assert process.stdin is not None and process.stdout is not None and process.stderr is not None
+        for stream in (process.stdin, process.stdout, process.stderr):
+            os.set_blocking(stream.fileno(), False)
+        output = {"stdout": bytearray(), "stderr": bytearray()}
+        pending = memoryview(payload.encode("utf-8"))
+        deadline = time.monotonic() + timeout
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdin, selectors.EVENT_WRITE, "stdin")
+                selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+                selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+                while selector.get_map():
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise subprocess.TimeoutExpired(command, timeout)
+                    for ready, _events in selector.select(remaining):
+                        if ready.data == "stdin":
+                            try:
+                                sent = os.write(ready.fd, pending[:65536]) if pending else 0
+                                pending = pending[sent:]
+                            except BrokenPipeError:
+                                pending = pending[:0]
+                            except BlockingIOError:
+                                continue
+                            if not pending:
+                                selector.unregister(ready.fileobj)
+                                ready.fileobj.close()
+                            continue
+                        chunk = os.read(ready.fd, 65536)
+                        if not chunk:
+                            selector.unregister(ready.fileobj)
+                            ready.fileobj.close()
+                            continue
+                        buffer = output[ready.data]
+                        if len(buffer) + len(chunk) > MAX_TASK_RESPONSE:
+                            raise AgentError("too_large", "The tenant task response exceeded its byte limit.")
+                        buffer.extend(chunk)
+            process.wait(timeout=max(0.001, deadline - time.monotonic()))
+        except BaseException:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            raise
+        return subprocess.CompletedProcess(command, process.returncode,
+                                           output["stdout"].decode("utf-8", "replace"),
+                                           output["stderr"].decode("utf-8", "replace"))
 
 
 def _safe_slug(value: str) -> str:
@@ -113,7 +171,14 @@ class TenantRuntime:
         self.config = config
         self.runner = runner or subprocess.run
         self.private_dir = private_dir
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
+        self._tenant_locks_lock = threading.Lock()
+        self._tenant_locks: dict[str, threading.Lock] = {}
+
+    def _tenant_lock(self, data_dir: Path) -> threading.Lock:
+        """Keep a tenant's start, stop and database tasks from overlapping."""
+        with self._tenant_locks_lock:
+            return self._tenant_locks.setdefault(str(data_dir), threading.Lock())
 
     # Plumbing -------------------------------------------------------------
 
@@ -125,7 +190,7 @@ class TenantRuntime:
             return True
         return supports_client_ip(parse_version(result.stdout or "") if result.returncode == 0 else None)
 
-    def docker(self, *args: str, timeout: int = 60, check: bool = True) -> subprocess.CompletedProcess:
+    def docker(self, *args: str, timeout: float = 60, check: bool = True) -> subprocess.CompletedProcess:
         result = self.runner(["docker", *args], capture_output=True, text=True, timeout=timeout, check=False)
         if check and result.returncode:
             detail = (result.stderr or "").strip().splitlines()[-1:] or ["no detail"]
@@ -154,10 +219,10 @@ class TenantRuntime:
         present = self.docker("image", "inspect", self.config["image"], timeout=20, check=False).returncode == 0
         return {"image": self.config["image"], "present": present}
 
-    def _inspect(self, names: list[str]) -> list[dict[str, Any]]:
+    def _inspect(self, names: list[str], *, timeout: float = 30) -> list[dict[str, Any]]:
         if not names:
             return []
-        result = self.docker("inspect", "--type", "container", *names, timeout=30, check=False)
+        result = self.docker("inspect", "--type", "container", *names, timeout=timeout, check=False)
         try:
             items = json.loads(result.stdout or "[]")
         except json.JSONDecodeError:
@@ -196,7 +261,13 @@ class TenantRuntime:
         inspected = self.docker("network", "inspect", "--format", "{{.Internal}}", name, timeout=15, check=False)
         if inspected.returncode == 0 and inspected.stdout.strip().lower() != str(internal).lower():
             # Never keep an older, more permissive network.
-            self.docker("network", "rm", name, timeout=20)
+            # Caddy must first forget its former upstream: removing the bridge
+            # makes its subnet available for an unrelated tenant to reuse.
+            if not self._refresh_routes():
+                raise AgentError("routing_unavailable", "Caddy must reload before changing a tenant network.")
+            removed = self.docker("network", "rm", name, timeout=20, check=False)
+            if removed.returncode and "No such network" not in (removed.stderr or ""):
+                raise AgentError("docker_failed", "The former tenant network could not be removed.")
             inspected = self.docker("network", "inspect", name, timeout=15, check=False)
         if inspected.returncode != 0:
             self.docker("network", "create", "--driver", "bridge", *(["--internal"] if internal else []),
@@ -284,7 +355,12 @@ class TenantRuntime:
         if network_mode == "isolated" and args.get("publish_port") is not None:
             raise AgentError("invalid_request", "Isolated tenants cannot publish ports; use the bridge address.")
         environment = self._environment(args, _bounded_int(args, "internal_port", 5001, 1024, 65535))
-        with self.lock:
+        # Validate the whole request before removing the currently healthy wiki.
+        self._limit_flags(args)
+        self._user(data_dir)
+        if args.get("publish_port") is not None:
+            _bounded_int(args, "publish_port", 0, 1024, 65535)
+        with self._tenant_lock(data_dir), self.lock:
             self.docker("rm", "--force", container_name(str(data_dir)), timeout=30, check=False)
             network = self._network(data_dir, network_mode)
             with self._env_file(environment) as env_file:
@@ -296,13 +372,16 @@ class TenantRuntime:
         data_dir = self.tenant_dir(args.get("tenant"))
         timeout = _bounded_int(args, "timeout", 15, 1, 120)
         name = container_name(str(data_dir))
-        with self.lock:
+        with self._tenant_lock(data_dir), self.lock:
             self.docker("stop", "--time", str(timeout), name, timeout=timeout + 30, check=False)
             removed = self.docker("rm", "--force", name, timeout=30, check=False)
             if removed.returncode and "No such container" not in (removed.stderr or ""):
                 raise AgentError("docker_failed", "The tenant container could not be removed.")
-            self.docker("network", "rm", name + "-net", timeout=30, check=False)
-        self._refresh_routes()
+            if self.config.get("routes_dir"):
+                self._retire_network(name + "-net")
+                self._refresh_routes()
+            else:
+                self.docker("network", "rm", name + "-net", timeout=30, check=False)
         return {"tenant": data_dir.name, "stopped": True}
 
     def tenant_logs(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -329,27 +408,65 @@ class TenantRuntime:
             raise AgentError("too_large", "The task request is too large.")
         timeout = _bounded_int(args, "timeout", 120, 5, 600)
         name = container_name(str(data_dir))
-        found = self._inspect([name])
-        if found and found[0]["running"]:
-            result = self._run_task(["exec", "-i", name, *TASK_COMMAND], payload, timeout)
-        else:
-            environment = self._environment(args, 5001)
-            limits = self._limit_flags(args)
-            with self._env_file(environment) as env_file:
-                command = [
-                    "run", "--rm", "-i", "--name", name + "-task", "--network", "none",
-                    *self._sandbox_flags(data_dir, env_file), *limits, "--label", LABEL_TASK,
-                    "--entrypoint", TASK_COMMAND[0], self.config["image"], *TASK_COMMAND[1:],
-                ]
-                result = self._run_task(command, payload, timeout)
-        return {"tenant": data_dir.name, "result": result}
+        deadline = time.monotonic() + timeout
 
-    def _run_task(self, command: list[str], payload: str, timeout: int) -> dict[str, Any]:
+        def remaining() -> float:
+            value = deadline - time.monotonic()
+            if value <= 0.001:
+                raise AgentError("timeout", "The tenant task could not start before its deadline.")
+            return value
+
+        lock = self._tenant_lock(data_dir)
+        if not lock.acquire(timeout=remaining()):
+            raise AgentError("timeout", "The tenant task could not start before its deadline.")
         try:
-            completed = self.runner(["docker", *command], input=payload, capture_output=True, text=True,
-                                    timeout=timeout, check=False)
+            found = self._inspect([name], timeout=min(30, remaining()))
+            if found and found[0]["running"]:
+                # An exec process survives a killed Docker CLI. Its deadline
+                # must be enforced inside the container as well.
+                budget = remaining()
+                result = self._run_task(["exec", "-i", name, "/usr/bin/timeout", "--signal=TERM",
+                                         "--kill-after=5s", f"{budget:.6f}s", *TASK_COMMAND], payload, budget + 10)
+            else:
+                environment = self._environment(args, 5001)
+                limits = self._limit_flags(args)
+                task_name = name + "-task-" + secrets.token_hex(6)
+                with self._env_file(environment) as env_file:
+                    sandbox = self._sandbox_flags(data_dir, env_file)
+                    budget = remaining()
+                    command = [
+                        "run", "--rm", "-i", "--name", task_name, "--network", "none",
+                        *sandbox, *limits, "--label", LABEL_TASK,
+                        "--entrypoint", "/usr/bin/timeout", self.config["image"], "--signal=TERM",
+                        "--kill-after=5s", f"{budget:.6f}s", *TASK_COMMAND,
+                    ]
+                    try:
+                        result = self._run_task(command, payload, budget + 10)
+                    finally:
+                        # Killing a timed-out Docker client does not stop its container.
+                        # Unique names also prevent leftovers after an agent crash from
+                        # making every later task fail with "name already in use".
+                        self.docker("rm", "--force", task_name, timeout=30, check=False)
         except subprocess.TimeoutExpired:
             raise AgentError("timeout", "The tenant task did not finish in time.") from None
+        finally:
+            lock.release()
+        return {"tenant": data_dir.name, "result": result}
+
+    def _run_task(self, command: list[str], payload: str, timeout: float) -> dict[str, Any]:
+        try:
+            if self.runner is subprocess.run:
+                completed = _task_process(["docker", *command], payload, timeout)
+            else:
+                completed = self.runner(["docker", *command], input=payload, capture_output=True, text=True,
+                                        timeout=timeout, check=False)
+        except subprocess.TimeoutExpired:
+            raise AgentError("timeout", "The tenant task did not finish in time.") from None
+        if completed.returncode == 124:
+            raise AgentError("timeout", "The tenant task did not finish in time.")
+        if any(len((value or "").encode("utf-8")) > MAX_TASK_RESPONSE
+               for value in (completed.stdout, completed.stderr)):
+            raise AgentError("too_large", "The tenant task response exceeded its byte limit.")
         lines = [line for line in (completed.stdout or "")[-MAX_TASK_RESPONSE:].splitlines() if line.strip()]
         try:
             answer = json.loads(lines[-1]) if lines else None
@@ -390,7 +507,7 @@ class TenantRuntime:
             wanted[tenant] = hosts
         with self.lock:
             _write_file(Path(directory) / ROUTES_WANTED, json.dumps(wanted, sort_keys=True), 0o600)
-        return self._publish_routes(wanted)
+            return self._publish_routes(wanted)
 
     def _publish_routes(self, wanted: dict[str, list[str]] | None = None) -> dict[str, Any]:
         """Render the wanted routes with the containers' current addresses; reload Caddy on change.
@@ -398,6 +515,11 @@ class TenantRuntime:
         Called by ``proxy.routes`` and after every start and stop, so a
         container that comes back with a new address is routed at once.
         """
+        with self.lock:
+            return self._publish_routes_locked(wanted)
+
+    def _publish_routes_locked(self, wanted: dict[str, list[str]] | None) -> dict[str, Any]:
+        """Read, render and publish one routing snapshot while holding ``self.lock``."""
         directory = Path(self.config["routes_dir"])
         if wanted is None:
             try:
@@ -419,20 +541,73 @@ class TenantRuntime:
             reloaded = False
             if changed:
                 _write_file(target, text, 0o644)
+            digest = hashlib.sha256(text.encode()).hexdigest()
+            acknowledged = directory / ROUTES_RELOADED
+            try:
+                previous_digest = acknowledged.read_text(encoding="ascii")
+            except (OSError, UnicodeError):
+                previous_digest = ""
+            if changed or previous_digest != digest:
                 reload = self.runner(["systemctl", "reload", "caddy"], capture_output=True, text=True,
                                      timeout=60, check=False)
                 reloaded = reload.returncode == 0
-                if not reloaded:
+                if reloaded:
+                    _write_file(acknowledged, digest, 0o600)
+                else:
                     log.warning("Caddy did not reload after a routing change: %s", (reload.stderr or "")[-300:])
+            if reloaded or previous_digest == digest:
+                self._clean_retired_networks()
         return {"routes": len(upstreams), "changed": changed, "reloaded": reloaded}
 
-    def _refresh_routes(self) -> None:
+    def _retired_networks(self) -> list[str]:
+        try:
+            value = json.loads((Path(self.config["routes_dir"]) / RETIRED_NETWORKS).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        return list(dict.fromkeys(name for name in value if isinstance(name, str) and NETWORK_NAME.fullmatch(name))) \
+            if isinstance(value, list) else []
+
+    def _retire_network(self, name: str) -> None:
+        pending = self._retired_networks()
+        if name not in pending:
+            pending.append(name)
+        _write_file(Path(self.config["routes_dir"]) / RETIRED_NETWORKS, json.dumps(pending), 0o600)
+
+    def _clean_retired_networks(self) -> None:
+        """Release stopped bridges only once Caddy acknowledged the current table.
+
+        The small durable queue survives agent restarts. Docker refuses to
+        remove a bridge a restarted tenant is using; leave it queued until
+        that tenant stops again. Rotate failed removals to the queue's end
+        so active bridges cannot starve later entries. Bound work per sync
+        when Docker is slow.
+        """
+        pending = self._retired_networks()
+        before = list(pending)
+        for name in before[:4]:
+            pending.remove(name)
+            try:
+                result = self.docker("network", "rm", name, timeout=10, check=False)
+            except (OSError, subprocess.SubprocessError) as error:
+                log.warning("Could not remove retired tenant network %s: %s", name, type(error).__name__)
+                pending.append(name)
+                continue
+            if result.returncode != 0 and "No such network" not in (result.stderr or ""):
+                pending.append(name)
+        if pending != before:
+            _write_file(Path(self.config["routes_dir"]) / RETIRED_NETWORKS, json.dumps(pending), 0o600)
+
+    def _refresh_routes(self) -> bool:
         if not self.config.get("routes_dir"):
-            return
+            return True
         try:
             self._publish_routes()
+            directory = Path(self.config["routes_dir"])
+            return (directory / ROUTES_RELOADED).read_text(encoding="ascii") == \
+                hashlib.sha256((directory / ROUTES_FILE).read_bytes()).hexdigest()
         except (AgentError, OSError, subprocess.SubprocessError, ValueError) as error:
             log.warning("Could not refresh tenant routes: %s", error)
+            return False
 
     OPERATIONS = {
         "ping": "ping", "image.status": "image_status", "tenant.list": "tenant_list",
@@ -618,9 +793,48 @@ class AgentServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         self.private.mkdir(mode=0o700, exist_ok=True)
         self._runtime_lock = threading.Lock()
         self._shared: TenantRuntime | None = None
+        self._requests = threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
         path.unlink(missing_ok=True)
         super().__init__(str(path), _Handler)
         os.chmod(path, 0o660)
+
+    def process_request(self, request: socket.socket, client_address: Any) -> None:
+        if not self._requests.acquire(blocking=False):
+            try:
+                # Consume the client's frame before closing: unread Unix
+                # socket data can reset the connection and hide the busy reply.
+                deadline = time.monotonic() + 1
+                received = 0
+                while received <= MAX_REQUEST:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    request.settimeout(remaining)
+                    chunk = request.recv(min(65536, MAX_REQUEST + 1 - received))
+                    if not chunk:
+                        break
+                    received += len(chunk)
+                    if b"\n" in chunk:
+                        break
+                request.settimeout(1)
+                request.sendall(json.dumps({"v": PROTOCOL, "ok": False, "error": {
+                    "code": "busy", "message": "The runtime agent is busy; retry shortly."}}).encode() + b"\n")
+            except OSError:
+                pass
+            finally:
+                self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._requests.release()
+            raise
+
+    def process_request_thread(self, request: socket.socket, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._requests.release()
 
     def allowed_uids(self) -> set[int]:
         return {0, load_config(self.root)["service_uid"]}

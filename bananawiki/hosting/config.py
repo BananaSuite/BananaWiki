@@ -145,6 +145,8 @@ class HostingConfig:
     testing: bool = False
     # Accept custom domains whose records are proxied by Cloudflare (only Cloudflare addresses visible).
     custom_domain_allow_proxied: bool = True
+    # Third-party code is an operator opt-in; built-in wiki features remain available.
+    allow_tenant_plugins: bool = False
 
     @property
     def is_production(self) -> bool:
@@ -441,6 +443,7 @@ def load_config(environ: dict[str, str] | None = None, **overrides: object) -> H
         instance_runtime=runtime,
         tenant_network=network,
         tenant_plugin_denylist=env.list("HOSTING_TENANT_PLUGIN_DENYLIST"),
+        allow_tenant_plugins=env.bool("HOSTING_ALLOW_TENANT_PLUGINS", False),
         tts_gpu_tenant_tokens=env.bool("HOSTING_TTS_GPU_TENANT_TOKENS", True),
         container_image=env.str("HOSTING_CONTAINER_IMAGE", "bananawiki-tenant:latest"),
         container_internal_port=env.int("HOSTING_CONTAINER_INTERNAL_PORT", 5001, minimum=1, maximum=65535),

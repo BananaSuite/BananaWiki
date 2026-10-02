@@ -14,6 +14,7 @@ import base64
 import binascii
 import os
 import secrets
+import stat
 import tempfile
 from pathlib import Path
 
@@ -43,10 +44,19 @@ def load_key(environ_value: str, key_path: str) -> bytes:
     path = Path(key_path)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with FileLock(str(path) + ".lock", timeout=20, mode=0o600):
-        if path.is_symlink():
-            raise RuntimeFailure("not_configured", f"{path} must not be a symbolic link")
-        if path.exists():
-            raw = path.read_bytes()
+        try:
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        except FileNotFoundError:
+            descriptor = None
+        except OSError:
+            raise RuntimeFailure("not_configured", f"{path} must be a private regular file (mode 0600)") from None
+        if descriptor is not None:
+            with os.fdopen(descriptor, "rb") as handle:
+                info = os.fstat(handle.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                        or info.st_mode & 0o077 or info.st_size != 32):
+                    raise RuntimeFailure("not_configured", f"{path} must be an owned 32-byte regular file (mode 0600)")
+                raw = handle.read(33)
             if len(raw) != 32:
                 raise RuntimeFailure("not_configured", f"{path} must contain exactly 32 bytes")
             return raw
@@ -103,7 +113,11 @@ class EncryptedOutput:
             os.fsync(self._file.fileno())
         finally:
             self._file.close()
-        os.replace(self._pending, self.destination)
+        # Never overwrite a completed backup when two exports share a name.
+        try:
+            os.link(self._pending, self.destination)
+        finally:
+            Path(self._pending).unlink(missing_ok=True)
         return self.destination
 
     def abort(self) -> None:

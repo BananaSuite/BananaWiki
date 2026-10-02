@@ -7,13 +7,13 @@
 {% include "attention/_dashboard_card.html" %}
 
 <div class="admin-stats admin-stats--summary">
-  <a class="card stat" href="{{ url_for('admin.users') }}"><span class="stat__value">{{ stats.users }}</span><span class="stat__label">{{ t('admin.dashboard.stat.users') }}</span></a>
-  <a class="card stat" href="{{ url_for('admin.users', approval='pending') }}"><span class="stat__value">{{ stats.pending }}</span><span class="stat__label">{{ t('admin.dashboard.stat.pending') }}</span></a>
-  <a class="card stat" href="{{ url_for('admin.users', status='suspended') }}"><span class="stat__value">{{ stats.suspended }}</span><span class="stat__label">{{ t('admin.dashboard.stat.suspended') }}</span></a>
-  <a class="card stat" href="{{ url_for('admin.sessions') }}"><span class="stat__value">{{ stats.online }}</span><span class="stat__label">{{ t('admin.dashboard.stat.online') }}</span></a>
-  <div class="card stat"><span class="stat__value">{{ stats.pages }}</span><span class="stat__label">{{ t('admin.dashboard.stat.pages') }}</span></div>
-  <div class="card stat"><span class="stat__value">{{ stats.edits_week }}</span><span class="stat__label">{{ t('admin.dashboard.stat.edits_week') }}</span></div>
-  <div class="card stat"><span class="stat__value">{{ stats.signups_week }}</span><span class="stat__label">{{ t('admin.dashboard.stat.signups_week') }}</span></div>
+  <a class="stat" href="{{ url_for('admin.users') }}"><span class="stat__value">{{ stats.users }}</span><span class="stat__label">{{ t('admin.dashboard.stat.users') }}</span></a>
+  <a class="stat" href="{{ url_for('admin.users', approval='pending') }}"><span class="stat__value">{{ stats.pending }}</span><span class="stat__label">{{ t('admin.dashboard.stat.pending') }}</span></a>
+  <a class="stat" href="{{ url_for('admin.users', status='suspended') }}"><span class="stat__value">{{ stats.suspended }}</span><span class="stat__label">{{ t('admin.dashboard.stat.suspended') }}</span></a>
+  <a class="stat" href="{{ url_for('admin.sessions') }}"><span class="stat__value">{{ stats.online }}</span><span class="stat__label">{{ t('admin.dashboard.stat.online') }}</span></a>
+  <div class="stat"><span class="stat__value">{{ stats.pages }}</span><span class="stat__label">{{ t('admin.dashboard.stat.pages') }}</span></div>
+  <div class="stat"><span class="stat__value">{{ stats.edits_week }}</span><span class="stat__label">{{ t('admin.dashboard.stat.edits_week') }}</span></div>
+  <div class="stat"><span class="stat__value">{{ stats.signups_week }}</span><span class="stat__label">{{ t('admin.dashboard.stat.signups_week') }}</span></div>
 </div>
 
 <section class="card" aria-labelledby="traffic-title">
@@ -31,7 +31,7 @@
     {% endfor %}
   </div>
   <div class="traffic-chart__axis" aria-hidden="true"><span>{{ traffic.daily[0].day }}</span><span>{{ traffic.daily[-1].day }}</span></div>
-  <details>
+  <details class="disclosure">
     <summary>{{ t('admin.dashboard.table_view') }}</summary>
     <div class="table-wrap">
       <table class="table">

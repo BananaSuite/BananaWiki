@@ -1,0 +1,10 @@
+{% import "hosting/_macros.html" as ui with context %}
+{% for transfer in transfers %}
+<div class="alert"><div class="alert__body">
+  {{ t('hosting.transfers.incoming', username=transfer.from_username, slug=transfer.subdomain) }}
+  <div class="btn-row">
+    {{ ui.post(url_for('dashboard.accept_transfer', transfer_id=transfer.id), t('hosting.transfers.accept'), 'btn btn--small btn--primary') }}
+    {{ ui.post(url_for('dashboard.decline_transfer', transfer_id=transfer.id), t('hosting.transfers.decline')) }}
+  </div>
+</div></div>
+{% endfor %}

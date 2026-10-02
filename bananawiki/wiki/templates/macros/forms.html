@@ -4,22 +4,25 @@
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 {%- endmacro %}
 
-{% macro field(name, label, value='', type='text', hint='', required=false, error='', attrs={}) -%}
+{% macro field(name, label, value='', type='text', hint='', required=false, error='', attrs={}, id='') -%}
+{% set field_id = id or attrs.get('id') or 'f-' ~ name %}
+{% set describedby = (attrs.get('aria-describedby', '') ~ (' ' ~ field_id ~ '-hint' if hint else '') ~ (' ' ~ field_id ~ '-error' if error else ''))|trim %}
 <div class="field">
-  <label for="f-{{ name }}">{{ label }}</label>
-  <input id="f-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value if value is not none else '' }}"
-    {%- if required %} required{% endif %}{% if hint %} aria-describedby="f-{{ name }}-hint"{% endif %}
-    {%- for key, val in attrs.items() %} {{ key }}="{{ val }}"{% endfor %}>
-  {% if hint %}<p class="hint" id="f-{{ name }}-hint">{{ hint }}</p>{% endif %}
-  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <label for="{{ field_id }}">{{ label }}</label>
+  <input class="input{% if attrs.get('class') %} {{ attrs.get('class') }}{% endif %}" id="{{ field_id }}" name="{{ name }}" type="{{ type }}" value="{{ value if value is not none else '' }}"
+    {%- if required %} required{% endif %}{% if describedby %} aria-describedby="{{ describedby }}"{% endif %}{% if error %} aria-invalid="true"{% endif %}
+    {%- for key, val in attrs.items() if key not in ('id', 'class', 'aria-describedby') and not (error and key == 'aria-invalid') %} {{ key }}="{{ val }}"{% endfor %}>
+  {% if hint %}<p class="hint" id="{{ field_id }}-hint">{{ hint }}</p>{% endif %}
+  {% if error %}<p class="error" id="{{ field_id }}-error">{{ error }}</p>{% endif %}
 </div>
 {%- endmacro %}
 
-{% macro textarea(name, label, value='', rows=6, hint='', required=false, cls='') -%}
+{% macro textarea(name, label, value='', rows=6, hint='', required=false, cls='', id='') -%}
+{% set field_id = id or 'f-' ~ name %}
 <div class="field">
-  <label for="f-{{ name }}">{{ label }}</label>
-  <textarea id="f-{{ name }}" name="{{ name }}" rows="{{ rows }}" class="{{ cls }}"{% if required %} required{% endif %}>{{ value if value is not none else '' }}</textarea>
-  {% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
+  <label for="{{ field_id }}">{{ label }}</label>
+  <textarea id="{{ field_id }}" name="{{ name }}" rows="{{ rows }}" class="textarea {{ cls }}"{% if required %} required{% endif %}{% if hint %} aria-describedby="{{ field_id }}-hint"{% endif %}>{{ value if value is not none else '' }}</textarea>
+  {% if hint %}<p class="hint" id="{{ field_id }}-hint">{{ hint }}</p>{% endif %}
 </div>
 {%- endmacro %}
 
@@ -30,24 +33,25 @@
 </label>
 {%- endmacro %}
 
-{% macro select(name, label, options, selected='', hint='') -%}
+{% macro select(name, label, options, selected='', hint='', id='') -%}
 {#- options: list of (value, label) pairs -#}
+{% set field_id = id or 'f-' ~ name %}
 <div class="field">
-  <label for="f-{{ name }}">{{ label }}</label>
-  <select id="f-{{ name }}" name="{{ name }}">
+  <label for="{{ field_id }}">{{ label }}</label>
+  <select class="select" id="{{ field_id }}" name="{{ name }}"{% if hint %} aria-describedby="{{ field_id }}-hint"{% endif %}>
     {% for value, text in options %}
     <option value="{{ value }}"{% if value|string == selected|string %} selected{% endif %}>{{ text }}</option>
     {% endfor %}
   </select>
-  {% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
+  {% if hint %}<p class="hint" id="{{ field_id }}-hint">{{ hint }}</p>{% endif %}
 </div>
 {%- endmacro %}
 
-{% macro post_button(action, label, cls='btn', confirm='', hidden={}) -%}
+{% macro post_button(action, label, cls='btn', confirm='', hidden={}, attrs={}) -%}
 <form class="inline" method="post" action="{{ action }}"{% if confirm %} data-confirm="{{ confirm }}"{% endif %}>
   {{ csrf() }}
   {% for key, val in hidden.items() %}<input type="hidden" name="{{ key }}" value="{{ val }}">{% endfor %}
-  <button type="submit" class="{{ cls }}">{{ label }}</button>
+  <button type="submit" class="{{ cls }}"{% for key, val in attrs.items() %} {{ key }}="{{ val }}"{% endfor %}>{{ label }}</button>
 </form>
 {%- endmacro %}
 

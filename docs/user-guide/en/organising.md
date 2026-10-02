@@ -3,6 +3,9 @@
 What you can do here depends on your permissions; administrators can do all
 of it.
 
+Use **New page** in the sidebar to start a page. The editor has **Create page** or
+**Save**, plus **Cancel**, at the top and bottom.
+
 ## Categories
 
 Categories are the folders of the sidebar and can contain subcategories.
@@ -20,7 +23,7 @@ expect is missing, you probably do not have access to it.
 
 ## Moving, renaming and changing the address
 
-From the page's **More** menu:
+From the page's **Page actions** menu:
 
 * **Rename** changes the title.
 * **Change address** changes `/page/<address>`; links to the old address in

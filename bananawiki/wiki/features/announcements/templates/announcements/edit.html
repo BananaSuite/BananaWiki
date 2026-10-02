@@ -1,10 +1,10 @@
-{% extends "base.html" %}
+{% extends "admin/_layout.html" %}
 {% import "announcements/_form.html" as ann with context %}
 {% block title %}{{ t('announcements.edit_title', id=announcement.id) }}{% endblock %}
-{% block content %}
+{% block admin_content %}
 <nav class="breadcrumbs" aria-label="{{ t('announcements.admin_title') }}"><ol><li><a href="{{ url_for('announcements.admin') }}">{{ t('announcements.admin_title') }}</a></li><li>#{{ announcement.id }}</li></ol></nav>
 <div class="page-header"><h1>{{ t('announcements.edit_title', id=announcement.id) }}</h1></div>
-<section class="card">
+<section class="stack">
   {{ ann.error_list(errors) }}
   <form method="post" action="{{ url_for('announcements.edit', announcement_id=announcement.id) }}" class="form stack">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -5,25 +5,25 @@
 {% block content %}
 <div class="page-header"><h1>{{ t('hosting.dashboard.title') }}</h1>
   <div class="page-header__actions"><a class="btn btn--primary" href="{{ url_for('dashboard.create_instance') }}">{{ t('hosting.dashboard.new') }}</a></div></div>
-{% for tr in transfers %}
-<div class="alert"><div class="alert__body">{{ t('hosting.transfers.incoming', username=tr.from_username, slug=tr.subdomain) }}
-  <div class="btn-row">{{ ui.post(url_for('dashboard.accept_transfer', transfer_id=tr.id), t('hosting.transfers.accept'), 'btn btn--small btn--primary') }}
-  {{ ui.post(url_for('dashboard.decline_transfer', transfer_id=tr.id), t('hosting.transfers.decline')) }}</div></div></div>
-{% endfor %}
-<div class="stats">
-  <div class="stat stat--running"><span class="stat__value">{{ stats.running }}</span><span class="stat__label">{{ t('hosting.status.running') }}</span></div>
-  <div class="stat stat--stopped"><span class="stat__value">{{ stats.stopped }}</span><span class="stat__label">{{ t('hosting.status.stopped') }}</span></div>
-  <div class="stat"><span class="stat__value">{{ stats.shared }}</span><span class="stat__label">{{ t('hosting.dashboard.shared') }}</span></div>
-</div>
+{% include "hosting/_transfers.html" %}
+<dl class="summary-line">
+  <div><dt>{{ t('hosting.status.running') }}</dt><dd>{{ stats.running }}</dd></div>
+  <div><dt>{{ t('hosting.status.stopped') }}</dt><dd>{{ stats.stopped }}</dd></div>
+  <div><dt>{{ t('hosting.dashboard.shared') }}</dt><dd>{{ stats.shared }}</dd></div>
+</dl>
 <p class="stats-note">{{ t('hosting.dashboard.limit', max=max_instances) }} · {{ t('hosting.dashboard.storage', mb=stats.storage_mb) }}</p>
 {% if items %}
 {% set bulk = items|selectattr('role', 'equalto', 'owner')|list|length > 1 %}
 {% if bulk %}
+<details class="bulk-actions">
+<summary>{{ t('hosting.bulk.title') }}</summary>
+<p class="hint">{{ t('hosting.bulk.hint') }}</p>
 <form method="post" id="bulk" class="bulk-bar">{{ ui.csrf() }}
   <button class="btn btn--small" formaction="{{ url_for('dashboard.bulk_stop') }}">{{ t('hosting.bulk.stop') }}</button>
   <button class="btn btn--small" formaction="{{ url_for('dashboard.bulk_restart') }}">{{ t('hosting.bulk.start') }}</button>
   <button class="btn btn--small btn--danger" formaction="{{ url_for('dashboard.bulk_delete') }}" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ t('hosting.bulk.terminate') }}</button>
 </form>
+</details>
 {% endif %}
 <ul class="instance-list">
 {% for item in items %}
@@ -47,11 +47,11 @@
         <span>{{ item.storage_mb }}{% if item.storage_limit_effective_mb %} / {{ item.storage_limit_effective_mb }}{% endif %} MB</span>
       </div>
       <div class="btn-row">
+        {% if item.url and item.status == 'running' %}<a class="btn btn--small btn--primary" href="{{ item.url }}" rel="noopener">{{ t('hosting.instance.open_wiki') }}</a>{% endif %}
         {% if item.role == 'owner' %}
-          {% if item.status == 'running' %}{{ ui.post(url_for('dashboard.stop', instance_id=item.id), t('hosting.instance.stop'), hidden={'next': url_for('dashboard.dashboard')}) }}
-          {% elif item.status == 'stopped' %}{{ ui.post(url_for('dashboard.restart', instance_id=item.id), t('hosting.instance.start'), 'btn btn--small btn--primary', hidden={'next': url_for('dashboard.dashboard')}) }}{% endif %}
+          {% if item.status == 'stopped' %}{{ ui.post(url_for('dashboard.restart', instance_id=item.id), t('hosting.instance.start'), 'btn btn--small btn--primary', hidden={'next': url_for('dashboard.dashboard')}) }}{% endif %}
         {% endif %}
-        <a class="btn btn--small" href="{{ url_for('dashboard.instance_detail', instance_id=item.id) }}">{{ t('hosting.common.open') }}</a>
+        <a class="btn btn--small" href="{{ url_for('dashboard.instance_detail', instance_id=item.id) }}">{{ t('hosting.instance.manage') }}</a>
       </div>
     </div>
   </li>

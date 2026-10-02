@@ -1,0 +1,5 @@
+/* Awards and notifications use the same quiet row treatment as other lists. */
+.badge-awards, .badge-notices { list-style: none; padding: 0; margin: 0; }
+.badge-notices { display: grid; border-top: 1px solid var(--border); }
+.badge-notices > li { padding: 1rem 0; border-bottom: 1px solid var(--border); }
+.badge-notices > li > :last-child { margin-bottom: 0; }

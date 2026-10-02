@@ -5,11 +5,12 @@
 <nav class="breadcrumbs"><a href="{{ url_for('dashboard.instance_detail', instance_id=instance.id) }}">{{ instance.subdomain }}</a></nav>
 <h1>{{ t('hosting.collaborators.title') }}</h1>
 {% macro perms_fields(selected=[], role='custom') %}
-<div class="field"><label>{{ t('hosting.collaborators.role') }}</label><select name="role">
+<label class="field">{{ t('hosting.collaborators.role') }}<select name="role">
   <option value="custom"{% if role == 'custom' %} selected{% endif %}>{{ t('hosting.collaborators.custom') }}</option>
-  <option value="full_access"{% if role == 'full_access' %} selected{% endif %}>{{ t('hosting.collaborators.full_access') }}</option></select></div>
+  <option value="full_access"{% if role == 'full_access' %} selected{% endif %}>{{ t('hosting.collaborators.full_access') }}</option></select></label>
 <div class="cluster">{% for p in permissions %}{{ ui.check('permissions', t('hosting.permission.' ~ p), checked=p in selected, value=p) }}{% endfor %}</div>
 {% endmacro %}
+{% if collaborators %}<div class="panel-list">{% endif %}
 {% for c in collaborators %}
 <details class="card"><summary>{{ c.username }} · {{ t('hosting.collaborators.' ~ c.role) }}</summary>
   <form method="post" action="{{ url_for('dashboard.update_collaborator', instance_id=instance.id, collab_account_id=c.account_id) }}" class="form">{{ ui.csrf() }}
@@ -17,6 +18,7 @@
   {{ ui.post(url_for('dashboard.remove_collaborator', instance_id=instance.id, collab_account_id=c.account_id), t('hosting.collaborators.remove'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}
 </details>
 {% else %}<p class="muted">{{ t('hosting.common.none') }}</p>{% endfor %}
+{% if collaborators %}</div>{% endif %}
 <section class="card"><h2>{{ t('hosting.collaborators.add') }}</h2>
 <form method="post" action="{{ url_for('dashboard.add_collaborator', instance_id=instance.id) }}" class="form">{{ ui.csrf() }}
   {{ ui.field('username', t('hosting.field.username'), required=true) }}{{ perms_fields(['view']) }}

@@ -46,7 +46,7 @@ from typing import Any, BinaryIO
 from .files import MAINTENANCE_MARKER, open_directory, open_regular, read_json, regular_files, write_json
 
 CONFIG_FILES = ("installation.json", "source.json", "app.env", "repo.token", "repo.key", "repo.known_hosts",
-                "updates.json")
+                "repo.allowed_signers", "updates.json")
 _DATABASE_SUFFIXES = {".db", ".sqlite", ".sqlite3"}
 _SIDECARS = ("-wal", "-shm", "-journal")
 _MUTABLE_SUFFIXES = {".log", ".jsonl", ".lock", ".pid", ".tmp"}
@@ -98,7 +98,15 @@ def _write_from(source: BinaryIO, destination: Path, mode: int = 0o600) -> None:
     destination.unlink(missing_ok=True)
     fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     with os.fdopen(fd, "wb") as target:
-        shutil.copyfileobj(source, target, 1024 * 1024)
+        # A running tenant may keep appending indefinitely. Capture only the
+        # observed length; the offline refresh captures any later changes.
+        remaining = os.fstat(source.fileno()).st_size
+        while remaining:
+            chunk = source.read(min(remaining, 1024 * 1024))
+            if not chunk:
+                raise ValueError("A file shrank while its snapshot was captured; retry the operation.")
+            target.write(chunk)
+            remaining -= len(chunk)
         os.fchmod(target.fileno(), mode & 0o777)
 
 

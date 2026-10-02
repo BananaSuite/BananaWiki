@@ -11,7 +11,10 @@
 .theme-preview__button { padding: .3rem .6rem; border-radius: .3rem; background: var(--bw-primary); color: var(--bw-bg); }
 .theme-color { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
 .theme-color input[type=color] { inline-size: 3rem; block-size: 2rem; padding: 0; }
-.favicon-grid { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: .75rem; }
-.favicon-tile { display: flex; flex-direction: column; align-items: center; gap: .35rem; padding: .6rem; border: 1px solid var(--bw-sidebar); border-radius: .5rem; }
-.favicon-tile--selected { border-color: var(--bw-accent); box-shadow: 0 0 0 2px var(--bw-accent) inset; }
+.favicon-grid { list-style: none; padding: 0; display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 0 1.25rem; border-top: 1px solid var(--border); }
+.favicon-tile { display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; align-items: center;
+  gap: .5rem .65rem; padding: .75rem 0; border-bottom: 1px solid var(--border); }
+.favicon-tile > .cluster { grid-column: 2 / -1; }
+.favicon-tile--selected { border-bottom-color: var(--bw-accent); }
 .log-view { max-height: 70vh; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: .8rem; }

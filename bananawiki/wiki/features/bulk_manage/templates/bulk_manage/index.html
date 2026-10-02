@@ -34,7 +34,7 @@
   <label class="check"><input type="radio" name="page_action" value="delete"> <span>{{ t('bulk_manage.delete_pages_too') }}</span></label>
 </fieldset>
 {% endset %}
-<div class="stack">
+<div class="section-stack">
 {{ section('cat', t('bulk_manage.categories'), categories, url_for('bulk_manage.delete_categories'), 'name', category_options) }}
 {{ section('page', t('bulk_manage.pages'), pages, url_for('bulk_manage.delete_pages'), 'title') }}
 {% if feature_enabled('canvas') %}{{ section('canvas', t('bulk_manage.canvases'), canvases, url_for('bulk_manage.delete_canvases'), 'title') }}{% endif %}

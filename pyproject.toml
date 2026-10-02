@@ -30,20 +30,21 @@ dependencies = [
     "Markdown>=3.6,<4",
     "Pygments>=2.18,<3",
     "nh3>=0.2.18,<0.4",
-    "Pillow>=11,<13",
-    "cryptography>=44,<51",
-    "filelock>=3.13,<4",
+    "Pillow>=12.3,<13",
+    "cryptography>=50.0.1,<51",
+    "filelock>=3.13,<5",
     "fpdf2>=2.8,<3",
     "qrcode>=7.4,<9",
-    "gunicorn>=23,<27; sys_platform != 'win32'",
+    "gunicorn>=26.2,<27; sys_platform != 'win32'",
     "waitress>=3,<4",
     "tzdata>=2024.1; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
-tts = ["piper-tts==1.4.2", "langdetect==1.0.9"]
+tts = ["piper-tts==1.4.2"]
 hosting = [
-    "dnspython>=2.6,<3",
+    "dnspython>=2.8,<3",
+    "urllib3>=2.8,<3",
     "google-api-python-client>=2.100,<3",
     "google-auth>=2.23,<3",
 ]

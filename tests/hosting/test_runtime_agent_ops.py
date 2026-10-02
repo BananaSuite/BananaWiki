@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -89,7 +91,9 @@ def test_task_in_a_stopped_tenant_uses_a_locked_down_one_shot_container(agent):
     for flag in ("--rm", "-i", "--read-only", "no-new-privileges:true", "ALL", "org.bananawiki.role=tenant-task"):
         assert flag in command
     assert command[command.index("--network") + 1] == "none"
-    assert command[command.index("--entrypoint") + 1] == "python"
+    assert command[command.index("--entrypoint") + 1] == "/usr/bin/timeout"
+    assert command[-8:-4][:2] == ["--signal=TERM", "--kill-after=5s"]
+    assert 0 < float(command[-6][:-1]) <= 120 and command[-5] == "python"
     assert command[-4:] == ["-E", "-s", "-m", "bananawiki.ops.tenant_task"]
     assert "org.bananawiki.role=tenant" not in command, "the updater must not mistake it for a tenant"
     assert not any("top-secret-pw" in part for part in command), "passwords go to stdin only"
@@ -101,9 +105,62 @@ def test_task_in_a_running_tenant_uses_exec(agent):
     _run_up(agent, "acme", "172.20.0.2")
     agent.call("tenant.task", {"tenant": "acme", "request": {"action": "list_users"}})
     command, kwargs = next((c, k) for c, k in agent.fake.calls if c[1] == "exec")
-    assert command[1:] == ["exec", "-i", container_name(str(agent.base / "acme")), "python", "-E", "-s", "-m",
-                           "bananawiki.ops.tenant_task"]
+    assert command[1:7] == ["exec", "-i", container_name(str(agent.base / "acme")), "/usr/bin/timeout", "--signal=TERM",
+                           "--kill-after=5s"]
+    assert 0 < float(command[7][:-1]) <= 120
+    assert command[8:] == ["python", "-E", "-s", "-m", "bananawiki.ops.tenant_task"]
     assert "input" in kwargs
+    assert 10 < kwargs["timeout"] <= 130
+
+
+def test_timed_out_one_shot_task_is_removed_and_later_tasks_can_run(agent):
+    original_runner = agent.runner
+    timed_out = []
+
+    def runner(command, **kwargs):
+        if command[1] == "run" and not timed_out:
+            timed_out.append(command[command.index("--name") + 1])
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        return original_runner(command, **kwargs)
+
+    agent.runner = runner
+    with pytest.raises(AgentError) as error:
+        agent.call("tenant.task", {"tenant": "acme", "request": {"action": "list_users"}})
+    assert error.value.code == "timeout"
+    assert ["docker", "rm", "--force", timed_out[0]] in [c for c, _ in agent.fake.calls]
+    assert agent.call("tenant.task", {"tenant": "acme", "request": {"action": "list_users"}})["result"]["ok"]
+    next_name = agent.fake.commands("run")[-1]
+    assert next_name[next_name.index("--name") + 1] != timed_out[0]
+
+
+def test_tasks_serialize_per_tenant_without_blocking_other_tenants(agent):
+    started = threading.Event()
+    release = threading.Event()
+    concurrent = threading.Event()
+    original_runner = agent.runner
+
+    def runner(command, **kwargs):
+        if command[1] == "run" and "-i" in command:
+            name = command[command.index("--name") + 1]
+            if name.startswith(container_name(str(agent.base / "acme"))):
+                if started.is_set() and not release.is_set():
+                    concurrent.set()
+                started.set()
+                assert release.wait(5)
+        return original_runner(command, **kwargs)
+
+    agent.runner = runner
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        first = pool.submit(agent.call, "tenant.task", {"tenant": "acme", "request": {"action": "list_users"}})
+        assert started.wait(5)
+        second = pool.submit(agent.call, "tenant.task", {"tenant": "acme", "request": {"action": "analytics"}})
+        other = pool.submit(agent.call, "tenant.task", {"tenant": "beta", "request": {"action": "list_users"}})
+        assert other.result(timeout=5)["result"]["ok"]
+        assert not concurrent.is_set()
+        release.set()
+        assert first.result(timeout=5)["result"]["ok"] and second.result(timeout=5)["result"]["ok"]
 
 
 @pytest.mark.skipif(not Path("/usr/bin/python3").is_file(), reason="needs a system Python (venvs have no user site)")
@@ -154,6 +211,135 @@ def test_task_output_is_untrusted(agent):
         agent.call("tenant.task", {"tenant": "acme", "request": {"action": "list_users"}})
 
 
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_real_task_pipe_limit_terminates_a_flooding_process(tmp_path, monkeypatch, stream):
+    from bananawiki.ops import runtime_agent
+
+    monkeypatch.setattr(runtime_agent, "MAX_TASK_RESPONSE", 1024)
+    marker = tmp_path / "completed"
+    code = (f"import sys,time; from pathlib import Path; sys.{stream}.buffer.write(b'x'*100000); "
+            f"sys.{stream}.flush(); time.sleep(10); Path({str(marker)!r}).touch()")
+    with pytest.raises(AgentError) as error:
+        runtime_agent._task_process([sys.executable, "-c", code], "", 2)
+    assert error.value.code == "too_large"
+    assert not marker.exists()
+
+
+def test_real_task_pipes_do_not_deadlock_when_output_precedes_reading_the_request():
+    from bananawiki.ops.runtime_agent import _task_process
+
+    code = "import sys; sys.stdout.write('x'*100000); sys.stdout.flush(); print(len(sys.stdin.read()))"
+    completed = _task_process([sys.executable, "-c", code], "y" * 64000, 3)
+    assert completed.returncode == 0 and completed.stdout.endswith("64000\n")
+
+
+def test_real_task_process_deadline_terminates_the_client(tmp_path):
+    from bananawiki.ops.runtime_agent import _task_process
+
+    marker = tmp_path / "completed"
+    code = f"import time; from pathlib import Path; time.sleep(10); Path({str(marker)!r}).touch()"
+    with pytest.raises(subprocess.TimeoutExpired):
+        _task_process([sys.executable, "-c", code], "", 0.1)
+    assert not marker.exists()
+
+
+def test_task_wait_deadline_does_not_execute_a_queued_task(agent, monkeypatch):
+    class Occupied:
+        def acquire(self, *, timeout):
+            assert 0 < timeout <= 5
+            return False
+
+    monkeypatch.setattr(agent, "_tenant_lock", lambda _path: Occupied())
+    with pytest.raises(AgentError) as error:
+        agent.call("tenant.task", {"tenant": "acme", "timeout": 5, "request": {"action": "list_users"}})
+    assert error.value.code == "timeout"
+    assert agent.fake.calls == []
+
+
+def test_task_does_not_start_when_container_inspection_exhausts_its_deadline(agent, monkeypatch):
+    from bananawiki.ops import runtime_agent
+
+    now = [0.0]
+    monkeypatch.setattr(runtime_agent.time, "monotonic", lambda: now[0])
+    original = agent.runner
+
+    def runner(command, **kwargs):
+        if command[1] == "inspect":
+            assert kwargs["timeout"] <= 5
+            now[0] = 6.0
+        return original(command, **kwargs)
+
+    agent.runner = runner
+    _run_up(agent, "acme", "172.20.0.2")
+    with pytest.raises(AgentError) as error:
+        agent.call("tenant.task", {"tenant": "acme", "timeout": 5, "request": {"action": "set_password"}})
+    assert error.value.code == "timeout"
+    assert not agent.fake.commands("exec") and not agent.fake.commands("run")
+    assert agent._tenant_lock(agent.base / "acme").acquire(blocking=False)
+    agent._tenant_lock(agent.base / "acme").release()
+
+
+def test_container_enforced_deadline_is_reported_as_a_timeout(agent):
+    original = agent.runner
+
+    def runner(command, **kwargs):
+        if command[1] == "run":
+            return subprocess.CompletedProcess(command, 124, "", "")
+        return original(command, **kwargs)
+
+    agent.runner = runner
+    with pytest.raises(AgentError) as error:
+        agent.call("tenant.task", {"tenant": "acme", "request": {"action": "list_users"}})
+    assert error.value.code == "timeout"
+    assert agent.fake.commands("rm")
+
+
+def test_runtime_connection_limit_rejects_excess_requests_and_recovers(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from bananawiki.ops import runtime_agent
+    from bananawiki.ops.agent_client import AgentClient
+
+    monkeypatch.setattr(runtime_agent, "MAX_CONCURRENT_REQUESTS", 2)
+    entered = threading.Condition()
+    release = threading.Event()
+    calls = 0
+
+    class BlockingRuntime:
+        def call(self, _operation, _arguments):
+            nonlocal calls
+            with entered:
+                calls += 1
+                entered.notify_all()
+            assert release.wait(3)
+            return {"ready": True}
+
+    path = tmp_path / "agent.sock"
+    server = runtime_agent.AgentServer(path, tmp_path)
+    monkeypatch.setattr(server, "allowed_uids", lambda: {os.geteuid()})
+    monkeypatch.setattr(server, "runtime", BlockingRuntime)
+    serving = threading.Thread(target=server.serve_forever, daemon=True)
+    serving.start()
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = [pool.submit(AgentClient(path, timeout=3).call, "ping") for _ in range(2)]
+            try:
+                with entered:
+                    assert entered.wait_for(lambda: calls == 2, timeout=2)
+                with pytest.raises(AgentError) as error:
+                    AgentClient(path, timeout=2).call("ping")
+                assert error.value.code == "busy"
+            finally:
+                release.set()
+            assert [result.result(timeout=2) for result in first] == [{"ready": True}] * 2
+        assert AgentClient(path, timeout=2).call("ping") == {"ready": True}
+    finally:
+        release.set()
+        server.shutdown()
+        server.server_close()
+        serving.join(timeout=2)
+
+
 def test_routes_are_rendered_from_docker_addresses(agent, tmp_path):
     _run_up(agent, "acme", "172.20.0.2")
     result = agent.call("proxy.routes", {"routes": [
@@ -186,6 +372,100 @@ def test_routes_follow_container_restarts(agent, tmp_path):
     agent.fake.running.clear()
     agent.call("tenant.stop", {"tenant": "acme"})
     assert "reverse_proxy" not in (tmp_path / "routes" / "tenants.caddy").read_text()
+
+
+def test_failed_route_reload_is_retried_even_after_agent_restart(agent, tmp_path):
+    _run_up(agent, "acme", "172.20.0.2")
+    original_runner = agent.runner
+    failures = [True]
+
+    def runner(command, **kwargs):
+        if command[:2] == ["systemctl", "reload"] and failures:
+            failures.pop()
+            return subprocess.CompletedProcess(command, 1, "", "Caddy temporarily unavailable")
+        return original_runner(command, **kwargs)
+
+    agent.runner = runner
+    routes = {"routes": [{"tenant": "acme", "hosts": ["acme-hosting.example.com"]}]}
+    assert agent.call("proxy.routes", routes) == {"routes": 1, "changed": True, "reloaded": False}
+    restarted = TenantRuntime(agent.config, runner=runner, private_dir=agent.private_dir)
+    assert restarted.call("proxy.routes", routes) == {"routes": 1, "changed": False, "reloaded": True}
+    assert restarted.call("proxy.routes", routes) == {"routes": 1, "changed": False, "reloaded": False}
+
+
+def test_stopped_tenant_subnet_is_kept_until_caddy_forgets_its_address(agent, tmp_path):
+    _run_up(agent, "acme", "172.20.0.2")
+    routes = {"routes": [{"tenant": "acme", "hosts": ["acme-hosting.example.com"]}]}
+    agent.call("proxy.routes", routes)
+    original_runner = agent.runner
+    fail_reload = [True]
+
+    def runner(command, **kwargs):
+        if command[:2] == ["systemctl", "reload"] and fail_reload:
+            return subprocess.CompletedProcess(command, 1, "", "temporarily unavailable")
+        if command[:3] == ["docker", "rm", "--force"]:
+            agent.fake.running.pop(command[3], None)
+        return original_runner(command, **kwargs)
+
+    agent.runner = runner
+    name = container_name(str(agent.base / "acme")) + "-net"
+    agent.call("tenant.stop", {"tenant": "acme"})
+    assert ["docker", "network", "rm", name] not in [command for command, _ in agent.fake.calls]
+    assert name in json.loads((tmp_path / "routes/retired-networks.json").read_text())
+    fail_reload.clear()
+    restarted = TenantRuntime(agent.config, runner=runner, private_dir=agent.private_dir)
+    assert restarted.call("proxy.routes", routes)["reloaded"]
+    commands = [command for command, _ in agent.fake.calls]
+    assert ["docker", "network", "rm", name] in commands
+    assert json.loads((tmp_path / "routes/retired-networks.json").read_text()) == []
+
+
+def test_network_policy_change_waits_for_caddy_to_drop_the_old_upstream(agent):
+    _run_up(agent, "acme", "172.20.0.2")
+    agent.call("proxy.routes", {"routes": [{"tenant": "acme", "hosts": ["acme-hosting.example.com"]}]})
+    original_runner = agent.runner
+
+    def runner(command, **kwargs):
+        if command[:3] == ["docker", "rm", "--force"]:
+            agent.fake.running.pop(command[3], None)
+        if command[:3] == ["docker", "network", "inspect"]:
+            return subprocess.CompletedProcess(command, 0, "false", "")
+        if command[:2] == ["systemctl", "reload"]:
+            return subprocess.CompletedProcess(command, 1, "", "temporarily unavailable")
+        return original_runner(command, **kwargs)
+
+    agent.runner = runner
+    with pytest.raises(AgentError) as error:
+        agent.call("tenant.start", {"tenant": "acme", "network": "isolated"})
+    assert error.value.code == "routing_unavailable"
+    assert not any(command[:3] == ["docker", "network", "rm"] for command, _ in agent.fake.calls)
+    assert not agent.fake.commands("run")
+
+
+def test_retired_network_cleanup_survives_active_bridges_and_agent_restart(agent, tmp_path):
+    routes = {"routes": []}
+    agent.call("proxy.routes", routes)
+    names = [container_name(str(agent.base / f"tenant-{index}")) + "-net" for index in range(5)]
+    for name in names:
+        agent._retire_network(name)
+    original_runner = agent.runner
+    attempted = []
+
+    def runner(command, **kwargs):
+        if command[:3] == ["docker", "network", "rm"]:
+            attempted.append(command[3])
+            if command[3] in names[:4]:
+                return subprocess.CompletedProcess(command, 1, "", "network has active endpoints")
+        return original_runner(command, **kwargs)
+
+    agent.runner = runner
+    agent.call("proxy.routes", routes)
+    assert attempted == names[:4], "cleanup bounds Docker calls per sync"
+    restarted = TenantRuntime(agent.config, runner=runner, private_dir=agent.private_dir)
+    restarted.call("proxy.routes", routes)
+    assert attempted[4] == names[4], "a restart preserves fair progress beyond active bridges"
+    assert names[4] not in json.loads((tmp_path / "routes/retired-networks.json").read_text())
+    assert set(json.loads((tmp_path / "routes/retired-networks.json").read_text())) == set(names[:4])
 
 
 @pytest.mark.parametrize("routes", [

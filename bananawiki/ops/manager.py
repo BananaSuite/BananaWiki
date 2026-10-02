@@ -702,7 +702,7 @@ class Manager:
         atomic_write(self.root / "data" / MAINTENANCE_MARKER, "Restoring\n")
         self.tenant_maintenance(settings, True)
         if copy_source:
-            for filename in ("source.json", "repo.token", "repo.key", "repo.known_hosts"):
+            for filename in ("source.json", "repo.token", "repo.key", "repo.known_hosts", "repo.allowed_signers"):
                 file = tree / "config" / filename
                 if file.exists():
                     atomic_write(self.config_dir / filename, file.read_bytes())
@@ -749,12 +749,14 @@ class Manager:
         if journal.get("phase") == "snapshotted" and journal.get("snapshot"):
             self.system.remove_containers(current)
             snapshot = Snapshot.open(journal["snapshot"], self.root)
-            self.apply_tree(snapshot.path, str(self.root), settings, copier=snapshot.copy_tree, copy_source=False)
+            self.apply_tree(snapshot.path, str(self.root), settings, copier=snapshot.copy_tree,
+                            copy_source=journal.get("restore_source", False))
             restored = True
         elif journal.get("backup"):
             self.system.remove_containers(current)
             with read_package(Path(journal["backup"]), PRODUCT, self.root / "staging") as (extracted, manifest):
-                self.apply_tree(extracted, manifest["old_root"], settings, copy_source=False)
+                self.apply_tree(extracted, manifest["old_root"], settings,
+                                copy_source=journal.get("restore_source", False))
             restored = True
         if restored:
             self.switch(settings["revision"])
@@ -789,6 +791,10 @@ class Manager:
 
                 def apply(journal: dict[str, Any] | None) -> None:
                     if journal:
+                        # Updates preserve the operator's source settings, but
+                        # a restore replaces them and must roll them back too.
+                        journal["restore_source"] = True
+                        write_json(self.config_dir / "transaction.json", journal)
                         self.system.remove_containers(journal["containers"])
                     self.apply_tree(extracted, manifest["old_root"], restored, preserve_policy=False,
                                     public_changed=domain is not None)
