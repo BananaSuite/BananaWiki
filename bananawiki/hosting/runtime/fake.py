@@ -99,12 +99,11 @@ class FakeRuntime:
         self._record("relocate", f"{old_dir_name}->{new_dir_name}")
         if old_dir_name == new_dir_name:
             return
+        if old_dir_name not in self.tenants:
+            raise RuntimeFailure("not_found", old_dir_name)
         if new_dir_name in self.tenants:
             raise RuntimeFailure("data_exists", new_dir_name)
-        tenant = self.tenants.pop(old_dir_name, None)
-        if tenant is None:
-            raise RuntimeFailure("not_found", old_dir_name)
-        self.tenants[new_dir_name] = tenant
+        self.tenants[new_dir_name] = self.tenants.pop(old_dir_name)
 
     def destroy(self, spec: TenantSpec) -> None:
         self._record("destroy", spec.data_dir_name)
@@ -189,15 +188,17 @@ class FakeRuntime:
 
     def import_archive(self, spec: TenantSpec, archive: Path) -> None:
         self._record("import_archive", spec.data_dir_name)
+        if spec.data_dir_name in self.tenants:
+            raise RuntimeFailure("data_exists", spec.data_dir_name)
         if not zipfile.is_zipfile(archive):
             raise RuntimeFailure("archive_invalid", str(archive))
         self.tenants[spec.data_dir_name] = FakeTenant(spec, running=True)
 
     def duplicate(self, source: TenantSpec, target: TenantSpec) -> None:
         self._record("duplicate", f"{source.data_dir_name}->{target.data_dir_name}")
-        original = self._tenant(source)
         if target.data_dir_name in self.tenants:
             raise RuntimeFailure("data_exists", target.data_dir_name)
+        original = self._tenant(source)
         self.tenants[target.data_dir_name] = FakeTenant(
             target, running=True, users=dict(original.users), passwords=dict(original.passwords)
         )

@@ -31,6 +31,7 @@ platform). In port mode the agent publishes each wiki on
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import http.client
 import ipaddress
@@ -358,17 +359,25 @@ class AgentRuntime:
         self._start(cfg, spec)
 
     def recover(self, specs: Sequence[TenantSpec]) -> int:
-        """Start the wikis whose containers are missing or stuck, a few at a time (audit C10)."""
+        """Start the wikis whose containers are missing or stuck, a few at a time (audit C10).
+
+        Every wiki is tried on its own: whatever one of them raises is logged
+        and the others still start.
+        """
         cfg = self._cfg()
         containers = self._container_map(fresh=True)
         pending = []
         for spec in specs:
-            if not tenantfs.is_tenant_dir(self._root(cfg, spec.data_dir_name)):
-                log.warning("Not recovering %s: its data directory %s is missing", spec.instance_id,
-                            spec.data_dir_name)
-                continue
-            item = containers.get(spec.data_dir_name)
-            if item and item.get("running") and self._judge(cfg, item).state in ("running", "starting"):
+            try:
+                if not tenantfs.is_tenant_dir(self._root(cfg, spec.data_dir_name)):
+                    log.warning("Not recovering %s: its data directory %s is missing", spec.instance_id,
+                                spec.data_dir_name)
+                    continue
+                item = containers.get(spec.data_dir_name)
+                if item and item.get("running") and self._judge(cfg, item).state in ("running", "starting"):
+                    continue
+            except Exception:  # noqa: BLE001 - one wiki must not keep the others down
+                log.exception("Could not check %s", spec.data_dir_name)
                 continue
             pending.append(spec)
 
@@ -379,7 +388,9 @@ class AgentRuntime:
                 return True
             except RuntimeFailure as error:
                 log.error("Could not recover %s: %s", spec.data_dir_name, error)
-                return False
+            except Exception:  # noqa: BLE001 - an exception would cancel the wikis queued after it
+                log.exception("Could not recover %s", spec.data_dir_name)
+            return False
 
         with ThreadPoolExecutor(max_workers=RECOVER_PARALLEL, thread_name_prefix="recover") as pool:
             return sum(pool.map(attempt, pending))
@@ -547,18 +558,30 @@ class AgentRuntime:
             tenant_archives.unpack(Path(archive), staging, cfg.archives)
             tenantfs.ensure_layout(staging)
             os.rename(staging, root)
-        except BaseException:
-            tenantfs.remove_tree(staging)
+        except BaseException as error:
+            # Decided before the cleanup, which must not replace it: a name
+            # taken meanwhile is someone else's directory, never cleaned up.
+            taken = isinstance(error, OSError) and os.path.lexists(root)
+            try:
+                tenantfs.remove_tree(staging)
+            except RuntimeFailure as cleanup:
+                log.warning("Import staging folder %s left behind: %s", staging.name, cleanup)
+            if isinstance(error, OSError):
+                code = ("data_exists" if taken
+                        else "no_space" if error.errno in (errno.ENOSPC, errno.EDQUOT) else "failed")
+                raise RuntimeFailure(code, f"{spec.data_dir_name}: {error.strerror or error}") from None
             raise
         self._task(spec.data_dir_name, {"action": "migrate", "imported": True, "policy": _upload_request(spec)})
         self._start(cfg, spec)
 
     def duplicate(self, source: TenantSpec, target: TenantSpec) -> None:
         cfg = self._cfg()
-        source_root = self._existing(cfg, source.data_dir_name)
+        # The target first: whatever else fails, the portal then cleans up a
+        # directory this call may have made, never one that was already there.
         target_root = self._root(cfg, target.data_dir_name)
         if os.path.lexists(target_root):
             raise RuntimeFailure("data_exists", target.data_dir_name)
+        source_root = self._existing(cfg, source.data_dir_name)
         copy = self._snapshot(source.data_dir_name)
         try:
             tenantfs.create(target_root)
@@ -791,7 +814,7 @@ class AgentRuntime:
                     tenantfs.remove_tree(entry)
                 elif tenantfs.DATA_DIR_NAME.fullmatch(entry.name) and tenantfs.is_tenant_dir(entry):
                     self._prune_tenant(entry, now)
-            except OSError as error:
+            except (OSError, RuntimeFailure) as error:
                 log.warning("Could not tidy %s: %s", entry.name, error)
 
     @staticmethod

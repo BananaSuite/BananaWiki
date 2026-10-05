@@ -195,7 +195,9 @@ stay members-only while public builder pages are forbidden
 A wiki lives `INSTANCE_DURATION_DAYS` unless an administrator extends it or
 makes it indefinite. When it expires or is terminated, it enters the grace
 period configured in the platform settings, during which an administrator can
-restore it; afterwards its data is deleted.
+restore it; afterwards its data is deleted. An administrator can pause that
+countdown: the data is then kept until the countdown resumes (the paused time
+is added to the grace period), and the owner cannot download it meanwhile.
 
 Platform sign-in: every wiki is an OAuth client of the portal, so owners and
 collaborators sign in to their wikis with their portal account

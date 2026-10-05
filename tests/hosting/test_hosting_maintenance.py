@@ -5,9 +5,11 @@ from __future__ import annotations
 import importlib.util
 import runpy
 import sys
+from datetime import timedelta
 from pathlib import Path
 
-from bananawiki.hosting import maintenance
+from bananawiki.core.timeutil import parse, sql_in, utcnow
+from bananawiki.hosting import instances, maintenance
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -52,6 +54,82 @@ def test_denied_cleanup_keeps_admins(portal, make_account, query):
     row = query("SELECT deleted_at FROM accounts WHERE id = ?", (denied["id"],), one=True)
     assert row is None or row["deleted_at"]
     assert query("SELECT deleted_at FROM accounts WHERE id = ?", (admin["id"],), one=True)["deleted_at"] is None
+
+
+def test_a_paused_countdown_keeps_the_data_and_resumes_where_it_stopped(portal, ctx, make_account, make_wiki, query,
+                                                                       runtime):
+    wiki = make_wiki(make_account(), "on-hold")
+    instances.terminate(instances.get(wiki["id"]), actor_id=None)
+    instances.set_grace_suspended(instances.get(wiki["id"]), True, actor_id=None)
+    instances.set_grace_suspended(instances.get(wiki["id"]), True, actor_id=None)
+    # Terminated 30 days ago and paused ten days ago, with eight days left: without the pause the data
+    # would have been deleted two days ago.
+    query("UPDATE hosting_events SET created_at = ? WHERE action = 'instance.grace_suspended'", (sql_in(days=-10),))
+    query("UPDATE instances SET terminated_at = ?, data_retained_until = ? WHERE id = ?",
+          (sql_in(days=-30), sql_in(days=-2), wiki["id"]))
+    maintenance.run_once(portal)
+    paused = instances.get(wiki["id"])
+    assert paused is not None and instances.grace_active(paused)
+    assert runtime.called("destroy") == []
+    instances.set_grace_suspended(paused, False, actor_id=None)
+    left = parse(instances.get(wiki["id"])["data_retained_until"]) - utcnow()
+    assert timedelta(days=7, hours=23) < left <= timedelta(days=8, minutes=1), "the eight days left at the pause"
+    assert query("SELECT COUNT(*) AS n FROM hosting_events WHERE action = 'instance.grace_suspended'",
+                 one=True)["n"] == 1, "pausing a paused countdown does not restart the pause"
+    maintenance.run_once(portal)
+    assert instances.get(wiki["id"]) is not None
+
+
+def test_one_wiki_whose_data_cannot_be_deleted_does_not_block_the_others(portal, ctx, make_account, make_wiki, query,
+                                                                          runtime, monkeypatch):
+    owner = make_account()
+    stuck, gone = make_wiki(owner, "stuck-data"), make_wiki(owner, "gone-data")
+    for number, wiki in enumerate((stuck, gone), start=1):
+        instances.terminate(instances.get(wiki["id"]), actor_id=None)
+        query("UPDATE instances SET data_retained_until = ? WHERE id = ?", (f"2000-01-0{number} 00:00:00", wiki["id"]))
+    destroy = runtime.destroy
+
+    def refuse_first(spec):
+        if spec.instance_id == stuck["id"]:
+            raise PermissionError(13, "Permission denied")
+        destroy(spec)
+
+    monkeypatch.setattr(runtime, "destroy", refuse_first)
+    assert maintenance.run_once(portal)["grace periods"] == 1
+    assert instances.get(stuck["id"]) is not None and instances.get(gone["id"]) is None
+
+
+def test_expired_wikis_are_terminated_one_by_one(portal, make_account, make_wiki, query, runtime, monkeypatch):
+    owner = make_account()
+    first, second = make_wiki(owner, "first-expired"), make_wiki(owner, "second-expired")
+    for number, wiki in enumerate((first, second), start=1):
+        query("UPDATE instances SET expires_at = ? WHERE id = ?", (f"2000-01-0{number} 00:00:00", wiki["id"]))
+    stop = runtime.stop
+
+    def broken_first(spec):
+        if spec.slug == "first-expired":
+            raise OSError("container state unreadable")
+        stop(spec)
+
+    monkeypatch.setattr(runtime, "stop", broken_first)
+    assert maintenance.run_once(portal)["expired wikis"] == 1
+    statuses = {row["subdomain"].split("--")[0]: row["status"] for row in query("SELECT subdomain, status FROM instances")}
+    assert statuses == {"first-expired": "running", "second-expired": "terminated"}
+
+
+def test_one_failing_account_deletion_does_not_block_the_next(portal, make_account, make_wiki, query, runtime):
+    due = {"pending_deletion": 1, "pending_deletion_seconds": 60}
+    first = make_account(pending_deletion_at="2000-01-01 00:00:00", **due)
+    second = make_account(pending_deletion_at="2000-01-02 00:00:00", **due)
+    make_wiki(first, "unstoppable")
+    runtime.fail_next("stop", "stop_failed")
+    active = "SELECT id FROM accounts WHERE id = ? AND deleted_at IS NULL"
+    assert maintenance.run_once(portal)["scheduled deletions"] == 1
+    assert query(active, (first["id"],), one=True)
+    assert query("SELECT status FROM instances", one=True)["status"] == "running", "nothing irreversible happened"
+    assert query(active, (second["id"],), one=True) is None
+    maintenance.run_once(portal)
+    assert query(active, (first["id"],), one=True) is None, "retried on the next pass"
 
 
 def test_a_failing_step_does_not_stop_the_pass(portal, monkeypatch):

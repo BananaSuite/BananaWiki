@@ -338,6 +338,39 @@ def test_duplicate_copies_data_and_revokes_credentials(setup):
     with pytest.raises(RuntimeFailure) as error:
         runtime.duplicate(spec, target)
     assert error.value.code == "data_exists"
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.duplicate(make_spec("gone"), target)
+    assert error.value.code == "data_exists", "a taken target is reported first: the portal never cleans it up"
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.duplicate(make_spec("gone"), replace(make_spec("other"), instance_id="idother"))
+    assert error.value.code == "not_found"
+    assert not (Path(runtime._cfg().instances_dir) / "other").exists()
+
+
+def test_import_keeps_its_verdict_when_the_cleanup_fails(setup, tmp_path, monkeypatch):
+    from bananawiki.hosting.runtime import tenantfs
+
+    runtime, _agent, spec, _root = setup
+    path = _export(runtime, spec, tmp_path)
+    late = Path(runtime._cfg().instances_dir) / "late"
+    rename = os.rename
+
+    def race(source, target, *args, **kwargs):
+        if Path(target) == late:
+            # Another directory takes the name between the check and the rename.
+            late.mkdir()
+            (late / "theirs.txt").write_text("not ours")
+        return rename(source, target, *args, **kwargs)
+
+    def stuck(_path):
+        raise RuntimeFailure("failed", "could not delete the staging folder")
+
+    monkeypatch.setattr(os, "rename", race)
+    monkeypatch.setattr(tenantfs, "remove_tree", stuck)
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.import_archive(make_spec("late"), path)
+    assert error.value.code == "data_exists", "the portal must not clean up a directory it did not create"
+    assert (late / "theirs.txt").read_text() == "not ours"
 
 
 def test_export_of_a_planted_database_link_fails_safely(setup, tmp_path):

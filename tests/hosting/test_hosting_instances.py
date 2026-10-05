@@ -204,3 +204,155 @@ def test_transfer_to_a_suspended_account_is_refused(web, make_account, make_wiki
     login(web, owner)
     web.post(f"/instances/{wiki['id']}/transfer", data={"username": blocked["username"]})
     assert query("SELECT COUNT(*) AS n FROM instance_ownership_transfers", one=True)["n"] == 0
+
+
+# ── Data directories ──────────────────────────────────────────────────────────
+
+
+def _orphan(make_account, make_wiki, query, slug: str) -> None:
+    """Data left under *slug* with no wiki holding the name (what a failed move used to leave)."""
+    wiki = make_wiki(make_account(), slug)
+    query("UPDATE instances SET status = 'terminated', subdomain = ? WHERE id = ?",
+          (f"{slug}--terminated-{wiki['id'][:8]}", wiki["id"]))
+
+
+@pytest.mark.parametrize("operation", ["create", "duplicate", "duplicate_without_source", "import"])
+def test_a_failed_creation_never_deletes_data_it_did_not_create(ctx, make_account, make_wiki, runtime, query,
+                                                                 tmp_path, operation):
+    import zipfile
+
+    from bananawiki.hosting import instances
+    from bananawiki.hosting.errors import ServiceError
+
+    _orphan(make_account, make_wiki, query, "alpha")
+    orphaned = runtime.tenants["alpha"]
+    owner = make_account()
+    with pytest.raises(ServiceError) as error:
+        if operation == "create":
+            instances.create(owner, "alpha")
+        elif operation.startswith("duplicate"):
+            source = make_wiki(owner, "source-wiki")
+            if operation == "duplicate_without_source":
+                # The taken target must be reported first, or the cleanup would destroy it.
+                del runtime.tenants["source-wiki"]
+            instances.duplicate(source, owner, "alpha", "hosting", actor_id=owner["id"])
+        else:
+            archive = tmp_path / "site.zip"
+            with zipfile.ZipFile(archive, "w") as handle:
+                handle.writestr("bananawiki.json", "{}")
+            instances.import_archive(owner, "alpha", "hosting", archive, actor_id=owner["id"])
+    assert error.value.key == "hosting.runtime.data_exists"
+    assert runtime.tenants["alpha"] is orphaned, "someone else's data stays where it was"
+    assert "alpha" not in runtime.called("destroy")
+    row = query("SELECT status, terminated_reason FROM instances WHERE account_id = ? AND status = 'terminated'",
+                (owner["id"],), one=True)
+    assert row == {"status": "terminated", "terminated_reason": "provisioning_failed"}
+
+
+def test_terminate_keeps_the_name_until_the_data_has_moved(ctx, make_account, make_wiki, runtime):
+    from bananawiki.hosting import instances
+    from bananawiki.hosting.errors import ServiceError
+
+    owner, newcomer = make_account(), make_account()
+    wiki = make_wiki(owner, "alpha")
+    runtime.fail_next("relocate")
+    with pytest.raises(ServiceError):
+        instances.terminate(instances.get(wiki["id"]), actor_id=None)
+    row = instances.get(wiki["id"])
+    assert (row["subdomain"], row["status"]) == ("alpha", "stopped"), "the wiki still holds its name"
+    with pytest.raises(ServiceError) as error:
+        instances.create(newcomer, "alpha")
+    assert error.value.key == "hosting.instances.name_taken"
+    instances.terminate(row, actor_id=None)
+    assert instances.get(wiki["id"])["status"] == "terminated"
+    restored = instances.restore(instances.get(wiki["id"]), actor_id=owner["id"])
+    assert restored["subdomain"] == "alpha" and runtime.tenants["alpha"].running
+
+
+def test_terminate_does_not_release_a_name_its_data_moved_away_from(ctx, make_account, make_wiki, runtime):
+    from bananawiki.hosting import instances
+    from bananawiki.hosting.errors import ServiceError
+
+    owner = make_account()
+    wiki = make_wiki(owner, "before")
+    stale = instances.get(wiki["id"])
+    instances.rename(stale, "after", "hosting", actor_id=owner["id"])
+    with pytest.raises(ServiceError) as error:
+        instances.terminate(stale, actor_id=None)
+    assert error.value.key == "hosting.instances.changed_state"
+    row = instances.get(wiki["id"])
+    assert (row["subdomain"], row["status"]) == ("after", "running"), "the row still holds its data's name"
+    assert runtime.tenants["after"].running
+
+
+def test_terminate_without_data_or_grace_period(ctx, make_account, make_wiki, runtime):
+    from bananawiki.hosting import instances, settings
+
+    owner = make_account()
+    empty = make_wiki(owner, "empty")
+    del runtime.tenants["empty"]
+    instances.terminate(instances.get(empty["id"]), actor_id=None)
+    assert instances.get(empty["id"])["status"] == "terminated", "missing data does not block a termination"
+    settings.update(grace_period_days=0)
+    brief = make_wiki(owner, "brief")
+    instances.terminate(instances.get(brief["id"]), actor_id=None)
+    archived = instances.get(brief["id"])["subdomain"]
+    assert runtime.called("relocate")[-1] == f"brief->{archived}"
+    assert runtime.called("destroy")[-1] == archived and archived not in runtime.tenants
+
+
+def test_restore_and_rename_put_the_data_back_when_the_row_cannot_follow(ctx, make_account, make_wiki, runtime,
+                                                                         monkeypatch):
+    from bananawiki.hosting import instances
+    from bananawiki.hosting.errors import ServiceError
+
+    owner = make_account()
+    gone = make_wiki(owner, "comeback")
+    instances.terminate(instances.get(gone["id"]), actor_id=None)
+    archived = instances.get(gone["id"])["subdomain"]
+
+    def no_ports():
+        raise ServiceError("hosting.instances.no_ports")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(instances, "_allocate_port", no_ports)
+        with pytest.raises(ServiceError):
+            instances.restore(instances.get(gone["id"]), actor_id=owner["id"])
+    assert archived in runtime.tenants and "comeback" not in runtime.tenants
+    assert instances.get(gone["id"])["status"] == "terminated"
+
+    moving = make_wiki(owner, "original")
+    make_wiki(owner, "racer")
+    del runtime.tenants["racer"]
+    # The name check passed just before another wiki took the name.
+    monkeypatch.setattr(instances, "name_holder", lambda slug, mode: None)
+    with pytest.raises(ServiceError) as error:
+        instances.rename(instances.get(moving["id"]), "racer", "hosting", actor_id=owner["id"])
+    assert error.value.key == "hosting.instances.name_taken"
+    assert instances.get(moving["id"])["subdomain"] == "original"
+    assert "racer" not in runtime.tenants and runtime.tenants["original"].running
+
+
+def test_rename_puts_the_data_back_when_the_database_is_busy(ctx, make_account, make_wiki, runtime, monkeypatch):
+    import sqlite3
+
+    from bananawiki.hosting import instances
+
+    owner = make_account()
+    moving = make_wiki(owner, "original")
+    real = instances.db
+
+    class Busy:
+        def __getattr__(self, name):
+            return getattr(real, name)
+
+        def update(self, table, values, *args, **kwargs):
+            if table == "instances" and values.get("subdomain") == "renamed":
+                raise sqlite3.OperationalError("database is locked")
+            return real.update(table, values, *args, **kwargs)
+
+    monkeypatch.setattr(instances, "db", Busy())
+    with pytest.raises(sqlite3.OperationalError):
+        instances.rename(instances.get(moving["id"]), "renamed", "hosting", actor_id=owner["id"])
+    assert instances.get(moving["id"])["subdomain"] == "original"
+    assert "renamed" not in runtime.tenants and runtime.tenants["original"].running

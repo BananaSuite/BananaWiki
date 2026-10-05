@@ -14,6 +14,7 @@ with the asset folders under ``storage/<name>`` and relative
 
 from __future__ import annotations
 
+import errno
 import os
 import re
 import shutil
@@ -34,6 +35,12 @@ STALE_STATE_FILES = ("bananawiki.pid", "tts_worker.pid", ".starting", ".port", "
 _NOFOLLOW = os.O_NOFOLLOW | os.O_CLOEXEC
 _FILE_FLAGS = os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | _NOFOLLOW
+
+
+def _failure(error: OSError, what: str) -> RuntimeFailure:
+    """An ``OSError`` met on tenant files, as the failure the portal handles and reports."""
+    code = "no_space" if error.errno in (errno.ENOSPC, errno.EDQUOT) else "failed"
+    return RuntimeFailure(code, f"{what}: {error.strerror or error}")
 
 
 def tenant_path(instances_dir: str | os.PathLike[str], name: str) -> Path:
@@ -161,44 +168,176 @@ def write_into(root: Path, relative_dir: str, name: str, source: Path) -> None:
 
 
 def unlink(root: Path, relative: str) -> None:
-    """Remove one entry (a link is removed as a link); missing entries are fine."""
+    """Remove one entry (a folder with its content, a link as a link); missing entries are fine.
+
+    Other failures raise :class:`RuntimeFailure`.
+    """
     parent, _, name = relative.rpartition("/")
     try:
         dir_fd = open_dir(root, parent)
     except OSError:
         return
     try:
-        info = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
-        if stat.S_ISDIR(info.st_mode):
-            _remove_tree_at(dir_fd, name)
-        else:
-            os.unlink(name, dir_fd=dir_fd)
-    except FileNotFoundError:
-        pass
+        _remove_entry(dir_fd, name, repair_parent=True)
+    except OSError as error:
+        raise _failure(error, f"could not delete {relative}") from None
     finally:
         os.close(dir_fd)
 
 
-def _remove_tree_at(dir_fd: int, name: str) -> None:
-    fd = os.open(name, _DIR_FLAGS, dir_fd=dir_fd)
+def remove_tree(path: Path) -> None:
+    """Delete a tree without following links (a link is removed as a link); a missing path is fine.
+
+    The folder holding *path* (``INSTANCES_DIR``, the platform state folder)
+    is the platform's own and is left as it is. Failures raise
+    :class:`RuntimeFailure`, so one undeletable tree is an ordinary runtime
+    failure for the caller rather than an unexpected error.
+    """
+    path = Path(path)
     try:
-        for entry in os.listdir(fd):
-            info = os.stat(entry, dir_fd=fd, follow_symlinks=False)
-            if stat.S_ISDIR(info.st_mode):
-                _remove_tree_at(fd, entry)
-            else:
-                os.unlink(entry, dir_fd=fd)
+        parent_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise _failure(error, f"could not delete {path.name}") from None
+    try:
+        _remove_entry(parent_fd, path.name, repair_parent=False)
+    except OSError as error:
+        raise _failure(error, f"could not delete {path.name}") from None
+    finally:
+        os.close(parent_fd)
+
+
+# Tenants run as the service account, so a plugin can take the owner's
+# permissions away from its own folders (``chmod 0500``, ``chmod 000``) and
+# make them undeletable. Removal gives a folder owner access back before
+# working in it: through its open descriptor, or for a folder too locked
+# down to open, by name with AT_SYMLINK_NOFOLLOW, which refuses a link.
+
+
+def _owner_access(fd: int) -> None:
+    """Give the service account read, write and search access to an open folder again (best effort)."""
+    try:
+        mode = stat.S_IMODE(os.fstat(fd).st_mode)
+        if mode & 0o700 != 0o700:
+            os.fchmod(fd, mode | 0o700)
+    except OSError:
+        pass  # not the service account's: the removal itself reports the failure
+
+
+def _remove_entry(dir_fd: int, name: str, *, repair_parent: bool) -> None:
+    """Delete *name* below *dir_fd*: a folder with everything in it, anything else (a link too) by itself.
+
+    With *repair_parent*, a parent folder that refuses the removal gets owner
+    access back and the removal is tried once more.
+    """
+    try:
+        info = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    remove = _remove_tree_at if stat.S_ISDIR(info.st_mode) else _unlink_at
+    try:
+        remove(dir_fd, name)
+    except PermissionError:
+        if not repair_parent:
+            raise
+        _owner_access(dir_fd)
+        remove(dir_fd, name)
+
+
+def _unlink_at(dir_fd: int, name: str) -> None:
+    try:
+        os.unlink(name, dir_fd=dir_fd)
+    except FileNotFoundError:
+        pass
+
+
+def _remove_tree_at(dir_fd: int, name: str) -> None:
+    """Delete folder *name* below *dir_fd* with everything in it; links are removed as links.
+
+    A tenant can nest folders deeper than Python's recursion limit and than
+    the portal's open-file limit, so the walk is iterative and holds one
+    descriptor at a time: it climbs back through ``..``, checking that it
+    reaches the very folder it came from.
+    """
+    entered = _enter(dir_fd, name)
+    if entered is None:
+        return
+    fd, subfolders = entered
+    above: list[tuple[str, tuple[int, int], list[str]]] = []  # (name, identity, subfolders left) per level
+    try:
+        while True:
+            if subfolders:
+                child = subfolders.pop()
+                entered = _enter(fd, child)
+                if entered is None:
+                    continue
+                above.append((name, _identity(fd), subfolders))
+                os.close(fd)
+                (fd, subfolders), name = entered, child
+                continue
+            if not above:
+                break
+            parent_fd = os.open("..", _DIR_FLAGS, dir_fd=fd)
+            parent, identity, subfolders = above.pop()
+            os.close(fd)
+            fd = parent_fd
+            if _identity(fd) != identity:
+                raise OSError(errno.ESTALE, "a folder moved while it was being deleted")
+            _rmdir_at(fd, name)
+            name = parent
     finally:
         os.close(fd)
-    os.rmdir(name, dir_fd=dir_fd)
+    _rmdir_at(dir_fd, name)
 
 
-def remove_tree(path: Path) -> None:
-    """Delete a directory tree without following links (``shutil.rmtree`` is fd-based on Linux)."""
-    if path.is_symlink():
-        path.unlink()
-    elif path.exists():
-        shutil.rmtree(path)
+def _identity(fd: int) -> tuple[int, int]:
+    info = os.fstat(fd)
+    return info.st_dev, info.st_ino
+
+
+def _rmdir_at(dir_fd: int, name: str) -> None:
+    try:
+        os.rmdir(name, dir_fd=dir_fd)
+    except FileNotFoundError:
+        pass
+
+
+def _enter(parent_fd: int, name: str) -> tuple[int, list[str]] | None:
+    """Open folder *name* for removal, delete the files and links in it and list its subfolders.
+
+    Returns ``(descriptor, subfolders)``, or None when the folder is gone.
+    """
+    try:
+        fd = os.open(name, _DIR_FLAGS, dir_fd=parent_fd)
+    except FileNotFoundError:
+        return None
+    except PermissionError as error:
+        try:
+            os.chmod(name, 0o700, dir_fd=parent_fd, follow_symlinks=False)
+        except (OSError, NotImplementedError, ValueError):
+            raise error from None
+        fd = os.open(name, _DIR_FLAGS, dir_fd=parent_fd)
+    except OSError as error:
+        if error.errno not in (errno.ELOOP, errno.ENOTDIR):
+            raise
+        _unlink_at(parent_fd, name)  # no longer a folder: replaced by a link or a file
+        return None
+    try:
+        _owner_access(fd)
+        subfolders = []
+        for entry in os.listdir(fd):
+            try:
+                if stat.S_ISDIR(os.stat(entry, dir_fd=fd, follow_symlinks=False).st_mode):
+                    subfolders.append(entry)
+                else:
+                    os.unlink(entry, dir_fd=fd)
+            except FileNotFoundError:
+                continue
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd, subfolders
 
 
 # ── Layout ────────────────────────────────────────────────────────────────────
@@ -210,6 +349,8 @@ def create(root: Path) -> None:
         root.mkdir(mode=0o700)
     except FileExistsError:
         raise RuntimeFailure("data_exists", root.name) from None
+    except OSError as error:
+        raise _failure(error, f"could not create {root.name}") from None
     ensure_layout(root)
 
 
@@ -220,21 +361,24 @@ def ensure_layout(root: Path) -> None:
     tenant replaced with a link is refused rather than followed, so the
     portal never creates folders wherever such a link points.
     """
-    root_fd = open_dir(root)
     try:
-        storage_fd = _mkdir_at(root_fd, "storage")
+        root_fd = open_dir(root)
         try:
-            for name in ASSET_FOLDERS:
-                os.close(_mkdir_at(storage_fd, name))
-                try:
-                    os.stat(name, dir_fd=root_fd, follow_symlinks=False)
-                except FileNotFoundError:
-                    os.symlink(f"storage/{name}", name, target_is_directory=True, dir_fd=root_fd)
+            storage_fd = _mkdir_at(root_fd, "storage")
+            try:
+                for name in ASSET_FOLDERS:
+                    os.close(_mkdir_at(storage_fd, name))
+                    try:
+                        os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        os.symlink(f"storage/{name}", name, target_is_directory=True, dir_fd=root_fd)
+            finally:
+                os.close(storage_fd)
+            os.close(_mkdir_at(root_fd, "external_plugins"))
         finally:
-            os.close(storage_fd)
-        os.close(_mkdir_at(root_fd, "external_plugins"))
-    finally:
-        os.close(root_fd)
+            os.close(root_fd)
+    except OSError as error:
+        raise _failure(error, f"could not prepare {root.name}") from None
 
 
 def _mkdir_at(dir_fd: int, name: str) -> int:
@@ -285,15 +429,33 @@ def reset_content(root: Path) -> None:
 
 
 def relocate(instances_dir: str, old_name: str, new_name: str) -> None:
+    """Rename a tenant directory; a missing source is ``not_found``, an existing target ``data_exists``.
+
+    The source is checked first: data an interrupted operation already moved
+    reads as gone from its old name rather than as a conflict. Only a source
+    that is really absent (or not a directory) is ``not_found``: callers
+    release the name then, so a source that cannot be examined is a failure.
+    """
     source = tenant_path(instances_dir, old_name)
     target = tenant_path(instances_dir, new_name)
     if old_name == new_name:
         return
+    try:
+        found = stat.S_ISDIR(os.lstat(source).st_mode)
+    except FileNotFoundError:
+        found = False
+    except OSError as error:
+        raise _failure(error, f"could not move {old_name}") from None
+    if not found:
+        raise RuntimeFailure("not_found", old_name)
     if os.path.lexists(target):
         raise RuntimeFailure("data_exists", new_name)
-    if not is_tenant_dir(source):
-        raise RuntimeFailure("not_found", old_name)
-    os.rename(source, target)
+    try:
+        os.rename(source, target)
+    except OSError as error:
+        if error.errno in (errno.EEXIST, errno.ENOTEMPTY):
+            raise RuntimeFailure("data_exists", new_name) from None
+        raise _failure(error, f"could not move {old_name}") from None
 
 
 def usage(root: Path, *, deadline_seconds: float = 10.0) -> int:

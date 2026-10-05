@@ -47,9 +47,29 @@ _stop = threading.Event()
 
 
 def _delete_account(account_id: str) -> None:
+    accounts.check_deletable(account_id)
     for inst in instances.owned_by(account_id):
         instances.terminate(inst, actor_id=None, reason="account_deleted")
     accounts.delete(account_id)
+
+
+def _per_account(name: str, ids: list[str], action: Callable[[str], Any]) -> int:
+    """Run *action* for every account id on its own; returns how many succeeded.
+
+    A failing account is logged and retried on the next pass: one wiki that
+    cannot be stopped must not hold up every deletion queued after it. A stop
+    request ends the step between two accounts.
+    """
+    done = 0
+    for item in ids:
+        if _stop.is_set():
+            break
+        try:
+            action(item)
+            done += 1
+        except Exception:  # noqa: BLE001 - one account must not block the others
+            log.exception("Maintenance step %s failed for %s", name, item)
+    return done
 
 
 def _prune() -> None:
@@ -78,14 +98,16 @@ def _prune_uploads(app: Flask) -> None:
 def _steps(app: Flask) -> list[tuple[str, Callable[[], Any]]]:
     return [
         ("instance suspensions", instances.lift_expired_suspensions),
-        ("account suspensions", lambda: [accounts.unsuspend(i, actor_id=None, automatic=True)
-                                         for i in accounts.expired_suspensions()]),
+        ("account suspensions", lambda: _per_account(
+            "account suspensions", accounts.expired_suspensions(),
+            lambda i: accounts.unsuspend(i, actor_id=None, automatic=True))),
         ("expired wikis", instances.terminate_expired),
         ("grace periods", instances.purge_expired_grace_periods),
         ("storage quotas", instances.enforce_storage_quotas),
         ("custom domains", domains.refresh),
-        ("denied accounts", lambda: [_delete_account(i) for i in accounts.expired_denials()]),
-        ("scheduled deletions", lambda: [_delete_account(i) for i in accounts.due_deletions()]),
+        ("denied accounts", lambda: _per_account("denied accounts", accounts.expired_denials(), _delete_account)),
+        ("scheduled deletions", lambda: _per_account("scheduled deletions", accounts.due_deletions(),
+                                                     _delete_account)),
         ("attention emails", notifications.send_attention),
         ("decision emails", notifications.send_decisions),
         ("tombstones", accounts.purge_tombstones),
@@ -125,8 +147,12 @@ def recover(app: Flask) -> int:
     go out now rather than at the end of the first, slower pass.
     """
     with app.test_request_context("/"), connection_scope(app.extensions["bananawiki.hosting.database"]):
-        rows = db.all("SELECT * FROM instances WHERE status = 'running'")
-        specs = [instances.spec(row) for row in rows]
+        specs = []
+        for row in db.all("SELECT * FROM instances WHERE status = 'running' ORDER BY created_at, id"):
+            try:
+                specs.append(instances.spec(row))
+            except Exception:  # noqa: BLE001 - one wiki must not keep the others down
+                log.exception("Not recovering wiki %s", row["id"])
         started = app.extensions["bananawiki.hosting.runtime"].recover(specs)
         instances.sync_routes()
         return started

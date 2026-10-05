@@ -127,13 +127,14 @@ def delete_account():
     if current["is_admin"] and accounts.count_active_admins(exclude=current["id"]) == 0:
         flash(t("hosting.account.last_admin"), "error")
         return redirect(url_for("account.account"))
-    for inst in instances.owned_by(current["id"]):
-        try:
+    try:
+        accounts.check_deletable(current["id"])
+        for inst in instances.owned_by(current["id"]):
             instances.terminate(inst, actor_id=current["id"], reason="account_deleted")
-        except ServiceError as error:
-            flash_error(error)
-            return redirect(url_for("account.account"))
-    accounts.delete(current["id"])
+        accounts.delete(current["id"])
+    except ServiceError as error:
+        flash_error(error)
+        return redirect(url_for("account.account"))
     auth.end_session()
     flash(t("hosting.account.deleted"), "success")
     return redirect(url_for("auth.login"))

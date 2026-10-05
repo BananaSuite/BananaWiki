@@ -379,6 +379,11 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   no longer asks public IP-echo services for its address; tenant logs go to
   Docker's rotated log driver; tenant databases are migrated only inside the
   tenant container.
+* Hosting: pausing the deletion countdown of a terminated wiki now really
+  pauses it (1.4 only blocked the owner's download). A terminated wiki whose
+  download was blocked in 1.4 is therefore kept until an administrator
+  resumes its countdown on its admin page; the paused time is then added to
+  its grace period.
 
 ### Removed
 

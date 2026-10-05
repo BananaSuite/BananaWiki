@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import sqlite3
 import subprocess
@@ -240,6 +241,98 @@ def test_usage_deadline_also_bounds_a_single_large_directory(tmp_path, monkeypat
     assert tenantfs.usage(root, deadline_seconds=1) <= 20
 
 
+def test_destroy_deletes_folders_the_tenant_locked(setup, tmp_path):
+    """Tenants run as the service account and can chmod their own folders: that must not make data undeletable."""
+    runtime, _agent = setup
+    spec = make_spec()
+    provision(runtime, spec)
+    root = Path(runtime._cfg().instances_dir) / "acme"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("not the tenant's")
+    readonly = root / "storage" / "uploads" / "readonly"
+    (readonly / "inner").mkdir(parents=True)
+    (readonly / "inner" / "file.txt").write_text("x")
+    (readonly / "escape").symlink_to(outside)
+    sealed = root / "sealed"
+    (sealed / "deeper").mkdir(parents=True)
+    (sealed / "deeper" / "file.txt").write_text("x")
+    for folder, mode in ((readonly / "inner", 0o500), (readonly, 0o500), (sealed / "deeper", 0), (sealed, 0),
+                         (root, 0o500)):
+        os.chmod(folder, mode)
+    runtime.destroy(spec)
+    assert not root.exists()
+    assert (outside / "keep.txt").read_text() == "not the tenant's", "links are removed, never followed"
+
+
+def test_unlink_handles_read_only_parents_and_very_deep_folders(tmp_path):
+    from bananawiki.hosting.runtime import tenantfs
+
+    root = tmp_path / "tenant"
+    (root / ".bw-host").mkdir(parents=True)
+    (root / ".bw-host" / "snap.db").write_bytes(b"x")
+    os.chmod(root / ".bw-host", 0o500)
+    tenantfs.unlink(root, ".bw-host/snap.db")
+    assert not (root / ".bw-host" / "snap.db").exists()
+    # Deeper than the recursion limit and than the usual 1024 open files.
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    for _level in range(1100):
+        os.mkdir("d", dir_fd=fd)
+        child = os.open("d", os.O_RDONLY | os.O_DIRECTORY, dir_fd=fd)
+        os.close(fd)
+        fd = child
+    os.close(fd)
+    tenantfs.unlink(root, "d")
+    assert not (root / "d").exists()
+    (root / "d" / "e").mkdir(parents=True)
+    tenantfs.remove_tree(root)
+    assert not root.exists()
+
+
+def test_tree_removal_failures_are_runtime_failures(tmp_path, monkeypatch):
+    from bananawiki.hosting.runtime import tenantfs
+
+    root = tmp_path / "tenant"
+    (root / "storage").mkdir(parents=True)
+    (root / "storage" / "stuck.bin").write_bytes(b"x")
+    unlink = os.unlink
+
+    def refuse(path, *args, **kwargs):
+        if path == "stuck.bin":
+            raise OSError(errno.EIO, "Input/output error")
+        return unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(tenantfs.os, "unlink", refuse)
+    with pytest.raises(RuntimeFailure) as error:
+        tenantfs.remove_tree(root)
+    assert error.value.code == "failed"
+    with pytest.raises(RuntimeFailure):
+        tenantfs.unlink(root, "storage")
+
+
+def test_relocate_reports_a_missing_source_before_a_taken_target(tmp_path, monkeypatch):
+    from bananawiki.hosting.runtime import tenantfs
+
+    (tmp_path / "moved").mkdir()
+    with pytest.raises(RuntimeFailure) as error:
+        tenantfs.relocate(str(tmp_path), "gone", "moved")
+    assert error.value.code == "not_found", "data an interrupted move already took away is not a conflict"
+    (tmp_path / "unreadable").mkdir()
+    lstat = os.lstat
+
+    def broken(path, *args, **kwargs):
+        if Path(path).name == "unreadable":
+            raise OSError(errno.EIO, "Input/output error")
+        return lstat(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(tenantfs.os, "lstat", broken)
+        with pytest.raises(RuntimeFailure) as error:
+            tenantfs.relocate(str(tmp_path), "unreadable", "elsewhere")
+    assert error.value.code == "failed", "data that cannot be examined is not gone: callers would release its name"
+    assert (tmp_path / "unreadable").is_dir() and not (tmp_path / "elsewhere").exists()
+
+
 def test_logs_split_access_and_error_lines(setup):
     runtime, agent = setup
     spec = make_spec()
@@ -272,6 +365,25 @@ def test_recover_restarts_stuck_containers(setup):
     runtime.health["ok"] = False
     assert runtime.recover([spec]) == 1
     assert len(agent.ops("tenant.start")) == 2
+
+
+def test_recover_starts_the_other_tenants_when_one_fails_unexpectedly(setup, monkeypatch):
+    runtime, agent = setup
+    specs = [make_spec(f"wiki{number}") for number in range(8)]
+    for spec in specs:
+        provision(runtime, spec)
+    agent.containers.clear()
+    start = runtime._start
+
+    def broken_first(cfg, spec):
+        if spec.data_dir_name == "wiki0":
+            raise PermissionError(errno.EACCES, "Permission denied")
+        start(cfg, spec)
+
+    monkeypatch.setattr(runtime, "_start", broken_first)
+    # More tenants than recovery threads: an escaping error used to cancel the queued ones.
+    assert runtime.recover(specs) == 7
+    assert set(agent.containers) == {f"wiki{number}" for number in range(1, 8)}
 
 
 def test_agent_errors_become_runtime_failures(setup):

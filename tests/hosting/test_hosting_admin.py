@@ -111,6 +111,32 @@ def test_admin_wiki_lifecycle_and_restore(web, make_account, make_wiki, login, r
     assert row["subdomain"] == "managed" and row["status"] in ("running", "stopped")
 
 
+def test_paused_deletion_countdown_blocks_owner_downloads_and_says_so(portal, make_account, make_wiki, login, query,
+                                                                     runtime):
+    admin, owner = make_account(admin=True), make_account()
+    wiki = make_wiki(owner, "on-hold")
+    query("UPDATE hosting_settings SET allow_owner_download_expired = 1 WHERE id = 1")
+    admin_client, owner_client = portal.test_client(), portal.test_client()
+    login(admin_client, admin)
+    login(owner_client, owner)
+    admin_client.post(f"/admin/instances/{wiki['id']}/terminate")
+    page = admin_client.get(f"/admin/instances/{wiki['id']}").get_data(as_text=True)
+    assert "the owner cannot download the data" in page
+    admin_client.post(f"/admin/instances/{wiki['id']}/grace-suspend")
+    page = admin_client.get(f"/admin/instances/{wiki['id']}").get_data(as_text=True)
+    assert "countdown paused" in page and "the owner cannot download it in the meantime" in page
+    assert "countdown paused" in owner_client.get(f"/instances/{wiki['id']}").get_data(as_text=True)
+    assert owner_client.post(f"/instances/{wiki['id']}/download").status_code == 302
+    assert runtime.called("export_archive") == []
+    again = admin_client.post(f"/admin/instances/{wiki['id']}/grace-suspend", follow_redirects=True)
+    assert "The deletion countdown was already paused." in again.get_data(as_text=True)
+    resumed = admin_client.post(f"/admin/instances/{wiki['id']}/grace-unsuspend", follow_redirects=True)
+    assert "the paused time was added" in resumed.get_data(as_text=True)
+    assert owner_client.post(f"/instances/{wiki['id']}/download").status_code == 200
+    again = admin_client.post(f"/admin/instances/{wiki['id']}/grace-unsuspend", follow_redirects=True)
+    assert "The deletion countdown was not paused." in again.get_data(as_text=True)
+
+
 def test_admin_suspends_a_wiki_with_an_expiry(web, make_account, make_wiki, login, query):
     admin, user = make_account(admin=True), make_account()
     wiki = make_wiki(user, "paused")
