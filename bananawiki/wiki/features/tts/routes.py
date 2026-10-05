@@ -102,9 +102,9 @@ def generate(slug: str):
     except service.TtsError as error:
         return _error(error.key, error.status)
     if outcome.reason in ("already_in_progress", "already_generated"):
-        audio = service.page_audio(page)
+        # "already_generated" is only answered for current, playable audio.
         return _error(f"tts.error.{outcome.reason}", 409,
-                      generation=service.serialize(audio.row, usable=audio.usable))
+                      generation=service.serialize(outcome.row, usable=outcome.reason == "already_generated"))
     if outcome.reason in ("queue_full", "user_queue_full"):
         response, code = _error(f"tts.blocked.{outcome.reason}", 429 if outcome.reason == "user_queue_full" else 503)
         return response, code, {"Retry-After": "60"}
