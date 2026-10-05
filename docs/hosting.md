@@ -184,6 +184,14 @@ Owners create wikis on the dashboard (`/instances/create`) up to
   which an administrator approves;
 * download an export of the wiki.
 
+While public access is restricted (by default, for owners who are not
+platform administrators) and not approved, a wiki runs with
+`BW_FORBID_PUBLIC_MODE=1`: no public mode, and its custom pages (with their
+files, redirects and sandboxed documents) are shown only to signed-in members;
+anonymous visitors are sent to sign in. Builder pages, custom ones included,
+stay members-only while public builder pages are forbidden
+(`BW_FORBID_PUBLIC_BUILDER_PAGES`).
+
 A wiki lives `INSTANCE_DURATION_DAYS` unless an administrator extends it or
 makes it indefinite. When it expires or is terminated, it enters the grace
 period configured in the platform settings, during which an administrator can

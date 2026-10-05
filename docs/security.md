@@ -70,7 +70,8 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   `/source`, published custom pages, and, while **public mode** is on, the
   read-only views (pages, categories, search, announcements, public boards and
   canvases, read-aloud audio). Public mode can have an end date and can be
-  forbidden by a host (`BW_FORBID_PUBLIC_MODE`).
+  forbidden by a host (`BW_FORBID_PUBLIC_MODE`), which also keeps published
+  custom pages for signed-in members.
 * Every action checks a permission from the [catalogue](permissions.md) and
   the object itself: this page, this category, this board. Objects you may
   not read answer 404, so their existence is not revealed.

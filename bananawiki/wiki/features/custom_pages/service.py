@@ -3,8 +3,11 @@
 Published custom pages (and their files) are public **by design**: they are
 served to anonymous visitors even while the rest of the wiki needs a sign-in,
 so an administrator can publish a landing page, an imprint or a download on a
-private wiki. Unpublished pages are visible to their managers only. Managing
-them (``custom_page.manage``) is reserved to administrators.
+private wiki. A host that forbids public wikis (``BW_FORBID_PUBLIC_MODE``)
+overrides that: published pages are then for signed-in members only, and so
+are builder pages under ``BW_FORBID_PUBLIC_BUILDER_PAGES``. Unpublished pages
+are visible to their managers only. Managing them (``custom_page.manage``) is
+reserved to administrators.
 
 A custom page never overrides a route of the application: the serving rule is
 a catch-all that Werkzeug only picks when no other rule matches, and paths
@@ -124,11 +127,33 @@ def can_manage(user: dict[str, Any] | None = None) -> bool:
     return bool(user) and auth.is_admin(user) and auth.has_permission("custom_page.manage", user)
 
 
+def public_allowed(*, builder: bool = False) -> bool:
+    """Whether the host lets published pages (visual builder ones with *builder*) reach anonymous visitors."""
+    cfg = current_app.config["BW"]
+    return not cfg.forbid_public_mode and not (builder and cfg.forbid_public_builder_pages)
+
+
+def members_only(page: dict[str, Any] | None) -> bool:
+    """A published page the host keeps from anonymous visitors (see :func:`public_allowed`)."""
+    return (page is not None and bool(page.get("is_published"))
+            and not public_allowed(builder=is_builder_page(page)))
+
+
 def is_visible(page: dict[str, Any] | None, user: dict[str, Any] | None = None) -> bool:
-    """Published pages are public on purpose; unpublished ones are for managers only."""
+    """Whether *user* (default: the current visitor) may see *page* and its files.
+
+    Published pages are public on purpose, unless the host forbids it (see
+    :func:`members_only`): then only members whose account may use the wiki
+    see them. Unpublished pages are for managers only.
+    """
     if page is None:
         return False
-    return bool(page.get("is_published")) or can_manage(user)
+    user = auth.current_user() if user is None else user
+    if can_manage(user):
+        return True
+    if not page.get("is_published"):
+        return False
+    return not members_only(page) or (bool(user) and auth.account_block(user) is None)
 
 
 # ── Reading ──────────────────────────────────────────────────────────────────

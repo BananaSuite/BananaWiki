@@ -459,6 +459,11 @@ sandboxed document with no access to the wiki's cookies. A custom page can never
 the wiki uses. **Admin → Custom pages**; permission `custom_page.manage`
 (administrators only); setting `custom_pages_max_video_size_mb`.
 
+A host can forbid that: under `BW_FORBID_PUBLIC_MODE` published custom pages,
+their files, redirects and sandboxed documents are for signed-in members only,
+and under `BW_FORBID_PUBLIC_BUILDER_PAGES` so are visual builder pages.
+Anonymous visitors are sent to sign in, as on the rest of the wiki.
+
 A visual builder page is edited in the page builder (**Edit in the visual
 builder**, available while the page builder is on) with the same blocks,
 checks and safe renderer as builder wiki pages. Custom pages have no drafts:
