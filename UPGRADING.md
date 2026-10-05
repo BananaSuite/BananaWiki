@@ -233,6 +233,10 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   changed only by themselves, superusers only by themselves. The account made
   at `/setup` on a new wiki is an owner and a superuser; on an upgraded wiki,
   make sure at least one trusted person is an owner or superuser.
+* **A suspended administrator lifts their own suspension only** when an
+  administrator who still has an account imposed it (1.4 allowed any).
+  Suspensions imposed by an owner or superuser, and every suspension recorded
+  before the upgrade, are lifted by an owner or superuser.
 * **Sign-up approval is enforced**: pending and denied accounts can no longer
   use the wiki (1.4 let them in). Check **Admin → Users** for pending accounts
   after upgrading if you had approval turned on.
@@ -322,8 +326,10 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
 * **Contribution approval** is switched by its own setting
   (`contribution_approval_enabled`); the migration keeps it on where 1.4 had
   it on.
-* **Mentions:** renaming an account records a history entry on every page
-  whose `@mention` was rewritten.
+* **Mentions:** renaming or deleting an account no longer edits pages. A
+  mention of a former name leads to the renamed account, and the former name
+  stays reserved for it. Account merges still rewrite the mentions, with a
+  history entry on every changed page.
 * **Uploads:** still images are re-encoded on upload, which removes EXIF/GPS
   metadata.
 * **Plugins:** third-party plugins load only at start-up (enabling one takes

@@ -168,6 +168,9 @@ def test_superuser_mutation_rechecks_actor_permission(app, make_user, db):
 def test_self_reactivation_rechecks_state_after_acquiring_write_lock(app, make_user, db, change):
     user = make_user("suspended_admin", role="admin", suspended=1)
     owner = make_user("owner_account", role="owner")
+    moderator = make_user("moderator", role="admin")
+    db.execute("INSERT INTO suspension_audit (user_id, action, performed_by, imposed_by_top, created_at) "
+               "VALUES (?, 'suspend', ?, 0, '2026-09-01 00:00:00')", (user["id"], moderator["id"]))
     with app.test_request_context(), connection_scope():
         transaction = wiki_db.session.transaction
 

@@ -567,7 +567,13 @@ def _mention_pattern(username: str) -> re.Pattern[str]:
 
 
 def rewrite_mentions(old_username: str, replacement: str) -> int:
-    """Replace ``@old_username`` in pages and drafts, recording a history entry per page."""
+    """Replace ``@old_username`` in pages and drafts, recording a history entry per page.
+
+    Used by account merges, an administrator's decision; renaming or deleting an
+    account leaves pages alone. A page that cannot take the change (edited or
+    deleted meanwhile, or over the size limit with a longer name) keeps its text
+    instead of stopping the merge half-way.
+    """
     pattern = _mention_pattern(old_username)
     like = "%@" + old_username.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
     changed = 0
@@ -576,10 +582,15 @@ def rewrite_mentions(old_username: str, replacement: str) -> int:
         if page is None:
             continue
         new_content = pattern.sub(replacement, page["content"])
-        if new_content != page["content"]:
-            update(page, author_id=None, content=new_content,
+        if new_content == page["content"]:
+            continue
+        try:
+            update(page, author_id=None, content=new_content, expected_revision=page["revision"],
                    edit_message=f"Updated mention of @{old_username}")
-            changed += 1
+        except PageError as error:
+            current_app.logger.warning("Mention of @%s left in page %s: %s", old_username, page["id"], error)
+            continue
+        changed += 1
     for draft in db.all("SELECT id, content FROM drafts WHERE content LIKE ? ESCAPE '\\'", (like,)):
         new_content = pattern.sub(replacement, draft["content"])
         if new_content != draft["content"]:

@@ -63,9 +63,7 @@ def legacy_account():
 def change_username():
     user = auth.current_user()
     try:
-        if not service.password_ok(user, request.form.get("password")):
-            raise service.ProfileError("auth.error.current_password_wrong")
-        accounts.rename(user, request.form.get("new_username", ""), changed_by=user["id"])
+        service.rename_self(user, request.form.get("new_username", ""), request.form.get("password"))
     except (service.ProfileError, accounts.AccountError) as error:
         return _fail(error, "users.settings")
     auth.flash_t("users.flash.username_changed", "success")
@@ -349,12 +347,24 @@ def my_profile():
     return redirect(url_for("users.profile", username=auth.current_user()["username"]))
 
 
+def _renamed_profile(username: str, viewer: dict[str, Any]):
+    """Follow a former name (an old ``@mention``) to the account that gave it up.
+
+    Only for viewers who may open that profile, so the redirect does not reveal
+    the new name of an account they cannot see.
+    """
+    target = accounts.by_id(accounts.former_holder(username))
+    if target is None or not service.can_view_profile(target, service.get_profile(target["id"]), viewer):
+        abort(404)
+    return redirect(url_for("users.profile", username=target["username"]))
+
+
 @bp.get("/users/<username>")
 def profile(username: str):
+    viewer = auth.current_user()
     target = accounts.by_username(username)
     if target is None:
-        abort(404)
-    viewer = auth.current_user()
+        return _renamed_profile(username, viewer)
     record = service.get_profile(target["id"])
     if not service.can_view_profile(target, record, viewer):
         abort(404)

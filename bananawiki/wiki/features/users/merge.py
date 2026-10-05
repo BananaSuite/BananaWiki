@@ -12,19 +12,23 @@ Workflow
 The merge re-points every column that references ``users(id)`` from the
 source to the target (discovered from the schema, so features added later are
 covered), keeps the target's row on unique conflicts, and then deletes or
-locks the source account. Credentials, audit trails and the source's own
-permission grants are not transferred.
+locks the source account (suspended for good, see :func:`_lock_source`).
+Credentials, audit trails and the source's own permission grants are not
+transferred.
 """
 
 from __future__ import annotations
 
 import json
+import secrets
 from typing import Any
 
 from ....core.sqlite import quote_identifier, tuples
 from ....core.timeutil import now_sql
 from ... import accounts, attention, auth
 from ...db import db
+from ...registry import emit
+from ..admin.service import protection_error
 from ..pages import service as pages
 from . import preferences, service
 
@@ -89,6 +93,9 @@ def _check_pair(source: dict[str, Any], target: dict[str, Any]) -> None:
         raise MergeError("users.merge.error.protected")
     if source["role"] == "owner" and accounts.owners_count() <= 1:
         raise MergeError("users.merge.error.last_owner")
+    # The source is deleted, or locked as a plain user: neither may leave the wiki without an administrator.
+    if source["role"] in ("admin", "owner") and not source.get("suspended") and service.active_admin_count() <= 1:
+        raise MergeError("users.merge.error.last_admin")
 
 
 def create(user: dict[str, Any], other: dict[str, Any], *, into_mine: bool, reason: str,
@@ -255,12 +262,96 @@ def _locked_name(username: str) -> str:
     return candidate
 
 
+def _current(source: dict[str, Any], target: dict[str, Any], admin: dict[str, Any], merge_id: int | None
+             ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Reload both accounts and the administrator inside the merge transaction and check them again.
+
+    The caller's copies may predate a promotion, a suspension or another owner
+    stepping down: two owners merged away at the same time, or one merged away
+    while the other steps down, would leave the wiki without an owner. Nobody
+    consented to a direct merge (no *merge_id*), so there the administrator must
+    also be allowed to change both accounts.
+    """
+    current_source, current_target = accounts.by_id(source["id"]), accounts.by_id(target["id"])
+    if current_source is None or current_target is None:
+        raise MergeError("users.merge.error.account_missing")
+    actor = accounts.by_id(admin["id"])
+    if actor is None or not auth.is_admin(actor) or auth.account_block(actor) \
+            or actor["password"] != admin["password"]:
+        raise MergeError("error.forbidden")
+    if merge_id is not None and db.scalar("SELECT status FROM account_merge_requests WHERE id = ?",
+                                          (merge_id,)) != "approved_by_both":
+        raise MergeError("users.merge.error.not_pending")
+    _check_pair(current_source, current_target)
+    if merge_id is None:
+        refusal = protection_error(actor, current_source) or protection_error(actor, current_target)
+        if refusal:
+            raise MergeError(refusal)
+    return current_source, current_target, actor
+
+
+def _uploads_left_behind(source: dict[str, Any], target_id: str) -> list[str]:
+    """Images of the deleted source, except those the target now uses (a background carried over)."""
+    target = accounts.by_id(target_id)
+    kept = set(service.uploads_of(target)) if target else set()
+    return [name for name in service.uploads_of(source) if name not in kept]
+
+
+def _lock_source(source: dict[str, Any], target: dict[str, Any], admin: dict[str, Any],
+                 password_hash: str) -> None:
+    """Keep the emptied source for the record, out of reach of whoever knew its password.
+
+    It is renamed, given a password nobody knows, reduced to a plain user (owners
+    may lift their own suspension) and suspended with an audit entry that
+    :func:`service.may_reactivate_self` never accepts; only an administrator can
+    undo this. Runs inside the merge transaction on the account as reloaded there.
+    """
+    source_id = source["id"]
+    locked_name = _locked_name(source["username"])
+    reason = f"Merged into @{target['username']}"
+    db.execute(
+        "UPDATE users SET username = ?, password = ?, role = 'user', custom_role_id = NULL, suspended = 1, "
+        "suspended_until = NULL, suspend_reason = ?, suspend_reason_visible = 0, suspend_time_visible = 0 "
+        "WHERE id = ?",
+        (locked_name, password_hash, reason, source_id),
+    )
+    db.insert("username_history", {"user_id": source_id, "old_username": source["username"],
+                                   "new_username": locked_name, "changed_at": now_sql()})
+    # An expiring temporary role would otherwise give the old role back.
+    db.execute("DELETE FROM temp_roles WHERE user_id = ?", (source_id,))
+    if source["role"] != "user":
+        db.insert("role_history", {"user_id": source_id, "old_role": source["role"], "new_role": "user",
+                                   "changed_by": admin["id"], "changed_at": now_sql()})
+    db.insert("suspension_audit", {"user_id": source_id, "action": "suspend", "reason": reason,
+                                   "duration": "permanent", "performed_by": admin["id"], "imposed_by_top": 1,
+                                   "created_at": now_sql()})
+    auth.revoke_sessions(source_id)
+
+
+def _announce_lock(before: dict[str, Any], admin: dict[str, Any]) -> None:
+    user = accounts.by_id(before["id"])
+    emit("user.renamed", user=user, old_username=before["username"], changed_by=admin["id"])
+    if before["role"] != "user":
+        emit("user.role_changed", user=user, old_role=before["role"], new_role="user", changed_by=admin["id"])
+    emit("user.suspended", user=user, until=None, actor_id=admin["id"])
+
+
 def execute(source: dict[str, Any], target: dict[str, Any], admin: dict[str, Any], *, delete_source: bool,
             merge_id: int | None = None) -> dict[str, Any]:
-    """Move the source account's data to the target, then delete or lock the source."""
+    """Move the source account's data to the target, then delete or lock the source.
+
+    The accounts are checked again (:func:`_current`) in the same transaction
+    as the move and the deletion or lock, so a refused merge moves nothing.
+    Mentions are rewritten last: a page that cannot be updated keeps its text,
+    the merge stands.
+    """
     _check_pair(source, target)
+    # Hashing is slow: not while holding the write lock.
+    unusable_password = None if delete_source else accounts.hash_password(secrets.token_urlsafe(32))
+    leftovers: list[str] = []
     moved: dict[str, int] = {}
     with db.transaction():
+        source, target, admin = _current(source, target, admin, merge_id)
         _prepare_special_tables(source["id"], target["id"])
         for table, column in _user_columns():
             cursor = db.execute(
@@ -285,14 +376,19 @@ def execute(source: dict[str, Any], target: dict[str, Any], admin: dict[str, Any
                                          "merged_by": admin["id"], "data_transferred": json.dumps(moved),
                                          "created_at": now_sql()})
         _clear_pending({"source_user_id": source["id"], "target_user_id": target["id"]})
-    pages.rewrite_mentions(source["username"], "@" + target["username"])
-    fresh = accounts.by_id(source["id"])
-    assert fresh is not None
-    if delete_source:
-        service.delete_account(fresh, deleted_by=admin["id"])
+        if unusable_password is None:
+            leftovers = _uploads_left_behind(source, target["id"])
+            try:
+                accounts.delete(source, deleted_by=admin["id"], emit_event=False)
+            except accounts.AccountError as error:
+                raise MergeError(error.key, **error.values) from error
+        else:
+            _lock_source(source, target, admin, unusable_password)
+    if unusable_password is None:
+        emit("user.deleted", user=source, deleted_by=admin["id"])
+        for name in leftovers:
+            service.delete_upload(name)
     else:
-        accounts.rename(fresh, _locked_name(fresh["username"]), changed_by=admin["id"])
-        db.execute("UPDATE users SET suspended = 1, suspended_until = NULL, suspend_reason = ? WHERE id = ?",
-                   (f"Merged into @{target['username']}", source["id"]))
-        auth.revoke_sessions(source["id"])
+        _announce_lock(source, admin)
+    pages.rewrite_mentions(source["username"], "@" + target["username"])
     return moved

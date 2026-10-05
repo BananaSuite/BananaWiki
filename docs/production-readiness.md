@@ -145,6 +145,10 @@ before the upgrade cannot be reconstructed. Deleting messages no longer resets
 the daily allowance. The ledger expires and is excluded from account exports
 as a short-lived technical rate-limit counter.
 
+Schema 6 records whether an owner or superuser imposed each suspension.
+Suspensions recorded before the upgrade count as imposed by one: a suspended
+administrator can no longer lift them, an owner or superuser can.
+
 Hosted third-party Python plugins are disabled by default, with their files
 and settings preserved. Trusted operators can explicitly opt in using
 `HOSTING_ALLOW_TENANT_PLUGINS=1`; quarantine still disables them. Runtime

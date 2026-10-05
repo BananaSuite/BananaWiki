@@ -84,8 +84,11 @@ The wiki itself: Markdown pages in a tree of categories.
 Settings: per-user daily upload quotas and the upload rules
 (**Admin → Site settings → Uploads**).
 Permissions: `page.*`, `category.*`, `search.*` (see [permissions](permissions.md)).
-Renaming an account rewrites `@old` mentions in pages and drafts and records a
-history entry for each changed page.
+Renaming or deleting an account leaves pages and drafts as they are: a
+mention of a former name (`/users/<old name>`) leads to the renamed account,
+and a former name stays reserved for its account until the account is
+deleted. Members can rename themselves three times a day. Account merges
+still rewrite the source's `@mentions`, with a history entry per page.
 
 ## Page history
 
@@ -419,7 +422,11 @@ See [read aloud](tts.md) for installation and configuration.
   (both confirm with their passwords), an administrator approves
   (**Admin → Account merges**), and everything the source account owns moves
   to the target. Administrators can also merge directly
-  (`/admin/users/merge`).
+  (`/admin/users/merge`). The source is then deleted, or kept locked: renamed
+  `merged_<name>`, made a plain user with an unknown password, signed out,
+  its API tokens revoked and suspended so that only an administrator can
+  reactivate it. The last owner and the last active administrator cannot be
+  merged away.
 
 ## Badges
 

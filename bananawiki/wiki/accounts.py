@@ -72,9 +72,32 @@ def by_username(username: str | None) -> dict[str, Any] | None:
     return db.one("SELECT * FROM users WHERE username = ? COLLATE NOCASE", (username.strip(),))
 
 
+def former_holder(username: str | None) -> str | None:
+    """Id of the account that was most recently renamed away from *username*.
+
+    Pages are not rewritten when an account is renamed, so old ``@mentions``
+    and profile links resolve to this account instead.
+    """
+    if not username:
+        return None
+    return db.scalar(
+        "SELECT user_id FROM username_history WHERE old_username = ? COLLATE NOCASE "
+        "ORDER BY changed_at DESC, id DESC LIMIT 1",
+        (username.strip(),),
+    )
+
+
 def username_taken(username: str, *, except_id: str | None = None) -> bool:
+    """Whether another account uses *username*, or gave it up last in a rename.
+
+    A former name stays reserved for its account (which may take it back) so
+    that nobody else inherits its mentions; deleting the account frees it.
+    """
     row = by_username(username)
-    return row is not None and row["id"] != except_id
+    if row is not None:
+        return row["id"] != except_id
+    holder = former_holder(username)
+    return holder is not None and holder != except_id
 
 
 def create(
@@ -144,16 +167,21 @@ def rename(user: dict[str, Any], new_username: str, *, changed_by: str | None = 
     if name == user["username"]:
         return user
     with db.transaction():
+        # The name given up is read here: *user* may be stale after a rename from
+        # another tab, and the history is what keeps former names reserved.
+        current = by_id(user["id"])
+        if current is None or name == current["username"]:
+            return current or user
         if username_taken(name, except_id=user["id"]):
             raise AccountError("auth.error.username_taken")
         db.execute("UPDATE users SET username = ? WHERE id = ?", (name, user["id"]))
         db.execute(
             "INSERT INTO username_history (user_id, old_username, new_username, changed_at) VALUES (?, ?, ?, ?)",
-            (user["id"], user["username"], name, now_sql()),
+            (user["id"], current["username"], name, now_sql()),
         )
     renamed = by_id(user["id"])
     assert renamed is not None
-    emit("user.renamed", user=renamed, old_username=user["username"], changed_by=changed_by)
+    emit("user.renamed", user=renamed, old_username=current["username"], changed_by=changed_by)
     return renamed
 
 
@@ -162,8 +190,13 @@ def owners_count() -> int:
 
 
 def delete(user: dict[str, Any], *, deleted_by: str | None = None, protect_last_admin: bool = False,
-           protect_superuser: bool = False, expected_password_hash: str | None = None) -> None:
-    """Delete an account and everything it owns (authorship becomes anonymous)."""
+           protect_superuser: bool = False, expected_password_hash: str | None = None,
+           emit_event: bool = True) -> None:
+    """Delete an account and everything it owns (authorship becomes anonymous).
+
+    Without *emit_event*, a caller deleting inside its own transaction announces
+    ``user.deleted`` once that has committed.
+    """
     with db.transaction():
         current = by_id(user["id"])
         if current is None:
@@ -179,7 +212,8 @@ def delete(user: dict[str, Any], *, deleted_by: str | None = None, protect_last_
             if active <= 1:
                 raise AccountError("users.error.last_admin")
         db.execute("DELETE FROM users WHERE id = ?", (user["id"],))
-    emit("user.deleted", user=current, deleted_by=deleted_by)
+    if emit_event:
+        emit("user.deleted", user=current, deleted_by=deleted_by)
 
 
 def display_name(user: dict[str, Any] | None) -> str:
