@@ -19,8 +19,10 @@ import os
 import secrets
 import shutil
 import tempfile
+import threading
 import time
-from contextlib import nullcontext
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -159,18 +161,35 @@ def _note_usage(delta: int) -> None:
 
 # Largest image (in pixels) an upload may decode to: 40 megapixels, beyond any camera photo.
 MAX_IMAGE_PIXELS = 40_000_000
+# A decoded picture takes up to four bytes per pixel, so each worker process
+# decodes one picture at a time: simultaneous uploads wait for their turn
+# instead of adding up to more memory than a small instance has.
+IMAGE_SLOT_TIMEOUT = 30
+_image_slot = threading.BoundedSemaphore(1)
 
 
 def _new_name(ext: str) -> str:
     return f"{secrets.token_hex(16)}.{ext}" if ext else secrets.token_hex(16)
 
 
-def _sanitize_image(path: Path, ext: str) -> None:
+@contextmanager
+def image_slot() -> Iterator[None]:
+    """Hold this process's turn to decode or re-encode a picture."""
+    if not _image_slot.acquire(timeout=IMAGE_SLOT_TIMEOUT):
+        raise UploadError("upload.error.busy")
+    try:
+        yield
+    finally:
+        _image_slot.release()
+
+
+def _sanitize_image(path: Path, ext: str, max_pixels: int) -> None:
     """Verify an image and drop its metadata (EXIF/GPS) by re-encoding stills.
 
     The size in the header is checked before anything is decoded: Pillow only
     warns up to twice ``MAX_IMAGE_PIXELS``, so a small file announcing a huge
-    canvas could otherwise make the worker allocate gigabytes.
+    canvas could otherwise make the worker allocate gigabytes. *max_pixels* is
+    the (lower) limit of the picture's use, such as an avatar.
     """
     from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -180,15 +199,19 @@ def _sanitize_image(path: Path, ext: str) -> None:
             width, height = probe.size
             if width * height > MAX_IMAGE_PIXELS:
                 raise UploadError("upload.error.not_an_image")
+            if width * height > max_pixels:
+                raise UploadError("upload.error.too_many_pixels", limit_mp=f"{max_pixels / 1_000_000:g}")
             probe.verify()
-        with Image.open(path) as image:
+        with image_slot(), Image.open(path) as image:
             fmt = _IMAGE_FORMATS[ext]
             accepted = {"JPEG", "MPO"} if fmt == "JPEG" else {fmt}
             if (image.format or "").upper() not in accepted:
                 raise UploadError("upload.error.not_an_image")
             if fmt == "GIF" or getattr(image, "is_animated", False):
                 return
-            cleaned = ImageOps.exif_transpose(image)
+            # In place: an upright picture is not copied, a turned one replaces the original.
+            ImageOps.exif_transpose(image, in_place=True)
+            cleaned = image
             if fmt == "JPEG" and cleaned.mode not in ("RGB", "L"):
                 cleaned = cleaned.convert("RGB")
             buffer = io.BytesIO()
@@ -208,8 +231,12 @@ def save(
     allowed: set[str] | frozenset[str] | None,
     max_bytes: int,
     images_only: bool = False,
+    max_pixels: int = MAX_IMAGE_PIXELS,
 ) -> StoredFile:
-    """Validate and store an uploaded file; raise :class:`UploadError` if refused."""
+    """Validate and store an uploaded file; raise :class:`UploadError` if refused.
+
+    Images larger than *max_pixels* are refused from their header, before decoding.
+    """
     if upload is None or not upload.filename:
         raise UploadError("upload.error.no_file")
     original = secure_filename(upload.filename) or "file"
@@ -239,7 +266,7 @@ def save(
         if size == 0:
             raise UploadError("upload.error.empty")
         if ext in _IMAGE_FORMATS:
-            _sanitize_image(tmp, ext)
+            _sanitize_image(tmp, ext, max_pixels)
             size = tmp.stat().st_size
             if size > max_bytes:
                 raise UploadError("upload.error.too_large", limit_mb=max(1, max_bytes // (1024 * 1024)))

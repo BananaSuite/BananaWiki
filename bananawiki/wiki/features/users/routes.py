@@ -28,6 +28,10 @@ bp = Blueprint("users", __name__, template_folder="templates", static_folder="st
                static_url_path="/static/users")
 
 _ALL_BUT_SETUP = ("maintenance", "account_steps", "approval")
+# Avatars and backgrounds are decoded and re-encoded on upload: this many per
+# account in ten minutes is plenty for people and bounds the work of scripts.
+IMAGE_UPLOADS = 10
+IMAGE_UPLOAD_WINDOW = 600
 
 
 def _fail(error: Exception, endpoint: str, **values: Any):
@@ -39,6 +43,14 @@ def _fail(error: Exception, endpoint: str, **values: Any):
 def _no_impersonation() -> None:
     if auth.is_impersonating():
         abort(403)
+
+
+def _image_upload_allowed(user: dict[str, Any], upload: Any) -> bool:
+    """Count an avatar or background upload against the account's budget."""
+    if upload is None or not upload.filename:
+        return True  # nothing to decode; storage reports the missing file
+    limiter = current_app.extensions["bananawiki.limiter"]
+    return limiter.hit(f"users:image-upload:{user['id']}", IMAGE_UPLOADS, IMAGE_UPLOAD_WINDOW)
 
 
 # ── Account ──────────────────────────────────────────────────────────────────
@@ -163,6 +175,8 @@ def edit_profile():
                                 birth_date=request.form.get("birth_date"))
             upload = request.files.get("avatar")
             if upload is not None and upload.filename:
+                if not _image_upload_allowed(user, upload):
+                    raise service.ProfileError("users.error.image_uploads_too_fast")
                 service.save_avatar(user["id"], upload)
         except (service.ProfileError, storage.UploadError) as error:
             return _fail(error, "users.edit_profile")
@@ -222,8 +236,11 @@ def display_reset():
 
 @bp.post("/settings/display/background")
 def background_upload():
+    user, upload = auth.current_user(), request.files.get("background")
     try:
-        preferences.save_background(auth.current_user(), request.files.get("background"))
+        if not _image_upload_allowed(user, upload):
+            raise service.ProfileError("users.error.image_uploads_too_fast")
+        preferences.save_background(user, upload)
     except (service.ProfileError, storage.UploadError) as error:
         return _fail(error, "users.display")
     auth.flash_t("users.flash.background_saved", "success")
@@ -275,8 +292,11 @@ def api_background():
     if request.method == "DELETE":
         preferences.remove_background(user)
         return jsonify({"ok": True, "background_image": "", "url": ""})
+    upload = request.files.get("file")
+    if not _image_upload_allowed(user, upload):
+        return jsonify({"error": t("users.error.image_uploads_too_fast")}), 429
     try:
-        name = preferences.save_background(user, request.files.get("file"))
+        name = preferences.save_background(user, upload)
     except (service.ProfileError, storage.UploadError) as error:
         return jsonify({"error": t(error.key, **error.values)}), 400
     return jsonify({"ok": True, "background_image": name, "url": service.upload_url(name)})

@@ -15,7 +15,7 @@ from markupsafe import Markup, escape
 from .. import __version__
 from ..core import web
 from ..core.assets import asset_url
-from ..core.timeutil import parse, utcnow
+from ..core.timeutil import in_zone, parse, utcnow
 from . import attention, auth, i18n, registry, settings
 from .markdown import render as render_markdown
 
@@ -39,10 +39,11 @@ def site_timezone() -> ZoneInfo:
 
 
 def format_datetime(value: Any, fmt: str = "%Y-%m-%d %H:%M") -> str:
+    """*value* in the site time zone; a date too far out for it is shown in UTC."""
     moment = parse(value)
     if moment is None:
         return ""
-    return moment.astimezone(site_timezone()).strftime(fmt)
+    return in_zone(moment, site_timezone()).strftime(fmt)
 
 
 def format_date(value: Any) -> str:
@@ -55,7 +56,7 @@ def datetime_local_input(value: Any) -> str:
 
 
 def from_local_input(value: str | None) -> datetime | None:
-    """Parse a ``datetime-local`` value entered in the site time zone."""
+    """Parse a ``datetime-local`` value entered in the site time zone (None if invalid)."""
     if not value:
         return None
     try:
@@ -64,7 +65,7 @@ def from_local_input(value: str | None) -> datetime | None:
         return None
     if naive.tzinfo is None:
         naive = naive.replace(tzinfo=site_timezone())
-    return naive
+    return parse(naive, bounded=True)  # refuses the years that cannot be stored or shown safely
 
 
 def time_ago(value: Any) -> str:

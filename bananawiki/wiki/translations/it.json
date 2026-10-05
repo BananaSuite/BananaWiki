@@ -82,10 +82,12 @@
   "time.months_ago": "{count} mesi fa",
   "time.seconds_ago": "adesso",
   "time.years_ago": "{count} anni fa",
+  "upload.error.busy": "Altre immagini sono in elaborazione. Riprova tra un momento.",
   "upload.error.empty": "Il file è vuoto.",
   "upload.error.no_file": "Scegli un file da caricare.",
   "upload.error.not_an_image": "Il file non è un'immagine supportata.",
   "upload.error.quota": "Questa wiki ha raggiunto il limite di spazio.",
   "upload.error.too_large": "Il file supera {limit_mb} MB.",
+  "upload.error.too_many_pixels": "L'immagine supera {limit_mp} megapixel.",
   "upload.error.type_not_allowed": "I file .{ext} non sono consentiti qui."
 }

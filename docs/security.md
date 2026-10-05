@@ -155,6 +155,11 @@ ask editors to upload images instead of linking them.
   the host's blacklist and the storage quota are checked before anything is
   kept. Images are verified, and still images are re-encoded, which removes
   EXIF and GPS metadata.
+* An image's size in pixels is read from its header and checked before it is
+  decoded: 40 megapixels at most, 4 for avatars and
+  `BW_BACKGROUND_IMAGE_MAX_PIXELS` for display backgrounds. Each worker
+  process decodes one picture at a time, and an account can change its avatar
+  or background ten times in ten minutes.
 * Downloads send `X-Content-Type-Options: nosniff` and
   `Content-Security-Policy: default-src 'none'; sandbox`. Only images, audio,
   video, PDF and plain text are shown inline; everything else is a download

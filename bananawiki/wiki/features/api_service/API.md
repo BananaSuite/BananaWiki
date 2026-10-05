@@ -319,8 +319,9 @@ offset are read in the site time zone.
 * `GET /tokens`, `DELETE /tokens/<id>`: the caller's own tokens.
 * `POST /tokens {name?, permissions?, expires_at?}`: issue a token that can
   never exceed the calling one — no flag or scope it lacks, no later expiry;
-  an omitted expiry inherits the caller's. Each token is independent:
-  revoking the parent does not revoke its children.
+  an omitted expiry inherits the caller's. An expiry is at most 10 years
+  ahead (400 `expiry_too_far`), on the token page too. Each token is
+  independent: revoking the parent does not revoke its children.
 * `GET /admin/tokens`, `POST /admin/tokens/<id>/revoke`,
   `PUT /admin/users/<id>/api-access {enabled}`,
   `GET /admin/audit-log?limit=&offset=`,

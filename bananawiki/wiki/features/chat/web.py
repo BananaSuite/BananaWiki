@@ -138,7 +138,7 @@ def messages_payload(target: Store, parent_id: int, *, can_delete_any: bool = Fa
     cursor = now_sql()
     after = max(0, request.args.get("after", default=0, type=int) or 0)
     rows = store.after(target, parent_id, after)
-    since = parse(request.args.get("since"))
+    since = parse(request.args.get("since"), bounded=True)
     return {
         "messages": serialize_all(target, rows, can_delete_any=can_delete_any, with_ip=with_ip),
         "more": len(rows) >= store.MAX_PAGE_SIZE,

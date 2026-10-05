@@ -29,6 +29,8 @@ from ...registry import emit
 from ..pages import service as pages
 
 AVATAR_MAX_BYTES = 1 * MIB
+# Avatars are shown small: a larger picture only costs memory to decode.
+AVATAR_MAX_PIXELS = 4_000_000
 AVATAR_DIR = "avatars"
 AVATAR_RE = re.compile(r"^avatars/[0-9a-f]{32}\.(png|jpe?g|gif|webp)$")
 MAX_REAL_NAME = 100
@@ -148,9 +150,10 @@ def upload_url(name: str | None) -> str:
     return url_for("uploaded_file", filename=name) if name else ""
 
 
-def store_image(upload: FileStorage | None, subdir: str, *, max_bytes: int) -> tuple[str, Path]:
+def store_image(upload: FileStorage | None, subdir: str, *, max_bytes: int, max_pixels: int) -> tuple[str, Path]:
     """Store an image through :mod:`storage` and move it into ``uploads/<subdir>/``."""
-    stored = storage.save(upload, "uploads", allowed=IMAGE_EXTENSIONS, max_bytes=max_bytes, images_only=True)
+    stored = storage.save(upload, "uploads", allowed=IMAGE_EXTENSIONS, max_bytes=max_bytes, images_only=True,
+                          max_pixels=max_pixels)
     source = storage.resolve("uploads", stored.filename)
     assert source is not None
     target_dir = storage.folder_path("uploads") / subdir
@@ -174,7 +177,7 @@ def uploads_of(user: dict[str, Any]) -> list[str]:
 
 
 def save_avatar(user_id: str, upload: FileStorage | None) -> str:
-    name, _path = store_image(upload, AVATAR_DIR, max_bytes=AVATAR_MAX_BYTES)
+    name, _path = store_image(upload, AVATAR_DIR, max_bytes=AVATAR_MAX_BYTES, max_pixels=AVATAR_MAX_PIXELS)
     previous = (get_profile(user_id) or {}).get("avatar_filename")
     upsert_profile(user_id, avatar_filename=name)
     if previous and previous != name:
