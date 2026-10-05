@@ -9,6 +9,8 @@ from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.auth import docs
 from bananawiki.wiki.registry import registry
 
+from .pages_support import restrict
+
 
 @pytest.fixture
 def owner(make_user):
@@ -162,7 +164,7 @@ def test_admin_perspective_is_illustration_only(client, db, make_user, login):
     db.execute("INSERT INTO pages (title, slug, content, category_id) VALUES ('Salaries 2026', 'salaries', 'x', ?)",
                (category_id,))
     user = make_user("bob", intro_required=1)
-    db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 1)", (user["id"],))
+    restrict(db, user, read=[])  # role defaults, no readable category
     login(client, user)
     response = client.post("/tour/start", data={"tour_role": "admin"})
     assert "role=admin" in response.headers["Location"]
