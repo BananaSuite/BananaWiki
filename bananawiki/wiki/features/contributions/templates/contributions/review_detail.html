@@ -24,7 +24,9 @@
     {% if diff %}
     <div class="diff" role="table" aria-label="{{ t('contributions.changes') }}">
       {% for row in diff %}
-      {% if row.op == 'gap' %}<div class="muted">⋯</div>
+      {% if row.op == 'coarse' %}<div class="muted">{{ t('contributions.diff_coarse') }}</div>
+      {% elif row.op == 'more' %}<div class="muted">{{ t('contributions.diff_more', count=row.text) }}</div>
+      {% elif row.op == 'gap' %}<div class="muted">⋯</div>
       {% elif row.op == 'add' %}<div><ins>+ {{ row.text }}</ins></div>
       {% elif row.op == 'del' %}<div><del>- {{ row.text }}</del></div>
       {% else %}<div>&nbsp; {{ row.text }}</div>{% endif %}
@@ -36,6 +38,8 @@
   <section class="card">
     <form method="post" class="form">
       {{ forms.csrf() }}
+      <input type="hidden" name="version" value="{{ version }}">
+      <input type="hidden" name="page_revision" value="{{ page.revision }}">
       <div class="field">
         <label for="f-review_reason">{{ t('contributions.review_reason') }}</label>
         <textarea id="f-review_reason" name="review_reason" rows="2" maxlength="{{ max_review_reason }}"></textarea>

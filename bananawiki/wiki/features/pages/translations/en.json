@@ -48,6 +48,7 @@
   "pages.confirm.unhide": "Show this page in navigation and search again?",
   "pages.conflict.body": "{user} saved this page while you were editing. Your text is still in the editor: merge the changes below, then save again to replace their version.",
   "pages.conflict.diff": "Their version compared with yours",
+  "pages.conflict.diff_coarse": "The two versions are too different to compare in detail: part of the text is shown as removed and added again as a whole.",
   "pages.conflict.diff_hint": "Struck-through text is only in their version; highlighted text is only in yours.",
   "pages.conflict.their_title": "Their title: {title}",
   "pages.conflict.theirs": "Their full text",

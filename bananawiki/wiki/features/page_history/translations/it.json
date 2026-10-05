@@ -12,6 +12,7 @@
   "page_history.confirm.delete": "Eliminare questa voce della cronologia?",
   "page_history.confirm.revert": "Ripristinare questa versione? Il testo attuale resta nella cronologia.",
   "page_history.deattribute": "Rimuovi autore",
+  "page_history.diff_coarse": "Le versioni sono troppo diverse per un confronto dettagliato: una parte del testo è mostrata come rimossa e poi aggiunta per intero.",
   "page_history.empty": "Questa pagina non ha voci di cronologia.",
   "page_history.entry_title": "Versione: {title}",
   "page_history.error.user_missing": "Quell'utente non esiste.",

@@ -95,7 +95,10 @@ still rewrite the source's `@mentions`, with a history entry per page.
 Every save, rename or revert stores the full page in `page_history`.
 `/page/<slug>/history` lists versions; each version can be viewed rendered,
 as Markdown, or as a difference to the previous one, and restored (the
-current text stays in the history). Holders of the permissions can delete
+current text stays in the history). Differences are computed within a fixed
+work budget: when two versions are too different (or too repetitive) to
+compare in detail, the part that could not be compared shows as removed and
+re-added as a whole, with a note. Holders of the permissions can delete
 entries, clear a page's history, credit entries to another account or remove
 the author.
 
@@ -225,7 +228,12 @@ People who may read a page but not edit it (`contribution.propose`) propose an
 edit with a reason from the page (`/page/<slug>/propose-edit`). Reviewers
 (`contribution.review` plus edit rights on the page, and administrators)
 approve or deny it at `/admin/contributions`; approving applies the edit
-credited to the proposer. Each user has a quota of waiting proposals
+credited to the proposer. An approval applies exactly the version the
+reviewer opened: if the proposal or the page changed in the meantime it is
+refused and the review shows the current state. The review lists at most
+5000 lines of the diff and counts the changed lines it leaves out; approving
+still applies the whole proposal, not only what was shown. Each user has a quota of
+waiting proposals
 (`default_contribution_quota`, requests up to
 `contribution_quota_auto_approve_max` approved automatically). Old proposals
 expire. **My contributions** at `/my-contributions`.

@@ -48,6 +48,7 @@
   "pages.confirm.unhide": "Mostrare di nuovo questa pagina in navigazione e ricerca?",
   "pages.conflict.body": "{user} ha salvato questa pagina mentre la modificavi. Il tuo testo è ancora nell'editor: unisci le modifiche qui sotto e salva di nuovo per sostituire la sua versione.",
   "pages.conflict.diff": "La sua versione confrontata con la tua",
+  "pages.conflict.diff_coarse": "Le due versioni sono troppo diverse per un confronto dettagliato: una parte del testo è mostrata come rimossa e poi aggiunta per intero.",
   "pages.conflict.diff_hint": "Il testo barrato è solo nella sua versione; quello evidenziato solo nella tua.",
   "pages.conflict.their_title": "Il suo titolo: {title}",
   "pages.conflict.theirs": "Il suo testo completo",

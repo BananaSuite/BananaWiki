@@ -10,18 +10,22 @@ proposer. Each user may have at most their quota of proposals waiting.
 1.4 schema). 1.4 therefore refused a second proposal for a page until the
 old row was purged; here a new proposal reuses the resolved row.
 ``base_revision`` records the page revision the proposal started from so
-reviewers can see when the page changed since.
+reviewers can see when the page changed since. An approval is bound to what
+the reviewer looked at: the review form carries :func:`review_version` and
+the page revision, and :func:`approve` refuses if either moved on meanwhile.
 """
 
 from __future__ import annotations
 
-import difflib
+import hashlib
+import json
 from typing import Any
 
 from ....core.timeutil import now_sql, sql_in
 from ... import attention, auth, settings
 from ...db import db
 from ...registry import intercept
+from ..pages import diff as page_diff
 from ..pages import service as pages
 from . import quota
 from .errors import ContributionError
@@ -30,6 +34,7 @@ MAX_REASON = 2000
 MAX_REVIEW_REASON = 500
 RESOLVED_RETENTION_DAYS = 90
 DIFF_CONTEXT = 3
+MAX_DIFF_ROWS = 5000
 
 
 # ── Who may do what ─────────────────────────────────────────────────────────
@@ -205,15 +210,28 @@ def _check_review_reason(reason: str | None) -> str:
     return reason
 
 
-def approve(contribution_id: int, reviewer: dict[str, Any], note: str = "") -> dict[str, Any]:
+def review_version(contribution: dict[str, Any]) -> str:
+    """Fingerprint of what a reviewer is shown and an approval applies (title, content, reason)."""
+    shown = json.dumps([contribution["title"], contribution["content"], contribution["reason"]])
+    return hashlib.sha256(shown.encode()).hexdigest()
+
+
+def approve(contribution_id: int, reviewer: dict[str, Any], note: str = "", *,
+            reviewed_version: str | None = None, page_revision: int | None = None) -> dict[str, Any]:
     """Apply the proposal to the page, credited to the proposer; returns the updated page.
 
     The status change and the page edit commit together or not at all.
+    *reviewed_version* (:func:`review_version`) and *page_revision* are what the
+    reviewer looked at: if the proposer edited the proposal or someone saved
+    the page since, nothing is applied. The review form always sends both;
+    ``None`` skips that check.
     """
     note = _check_review_reason(note)
     try:
         with db.transaction():
             contribution, page = _review_target(contribution_id, reviewer)
+            if reviewed_version is not None and reviewed_version != review_version(contribution):
+                raise ContributionError("contributions.error.changed_since_review")
             if page.get("pending_deletion"):
                 raise ContributionError("contributions.error.page_pending_deletion")
             blocked = intercept("page.edit_blocked", page=page, user=reviewer)
@@ -231,7 +249,9 @@ def approve(contribution_id: int, reviewer: dict[str, Any], note: str = "") -> d
                       f"{reviewer['username']}: {contribution['reason']}"
             updated = pages.update(page, author_id=contribution["user_id"],
                                    title=contribution["title"] or page["title"], content=contribution["content"],
-                                   edit_message=message[:pages.MAX_EDIT_MESSAGE])
+                                   edit_message=message[:pages.MAX_EDIT_MESSAGE], expected_revision=page_revision)
+    except pages.EditConflict:
+        raise ContributionError("contributions.error.page_changed_since_review") from None
     except pages.PageError as exc:
         raise ContributionError(exc.key, **exc.values) from None
     attention.decided(contribution["user_id"], "contributions.reviews", "approved", object_id=contribution_id,
@@ -257,19 +277,39 @@ def deny(contribution_id: int, reviewer: dict[str, Any], reason: str = "") -> No
 
 
 def diff_lines(old: str, new: str) -> list[dict[str, str]]:
-    """Line diff with a few lines of context; long unchanged runs become a gap marker."""
+    """Line diff with a few lines of context; long unchanged runs become a gap marker.
+
+    The comparison has the work budget of the pages diff. When the texts are
+    too different for it, the rows start with a ``coarse`` marker and part of
+    the text shows as removed and added as a whole. At most
+    :data:`MAX_DIFF_ROWS` rows are listed; a final ``more`` row counts the
+    changed lines left out, so a huge proposal still opens quickly.
+    """
     before, after = (old or "").splitlines(), (new or "").splitlines()
+    ops, complete = page_diff.opcodes(before, after, page_diff.Budget())
     rows: list[dict[str, str]] = []
-    for group in difflib.SequenceMatcher(None, before, after, autojunk=False).get_grouped_opcodes(DIFF_CONTEXT):
-        if rows:
+    hidden = 0
+
+    def add(op: str, lines: list[str], start: int, stop: int, room: int) -> None:
+        nonlocal hidden
+        shown = min(stop, start + max(0, room))
+        rows.extend({"op": op, "text": line} for line in lines[start:shown])
+        if op != "equal":
+            hidden += stop - shown
+
+    for group in page_diff.grouped_opcodes(ops, DIFF_CONTEXT):
+        if rows and len(rows) < MAX_DIFF_ROWS:
             rows.append({"op": "gap", "text": ""})
         for tag, i1, i2, j1, j2 in group:
+            room = MAX_DIFF_ROWS - len(rows)
             if tag == "equal":
-                rows.extend({"op": "equal", "text": line} for line in before[i1:i2])
+                add("equal", before, i1, i2, room)
                 continue
-            rows.extend({"op": "del", "text": line} for line in before[i1:i2])
-            rows.extend({"op": "add", "text": line} for line in after[j1:j2])
-    return rows
+            add("del", before, i1, i2, room - min(j2 - j1, room // 2))  # leave room for the proposed text
+            add("add", after, j1, j2, MAX_DIFF_ROWS - len(rows))
+    if hidden:
+        rows.append({"op": "more", "text": str(hidden)})
+    return rows if complete else [{"op": "coarse", "text": ""}, *rows]
 
 
 def withdraw_if_editing_allowed(user: dict[str, Any], old_role: str, new_role: str,

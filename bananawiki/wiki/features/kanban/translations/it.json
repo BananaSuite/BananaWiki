@@ -146,6 +146,7 @@
   "kanban.diff.column_limit_removed": "Limite di lavoro in corso di “{title}” rimosso",
   "kanban.diff.column_removed": "Colonna “{title}” eliminata",
   "kanban.diff.column_renamed": "Colonna “{old}” rinominata in “{new}”",
+  "kanban.diff.description_coarse": "Le due descrizioni sono troppo diverse per un confronto dettagliato: una parte del testo è mostrata come rimossa e poi aggiunta per intero.",
   "kanban.diff.ticket_added": "Scheda “{title}” aggiunta in {column}",
   "kanban.diff.ticket_archived": "Scheda “{title}” archiviata",
   "kanban.diff.ticket_changed": "Scheda “{title}”: modificati {fields}",

@@ -17,7 +17,7 @@
   <h2 id="conflict-h" class="h3">{{ t('pages.conflict.title') }}</h2>
   <p>{{ t('pages.conflict.body', user=conflict.their_editor or t('pages.edit_info.system')) }}</p>
   {% if conflict.title_changed %}<p class="small">{{ t('pages.conflict.their_title', title=conflict.current.title) }}</p>{% endif %}
-  <details open><summary>{{ t('pages.conflict.diff') }}</summary><p class="hint">{{ t('pages.conflict.diff_hint') }}</p><pre class="diff">{{ conflict.diff }}</pre></details>
+  <details open><summary>{{ t('pages.conflict.diff') }}</summary><p class="hint">{{ t('pages.conflict.diff_hint') }}</p>{% if not conflict.diff_complete %}<p class="hint">{{ t('pages.conflict.diff_coarse') }}</p>{% endif %}<pre class="diff">{{ conflict.diff }}</pre></details>
   <details><summary>{{ t('pages.conflict.theirs') }}</summary>
     <label class="visually-hidden" for="their-content">{{ t('pages.conflict.theirs') }}</label>
     <textarea id="their-content" class="textarea--code" rows="12" readonly>{{ conflict.current.content }}</textarea></details>
