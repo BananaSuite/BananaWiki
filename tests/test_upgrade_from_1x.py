@@ -3,6 +3,7 @@
 import json
 import re
 import shutil
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -15,16 +16,24 @@ from bananawiki.wiki.migrations import LATEST
 FIXTURE = Path(__file__).parent / "fixtures" / "v1_instance"
 
 
-@pytest.fixture
-def legacy(tmp_path):
+def _boot(tmp_path, prepare=None):
     instance = tmp_path / "instance"
     (instance / "uploads").mkdir(parents=True)
     shutil.copy(FIXTURE / "bananawiki-v3.sqlite3", instance / "bananawiki.db")
     shutil.copy(FIXTURE / "uploads" / "abc123.png", instance / "uploads" / "abc123.png")
+    if prepare is not None:
+        with sqlite3.connect(instance / "bananawiki.db") as conn:
+            prepare(conn)
+        conn.close()
     key = (FIXTURE / "secret_key").read_text().strip()
     environ = {"BW_ENV": "test", "BW_INSTANCE_DIR": str(instance), "BW_BACKGROUND_JOBS": "0"}
     app = create_app(load_config(environ, secret_key=key))
     return app, instance, json.loads((FIXTURE / "credentials.json").read_text())
+
+
+@pytest.fixture
+def legacy(tmp_path):
+    return _boot(tmp_path)
 
 
 def _db(app):
@@ -65,6 +74,32 @@ def test_password_and_api_token_survive(legacy):
     login = client.post("/login", data={"username": "editor1", "password": "editor-password-1",
                                         "csrf_token": token})
     assert login.status_code == 302
+
+
+def test_saved_permissions_keep_reading_after_view_all_is_enforced(tmp_path):
+    # 1.4 never checked the view_all keys, so an administrator could untick
+    # them with no effect. The upgrade grants them to every saved set, and
+    # nothing else.
+    def prepare(conn):
+        conn.execute("INSERT INTO user_category_access (user_id, access_type, restricted) "
+                     "VALUES ('gr73yja0', 'read', 1), ('gr73yja0', 'write', 0)")
+        conn.execute("INSERT INTO user_allowed_categories (user_id, category_id, access_type) "
+                     "VALUES ('gr73yja0', 2, 'read')")
+        conn.execute("INSERT INTO user_permissions (user_id, permission_key) VALUES ('gr73yja0', 'history.view')")
+        conn.execute("INSERT INTO custom_roles (id, name, base_role) VALUES (7, 'Students', 'user')")
+        conn.execute("INSERT INTO custom_role_permissions (role_id, permission_key) VALUES (7, 'search.pages')")
+
+    app, _, _ = _boot(tmp_path, prepare)
+    from bananawiki.wiki.permissions import load_grants
+
+    db = _db(app)
+    reader = db.one("SELECT * FROM users WHERE id = 'gr73yja0'")
+    grants = load_grants(db, reader)
+    assert {"page.view_all", "category.view_all", "history.view"} <= grants.keys
+    assert "page.create" not in grants.keys and grants.read.restricted
+    assert set(db.column("SELECT permission_key FROM custom_role_permissions WHERE role_id = 7")) == {
+        "search.pages", "page.view_all", "category.view_all"}
+    assert db.column("SELECT permission_key FROM user_permissions WHERE user_id = 'k9tipld7'") == []
 
 
 def test_encrypted_setting_still_decrypts(legacy):
