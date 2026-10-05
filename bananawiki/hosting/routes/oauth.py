@@ -24,7 +24,7 @@ from urllib.parse import urlencode
 
 from flask import Blueprint, abort, jsonify, redirect, render_template, request, url_for
 
-from ...core.web import csrf_exempt
+from ...core.web import allow_form_action, csrf_exempt
 from .. import accounts, auth, events, oauth
 from ..db import db
 from ..limits import rate_limit
@@ -104,6 +104,8 @@ def authorize():
         code = oauth.issue_code(client_id, current["id"], redirect_uri, challenge, "S256" if challenge else "")
         query = {"code": code, **({"state": state} if state else {})}
         return redirect(f"{redirect_uri}{'&' if '?' in redirect_uri else '?'}{urlencode(query)}")
+    # The consent form is answered with a redirect to the wiki checked above.
+    allow_form_action(redirect_uri)
     return render_template("hosting/oauth_consent.html", instance=inst)
 
 

@@ -119,6 +119,14 @@ contain no inline event handlers; the few inline script blocks
 carry the per-request nonce. `style-src-attr 'unsafe-inline'` is needed for
 the sanitised spacing styles page content may use.
 
+Chromium-based browsers also apply `form-action` to the redirect that follows
+a form submission. Two pages answer their form with a redirect to another
+site, so their own response adds that origin (never a path) to `form-action`:
+the wiki's `/settings/link-platform-account` adds the portal's (from
+`BW_PLATFORM_OAUTH_AUTHORIZE_URL`), and the portal's OAuth consent page adds
+the wiki's, taken from a redirect URI already checked against the wiki's
+address and verified domain. Every other page keeps `form-action 'self'`.
+
 `img-src https:` lets pages show images from other sites. A reader's browser
 then contacts that site, which learns the reader's address. If that matters,
 ask editors to upload images instead of linking them.
