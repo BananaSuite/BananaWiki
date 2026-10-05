@@ -143,6 +143,17 @@ def test_accounts_that_may_not_use_the_wiki_are_sent_to_their_status(enabled, ap
         assert b"Members only" not in response.data
 
 
+def test_suspended_administrators_lose_members_and_manager_access(enabled, app, make_user, login, db):
+    published = insert(db, path="/about", content_type="html", content="Members only")
+    insert(db, path="/draft", content_type="html", content="Unpublished draft", is_published=0)
+    client = app.test_client()
+    login(client, make_user("benched", role="admin", suspended=1))
+    for path in ("/about", f"/_cpd/{published}", "/draft"):
+        response = client.get(path)
+        assert response.status_code in (302, 404)
+        assert b"Members only" not in response.data and b"Unpublished draft" not in response.data
+
+
 def test_builder_pages_need_a_sign_in(enabled, admin_client, anon, db):
     builder_page(admin_client, db)
     response = anon.get("/landing")

@@ -28,7 +28,7 @@ from ....core.timeutil import now_sql
 from ... import accounts, attention, auth
 from ...db import db
 from ...registry import emit
-from ..admin.service import protection_error
+from ..admin.service import clear_overrides, protection_error
 from ..pages import service as pages
 from . import preferences, service
 
@@ -317,8 +317,10 @@ def _lock_source(source: dict[str, Any], target: dict[str, Any], admin: dict[str
     )
     db.insert("username_history", {"user_id": source_id, "old_username": source["username"],
                                    "new_username": locked_name, "changed_at": now_sql()})
-    # An expiring temporary role would otherwise give the old role back.
+    # An expiring temporary role would otherwise give the old role back; overrides
+    # go as on any demotion (admin.service.change_role).
     db.execute("DELETE FROM temp_roles WHERE user_id = ?", (source_id,))
+    clear_overrides(source_id)
     if source["role"] != "user":
         db.insert("role_history", {"user_id": source_id, "old_role": source["role"], "new_role": "user",
                                    "changed_by": admin["id"], "changed_at": now_sql()})

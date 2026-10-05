@@ -149,11 +149,12 @@ def is_visible(page: dict[str, Any] | None, user: dict[str, Any] | None = None) 
     if page is None:
         return False
     user = auth.current_user() if user is None else user
-    if can_manage(user):
+    blocked = bool(user) and auth.account_block(user) is not None
+    if can_manage(user) and not blocked:
         return True
     if not page.get("is_published"):
         return False
-    return not members_only(page) or (bool(user) and auth.account_block(user) is None)
+    return not members_only(page) or (bool(user) and not blocked)
 
 
 # ── Reading ──────────────────────────────────────────────────────────────────
