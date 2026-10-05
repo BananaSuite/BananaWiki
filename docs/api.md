@@ -177,7 +177,18 @@ Creating needs `category.create`, renaming `category.edit`, moving
 `category.reorder` (with write access to the category and the new parent),
 sequential navigation `category.manage_sequential`, deleting
 `category.delete`. A category cannot move into itself or its subcategories;
-names are at most 100 characters.
+names are at most 100 characters. `GET /categories` lists categories only
+for callers with `category.view_all`.
+
+`page_action=delete` also needs `page.delete` and a token with the `pages`
+scope and write access (otherwise 403 `cannot_delete` or `scope_missing`).
+It deletes the pages as `DELETE /pages/<slug>` would, all or nothing: if the
+category holds pages the caller cannot see or may not delete, the answer is
+403 (`category_pages_hidden`, `category_pages_forbidden`); protected,
+checked-out or pending pages give 409 (`category_pages_blocked`). Refused
+pages are listed by slug in `pages`. With Deletion Slowdown on, the answer is
+202 and `pending_deletion` lists the scheduled pages; they, and pages another
+feature keeps (`kept`), lose the category.
 
 ## Accounts (`users`, administrators)
 

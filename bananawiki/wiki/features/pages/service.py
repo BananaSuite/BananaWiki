@@ -8,6 +8,7 @@ Visibility
 ----------
 A page is visible to a user when they can read its category and:
 
+* signed-in users hold ``page.view_all`` (administrators always do);
 * it is not pending deletion, unless they may delete pages;
 * it is not hidden (``is_deindexed``), unless they may see hidden pages;
 * anonymous visitors (public mode) additionally never see builder pages that
@@ -141,6 +142,8 @@ def can_view(page: dict[str, Any] | None, user: dict[str, Any] | None = None, *,
         return True
     if auth.is_admin(user):
         return True
+    if not auth.has_permission("page.view_all", user):
+        return False
     if not auth.can_read_category(page.get("category_id"), user):
         return False
     if _flag(page, "pending_deletion") and not auth.has_permission("page.delete", user):
@@ -196,6 +199,8 @@ def visible_filter(user: dict[str, Any] | None = None, alias: str = "p") -> tupl
         return clause, []
     if auth.is_admin(user):
         return "1", []
+    if not auth.has_permission("page.view_all", user):
+        return "0", []
     grants = auth.grants(user)
     assert grants is not None
     parts: list[str] = []

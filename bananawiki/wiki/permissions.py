@@ -248,7 +248,12 @@ class Grants:
 
 
 def load_grants(db: Any, user: dict[str, Any]) -> Grants:
-    """Resolve a user's effective grants from the database (one to three queries)."""
+    """Resolve a user's effective grants from the database (one to three queries).
+
+    Stored keys get their implied keys added, as the admin forms do when
+    saving, so rows carried over from 1.4 that hold ``page.edit_all`` without
+    ``page.view_all`` keep reading the pages they edit.
+    """
     role = user.get("role") or "user"
     chat_disabled = bool(user.get("chat_disabled"))
     if role in ADMIN_ROLES:
@@ -276,7 +281,7 @@ def load_grants(db: Any, user: dict[str, Any]) -> Grants:
                 read_ids |= write_ids
             write = CategoryAccess(bool(custom["write_restricted"]), frozenset(write_ids))
             read = CategoryAccess(read_restricted, frozenset(read_ids | (write_ids if read_restricted else set())))
-            return Grants(role, keys & assignable(role), read, write, chat_disabled)
+            return Grants(role, frozenset(sanitize(role, keys)), read, write, chat_disabled)
         # Dangling custom role: fall back to the base role's defaults.
         return Grants(role, defaults(role), CategoryAccess(), CategoryAccess(), chat_disabled)
 
@@ -293,7 +298,7 @@ def load_grants(db: Any, user: dict[str, Any]) -> Grants:
     write_ids = frozenset(c["category_id"] for c in cats if c["access_type"] == "write")
     write = CategoryAccess(restricted.get("write", False), write_ids)
     read = CategoryAccess(restricted.get("read", False), read_ids | write_ids)
-    return Grants(role, keys & assignable(role), read, write, chat_disabled)
+    return Grants(role, frozenset(sanitize(role, keys)), read, write, chat_disabled)
 
 
 def grants_permission(grants: Grants, key: str, feature_enabled) -> bool:

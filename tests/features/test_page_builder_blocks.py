@@ -8,6 +8,8 @@ import pytest
 
 from bananawiki.wiki.db import connection_scope
 
+from .pages_support import restrict
+
 PNG = "/static/uploads/" + "a" * 32 + ".png"
 
 V2 = {"version": 2, "blocks": [
@@ -280,10 +282,7 @@ def test_from_markdown_keeps_long_pages_whole(app):
 
 def _restricted_reader(db, make_user, category_id):
     reader = make_user("limited_reader")
-    db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 1)",
-               (reader["id"],))
-    db.execute("INSERT INTO user_allowed_categories (user_id, category_id, access_type) VALUES (?, ?, 'read')",
-               (reader["id"], category_id))
+    restrict(db, reader, read=[category_id])  # default permissions, one readable category
     return reader
 
 

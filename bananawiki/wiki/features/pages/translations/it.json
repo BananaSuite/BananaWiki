@@ -102,6 +102,8 @@
   "pages.error.category_missing": "Quella categoria non esiste.",
   "pages.error.category_not_writable": "Non puoi inserire pagine in quella categoria.",
   "pages.error.category_pages_blocked": "La categoria non è stata eliminata. Queste pagine non possono essere eliminate ora: {titles}",
+  "pages.error.category_pages_forbidden": "La categoria non è stata eliminata. Non puoi eliminare queste pagine: {titles}",
+  "pages.error.category_pages_hidden": "La categoria non è stata eliminata: contiene pagine che non puoi vedere.",
   "pages.error.choose_target": "Scegli la categoria che deve ricevere le pagine.",
   "pages.error.home_fixed": "La pagina iniziale non può essere spostata né cambiare indirizzo.",
   "pages.error.navigation_changed": "La navigazione è cambiata. Ricarica la pagina e riprova.",

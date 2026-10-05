@@ -11,8 +11,8 @@ from typing import Any
 
 from flask import abort, redirect, request, url_for
 
-from ... import auth, registry
-from . import access, categories, service
+from ... import auth
+from . import access, categories
 from .blueprint import back, bp, rate_limited
 
 
@@ -102,9 +102,9 @@ def sequential_nav(category_id: int):
 def delete_category(category_id: int):
     """Delete a category; its pages are uncategorised, moved or deleted.
 
-    Deleting the pages passes the same checks as deleting each page on its own
-    (``page.delete``, blocks from other features); if any page fails, nothing
-    changes. Features may take over single deletions (``page.delete``).
+    Deleting the pages follows the rules of deleting each page on its own;
+    if any page may not go, nothing changes (:func:`categories.delete_with_pages`,
+    shared with the API and bulk deletion).
     """
     category = _category_or_404(category_id)
     _require("category.delete", category_id)
@@ -120,27 +120,10 @@ def delete_category(category_id: int):
         _category_or_404(target_id)
         if not auth.can_write_category(target_id, user):
             abort(403)
-    pages = [p for p in service.list_visible(category_id=category_id, user=user) if not p["is_home"]]
-    hidden_count = categories.count_pages(category_id) - len(pages) - _home_count(category_id)
-    if action == "delete":
-        if hidden_count:
-            abort(403)
-        refused = [p["title"] for p in pages if not service.can_delete(service.get(p["id"]), user)
-                   or access.edit_blocked(service.get(p["id"]), user)]
-        if refused:
-            auth.flash_t("pages.error.category_pages_blocked", "error", titles=", ".join(refused))
-            return back()
-        for listed in pages:
-            page = service.get(listed["id"])
-            if page is not None and registry.intercept("page.delete", page=page, user=user) is None:
-                service.delete(page, actor_id=user["id"])
-        categories.delete(category, page_action="uncategorize", actor_id=user["id"])
-    else:
-        categories.delete(category, page_action=action, target_id=target_id, actor_id=user["id"])
+    try:
+        categories.delete_with_pages(category, user, page_action=action, target_id=target_id)
+    except categories.CategoryError as exc:
+        auth.flash_t(exc.key, "error", **exc.values)
+        return back()
     auth.flash_t("pages.flash.category_deleted", "success", name=category["name"])
     return redirect(url_for("pages.navigation_page"))
-
-
-def _home_count(category_id: int) -> int:
-    home = service.home()
-    return 1 if home and home["category_id"] == category_id else 0

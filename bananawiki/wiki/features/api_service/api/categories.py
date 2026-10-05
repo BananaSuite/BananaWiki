@@ -3,7 +3,8 @@
 Permissions are the category manager's: ``category.create``, ``category.edit``
 (rename), ``category.reorder`` (move), ``category.manage_sequential`` and
 ``category.delete``, each with write access to the category concerned (the
-new parent too when moving). A category the caller cannot read answers 404.
+new parent too when moving). A category the caller cannot read answers 404;
+the list also needs ``category.view_all``.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from flask import request
 
 from .... import auth
 from ...pages import access, categories, service
-from .. import serialize
+from .. import serialize, tokens
 from ..errors import (
     ApiError,
     flag,
@@ -26,7 +27,7 @@ from ..errors import (
     text,
     window_fields,
 )
-from . import bp, caller, ok, requires
+from . import bp, caller, caller_token, ok, requires
 
 
 def _readable(category_id: int) -> dict[str, Any]:
@@ -54,7 +55,7 @@ def _parent(value: Any) -> int | None:
 def list_categories():
     user = caller()
     limit, offset = page_window()
-    rows = [row for row in categories.all_categories() if auth.can_read_category(row["id"], user)]
+    rows = [row for row in categories.all_categories() if categories.listed(row["id"], user)]
     window = rows[offset:offset + limit + 1]
     return ok(categories=[serialize.category(row) for row in window[:limit]],
               **window_fields(limit, offset, len(window)))
@@ -120,7 +121,14 @@ def update_category(category_id: int):
 @bp.delete("/categories/<int:category_id>")
 @requires("categories", write=True)
 def delete_category(category_id: int):
-    """Pages are uncategorised by default; ``?page_action=move&target_id=…`` or ``delete`` also work."""
+    """Pages are uncategorised by default; ``?page_action=move&target_id=…`` or ``delete`` also work.
+
+    ``delete`` also needs the token's ``pages`` write scope and follows the web
+    interface (:func:`categories.delete_with_pages`): pages the caller cannot
+    see or delete answer 403, protected, checked-out or pending pages 409, and
+    nothing changes; pages that Deletion Slowdown schedules instead make the
+    answer 202.
+    """
     category = _readable(category_id)
     _allowed("category.delete", category["id"])
     action = request.args.get("page_action", "uncategorize")
@@ -132,10 +140,20 @@ def delete_category(category_id: int):
             raise ApiError(400, "category_missing")
         if not auth.can_write_category(target_id, caller()):
             raise ApiError(403, "cannot_manage_category")
-    if action == "delete" and not auth.has_permission("page.delete", caller()):
-        raise ApiError(403, "cannot_delete")
+    if action == "delete":
+        # Deleting pages is a pages operation: the token must allow it as for DELETE /pages/<slug>.
+        if not tokens.parse_grant(caller_token()["permissions"]).allows("pages", write=True):
+            raise ApiError(403, "scope_missing", extra={"scope": "pages", "write": True}, scope="pages")
+        if not auth.has_permission("page.delete", caller()):
+            raise ApiError(403, "cannot_delete")
     try:
-        categories.delete(category, page_action=action, target_id=target_id, actor_id=caller()["id"])
+        removal = categories.delete_with_pages(category, caller(), page_action=action, target_id=target_id)
+    except categories.PagesRefused as error:
+        raise ApiError(409 if error.reason == "blocked" else 403, error.key.rsplit(".", 1)[-1], error.key,
+                       extra={"pages": [page["slug"] for page in error.pages]}, **error.values) from None
     except categories.CategoryError as error:
         raise from_service(error) from None
-    return ok(deleted=True, id=category_id)
+    if action != "delete":
+        return ok(deleted=True, id=category_id)
+    return ok(202 if removal.pending else 200, deleted=True, id=category_id,
+              pending_deletion=list(removal.pending), kept=list(removal.kept))

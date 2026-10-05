@@ -21,8 +21,8 @@ a fresh key; send it to the other administrator over a channel you trust.
 Nothing synchronises until both sides have added each other.
 
 A pairing has an audience category: received pages are visible to whoever
-can read that category, plus administrators. Without one, only
-administrators see them.
+can read that category and holds `page.view_all`, plus administrators.
+Without one, only administrators see them.
 
 The key is needed in clear to sign requests, so it is stored encrypted with
 the instance secret key rather than hashed. Keys stored in plain text by 1.4

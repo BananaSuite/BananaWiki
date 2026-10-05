@@ -102,6 +102,8 @@
   "pages.error.category_missing": "That category does not exist.",
   "pages.error.category_not_writable": "You cannot put pages in that category.",
   "pages.error.category_pages_blocked": "The category was not deleted. These pages cannot be deleted right now: {titles}",
+  "pages.error.category_pages_forbidden": "The category was not deleted. You may not delete these pages: {titles}",
+  "pages.error.category_pages_hidden": "The category was not deleted: it holds pages you cannot see.",
   "pages.error.choose_target": "Choose the category that should receive the pages.",
   "pages.error.home_fixed": "The home page cannot be moved or given another address.",
   "pages.error.navigation_changed": "The navigation changed. Reload the page and try again.",
