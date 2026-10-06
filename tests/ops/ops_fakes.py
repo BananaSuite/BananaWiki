@@ -12,16 +12,24 @@ from __future__ import annotations
 import os
 import sqlite3
 import subprocess
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
 from bananawiki.ops import profile, units
 from bananawiki.ops.files import write_environment, write_json
-from bananawiki.ops.system import System
+from bananawiki.ops.system import Readiness, System
 
 
 class FakeSystem(System):
-    """A host where systemd and Docker are simulated and the application is always "healthy" unless told."""
+    """A host where systemd and Docker are simulated and the application is always "healthy" unless told.
+
+    Tenant containers live in ``tenant_containers``; ``docker stop``, ``start``
+    and ``rm`` act on them as Docker does, including "No such container" for
+    one that is gone and a refused start for the ids in ``unstartable``. Every
+    wiki answers its health check unless ``probe`` is replaced. Readiness is
+    the real check, one pass, no waiting.
+    """
 
     def __init__(self, tmp: Path):
         super().__init__(log_dir=None, runner=self._run, probe=lambda url: 200, sleep=lambda _s: None)
@@ -30,6 +38,7 @@ class FakeSystem(System):
         self.proxy_file = tmp / "caddy" / "Caddyfile"
         self.state_dir = tmp / "var-lib"
         self.tenant_containers: list[dict[str, Any]] = []
+        self.unstartable: set[str] = set()
         self.unit_dir.mkdir(parents=True)
         self.bin_dir.mkdir(parents=True)
         self.commands: list[list[str]] = []
@@ -38,10 +47,11 @@ class FakeSystem(System):
         self.unhealthy_revisions: set[str] = set()
         self.on_start: list[Any] = []
         self.prepared: list[str] = []
+        self.build_warnings: list[str] = []
 
     def _run(self, command: list[str], **_: Any) -> subprocess.CompletedProcess:
         self.commands.append(command)
-        code = 0
+        code, stdout, stderr = 0, "", ""
         if command[:2] == ["systemctl", "start"]:
             self.running.update(command[2:])
         elif command[:2] == ["systemctl", "stop"]:
@@ -52,7 +62,33 @@ class FakeSystem(System):
             self.docker_group = True
         elif command[:1] == ["gpasswd"]:
             self.docker_group = False
-        return subprocess.CompletedProcess(command, code, "", "")
+        elif command[:1] == ["docker"]:
+            code, stdout, stderr = self._docker(command)
+        return subprocess.CompletedProcess(command, code, stdout, stderr)
+
+    def _docker(self, command: list[str]) -> tuple[int, str, str]:
+        known = {item["id"]: item for item in self.tenant_containers}
+        if command[:2] == ["docker", "ps"]:
+            return 0, "".join(identifier + "\n" for identifier in known), ""
+        if command[:4] == ["docker", "stop", "--time", "30"]:
+            ids, running = command[4:], False
+        elif command[:2] == ["docker", "start"]:
+            ids, running = command[2:], True
+        elif command[:3] == ["docker", "rm", "--force"]:
+            ids, running = command[3:], None
+        else:
+            return 0, "", ""
+        refused = [identifier for identifier in ids if running and identifier in self.unstartable]
+        for identifier in ids:
+            if identifier in known and running is None:
+                self.tenant_containers.remove(known[identifier])
+            elif identifier in known and identifier not in refused:
+                known[identifier]["running"] = running
+        missing = [identifier for identifier in ids if identifier not in known]
+        errors = [*(f"No such container: {identifier}" for identifier in missing),
+                  *(f"failed to create task for container {identifier}: invalid mount config for type "
+                    '"bind": bind source path does not exist' for identifier in refused)]
+        return (1 if errors else 0), "", "".join(f"Error response from daemon: {error}\n" for error in errors)
 
     def identity(self, name: str) -> tuple[int, int]:
         return os.getuid(), os.getgid()
@@ -63,41 +99,25 @@ class FakeSystem(System):
     def docker_member(self, name: str) -> bool:
         return self.docker_group
 
-    def prepare_release(self, settings, release, features) -> None:
+    def prepare_release(self, settings, release, features) -> list[str]:
         self.prepared.append(settings["revision"])
+        return list(self.build_warnings)
 
     def start(self, names: list[str]) -> None:
         super().start(names)
         for hook in self.on_start:
             hook(names)
 
-    def healthy(self, settings, services, containers=(), timeout=None) -> bool:
+    def readiness(self, settings: dict[str, Any], services, tenants: Collection[str] = (),
+                  timeout: int | None = None) -> Readiness:
         if settings["revision"] in self.unhealthy_revisions:
-            return False
-        if not all(service.name in self.running for service in services):
-            return False
-        return not self.route_issues(settings, services, containers)
+            return Readiness([f"Release {settings['revision'][:12]} is unhealthy."], {})
+        return super().readiness(settings, services, tenants, timeout=0)
 
     # Tenant containers live in memory (hosting tests add them to ``tenant_containers``).
 
     def containers(self, settings: dict[str, Any]) -> list[dict[str, Any]]:
         return [dict(item) for item in self.tenant_containers] if settings["mode"] == "hosting" else []
-
-    def stop_containers(self, containers: list[dict[str, Any]]) -> None:
-        stopped = {item["id"] for item in containers}
-        for item in self.tenant_containers:
-            if item["id"] in stopped:
-                item["running"] = False
-
-    def resume_containers(self, containers: list[dict[str, Any]]) -> None:
-        resumed = {item["id"] for item in containers if item["running"]}
-        for item in self.tenant_containers:
-            if item["id"] in resumed:
-                item["running"] = True
-
-    def remove_containers(self, containers: list[dict[str, Any]]) -> None:
-        removed = {item["id"] for item in containers}
-        self.tenant_containers = [item for item in self.tenant_containers if item["id"] not in removed]
 
     def started(self) -> list[list[str]]:
         return [command for command in self.commands if command[:2] == ["systemctl", "start"]]

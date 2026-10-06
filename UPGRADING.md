@@ -94,8 +94,9 @@ sudo bananawiki status
   agent's routes directory (`/var/lib/bananawiki-routes`) and, if the
   Caddyfile was installed with `bananawiki proxy --install`, re-renders it to
   import that directory (Caddy is reloaded only when the file changes). The
-  step is finished only when every running wiki is healthy and routed. If the
-  readiness checks fail, the old units, `app.env` and Caddyfile are put back.
+  step is finished only when every wiki that was serving is healthy and
+  routed again. If the readiness checks fail, the old units, `app.env` and
+  Caddyfile are put back.
   **On a hosting server the wikis are not reachable between the two updates**,
   so run the second one right away. A Caddyfile you wrote yourself is left
   alone; `update` then warns until it contains

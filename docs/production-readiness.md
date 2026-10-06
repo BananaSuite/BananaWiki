@@ -117,7 +117,13 @@ and a subsequent conversion succeeds.
 
 The images use Debian 13 and apply available distribution updates during
 the build. Unused Python installers and their vulnerable bundled components
-are removed from the runtime image.
+are removed from the runtime image. The managed updater builds the tenant
+image of every release on a freshly pulled base image and repeats the
+upgrade and package installation instead of reusing cached layers (with the
+registry unreachable it falls back to the cached base image and reports
+`image_warnings`). Between releases the running image does not change
+(`status` shows `tenant_image_built`); single-wiki images get later fixes
+only when rebuilt with `--pull --no-cache`.
 
 The hardened tenant image scan reports **zero high/critical Python findings**
 and **zero high/critical OS findings with available distribution fixes**.

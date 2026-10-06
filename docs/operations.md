@@ -27,7 +27,9 @@ there too.
 * `sudo bananawiki status` prints the mode, deployed revision, update source
   and policy, whether maintenance or a recovery is pending, whether the
   systemd units are current, the last operation and update, local packages
-  and the encrypted-backup status.
+  and the encrypted-backup status. On hosting servers `tenant_image_built`
+  is when the running tenant image was built, i.e. how old its distribution
+  packages are.
 * **Admin → Dashboard** shows request, page-view and error counts;
   **Admin → Server** has the error log and a restart button.
 * `bananawiki db check` runs SQLite's integrity check and prints the schema
@@ -68,7 +70,16 @@ What happens:
 3. The release is prepared next to the running one (new virtual environment,
    wheels only; on hosting servers the tenant image). The wiki keeps serving
    meanwhile. A failure here leaves everything as it was and records the
-   commit as failed.
+   commit as failed. The tenant image is built on a freshly pulled base image
+   and runs the Debian upgrade and the package installation again (no cached
+   layers), so each update also brings the wikis the distribution and Python
+   security fixes published so far. If the registry cannot be reached (or
+   the pull takes more than 10 minutes), the image is built on the base
+   image already on the server and the result carries `image_warnings`. The
+   base image a pull replaced is removed after the build. Every release's
+   image has its own package layers, so plan Docker's disk for the full size
+   of each kept tenant image (the current one, the previous one and those of
+   the releases kept for rollback).
 4. A snapshot of `data/`, `site/` and the configuration is taken while the
    wiki still runs (consistent SQLite copies, hard links for uploads; on
    hosting servers the files of hosted wikis are always copied, by
@@ -78,9 +89,11 @@ What happens:
    `current` link switches to the new release, units are rewritten, and the
    services start. The database is upgraded by the new release when it
    starts.
-6. If the new release does not pass its readiness checks (`/health`, and on
-   hosting servers every running wiki), the snapshot is put back, the old
-   release is switched back in and started. The result is `rolled_back`.
+6. If the new release does not pass its readiness checks (`/health`; on
+   hosting servers also the published wiki routes and every wiki that
+   answered its own health check when the update began and is still marked
+   running), the snapshot is put back, the old release is switched back in
+   and started. The result is `rolled_back`.
 7. After success, a portable package `backups/before-update-<time>.tar.gz` is
    written from the snapshot **after** the site is back up, verified as a
    restore would verify it, and only then recorded as the rollback target
@@ -90,6 +103,28 @@ What happens:
    are removed.
 
 Downtime is the time to stop, copy what changed since the snapshot, and start.
+
+On hosting servers one wiki never keeps the platform in maintenance. A wiki
+that was already failing when an operation began (for example one whose
+directory is missing, or one that fails while its maintenance marker exists)
+is not waited for. A wiki that served before a backup, a recovery or a
+`start` and does not serve again, whatever its health check answers, is
+waited for up to the readiness timeout and then reported, and the operation
+still ends; so is one whose container Docker can no longer start. Such
+wikis, and those whose container was running but that were already failing
+and still do not serve once an update, a backup, a restore or a recovery is
+complete (checked once at the very end, after any package is written; this
+check never changes the outcome), are listed as
+`unready_tenants` in the result and in `status` (`last_operation`); why a
+wiki that was waited for does not serve is recorded in
+`config/last-readiness-failure.json`. Only an update or a restore is rolled
+back, and a `restart` fails, when a wiki that served before does not serve
+again. If Docker does not answer when a backup, an update, a restore or a
+`restart` begins, the command fails before anything is stopped (for an
+update, before the new release's tenant image is built); such an update is
+not recorded as a failed commit, so the next automatic run tries it again. A Docker that stops answering later, while readiness is checked,
+counts as the application not being ready: the command waits for it up to
+the readiness timeout.
 
 Options: `--allow-divergent`; `--retry-failed` retries a commit that failed
 before (automatic runs skip such commits).
@@ -129,7 +164,9 @@ ALLOWED_SIGNERS` deploys only commits SSH-signed by a listed key
 
 * Source checkout: `git pull`, `pip install -r requirements.txt` (or
   `pip install -e .`), restart the service.
-* Docker Compose: `git pull && docker compose build && docker compose up -d`.
+* Docker Compose: `git pull && docker compose build --pull --no-cache && docker compose up -d`
+  (without `--pull --no-cache` Docker reuses the old base image and package
+  layers, and the image gets no security updates).
 * Desktop: replace the application; the data folder stays.
 
 Before a release that changes the schema starts, it writes a copy of the
@@ -260,7 +297,20 @@ sudo bananawiki rollback [--package FILE]
   server); add `--name`, `--domain` or `--port` to change them.
 * `sudo bananawiki recover` finishes an interrupted operation (power loss
   during an update): it puts the recorded state back. Every other command
-  does this first automatically.
+  does this first automatically. The state is put back once: if the
+  restored release then does not start, the operation still ends with
+  maintenance mode on, and later commands do not restore it again; fix the
+  cause and run `start`. When the operation was interrupted before it
+  stopped any wiki and has nothing to put back, `recover` does not need
+  Docker: it brings the platform back, leaves the wikis as they are, and the
+  portal starts again those not running once Docker answers (`start` and
+  `restart` still need Docker).
+  `recover --abandon` drops an operation that
+  `recover` cannot finish (for example because its snapshot was deleted or
+  its journal is unreadable) without putting anything back: release, units
+  and data stay as they are and maintenance mode stays on until `start`. The
+  snapshot, if any, stays under `staging/` until the next backup, update or
+  restore deletes it.
 
 New managed packages include `config/repo.allowed_signers` when updates require
 SSH signatures. Packages from earlier releases may omit it. Recover the
@@ -380,7 +430,7 @@ installation. Results are printed as JSON. Exit status: 0 success, 1 error,
 | `restore PACKAGE [--domain D] [--port N]` | Restore a package (after saving the current state). |
 | `rollback [--package FILE]` | Restore the package taken before the last update. |
 | `status` | Installation status. |
-| `start`, `stop`, `restart`, `recover` | Service control; `restart` also rewrites units; `recover` finishes an interrupted operation. |
+| `start`, `stop`, `restart`, `recover [--abandon]` | Service control; `restart` also rewrites units; `recover` finishes an interrupted operation (`--abandon` drops one it cannot finish). |
 | `proxy [--install [--replace]] [--email ADDRESS]` | Print or install the Caddy configuration. |
 | `backups keygen\|configure\|status\|list\|run\|enable\|disable\|verify\|download\|restore` | Encrypted Git backups (see above); `verify`, `download` and `restore` take `--allow-unauthenticated` for snapshots made before authentication. |
 | `uninstall [--purge --confirm NAME]` | Remove the services. |

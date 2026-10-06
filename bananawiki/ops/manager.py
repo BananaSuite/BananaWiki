@@ -26,8 +26,9 @@ import os
 import re
 import secrets
 import shutil
+import subprocess
 import tarfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
@@ -50,10 +51,10 @@ from .files import (
     write_json,
     write_package,
 )
-from .profile import ReleaseFeatures, Service
+from .profile import TENANT_IMAGE, ReleaseFeatures, Service
 from .snapshot import Snapshot, stale_snapshots
 from .source import GitSource, credential_host, valid_branch, valid_revision, valid_url
-from .system import System
+from .system import DockerUnavailable, System
 
 DEFAULT_POLICY = {"enabled": False, "interval_minutes": 60, "keep_backups": 3}
 PRUNED_PREFIXES = ("auto", "before-update")
@@ -66,12 +67,18 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def tenant_names(directories: Iterable[str]) -> list[str]:
+    """Wikis by their directory name (``<slug>`` or ``<slug>__apex``), for reports."""
+    return sorted(Path(directory).name for directory in directories)
+
+
 class Manager:
     def __init__(self, root: str | os.PathLike[str], *, system: System | None = None):
         self.root = absolute_path(root)
         self.config_dir = self.root / "config"
         self.system = system or System(log_dir=self.config_dir)
         self.product = PRODUCT
+        self.last_event: dict[str, Any] = {}  # the last event recorded, for commands whose result is not one
 
     # Configuration --------------------------------------------------------
 
@@ -112,6 +119,7 @@ class Manager:
         value = {"time": _now(), "operation": operation, "outcome": outcome, **details}
         write_json(self.config_dir / "status.json", value)
         append_jsonl(self.config_dir / "history.jsonl", value)
+        self.last_event = value
         return value
 
     def layout(self) -> None:
@@ -231,9 +239,11 @@ class Manager:
                 raise ValueError("The selected revision produced no readable source. Choose a compatible branch.") from error
             if not (release / "banana").is_file() or not (release / "LICENSE").is_file():
                 raise ValueError("The selected revision does not support the managed lifecycle. Choose a compatible branch.")
-            self.system.prepare_release(settings, release, ReleaseFeatures.of(release))
+            warnings = self.system.prepare_release(settings, release, ReleaseFeatures.of(release)) or []
             shutil.copyfile(archive_file, release / ".source.tar.gz")
-            write_json(release / ".release.json", {"revision": revision, "product": PRODUCT})
+            # Kept with the release: an update that reuses it reports them again.
+            write_json(release / ".release.json", {"revision": revision, "product": PRODUCT,
+                                                   **({"warnings": warnings} if warnings else {})})
             return release
         except BaseException:
             if release.exists():
@@ -384,7 +394,7 @@ class Manager:
             atomic_write(self.root / "data" / MAINTENANCE_MARKER, "Installing\n")
             services = self.services(settings)
             self.system.start([service.name for service in services])
-            if not self.system.healthy(settings, services):
+            if not self.system.readiness(settings, services).ready:
                 self.event("install", "failed", revision=settings["revision"],
                            reason="Initial health checks failed; maintenance mode remains active.")
                 raise RuntimeError("Initial health checks failed. Inspect the service journal, correct the "
@@ -398,9 +408,17 @@ class Manager:
 
     def journal_state(self, settings: dict[str, Any]) -> dict[str, Any]:
         names = self.names(settings)
+        # The tenant containers are recorded by quiesce(), once nothing can stop or remove them any more.
         return {"settings": settings, "services": names, "active": [name for name in names if self.system.active(name)],
-                "containers": self.system.containers(settings), "backup": None, "snapshot": None,
-                "candidate": None, "phase": "preparing"}
+                "containers": [], "serving": [], "backup": None, "snapshot": None, "candidate": None,
+                "phase": "preparing"}
+
+    @staticmethod
+    def serving(journal: dict[str, Any]) -> list[str]:
+        """The wikis that served when the transaction began (older journals: those with a running container)."""
+        if "serving" in journal:
+            return list(journal["serving"])
+        return [item["data_dir"] for item in journal.get("containers") or [] if item.get("running")]
 
     def tenant_maintenance(self, settings: dict[str, Any], enabled: bool) -> None:
         instances = self.root / "data/instances"
@@ -418,25 +436,73 @@ class Manager:
                                 directory.name, error)
 
     def quiesce(self, journal: dict[str, Any]) -> None:
+        settings = journal["settings"]
         write_json(self.config_dir / "transaction.json", journal)
         atomic_write(self.root / "data" / MAINTENANCE_MARKER, "Maintenance in progress\n")
-        self.tenant_maintenance(journal["settings"], True)
+        self.tenant_maintenance(settings, True)
         self.system.stop(journal["services"])
+        # Listed only now: until it stopped, the maintenance service could stop or remove wikis (R-13).
+        journal["containers"] = self.system.containers(settings)
+        # Probed with the maintenance markers set: a wiki that does not serve in maintenance mode now is not
+        # expected to serve in it after the operation either.
+        journal["serving"] = self.system.serving_tenants(journal["containers"])
+        write_json(self.config_dir / "transaction.json", journal)
         self.system.stop_containers(journal["containers"])
 
-    def finish(self, journal: dict[str, Any], settings: dict[str, Any], *, old_containers: bool = False) -> None:
+    def finish(self, journal: dict[str, Any], settings: dict[str, Any], *, old_containers: bool = False,
+               required: bool = False) -> tuple[list[str], list[str]]:
+        """Start *settings*' services, wait for them and the wikis that served before, end the transaction.
+
+        The application must become ready. A wiki that served when the
+        transaction began and does not serve again fails the operation when
+        it is *required* (the operation deployed something and is undone);
+        otherwise it is only reported, so one broken wiki never keeps the
+        platform in maintenance. Returns ``(the wikis waited for that do not
+        serve, the data directories of those that were running without
+        serving when the transaction began)``: the caller checks the latter
+        with :meth:`check_tenants` once the operation is complete, since
+        nothing may fail between the end of the transaction and its result.
+        """
         if old_containers:
-            self.system.resume_containers(journal["containers"])
+            for directory in self.system.resume_containers(journal["containers"]):
+                log.warning("The container of tenant %s did not start again.", Path(directory).name)
         services = self.services(settings)
         names = [service.name for service in services]
         self.system.start(names)
-        if not self.system.healthy(settings, services, journal["containers"]):
-            raise RuntimeError("The application or a previously running wiki failed its readiness checks.")
+        serving = self.serving(journal)
+        readiness = self.system.readiness(settings, services, serving)
+        if readiness.platform:
+            raise RuntimeError("The application failed its readiness checks.")
+        unready = tenant_names(readiness.tenants)
+        if unready and required:
+            raise RuntimeError("Wikis that were running failed their readiness checks: " + ", ".join(unready[:20])
+                               + (f" and {len(unready) - 20} more" if len(unready) > 20 else "") + ".")
+        others = {item["data_dir"] for item in journal["containers"] if item.get("running")} - set(serving)
         known = journal.get("services") or names
         self.system.stop([name for name in names if name in known and name not in journal["active"]])
         self.tenant_maintenance(settings, False)
         (self.root / "data" / MAINTENANCE_MARKER).unlink(missing_ok=True)
         (self.config_dir / "transaction.json").unlink(missing_ok=True)
+        return unready, sorted(others)
+
+    def check_tenants(self, settings: dict[str, Any], directories: list[str]) -> list[str]:
+        """The wikis of *directories* still running in the portal database that do not serve now (one probe each).
+
+        Only a report, made once an operation is complete: whatever goes wrong
+        here leaves the operation and its result as they are.
+        """
+        if not directories:
+            return []
+        platform: list[str] = []  # Docker or the portal database not answering, for example
+        try:
+            issues = self.system.tenant_issues(settings, self.services(settings), directories, platform)
+        except Exception as error:  # noqa: BLE001 - never turns a completed operation into a failed one
+            platform.append(str(error))
+            issues = {}
+        if platform:
+            log.warning("The wikis that were failing before the operation were not fully checked: %s",
+                        "; ".join(platform))
+        return tenant_names(issues)
 
     def allowed_link(self, settings: dict[str, Any]) -> Callable[[Path], bool] | None:
         if settings["mode"] != "hosting":
@@ -451,6 +517,9 @@ class Manager:
         Returns ``(body result, snapshot)``; the caller writes the package from
         the snapshot once the service is back and then removes it.
         """
+        # Before anything stops. The journal's list of containers is taken only in quiesce, once the maintenance
+        # service is stopped.
+        self.system.check_docker(settings)
         snapshot = Snapshot.create(self.root, self.allowed_link(settings))
         journal = self.journal_state(settings)
         journal.update(candidate=candidate, snapshot=str(snapshot.path))
@@ -519,12 +588,15 @@ class Manager:
             for directory in (self.root / "data", self.root / "site", self.root / "releases", self.root / "staging"):
                 if destination.is_relative_to(directory):
                     raise ValueError("Write backup packages outside the data, site, staging and release directories.")
-            _, snapshot = self.guarded(settings, lambda journal: self.finish(journal, settings, old_containers=True))
+            (unready, others), snapshot = self.guarded(
+                settings, lambda journal: self.finish(journal, settings, old_containers=True))
             try:
                 result = self.package_from(snapshot, settings, destination)
             finally:
                 snapshot.remove()
-            self.event("backup", "complete", package=str(result))
+            unready = sorted({*unready, *self.check_tenants(settings, others)})
+            details = {"unready_tenants": unready} if unready else {}
+            self.event("backup", "complete", package=str(result), **details)
             return result
 
     # Update ---------------------------------------------------------------
@@ -556,6 +628,13 @@ class Manager:
                                          "newer revision.")
             candidate = {**settings, "revision": sha, "source_url": source["url"]}
             try:
+                # Before stage(): building the tenant image needs Docker, and a build that fails because
+                # Docker is down would otherwise be recorded as this revision's failure.
+                self.system.check_docker(settings)
+            except DockerUnavailable as error:
+                self.event("update", "failed", revision=sha, reason=str(error))
+                raise
+            try:
                 self.stage(candidate)
             except BaseException:
                 write_json(self.config_dir / "failed-revision.json", {"revision": sha})
@@ -565,7 +644,7 @@ class Manager:
             if automatic and not self.policy()["enabled"]:
                 return self.event("update", "cancelled", reason="Automatic updates were disabled while preparing.")
 
-            def apply(journal: dict[str, Any]) -> None:
+            def apply(journal: dict[str, Any]) -> list[str]:
                 self.system.remove_containers(journal["containers"])
                 journal["containers_removed"] = True
                 write_json(self.config_dir / "transaction.json", journal)
@@ -580,11 +659,18 @@ class Manager:
                 details.update(self.refresh_proxy(
                     candidate, journal["proxy"],
                     persist=lambda: write_json(self.config_dir / "transaction.json", journal)))
-                self.finish(journal, candidate)
+                return self.finish(journal, candidate, required=True)[1]  # required: every waited wiki serves
 
             details: dict[str, Any] = {}
+            warnings = (read_json(self.release(sha) / ".release.json", {}) or {}).get("warnings")
+            if warnings:
+                details["image_warnings"] = warnings
             try:
-                _, snapshot = self.guarded(settings, apply, candidate=sha)
+                others, snapshot = self.guarded(settings, apply, candidate=sha)
+            except DockerUnavailable as error:
+                # Nothing was stopped: not this revision's failure, so the next automatic run tries it again.
+                self.event("update", "failed", revision=sha, reason=str(error))
+                raise
             except BaseException:
                 write_json(self.config_dir / "failed-revision.json", {"revision": sha})
                 self.event("update", "rolled_back", revision=sha, restored_revision=settings["revision"])
@@ -604,6 +690,9 @@ class Manager:
             kept = self.prune_releases({settings["revision"], sha})
             if settings["mode"] == "hosting":
                 details["images_removed"] = self.system.prune_images(kept)
+            unready = self.check_tenants(candidate, others)
+            if unready:
+                details["unready_tenants"] = unready
             return self.event("update", "complete", revision=sha, previous_revision=settings["revision"],
                               branch=selected, used_fallback=selected != source["branch"], **details)
 
@@ -613,9 +702,9 @@ class Manager:
         Rewrites outdated units (hosting: installs the runtime agent and drops
         the portal's Docker access), creates the agent's routes directory and
         re-renders the managed Caddyfile so wikis are routed straight to their
-        containers, then restarts with readiness checks (every running wiki
-        healthy and routed). On failure the units, ``app.env`` and the
-        Caddyfile are put back. Returns what changed, or None.
+        containers, then restarts with readiness checks (every wiki that
+        served before healthy and routed). On failure the units, ``app.env``
+        and the Caddyfile are put back. Returns what changed, or None.
         """
         features = self.features(settings["revision"])
         if not features.hardened:
@@ -638,6 +727,7 @@ class Manager:
             return {"units": units_outdated, **details}
         saved = self.system.save_units(settings, names)
         environment = (self.config_dir / "app.env").read_bytes()
+        serving = self.system.serving_tenants(self.system.containers(settings))
         try:
             if units_outdated:
                 self.system.stop(names)
@@ -645,7 +735,7 @@ class Manager:
                 self.install_units(settings)
             details = self.refresh_proxy(settings, undo)
             self.system.start(names)
-            if not self.system.healthy(settings, services):
+            if not self.system.readiness(settings, services, serving).ready:
                 raise RuntimeError("The service failed its readiness checks with the converged configuration.")
         except BaseException:
             self.restore_proxy(undo)
@@ -733,7 +823,16 @@ class Manager:
         self.save(settings)
 
     def recover(self) -> bool:
-        """Finish an interrupted transaction (written by 1.4 or 1.6): put the recorded state back."""
+        """Finish an interrupted transaction (written by 1.4 or 1.6): put the recorded state back, once.
+
+        When data, release and units are back the journal says so (phase
+        ``restored``): a later recovery only starts them again and never undoes
+        what the operator changed in the meantime. Wikis that do not serve
+        again are reported, not waited for indefinitely. If the application
+        itself does not start, whatever the error, the transaction still ends
+        (nothing is left to put back) and maintenance mode stays on, as after
+        a failed ``start``.
+        """
         journal = read_json(self.config_dir / "transaction.json")
         if not journal:
             return False
@@ -743,31 +842,73 @@ class Manager:
         if candidate and self.release(candidate).is_dir():
             names += [name for name in self.names({**settings, "revision": candidate}) if name not in names]
         self.system.stop(names)
-        current = self.system.containers(settings)
-        self.system.stop_containers(current)
-        restored = False
-        if journal.get("phase") == "snapshotted" and journal.get("snapshot"):
+        restored = journal.get("phase") == "restored"
+        from_snapshot = not restored and journal.get("phase") == "snapshotted" and bool(journal.get("snapshot"))
+        from_package = not restored and not from_snapshot and bool(journal.get("backup"))
+        try:
+            current = self.system.containers(settings)
+            self.system.stop_containers(current)
+        except (RuntimeError, OSError, subprocess.SubprocessError) as error:
+            if restored or from_snapshot or from_package or journal.get("containers"):
+                raise
+            # Interrupted before it listed (so before it stopped) any wiki, and nothing to put back: Docker is
+            # not needed to bring the platform back, and the portal starts the wikis again once Docker answers.
+            log.warning("Docker could not be reached; the tenant containers were left as they are: %s", error)
+            current = []
+        if from_snapshot:
             self.system.remove_containers(current)
             snapshot = Snapshot.open(journal["snapshot"], self.root)
             self.apply_tree(snapshot.path, str(self.root), settings, copier=snapshot.copy_tree,
                             copy_source=journal.get("restore_source", False))
             restored = True
-        elif journal.get("backup"):
+        elif from_package:
             self.system.remove_containers(current)
             with read_package(Path(journal["backup"]), PRODUCT, self.root / "staging") as (extracted, manifest):
                 self.apply_tree(extracted, manifest["old_root"], settings,
                                 copy_source=journal.get("restore_source", False))
             restored = True
-        if restored:
+        if restored and journal.get("phase") != "restored":
             self.switch(settings["revision"])
             self.install_units(settings)
+            journal["phase"] = "restored"
+            write_json(self.config_dir / "transaction.json", journal)
         self.restore_proxy(journal.get("proxy"))
-        if restored:
-            self.finish(journal, settings)
-        else:
-            self.finish(journal, settings, old_containers=True)
-        self.event("recover", "complete", restored_revision=settings["revision"], data_restored=restored)
+        try:
+            unready, others = self.finish(journal, settings, old_containers=not restored)
+        except Exception as error:  # noqa: BLE001 - a journal kept for it would fail every later command
+            (self.config_dir / "transaction.json").unlink(missing_ok=True)
+            self.event("recover", "failed", restored_revision=settings["revision"], data_restored=restored,
+                       reason=str(error))
+            raise RuntimeError(f"The previous state was put back, but it did not start: {error} Maintenance "
+                               "mode remains active; inspect the service journal and "
+                               "config/last-readiness-failure.json, then run start.") from error
+        unready = sorted({*unready, *self.check_tenants(settings, others)})
+        self.event("recover", "complete", restored_revision=settings["revision"], data_restored=restored,
+                   **({"unready_tenants": unready} if unready else {}))
         return True
+
+    def abandon(self) -> dict[str, Any]:
+        """Drop an interrupted transaction without putting its recorded state back (``recover --abandon``).
+
+        Only for a transaction :meth:`recover` cannot finish, for example
+        because its snapshot or package is gone or unreadable, or the journal
+        itself is. Release, units and data stay as they are and maintenance
+        mode stays on. The snapshot is kept until the next backup, update or
+        restore deletes it; check the installation, then run ``start`` or
+        restore a package.
+        """
+        path = self.config_dir / "transaction.json"
+        try:
+            journal = read_json(path)
+        except ValueError:  # unreadable: exactly when recover cannot run
+            journal = {}
+        if journal is None:
+            return {"outcome": "nothing to abandon"}
+        if not isinstance(journal, dict) or not journal:
+            journal = {"phase": "unreadable"}
+        path.unlink(missing_ok=True)
+        return self.event("recover", "abandoned", phase=journal.get("phase"), candidate=journal.get("candidate"),
+                          snapshot=journal.get("snapshot"))
 
     def restore(self, package: Path, *, new: bool = False, name: str | None = None, domain: str | None = None,
                 port: int | None = None) -> dict[str, Any]:
@@ -789,7 +930,7 @@ class Manager:
                 if not existing:
                     self.system.preflight(restored, self.services(restored))
 
-                def apply(journal: dict[str, Any] | None) -> None:
+                def apply(journal: dict[str, Any] | None) -> list[str]:
                     if journal:
                         # Updates preserve the operator's source settings, but
                         # a restore replaces them and must roll them back too.
@@ -803,18 +944,18 @@ class Manager:
                     self.system.install_timer(restored, self.policy())
                     self._disable_remote_schedule(restored)
                     if journal:
-                        self.finish(journal, restored)
-                        return
+                        return self.finish(journal, restored, required=True)[1]  # every waited wiki serves
                     services = self.services(restored)
                     self.system.start([service.name for service in services])
-                    if not self.system.healthy(restored, services):
+                    if not self.system.readiness(restored, services).ready:
                         raise RuntimeError("The restored service failed its health checks. Maintenance mode remains active.")
                     self.tenant_maintenance(restored, False)
                     (self.root / "data" / MAINTENANCE_MARKER).unlink(missing_ok=True)
+                    return []
 
                 details: dict[str, Any] = {}
                 if existing:
-                    _, snapshot = self.guarded(self.settings(), apply)
+                    others, snapshot = self.guarded(self.settings(), apply)
                     try:
                         details["previous_package"] = str(
                             self.package_from(snapshot, existing, self.backup_name("before-restore")))
@@ -822,6 +963,9 @@ class Manager:
                         details["backup_warning"] = f"The pre-restore package could not be written: {error}"
                     finally:
                         snapshot.remove()
+                    unready = self.check_tenants(restored, others)
+                    if unready:
+                        details["unready_tenants"] = unready
                 else:
                     apply(None)
             return self.event("restore", "complete", revision=restored["revision"], automatic_updates=False, **details)
@@ -883,8 +1027,11 @@ class Manager:
 
         settings = self.settings()
         features = self.features(settings["revision"])
+        image = (self.system.image_created(f"{TENANT_IMAGE}:{settings['revision']}")
+                 if settings["mode"] == "hosting" else None)
         return {
             "product": PRODUCT, "mode": settings["mode"], "revision": settings["revision"], "root": str(self.root),
+            **({"tenant_image_built": image} if image else {}),
             "service": settings["service"], "installed": settings.get("installed", False), "source": self.source(),
             "updates": self.policy(), "maintenance": (self.root / "data" / MAINTENANCE_MARKER).exists(),
             "recovery_pending": bool(read_json(self.config_dir / "transaction.json")),

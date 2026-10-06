@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import errno
 import grp
+import http.client
 import ipaddress
 import json
 import os
@@ -19,12 +20,13 @@ import sqlite3
 import stat
 import subprocess
 import sys
+import threading
 import time
-import urllib.error
-import urllib.request
-from collections.abc import Callable, Sequence
+import urllib.parse
+from collections.abc import Callable, Collection, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from . import MANAGED_MARKER, units
 from .caddy_blocks import parse_version
@@ -34,6 +36,38 @@ from .runtime_agent import ROUTES_FILE, ROUTES_WANTED
 
 Runner = Callable[..., subprocess.CompletedProcess]
 AUXILIARY_SUFFIXES = ("-tts", "-maintenance", "-agent")
+TENANT_FILTER = "label=org.bananawiki.role=tenant"
+
+
+class Readiness(NamedTuple):
+    """What :meth:`System.readiness` found when it stopped waiting."""
+
+    platform: list[str]  # why the application itself is not ready (services, /health, Docker, routes)
+    tenants: dict[str, str]  # data directory -> why that wiki, one the caller waited for, does not serve
+
+    @property
+    def ready(self) -> bool:
+        return not self.platform and not self.tenants
+
+
+class DockerUnavailable(RuntimeError):
+    """Docker did not answer when an operation began (:meth:`System.check_docker`): nothing was changed."""
+
+
+def base_images(dockerfile: Path) -> list[str]:
+    """The registry images a Dockerfile builds ``FROM`` (earlier stages, ``scratch`` and variables excluded)."""
+    images: list[str] = []
+    stages: set[str] = set()
+    for line in dockerfile.read_text(encoding="utf-8").splitlines():
+        words = [word for word in line.split() if not word.startswith("--")]
+        if len(words) < 2 or words[0].upper() != "FROM":
+            continue
+        image = words[1]
+        if image.lower() not in stages and image != "scratch" and "$" not in image and image not in images:
+            images.append(image)
+        if len(words) >= 4 and words[2].upper() == "AS":
+            stages.add(words[3].lower())
+    return images
 
 
 def set_release_owner(path: Path, uid: int, gid: int, *, readonly: bool = False) -> None:
@@ -76,13 +110,43 @@ def set_release_owner(path: Path, uid: int, gid: int, *, readonly: bool = False)
         os.close(descriptor)
 
 
-def _http_status(url: str) -> int:
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+def _http_status(url: str, *, deadline: float = 15) -> int:
+    """``GET`` *url* straight from its address and return the status: no proxy, no redirect.
+
+    Tenants answer these probes, so a reply is never followed anywhere (a
+    redirect is just its 3xx status) and the whole exchange is bounded: a peer
+    that trickles its reply is cut off after *deadline* seconds, not only
+    after 5 silent seconds.
+    """
+    parts = urllib.parse.urlsplit(url)
+    connection = http.client.HTTPConnection(parts.hostname or "", parts.port, timeout=5)
+    expired = threading.Event()
+
+    def expire() -> None:
+        expired.set()
+        sock = connection.sock
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)  # wakes the blocked read
+            except OSError:
+                pass
+
+    timer = threading.Timer(deadline, expire)
+    timer.daemon = True
+    timer.start()
     try:
-        with opener.open(url, timeout=5) as response:
-            return int(response.status)
-    except urllib.error.HTTPError as error:
-        return int(error.code)
+        connection.request("GET", parts.path or "/")
+        status = connection.getresponse().status
+    except Exception as error:
+        if expired.is_set():  # the cut usually surfaces as a closed connection or a malformed reply
+            raise TimeoutError(f"No complete reply within {deadline} seconds.") from error
+        raise
+    finally:
+        timer.cancel()
+        connection.close()
+    if expired.is_set():  # what was read before the cut may still parse as a reply
+        raise TimeoutError(f"No complete reply within {deadline} seconds.")
+    return int(status)
 
 
 class System:
@@ -212,8 +276,11 @@ class System:
 
     # Releases -------------------------------------------------------------
 
-    def prepare_release(self, settings: dict[str, Any], release: Path, features: ReleaseFeatures) -> None:
-        """Build the release's venv as the service user (network: PyPI), then seal the tree read-only."""
+    def prepare_release(self, settings: dict[str, Any], release: Path, features: ReleaseFeatures) -> list[str]:
+        """Build the release's venv as the service user (network: PyPI), then seal the tree read-only.
+
+        Returns warnings for the operator (a tenant image built on a cached base image).
+        """
         uid, gid = self.identity(settings["service"])
         print(f"Preparing BananaWiki {settings['mode']} at {settings['revision'][:12]}.", file=sys.stderr, flush=True)
         for current, _dirs, files in os.walk(release):
@@ -232,11 +299,68 @@ class System:
         # 1.6 releases install wheels only: no package build scripts run on the server.
         binary = ["--only-binary=:all:"] if features.hardened else []
         self.run([*pip, *binary, "-r", str(release / "requirements.txt")], timeout=1800, cwd=release)
+        warnings: list[str] = []
         if settings["mode"] == "hosting":
             print("Building the tenant image from this source revision.", file=sys.stderr, flush=True)
-            self.run(["docker", "build", "--pull=false", "-f", str(release / "Dockerfile.tenant"),
-                      "-t", f"{TENANT_IMAGE}:{settings['revision']}", str(release)], timeout=1800)
+            warnings = self.build_tenant_image(settings, release)
         set_release_owner(release, 0, gid, readonly=True)
+        return warnings
+
+    def build_tenant_image(self, settings: dict[str, Any], release: Path) -> list[str]:
+        """Build ``bananawiki-tenant:<revision>`` on the newest base image, with current distribution updates.
+
+        The base image is pulled first (Debian and CPython fixes), and a new
+        ``BW_REFRESH`` value makes Docker run ``apt-get upgrade`` and the
+        package installation again instead of reusing the layers an earlier
+        release cached. A registry that cannot be reached does not hold the
+        release back: the image is then built on the base image already on
+        this host, and the returned warning says so. A base image the pull
+        replaced is removed once the build no longer needs it.
+        """
+        dockerfile = release / "Dockerfile.tenant"
+        warnings, replaced = [], []
+        for image in base_images(dockerfile):
+            previous = self._image_field(image, "{{.Id}}")
+            try:
+                pulled = not self.run(["docker", "pull", "--quiet", image], check=False, timeout=600).returncode
+            except (OSError, subprocess.SubprocessError):  # a registry that does not answer in time
+                pulled = False
+            if not pulled:
+                warnings.append(f"Could not pull {image}: the tenant image was built on the copy cached on this "
+                                "host and may lack its latest fixes (distribution updates were still applied). "
+                                "Check access to the registry; the next release build pulls again.")
+            elif previous and self._image_field(image, "{{.Id}}") not in (None, previous):
+                replaced.append(previous)
+        for warning in warnings:
+            print(f"Warning: {warning}", file=sys.stderr, flush=True)
+        refresh = "BW_REFRESH=" + datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        try:
+            self.run(["docker", "build", "--pull=false", "--build-arg", refresh, "-f", str(dockerfile),
+                      "-t", f"{TENANT_IMAGE}:{settings['revision']}", str(release)], timeout=1800)
+        finally:
+            # Untagged by the pull, it would stay on disk for good (a later pull sees no change), even when this
+            # build failed. Docker refuses (harmlessly) while a container or another tag still uses it; the
+            # layers of the tenant images built on it are kept either way.
+            for identifier in replaced:
+                try:
+                    self.run(["docker", "image", "rm", identifier], check=False, timeout=120)
+                except (OSError, subprocess.SubprocessError):
+                    pass
+        return warnings
+
+    def _image_field(self, image: str, template: str) -> str | None:
+        try:
+            result = self.run(["docker", "image", "inspect", "--format", template, image], check=False,
+                              timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode:
+            return None
+        return (result.stdout or "").strip() or None
+
+    def image_created(self, image: str) -> str | None:
+        """When *image* was built (Docker's ``Created``), or None when unknown."""
+        return self._image_field(image, "{{.Created}}")
 
     # Units ----------------------------------------------------------------
 
@@ -334,10 +458,25 @@ class System:
 
     # Tenant containers (the controller runs as root; the portal uses the runtime agent) --------------
 
+    def check_docker(self, settings: dict[str, Any]) -> None:
+        """Fail with :class:`DockerUnavailable` unless Docker answers (hosting only).
+
+        Checked before an operation stops anything, so that Docker being down
+        leaves everything as it was. Only ids are listed: unlike ``inspect``,
+        this cannot fail because the maintenance service, still running,
+        removes a wiki meanwhile.
+        """
+        if settings["mode"] != "hosting":
+            return
+        try:
+            self.run(["docker", "ps", "--all", "--quiet", "--filter", TENANT_FILTER], timeout=60)
+        except (RuntimeError, OSError, subprocess.SubprocessError) as error:
+            raise DockerUnavailable(f"Docker did not answer, so nothing was changed: {error}") from error
+
     def containers(self, settings: dict[str, Any]) -> list[dict[str, Any]]:
         if settings["mode"] != "hosting":
             return []
-        ids = self.run(["docker", "ps", "--all", "--quiet", "--filter", "label=org.bananawiki.role=tenant"]).stdout.split()
+        ids = self.run(["docker", "ps", "--all", "--quiet", "--filter", TENANT_FILTER]).stdout.split()
         if not ids:
             return []
         base = (Path(settings["root"]) / "data/instances").resolve()
@@ -378,19 +517,59 @@ class System:
         return output
 
     def stop_containers(self, containers: list[dict[str, Any]]) -> None:
-        ids = [item["id"] for item in containers if item["running"]]
-        if ids:
-            self.run(["docker", "stop", "--time", "30", *ids], timeout=300)
+        running = [item["id"] for item in containers if item["running"]]
+        self._each_container(["docker", "stop", "--time", "30"], running)
 
-    def resume_containers(self, containers: list[dict[str, Any]]) -> None:
-        ids = [item["id"] for item in containers if item["running"]]
-        if ids:
-            self.run(["docker", "start", *ids], timeout=300)
+    def resume_containers(self, containers: list[dict[str, Any]]) -> list[str]:
+        """Start again the containers that were running; returns the data directories of those that did not.
+
+        Each wiki on its own: a container that cannot start (its data
+        directory or published port is gone) must not keep the platform down.
+        The portal's maintenance service tries every wiki marked running again
+        and the readiness checks decide what a wiki that does not serve means.
+        One that no longer exists is skipped.
+        """
+        running = [item for item in containers if item["running"]]
+        try:
+            if not running or self.run(["docker", "start", *(item["id"] for item in running)], check=False,
+                                       timeout=300).returncode == 0:
+                return []
+            listing = self.run(["docker", "ps", "--all", "--quiet", "--no-trunc", "--filter", TENANT_FILTER],
+                               timeout=60)
+        except (RuntimeError, OSError, subprocess.SubprocessError):
+            return sorted(item["data_dir"] for item in running)
+        present = set(listing.stdout.split())
+        failed = []
+        for item in running:
+            if item["id"] not in present:
+                continue
+            try:
+                started = self.run(["docker", "start", item["id"]], check=False, timeout=120).returncode == 0
+            except (OSError, subprocess.SubprocessError):
+                started = False
+            if not started:
+                failed.append(item["data_dir"])
+        return sorted(failed)
 
     def remove_containers(self, containers: list[dict[str, Any]]) -> None:
-        ids = [item["id"] for item in containers]
-        if ids:
-            self.run(["docker", "rm", "--force", *ids], timeout=300)
+        self._each_container(["docker", "rm", "--force"], [item["id"] for item in containers])
+
+    def _each_container(self, command: list[str], ids: list[str]) -> None:
+        """Run *command* on tenant containers listed earlier; one that is gone meanwhile is not an error.
+
+        The portal's maintenance service removes the containers of the wikis
+        it terminates, and a journal outlives its containers when an operation
+        is interrupted. After a failure the command is repeated once on the
+        containers that still exist, so any other error still fails (stopping
+        and removing must not be skipped; starting is :meth:`resume_containers`).
+        """
+        if not ids or self.run([*command, *ids], check=False, timeout=300).returncode == 0:
+            return
+        present = set(self.run(["docker", "ps", "--all", "--quiet", "--no-trunc", "--filter", TENANT_FILTER],
+                               timeout=60).stdout.split())
+        remaining = [identifier for identifier in ids if identifier in present]
+        if remaining:
+            self.run([*command, *remaining], timeout=300)
 
     def prune_images(self, keep_revisions: set[str]) -> list[str]:
         """Remove tenant images of releases no longer kept (images still in use are left alone)."""
@@ -409,7 +588,8 @@ class System:
 
     # Readiness ------------------------------------------------------------
 
-    def readiness_timeout(self, settings: dict[str, Any], containers: Sequence[dict[str, Any]] = ()) -> int:
+    def readiness_timeout(self, settings: dict[str, Any]) -> int:
+        """Time for the portal to bring back every running wiki, a few at a time, before giving up."""
         if settings["mode"] != "hosting":
             return 180
         environment = read_environment(Path(settings["root"]) / "config/app.env")
@@ -419,75 +599,110 @@ class System:
         except ValueError:
             startup, workers = 120, 2
         try:
-            count = max(len(containers), len(self.expected_tenant_directories(settings)))
+            count = len(self.expected_tenant_directories(settings))
         except (OSError, sqlite3.Error, ValueError):
-            count = len(containers)
+            count = 0
         waves = max(1, (count + workers - 1) // workers)
         return min(7200, max(180, waves * (2 * startup + 120)))
 
-    def _tenant_urls(self, settings: dict[str, Any], containers: Sequence[dict[str, Any]],
-                     issues: list[str]) -> list[str] | None:
+    def _probe_issue(self, url: str) -> str | None:
+        """Why *url* does not answer 200 (tenants answer it: anything their reply raises is a failure)."""
         try:
-            expected = self.expected_tenant_directories(settings)
-            expected.update(item["data_dir"] for item in containers if item["running"])
-            current = {item["data_dir"]: item for item in self.containers(settings)}
-        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
-            issues.append(f"Cannot inspect required tenants: {type(error).__name__}")
-            return None
-        urls = []
-        missing = False
+            status = self.probe(url)
+        except Exception as error:  # noqa: BLE001 - a wiki's reply must never abort an operation
+            return type(error).__name__
+        return None if status == 200 else f"HTTP {status}"
+
+    @staticmethod
+    def _tenant_health_url(item: dict[str, Any] | None) -> tuple[str | None, str | None]:
+        """``(health URL, None)`` for a running tenant container, else ``(None, reason)``."""
+        if not item or not item["running"] or not item["addresses"]:
+            return None, "no running container"
+        port = item["internal_port"]
+        if not 1 <= port <= 65535:
+            return None, "invalid tenant port"
+        try:
+            address = ipaddress.ip_address(item["addresses"][0])
+        except ValueError:
+            return None, "invalid tenant address"
+        return f"http://{address}:{port}/health", None
+
+    def serving_tenants(self, containers: Sequence[dict[str, Any]]) -> list[str]:
+        """The data directories of the wikis among *containers* that answer ``/health`` now (one probe each)."""
+        serving = []
+        for item in containers:
+            url, _ = self._tenant_health_url(item)
+            if url and self._probe_issue(url) is None:
+                serving.append(item["data_dir"])
+        return sorted(serving)
+
+    def tenant_issues(self, settings: dict[str, Any], services: Sequence[Service], tenants: Collection[str],
+                      platform: list[str]) -> dict[str, str]:
+        """Why each wiki of *tenants* (data directories) still running in the portal database does not serve.
+
+        A wiki serves when its container runs, answers ``/health`` on its
+        bridge address and, when the portal routes it, is routed by Caddy to
+        that container. Problems that are no single wiki's (Docker or the
+        database unreadable, no routes published) are added to *platform*.
+        """
+        if settings["mode"] != "hosting" or not tenants:
+            return {}
+        try:
+            expected = self.expected_tenant_directories(settings) & set(tenants)
+            current = {item["data_dir"]: item for item in self.containers(settings)} if expected else {}
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError,
+                subprocess.SubprocessError) as error:  # a Docker daemon that hangs, too
+            platform.append(f"Cannot inspect required tenants: {type(error).__name__}")
+            return {}
+        routes = self.published_routes(settings, services, platform) if expected else None
+        issues = {}
         for directory in sorted(expected):
             item = current.get(directory)
-            if not item or not item["running"] or not item["addresses"]:
-                issues.append(f"Tenant has no running container: {directory}")
-                missing = True
-                continue
-            port = item["internal_port"]
-            if not 1 <= port <= 65535:
-                issues.append(f"Invalid tenant port for {directory}")
-                missing = True
-                continue
-            try:
-                address = ipaddress.ip_address(item["addresses"][0])
-            except ValueError:
-                issues.append(f"Invalid tenant address for {directory}")
-                missing = True
-                continue
-            urls.append(f"http://{address}:{port}/health")
-        return None if missing else urls
+            url, issue = self._tenant_health_url(item)
+            if url:
+                issue = self._probe_issue(url)
+            if issue is None and routes is not None and item and not self._routed(routes, directory, item):
+                issue = "not routed to its container"
+            if issue:
+                issues[directory] = issue
+        return issues
 
-    def healthy(self, settings: dict[str, Any], services: list[Service],
-                containers: Sequence[dict[str, Any]] = (), timeout: int | None = None) -> bool:
-        timeout = self.readiness_timeout(settings, containers) if timeout is None else timeout
+    def readiness(self, settings: dict[str, Any], services: Sequence[Service], tenants: Collection[str] = (),
+                  timeout: int | None = None) -> Readiness:
+        """Wait until the application and the wikis of *tenants* serve, or until *timeout* has passed.
+
+        The application (the platform) is ready when its services are
+        active, it answers ``/health`` and, while it routes wikis, their
+        routes are published. Of *tenants* (data directories: the wikis that
+        served before an operation) only those still running in the portal
+        database are waited for, so a wiki stopped, terminated or already
+        broken never delays the platform. The caller decides what a wiki that
+        does not serve means; whatever was not ready is recorded in
+        ``last-readiness-failure.json``.
+        """
+        timeout = self.readiness_timeout(settings) if timeout is None else timeout
         deadline = time.monotonic() + timeout
-        issues: list[str] = []
         while True:
-            issues = [f"Service is not active: {service.name}" for service in services if not self.active(service.name)]
-            urls = [f"http://127.0.0.1:{int(settings['port'])}/health"]
-            if settings["mode"] == "hosting":
-                tenants = self._tenant_urls(settings, containers, issues)
-                urls += tenants or []
-                if tenants is not None:
-                    issues += self.route_issues(settings, services, containers)
-            for url in urls:
-                try:
-                    status = self.probe(url)
-                except OSError as error:
-                    issues.append(f"{url}: {type(error).__name__}")
-                    continue
-                if status != 200:
-                    issues.append(f"{url}: HTTP {status}")
-            if not issues:
-                return True
+            platform = [f"Service is not active: {service.name}" for service in services
+                        if not self.active(service.name)]
+            url = f"http://127.0.0.1:{int(settings['port'])}/health"
+            issue = self._probe_issue(url)
+            if issue:
+                platform.append(f"{url}: {issue}")
+            wikis = self.tenant_issues(settings, services, tenants, platform)
+            if not platform and not wikis:
+                return Readiness([], {})
             if time.monotonic() >= deadline:
                 break
             self.sleep(3)
         if self.log_dir:
+            issues = [*platform, *(f"Tenant {Path(directory).name}: {reason}"
+                                   for directory, reason in sorted(wikis.items()))]
             atomic_write(self.log_dir / "last-readiness-failure.json", json.dumps({
                 "checked_at": time.time(), "revision": settings["revision"], "timeout_seconds": timeout,
                 "issues": issues[:100], "omitted_issues": max(0, len(issues) - 100),
             }, indent=2) + "\n")
-        return False
+        return Readiness(platform, wikis)
 
     # Reverse proxy ----------------------------------------------------------
 
@@ -578,55 +793,46 @@ class System:
     def reload_proxy(self, *, check: bool = True) -> None:
         self.run(["systemctl", "reload-or-restart", "caddy"], check=check, timeout=120)
 
-    def route_issues(self, settings: dict[str, Any], services: Sequence[Service],
-                     containers: Sequence[dict[str, Any]]) -> list[str]:
-        """Readiness of direct routing: every running wiki the portal routes has a current site block.
+    def published_routes(self, settings: dict[str, Any], services: Sequence[Service],
+                         platform: list[str]) -> tuple[dict[str, Any], dict[str, str]] | None:
+        """The portal's route table and the site block rendered for each wiki, when wikis are routed directly.
 
-        Only for hosting releases with the runtime agent in subdomain mode.
-        The portal publishes its table (``routes.json``) after it recovered the
-        wikis; the agent renders ``tenants.caddy`` with each container's
-        current address. A wiki absent from the table (for example one whose
-        account is suspended) is not required.
+        Only for hosting releases with the runtime agent in subdomain mode
+        (None otherwise). The portal publishes its table (``routes.json``)
+        after it recovered the wikis; the agent renders ``tenants.caddy`` with
+        each container's current address. A missing or unreadable table is a
+        *platform* issue: no wiki is reachable without it.
         """
         if settings["mode"] != "hosting" or not any(service.privileged for service in services):
-            return []
+            return None
         environment = read_environment(Path(settings["root"]) / "config/app.env")
         mode = environment.get("HOSTING_MODE", "subdomain" if settings.get("domain") else "port").lower()
         if mode != "subdomain":
-            return []
-        try:
-            expected = self.expected_tenant_directories(settings)
-        except (OSError, sqlite3.Error, ValueError):
-            expected = set()
-        expected.update(item["data_dir"] for item in containers if item["running"])
-        if not expected:
-            return []
+            return None
         directory = self.routes_directory(settings)
         try:
             wanted = json.loads((directory / ROUTES_WANTED).read_text(encoding="utf-8"))
             rendered = (directory / ROUTES_FILE).read_text(encoding="utf-8")
         except (OSError, ValueError):
-            return ["The portal has not published the wiki routes yet."]
+            platform.append("The portal has not published the wiki routes yet.")
+            return None
         if not isinstance(wanted, dict):
-            return ["The published wiki routes are unreadable."]
+            platform.append("The published wiki routes are unreadable.")
+            return None
         blocks = {}
         for block in rendered.split("\n# tenant ")[1:]:
             name, _, body = block.partition("\n")
             blocks[name] = body
-        try:
-            current = {item["data_dir"]: item for item in self.containers(settings)}
-        except (RuntimeError, ValueError, json.JSONDecodeError) as error:
-            return [f"Cannot inspect routed tenants: {type(error).__name__}"]
-        issues = []
-        for directory_name in sorted(expected):
-            tenant = Path(directory_name).name
-            if tenant not in wanted:
-                continue
-            item = current.get(directory_name)
-            upstream = f"{item['addresses'][0]}:{item['internal_port']} " if item and item["addresses"] else None
-            if upstream is None or f"reverse_proxy {upstream}" not in blocks.get(tenant, ""):
-                issues.append(f"Tenant is not routed to its container: {tenant}")
-        return issues
+        return wanted, blocks
+
+    @staticmethod
+    def _routed(routes: tuple[dict[str, Any], dict[str, str]], directory: str, item: dict[str, Any]) -> bool:
+        """Whether Caddy sends the wiki to *item*; one absent from the table (suspended account) needs none."""
+        wanted, blocks = routes
+        tenant = Path(directory).name
+        if tenant not in wanted:
+            return True
+        return f"reverse_proxy {item['addresses'][0]}:{item['internal_port']} " in blocks.get(tenant, "")
 
     # Removal --------------------------------------------------------------
 

@@ -16,6 +16,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     BW_PORT=5001 \
     BW_INSTANCE_DIR=/data
 
+# The updater passes the build time here (and pulls the base image first), so
+# every release re-runs the distribution upgrade and the package installation
+# below instead of reusing layers cached by an earlier release. An argument
+# changes the cache key of every RUN that follows it.
+ARG BW_REFRESH=unset
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ffmpeg libgomp1 fonts-dejavu-core \
