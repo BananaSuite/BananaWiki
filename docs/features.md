@@ -163,6 +163,7 @@ content, so search, history and exports keep working.
   pages, a category or recently updated pages) and a **canvas or Kanban
   embed**. Page lists and embeds are resolved for each reader with their own
   permissions, so they never show a page, canvas or board the reader cannot open.
+  The page lists of one page show at most 48 pages together.
 * Every block has layout options from a fixed list: alignment, a background
   from the theme palette and spacing. Layouts follow the width the page really
   gets, so columns and cards stack on phones.

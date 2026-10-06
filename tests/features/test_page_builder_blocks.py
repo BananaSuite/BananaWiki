@@ -312,6 +312,37 @@ def test_page_lists_only_show_pages_the_reader_may_open(builder_on, app, db, adm
     assert "Hidden plans" not in as_reader and "Hidden body" not in as_reader
 
 
+def test_page_lists_share_a_bounded_number_of_entries_and_excerpts(builder_on, app, admin_client, page,
+                                                                    monkeypatch):
+    from bananawiki.wiki import markdown
+    from bananawiki.wiki.features.page_builder import document
+    from bananawiki.wiki.features.pages import service
+
+    with app.test_request_context(), connection_scope():
+        for number in range(29):
+            service.create(f"Listed {number}", f"Body of page {number}", author_id=None)
+        service.create("Long page", "Opening words.\n\n" + "More text follows.\n\n" * 5000, author_id=None)
+    selected = {"type": "pages", "source": "selected",
+                "slugs": ["long-page"] + [f"listed-{number}" for number in range(24, 29)]}
+    recent = {"type": "pages", "source": "recent", "limit": 24}
+    assert publish(admin_client, page, {"version": 2, "blocks": [selected, recent, recent]}).status_code == 200
+
+    excerpt = markdown.excerpt
+    sources = []
+
+    def recording(text, length=200):
+        sources.append(text)
+        return excerpt(text, length)
+
+    monkeypatch.setattr(markdown, "excerpt", recording)
+    html = admin_client.get(f"/page/{page['slug']}").get_data(as_text=True)
+    # 6 chosen pages, 24 recent ones, then the 18 the document still has room for.
+    assert html.count('class="builder-card__title"') == document.MAX_LISTED_PAGES
+    assert len(sources) == 24  # once per page and request
+    assert max(map(len, sources)) == markdown.EXCERPT_SOURCE_CHARS + 1  # only the start of the long page
+    assert "<p>Opening words. More text follows. More text follows." in html
+
+
 # ── Editor and API ────────────────────────────────────────────────────────────
 
 

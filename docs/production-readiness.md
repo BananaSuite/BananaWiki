@@ -90,12 +90,32 @@ before staging; archive copies and storage walks respect size and time limits.
 Markdown checks bound repeated delimiter work, nesting and heading counts,
 including malformed fences, entities, escapes, line breaks and mixed list/quote
 headings. Complex source returns directly as escaped text. Valid ordinary
-articles and large literal code retain their contents. Fences forward only
+articles and large literal code retain their contents. Text counts as fenced
+code only where the parser itself extracts it, after its own whitespace
+normalisation, so fences that merely look paired cannot hide text from these
+checks; the parser's search for fences that never close, repeated to the end
+of the page for each one (and, after a legacy `hl_lines="…"` value, from
+every later line ending in its quote), counts as work too. Fences forward only
 supported display options: Boolean line-number/highlighting flags, tab sizes
 up to 16, line-number starts up to 1,000,000 and at most 256 highlight lines.
 Unknown lexer/formatter options are discarded. Automatic language detection
 uses at most 4,096 characters; snippets over 65,536 characters remain literal
 code, preventing excessive highlighting output.
+
+The same checks weigh the number of blocks, with code blocks and tables
+counting more than paragraphs. Shortcode attributes are read only within
+their own paragraph, so an unclosed `[[video` stays text in linear time; a
+document embeds at most 200 players and boards, and later shortcodes stay
+text; video links over 2,048 characters stay links. Only the first `[TOC]`
+marker becomes a table of contents. HTML that would exceed 16 million
+characters (reference links repeating a long address) is shown as escaped
+source. Builder page lists show at most 48 pages per document; their excerpts
+render only the first 4,096 characters of each page, once per request, under
+smaller work, block and heading allowances (at most 200 headings). With
+Markdown 3.6, the oldest release the requirements allow, a page start that
+combines many headings with raw HTML tags or entities renders several times
+slower than with current releases (about 0.3 s instead of 0.05 s per excerpt
+in the worst case measured), so deploy a current release.
 
 Runtime fixes bound agent connections, task waiting, inspection/execution and
 subprocess output. Timed-out or flooding tasks are reaped and subsequent tasks

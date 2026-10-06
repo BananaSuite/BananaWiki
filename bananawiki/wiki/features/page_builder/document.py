@@ -31,7 +31,7 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from flask import render_template, url_for
+from flask import g, has_request_context, render_template, url_for
 from markupsafe import Markup, escape
 
 from ... import markdown, registry
@@ -43,6 +43,7 @@ MAX_BYTES = 256 * 1024
 MAX_BLOCKS = 120
 MAX_TEXT = 20_000
 MAX_PAGE_LIST = 24
+MAX_LISTED_PAGES = 48  # entries all page lists of one document show together
 
 V1_BLOCK_TYPES = ("heading", "text", "image", "youtube", "button", "callout", "list", "columns", "divider", "spacer")
 # Palette groups, in the order the editor shows them.
@@ -454,29 +455,50 @@ def _anchor(text: str, used: set[str]) -> str:
     return anchor
 
 
-def _page_entries(block: dict[str, Any], current_page_id: int | None) -> list[dict[str, Any]]:
-    """Pages a ``pages`` block lists for the current reader (their own permissions apply)."""
+def _excerpts(rows: list[dict[str, Any]]) -> dict[int, str]:
+    """Excerpts of the listed pages by id, worked out once per request and page revision.
+
+    Only the start of each page is read: :func:`markdown.excerpt` renders no more.
+    """
+    cache: dict[tuple[int, Any], str] = g.setdefault("_builder_excerpts", {}) if has_request_context() else {}
+    keys = {row["id"]: (row["id"], row.get("revision")) for row in rows}
+    missing = [page_id for page_id, key in keys.items() if key not in cache]
+    if missing:
+        marks = ",".join("?" for _ in missing)
+        # One character more than excerpt() renders tells it the page goes on.
+        for found in db.all(f"SELECT id, substr(content, 1, ?) AS head FROM pages WHERE id IN ({marks})",
+                            [markdown.EXCERPT_SOURCE_CHARS + 1, *missing]):
+            cache[keys[found["id"]]] = markdown.excerpt(found["head"] or "", 160)
+    return {page_id: cache.get(key, "") for page_id, key in keys.items()}
+
+
+def _page_entries(block: dict[str, Any], current_page_id: int | None, room: int) -> list[dict[str, Any]]:
+    """Pages a ``pages`` block lists for the current reader (their own permissions apply).
+
+    *room* is how many more entries the document may show (:data:`MAX_LISTED_PAGES` in all).
+    """
     from ..pages import service as pages
 
+    if room <= 0:
+        return []
     if block["source"] == "selected":
         rows = []
         for slug in block["slugs"]:
-            page = pages.get_by_slug(slug)
+            page = pages.get_by_slug(slug, with_content=False)
             if page is not None and page["id"] != current_page_id and pages.can_view(page):
                 rows.append(page)
+                if len(rows) == room:
+                    break
     else:
         category = block["category_id"] if block["source"] == "category" else "any"
         if category is None:
             return []
-        rows = [row for row in pages.list_visible(category_id=category, order="recent", limit=block["limit"] + 1)
-                if row["id"] != current_page_id][: block["limit"]]
-        if rows and block["excerpt"]:
-            marks = ",".join("?" for _ in rows)
-            contents = {row["id"]: row["content"] for row in
-                        db.all(f"SELECT id, content FROM pages WHERE id IN ({marks})", [row["id"] for row in rows])}
-            rows = [{**row, "content": contents.get(row["id"], "")} for row in rows]
+        limit = min(block["limit"], room)
+        rows = [row for row in pages.list_visible(category_id=category, order="recent", limit=limit + 1)
+                if row["id"] != current_page_id][:limit]
+    excerpts = _excerpts(rows) if rows and block["excerpt"] else {}
     return [{"title": row["title"], "url": url_for("pages.view", slug=row["slug"]),
-             "excerpt": markdown.excerpt(row.get("content") or "", 160) if block["excerpt"] else ""}
+             "excerpt": excerpts.get(row["id"], "")}
             for row in rows]
 
 
@@ -496,6 +518,7 @@ def render(document: dict[str, Any], *, page_id: int | None = None) -> Markup:
     """
     items = []
     anchors: set[str] = set()
+    room = MAX_LISTED_PAGES
     for block in document["blocks"]:
         if is_blank(block):
             continue
@@ -518,7 +541,8 @@ def render(document: dict[str, Any], *, page_id: int | None = None) -> Markup:
         elif kind == "code" and block["code"]:
             extra["html"] = Markup(markdown.highlight_code(block["code"], block["language"]))
         elif kind == "pages":
-            extra["pages"] = _page_entries(block, page_id)
+            extra["pages"] = _page_entries(block, page_id, room)
+            room -= len(extra["pages"])
         elif kind == "embed" and block["ref"]:
             extra["enabled"] = registry.is_enabled(block["kind"])
             extra["label"] = t(f"page_builder.embed_label.{block['kind']}", ref=block["ref"])
