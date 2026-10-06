@@ -68,7 +68,8 @@
   `~deleted-<id>`.
 * Hosting updates rebuild the tenant image on a freshly pulled base with
   current Debian and Python packages (`BW_REFRESH`), falling back to the
-  cached base with `image_warnings`. An unhealthy wiki is reported in
+  cached base with `image_warnings` when only the pull fails; a Debian mirror
+  or PyPI outage records the commit as failed until `update --retry-failed`. An unhealthy wiki is reported in
   `unready_tenants` instead of keeping the platform in maintenance or rolling
   back the update; `recover --abandon` drops an operation that cannot finish.
 * API token expiries are at most 10 years ahead. Profile pictures are limited

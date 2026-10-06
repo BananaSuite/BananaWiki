@@ -76,7 +76,11 @@ What happens:
    security fixes published so far. If the registry cannot be reached (or
    the pull takes more than 10 minutes), the image is built on the base
    image already on the server and the result carries `image_warnings`. The
-   base image a pull replaced is removed after the build. Every release's
+   Debian upgrade and the package installation have no such fallback: if the
+   Debian mirror or PyPI cannot be reached, preparation fails and the commit
+   is recorded as failed, so automatic updates skip it until
+   `update --retry-failed`. The base image a pull replaced is removed after
+   the build. Every release's
    image has its own package layers, so plan Docker's disk for the full size
    of each kept tenant image (the current one, the previous one and those of
    the releases kept for rollback).

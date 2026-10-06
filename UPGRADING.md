@@ -51,7 +51,8 @@ Already on 1.6.0? These changes of the latest build need attention (details in
 * On hosts that forbid public wikis, custom pages are for signed-in members.
 * Hosting: "Pause deletion countdown" really pauses the deletion; tenant
   images are rebuilt on a fresh base at every update, so the Docker registry,
-  the Debian mirror and PyPI must be reachable during updates.
+  the Debian mirror and PyPI must be reachable during updates (a mirror or
+  PyPI outage records the commit as failed until `update --retry-failed`).
 
 Hosted third-party Python plugins now require `HOSTING_ALLOW_TENANT_PLUGINS=1`
 in the operator's hosting environment. The default is disabled; existing
@@ -450,8 +451,10 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   its grace period.
 * Hosting: every update rebuilds the tenant image on a freshly pulled base
   image with current Debian and Python packages, so the Docker registry, the
-  Debian mirror and PyPI must be reachable; if the pull fails, the cached
-  base is used and `update` reports `image_warnings`. A wiki that does not
+  Debian mirror and PyPI must be reachable. If only the base image pull
+  fails, the cached base is used and `update` reports `image_warnings`; if
+  the Debian mirror or PyPI fails, the commit is recorded as failed until
+  `update --retry-failed`. A wiki that does not
   come back is reported in `unready_tenants` instead of keeping the platform
   in maintenance; `recover --abandon` drops an operation that cannot finish.
   If Docker does not answer when an operation begins, nothing is changed.
