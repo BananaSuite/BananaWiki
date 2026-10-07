@@ -76,14 +76,23 @@ What happens:
    distribution and Python security fixes published so far. The FFmpeg and
    ACL build stages before it are rebuilt only when the pull brought a new
    base image, which then also needs `ffmpeg.org` and the Debian source
-   archive. If the registry cannot be reached (or
+   archive. The ACL stage installs two exact versions from Debian unstable
+   (`libacl1` 2.4.0-1 and `tar` 1.35+dfsg-6), so its rebuild fails once
+   unstable has replaced them. If the registry cannot be reached (or
    the pull takes more than 10 minutes), the image is built on the base
-   image already on the server and the result carries `image_warnings`. The
-   Debian upgrade and the package installation have no such fallback: if the
+   image already on the server and the result carries `image_warnings`. If
+   the build fails on a newly pulled base image, the previous base image is
+   tagged again and the build is repeated once on it (the FFmpeg and ACL
+   stages then normally come from Docker's build cache; the Debian upgrade
+   and the package installation still run again); when that succeeds, the
+   result carries `image_warnings` with the first error. Only a build that
+   fails on the previous base image too records the commit as failed. The
+   Debian upgrade and the package installation themselves have no fallback: if the
    Debian mirror or PyPI cannot be reached, preparation fails and the commit
    is recorded as failed, so automatic updates skip it until
-   `update --retry-failed`. The base image a pull replaced is removed after
-   the build. Every release's
+   `update --retry-failed`. The base image a build no longer needs is
+   removed afterwards: the one a pull replaced, or after a fallback the newly
+   pulled one, which the next update pulls and tries again. Every release's
    image has its own package layers, so plan Docker's disk for the full size
    of each kept tenant image (the current one, the previous one and those of
    the releases kept for rollback).

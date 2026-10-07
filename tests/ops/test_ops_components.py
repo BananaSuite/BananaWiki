@@ -356,12 +356,109 @@ def test_tenant_image_is_built_on_a_freshly_pulled_base_with_fresh_updates(tmp_p
         assert len(warnings) == 1 and "Could not pull python:3.12-slim-trixie" in warnings[0]
         assert [command[:2] for command in docker()] == [["docker", "pull"], ["docker", "build"]]
     assert "Warning: Could not pull" in capsys.readouterr().err
-    # A build that fails still drops the base the pull replaced: the next pull would see no change.
+    # A build that fails on the newly pulled base and again on the previous one (tagged back for it) raises; the
+    # previous base is kept, the new one dropped (the next pull brings it back).
     state.update(pull=0, base="sha256:older", build_fails=True)
     commands.clear()
     with pytest.raises(RuntimeError, match="docker build failed"):
         system.build_tenant_image(settings_for("hosting"), release)
-    assert docker()[-1] == ["docker", "image", "rm", "sha256:older"]
+    assert [command[:2] for command in docker()] == [["docker", "pull"], ["docker", "build"], ["docker", "tag"],
+                                                      ["docker", "build"], ["docker", "image"]]
+    assert docker()[-1] == ["docker", "image", "rm", "sha256:new"]
+    assert ["docker", "image", "rm", "sha256:older"] not in docker()
+
+
+def test_a_build_failing_on_a_newly_pulled_base_falls_back_to_the_previous_one(tmp_path, capsys):
+    """The ACL stage fetches two exact Debian unstable versions; a new base image rebuilds it, and fails once
+    unstable has moved past them. The update then still brings the final stage's fresh packages."""
+    release = tmp_path / "release"
+    release.mkdir()
+    shutil.copyfile(shipped("Dockerfile.tenant"), release / "Dockerfile.tenant")
+    base = "python:3.12-slim-trixie"
+    commands: list[list[str]] = []
+    host: dict = {"tags": {base: "sha256:old"}, "registry": "sha256:new", "failing": {"sha256:new"},
+                  "built_on": [], "tag_fails": False}
+
+    def runner(command, **_):
+        commands.append(command)
+        tags = host["tags"]
+        if command[:2] == ["docker", "pull"]:
+            tags[command[-1]] = host["registry"]
+        elif command[:3] == ["docker", "image", "inspect"]:
+            identifier = tags.get(command[-1])
+            return subprocess.CompletedProcess(command, 0 if identifier else 1, (identifier or "") + "\n", "")
+        elif command[:2] == ["docker", "tag"]:
+            if host["tag_fails"]:
+                return subprocess.CompletedProcess(command, 1, "", "No such image")
+            tags[command[3]] = command[2]
+        elif command[:2] == ["docker", "build"]:
+            host["built_on"].append(tags[base])
+            if tags[base] in host.get("timeouts", ()):
+                raise subprocess.TimeoutExpired(command, 1800)
+            if tags[base] in host["failing"]:
+                return subprocess.CompletedProcess(command, 100, "", "E: Version '2.4.0-1' for 'libacl1' was not found")
+        elif command[:3] == ["docker", "image", "rm"]:  # deleting a tagged image drops its tag too
+            host["tags"] = {name: value for name, value in tags.items() if value != command[3]}
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    def docker() -> list[list[str]]:
+        return [command for command in commands if command[:3] != ["docker", "image", "inspect"]]
+
+    def attempt() -> list[str]:
+        commands.clear()
+        host["built_on"] = []
+        return system.build_tenant_image(settings_for("hosting"), release)
+
+    log = tmp_path / "logs/last-command.log"
+    system = System(runner=runner, log_dir=log.parent)
+    for _update in range(2):  # every update tries the new base image again, and falls back while it fails
+        warnings = attempt()
+        builds = [command for command in docker() if command[:2] == ["docker", "build"]]
+        assert docker() == [["docker", "pull", "--quiet", base], builds[0], ["docker", "tag", "sha256:old", base],
+                            builds[0], ["docker", "image", "rm", "sha256:new"]]
+        assert builds == [builds[0], builds[0]]  # the same BW_REFRESH: the final stage still refreshes
+        assert host["built_on"] == ["sha256:new", "sha256:old"] and host["tags"] == {base: "sha256:old"}
+        assert len(warnings) == 1
+        assert warnings[0].startswith(f"The tenant image did not build on the newly pulled {base}: "
+                                      f"docker build failed (exit 100). Details are in the private log {log}.")
+        assert "built on the previous base image instead" in warnings[0]
+        assert "libacl1" in log.read_text()  # the unchecked tag kept the first build's output
+        stderr = capsys.readouterr().err
+        assert "retrying once on the previous base image" in stderr and f"Warning: {warnings[0]}" in stderr
+    # The previous base fails too: raised, and the previous base stays tagged so that a retry falls back again.
+    host["failing"] = {"sha256:new", "sha256:old"}
+    with pytest.raises(RuntimeError, match="docker build failed"):
+        attempt()
+    assert host["built_on"] == ["sha256:new", "sha256:old"] and host["tags"] == {base: "sha256:old"}
+    assert [command for command in docker() if command[:3] == ["docker", "image", "rm"]] == [
+        ["docker", "image", "rm", "sha256:new"]]
+    host["failing"] = {"sha256:new"}  # e.g. PyPI answers again: update --retry-failed
+    assert len(attempt()) == 1 and host["tags"] == {base: "sha256:old"}
+    # The previous base cannot be tagged back: the first failure is raised and the previous base dropped as before.
+    host["tag_fails"] = True
+    with pytest.raises(RuntimeError, match=r"docker build failed \(exit 100\)"):
+        attempt()
+    assert host["built_on"] == ["sha256:new"] and host["tags"] == {base: "sha256:new"}
+    assert docker()[-1] == ["docker", "image", "rm", "sha256:old"]
+    # No base image replaced by this pull: nothing to fall back to, the failure is raised at once.
+    host.update(tag_fails=False, failing={"sha256:new"})
+    with pytest.raises(RuntimeError, match="docker build failed"):
+        attempt()
+    assert [command[:2] for command in docker()] == [["docker", "pull"], ["docker", "build"]]
+    # A timeout (or an interruption) on the new base is raised without a retry, but the previous base is
+    # tagged again and kept, so the next update can still fall back to it.
+    host.update(tags={base: "sha256:old"}, failing={"sha256:new"}, timeouts={"sha256:new"})
+    with pytest.raises(subprocess.TimeoutExpired):
+        attempt()
+    assert host["built_on"] == ["sha256:new"] and host["tags"] == {base: "sha256:old"}
+    assert docker()[-2:] == [["docker", "tag", "sha256:old", base], ["docker", "image", "rm", "sha256:new"]]
+    host["timeouts"] = set()
+    assert len(attempt()) == 1 and host["built_on"] == ["sha256:new", "sha256:old"]
+    # Once the new base builds (a release with updated pins), the previous one is dropped as before.
+    host.update(tags={base: "sha256:old"}, failing=set())
+    assert attempt() == []
+    assert host["built_on"] == ["sha256:new"] and host["tags"] == {base: "sha256:new"}
+    assert docker()[-1] == ["docker", "image", "rm", "sha256:old"]
 
 
 # Git sources ----------------------------------------------------------------------

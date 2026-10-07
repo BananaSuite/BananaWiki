@@ -315,11 +315,25 @@ class System:
         package installation again instead of reusing the layers an earlier
         release cached. A registry that cannot be reached does not hold the
         release back: the image is then built on the base image already on
-        this host, and the returned warning says so. A base image the pull
-        replaced is removed once the build no longer needs it.
+        this host, and the returned warning says so.
+
+        A new base image can also break the build: it rebuilds the FFmpeg and
+        ACL stages, and the ACL stage fetches two exact package versions from
+        Debian unstable, which drops them once newer ones replace them. When
+        the build fails on a base image this pull replaced, the previous base
+        image is tagged again (also after a timeout or an interruption, so its
+        cached stages are never lost) and, for a reported failure, the same
+        build, same ``BW_REFRESH``, runs once more on it: its FFmpeg and
+        ACL stages normally come from Docker's build cache, the final stage
+        still upgrades and installs afresh, and the returned warning says so.
+        Only a failure there too is raised. The base image the build no longer
+        needs (the replaced one, or after a fallback the newly pulled one) is
+        removed; the one it fell back to is kept, so the next release build
+        pulls and tries the new base image again.
         """
         dockerfile = release / "Dockerfile.tenant"
-        warnings, replaced = [], []
+        warnings: list[str] = []
+        replaced: dict[str, tuple[str, str]] = {}  # base image -> (previous ID, ID the pull brought)
         for image in base_images(dockerfile):
             previous = self._image_field(image, "{{.Id}}")
             try:
@@ -330,24 +344,58 @@ class System:
                 warnings.append(f"Could not pull {image}: the tenant image was built on the copy cached on this "
                                 "host and may lack its latest fixes (distribution updates were still applied). "
                                 "Check access to the registry; the next release build pulls again.")
-            elif previous and self._image_field(image, "{{.Id}}") not in (None, previous):
-                replaced.append(previous)
+            elif previous and (current := self._image_field(image, "{{.Id}}")) not in (None, previous):
+                replaced[image] = (previous, current)
         for warning in warnings:
             print(f"Warning: {warning}", file=sys.stderr, flush=True)
         refresh = "BW_REFRESH=" + datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        build = ["docker", "build", "--pull=false", "--build-arg", refresh, "-f", str(dockerfile),
+                 "-t", f"{TENANT_IMAGE}:{settings['revision']}", str(release)]
+        unused = {image: previous for image, (previous, _current) in replaced.items()}
         try:
-            self.run(["docker", "build", "--pull=false", "--build-arg", refresh, "-f", str(dockerfile),
-                      "-t", f"{TENANT_IMAGE}:{settings['revision']}", str(release)], timeout=1800)
+            try:
+                self.run(build, timeout=1800)
+            except BaseException as error:
+                # Whatever stopped the build (a failure, a timeout, an interruption), the previous base image
+                # is the one whose FFmpeg and ACL stages Docker has cached, and the pull moved the tag off it:
+                # tag it again so that it is kept. Only a reported failure is retried on it.
+                if not replaced or not self._tag_previous_bases(replaced, unused) or not isinstance(error, RuntimeError):
+                    raise
+                names = ", ".join(replaced)
+                print(f"The tenant image did not build on the newly pulled {names}; retrying once on the "
+                      "previous base image.", file=sys.stderr, flush=True)
+                self.run(build, timeout=1800)
+                warnings.append(f"The tenant image did not build on the newly pulled {names}: {error} It was "
+                                "built on the previous base image instead and may lack its latest fixes "
+                                "(distribution updates were still applied). The next release build pulls and "
+                                "tries the new base image again; if it keeps failing, the exact Debian unstable "
+                                "versions the ACL stage fetches may have left the archive.")
+                print(f"Warning: {warnings[-1]}", file=sys.stderr, flush=True)
         finally:
-            # Untagged by the pull, it would stay on disk for good (a later pull sees no change), even when this
-            # build failed. Docker refuses (harmlessly) while a container or another tag still uses it; the
-            # layers of the tenant images built on it are kept either way.
-            for identifier in replaced:
+            # Untagged by the pull (or, after a fallback, by the new tag), it would stay on disk for good once the
+            # registry moves on, even when this build failed. Docker refuses (harmlessly) while a container or
+            # another tag still uses it; the layers of the tenant images built on it are kept either way.
+            for identifier in unused.values():
                 try:
                     self.run(["docker", "image", "rm", identifier], check=False, timeout=120)
                 except (OSError, subprocess.SubprocessError):
                     pass
         return warnings
+
+    def _tag_previous_bases(self, replaced: dict[str, tuple[str, str]], unused: dict[str, str]) -> bool:
+        """Tag each base image a pull replaced back to its previous ID; False when one cannot be.
+
+        A base tagged back is kept, and the newly pulled one becomes the unused one.
+        """
+        for image, (previous, current) in replaced.items():
+            try:  # unchecked, so the private log keeps the output of the failed build
+                tag = self.run(["docker", "tag", previous, image], check=False, timeout=60)
+            except (OSError, subprocess.SubprocessError):
+                return False
+            if tag.returncode:
+                return False
+            unused[image] = current
+        return True
 
     def _image_field(self, image: str, template: str) -> str | None:
         try:

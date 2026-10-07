@@ -235,8 +235,8 @@ The managed updater builds the tenant image of every release on a freshly
 pulled base image and repeats the distribution upgrade and the Python package
 installation of the final stage instead of reusing cached layers (the FFmpeg
 and ACL stages are rebuilt only when the pull brought a new base image; with
-the registry unreachable it falls back to the cached base image and reports
-`image_warnings`). Between releases the running image does not change
+the registry unreachable, or when the build fails on the new base image, it
+falls back to the previous base image and reports `image_warnings`). Between releases the running image does not change
 (`status` shows `tenant_image_built`); single-wiki images get later fixes
 only when rebuilt with `--pull --no-cache`.
 

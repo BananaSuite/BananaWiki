@@ -364,8 +364,10 @@ portal (`bananawiki.service`), its maintenance service
 installed first. Every release build (`install`, `update`, `restore`) pulls
 the newest base image and runs the Debian upgrade and the package
 installation again, so updates also bring the wikis the latest distribution
-and Python security fixes; with the registry unreachable the image is built
-on the cached base image and `update` reports `image_warnings`. Between
+and Python security fixes; with the registry unreachable, or when the build
+fails on a newly pulled base image (the ACL stage pins two Debian unstable
+versions), the image is built on the previous base image and `update`
+reports `image_warnings`. Between
 releases the image does not change: `status` shows when it was built
 (`tenant_image_built`). `sudo bananawiki proxy --install` then installs a Caddy
 configuration that serves the static site on the base domain (and redirects
