@@ -18,6 +18,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import os
+import re
 import secrets
 import socket
 import sqlite3
@@ -47,6 +49,7 @@ MAX_EXTENSION_SECONDS = 10 * 365 * 86400
 LOG_NAMES = ("error.log", "access.log")
 _ID_ALPHABET = string.ascii_lowercase + string.digits
 _PASSWORD_ALPHABET = string.ascii_letters + string.digits
+_MARKER_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def provisioning_ready(inst: dict[str, Any]) -> bool:
@@ -82,6 +85,51 @@ def _provisioning_lock(inst: dict[str, Any], *, wait: bool = False) -> Iterator[
 
 PROVISIONING_STARTED = "instance.provisioning_started"
 PROVISIONING_REFUSED = "instance.provisioning_refused"
+
+
+def _refusal_marker(instance_id: str) -> Path:
+    """The file that records, outside ``hosting.db``, that the runtime refused to create this wiki's data.
+
+    It sits next to the provisioning lock stripes and is never removed: it
+    is a few bytes per refused creation, keyed by the wiki's unique id, and
+    it still protects the directory if ``hosting.db`` is restored from a
+    backup taken before the refused row was terminated.
+    """
+    name = instance_id if _MARKER_NAME.fullmatch(instance_id) else hashlib.sha256(instance_id.encode()).hexdigest()
+    return Path(cfg().platform_state_dir) / ".provisioning-refused" / name
+
+
+def _mark_refused(inst: dict[str, Any], code: str) -> None:
+    """Write the refusal marker atomically and durably, before any database statement about the refusal.
+
+    A failing write is logged and the refusal goes on to the database: the
+    directory is then lost only if the database writes fail as well.
+    """
+    from ..ops.files import atomic_write  # POSIX only, like the hosting platform
+
+    try:
+        atomic_write(_refusal_marker(inst["id"]),
+                     f"{code} {now_sql()} {inst['subdomain']} ({inst.get('domain_mode') or 'hosting'})\n")
+    except (OSError, ValueError) as error:
+        log.error("Could not record outside the database that the runtime refused to create wiki %s: %s",
+                  inst["id"], error)
+
+
+def _refusal_marked(instance_id: str) -> bool:
+    """Whether the refusal marker exists.
+
+    A check that fails is raised: the caller then neither deletes the data nor
+    releases the reservation (its container may still run), and a later cancel
+    retries.
+    """
+    try:
+        os.lstat(_refusal_marker(instance_id))
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        log.error("Cannot check the refusal marker of wiki %s: %s", instance_id, error)
+        raise
+    return True
 
 
 def _provision(inst: dict[str, Any], operation: Callable[[TenantSpec], None]) -> None:
@@ -466,8 +514,14 @@ def _discard_failed(inst: dict[str, Any], error: RuntimeFailure | None = None) -
 
     * ``data_exists`` means the runtime refused before writing or starting
       anything: the directory is someone else's (data a failed move left
-      behind, a manual copy). The refusal is recorded first, so a later
-      cancellation still knows when the row update below fails.
+      behind, a manual copy). Before any database statement the refusal is
+      written to a marker file (see :func:`_refusal_marker`), then recorded
+      as an event. Either record is enough for a later cancellation or
+      expiry to leave the directory alone, so neither a failing event nor a
+      failing row update below turns the refusal into a deletion. A worker
+      killed outright between handing the creation to the runtime and
+      recording its answer leaves neither record: that creation is then
+      treated as one the runtime worked on (an accepted residual).
     * Without ``instance.provisioning_started`` the runtime was never asked
       to create anything (the creator gave up on a busy lock or was
       interrupted after the reservation), so whatever sits under the name is
@@ -488,6 +542,7 @@ def _discard_failed(inst: dict[str, Any], error: RuntimeFailure | None = None) -
                   "terminated_reason": "provisioning_failed", "data_retained_until": None}
     refused = error is not None and error.code == "data_exists"
     if refused:
+        _mark_refused(inst, error.code)
         events.record("instance", inst["id"], PROVISIONING_REFUSED, None, error.code)
     if refused or not _runtime_may_own_data(inst["id"]):
         log.error("Wiki %s not created: the data directory under its name, if any, is not its own and was left "
@@ -515,7 +570,13 @@ def _discard_failed(inst: dict[str, Any], error: RuntimeFailure | None = None) -
 
 
 def _runtime_may_own_data(instance_id: str) -> bool:
-    """Whether the runtime was asked to create this wiki's data and did not refuse because it existed."""
+    """Whether the runtime was asked to create this wiki's data and did not refuse because it existed.
+
+    The refusal marker and the ``instance.provisioning_refused`` event count
+    the same: either one means the data under the name is not this wiki's.
+    """
+    if _refusal_marked(instance_id):
+        return False
     actions = set(db.column(
         "SELECT action FROM hosting_events WHERE subject_type = 'instance' AND subject_id = ? AND action IN (?, ?)",
         (instance_id, PROVISIONING_STARTED, PROVISIONING_REFUSED)))

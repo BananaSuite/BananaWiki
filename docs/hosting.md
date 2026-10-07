@@ -150,8 +150,19 @@ reservations. A worker interrupted during creation cannot expose a half-created
 wiki; administrators can cancel it after its provisioning lock is released and
 create it again. Failed cleanup retains the reservation until removal succeeds.
 Neither a failed creation nor a cancellation deletes a data folder the creation
-did not make: when the folder already existed, or the creation never reached
-the runtime agent, it is left untouched for an administrator to inspect.
+did not make: when the folder already existed, or the portal never handed the
+creation to the runtime agent, it is left untouched for an administrator to
+inspect. The agent's refusal of an existing folder is written to
+`.provisioning-refused/<wiki id>` under `HOSTING_PLATFORM_STATE_DIR` before
+the database records it, so a failed database write does not lose it; these
+files are a few bytes each and are kept. One case remains: a portal worker
+killed outright (`kill -9`, power loss) after it handed the creation to the
+agent and before it recorded the agent's answer. Cancelling that creation, or
+its expiry, deletes the folder under its name, because the portal cannot tell
+whether the agent made it. Before cancelling a wiki that stays in
+provisioning, or letting it expire, check its folder. The folder can also be
+lost if both the marker file and the database records of the refusal fail to
+be written.
 
 The agent applies a pinned Docker default seccomp allowlist with quota-changing
 ioctls excluded. Without this restriction, an ordinary file owner can change
