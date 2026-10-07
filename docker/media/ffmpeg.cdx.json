@@ -1,0 +1,31 @@
+{
+  "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "version": 1,
+  "components": [
+    {
+      "type": "application",
+      "bom-ref": "pkg:generic/ffmpeg@9.0.2",
+      "name": "ffmpeg",
+      "version": "9.0.2",
+      "purl": "pkg:generic/ffmpeg@9.0.2",
+      "cpe": "cpe:2.3:a:ffmpeg:ffmpeg:9.0.2:*:*:*:*:*:*:*",
+      "licenses": [{"license": {"id": "LGPL-2.1-or-later"}}],
+      "hashes": [{"alg": "SHA-256", "content": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"}],
+      "externalReferences": [
+        {"type": "website", "url": "https://ffmpeg.org/"},
+        {"type": "distribution", "url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz"},
+        {"type": "other", "url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz.asc", "comment": "Upstream signature"}
+      ],
+      "properties": [
+        {"name": "bananawiki:source:sha256", "value": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"},
+        {"name": "bananawiki:source:signing-key", "value": "FCF986EA15E6E293A5644F10B4322F04D67658D8"},
+        {"name": "bananawiki:build:recipe", "value": "/usr/local/share/bananawiki/media/build-ffmpeg.sh"},
+        {"name": "bananawiki:build:configuration", "value": "/usr/local/share/bananawiki/media/build-configuration.txt"},
+        {"name": "bananawiki:hash:subject", "value": "Unmodified source archive; executable hash is recorded separately in binary-SHA256SUMS"},
+        {"name": "bananawiki:scanner:coverage", "value": "Source-built generic C components are not automatically indexed as Debian packages; this inventory supplements OS/Python image scanning and requires upstream advisory review"}
+      ]
+    }
+  ]
+}

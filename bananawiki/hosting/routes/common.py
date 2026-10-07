@@ -44,6 +44,8 @@ def instance_for(instance_id: str, permission: str = "view") -> dict[str, Any]:
     inst = instances.get(instance_id)
     if inst is None or not collaborators.can(inst, viewer, permission):
         abort(404)
+    if permission not in ("view", "terminate") and not instances.provisioning_ready(inst):
+        abort(409)
     if inst["status"] == "terminated" and not viewer["is_admin"]:
         from .. import settings
 

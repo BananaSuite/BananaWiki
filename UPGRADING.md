@@ -53,6 +53,31 @@ Already on 1.6.0? These changes of the latest build need attention (details in
   images are rebuilt on a fresh base at every update, so the Docker registry,
   the Debian mirror and PyPI must be reachable during updates (a mirror or
   PyPI outage records the commit as failed until `update --retry-failed`).
+* Hosting needs hard XFS project quotas: the runtime agent assigns byte and
+  inode limits before it seeds, imports, copies, restores or starts a wiki,
+  and refuses on any other storage. Put the installation's `data/instances/`
+  on a dedicated XFS filesystem with project quotas enforced (`prjquota`, see
+  [docs/hosting.md](docs/hosting.md)) **before updating**. Otherwise an
+  update of a server with running wikis keeps them down for the whole
+  readiness timeout (up to 2 hours with many wikis), is then rolled back and
+  records the commit as failed until `update --retry-failed`; on a server
+  without running wikis it completes, but no wiki can be created, started or
+  restored until the storage enforces project quotas.
+* Hosting now runs only on Linux x86_64: on any other architecture the
+  portal and the maintenance service refuse to start and the runtime agent
+  refuses to launch any wiki, so an update is rolled back. Do not update an
+  arm64 hosting server.
+* Hosting: a new wiki stays reserved as "Creating" until its provisioning
+  finishes (hosting database version 4; existing wikis are marked ready). An
+  interrupted or failed creation is never started or recovered: terminate it
+  and create it again.
+* REST API and JSON uploads: JSON with non-finite numbers, unpaired
+  surrogates or more than 64 nesting levels is refused (400 on the API).
+  `Idempotency-Key` replays re-check current access and may answer 409
+  `idempotency_replay_unavailable` without running again; server, storage
+  and routing errors under `/api/v1` carry `code` and `request_id`.
+* The default source link (`BW_SOURCE_URL`) and the default repository of
+  new managed installations are now `https://github.com/BananaSuite/BananaWiki`.
 
 Hosted third-party Python plugins now require `HOSTING_ALLOW_TENANT_PLUGINS=1`
 in the operator's hosting environment. The default is disabled; existing
@@ -98,9 +123,9 @@ sudo bananawiki status
 ```
 
 * `source show` tells you where updates come from. BananaWiki lives at
-  `https://github.com/OverloadedTech/BananaWiki`; if your server follows
+  `https://github.com/BananaSuite/BananaWiki`; if your server follows
   another URL that no longer receives releases, change it with
-  `sudo bananawiki source set --repo https://github.com/OverloadedTech/BananaWiki.git --branch main`.
+  `sudo bananawiki source set --repo https://github.com/BananaSuite/BananaWiki.git --branch main`.
 * The **first** `update` is carried out by the 1.4 updater that is installed
   on the server: it fetches 1.6 (a fast-forward of 1.4), builds the release,
   writes the `before-update-*.tar.gz` package, switches to 1.6 and waits for
@@ -332,6 +357,21 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   affected slugs, and 202 when pages were only scheduled for deletion.
 * Token expiry dates are at most 10 years ahead (`expiry_too_far`); existing
   tokens keep their expiry and can still be revoked.
+* JSON request bodies with non-finite numbers (`NaN`, `Infinity`), unpaired
+  Unicode surrogates or more than 64 nested objects/arrays are refused with
+  400. The same check applies to uploaded JSON files: Kanban and canvas
+  imports, themes, language packs, plugin manifests, 1.4 `site_export.json`
+  and federation snapshots.
+* `Idempotency-Key`: a keyed `POST` commits its changes together with its
+  replay record. A replay re-checks the token owner's current role and access
+  to the pages, categories, canvases and boards it returns; when one became
+  unreadable, or the first answer was larger than 2 MiB, it answers 409
+  `idempotency_replay_unavailable` with the first answer's `status` instead
+  of replaying or running again.
+* Unexpected server errors (500 `internal_error`), temporary storage
+  failures (503 `storage_unavailable`) and routing errors under `/api/v1` use
+  the error envelope with a generic message and a `request_id` (also sent as
+  `X-Request-ID`).
 
 ### Features
 
@@ -458,7 +498,38 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   come back is reported in `unready_tenants` instead of keeping the platform
   in maintenance; `recover --abandon` drops an operation that cannot finish.
   If Docker does not answer when an operation begins, nothing is changed.
-  See [docs/operations.md](docs/operations.md).
+  See [docs/operations.md](docs/operations.md). The tenant image builds FFmpeg
+  and the ACL packages in earlier stages that a refresh alone does not
+  rebuild; when the pulled base image changed they are rebuilt too, which also
+  needs `ffmpeg.org` and the Debian source archive.
+* Hosting: the runtime agent assigns and verifies hard XFS project byte and
+  inode quotas before every seed, import, copy, restore and launch. On storage
+  without enforced project quotas, changed project identities or too little
+  capacity it refuses, and the wiki stays stopped. Existing wikis are adopted
+  when they next start (the recovery after the update restarts every
+  running wiki that lacks verified quotas). Ceilings default to 10 GiB and
+  100,000 inodes per wiki (`HOSTING_AGENT_MAX_STORAGE_BYTES`,
+  `HOSTING_AGENT_MAX_INODES`); see [docs/hosting.md](docs/hosting.md).
+* Hosting: a new wiki is inserted as a pending reservation and becomes
+  running only when its seed, copy or import and its first start have
+  finished. Until then, and while a failed creation still awaits its cleanup,
+  it counts against the limits, cannot be started, changed or recovered, and
+  is cancelled by terminating it. Neither a failure nor a cancellation deletes
+  a data folder the creation did not make: when the folder already existed,
+  or the creation never got as far as making it, the folder is left untouched
+  for an administrator (a creation refused because its folder existed is
+  terminated at once and does not count against the limits).
+* Hosting runs only on Linux x86_64. On any other architecture the portal
+  and maintenance units, which now start through
+  `bananawiki.ops.hosting_entrypoint`, exit with status 78, and the runtime
+  agent refuses to launch any wiki (`sandbox_unavailable`).
+* The default source link (`BW_SOURCE_URL`) and the default repository of
+  new managed installations are now `https://github.com/BananaSuite/BananaWiki`;
+  existing installations keep their configured repository.
+* Hosting: backups and recoveries no longer start the stopped wiki
+  containers again with `docker start`; they remove them and the portal
+  starts every wiki marked running again in a new container, as after an
+  update.
 
 ### Removed
 

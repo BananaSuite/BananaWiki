@@ -257,6 +257,7 @@ class PiperBackend:
     name = "piper"
 
     def __init__(self, cfg: options.TtsConfig, performance_mode: str = "auto"):
+        os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
         self.cfg = cfg
         self.voice_dir = Path(cfg.piper_voice_dir)
         self.voices = {**DEFAULT_VOICES, **cfg.piper_voice_map}

@@ -293,8 +293,9 @@ class System:
                "--disable-pip-version-check", "--no-cache-dir", "--no-input"]
         self.run(["python3", "-m", "venv", str(release / ".venv")])
         set_release_owner(release / ".venv", uid, gid)
-        # Distribution ensurepip wheels can predate security fixes; bootstrap only the installer first.
-        self.run([*pip, "--only-binary=:all:", "--no-deps", "--upgrade", "pip>=26.2.1"], timeout=600, cwd=release)
+        # Python 3.11 ensurepip also installs setuptools; refresh inherited build tools before use.
+        self.run([*pip, "--only-binary=:all:", "--no-deps", "--upgrade", "pip>=26.2.1", "setuptools>=83"],
+                 timeout=600, cwd=release)
         print("Installing Python dependencies; this may take several minutes.", file=sys.stderr, flush=True)
         # 1.6 releases install wheels only: no package build scripts run on the server.
         binary = ["--only-binary=:all:"] if features.hardened else []
@@ -505,7 +506,11 @@ class System:
             return set()
         connection = sqlite3.connect(database.absolute().as_uri() + "?mode=ro", uri=True, timeout=2)
         try:
-            rows = connection.execute("SELECT subdomain, domain_mode FROM instances WHERE status='running'").fetchall()
+            # Hosting schema 4: the portal never launches a wiki whose creation did not finish.
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(instances)")}
+            ready = " AND provisioning_state='ready'" if "provisioning_state" in columns else ""
+            rows = connection.execute("SELECT subdomain, domain_mode FROM instances WHERE status='running'"
+                                      + ready).fetchall()
         finally:
             connection.close()
         output = set()
@@ -520,37 +525,6 @@ class System:
         running = [item["id"] for item in containers if item["running"]]
         self._each_container(["docker", "stop", "--time", "30"], running)
 
-    def resume_containers(self, containers: list[dict[str, Any]]) -> list[str]:
-        """Start again the containers that were running; returns the data directories of those that did not.
-
-        Each wiki on its own: a container that cannot start (its data
-        directory or published port is gone) must not keep the platform down.
-        The portal's maintenance service tries every wiki marked running again
-        and the readiness checks decide what a wiki that does not serve means.
-        One that no longer exists is skipped.
-        """
-        running = [item for item in containers if item["running"]]
-        try:
-            if not running or self.run(["docker", "start", *(item["id"] for item in running)], check=False,
-                                       timeout=300).returncode == 0:
-                return []
-            listing = self.run(["docker", "ps", "--all", "--quiet", "--no-trunc", "--filter", TENANT_FILTER],
-                               timeout=60)
-        except (RuntimeError, OSError, subprocess.SubprocessError):
-            return sorted(item["data_dir"] for item in running)
-        present = set(listing.stdout.split())
-        failed = []
-        for item in running:
-            if item["id"] not in present:
-                continue
-            try:
-                started = self.run(["docker", "start", item["id"]], check=False, timeout=120).returncode == 0
-            except (OSError, subprocess.SubprocessError):
-                started = False
-            if not started:
-                failed.append(item["data_dir"])
-        return sorted(failed)
-
     def remove_containers(self, containers: list[dict[str, Any]]) -> None:
         self._each_container(["docker", "rm", "--force"], [item["id"] for item in containers])
 
@@ -561,7 +535,9 @@ class System:
         it terminates, and a journal outlives its containers when an operation
         is interrupted. After a failure the command is repeated once on the
         containers that still exist, so any other error still fails (stopping
-        and removing must not be skipped; starting is :meth:`resume_containers`).
+        and removing must not be skipped). They are never started again with
+        ``docker start``: the runtime agent starts each wiki behind a mount gate
+        that only its own ``tenant.start`` releases, so the portal starts them.
         """
         if not ids or self.run([*command, *ids], check=False, timeout=300).returncode == 0:
             return

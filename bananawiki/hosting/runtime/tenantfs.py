@@ -343,14 +343,20 @@ def _enter(parent_fd: int, name: str) -> tuple[int, list[str]] | None:
 # ── Layout ────────────────────────────────────────────────────────────────────
 
 
-def create(root: Path) -> None:
-    """Create a new tenant directory with the 1.4 layout; refuses an existing one."""
+def create(root: Path, *, prepare=None) -> None:
+    """Create a new tenant directory with the 1.4 layout; refuses an existing one.
+
+    *prepare* (the storage quota) runs only on the directory this call has
+    just made: an existing one is refused first, so it is never prepared.
+    """
     try:
         root.mkdir(mode=0o700)
     except FileExistsError:
         raise RuntimeFailure("data_exists", root.name) from None
     except OSError as error:
         raise _failure(error, f"could not create {root.name}") from None
+    if prepare is not None:
+        prepare()
     ensure_layout(root)
 
 

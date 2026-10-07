@@ -143,7 +143,7 @@
       },
       {
         "heading": "2. Installa BananaWiki",
-        "html": "<p>Scegli la strada più adatta:</p><ul><li><strong>Un server Linux.</strong> Da una copia del codice, <code>sudo ./banana install --mode wiki</code> installa il servizio, e la <a href=\"https://github.com/OverloadedTech/BananaWiki/blob/main/docs/deployment.md\">guida all’installazione</a> (in inglese) spiega HTTPS, backup e aggiornamenti.</li><li><strong>Linux o macOS con Python 3.12 o successivo.</strong> Segui la <a href=\"https://github.com/OverloadedTech/BananaWiki#quick-start\">guida rapida nel README</a> (in inglese).</li><li><strong>Un computer desktop.</strong> L’applicazione si compila dal codice sorgente; vedi la <a href=\"https://github.com/OverloadedTech/BananaWiki/blob/main/docs/desktop.md\">guida all’applicazione desktop</a> (in inglese).</li></ul><p>Apri la nuova wiki e completa la pagina di configurazione con un account amministratore temporaneo.</p>"
+        "html": "<p>Scegli la strada più adatta:</p><ul><li><strong>Un server Linux.</strong> Da una copia del codice, <code>sudo ./banana install --mode wiki</code> installa il servizio, e la <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/deployment.md\">guida all’installazione</a> (in inglese) spiega HTTPS, backup e aggiornamenti.</li><li><strong>Linux o macOS con Python 3.11 o successivo.</strong> Segui la <a href=\"https://github.com/BananaSuite/BananaWiki#quick-start\">guida rapida nel README</a> (in inglese).</li><li><strong>Un computer desktop.</strong> L’applicazione si compila dal codice sorgente; vedi la <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/desktop.md\">guida all’applicazione desktop</a> (in inglese).</li></ul><p>Apri la nuova wiki e completa la pagina di configurazione con un account amministratore temporaneo.</p>"
       },
       {
         "heading": "3. Importa il file di export",
@@ -181,7 +181,7 @@
       },
       {
         "heading": "Segnala un problema",
-        "html": "<p>Segnala una possibile compromissione dell’account o un abuso a <a href=\"mailto:{contact_email}\">{contact_email}</a>. Per una vulnerabilità del software, segui le istruzioni di segnalazione privata nella <a href=\"https://github.com/OverloadedTech/BananaWiki/security/policy\">politica di sicurezza</a>. Non pubblicare credenziali o contenuti privati nelle segnalazioni pubbliche.</p>"
+        "html": "<p>Segnala una possibile compromissione dell’account o un abuso a <a href=\"mailto:{contact_email}\">{contact_email}</a>. Per una vulnerabilità del software, segui le istruzioni di segnalazione privata nella <a href=\"https://github.com/BananaSuite/BananaWiki/security/policy\">politica di sicurezza</a>. Non pubblicare credenziali o contenuti privati nelle segnalazioni pubbliche.</p>"
       }
     ]
   },
@@ -241,7 +241,7 @@
       },
       {
         "heading": "Verifica e HTTPS",
-        "html": "<p>Richiedi la verifica quando le modifiche DNS sono visibili. Un nome host non verificato entro un’ora scade: aggiungilo di nuovo e sostituisci il valore TXT con quello nuovo mostrato nel portale. HTTPS diventa disponibile dopo la verifica e l’emissione del certificato. Se il permesso viene revocato, la verifica scade o l’istanza è sospesa, il dominio smette di indirizzare alla wiki. La <a href=\"https://github.com/OverloadedTech/BananaWiki/blob/main/docs/hosting.md\">guida tecnica DNS</a> (in inglese) descrive i controlli.</p>"
+        "html": "<p>Richiedi la verifica quando le modifiche DNS sono visibili. Un nome host non verificato entro un’ora scade: aggiungilo di nuovo e sostituisci il valore TXT con quello nuovo mostrato nel portale. HTTPS diventa disponibile dopo la verifica e l’emissione del certificato. Se il permesso viene revocato, la verifica scade o l’istanza è sospesa, il dominio smette di indirizzare alla wiki. La <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/hosting.md\">guida tecnica DNS</a> (in inglese) descrive i controlli.</p>"
       }
     ]
   },
@@ -264,7 +264,7 @@
       },
       {
         "heading": "Usarlo e proteggerlo",
-        "html": "<p>Invia il token nell’intestazione <code>Authorization</code> di ogni richiesta, come <code>Bearer</code> seguito dal token, a <code>/api/v1</code> su questo portale. Ad esempio, <code>/api/v1/instances</code> elenca le tue wiki. Custodisci ogni token come una password e revoca quelli che non usi più. Cambiare o reimpostare la password li revoca tutti. Disattivare l’API invece non li revoca: i token smettono di funzionare finché resta disattivata e tornano a funzionare quando viene riattivata, quindi revoca quelli che non ti servono più. Il <a href=\"https://github.com/OverloadedTech/BananaWiki/blob/main/hosting/docs/api.md\">riferimento dell’API</a> (in inglese) elenca tutte le richieste.</p>"
+        "html": "<p>Invia il token nell’intestazione <code>Authorization</code> di ogni richiesta, come <code>Bearer</code> seguito dal token, a <code>/api/v1</code> su questo portale. Ad esempio, <code>/api/v1/instances</code> elenca le tue wiki. Custodisci ogni token come una password e revoca quelli che non usi più. Cambiare o reimpostare la password li revoca tutti. Disattivare l’API invece non li revoca: i token smettono di funzionare finché resta disattivata e tornano a funzionare quando viene riattivata, quindi revoca quelli che non ti servono più. Il <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/hosting.md#portal-rest-api\">riferimento dell’API</a> (in inglese) elenca tutte le richieste.</p>"
       }
     ]
   },
@@ -279,7 +279,7 @@
       },
       {
         "heading": "Codice e contributi",
-        "html": "<p>Il codice è mantenuto in <a href=\"https://github.com/OverloadedTech/BananaWiki\">OverloadedTech/BananaWiki</a> con licenza AGPL versione 3. Usa le segnalazioni pubbliche per errori riproducibili e richieste di funzionalità, rimuovendo i dati privati. Leggi la guida ai contributi prima di aprire una pull request.</p>"
+        "html": "<p>Il codice è mantenuto in <a href=\"https://github.com/BananaSuite/BananaWiki\">BananaSuite/BananaWiki</a> con licenza AGPL versione 3. Usa le segnalazioni pubbliche per errori riproducibili e richieste di funzionalità, rimuovendo i dati privati. Leggi la guida ai contributi prima di aprire una pull request.</p>"
       }
     ]
   }

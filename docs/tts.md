@@ -30,6 +30,18 @@ ignored), in time proportional to the length of the page.
   container image have it). From source: `python -m pip install -e '.[tts]'`.
 * **ffmpeg** (optional, for MP3 and speed-changed downloads):
   `apt install ffmpeg`, or point `BW_TTS_FFMPEG` at it.
+  The Wiki and tenant container images include a source-built FFmpeg 9.0.2,
+  verified with the upstream release signature and a pinned SHA256. It keeps
+  WAV/MP3 speech input, all supported PCM formats, MP3 output and pitch-preserving
+  speed conversion; only file and pipe protocols are compiled. Other media
+  formats and FFmpeg network protocols are excluded. The build recipe is in
+  `docker/media/`; matching source archives, effective configuration, licenses
+  and redistribution instructions are in each image at
+  `/usr/local/share/bananawiki/media`.
+  Wiki/desktop speech, the GPU server and containers disable ONNX Runtime's
+  optional diagnostic telemetry (`ORT_DISABLE_TELEMETRY=1`) before Piper loads.
+  An explicitly supplied operator setting is preserved. Local speech synthesis
+  remains available without an external diagnostic service or device probe.
 * **Voices** are downloaded on first use into `BW_TTS_PIPER_VOICE_DIR` (default
   `<instance>/piper-voices`). On a server without internet access set
   `BW_TTS_PIPER_AUTO_DOWNLOAD=0` and download them beforehand, for example
@@ -41,7 +53,7 @@ ignored), in time proportional to the length of the page.
   always available. `langdetect` improves detection for other languages; it is
   no longer installed by default because it is only published as a source
   package (`python -m pip install langdetect==1.0.9` where building it is
-  acceptable; the `tts` extra includes it).
+  acceptable).
 
 ## The worker
 

@@ -53,6 +53,7 @@ from werkzeug.datastructures import FileStorage
 
 from .... import __version__
 from ....core.i18n import valid_code
+from ....core.json import loads as safe_json_loads
 from ....core.sqlite import (
     DatabaseUnavailable,
     apply_migrations,
@@ -259,7 +260,7 @@ def _read_manifest(archive: zipfile.ZipFile, names: set[str]) -> None:
     if MANIFEST not in names:
         return
     try:
-        manifest = json.loads(archive.read(MANIFEST).decode("utf-8"))
+        manifest = safe_json_loads(archive.read(MANIFEST).decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
         raise MigrationError("site_admin.migration.error.manifest") from None
     version = manifest.get("format_version") if isinstance(manifest, dict) else None
@@ -337,7 +338,7 @@ def _stage_language(archive: zipfile.ZipFile, info: zipfile.ZipInfo, path: PureP
     try:
         if code != path.stem or info.file_size > languages.MAX_FILE_BYTES:
             raise languages.LanguageError("site_admin.languages.error.unknown")
-        parsed_code, data, _ignored = languages.validate_pack(json.loads(archive.read(info).decode("utf-8")))
+        parsed_code, data, _ignored = languages.validate_pack(safe_json_loads(archive.read(info).decode("utf-8")))
         if parsed_code != code:
             raise languages.LanguageError("site_admin.languages.error.meta")
     except (languages.LanguageError, UnicodeDecodeError, ValueError):
@@ -358,7 +359,7 @@ def _decode(value: Any) -> Any:
 def _database_from_json(raw: bytes, target: Path) -> None:
     """Turn a 1.4 ``site_export.json`` dump into a 1.4 (version 3) database."""
     try:
-        data = json.loads(raw.decode("utf-8"))
+        data = safe_json_loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
         raise MigrationError("site_admin.migration.error.json") from None
     if not isinstance(data, dict):

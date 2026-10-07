@@ -17,6 +17,7 @@ from flask import current_app
 from werkzeug.datastructures import FileStorage
 
 from ....core.i18n import FALLBACK, META_KEY, valid_code
+from ....core.json import loads as safe_json_loads
 from ... import settings
 from ...i18n import BUILTIN_LANGUAGES, catalog, language_switches
 
@@ -158,7 +159,7 @@ def read_upload(upload: FileStorage | None) -> Any:
     if len(raw) > MAX_FILE_BYTES:
         raise LanguageError("site_admin.languages.error.too_large", limit_mb=MAX_FILE_BYTES // (1024 * 1024))
     try:
-        return json.loads(raw.decode("utf-8"))
+        return safe_json_loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
         raise LanguageError("site_admin.languages.error.not_json") from None
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -13,7 +14,16 @@ import pytest
 
 from bananawiki.ops import caddy, units
 from bananawiki.ops.profile import ReleaseFeatures, services
-from bananawiki.ops.runtime_agent import AgentError, TenantRuntime, container_name, render_routes
+from bananawiki.ops.runtime_agent import (
+    MOUNT_INVENTORY_FORMAT,
+    SECCOMP_PROFILE,
+    AgentError,
+    TenantRuntime,
+    container_name,
+    render_routes,
+)
+
+from .quota_fakes import FakeProjectQuota
 
 
 class Docker:
@@ -24,6 +34,8 @@ class Docker:
         self.running: dict[str, str] = {}
         self.task_output = '{"ok": true, "users": []}\n'
         self.env_files: list[str] = []
+        self.security_options = ["seccomp=" + SECCOMP_PROFILE.read_text()]
+        self.sysctls = {"net.ipv6.conf.all.disable_ipv6": "1", "net.ipv6.conf.default.disable_ipv6": "1"}
 
     def __call__(self, command, **kwargs):
         self.calls.append((command, kwargs))
@@ -32,13 +44,32 @@ class Docker:
         verb = command[1]
         if verb == "run" and "--env-file" in command:
             self.env_files.append(Path(command[command.index("--env-file") + 1]).read_text())
+        if verb == "inspect" and "--format" in command:
+            if MOUNT_INVENTORY_FORMAT in command:
+                items = [{"id": hashlib.sha256(name.encode()).hexdigest(), "name": "/" + name,
+                          "role": "tenant", "running": True, "pid": index + 1}
+                         for index, name in enumerate(self.running)]
+                return subprocess.CompletedProcess(command, 0, "\n".join(json.dumps(item) for item in items), "")
+            return subprocess.CompletedProcess(command, 0, "1", "")
         if verb == "inspect":
-            return subprocess.CompletedProcess(command, 0, json.dumps(self._inspect(command[4:])), "")
+            items = self._inspect(command[4:])
+            return subprocess.CompletedProcess(command, 0 if items else 1, json.dumps(items), "")
+        if verb == "ps" and "label=org.bananawiki.role=tenant-task" in command:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if verb == "ps" and "label=org.bananawiki.role" in command:
+            return subprocess.CompletedProcess(command, 0,
+                                               "\n".join(hashlib.sha256(name.encode()).hexdigest()
+                                                         for name in self.running), "")
+        if verb == "ps" and "--filter" in command and "name=^/" in command[command.index("--filter") + 1]:
+            wanted = command[command.index("--filter") + 1].removeprefix("name=^/").removesuffix("$")
+            return subprocess.CompletedProcess(command, 0, wanted if wanted in self.running else "", "")
         if verb == "ps":
             return subprocess.CompletedProcess(command, 0, "\n".join(self.running), "")
         if verb in ("exec", "run") and "-i" in command:
             return subprocess.CompletedProcess(command, 0, "log line\n" + self.task_output, "")
         if command[1:3] == ["network", "inspect"]:
+            if "{{.EnableIPv6}}" in command:
+                return subprocess.CompletedProcess(command, 0, "false", "")
             return subprocess.CompletedProcess(command, 1, "", "No such network")
         return subprocess.CompletedProcess(command, 0, "", "")
 
@@ -49,8 +80,11 @@ class Docker:
                 data_dir, address = self.running[name].split("|")
                 items.append({"Name": "/" + name, "Config": {"Labels": {
                     "org.bananawiki.role": "tenant", "org.bananawiki.data-dir": data_dir,
-                    "org.bananawiki.internal-port": "5001"}, "Image": "img"},
-                    "State": {"Running": True, "StartedAt": "2026-01-01T00:00:00Z"},
+                    "org.bananawiki.internal-port": "5001",
+                    **{f"org.bananawiki.quota-{key}": str(self.quota.verify(Path(data_dir).name).to_dict()[key])
+                       for key in ("project_id", "root_inode", "root_generation")}}, "Image": "img"},
+                    "State": {"Running": True, "Pid": 1, "StartedAt": "2026-01-01T00:00:00Z"},
+                    "HostConfig": {"SecurityOpt": self.security_options, "Sysctls": self.sysctls},
                     "NetworkSettings": {"Networks": {"n": {"IPAddress": address}}}})
         return items
 
@@ -72,7 +106,17 @@ def agent(tmp_path):
     config = {"service": "svc", "service_uid": owner.st_uid, "service_gid": owner.st_gid,
               "instances_dir": str(instances), "image": "bananawiki-tenant:abc", "routes_dir": str(tmp_path / "routes"),
               "limits": {"memory_mb": 2048, "cpus": 2.0, "pids": 1024, "nofile": 4096}}
-    runtime = TenantRuntime(config, runner=docker, private_dir=private)
+    quota = FakeProjectQuota(instances)
+    for name in ("acme", "beta"):
+        quota.prepare(name, byte_limit=10 * 1024 ** 3, inode_limit=100_000)
+    docker.quota = quota
+    runtime = TenantRuntime(config, runner=docker, private_dir=private, quota=quota)
+    runtime._verify_mount_descriptor = lambda pid, witness: None
+    def mounted_identity(pid):
+        path = list(docker.running.values())[pid - 1].split("|")[0]
+        info = Path(path).stat()
+        return info.st_dev, info.st_ino
+    runtime._mounted_identity = mounted_identity
     runtime.fake = docker  # type: ignore[attr-defined]
     runtime.base = instances.resolve()  # type: ignore[attr-defined]
     return runtime
@@ -87,18 +131,23 @@ def test_task_in_a_stopped_tenant_uses_a_locked_down_one_shot_container(agent):
     request = {"action": "set_password", "username": "bob", "password": "top-secret-pw", "role": "user"}
     result = agent.call("tenant.task", {"tenant": "acme", "request": request})
     assert result == {"tenant": "acme", "result": {"ok": True, "users": []}}
-    command, kwargs = next((c, k) for c, k in agent.fake.calls if c[1] == "run")
-    for flag in ("--rm", "-i", "--read-only", "no-new-privileges:true", "ALL", "org.bananawiki.role=tenant-task"):
+    command = agent.fake.commands("run")[0]
+    for flag in ("--detach", "--read-only", "no-new-privileges:true", "ALL", "org.bananawiki.role=tenant-task"):
         assert flag in command
     assert command[command.index("--network") + 1] == "none"
-    assert command[command.index("--entrypoint") + 1] == "/usr/bin/timeout"
-    assert command[-8:-4][:2] == ["--signal=TERM", "--kill-after=5s"]
-    assert 0 < float(command[-6][:-1]) <= 120 and command[-5] == "python"
-    assert command[-4:] == ["-E", "-s", "-m", "bananawiki.ops.tenant_task"]
-    assert "org.bananawiki.role=tenant" not in command, "the updater must not mistake it for a tenant"
-    assert not any("top-secret-pw" in part for part in command), "passwords go to stdin only"
+    assert "seccomp=" + str(SECCOMP_PROFILE.resolve()) in command
+    assert "net.ipv6.conf.all.disable_ipv6=1" in command and "net.ipv6.conf.default.disable_ipv6=1" in command
+    assert command[command.index("--entrypoint") + 1] == "python"
+    assert command[-3] == "task" and len(command[-2]) == 32 and command[-1] == "150"
+    executed, kwargs = next((c, k) for c, k in agent.fake.calls if c[1] == "exec")
+    assert executed[4:7] == ["/usr/bin/timeout", "--signal=TERM", "--kill-after=5s"]
+    assert 0 < float(executed[7][:-1]) <= 120 and executed[8] == "python"
+    assert executed[-4:] == ["-E", "-s", "-m", "bananawiki.ops.tenant_task"]
+    assert "org.bananawiki.role=tenant" not in command
+    assert not any("top-secret-pw" in part for part in command + executed)
     assert json.loads(kwargs["input"]) == request
-    assert not list(Path(agent.private_dir).iterdir()), "the env file is removed"
+    assert not list(Path(agent.private_dir).iterdir())
+    assert agent.fake.commands("rm")[-1][3] == executed[3]
 
 
 def test_task_in_a_running_tenant_uses_exec(agent):
@@ -111,6 +160,28 @@ def test_task_in_a_running_tenant_uses_exec(agent):
     assert command[8:] == ["python", "-E", "-s", "-m", "bananawiki.ops.tenant_task"]
     assert "input" in kwargs
     assert 10 < kwargs["timeout"] <= 130
+
+
+@pytest.mark.parametrize("security_options", [[], ["seccomp=builtin"], ["seccomp=unconfined"],
+                                              ['seccomp={"defaultAction":"SCMP_ACT_ALLOW"}']])
+def test_tasks_refuse_a_running_container_without_the_quota_profile(agent, security_options):
+    _run_up(agent, "acme", "172.20.0.2")
+    agent.fake.security_options = security_options
+    with pytest.raises(AgentError) as error:
+        agent.call("tenant.task", {"tenant": "acme", "request": {"action": "list_users"}})
+    assert error.value.code == "sandbox_outdated"
+    assert not agent.fake.commands("exec") and not agent.fake.commands("run")
+
+
+@pytest.mark.parametrize("sysctls", [{}, {"net.ipv6.conf.all.disable_ipv6": "1"},
+                                   {"net.ipv6.conf.all.disable_ipv6": "0", "net.ipv6.conf.default.disable_ipv6": "1"}])
+def test_tasks_refuse_a_running_container_without_ipv6_disabled(agent, sysctls):
+    _run_up(agent, "acme", "172.20.0.2")
+    agent.fake.sysctls = sysctls
+    with pytest.raises(AgentError) as error:
+        agent.call("tenant.task", {"tenant": "acme", "request": {"action": "list_users"}})
+    assert error.value.code == "sandbox_outdated"
+    assert not agent.fake.commands("exec") and not agent.fake.commands("run")
 
 
 def test_timed_out_one_shot_task_is_removed_and_later_tasks_can_run(agent):
@@ -140,8 +211,8 @@ def test_tasks_serialize_per_tenant_without_blocking_other_tenants(agent):
     original_runner = agent.runner
 
     def runner(command, **kwargs):
-        if command[1] == "run" and "-i" in command:
-            name = command[command.index("--name") + 1]
+        if command[1] == "exec" and "-i" in command:
+            name = command[3]
             if name.startswith(container_name(str(agent.base / "acme"))):
                 if started.is_set() and not release.is_set():
                     concurrent.set()
@@ -283,7 +354,7 @@ def test_container_enforced_deadline_is_reported_as_a_timeout(agent):
     original = agent.runner
 
     def runner(command, **kwargs):
-        if command[1] == "run":
+        if command[1] == "exec":
             return subprocess.CompletedProcess(command, 124, "", "")
         return original(command, **kwargs)
 
@@ -388,7 +459,7 @@ def test_failed_route_reload_is_retried_even_after_agent_restart(agent, tmp_path
     agent.runner = runner
     routes = {"routes": [{"tenant": "acme", "hosts": ["acme-hosting.example.com"]}]}
     assert agent.call("proxy.routes", routes) == {"routes": 1, "changed": True, "reloaded": False}
-    restarted = TenantRuntime(agent.config, runner=runner, private_dir=agent.private_dir)
+    restarted = TenantRuntime(agent.config, runner=runner, private_dir=agent.private_dir, quota=agent.fake.quota)
     assert restarted.call("proxy.routes", routes) == {"routes": 1, "changed": False, "reloaded": True}
     assert restarted.call("proxy.routes", routes) == {"routes": 1, "changed": False, "reloaded": False}
 
@@ -413,7 +484,7 @@ def test_stopped_tenant_subnet_is_kept_until_caddy_forgets_its_address(agent, tm
     assert ["docker", "network", "rm", name] not in [command for command, _ in agent.fake.calls]
     assert name in json.loads((tmp_path / "routes/retired-networks.json").read_text())
     fail_reload.clear()
-    restarted = TenantRuntime(agent.config, runner=runner, private_dir=agent.private_dir)
+    restarted = TenantRuntime(agent.config, runner=runner, private_dir=agent.private_dir, quota=agent.fake.quota)
     assert restarted.call("proxy.routes", routes)["reloaded"]
     commands = [command for command, _ in agent.fake.calls]
     assert ["docker", "network", "rm", name] in commands
@@ -461,7 +532,7 @@ def test_retired_network_cleanup_survives_active_bridges_and_agent_restart(agent
     agent.runner = runner
     agent.call("proxy.routes", routes)
     assert attempted == names[:4], "cleanup bounds Docker calls per sync"
-    restarted = TenantRuntime(agent.config, runner=runner, private_dir=agent.private_dir)
+    restarted = TenantRuntime(agent.config, runner=runner, private_dir=agent.private_dir, quota=agent.fake.quota)
     restarted.call("proxy.routes", routes)
     assert attempted[4] == names[4], "a restart preserves fair progress beyond active bridges"
     assert names[4] not in json.loads((tmp_path / "routes/retired-networks.json").read_text())
@@ -567,7 +638,7 @@ def test_managed_caddyfile_imports_the_routes_and_the_unit_owns_them():
     features = ReleaseFeatures(runtime_agent=True, hardened=True)
     agent_service = next(s for s in services(settings, features) if s.privileged)
     unit = units.service_unit(settings, agent_service, features)
-    assert "StateDirectory=bananawiki-routes\nStateDirectoryMode=0755\n" in unit
+    assert "StateDirectory=bananawiki-routes bananawiki-quotas\nStateDirectoryMode=0755\n" in unit
 
 
 def test_tenant_task_module_reports_errors_as_json(tmp_path, monkeypatch):

@@ -50,7 +50,7 @@ oppure come piattaforma hosting che crea una wiki separata per ogni cliente.
 **Dal codice sorgente** (Python 3.11 o successivo):
 
 ```sh
-git clone https://github.com/OverloadedTech/BananaWiki.git
+git clone https://github.com/BananaSuite/BananaWiki.git
 cd BananaWiki
 python3 -m venv .venv && . .venv/bin/activate
 python -m pip install -e .
@@ -122,4 +122,4 @@ all'indirizzo `/source`. Conserva le note di terze parti.
 
 Copyright © 2026 Luca Zani e tutti i contributori. Ogni contributore conserva
 il copyright dei propri contributi. Sorgente:
-<https://github.com/OverloadedTech/BananaWiki>.
+<https://github.com/BananaSuite/BananaWiki>.

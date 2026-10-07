@@ -249,6 +249,110 @@ def test_a_failed_creation_never_deletes_data_it_did_not_create(ctx, make_accoun
     assert row == {"status": "terminated", "terminated_reason": "provisioning_failed"}
 
 
+def _assert_left_alone(runtime, orphaned, instance_id: str) -> None:
+    from bananawiki.hosting import instances
+
+    assert runtime.tenants["alpha"] is orphaned, "someone else's data stays where it was"
+    assert "alpha" not in runtime.called("destroy")
+    row = instances.get(instance_id)
+    assert (row["status"], row["terminated_reason"], row["port"]) == ("terminated", "provisioning_failed", None)
+    assert row["provisioning_state"] == "failed" and row["data_retained_until"] is None
+    assert instances.by_slug("alpha", "hosting") is None
+
+
+def test_cancelling_a_creation_that_never_reached_the_runtime_leaves_the_name_alone(ctx, make_account, make_wiki,
+                                                                                   runtime, query, monkeypatch):
+    """The creator gave up on a busy provisioning lock: nothing under the name is the wiki's to delete."""
+    from filelock import FileLock, Timeout
+
+    from bananawiki.hosting import instances
+    from bananawiki.hosting.errors import ServiceError
+
+    _orphan(make_account, make_wiki, query, "alpha")
+    orphaned = runtime.tenants["alpha"]
+    owner = make_account()
+    provisioned = runtime.called("provision")
+
+    def busy(self, *_args, **_kwargs):
+        raise Timeout(self.lock_file)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(FileLock, "acquire", busy)
+        with pytest.raises(ServiceError, match="provisioning_busy"):
+            instances.create(owner, "alpha")
+    pending = instances.by_slug("alpha", "hosting")
+    assert pending["provisioning_state"] == "pending" and runtime.called("provision") == provisioned
+    instances.terminate(pending, actor_id=owner["id"])
+    _assert_left_alone(runtime, orphaned, pending["id"])
+
+
+def test_an_abandoned_creation_that_expires_leaves_the_name_alone(ctx, make_account, make_wiki, runtime, query):
+    """The creator was killed right after its reservation; nobody cancels it, the expiry sweep does."""
+    from bananawiki.hosting import instances
+
+    _orphan(make_account, make_wiki, query, "alpha")
+    orphaned = runtime.tenants["alpha"]
+    pending = instances._insert(make_account(), "alpha", "hosting", admin_username="admin", custom_credentials=False,
+                                easy_wiki=False, use_case="")
+    query("UPDATE instances SET expires_at = '2000-01-01 00:00:00' WHERE id = ?", (pending["id"],))
+    assert instances.terminate_expired() == 1
+    _assert_left_alone(runtime, orphaned, pending["id"])
+
+
+@pytest.mark.parametrize("failures", [1, 2])
+def test_a_refused_creation_whose_row_update_fails_never_deletes_the_folder_later(ctx, make_account, make_wiki,
+                                                                                runtime, query, monkeypatch,
+                                                                                failures):
+    """``data_exists``, then the update terminating the row fails: the cancellation that follows still knows."""
+    import sqlite3
+
+    from bananawiki.core.sqlite import Session
+    from bananawiki.hosting import instances
+
+    _orphan(make_account, make_wiki, query, "alpha")
+    orphaned = runtime.tenants["alpha"]
+    owner = make_account()
+    update, left = Session.update, {"failures": failures}
+
+    def locked(self, table, values, where, params=()):
+        if table == "instances" and values.get("terminated_reason") == "provisioning_failed" and left["failures"]:
+            left["failures"] -= 1
+            raise sqlite3.OperationalError("database is locked")
+        return update(self, table, values, where, params)
+
+    monkeypatch.setattr(Session, "update", locked)
+    with pytest.raises(sqlite3.OperationalError):
+        instances.create(owner, "alpha")
+    row = instances.by_slug("alpha", "hosting")
+    assert row["status"] == "stopped", "the row still holds the name"
+    for _ in range(failures - 1):
+        with pytest.raises(sqlite3.OperationalError):
+            instances.terminate(instances.get(row["id"]), actor_id=None)
+    instances.terminate(instances.get(row["id"]), actor_id=None)
+    _assert_left_alone(runtime, orphaned, row["id"])
+
+
+def test_cancelling_a_creation_the_runtime_worked_on_still_deletes_its_data(ctx, make_account, runtime,
+                                                                           monkeypatch):
+    """The other side of the rule: data the runtime created for an interrupted creation is cleaned up."""
+    from bananawiki.hosting import instances
+
+    provision = runtime.provision
+
+    def interrupted(*args, **kwargs):
+        provision(*args, **kwargs)
+        raise KeyboardInterrupt("worker killed after the seed")
+
+    monkeypatch.setattr(runtime, "provision", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        instances.create(make_account(), "alpha")
+    pending = instances.by_slug("alpha", "hosting")
+    assert pending["provisioning_state"] == "pending" and "alpha" in runtime.tenants
+    instances.terminate(pending, actor_id=None)
+    assert "alpha" in runtime.called("destroy") and "alpha" not in runtime.tenants
+    assert instances.get(pending["id"])["status"] == "terminated"
+
+
 def test_terminate_keeps_the_name_until_the_data_has_moved(ctx, make_account, make_wiki, runtime):
     from bananawiki.hosting import instances
     from bananawiki.hosting.errors import ServiceError

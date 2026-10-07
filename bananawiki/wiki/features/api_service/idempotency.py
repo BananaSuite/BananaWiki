@@ -13,6 +13,9 @@ token that first used them.
   with ``api.secret_response``) are never stored; only their status is. A
   retry of such a request is refused (409 ``idempotency_replay_unavailable``,
   with the first answer's ``status``) instead of being run again.
+  Answers larger than the replay storage budget also retain their status
+  and refuse replays, so a successful operation is never repeated merely
+  because its answer was large.
 * While the first request is still running, a retry is refused (409).
 * Server errors (5xx) and rate-limit answers are not stored, so the request
   can be retried; a reservation left behind by a crashed worker expires after
@@ -83,9 +86,11 @@ def finish(reservation: int, status: int, body: bytes | None) -> None:
 
     With *body* None (an answer carrying a secret) only the status is kept.
     """
-    if status >= 500 or status == 429 or (body is not None and len(body) > MAX_STORED_BODY):
+    if status >= 500 or status == 429:
         db.execute("DELETE FROM api_service__idempotency WHERE id = ?", (reservation,))
         return
+    if body is not None and len(body) > MAX_STORED_BODY:
+        body = None
     db.execute("UPDATE api_service__idempotency SET status_code = ?, response_body = ? WHERE id = ?",
                (status, None if body is None else body.decode("utf-8", "replace"), reservation))
 

@@ -35,7 +35,7 @@ log = logging.getLogger("bananawiki.hosting.config")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = Path(__file__).resolve().parent
 LEGACY_DATA_DIR = REPO_ROOT / "hosting" / "data"
-DEFAULT_SOURCE_URL = "https://github.com/OverloadedTech/BananaWiki"
+DEFAULT_SOURCE_URL = "https://github.com/BananaSuite/BananaWiki"
 CONTACT_EMAIL_PLACEHOLDER = "contact@localhost"
 HOSTING_MODES = frozenset({"subdomain", "port", "onion"})
 

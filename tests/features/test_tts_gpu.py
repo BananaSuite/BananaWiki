@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import importlib.util
 import json
+import os
 import sys
 import threading
 from pathlib import Path
@@ -136,6 +137,39 @@ def load_server():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.mark.parametrize("operator_setting", [None, "0"])
+@pytest.mark.parametrize("engine", ["local", "gpu"])
+def test_piper_privacy_default_precedes_import_and_preserves_operator_setting(app, tmp_path, monkeypatch,
+                                                                            operator_setting, engine):
+    import builtins
+
+    if operator_setting is None:
+        monkeypatch.delenv("ORT_DISABLE_TELEMETRY", raising=False)
+    else:
+        monkeypatch.setenv("ORT_DISABLE_TELEMETRY", operator_setting)
+    observed = []
+    original_import = builtins.__import__
+
+    def inspect_import(name, *args, **kwargs):
+        if name == "piper":
+            observed.append(os.environ.get("ORT_DISABLE_TELEMETRY"))
+            raise ImportError("Stop before loading the native engine")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", inspect_import)
+    if engine == "local":
+        backend = backends.PiperBackend(options.load(app.config["BW"], {}))
+        monkeypatch.setattr(backend, "_ensure_files", lambda _language: (tmp_path / "model.onnx", tmp_path / "model.json"))
+        with pytest.raises(backends.SynthesisError, match="Piper is not installed"):
+            backend._voice("en")
+    else:
+        module = load_server()
+        backend = module.PiperEngine(module.Settings(token="test-token", voice_dir=str(tmp_path)))
+        with pytest.raises(ImportError, match="native engine"):
+            backend._load("en_US-lessac-medium")
+    assert observed == [operator_setting if operator_setting is not None else "1"]
 
 
 class FakeEngine:

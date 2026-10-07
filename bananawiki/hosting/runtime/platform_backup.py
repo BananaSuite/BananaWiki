@@ -221,25 +221,39 @@ def _refuse_links(root: Path, target: Path) -> None:
             raise RuntimeFailure("invalid", f"a restore target inside {root.name} is a link")
 
 
-def _install_tenants(staged: Path, cfg: HostingConfig) -> None:
+def _install_tenants(staged: Path, cfg: HostingConfig, *,
+                     prepare_tenant: Callable[[str, int], None] | None = None,
+                     storage_limits: dict[str, int] | None = None) -> None:
     base = Path(cfg.instances_dir)
     base.mkdir(mode=0o700, parents=True, exist_ok=True)
-    real_base = base.resolve()
-    for tenant_dir in sorted(staged.iterdir()):
-        root = tenantfs.tenant_path(base, tenant_dir.name)
-        if root.is_symlink() or (root.exists() and root.resolve().parent != real_base):
-            raise RuntimeFailure("invalid", f"{root} is a link")
-        root.mkdir(mode=0o700, exist_ok=True)
-        for source in sorted(tenant_dir.rglob("*")):
-            if not source.is_file():
-                continue
-            target = root / source.relative_to(tenant_dir)
-            _refuse_links(root, target)
-            _install_file(source, target)
-        tenantfs.ensure_layout(root)
+    created: list[Path] = []
+    try:
+        for tenant_dir in sorted(staged.iterdir()):
+            root = tenantfs.tenant_path(base, tenant_dir.name)
+            # Restore requires a fresh target. Never adopt or clean a directory
+            # that existed before this operation.
+            root.mkdir(mode=0o700)
+            created.append(root)
+            if prepare_tenant is not None:
+                prepare_tenant(tenant_dir.name, (storage_limits or {}).get(
+                    tenant_dir.name, cfg.limits.storage_limit_mb * 1024 ** 2))
+            for source in sorted(tenant_dir.rglob("*")):
+                if not source.is_file():
+                    continue
+                target = root / source.relative_to(tenant_dir)
+                _refuse_links(root, target)
+                _install_file(source, target)
+            tenantfs.ensure_layout(root)
+    except BaseException:
+        # In particular, capacity/quota refusal must leave a retryable fresh
+        # target instead of half a restored platform without its database.
+        for root in reversed(created):
+            shutil.rmtree(root)
+        raise
 
 
-def restore(cfg: HostingConfig, parts: Sequence[Path], key: Callable[[], bytes], secret_key_path: str) -> None:
+def restore(cfg: HostingConfig, parts: Sequence[Path], key: Callable[[], bytes], secret_key_path: str, *,
+            prepare_tenant: Callable[[str, int], None] | None = None) -> None:
     """Validate every part, then install tenants, keys and finally ``hosting.db``."""
     check_restore_target(cfg)
     data_dir = Path(cfg.database_path).parent
@@ -257,6 +271,23 @@ def restore(cfg: HostingConfig, parts: Sequence[Path], key: Callable[[], bytes],
         if not database.is_file():
             raise RuntimeFailure("archive_invalid", "the backup holds no hosting database")
         _check_database(database)
+        storage_limits = {}
+        if prepare_tenant is not None:
+            # The encrypted platform database has already been validated. Read
+            # only quota policy; tenant SQLite files remain sandbox-only.
+            try:
+                with sqlite3.connect(f"{database.absolute().as_uri()}?mode=ro", uri=True) as policy:
+                    policy.execute("PRAGMA trusted_schema=OFF")
+                    for slug, mode, limit in policy.execute(
+                            "SELECT subdomain, domain_mode, storage_limit_mb FROM instances"):
+                        if (not isinstance(slug, str) or mode not in {"hosting", "apex"}
+                                or limit is not None and (type(limit) is not int or limit < 0)):
+                            raise RuntimeFailure("archive_invalid", "the backup has an invalid tenant storage policy")
+                        name = slug + ("__apex" if mode == "apex" else "")
+                        tenantfs.tenant_path(cfg.instances_dir, name)
+                        storage_limits[name] = (cfg.limits.storage_limit_mb if limit is None else limit) * 1024 ** 2
+            except sqlite3.DatabaseError:
+                raise RuntimeFailure("archive_invalid", "the backup tenant storage policy is not readable") from None
         secret = stage / "secret_key"
         if secret.is_file() and not 32 <= len(secret.read_bytes().strip()) <= 4096:
             raise RuntimeFailure("archive_invalid", "the backup holds an invalid session key")
@@ -264,7 +295,8 @@ def restore(cfg: HostingConfig, parts: Sequence[Path], key: Callable[[], bytes],
         if backup_key.is_file() and backup_key.stat().st_size != 32:
             raise RuntimeFailure("archive_invalid", "the backup encryption key must be 32 bytes")
         if (stage / "instances").is_dir():
-            _install_tenants(stage / "instances", cfg)
+            _install_tenants(stage / "instances", cfg, prepare_tenant=prepare_tenant,
+                             storage_limits=storage_limits)
         if secret.is_file():
             _install_file(secret, Path(secret_key_path))
         if backup_key.is_file():

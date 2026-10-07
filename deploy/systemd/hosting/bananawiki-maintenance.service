@@ -1,5 +1,5 @@
 # Managed by BananaSuite
-# bananawiki-ops: 2
+# bananawiki-ops: 3
 [Unit]
 Description=BananaWiki hosting maintenance (bananawiki)
 After=network-online.target bananawiki-agent.service
@@ -12,7 +12,7 @@ Group=bananawiki
 WorkingDirectory=/opt/bananawiki/current
 EnvironmentFile=/opt/bananawiki/config/app.env
 Environment=HOME=/opt/bananawiki/data
-ExecStart="/opt/bananawiki/current/.venv/bin/python" "-m" "hosting.maintenance" "--interval" "300"
+ExecStart="/opt/bananawiki/current/.venv/bin/python" "-E" "-s" "-m" "bananawiki.ops.hosting_entrypoint" "maintenance"
 Restart=always
 RestartSec=5
 TimeoutStartSec=180
@@ -41,6 +41,7 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+InaccessiblePaths=/proc
 ReadWritePaths=/opt/bananawiki/data
 
 [Install]

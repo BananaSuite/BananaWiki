@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from collections.abc import Callable
@@ -11,6 +10,7 @@ from typing import Any
 from flask import current_app
 
 from ....core import http
+from ....core.json import loads as safe_json_loads
 from ... import settings, storage
 from ...db import db
 from . import protocol, store
@@ -47,7 +47,7 @@ def fetch(local_id: str, peer: dict[str, Any], *, transport: Transport | None = 
     protocol.verify_response(secret, peer["wiki_id"], local_id, headers["BW-Nonce"], response.body,
                              response.header("BW-Signature"))
     try:
-        payload = json.loads(response.body)
+        payload = safe_json_loads(response.body)
     except ValueError:
         raise ProtocolError("federation.error.snapshot") from None
     return protocol.validate_snapshot(payload, peer["wiki_id"])

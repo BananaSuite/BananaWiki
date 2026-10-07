@@ -10,7 +10,7 @@ Discussions and reviews follow the [code of conduct](CODE_OF_CONDUCT.md).
 You need Python 3.11 or newer and Git.
 
 ```sh
-git clone https://github.com/OverloadedTech/BananaWiki.git
+git clone https://github.com/BananaSuite/BananaWiki.git
 cd BananaWiki
 python3 -m venv .venv
 . .venv/bin/activate

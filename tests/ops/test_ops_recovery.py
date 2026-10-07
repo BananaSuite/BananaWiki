@@ -76,24 +76,29 @@ class Wikis:
             self.recover()
 
     def recover(self) -> None:
+        """The runtime agent's recovery: a running container is left alone, any other is replaced by a new one."""
         for slug in self.rows():
             directory = self.directory(slug)
             if not directory.is_dir():
                 continue  # the agent refuses a wiki whose data directory is missing
             existing = [item for item in self.system.tenant_containers if item["data_dir"] == str(directory)]
-            for item in existing:
-                item["running"] = True
-            if not existing:
-                self.address += 1
-                self.system.tenant_containers.append({
-                    "id": f"{slug}-{self.address}", "running": True, "addresses": [f"172.18.0.{self.address}"],
-                    "internal_port": 5001, "data_dir": str(directory)})
+            if any(item["running"] for item in existing):
+                continue  # a gated container among them still looks "starting" to the agent
+            stale = {item["id"] for item in existing}
+            self.system.tenant_containers = [item for item in self.system.tenant_containers
+                                             if item["id"] not in stale]
+            self.address += 1
+            self.system.tenant_containers.append({
+                "id": f"{slug}-{self.address}", "running": True, "addresses": [f"172.18.0.{self.address}"],
+                "internal_port": 5001, "data_dir": str(directory)})
 
     def probe(self, url: str) -> int:
         if url.startswith("http://127.0.0.1:"):
             return 200  # the portal
         address = url.split("//")[1].split(":")[0]
         item = next(item for item in self.system.tenant_containers if address in item["addresses"])
+        if item.get("gated"):
+            raise ConnectionRefusedError(url)  # brought back by ``docker start``: its mount gate stays shut
         slug = Path(item["data_dir"]).name
         if slug in self.answered_by:
             return _http_status(self.answered_by[slug])
@@ -537,7 +542,7 @@ def test_a_wiki_terminated_while_the_maintenance_service_stops_does_not_block_op
     assert not any(removed in command for command in system.commands if command[:1] == ["docker"])
 
 
-def test_recovery_resumes_only_the_containers_that_still_exist(hosting):
+def test_recovery_removes_the_containers_that_still_exist(hosting):
     root, manager, system = hosting.root, hosting.manager, hosting.system
     containers = [dict(item) for item in system.tenant_containers]
     gone = {**containers[0], "id": "removed-meanwhile"}
@@ -545,29 +550,33 @@ def test_recovery_resumes_only_the_containers_that_still_exist(hosting):
         **manager.journal_state(manager.settings()), "containers": [gone, *containers],
         "serving": [item["data_dir"] for item in containers]})
     assert manager.recover() is True
-    assert ["docker", "start", "removed-meanwhile", *(item["id"] for item in containers)] in system.commands
+    assert ["docker", "rm", "--force", *(item["id"] for item in containers)] in system.commands
+    assert not [command for command in system.commands if "removed-meanwhile" in command]
+    assert not [command for command in system.commands if command[:2] == ["docker", "start"]]
+    # The portal started the wikis again, in new containers.
     assert all(item["running"] for item in system.tenant_containers)
+    assert not {item["id"] for item in system.tenant_containers} & {item["id"] for item in containers}
+    assert "unready_tenants" not in read_json(root / "config/status.json")
     assert_in_service(root, hosting.wikis)
 
 
-def test_a_container_that_cannot_start_again_does_not_fail_a_backup(hosting):
-    """Its row says running but its data directory is gone: Docker refuses to start it once it is stopped."""
+def test_a_wiki_whose_data_directory_is_gone_does_not_fail_a_backup(hosting):
+    """Its row says running but its data directory is gone: the portal cannot start it again."""
     root, system, wikis = hosting.root, hosting.system, hosting.wikis
     broken = wikis.directory("broken")
-    container = next(item for item in system.tenant_containers if item["data_dir"] == str(broken))
-    acme = next(item["id"] for item in system.tenant_containers if item is not container)
+    acme = next(item["id"] for item in system.tenant_containers if item["data_dir"] != str(broken))
     shutil.rmtree(broken)
-    system.unstartable.add(container["id"])
     result = dispatch(hosting.manager, argparse.Namespace(command="backup", output=None))
     assert Path(result["package"]).is_file() and result["unready_tenants"] == ["broken"]
-    assert ["docker", "start", acme] in system.commands  # the others are started one by one
+    serving = [item for item in system.tenant_containers if item["data_dir"] == str(wikis.directory("acme"))]
+    assert [item["running"] for item in serving] == [True] and serving[0]["id"] != acme
     assert not [event for event in history(root) if event["operation"] == "recover"]  # nothing was restored
     assert_in_service(root, wikis)
     assert {"bananawiki", "bananawiki-maintenance", "bananawiki-agent"} <= system.running
 
 
 def test_recovery_of_an_operation_interrupted_while_quiescing_starts_the_platform(hosting):
-    """Phase "preparing" (no snapshot yet) and one container that cannot start: the platform still returns."""
+    """Phase "preparing" (no snapshot yet) and one wiki whose data directory is gone: the platform still returns."""
     root, manager, system, wikis = hosting.root, hosting.manager, hosting.system, hosting.wikis
     containers = [dict(item) for item in system.tenant_containers]
     write_json(root / "config/transaction.json", {
@@ -577,15 +586,47 @@ def test_recovery_of_an_operation_interrupted_while_quiescing_starts_the_platfor
     system.running.clear()
     for item in system.tenant_containers:
         item["running"] = False
-    broken = wikis.directory("broken")
-    shutil.rmtree(broken)
-    system.unstartable.update(item["id"] for item in containers if item["data_dir"] == str(broken))
+    shutil.rmtree(wikis.directory("broken"))
     result = lifecycle(manager, argparse.Namespace(command="recover"))
     assert result["outcome"] == "complete" and result["recovered"] is True
     assert result["data_restored"] is False and result["unready_tenants"] == ["broken"]
     assert read_json(root / "config/status.json")["unready_tenants"] == ["broken"]
     assert_in_service(root, wikis)
     assert {"bananawiki", "bananawiki-maintenance", "bananawiki-agent"} <= system.running
+
+
+def test_backups_and_recoveries_never_start_tenant_containers_again_themselves(hosting):
+    """The runtime agent starts each wiki behind a mount gate that only its own ``tenant.start`` releases.
+
+    A ``docker start`` would bring the container back inert (and the agent's
+    recovery would take it for a wiki still starting): every wiki that
+    served must come back through the portal, in a new container.
+    """
+    root, manager, system, wikis = hosting.root, hosting.manager, hosting.system, hosting.wikis
+
+    def check(before: set[str], operation: str) -> None:
+        status = read_json(root / "config/status.json")
+        assert status["operation"] == operation and status["outcome"] == "complete"
+        assert "unready_tenants" not in status
+        assert not [command for command in system.commands if command[:2] == ["docker", "start"]]
+        assert sorted(Path(item["data_dir"]).name for item in system.tenant_containers
+                      if item["running"] and not item.get("gated")) == ["acme", "broken"]
+        assert not {item["id"] for item in system.tenant_containers} & before
+        assert_in_service(root, wikis)
+
+    before = {item["id"] for item in system.tenant_containers}
+    assert manager.backup().is_file()
+    check(before, "backup")
+    # An operation interrupted after it stopped the wikis, before its snapshot: nothing is put back.
+    containers = [dict(item) for item in system.tenant_containers]
+    write_json(root / "config/transaction.json", {
+        **manager.journal_state(manager.settings()), "containers": containers,
+        "serving": [item["data_dir"] for item in containers]})
+    system.running.clear()
+    for item in system.tenant_containers:
+        item["running"] = False
+    assert manager.recover() is True
+    check({item["id"] for item in containers}, "recover")
 
 
 def test_readiness_waits_only_for_wikis_still_running_in_the_restored_database(hosting):
@@ -620,8 +661,6 @@ def test_container_commands_skip_containers_that_are_gone():
                   {"id": "b" * 64, "running": True, "data_dir": "/srv/instances/b"}]
     system.stop_containers(containers)
     assert calls[-1] == ["docker", "stop", "--time", "30", "a" * 64]
-    assert system.resume_containers(containers) == []
-    assert calls[-1] == ["docker", "start", "a" * 64]
     present.clear()
     calls.clear()
     system.remove_containers(containers)
@@ -634,13 +673,8 @@ def test_container_commands_skip_containers_that_are_gone():
 
     with pytest.raises(RuntimeError, match="docker stop failed"):
         System(runner=failing).stop_containers(containers)
-    # Starting is best effort: the wikis that did not start are returned, never raised.
-    assert System(runner=failing).resume_containers(containers) == ["/srv/instances/a"]
-
-    def unreachable(command, **_):
-        return subprocess.CompletedProcess(command, 1, "", "Cannot connect to the Docker daemon")
-
-    assert System(runner=unreachable).resume_containers(containers) == [item["data_dir"] for item in containers]
+    with pytest.raises(RuntimeError, match="docker rm failed"):
+        System(runner=failing).remove_containers(containers)
 
 
 def test_the_docker_check_before_an_operation_only_lists_ids():

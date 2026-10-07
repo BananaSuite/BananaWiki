@@ -71,9 +71,12 @@ What happens:
    wheels only; on hosting servers the tenant image). The wiki keeps serving
    meanwhile. A failure here leaves everything as it was and records the
    commit as failed. The tenant image is built on a freshly pulled base image
-   and runs the Debian upgrade and the package installation again (no cached
-   layers), so each update also brings the wikis the distribution and Python
-   security fixes published so far. If the registry cannot be reached (or
+   and runs the Debian upgrade and the package installation of its final
+   stage again (no cached layers), so each update also brings the wikis the
+   distribution and Python security fixes published so far. The FFmpeg and
+   ACL build stages before it are rebuilt only when the pull brought a new
+   base image, which then also needs `ffmpeg.org` and the Debian source
+   archive. If the registry cannot be reached (or
    the pull takes more than 10 minutes), the image is built on the base
    image already on the server and the result carries `image_warnings`. The
    Debian upgrade and the package installation have no such fallback: if the
@@ -114,7 +117,11 @@ directory is missing, or one that fails while its maintenance marker exists)
 is not waited for. A wiki that served before a backup, a recovery or a
 `start` and does not serve again, whatever its health check answers, is
 waited for up to the readiness timeout and then reported, and the operation
-still ends; so is one whose container Docker can no longer start. Such
+still ends; so is one the portal can no longer start. Every operation
+removes the wiki containers it stopped rather than starting them again: the
+runtime agent lets a wiki serve only after verifying its storage, so the
+portal's maintenance service starts each wiki marked running again in a new
+container (a plain `docker start` would leave it waiting for that check). Such
 wikis, and those whose container was running but that were already failing
 and still do not serve once an update, a backup, a restore or a recovery is
 complete (checked once at the very end, after any package is written; this
@@ -151,7 +158,7 @@ reaches your server, so follow a branch you trust, or require signatures.
 
 ```sh
 sudo bananawiki source show
-sudo bananawiki source set --repo https://github.com/OverloadedTech/BananaWiki.git --branch main
+sudo bananawiki source set --repo https://github.com/BananaSuite/BananaWiki.git --branch main
 sudo bananawiki source check          # what update would deploy, without deploying
 ```
 

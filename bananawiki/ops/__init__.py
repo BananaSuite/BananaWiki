@@ -30,6 +30,6 @@ is BananaWiki's own and the only compatibility promise is the on-disk format.
 SCHEMA = 1
 PRODUCT = "BananaWiki"
 MANAGED_MARKER = "# Managed by BananaSuite"
-UNIT_GENERATION = "# bananawiki-ops: 2"
+UNIT_GENERATION = "# bananawiki-ops: 3"
 DEFAULT_ROOT = "/opt/bananawiki"
-DEFAULT_SOURCE_URL = "https://github.com/OverloadedTech/BananaWiki.git"
+DEFAULT_SOURCE_URL = "https://github.com/BananaSuite/BananaWiki.git"

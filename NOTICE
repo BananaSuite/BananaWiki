@@ -21,3 +21,19 @@ commit, a clean export of the source.
 
 Licensed under the GNU Affero General Public License, version 3.
 See LICENSE. Third-party components retain their respective licenses and notices.
+
+The tenant seccomp allowlist derives from Docker/Moby 29.8.2 and
+github.com/moby/profiles/seccomp v0.2.3, licensed under Apache License 2.0.
+The unmodified profile, matching license, source pin and the quota-protection
+modifications are included in bananawiki/ops/seccomp.
+
+The container images include FFmpeg 9.0.2, licensed under LGPL 2.1 or later,
+and Debian's LAME library, licensed under LGPL 2.0 or later. Their source,
+configuration, licenses and redistribution instructions are included in each
+image at /usr/local/share/bananawiki/media. The FFmpeg build recipe and release
+verification files are in docker/media in the source repository.
+
+The container images also update the LGPL 2.1-or-later ACL library using
+authenticated Debian packages, with a compatible GPL 3-or-later GNU tar.
+Their source, license and publisher-verification records, and corresponding
+GNU coreutils source, are included at /usr/local/share/bananawiki/acl.

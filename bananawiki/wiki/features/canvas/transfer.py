@@ -23,6 +23,7 @@ from typing import Any
 from flask import current_app
 from werkzeug.datastructures import FileStorage
 
+from ....core.json import loads as safe_json_loads
 from ... import storage
 from . import model
 
@@ -101,7 +102,7 @@ def read_import(upload: FileStorage | None) -> tuple[str, str, dict[str, Any], l
             raw = stream.read(MAX_JSON_BYTES + 1)
             if len(raw) > MAX_JSON_BYTES:
                 raise CanvasImportError("canvas.import.too_large", limit_mb=MAX_JSON_BYTES // (1024 * 1024))
-            return (*_parse(json.loads(raw.decode("utf-8"))), [])
+            return (*_parse(safe_json_loads(raw.decode("utf-8"))), [])
         with zipfile.ZipFile(stream) as bundle:
             return _read_bundle(bundle)
     except (ValueError, UnicodeDecodeError, zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError,
@@ -125,7 +126,7 @@ def _read_bundle(bundle: zipfile.ZipFile) -> tuple[str, str, dict[str, Any], lis
             assets[name[7:]] = info
     if json_member is None:
         raise CanvasImportError("canvas.import.invalid")
-    title, description, doc = _parse(json.loads(_read_member(bundle, json_member, MAX_JSON_BYTES)))
+    title, description, doc = _parse(safe_json_loads(_read_member(bundle, json_member, MAX_JSON_BYTES)))
     wanted = {name: info for name, info in assets.items() if name in model.upload_names(doc)}
     limit = _limit_bytes()
     stored: dict[str, str] = {}

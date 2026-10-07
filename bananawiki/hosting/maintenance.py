@@ -148,7 +148,9 @@ def recover(app: Flask) -> int:
     """
     with app.test_request_context("/"), connection_scope(app.extensions["bananawiki.hosting.database"]):
         specs = []
-        for row in db.all("SELECT * FROM instances WHERE status = 'running' ORDER BY created_at, id"):
+        # A wiki whose creation never finished is never launched; it waits for cancellation.
+        for row in db.all("SELECT * FROM instances WHERE status = 'running' AND provisioning_state = 'ready' "
+                          "ORDER BY created_at, id"):
             try:
                 specs.append(instances.spec(row))
             except Exception:  # noqa: BLE001 - one wiki must not keep the others down

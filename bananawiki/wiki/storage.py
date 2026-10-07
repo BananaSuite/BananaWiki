@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from filelock import FileLock, Timeout
-from flask import Response, abort, current_app, send_file
+from flask import Response, abort, current_app, g, send_file
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
@@ -346,6 +346,10 @@ def resolve(folder: str, filename: str, *, blob_id: int | None = None) -> Path |
 
 def delete(folder: str, filename: str | None) -> None:
     if not filename:
+        return
+    deferred = g.get("_deferred_storage_deletions")
+    if deferred is not None:
+        deferred.append((folder, filename))
         return
     path = resolve(folder, filename)
     if path is not None:

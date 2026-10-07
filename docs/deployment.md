@@ -40,7 +40,7 @@ wiki or a hosting platform on a Linux server.
 ### Install
 
 ```sh
-git clone https://github.com/OverloadedTech/BananaWiki.git
+git clone https://github.com/BananaSuite/BananaWiki.git
 cd BananaWiki
 sudo ./banana install --mode wiki --domain wiki.example.org
 ```
@@ -133,7 +133,7 @@ The repository has a `Dockerfile` for a single wiki and a `compose.yaml` that
 puts it behind Caddy with automatic HTTPS.
 
 ```sh
-git clone https://github.com/OverloadedTech/BananaWiki.git
+git clone https://github.com/BananaSuite/BananaWiki.git
 cd BananaWiki
 WIKI_DOMAIN=wiki.example.org ACME_EMAIL=you@example.org docker compose up -d
 docker compose exec wiki python -m bananawiki.cli setup-token
@@ -143,13 +143,22 @@ Open `https://wiki.example.org` and use the token at `/setup`.
 
 How the image is built:
 
-* Python 3.12 (Debian 13/trixie), dependencies from wheels only, plus ffmpeg,
+* Python 3.12 (Debian 13/trixie), dependencies from wheels only, plus verified
+  source-built FFmpeg 9.0.2 with the WAV/MP3 speech components,
   and DejaVu fonts for PDF export. Available distribution security updates
   are applied when the image is first built. A plain rebuild reuses Docker's
   cached base image and layers and gets no new fixes: rebuild regularly with
-  `--pull --no-cache` (see **Updates** below).
+  `--pull --no-cache` (see **Updates** below; this also rebuilds FFmpeg).
+  The ACL library is updated to Debian's authenticated `libacl1` 2.4.0-1,
+  together with compatible GNU tar 1.35+dfsg-6. Their corresponding source,
+  licenses and verification inventory are in `/usr/local/share/bananawiki/acl`.
+  Coreutils and GNU timeout remain available. The new safe ACL APIs do not
+  change legacy pathname APIs' symlink-following contract; privileged custom
+  copying or archiving of untrusted paths needs its own consumer review.
 * Package installers (`pip`, `setuptools`, `wheel`, and the bundled
-  `ensurepip` installer) are omitted from the runtime image. Add any custom
+  `ensurepip` installer), APT, Perl, host login and mount utilities are omitted
+  from the runtime image. Python/Piper native libraries and the tenant task
+  deadline utility are retained. Add any custom
   dependencies during your image build; the running image is read-only.
 * Runs as UID 10001, works with a read-only root file system; everything is
   written to the `/data` volume (`BW_INSTANCE_DIR=/data`).
@@ -198,7 +207,7 @@ For people who manage their servers themselves. The example uses
 ```sh
 sudo useradd --system --user-group --home-dir /srv/bananawiki/data --shell /usr/sbin/nologin bananawiki
 sudo mkdir -p /srv/bananawiki && sudo chown bananawiki: /srv/bananawiki
-sudo -u bananawiki git clone https://github.com/OverloadedTech/BananaWiki.git /srv/bananawiki/app
+sudo -u bananawiki git clone https://github.com/BananaSuite/BananaWiki.git /srv/bananawiki/app
 cd /srv/bananawiki/app
 sudo -u bananawiki python3 -m venv .venv
 sudo -u bananawiki .venv/bin/python -m pip install --only-binary=:all: -r requirements.txt
@@ -213,7 +222,7 @@ BW_HOST=127.0.0.1
 BW_PORT=5001
 BW_PROXY_MODE=1
 BW_PREFERRED_URL_SCHEME=https
-BW_SOURCE_URL=https://github.com/OverloadedTech/BananaWiki
+BW_SOURCE_URL=https://github.com/BananaSuite/BananaWiki
 ```
 
 `/etc/systemd/system/bananawiki.service`:
@@ -340,7 +349,7 @@ start of a release with a newer schema.
 
 ## Hosting platform
 
-Before public launch, complete the [release deployment checks](production-readiness.md#live-deployment-requirements)
+Before public launch, complete the [release deployment checks](production-readiness.md#deployment-acceptance)
 on this host: tenant-to-host firewall isolation, byte/inode quotas, reserved
 portal/backup storage, HTTPS/proxy verification, restore and managed update/
 rollback. Review the [tenant image advisories](production-readiness.md#image-advisories)

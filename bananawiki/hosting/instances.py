@@ -22,10 +22,13 @@ import secrets
 import socket
 import sqlite3
 import string
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
+from filelock import FileLock, Timeout
 from flask import current_app
 
 from ..core.timeutil import is_past, now_sql, parse, sql_in, to_sql, utcnow
@@ -44,6 +47,82 @@ MAX_EXTENSION_SECONDS = 10 * 365 * 86400
 LOG_NAMES = ("error.log", "access.log")
 _ID_ALPHABET = string.ascii_lowercase + string.digits
 _PASSWORD_ALPHABET = string.ascii_letters + string.digits
+
+
+def provisioning_ready(inst: dict[str, Any]) -> bool:
+    """Only completed data may be launched, modified or served."""
+    return inst.get("provisioning_state", "ready") == "ready"
+
+
+def require_ready(inst: dict[str, Any]) -> None:
+    if not provisioning_ready(get(inst["id"]) or inst):
+        raise ServiceError("hosting.instances.provisioning_incomplete")
+
+
+@contextmanager
+def _provisioning_lock(inst: dict[str, Any], *, wait: bool = False) -> Iterator[None]:
+    """A crashed creator releases this host-only lock, but its row stays pending.
+
+    Fixed stripes bound lock-file growth and coordinate independent portal/CLI
+    workers. A busy stripe refuses cancellation rather than waiting on seed.
+    """
+    folder = Path(cfg().platform_state_dir) / ".provisioning-locks"
+    folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+    stripe = int(hashlib.sha256(inst["id"].encode()).hexdigest()[:8], 16) % 64
+    lock = FileLock(str(folder / f"{stripe}.lock"), timeout=600 if wait else 0, mode=0o600)
+    try:
+        lock.acquire()
+    except Timeout:
+        raise ServiceError("hosting.instances.provisioning_busy") from None
+    try:
+        yield
+    finally:
+        lock.release()
+
+
+PROVISIONING_STARTED = "instance.provisioning_started"
+PROVISIONING_REFUSED = "instance.provisioning_refused"
+
+
+def _provision(inst: dict[str, Any], operation: Callable[[TenantSpec], None]) -> None:
+    """Reserve initialization until all seed/copy/import and startup work is done."""
+    with _provisioning_lock(inst, wait=True):
+        fresh = get(inst["id"])
+        if not fresh or fresh["status"] != "stopped" or fresh["provisioning_state"] != "pending":
+            raise ServiceError("hosting.instances.changed_state")
+        initial_spec = spec(fresh)
+        # Recorded before the runtime may create anything under this wiki's
+        # name: a creation cancelled without it never reached the runtime, so
+        # whatever sits under the name is not its own (see _discard_failed).
+        events.record("instance", inst["id"], PROVISIONING_STARTED)
+        try:
+            operation(initial_spec)
+        except RuntimeFailure as error:
+            _discard_failed(inst, error)
+            raise _fail(error) from error
+        try:
+            # Global settings or the account's privileges may have changed
+            # while the slow seed/copy ran. Complete with the current policy.
+            settings.load(fresh=True)
+            current_spec = spec(get(inst["id"]) or inst)
+            if current_spec.policy != initial_spec.policy:
+                runtime().apply_limits(current_spec)
+                runtime().restart(current_spec, force=True)
+        except RuntimeFailure as error:
+            # The wiki was created and started: whatever this step reports,
+            # the data under its name is its own.
+            _discard_failed(inst)
+            raise _fail(error) from error
+        with db.transaction():
+            owner = accounts.get(inst["account_id"])
+            allowed = (owner and not owner.get("deleted_at") and not owner.get("suspended")
+                       and owner.get("approval_status") == "approved")
+            changed = allowed and db.update(
+                "instances", {"status": "running", "stopped_at": None, "provisioning_state": "ready"},
+                "id = ? AND status = 'stopped' AND provisioning_state = 'pending'", (inst["id"],))
+        if not changed:
+            _discard_failed(inst)
+            raise ServiceError("hosting.instances.changed_state")
 
 
 def cfg() -> HostingConfig:
@@ -250,7 +329,7 @@ def sync_routes() -> None:
     from . import domains
 
     try:
-        rows = db.all("SELECT * FROM instances WHERE status = 'running'")
+        rows = db.all("SELECT * FROM instances WHERE status = 'running' AND provisioning_state = 'ready'")
         runtime().sync_routes([spec(row, with_policy=False) for row in rows if domains.may_serve(row["id"])])
     except (RuntimeFailure, sqlite3.Error, ValueError) as error:
         log.warning("Could not publish tenant routes: %s", error)
@@ -302,8 +381,10 @@ def usage_bytes(inst: dict[str, Any]) -> int:
 
 
 def _check_capacity(account: dict[str, Any]) -> None:
+    """Check count limits while holding the transaction that reserves a new row."""
     if account["is_admin"]:
         return
+    settings.load(fresh=True)  # preflight may have cached policy before this write lock
     active = db.scalar("SELECT COUNT(*) FROM instances WHERE account_id = ? AND status IN ('running', 'stopped')",
                        (account["id"],), default=0)
     if active >= cfg().limits.max_per_account:
@@ -312,8 +393,13 @@ def _check_capacity(account: dict[str, Any]) -> None:
         total = db.scalar("SELECT COUNT(*) FROM instances WHERE status IN ('running', 'stopped')", default=0)
         if total >= int(settings.get("global_limit_max_instances", 50)):
             raise ServiceError("hosting.instances.platform_full")
-        if platform_usage_mb() >= int(settings.get("global_limit_max_storage_mb", 5000)):
-            raise ServiceError("hosting.instances.platform_storage_full")
+
+
+def _check_storage_capacity(account: dict[str, Any]) -> None:
+    """Sample storage outside the write lock; host quotas enforce the hard boundary."""
+    if (not account["is_admin"] and settings.flag("global_limit_enabled", True)
+            and platform_usage_mb() >= int(settings.get("global_limit_max_storage_mb", 5000))):
+        raise ServiceError("hosting.instances.platform_storage_full")
 
 
 def _insert(account: dict[str, Any], slug: str, domain_mode: str, *, admin_username: str, custom_credentials: bool,
@@ -329,7 +415,8 @@ def _insert(account: dict[str, Any], slug: str, domain_mode: str, *, admin_usern
     try:
         with db.transaction():
             db.insert("instances", {
-                "id": instance_id, "account_id": account["id"], "subdomain": slug, "status": "running",
+                "id": instance_id, "account_id": account["id"], "subdomain": slug, "status": "stopped",
+                "provisioning_state": "pending", "stopped_at": now_sql(),
                 "port": _allocate_port(), "admin_username": admin_username, "admin_password_plain": None,
                 "storage_limit_mb": 0 if admin_owner else None, "created_at": now_sql(), "expires_at": expires,
                 "domain_mode": domain_mode, "custom_credentials": 1 if custom_credentials else 0,
@@ -348,44 +435,91 @@ def create(account: dict[str, Any], slug: str, *, domain_mode: str = "hosting", 
     The initial password is returned to be shown once; it is never stored.
     """
     slug = urls.validate_slug(slug, account_is_admin=bool(account["is_admin"]), domain_mode=domain_mode)
-    _check_capacity(account)
+    _check_storage_capacity(account)
     custom = bool(admin_password)
     username = (admin_username or "").strip() or f"admin_{secrets.token_hex(3)}"
     if custom:
         accounts.check_new_password(admin_password)
         accounts.check_username(username)
     password = admin_password if custom else generate_password()
-    inst = _insert(account, slug, domain_mode, admin_username=username, custom_credentials=custom,
-                   easy_wiki=easy_wiki, use_case=use_case)
-    try:
-        runtime().provision(spec(inst), admin_username=username, admin_password=password,
-                            force_password_change=not custom)
-    except RuntimeFailure as error:
-        _discard_failed(inst, error)
-        raise _fail(error) from error
+    # Count admission and insertion share one cross-worker SQLite write lock.
+    # Commit before external provisioning: this row reserves capacity while the
+    # runtime is busy, or if this process is interrupted after the commit.
+    with db.transaction():
+        _check_capacity(account)
+        inst = _insert(account, slug, domain_mode, admin_username=username, custom_credentials=custom,
+                       easy_wiki=easy_wiki, use_case=use_case)
+    _provision(inst, lambda target: runtime().provision(target, admin_username=username, admin_password=password,
+                                                       force_password_change=not custom))
     events.record("instance", inst["id"], "instance.created", account["id"], slug)
     sync_routes()
     return get(inst["id"]), username, password  # type: ignore[return-value]
 
 
-def _discard_failed(inst: dict[str, Any], error: RuntimeFailure) -> None:
+def _discard_failed(inst: dict[str, Any], error: RuntimeFailure | None = None) -> None:
     """Remove a wiki whose provisioning failed: terminate the row, drop the data it created.
 
-    ``data_exists`` means the runtime refused before writing anything: the
-    directory is someone else's (data a failed move left behind, a manual
-    copy), so it is left untouched for an administrator to look at.
+    *error* is the failure the runtime operation itself raised (None when the
+    creation was cancelled, its owner lost the right to it or a step after
+    the operation failed). Data under the wiki's name is destroyed only when
+    it can be this wiki's own:
+
+    * ``data_exists`` means the runtime refused before writing or starting
+      anything: the directory is someone else's (data a failed move left
+      behind, a manual copy). The refusal is recorded first, so a later
+      cancellation still knows when the row update below fails.
+    * Without ``instance.provisioning_started`` the runtime was never asked
+      to create anything (the creator gave up on a busy lock or was
+      interrupted after the reservation), so whatever sits under the name is
+      not this wiki's either. Unfinished wikis left by a build without that
+      event are treated the same way: their partial data is left behind
+      rather than risking data they did not create.
+
+    In both cases the directory is left untouched for an administrator to
+    look at; this wiki holds no runtime resources, so its row is terminated
+    at once, in one update, and gives up its name, port and capacity (only
+    the directory keeps the name taken). Otherwise the runtime may have left
+    a directory or a container of this wiki behind, and while they cannot be
+    destroyed the row keeps its reservation (terminating it retries the
+    cleanup).
     """
-    if error.code == "data_exists":
-        log.error("Wiki %s not created: its data directory already exists and was left untouched", inst["id"])
-    else:
+    terminated = {"status": "terminated", "terminated_at": now_sql(), "port": None,
+                  "subdomain": urls.archived_slug(inst["id"], inst["subdomain"]),
+                  "terminated_reason": "provisioning_failed", "data_retained_until": None}
+    refused = error is not None and error.code == "data_exists"
+    if refused:
+        events.record("instance", inst["id"], PROVISIONING_REFUSED, None, error.code)
+    if refused or not _runtime_may_own_data(inst["id"]):
+        log.error("Wiki %s not created: the data directory under its name, if any, is not its own and was left "
+                  "untouched", inst["id"])
+        db.update("instances", {"provisioning_state": "failed", **terminated}, "id = ?", (inst["id"],))
+        return
+    db.update("instances", {"provisioning_state": "failed"}, "id = ?", (inst["id"],))
+    try:
+        runtime().destroy(spec(inst, with_policy=False))
+    except RuntimeFailure as cleanup:
+        # A failing runtime may have started a container before reporting an
+        # error. Do not release its port/name/capacity while resources remain.
+        log.error("Could not clean up failed wiki %s; retaining its resource reservation: %s", inst["id"],
+                  cleanup)
         try:
-            runtime().destroy(spec(inst, with_policy=False))
-        except RuntimeFailure as cleanup:
-            log.warning("Could not clean up failed wiki %s: %s", inst["id"], cleanup)
-    db.update("instances", {"status": "terminated", "terminated_at": now_sql(), "port": None,
-                            "subdomain": urls.archived_slug(inst["id"], inst["subdomain"]),
-                            "terminated_reason": "provisioning_failed", "data_retained_until": None},
-              "id = ?", (inst["id"],))
+            runtime().stop(spec(inst, with_policy=False))
+        except RuntimeFailure as stop_error:
+            db.update("instances", {"status": "running"}, "id = ?", (inst["id"],))
+            log.error("Failed wiki %s could not be verified stopped; its container may remain active: %s",
+                      inst["id"], stop_error)
+        else:
+            db.update("instances", {"status": "stopped", "stopped_at": now_sql()}, "id = ?", (inst["id"],))
+        return
+    db.update("instances", terminated, "id = ?", (inst["id"],))
+
+
+def _runtime_may_own_data(instance_id: str) -> bool:
+    """Whether the runtime was asked to create this wiki's data and did not refuse because it existed."""
+    actions = set(db.column(
+        "SELECT action FROM hosting_events WHERE subject_type = 'instance' AND subject_id = ? AND action IN (?, ?)",
+        (instance_id, PROVISIONING_STARTED, PROVISIONING_REFUSED)))
+    return PROVISIONING_STARTED in actions and PROVISIONING_REFUSED not in actions
 
 
 def _data_dir(inst: dict[str, Any]) -> str:
@@ -447,6 +581,7 @@ def stop(inst: dict[str, Any], *, actor_id: str | None, allow_suspended: bool = 
 
 def start(inst: dict[str, Any], *, actor_id: str | None, allow_suspended: bool = False) -> None:
     """Resume a paused wiki (administrators may also start a suspended one)."""
+    require_ready(inst)
     if inst["status"] == "running":
         raise ServiceError("hosting.instances.already_running")
     if not allow_suspended and (inst["status"] == "suspended" or inst.get("suspended_at")):
@@ -466,6 +601,7 @@ def start(inst: dict[str, Any], *, actor_id: str | None, allow_suspended: bool =
 
 def restart(inst: dict[str, Any], *, actor_id: str | None) -> None:
     """Restart a running wiki with its current policy (clears stale state)."""
+    require_ready(inst)
     if inst["status"] != "running":
         raise ServiceError("hosting.instances.not_running")
     try:
@@ -482,6 +618,8 @@ def apply_policy(inst: dict[str, Any], *, actor_id: str | None) -> bool:
     restrictive policy is stopped rather than left running with the old one.
     """
     inst = get(inst["id"]) or inst
+    if not provisioning_ready(inst):
+        return False
     if inst["status"] == "terminated":
         return True
     try:
@@ -505,6 +643,7 @@ def apply_policy(inst: dict[str, Any], *, actor_id: str | None) -> bool:
 def suspend(inst: dict[str, Any], *, actor_id: str | None, until: str | None = None, reason: str = "",
             reason_visible: bool = False, time_visible: bool = False, duration_label: str = "permanent") -> None:
     """Suspend (idempotent: an existing suspension window is not reset)."""
+    require_ready(inst)
     if inst["status"] == "terminated":
         raise ServiceError("hosting.instances.terminated")
     reason = (reason or "").strip()[:500]
@@ -539,6 +678,7 @@ def _audit(instance_id: str, action: str, actor_id: str | None, reason: str | No
 
 def unsuspend(inst: dict[str, Any], *, actor_id: str | None) -> None:
     """Lift a suspension, credit the frozen time to the expiry and start the wiki."""
+    require_ready(inst)
     if inst["status"] != "suspended":
         raise ServiceError("hosting.instances.not_suspended")
     with db.transaction():
@@ -576,13 +716,35 @@ def suspension_history(instance_id: str) -> list[dict[str, Any]]:
 def terminate(inst: dict[str, Any], *, actor_id: str | None, reason: str = "manual") -> None:
     """Stop the wiki, archive its name and keep its data for the grace period.
 
-    The data moves to the archived name before the row gives up the original
-    one. When the move fails the wiki keeps its name (stopped) and the
-    termination can simply be retried; data left under a released name would
-    make the next wiki of that name fail and could no longer be restored.
-    Without a grace period the archived data is then deleted; if that fails
-    it stays under the archived name until an administrator deletes the wiki.
+    A wiki whose creation never finished (pending or failed) is cancelled
+    instead: its partial data is destroyed, never kept as retained data, and
+    its name, port and capacity are released only once that cleanup is done.
+    Data under its name that the runtime never created for it (it was never
+    asked to, or refused because the directory existed) is left untouched.
+
+    Otherwise the data moves to the archived name before the row gives up the
+    original one. When the move fails the wiki keeps its name (stopped) and
+    the termination can simply be retried; data left under a released name
+    would make the next wiki of that name fail and could no longer be
+    restored. Without a grace period the archived data is then deleted; if
+    that fails it stays under the archived name until an administrator
+    deletes the wiki.
     """
+    if not provisioning_ready(inst):
+        with _provisioning_lock(inst):
+            fresh = get(inst["id"])
+            if not fresh or fresh["status"] == "terminated":
+                raise ServiceError("hosting.instances.changed_state")
+            if provisioning_ready(fresh):
+                terminate(fresh, actor_id=actor_id, reason=reason)
+                return
+            # Cleanup must finish before an incomplete tenant releases its name,
+            # port or capacity. It is never offered as retained recovery data.
+            _discard_failed(fresh)
+            if get(inst["id"])["status"] != "terminated":
+                raise ServiceError("hosting.instances.provisioning_cleanup_failed")
+        sync_routes()
+        return
     if inst["status"] == "terminated":
         raise ServiceError("hosting.instances.terminated")
     runtime_spec = spec(inst, with_policy=False)
@@ -772,6 +934,7 @@ def grace_active(inst: dict[str, Any]) -> bool:
 
 def set_expiry(inst: dict[str, Any], expires_at: str | None, *, actor_id: str) -> None:
     """Set (or with None remove) the expiry; a date already past terminates now."""
+    require_ready(inst)
     if inst["status"] == "terminated":
         raise ServiceError("hosting.instances.terminated")
     if (inst.get("domain_mode") or "hosting") == "apex" and expires_at is not None:
@@ -820,7 +983,9 @@ def enforce_storage_quotas(overrun_ratio: float = 1.10) -> int:
                 f"{limit} MB allowed.", reason_visible=True, duration_label="storage")
         return True
 
-    rows = db.all("SELECT * FROM instances WHERE status IN ('running', 'stopped') ORDER BY created_at, id")
+    # An unfinished creation cannot be suspended; it is cancelled, never enforced.
+    rows = db.all("SELECT * FROM instances WHERE status IN ('running', 'stopped') AND provisioning_state = 'ready' "
+                  "ORDER BY created_at, id")
     return _each(rows, check, "Storage quota of %s not enforced: %s")
 
 
@@ -829,6 +994,7 @@ def enforce_storage_quotas(overrun_ratio: float = 1.10) -> int:
 
 def rename(inst: dict[str, Any], slug: str, domain_mode: str, *, actor_id: str, auto_suffix: bool = False) -> dict[str, Any]:
     """Change a wiki's name and/or URL mode, moving its data directory."""
+    require_ready(inst)
     if inst["status"] == "terminated":
         raise ServiceError("hosting.instances.terminated")
     admin_owner = owner_is_admin(inst)
@@ -882,6 +1048,7 @@ def rename(inst: dict[str, Any], slug: str, domain_mode: str, *, actor_id: str, 
 
 def apply_owner_quota(inst: dict[str, Any], admin_owner: bool) -> None:
     """Administrators' wikis have no expiry or storage cap; others get the defaults."""
+    require_ready(inst)
     if inst["status"] == "terminated":
         return
     if admin_owner:
@@ -901,6 +1068,7 @@ def move_to_owner(inst: dict[str, Any], target: dict[str, Any], *, actor_id: str
     Returns notes for the caller: ``"renamed"`` when an apex wiki had to move
     to hosting mode because the new owner is not an administrator.
     """
+    require_ready(inst)
     notes = []
     target_admin = bool(target["is_admin"])
     previous_admin = owner_is_admin(inst)
@@ -920,6 +1088,7 @@ def move_to_owner(inst: dict[str, Any], target: dict[str, Any], *, actor_id: str
 
 def rename_for_non_admin(inst: dict[str, Any], *, actor_id: str) -> dict[str, Any]:
     """Move an apex wiki to hosting mode (apex names are for administrators)."""
+    require_ready(inst)
     base = inst["subdomain"]
     slug, number = base, 2
     while (other := name_holder(slug, "hosting")) and other["id"] != inst["id"]:
@@ -946,6 +1115,7 @@ def rename_for_non_admin(inst: dict[str, Any], *, actor_id: str) -> dict[str, An
 
 
 def set_storage_limit(inst: dict[str, Any], limit_mb: int | None, *, actor_id: str) -> bool:
+    require_ready(inst)
     if inst["status"] == "terminated":
         raise ServiceError("hosting.instances.terminated")
     if (inst.get("domain_mode") or "hosting") == "apex":
@@ -956,6 +1126,7 @@ def set_storage_limit(inst: dict[str, Any], limit_mb: int | None, *, actor_id: s
 
 
 def set_upload_policy(inst: dict[str, Any], size_mb: int | None, blocked: str, *, actor_id: str) -> bool:
+    require_ready(inst)
     if inst["status"] == "terminated":
         raise ServiceError("hosting.instances.terminated")
     if size_mb is not None and not 1 <= size_mb <= 2048:
@@ -967,6 +1138,7 @@ def set_upload_policy(inst: dict[str, Any], size_mb: int | None, blocked: str, *
 
 
 def set_easy_wiki(inst: dict[str, Any], enable: bool, *, actor_id: str) -> None:
+    require_ready(inst)
     if inst["status"] in ("terminated", "suspended"):
         raise ServiceError("hosting.instances.cannot_modify")
     if bool(inst.get("easy_wiki")) == enable:
@@ -978,6 +1150,7 @@ def set_easy_wiki(inst: dict[str, Any], enable: bool, *, actor_id: str) -> None:
 
 
 def set_use_case(inst: dict[str, Any], text: str) -> None:
+    require_ready(inst)
     text = (text or "").strip()
     if not 20 <= len(text) <= 2000:
         raise ServiceError("hosting.instances.use_case_length")
@@ -989,6 +1162,7 @@ def set_use_case(inst: dict[str, Any], text: str) -> None:
 
 
 def _live(inst: dict[str, Any]) -> None:
+    require_ready(inst)
     if inst["status"] == "terminated":
         raise ServiceError("hosting.instances.terminated")
 
@@ -1008,6 +1182,7 @@ def reset_admin_password(inst: dict[str, Any], *, actor_id: str) -> tuple[str, s
 
 def reset_content(inst: dict[str, Any], *, actor_id: str) -> tuple[str, str]:
     """Factory reset. Returns the new ``(username, password)`` to show once."""
+    require_ready(inst)
     if inst["status"] in ("terminated", "suspended"):
         raise ServiceError("hosting.instances.cannot_modify")
     username = inst.get("admin_username") or "admin"
@@ -1040,11 +1215,7 @@ def duplicate(inst: dict[str, Any], owner: dict[str, Any], slug: str, domain_mod
     copy = _insert(owner, slug, domain_mode, admin_username=inst.get("admin_username") or "admin",
                    custom_credentials=bool(inst.get("custom_credentials")), easy_wiki=bool(inst.get("easy_wiki")),
                    use_case=inst.get("declared_use_case") or "")
-    try:
-        runtime().duplicate(spec(inst, with_policy=False), spec(copy))
-    except RuntimeFailure as error:
-        _discard_failed(copy, error)
-        raise _fail(error) from error
+    _provision(copy, lambda target: runtime().duplicate(spec(inst, with_policy=False), target))
     events.record("instance", copy["id"], "instance.duplicated", actor_id, inst["id"])
     sync_routes()
     return get(copy["id"])  # type: ignore[return-value]
@@ -1055,11 +1226,7 @@ def import_archive(owner: dict[str, Any], slug: str, domain_mode: str, archive_p
     slug = urls.validate_slug(slug, account_is_admin=bool(owner["is_admin"]), domain_mode=domain_mode)
     inst = _insert(owner, slug, domain_mode, admin_username="admin", custom_credentials=True, easy_wiki=False,
                    use_case="")
-    try:
-        runtime().import_archive(spec(inst), archive_path)
-    except RuntimeFailure as error:
-        _discard_failed(inst, error)
-        raise _fail(error) from error
+    _provision(inst, lambda target: runtime().import_archive(target, archive_path))
     events.record("instance", inst["id"], "instance.imported", actor_id)
     sync_routes()
     return get(inst["id"])  # type: ignore[return-value]
@@ -1071,7 +1238,9 @@ def import_archive(owner: dict[str, Any], slug: str, domain_mode: str, archive_p
 def describe(inst: dict[str, Any], *, admin_owner: bool | None = None, with_status: bool = True) -> dict[str, Any]:
     """The row plus URL, time left, grace information, health and storage."""
     item = dict(inst)
-    item["url"] = urls.instance_url(inst) if inst["status"] != "terminated" else ""
+    if inst["status"] != "terminated" and not provisioning_ready(inst):
+        item["status"] = "provisioning" if inst["provisioning_state"] == "pending" else "provisioning_failed"
+    item["url"] = urls.instance_url(inst) if inst["status"] != "terminated" and provisioning_ready(inst) else ""
     expires = parse(inst.get("expires_at"))
     if inst["status"] == "terminated" or expires is None:
         item["seconds_left"] = None

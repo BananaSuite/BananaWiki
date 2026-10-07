@@ -1,5 +1,5 @@
 # Managed by BananaSuite
-# bananawiki-ops: 2
+# bananawiki-ops: 3
 [Unit]
 Description=BananaWiki hosting runtime agent (bananawiki)
 After=network-online.target docker.service
@@ -13,7 +13,7 @@ WorkingDirectory=/opt/bananawiki/current
 EnvironmentFile=/opt/bananawiki/config/app.env
 RuntimeDirectory=bananawiki-agent
 RuntimeDirectoryMode=0750
-StateDirectory=bananawiki-routes
+StateDirectory=bananawiki-routes bananawiki-quotas
 StateDirectoryMode=0755
 Environment=HOME=/run/bananawiki-agent DOCKER_CONFIG=/run/bananawiki-agent/docker
 ExecStart="/usr/bin/python3" "-E" "-s" "/opt/bananawiki/current/banana" "--root" "/opt/bananawiki" "agent" "serve"
@@ -24,6 +24,7 @@ TimeoutStopSec=180
 KillMode=mixed
 UMask=0077
 NoNewPrivileges=true
+PrivateDevices=true
 PrivateTmp=true
 PrivateNetwork=true
 ProtectSystem=strict
@@ -38,12 +39,15 @@ RestrictNamespaces=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
 LockPersonality=true
-CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_FOWNER CAP_CHOWN CAP_SYS_ADMIN CAP_SYS_PTRACE
 AmbientCapabilities=
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
+SystemCallFilter=quotactl_fd
+SystemCallFilter=~@mount @module @raw-io @reboot @swap ptrace process_vm_readv process_vm_writev
 SystemCallErrorNumber=EPERM
 RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=/opt/bananawiki/data/instances
 
 [Install]
 WantedBy=multi-user.target

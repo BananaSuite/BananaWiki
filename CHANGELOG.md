@@ -4,6 +4,25 @@
 
 ### Changed
 
+* Hosting assigns finite XFS project byte and inode quotas before seeding,
+  imports, copies, restores and launches; quota drift, unsupported storage,
+  uncertain container state and insufficient capacity fail closed. Launches
+  verify Docker’s actual mounted directory while a trusted bootstrap waits
+  behind a private network-namespace gate. Interrupted task containers are
+  found by actual mounted inode even after folder renames and removed before
+  stopped repair. Renamed live servers refuse admission, and hosting services
+  cannot access host process handles or change filesystem quota flags.
+* New hosting reservations remain pending until provisioning completes.
+  Recovery and start refuse unfinished or failed wikis, and interrupted
+  provisioning can be cancelled safely without releasing a live reservation.
+* Hosting requires Linux x86_64: on other architectures the portal and
+  maintenance service refuse to start and the runtime agent launches no wiki.
+* REST API: JSON bodies and uploaded JSON files with non-finite numbers,
+  unpaired surrogates or more than 64 nesting levels are refused;
+  `Idempotency-Key` replays re-check current access and answer 409
+  `idempotency_replay_unavailable` when a returned resource became
+  unreadable or the answer exceeded 2 MiB; keyed writes commit with their
+  replay record; server, storage and routing errors carry a `request_id`.
 * Page editor actions and insertion dialogs share small template macros.
   Formatting and insertion tools use a clear separator and consistent spacing.
 * Hosting textareas share label, help-text and value rendering; transfer
@@ -209,7 +228,9 @@
   suspended administrator can no longer lift a suspension imposed by an owner
   or superuser.
 * Hosted wikis keep receiving operating-system and Python security updates:
-  the tenant image is no longer rebuilt from cached layers.
+  every update reruns the tenant image's package upgrade and Python install
+  instead of reusing cached layers (the FFmpeg and ACL build stages are
+  rebuilt when the base image changes).
 
 ## 1.6.0
 

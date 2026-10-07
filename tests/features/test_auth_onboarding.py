@@ -97,7 +97,9 @@ def test_onboarding_spawns_builtin_docs(client, owner, login, db):
     category_id = db.scalar("SELECT docs_category_id FROM site_settings")
     assert db.scalar("SELECT name FROM categories WHERE id = ?", (category_id,)) == "BananaWiki"
     count = db.scalar("SELECT COUNT(*) FROM pages WHERE category_id = ?", (category_id,))
-    assert count == len(docs.pages("simplified", "it"))
+    assert count == 3 == len(docs.pages("simplified", "it"))
+    assert db.scalar("SELECT content FROM pages WHERE category_id = ? AND slug = 'bananawiki-welcome'",
+                     (category_id,)).startswith("# Benvenuto in BananaWiki")
     assert db.scalar("SELECT COUNT(*) FROM page_history ph JOIN pages p ON p.id = ph.page_id "
                      "WHERE p.category_id = ?", (category_id,)) == count
 

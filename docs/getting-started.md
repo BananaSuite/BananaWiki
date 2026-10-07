@@ -20,7 +20,7 @@ You need Python 3.11 or newer and Git. The commands are for Linux and macOS;
 on Windows use `.venv\Scripts\activate` instead of `. .venv/bin/activate`.
 
 ```sh
-git clone https://github.com/OverloadedTech/BananaWiki.git
+git clone https://github.com/BananaSuite/BananaWiki.git
 cd BananaWiki
 python3 -m venv .venv
 . .venv/bin/activate

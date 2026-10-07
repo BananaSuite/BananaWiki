@@ -26,9 +26,12 @@ class FakeSystem(System):
 
     Tenant containers live in ``tenant_containers``; ``docker stop``, ``start``
     and ``rm`` act on them as Docker does, including "No such container" for
-    one that is gone and a refused start for the ids in ``unstartable``. Every
-    wiki answers its health check unless ``probe`` is replaced. Readiness is
-    the real check, one pass, no waiting.
+    one that is gone. A container brought back by ``docker start`` is marked
+    ``gated``: the runtime agent starts every wiki behind a mount gate that
+    only its own ``tenant.start`` releases, so such a container never serves
+    (``Wikis`` in test_ops_recovery.py refuses its health check). Every wiki
+    answers its health check unless ``probe`` is replaced. Readiness is the
+    real check, one pass, no waiting.
     """
 
     def __init__(self, tmp: Path):
@@ -38,7 +41,6 @@ class FakeSystem(System):
         self.proxy_file = tmp / "caddy" / "Caddyfile"
         self.state_dir = tmp / "var-lib"
         self.tenant_containers: list[dict[str, Any]] = []
-        self.unstartable: set[str] = set()
         self.unit_dir.mkdir(parents=True)
         self.bin_dir.mkdir(parents=True)
         self.commands: list[list[str]] = []
@@ -78,16 +80,14 @@ class FakeSystem(System):
             ids, running = command[3:], None
         else:
             return 0, "", ""
-        refused = [identifier for identifier in ids if running and identifier in self.unstartable]
         for identifier in ids:
             if identifier in known and running is None:
                 self.tenant_containers.remove(known[identifier])
-            elif identifier in known and identifier not in refused:
+            elif identifier in known:
                 known[identifier]["running"] = running
-        missing = [identifier for identifier in ids if identifier not in known]
-        errors = [*(f"No such container: {identifier}" for identifier in missing),
-                  *(f"failed to create task for container {identifier}: invalid mount config for type "
-                    '"bind": bind source path does not exist' for identifier in refused)]
+                if running:
+                    known[identifier]["gated"] = True  # its mount gate is never released (see above)
+        errors = [f"No such container: {identifier}" for identifier in ids if identifier not in known]
         return (1 if errors else 0), "", "".join(f"Error response from daemon: {error}\n" for error in errors)
 
     def identity(self, name: str) -> tuple[int, int]:

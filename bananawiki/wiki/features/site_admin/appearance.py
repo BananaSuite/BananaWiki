@@ -16,6 +16,7 @@ from typing import Any
 
 from werkzeug.datastructures import FileStorage
 
+from ....core.json import loads as safe_json_loads
 from ....core.timeutil import now_sql
 from ... import settings, storage
 from ...templating import FAVICON_PRESETS, HEX_COLOR, THEME_DEFAULTS
@@ -105,7 +106,7 @@ def parse_theme_file(upload: FileStorage | None) -> dict[str, str]:
     if len(raw) > MAX_THEME_BYTES:
         raise AppearanceError("site_admin.appearance.error.theme_size", limit_kb=MAX_THEME_BYTES // 1024)
     try:
-        payload = json.loads(raw.decode("utf-8"))
+        payload = safe_json_loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
         raise AppearanceError("site_admin.appearance.error.theme_invalid") from None
     meta = payload.get("_meta") if isinstance(payload, dict) else None

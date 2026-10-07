@@ -449,7 +449,7 @@ class Manager:
         write_json(self.config_dir / "transaction.json", journal)
         self.system.stop_containers(journal["containers"])
 
-    def finish(self, journal: dict[str, Any], settings: dict[str, Any], *, old_containers: bool = False,
+    def finish(self, journal: dict[str, Any], settings: dict[str, Any], *,
                required: bool = False) -> tuple[list[str], list[str]]:
         """Start *settings*' services, wait for them and the wikis that served before, end the transaction.
 
@@ -462,10 +462,14 @@ class Manager:
         serving when the transaction began)``: the caller checks the latter
         with :meth:`check_tenants` once the operation is complete, since
         nothing may fail between the end of the transaction and its result.
+
+        The tenant containers that quiesce stopped are never started again as
+        they are: the runtime agent starts each wiki behind a mount gate that
+        only its own ``tenant.start`` releases, so ``docker start`` would bring
+        them back inert. Every operation removes them before it gets here,
+        and the portal's maintenance service, started here, starts the wikis
+        running in its database again through the agent.
         """
-        if old_containers:
-            for directory in self.system.resume_containers(journal["containers"]):
-                log.warning("The container of tenant %s did not start again.", Path(directory).name)
         services = self.services(settings)
         names = [service.name for service in services]
         self.system.start(names)
@@ -588,8 +592,13 @@ class Manager:
             for directory in (self.root / "data", self.root / "site", self.root / "releases", self.root / "staging"):
                 if destination.is_relative_to(directory):
                     raise ValueError("Write backup packages outside the data, site, staging and release directories.")
-            (unready, others), snapshot = self.guarded(
-                settings, lambda journal: self.finish(journal, settings, old_containers=True))
+
+            def body(journal: dict[str, Any]) -> tuple[list[str], list[str]]:
+                # Removed, not started again: see finish().
+                self.system.remove_containers(journal["containers"])
+                return self.finish(journal, settings)
+
+            (unready, others), snapshot = self.guarded(settings, body)
             try:
                 result = self.package_from(snapshot, settings, destination)
             finally:
@@ -855,14 +864,15 @@ class Manager:
             # not needed to bring the platform back, and the portal starts the wikis again once Docker answers.
             log.warning("Docker could not be reached; the tenant containers were left as they are: %s", error)
             current = []
+        # Removed whether or not anything is put back, never started again as they are (see finish()): the
+        # portal starts the wikis running in the (restored) database again.
+        self.system.remove_containers(current)
         if from_snapshot:
-            self.system.remove_containers(current)
             snapshot = Snapshot.open(journal["snapshot"], self.root)
             self.apply_tree(snapshot.path, str(self.root), settings, copier=snapshot.copy_tree,
                             copy_source=journal.get("restore_source", False))
             restored = True
         elif from_package:
-            self.system.remove_containers(current)
             with read_package(Path(journal["backup"]), PRODUCT, self.root / "staging") as (extracted, manifest):
                 self.apply_tree(extracted, manifest["old_root"], settings,
                                 copy_source=journal.get("restore_source", False))
@@ -874,7 +884,7 @@ class Manager:
             write_json(self.config_dir / "transaction.json", journal)
         self.restore_proxy(journal.get("proxy"))
         try:
-            unready, others = self.finish(journal, settings, old_containers=not restored)
+            unready, others = self.finish(journal, settings)
         except Exception as error:  # noqa: BLE001 - a journal kept for it would fail every later command
             (self.config_dir / "transaction.json").unlink(missing_ok=True)
             self.event("recover", "failed", restored_revision=settings["revision"], data_restored=restored,

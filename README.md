@@ -51,7 +51,7 @@ creates a separate wiki for each customer.
 **Try it from source** (Python 3.11 or newer):
 
 ```sh
-git clone https://github.com/OverloadedTech/BananaWiki.git
+git clone https://github.com/BananaSuite/BananaWiki.git
 cd BananaWiki
 python3 -m venv .venv && . .venv/bin/activate
 python -m pip install -e .
@@ -133,4 +133,4 @@ to the source of the version you run; the wiki links to it at `/source`.
 Keep third-party notices.
 
 Copyright © 2026 Luca Zani and all contributors. Each contributor retains
-copyright in their contributions. Source: <https://github.com/OverloadedTech/BananaWiki>.
+copyright in their contributions. Source: <https://github.com/BananaSuite/BananaWiki>.

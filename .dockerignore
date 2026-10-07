@@ -1,4 +1,4 @@
-# Only requirements.txt, LICENSE, NOTICE, the root shims and bananawiki/ are
+# Only requirements.txt, LICENSE, NOTICE, the root shims, docker/media and bananawiki/ are
 # copied into images; keep everything else (and every secret) out of the context.
 .git
 .github

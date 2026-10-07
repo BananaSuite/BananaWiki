@@ -295,12 +295,17 @@ class Runtime(Protocol):
         ``policy.global_tour``), applies the upload policy to the tenant DB,
         then starts the container like :meth:`start`.
 
-        The portal inserts the ``instances`` row (status ``running``) first
-        and, when this raises, terminates the row and calls :meth:`destroy`
-        (not after ``data_exists``: that directory was never this wiki's).
+        The portal first inserts the ``instances`` row as a pending
+        reservation (status ``stopped``, ``provisioning_state`` ``pending``)
+        and, when this raises, calls :meth:`destroy` and then terminates the
+        row; while destroy fails the row keeps its reservation. After
+        ``data_exists`` it terminates the row without :meth:`destroy`: that
+        directory was never this wiki's (nor is anything under the name of a
+        creation cancelled before this was called).
         The password must not be stored or logged anywhere.
         Raises ``data_exists`` when the directory is already there (never
-        overwrite), ``start_failed``/``unavailable`` otherwise.
+        overwrite), and only then: it means nothing was written or started.
+        ``start_failed``/``unavailable`` otherwise.
         1.4: ``instance_manager.provision_instance`` + ``instance_database._seed_instance_db``.
         """
 

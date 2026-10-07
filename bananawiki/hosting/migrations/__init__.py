@@ -5,6 +5,7 @@ Version history
 1-2  BananaWiki Hosting 1.4 (legacy import, REST API tokens and approval
      notifications). ``baseline_v2.sql`` is that schema, verbatim.
 3    BananaWiki 1.6 takeover. See :mod:`.v3_takeover`.
+4    Pending tenant initialization. See :mod:`.v4_provisioning`.
 
 A 1.4 database at version 2 upgrades in place. A new database is created from
 the baseline followed by every later migration, so fresh and upgraded
@@ -20,12 +21,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ...core.sqlite import execute_script
-from . import v3_takeover
+from . import v3_takeover, v4_provisioning
 
 APPLICATION_ID = 0x42574850  # "BWHP", unchanged from 1.4
 BASELINE = 2
 MIGRATIONS = (
     v3_takeover.upgrade,  # 2 -> 3
+    v4_provisioning.upgrade,  # 3 -> 4
 )
 LATEST = BASELINE + len(MIGRATIONS)
 SIGNUP_MODES = ("open", "invite", "approval", "closed")

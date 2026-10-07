@@ -91,8 +91,10 @@ Successful answers have `"ok": true`. Errors always look like this:
 {"ok": false, "error": "Page not found.", "code": "page_not_found"}
 ```
 
-`code` is stable and meant for programs; `error` is translated into the
-caller's language. Some errors add fields: `field` (invalid input),
+`code` is stable and meant for programs; application errors are translated
+into the caller's language. Unexpected server/storage failures and HTTP routing
+errors use a generic message and include a `request_id`, also sent in the
+`X-Request-ID` header. Some errors add fields: `field` (invalid input),
 `scope`/`write` (`scope_missing`), `revision` (`edit_conflict`), `invalid`
 and `refused` (settings).
 
@@ -106,10 +108,12 @@ and `refused` (settings).
 | 422 | `Idempotency-Key` reused for a different request or by another token |
 | 413 | body larger than 2 MiB |
 | 429 | rate limit (per account, per minute; `Retry-After: 60`) |
-| 503 | API switched off, or maintenance mode |
+| 500 | unexpected server error (`internal_error`) |
+| 503 | API switched off, maintenance mode, or temporary storage failure (`storage_unavailable`) |
 
 Timestamps are ISO 8601 in UTC (`2025-01-31T09:30:00Z`). Request bodies must
-be JSON objects. Booleans are JSON `true`/`false` (`0`/`1` are accepted);
+be JSON objects with valid Unicode, finite numbers and at most 64 nested
+objects/arrays. Booleans are JSON `true`/`false` (`0`/`1` are accepted);
 strings like `"false"` are refused.
 
 ## Retrying safely (`Idempotency-Key`)
@@ -122,6 +126,17 @@ it: the same key with a different request, or from another token, is refused
 with 422 `idempotency_key_reused`; a retry while the first request is still
 running gets 409 `idempotency_in_progress`. Server errors and 429 answers are
 not stored, so those requests can simply be retried.
+
+The database changes and replay record commit together; a server error or
+interrupted worker rolls back the keyed write. Attachment files removed by
+bulk deletion are retained until that commit. Responses larger than 2 MiB
+retain only their status; retries return `idempotency_replay_unavailable`
+with that status and do not repeat the operation.
+
+Replays apply the token owner's current role and access to returned pages,
+categories, canvases and boards. A resource that became private, unreadable or
+deleted returns 409 `idempotency_replay_unavailable` without its old contents
+or a second write. Successful page and canvas replays retain their `ETag`.
 
 Answers that contain a new secret are never stored: a new token
 (`POST /tokens`) and a webhook secret (`POST /admin/webhooks`,

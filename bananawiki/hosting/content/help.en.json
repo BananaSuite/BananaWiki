@@ -143,7 +143,7 @@
       },
       {
         "heading": "2. Install BananaWiki",
-        "html": "<p>Pick the route that fits:</p><ul><li><strong>A Linux server.</strong> From a checkout of the source, <code>sudo ./banana install --mode wiki</code> installs the service, and the <a href=\"https://github.com/OverloadedTech/BananaWiki/blob/main/docs/deployment.md\">deployment guide</a> covers HTTPS, backups and updates.</li><li><strong>Linux or macOS with Python 3.12 or newer.</strong> Follow the quick start in the <a href=\"https://github.com/OverloadedTech/BananaWiki#quick-start\">README</a>.</li><li><strong>A desktop computer.</strong> The launcher is built from the source; see the <a href=\"https://github.com/OverloadedTech/BananaWiki/blob/main/docs/desktop.md\">desktop launcher guide</a>.</li></ul><p>Open the new wiki and finish the setup page with a temporary administrator account.</p>"
+        "html": "<p>Pick the route that fits:</p><ul><li><strong>A Linux server.</strong> From a checkout of the source, <code>sudo ./banana install --mode wiki</code> installs the service, and the <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/deployment.md\">deployment guide</a> covers HTTPS, backups and updates.</li><li><strong>Linux or macOS with Python 3.11 or newer.</strong> Follow the quick start in the <a href=\"https://github.com/BananaSuite/BananaWiki#quick-start\">README</a>.</li><li><strong>A desktop computer.</strong> The launcher is built from the source; see the <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/desktop.md\">desktop launcher guide</a>.</li></ul><p>Open the new wiki and finish the setup page with a temporary administrator account.</p>"
       },
       {
         "heading": "3. Import the export",
@@ -181,7 +181,7 @@
       },
       {
         "heading": "Report a problem",
-        "html": "<p>Report suspected account compromise or service abuse to <a href=\"mailto:{contact_email}\">{contact_email}</a>. For a vulnerability in the software, follow the private reporting instructions in its <a href=\"https://github.com/OverloadedTech/BananaWiki/security/policy\">security policy</a>. Do not post credentials or private wiki content in public issues.</p>"
+        "html": "<p>Report suspected account compromise or service abuse to <a href=\"mailto:{contact_email}\">{contact_email}</a>. For a vulnerability in the software, follow the private reporting instructions in its <a href=\"https://github.com/BananaSuite/BananaWiki/security/policy\">security policy</a>. Do not post credentials or private wiki content in public issues.</p>"
       }
     ]
   },
@@ -241,7 +241,7 @@
       },
       {
         "heading": "Verification and HTTPS",
-        "html": "<p>Request verification after DNS changes are visible. A hostname that is not verified within an hour expires: add it again and replace the TXT value with the new one the portal shows. HTTPS becomes available after verification and certificate issuance. If permission is revoked, verification expires, or the instance is suspended, the custom domain stops routing. The <a href=\"https://github.com/OverloadedTech/BananaWiki/blob/main/docs/hosting.md\">technical DNS guide</a> explains the checks.</p>"
+        "html": "<p>Request verification after DNS changes are visible. A hostname that is not verified within an hour expires: add it again and replace the TXT value with the new one the portal shows. HTTPS becomes available after verification and certificate issuance. If permission is revoked, verification expires, or the instance is suspended, the custom domain stops routing. The <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/hosting.md\">technical DNS guide</a> explains the checks.</p>"
       }
     ]
   },
@@ -264,7 +264,7 @@
       },
       {
         "heading": "Using and protecting it",
-        "html": "<p>Send the token in the <code>Authorization</code> header of each request, as <code>Bearer</code> followed by the token, to <code>/api/v1</code> on this portal. For example, <code>/api/v1/instances</code> lists your wikis. Keep a token as private as a password and revoke the ones you no longer use. Changing or resetting your password revokes all of them. Switching the API off does not: your tokens stop working while it is off and work again when it is back on, so revoke the ones you no longer want. The <a href=\"https://github.com/OverloadedTech/BananaWiki/blob/main/hosting/docs/api.md\">API reference</a> lists every request.</p>"
+        "html": "<p>Send the token in the <code>Authorization</code> header of each request, as <code>Bearer</code> followed by the token, to <code>/api/v1</code> on this portal. For example, <code>/api/v1/instances</code> lists your wikis. Keep a token as private as a password and revoke the ones you no longer use. Changing or resetting your password revokes all of them. Switching the API off does not: your tokens stop working while it is off and work again when it is back on, so revoke the ones you no longer want. The <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/hosting.md#portal-rest-api\">API reference</a> lists every request.</p>"
       }
     ]
   },
@@ -279,7 +279,7 @@
       },
       {
         "heading": "Source and contributions",
-        "html": "<p>The source is maintained at <a href=\"https://github.com/OverloadedTech/BananaWiki\">OverloadedTech/BananaWiki</a> under AGPL version 3. Use public issues for reproducible software bugs and feature requests, with private data removed. Read the contribution guide before opening a pull request.</p>"
+        "html": "<p>The source is maintained at <a href=\"https://github.com/BananaSuite/BananaWiki\">BananaSuite/BananaWiki</a> under AGPL version 3. Use public issues for reproducible software bugs and feature requests, with private data removed. Read the contribution guide before opening a pull request.</p>"
       }
     ]
   }

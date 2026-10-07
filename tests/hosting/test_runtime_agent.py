@@ -45,7 +45,7 @@ def test_provision_creates_the_1x_layout_seeds_inside_the_sandbox_and_starts(set
     assert agent.tasks() == ["seed"]
     started = agent.ops("tenant.start")[0]
     assert started["tenant"] == "acme" and started["network"] == "isolated" and "publish_port" not in started
-    assert started["limits"] == {"memory_mb": 768, "cpus": 1.0, "pids": 256, "nofile": 1024}
+    assert started["limits"] == {"memory_mb": 768, "cpus": 1.0, "pids": 256, "nofile": 1024, "storage_bytes": 0}
     with _db(runtime) as conn:
         owner = conn.execute("SELECT * FROM users").fetchone()
         assert owner["username"] == "owner1" and owner["role"] == "owner" and owner["force_password_change"] == 1
@@ -54,6 +54,43 @@ def test_provision_creates_the_1x_layout_seeds_inside_the_sandbox_and_starts(set
     with pytest.raises(RuntimeFailure) as error:
         provision(runtime, spec)
     assert error.value.code == "data_exists"
+
+
+@pytest.mark.parametrize("operation", ["provision", "duplicate", "import"])
+def test_storage_quotas_never_touch_a_directory_that_was_already_there(setup, tmp_path, operation):
+    """A taken name is refused before any quota preparation: project IDs never land on someone else's data."""
+    runtime, agent = setup
+    source = make_spec()
+    provision(runtime, source)
+    orphan = Path(runtime._cfg().instances_dir) / "orphan"
+    orphan.mkdir()
+    (orphan / "theirs.txt").write_text("not ours")
+    target = make_spec("orphan")
+    with pytest.raises(RuntimeFailure) as error:
+        if operation == "provision":
+            provision(runtime, target)
+        elif operation == "duplicate":
+            runtime.duplicate(source, target)
+        else:
+            runtime.import_archive(target, tmp_path / "site.zip")
+    assert error.value.code == "data_exists"
+    assert {args["tenant"] for args in agent.ops("tenant.quota")} == {"acme"}
+    assert "orphan" not in agent.quota.entries
+    assert sorted(path.name for path in orphan.iterdir()) == ["theirs.txt"]
+
+
+def test_a_seed_that_finds_a_database_does_not_disown_the_new_directory(setup, monkeypatch):
+    """``data_exists`` tells the portal the directory is someone else's; this one was just created by the call."""
+    runtime, agent = setup
+
+    def refused(args):
+        return {"tenant": args["tenant"], "result": {"ok": False, "error": "data_exists",
+                                                     "detail": "the wiki already has a database"}}
+
+    monkeypatch.setattr(agent, "tenant_task", refused)
+    with pytest.raises(RuntimeFailure) as error:
+        provision(runtime, make_spec())
+    assert error.value.code == "failed"
 
 
 def test_start_is_idempotent_and_recreates_on_policy_change(setup):
@@ -65,6 +102,18 @@ def test_start_is_idempotent_and_recreates_on_policy_change(setup):
     runtime.start(replace(spec, policy=TenantPolicy(easy_wiki=True)))
     assert len(agent.ops("tenant.start")) == 2
     assert agent.ops("tenant.start")[-1]["env"]["BW_EASY_WIKI"] == "1"
+
+
+@pytest.mark.parametrize("key,value", [("quota_protected", False), ("quota_protected", None),
+                                     ("ipv6_disabled", False), ("ipv6_disabled", None)])
+def test_start_replaces_outdated_sandbox_even_when_image_and_policy_match(setup, key, value):
+    runtime, agent = setup
+    spec = make_spec()
+    provision(runtime, spec)
+    agent.containers[spec.data_dir_name][key] = value
+    runtime.start(spec)
+    assert len(agent.ops("tenant.start")) == 2
+    assert agent.containers[spec.data_dir_name][key] is True
 
 
 def test_start_clears_stale_1x_state_and_restores_missing_aliases(setup):
@@ -365,6 +414,16 @@ def test_recover_restarts_stuck_containers(setup):
     runtime.health["ok"] = False
     assert runtime.recover([spec]) == 1
     assert len(agent.ops("tenant.start")) == 2
+
+
+def test_recover_restarts_a_healthy_container_without_verified_quotas(setup):
+    runtime, agent = setup
+    spec = make_spec()
+    provision(runtime, spec)
+    agent.containers["acme"]["storage_quota_verified"] = False
+    assert runtime.recover([spec]) == 1
+    assert len(agent.ops("tenant.start")) == 2
+    assert agent.containers["acme"]["storage_quota_verified"]
 
 
 def test_recover_starts_the_other_tenants_when_one_fails_unexpectedly(setup, monkeypatch):

@@ -39,11 +39,11 @@ WRITABLE = frozenset({
 })
 
 
-def load() -> dict[str, Any]:
-    """The settings row, cached for the current request."""
+def load(*, fresh: bool = False) -> dict[str, Any]:
+    """The settings row, cached unless a transactional decision needs current policy."""
     if has_request_context():
         cached = g.get("_hosting_settings")
-        if cached is not None:
+        if cached is not None and not fresh:
             return cached
     row = db.one("SELECT * FROM hosting_settings WHERE id = 1") or {}
     if has_request_context():
