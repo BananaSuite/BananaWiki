@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -21,14 +22,23 @@ def _boot(tmp_path, prepare=None):
     (instance / "uploads").mkdir(parents=True)
     shutil.copy(FIXTURE / "bananawiki-v3.sqlite3", instance / "bananawiki.db")
     shutil.copy(FIXTURE / "uploads" / "abc123.png", instance / "uploads" / "abc123.png")
-    if prepare is not None:
-        with sqlite3.connect(instance / "bananawiki.db") as conn:
+    with sqlite3.connect(instance / "bananawiki.db") as conn:
+        # 1.4 issued the fixture's session with a one-week lifetime; keep it current
+        # so the suite checks the upgrade rather than the calendar.
+        conn.execute("UPDATE user_sessions SET expires_at = ?",
+                     ((datetime.now(UTC) + timedelta(days=7)).isoformat(),))
+        if prepare is not None:
             prepare(conn)
-        conn.close()
+    conn.close()
     key = (FIXTURE / "secret_key").read_text().strip()
     environ = {"BW_ENV": "test", "BW_INSTANCE_DIR": str(instance), "BW_BACKGROUND_JOBS": "0"}
     app = create_app(load_config(environ, secret_key=key))
-    return app, instance, json.loads((FIXTURE / "credentials.json").read_text())
+    creds = json.loads((FIXTURE / "credentials.json").read_text())
+    # The cookie's signature is dated too: re-sign the same 1.4 payload with the
+    # same key and today's date, or Flask's session lifetime would expire it.
+    serializer = app.session_interface.get_signing_serializer(app)
+    creds["cookie"] = serializer.dumps(serializer.loads(creds["cookie"]))
+    return app, instance, creds
 
 
 @pytest.fixture
