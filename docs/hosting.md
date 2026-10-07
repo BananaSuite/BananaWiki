@@ -36,6 +36,11 @@ The contract between the portal and the agent is
   directory at `/data`), memory, CPU, process and open-file limits, rotated
   Docker logs, and its own network: `isolated` (an internal bridge, the
   default in subdomain mode) or `outbound`.
+  Managed tenant bridges are IPv4-only: creation explicitly disables IPv6,
+  inspected IPv6-enabled bridges are refused, and container network sysctls
+  disable IPv6 including link-local addresses. This protects the boundary
+  even when a Docker daemon has different default network options. Public
+  Caddy endpoints can still serve IPv6 clients; tenant upstreams use IPv4.
   An internal bridge blocks traffic to other tenant bridges and destinations
   outside its subnet, but can still reach services listening on its host
   gateway. Bind host-only services to loopback. Configure host firewall INPUT
@@ -47,6 +52,16 @@ The contract between the portal and the agent is
   bridge before tenant traffic starts, including bridges created or recreated
   later. Test Caddy proxying and the intended integrations, and verify tenants
   cannot connect to a disposable host gateway listener outside that allowlist.
+  On a dedicated hosting host, matching Docker's bridge prefix (`-i br+`)
+  covers future bridges as well as current ones. For example, an INPUT chain
+  can accept `ESTABLISHED,RELATED`, accept explicitly required TCP destination
+  ports, then drop the remaining packets from `br+`. Install these rules before
+  starting tenants, integrate them with the host's persistent firewall, and
+  verify the effective order after a reboot. A derived runtime that enables
+  tenant IPv6 also needs a verified ip6tables/nftables IPv6 INPUT policy,
+  including link-local traffic; IPv4 rules do not protect it. Do not apply a
+  blanket Docker bridge rule on a shared host
+  without accounting for its other workloads.
   Docker's `inhibit_ipv4=true` and `gateway_mode_ipv4=isolated` bridge options
   remove the host bridge address, but also break Caddy's TCP connection from
   the host to each wiki; they cannot replace this firewall policy.
@@ -81,15 +96,72 @@ place, but stops loading them unless the operator explicitly sets
 a wiki's plugin quarantine does not override the operator's choice. Built-in
 wiki features are unaffected.
 
-Not yet isolated: all tenant containers run as the service account's UID (the
-portal reads tenant files for backups and exports), and the storage limit is
-enforced by the wiki inside the container (use file-system quotas on the host
-if tenants must not be able to fill the disk).
+All tenant containers run as the service account's UID so the portal can read
+files for backups and exports. The wiki's storage estimate remains useful for
+plan reporting. The root runtime agent separately assigns and verifies hard
+XFS project byte and inode limits before the first seed, import, copy, restore
+write or tenant launch. Unsupported filesystems, disabled enforcement, changed
+project identities and insufficient host capacity refuse the operation.
 
-Before offering public hosting, configure a hard quota for each tenant's
-directory on the host filesystem (for example an XFS project quota), including
-an inode limit for many small files. Reserve
-disk space for the portal and backups, and test that a container cannot write
+Use a dedicated XFS filesystem with project accounting and enforcement enabled
+(`prjquota`). Mount the installation parent, with `data/` and `data/instances/`
+as ordinary directories within it; mounting `instances/` itself prevents the
+managed restore workflow from renaming data directories. Keep the instances
+parent in project zero with inheritance off. Do not share this filesystem or
+its project-ID range with another quota manager. The agent keeps its private,
+root-owned allocation registry in `/var/lib/<service>-quotas`, outside tenant
+data and backups. Preserve that registry across service restarts and updates.
+
+The operator-owned ceilings default to 10 GiB and 100,000 inodes per tenant.
+A smaller wiki plan becomes its byte limit; a plan of zero still uses the finite
+host ceiling. Configure `HOSTING_AGENT_MAX_STORAGE_BYTES`,
+`HOSTING_AGENT_MAX_INODES`, `HOSTING_AGENT_PROJECT_ID_START` and
+`HOSTING_AGENT_STORAGE_RESERVE_BYTES` in the installation environment. Byte
+limits must be multiples of 512; the default reserve is 256 MiB. Admission
+checks both total assigned finite budgets against usable volume size and
+outstanding unused tenant reservations against current free space, with
+conservative inode headroom. The total-budget check remains conservative when
+live tenants write or delete files during admission. This does not reserve every possible filesystem metadata byte or
+budget independent operator writes: provide appropriate physical headroom and
+separate portal/backup capacity, and monitor the dedicated volume.
+
+The generated agent unit permits writes to the managed `data/instances/`
+path. A custom `INSTANCES_DIR` needs a reviewed `ReadWritePaths` override in
+addition to the same XFS prerequisites. The agent never accepts a quota device,
+project ID, registry path or filesystem descriptor from a portal request.
+Generated hosting portal and maintenance services install an argument-filtered
+`ioctl` policy before loading the application. Python's descriptor/socket setup
+remains available; the service account cannot change project assignments or
+inheritance flags through host filesystem setters. The trusted root agent
+retains the required quota ioctls.
+An existing or restored tree can only be adopted or repaired while its container
+is confirmed stopped and any one-shot tasks left by an interrupted agent have
+been removed and confirmed absent. This check compares actual mounted inode
+identities, including tasks whose folder was renamed. A live server mounted
+under another name must be stopped before admission; an operator can stop its
+existing Docker container and restore the intended folder name when recovering
+such a mismatch. A running tenant must retain its recorded filesystem,
+inode identity, project inheritance and exact finite kernel limits. After a
+full restore, quota identities are reassigned and verified before execution.
+
+New instance reservations remain in a provisioning state until all seeding or
+copying succeeds. Recovery and manual start refuse unfinished or failed
+reservations. A worker interrupted during creation cannot expose a half-created
+wiki; administrators can cancel it after its provisioning lock is released and
+create it again. Failed cleanup retains the reservation until removal succeeds.
+
+The agent applies a pinned Docker default seccomp allowlist with quota-changing
+ioctls excluded. Without this restriction, an ordinary file owner can change
+an XFS project ID or clear inheritance despite `--cap-drop ALL`. Both native
+and 32-bit ioctl layouts, including upper-bit and sign aliases, are blocked.
+This hosting boundary currently requires Linux x86_64; other host architectures
+fail closed until verified. Running tenants from an older release must use the
+current seccomp and IPv6 policy before administrative tasks can execute in them.
+Starting/recovering a tenant recreates outdated sandbox settings even when its
+image and application policy match. The profile and its
+upstream Apache-2.0 license ship in the package; missing or altered profile files
+refuse tenant launches and tasks.
+Reserve disk space for the portal and backups, and test that a container cannot write
 past that quota. Also test network isolation, resource limits and a complete
 backup restore on the deployment itself. Disabling plugins reduces exposure
 to arbitrary tenant code; it does not provide a hard disk quota or replace

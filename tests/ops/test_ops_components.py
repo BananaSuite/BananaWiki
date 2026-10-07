@@ -247,6 +247,32 @@ def test_shipped_examples_match_the_generators():
         assert shipped(f"deploy/systemd/{name}").read_text() == text, name
 
 
+def test_hosting_unprivileged_units_filter_quota_ioctl_before_application():
+    features = profile.ReleaseFeatures(True, True, True)
+    hosting = settings_for("hosting")
+    rendered = {
+        service.name: (service, units.service_unit(hosting, service, features))
+        for service in profile.services(hosting, features)
+    }
+    assert len(rendered) == 3
+    for service, text in rendered.values():
+        if service.privileged:
+            assert "SystemCallFilter=~ioctl\n" not in text
+            assert "SystemCallFilter=quotactl_fd\n" in text
+        else:
+            assert "SystemCallFilter=~ioctl\n" not in text
+            assert "InaccessiblePaths=/proc\n" in text
+            assert "CapabilityBoundingSet=\n" in text
+            mode = "maintenance" if service.name.endswith("-maintenance") else "portal"
+            assert service.command == ["/opt/bananawiki/current/.venv/bin/python", "-E", "-s", "-m",
+                                       "bananawiki.ops.hosting_entrypoint", mode]
+    wiki = settings_for("wiki")
+    for service in profile.services(wiki, features):
+        text = units.service_unit(wiki, service, features)
+        assert "SystemCallFilter=~ioctl\n" not in text
+        assert "InaccessiblePaths=/proc\n" not in text
+
+
 def test_caddyfile_hardening():
     hosting = caddy.render(settings_for("hosting"))
     assert "ask http://127.0.0.1:5099/internal/domains/authorize" in hosting
@@ -410,6 +436,45 @@ def test_run_hides_command_output_in_a_private_log(tmp_path):
         system.run(["git", "fetch"])
     assert "secret" not in str(error.value)
     assert (tmp_path / "last-command.log").stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("bootstrap_fails", [False, True])
+def test_release_refreshes_inherited_build_tools_before_installing_dependencies(tmp_path, monkeypatch,
+                                                                              bootstrap_fails):
+    release = tmp_path / "release"
+    release.mkdir()
+    (release / "requirements.txt").write_text("Flask>=3.1\n")
+    commands = []
+    ownership = []
+
+    def runner(command, **_):
+        commands.append(command)
+        if command[:3] == ["python3", "-m", "venv"]:
+            (release / ".venv").mkdir()
+        failed = bootstrap_fails and "--upgrade" in command
+        return subprocess.CompletedProcess(command, int(failed), "", "")
+
+    system = System(runner=runner)
+    monkeypatch.setattr(system, "identity", lambda _name: (4242, 4242))
+    monkeypatch.setattr("bananawiki.ops.system.set_release_owner",
+                        lambda path, uid, gid, **kw: ownership.append((path, uid, gid, kw)))
+    settings = {"service": "wiki", "mode": "wiki", "revision": "a" * 40}
+    if bootstrap_fails:
+        with pytest.raises(RuntimeError):
+            system.prepare_release(settings, release, profile.ReleaseFeatures(hardened=True))
+    else:
+        system.prepare_release(settings, release, profile.ReleaseFeatures(hardened=True))
+    bootstrap = commands[1]
+    assert bootstrap[:4] == ["runuser", "-u", "wiki", "--"]
+    assert {"--only-binary=:all:", "--no-deps", "--upgrade", "pip>=26.2.1", "setuptools>=83"} <= set(bootstrap)
+    installs = [command for command in commands if "-r" in command]
+    assert len(installs) == (0 if bootstrap_fails else 1)
+    if installs:
+        assert commands.index(bootstrap) < commands.index(installs[0])
+        assert "--only-binary=:all:" in installs[0]
+        assert ownership[-1] == (release, 0, 4242, {"readonly": True})
+    else:
+        assert all(item[0] != release for item in ownership)
 
 
 def test_set_release_owner_refuses_hard_links(tmp_path):

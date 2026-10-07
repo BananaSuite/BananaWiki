@@ -93,6 +93,7 @@ _AGENT_CODES = {
     "unsupported_protocol": "unavailable", "unknown_operation": "unavailable", "invalid_tenant": "invalid",
     "invalid_env": "invalid", "invalid_request": "invalid", "invalid_owner": "invalid",
     "unknown_tenant": "not_found", "not_configured": "not_configured", "too_large": "too_large", "timeout": "timeout",
+    "quota_unavailable": "not_configured",
 }
 
 Probe = Callable[[str, int], bool]
@@ -174,7 +175,7 @@ def _limits(spec: TenantSpec) -> dict[str, Any]:
     except ValueError:
         cpus = 1.0
     return {"memory_mb": spec.policy.memory_mb, "cpus": cpus, "pids": spec.policy.pids_limit,
-            "nofile": spec.policy.nofile_limit}
+            "nofile": spec.policy.nofile_limit, "storage_bytes": max(0, spec.policy.storage_limit_bytes)}
 
 
 def _upload_request(spec: TenantSpec) -> dict[str, Any]:
@@ -260,6 +261,18 @@ class AgentRuntime:
             raise RuntimeFailure(str(result.get("error") or "failed"), str(result.get("detail") or "")[:300])
         return result
 
+    def _prepare_storage(self, spec: TenantSpec) -> None:
+        result = self._call("tenant.quota", {"tenant": spec.data_dir_name, "prepare": True,
+                                             "limits": _limits(spec)}, "not_configured")
+        if result.get("storage_quota_verified") is not True:
+            raise RuntimeFailure("not_configured", "The runtime did not verify hard tenant storage quotas.")
+
+    def _prepare_restored_storage(self, name: str, storage_bytes: int) -> None:
+        result = self._call("tenant.quota", {"tenant": name, "prepare": True,
+                                             "limits": {"storage_bytes": storage_bytes}}, "not_configured")
+        if result.get("storage_quota_verified") is not True:
+            raise RuntimeFailure("not_configured", "The runtime did not verify restored tenant storage quotas.")
+
     def _state(self, cfg: HostingConfig, spec: TenantSpec) -> PluginState:
         return PluginState(cfg.platform_state_dir, spec.instance_id)
 
@@ -290,7 +303,7 @@ class AgentRuntime:
                   force_password_change: bool) -> None:
         cfg = self._cfg()
         Path(cfg.instances_dir).mkdir(mode=0o700, parents=True, exist_ok=True)
-        tenantfs.create(self._root(cfg, spec.data_dir_name))
+        tenantfs.create(self._root(cfg, spec.data_dir_name), prepare=lambda: self._prepare_storage(spec))
         self._task(spec.data_dir_name, {
             "action": "seed", "username": admin_username, "password": admin_password,
             "force_password_change": force_password_change, "onboarding": spec.policy.global_tour,
@@ -303,6 +316,7 @@ class AgentRuntime:
 
     def _start(self, cfg: HostingConfig, spec: TenantSpec) -> None:
         root = self._existing(cfg, spec.data_dir_name)
+        self._prepare_storage(spec)
         tenantfs.clear_stale_state(root)
         tenantfs.ensure_layout(root)
         args: dict[str, Any] = {
@@ -324,7 +338,9 @@ class AgentRuntime:
             record = {}
         if (current.get("running") and record.get("digest") == digest
                 and record.get("started_at") == current.get("started_at")
-                and current.get("image") == cfg.container_image):
+                and current.get("image") == cfg.container_image
+                and current.get("quota_protected") and current.get("ipv6_disabled")
+                and current.get("storage_quota_verified")):
             return
         status = self._call("tenant.start", args, "start_failed")
         if not status.get("running"):
@@ -368,7 +384,8 @@ class AgentRuntime:
                             spec.data_dir_name)
                 continue
             item = containers.get(spec.data_dir_name)
-            if item and item.get("running") and self._judge(cfg, item).state in ("running", "starting"):
+            if (item and item.get("running") and item.get("storage_quota_verified")
+                    and self._judge(cfg, item).state in ("running", "starting")):
                 continue
             pending.append(spec)
 
@@ -507,6 +524,7 @@ class AgentRuntime:
     def reset_content(self, spec: TenantSpec, *, admin_username: str, admin_password: str) -> None:
         cfg = self._cfg()
         root = self._existing(cfg, spec.data_dir_name)
+        self._prepare_storage(spec)
         tenantfs.reset_content(root)
         self._task(spec.data_dir_name, {
             "action": "seed", "username": admin_username, "password": admin_password, "force_password_change": True,
@@ -515,6 +533,7 @@ class AgentRuntime:
 
     def apply_limits(self, spec: TenantSpec) -> None:
         self._existing(self._cfg(), spec.data_dir_name)
+        self._prepare_storage(spec)
         self._task(spec.data_dir_name, {"action": "apply_policy", **_upload_request(spec)})
 
     # ── Copies and archives ──────────────────────────────────────────────
@@ -542,13 +561,12 @@ class AgentRuntime:
             raise RuntimeFailure("data_exists", spec.data_dir_name)
         base = Path(cfg.instances_dir)
         base.mkdir(mode=0o700, parents=True, exist_ok=True)
-        staging = Path(tempfile.mkdtemp(prefix=".import-", dir=base))
+        tenantfs.create(root, prepare=lambda: self._prepare_storage(spec))
         try:
-            tenant_archives.unpack(Path(archive), staging, cfg.archives)
-            tenantfs.ensure_layout(staging)
-            os.rename(staging, root)
+            tenant_archives.unpack(Path(archive), root, cfg.archives)
+            tenantfs.ensure_layout(root)
         except BaseException:
-            tenantfs.remove_tree(staging)
+            tenantfs.remove_tree(root)
             raise
         self._task(spec.data_dir_name, {"action": "migrate", "imported": True, "policy": _upload_request(spec)})
         self._start(cfg, spec)
@@ -561,7 +579,7 @@ class AgentRuntime:
             raise RuntimeFailure("data_exists", target.data_dir_name)
         copy = self._snapshot(source.data_dir_name)
         try:
-            tenantfs.create(target_root)
+            tenantfs.create(target_root, prepare=lambda: self._prepare_storage(target))
             tenantfs.copy_out(source_root, copy, target_root / "bananawiki.db")
         finally:
             tenantfs.unlink(source_root, copy)
@@ -702,7 +720,8 @@ class AgentRuntime:
         if self._container_map(fresh=True):
             raise RuntimeFailure("data_exists", "restore onto a fresh installation without tenant containers")
         secret_path = Env().path("HOSTING_SECRET_KEY_PATH", str(LEGACY_DATA_DIR / ".secret_key"))
-        platform_backup.restore(cfg, [Path(item) for item in archives], self.backup_key, secret_path)
+        platform_backup.restore(cfg, [Path(item) for item in archives], self.backup_key, secret_path,
+                                prepare_tenant=self._prepare_restored_storage)
 
     # ── Google Drive ─────────────────────────────────────────────────────
 

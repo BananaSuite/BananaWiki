@@ -226,8 +226,9 @@ class System:
                "--disable-pip-version-check", "--no-cache-dir", "--no-input"]
         self.run(["python3", "-m", "venv", str(release / ".venv")])
         set_release_owner(release / ".venv", uid, gid)
-        # Distribution ensurepip wheels can predate security fixes; bootstrap only the installer first.
-        self.run([*pip, "--only-binary=:all:", "--no-deps", "--upgrade", "pip>=26.2.1"], timeout=600, cwd=release)
+        # Python 3.11 ensurepip also installs setuptools; refresh inherited build tools before use.
+        self.run([*pip, "--only-binary=:all:", "--no-deps", "--upgrade", "pip>=26.2.1", "setuptools>=83"],
+                 timeout=600, cwd=release)
         print("Installing Python dependencies; this may take several minutes.", file=sys.stderr, flush=True)
         # 1.6 releases install wheels only: no package build scripts run on the server.
         binary = ["--only-binary=:all:"] if features.hardened else []

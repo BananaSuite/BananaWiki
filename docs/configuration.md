@@ -74,7 +74,7 @@ instance directory (never overwriting anything). See [UPGRADING](../UPGRADING.md
 | `BW_SESSION_COOKIE_NAME` | `bw_session` | Name of the session cookie (hosted wikis use `bw_session_<slug>`). |
 | `BW_SECURE_COOKIES` | follows the request | `1` always marks cookies `Secure`, `0` never; unset: `Secure` on HTTPS requests. |
 | `BW_PASSWORD_HASH_METHOD` (alias `HASH_METHOD`) | `auto` | `auto` (scrypt when available, else PBKDF2-SHA256), `scrypt` or `pbkdf2`. Existing hashes of any Werkzeug format keep working. |
-| `BW_SOURCE_URL` | `https://github.com/OverloadedTech/BananaWiki` | Where `/source` redirects (AGPL section 13). Must be an http(s) URL without credentials. Point it at the source of the version you run. |
+| `BW_SOURCE_URL` | `https://github.com/BananaSuite/BananaWiki` | Where `/source` redirects (AGPL section 13). Must be an http(s) URL without credentials. Point it at the source of the version you run. |
 | `BW_LOGGING_LEVEL` | `medium` | `off`, `minimal` (warnings), `medium` (information), `verbose` (same as `medium`) or `debug`. **1.4 default:** `verbose`. |
 | `BW_DEFAULT_INTERFACE_LANGUAGE` | `en` | Interface language used until an administrator chooses one. |
 | `BW_BACKGROUND_JOBS` | `1` | `0` stops the scheduler thread in the web workers; run `bananawiki jobs run` from cron instead. Replaces 1.4's `BANANAWIKI_SKIP_BACKGROUND_SERVICES`. |
@@ -253,7 +253,7 @@ like 1.4; managed installations set them to `<root>/data`.
 | `HOSTING_DB_BUSY_TIMEOUT_MS` | 5000 (100–30000) | SQLite write-lock wait. |
 | `HOSTING_LOG_LEVEL` | `info` | `debug`, `info`, `warning` or `error`. |
 | `BANANA_MAINTENANCE_FILE` (alias `BW_MAINTENANCE_FILE`) | none | 503 for everything but `/health` while it exists. |
-| `BW_SOURCE_URL` | `https://github.com/OverloadedTech/BananaWiki` | Source link shown by the portal (managed installs set it to the update source). |
+| `BW_SOURCE_URL` | `https://github.com/BananaSuite/BananaWiki` | Source link shown by the portal (managed installs set it to the update source). |
 | `HOSTING_WORKERS`, `HOSTING_THREADS`, `HOSTING_WORKER_TIMEOUT`, `HOSTING_ACCESS_LOG` | 2, 4, 120, `-` | Read by `hosting/gunicorn.conf.py`. |
 
 ### Addresses
@@ -299,6 +299,10 @@ like 1.4; managed installations set them to `<root>/data`.
 | `INSTANCE_NOFILE_LIMIT` | 1024 (at least 128) | Container open files. |
 | `INSTANCE_STARTUP_TIMEOUT_SECONDS` | 120 (30–600) | How long a starting wiki may take. |
 | `HOSTING_AGENT_MAX_MEMORY_MB`, `HOSTING_AGENT_MAX_CPUS`, `HOSTING_AGENT_MAX_PIDS`, `HOSTING_AGENT_MAX_NOFILE` | 4096, 4, 4096, 65536 | Ceilings the runtime agent enforces whatever the portal asks. |
+| `HOSTING_AGENT_MAX_STORAGE_BYTES` | 10737418240 | Finite per-tenant hard byte ceiling on dedicated enforced XFS; positive and divisible by 512. A zero portal plan uses this ceiling. |
+| `HOSTING_AGENT_MAX_INODES` | 100000 | Finite hard inode limit per tenant (1–10000000). |
+| `HOSTING_AGENT_PROJECT_ID_START` | 1000000 | First private project ID (1–2147483647); dedicate the range and filesystem to this installation. IDs are not reused. |
+| `HOSTING_AGENT_STORAGE_RESERVE_BYTES` | 268435456 | Positive reserve in both total-budget and free-space quota admission, plus conservative inode headroom; does not budget independent operator writes or every metadata allocation. |
 
 `HOSTING_BACKUP_ENCRYPTION_KEY` (URL-safe base64 of 32 bytes) may replace the
 key file at `HOSTING_BACKUP_KEY_PATH`. `BW_HOSTING_RECOVERY_MAX_WORKERS`

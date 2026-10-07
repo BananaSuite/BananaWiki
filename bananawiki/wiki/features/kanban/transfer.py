@@ -19,6 +19,7 @@ from typing import Any, BinaryIO
 from flask import current_app
 from werkzeug.datastructures import FileStorage
 
+from ....core.json import loads as safe_json_loads
 from ....core.timeutil import now_sql, utcnow
 from ... import storage
 from ...db import db
@@ -130,7 +131,7 @@ def _read(upload: BinaryIO) -> _Parsed:
 
 def _decode(raw: bytes) -> dict[str, Any]:
     try:
-        data = json.loads(raw.decode("utf-8-sig"))
+        data = safe_json_loads(raw.decode("utf-8-sig"))
     except (UnicodeDecodeError, ValueError) as error:
         raise KanbanError("kanban.error.import_invalid") from error
     if not isinstance(data, dict) or not isinstance(data.get("columns", []), list):

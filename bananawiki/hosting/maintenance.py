@@ -125,7 +125,7 @@ def recover(app: Flask) -> int:
     go out now rather than at the end of the first, slower pass.
     """
     with app.test_request_context("/"), connection_scope(app.extensions["bananawiki.hosting.database"]):
-        rows = db.all("SELECT * FROM instances WHERE status = 'running'")
+        rows = db.all("SELECT * FROM instances WHERE status = 'running' AND provisioning_state = 'ready'")
         specs = [instances.spec(row) for row in rows]
         started = app.extensions["bananawiki.hosting.runtime"].recover(specs)
         instances.sync_routes()

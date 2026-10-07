@@ -80,6 +80,9 @@ def _instance_or_404(instance_id: str) -> dict[str, Any]:
     inst = instances.get(instance_id)
     if inst is None:
         abort(404)
+    if (request.method not in ("GET", "HEAD") and request.endpoint != "admin.terminate_instance"
+            and inst["status"] != "terminated" and not instances.provisioning_ready(inst)):
+        abort(409)
     return inst
 
 
@@ -1188,7 +1191,8 @@ def _checked(name: str) -> int:
 def _apply_to_all_running() -> int:
     """Restart running wikis so a changed policy reaches them; returns failures."""
     failures = 0
-    for inst in db.all("SELECT * FROM instances WHERE status IN ('running', 'stopped')"):
+    for inst in db.all("SELECT * FROM instances WHERE status IN ('running', 'stopped') "
+                       "AND provisioning_state = 'ready'"):
         if not instances.apply_policy(inst, actor_id=account()["id"]):
             failures += 1
     return failures

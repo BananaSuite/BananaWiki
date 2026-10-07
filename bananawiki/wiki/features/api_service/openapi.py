@@ -325,8 +325,9 @@ ENDPOINTS: tuple[Endpoint, ...] = (
 SCHEMAS: dict[str, Schema] = {
     "Ok": {"type": "object", "properties": {"ok": {"const": True}}, "required": ["ok"]},
     "Error": {"type": "object", "required": ["ok", "error", "code"], "properties": {
-        "ok": {"const": False}, "error": {"type": "string", "description": "Translated message for people"},
+        "ok": {"const": False}, "error": {"type": "string", "description": "Message for people; application errors are translated"},
         "code": {"type": "string", "description": "Stable code for programs"},
+        "request_id": STRING,
         "field": STRING, "scope": STRING, "write": BOOLEAN, "revision": INTEGER, "version": INTEGER,
         "locked": {**STRINGS, "description": "Canvas: ids of the locked nodes a change would touch (code locked)"},
         "locked_count": INTEGER}},
@@ -405,7 +406,7 @@ _STATUS_TEXT = {200: "OK", 201: "Created", 202: "Accepted (scheduled)", 400: "In
                 401: "Missing or invalid token", 403: "Not allowed", 404: "Not found", 409: "Conflict",
                 412: "If-Match does not match the current version", 413: "Body too large",
                 422: "Idempotency-Key reused with a different request", 429: "Rate limited",
-                503: "API disabled or maintenance"}
+                500: "Internal error", 503: "API disabled, maintenance or storage unavailable"}
 _QUERY_TYPES = {"archived": BOOLEAN, "priority": {"enum": ["low", "medium", "high", "critical"]},
                 "due": {"enum": ["overdue", "soon", "week", "none"]}, "limit": INTEGER, "offset": INTEGER, "target_id": INTEGER, "before_days": INTEGER,
                 "titles_only": BOOLEAN, "page_action": {"enum": ["uncategorize", "move", "delete"]}}
@@ -451,7 +452,7 @@ def _success(endpoint: Endpoint, code: int) -> dict[str, Any]:
 
 
 def _operation(endpoint: Endpoint) -> dict[str, Any]:
-    codes = set(endpoint.responses)
+    codes = {*endpoint.responses, 500, 503}
     if endpoint.scope:
         codes |= {401, 403, 429, 503}
         if endpoint.feature:

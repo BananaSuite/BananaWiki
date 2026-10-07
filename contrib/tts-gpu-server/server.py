@@ -173,6 +173,7 @@ class PiperEngine:
     """Piper voices kept in an LRU cache (each loaded voice holds GPU memory)."""
 
     def __init__(self, settings: Settings):
+        os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
         self.settings = settings
         self._voices: OrderedDict[str, Any] = OrderedDict()
         self._lock = threading.Lock()

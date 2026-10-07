@@ -1,0 +1,64 @@
+Container media verification
+
+Build both images from the repository root:
+  docker build -f Dockerfile -t bananawiki-media .
+  docker build -f Dockerfile.tenant -t bananawiki-tenant-media .
+An HTTPS-intercepting build proxy can supply its trusted combined CA bundle via
+  --secret id=proxy_ca,src=/path/to/combined-ca-bundle.pem
+TLS and signature verification stay enabled. The secret is not stored in layers.
+
+Also verify the updated ACL library and retained GNU utilities:
+  docker run --rm --read-only --user 23456:23456 --network none \
+    --tmpfs /tmp:rw,nosuid,nodev,size=128m --cap-drop ALL \
+    --security-opt no-new-privileges --memory 384m --cpus 0.5 \
+    --pids-limit 96 -i --entrypoint python IMAGE - \
+    < docker/media/verify-acl.py
+This tests trusted descriptor operation after an ancestor is replaced by a
+symlink, access/default ACLs through AT_EMPTY_PATH, all four final-symlink and
+invalid-flag refusals, and preservation of the unintended target. It also tests
+cp -a and patched GNU tar roundtrips with contents, modes, access/default ACLs,
+symlinks, hardlinks and sparse data, plus the actual GNU timeout deadline.
+ACL 2.4.0 adds safe APIs while retaining legacy path-following semantics; these
+tests do not certify privileged legacy callers on attacker-controlled paths.
+The official Debian ACL/tar packages, corresponding sources, signed-index and
+signature evidence are recorded in /usr/local/share/bananawiki/acl.
+
+For either image, run the real backend verification as an arbitrary non-root UID:
+  docker run --rm --read-only --user 23456:23456 --network none \
+    --tmpfs /tmp:rw,noexec,nosuid,size=128m --cap-drop ALL \
+    --security-opt no-new-privileges -i --entrypoint python IMAGE - \
+    < docker/media/verify-ffmpeg.py
+This checks all six supported PCM WAV sample formats and MP3 input at seven
+speeds from 0.5 to 2.0, independently parses every MP3 output frame and verifies
+duration, checks stereo 48 kHz GPU-service pipe conversion, both MP3 decoders,
+malformed-input rejection/recovery, and the exact compiled feature boundary.
+It also verifies the pinned source/signature and source/license artifacts.
+
+For independent sound/pitch verification, create an artifact directory owned by
+your non-root host UID, mount it at /evidence, run the same verifier with
+--user <host-uid>:<host-gid> and -e MEDIA_VERIFY_OUTPUT=/evidence. Then run
+  python docker/media/verify-decoded-audio.py /path/to/artifacts
+using an independent normal/full FFmpeg development installation. It decodes all
+49 MP3 outputs and checks actual sound amplitude, duration and retained pitch.
+The production speech-only encoder intentionally does not include that reference
+tool's PCM output encoder and raw output format.
+
+Keep the OS/Python image vulnerability report, and supplement the image SBOM
+with /usr/local/share/bananawiki/media/ffmpeg.cdx.json. The source-built FFmpeg
+component must remain in your inventory even when the scanner does not index
+generic C binaries. Scan that SBOM only with a tool that supports the component;
+a Trivy SBOM run with zero recognized language packages provides no FFmpeg
+vulnerability coverage. Review upstream https://ffmpeg.org/security.html and
+current advisories separately against the shipped release and compiled config.
+An absence of findings does not establish an absence of vulnerabilities.
+
+The final runtime prunes actual unused APT/Perl/login/mount utilities through the
+package manager. It retains the full records of installed packages, Python's
+UUID/curses/readline libraries, ONNX/Piper's C++/OpenMP libraries, GNU timeout,
+TLS roots and fonts. Source-package advisories may be reported against retained
+libraries even when their vulnerable administration utilities are absent; retain
+those findings and record the exact component/exposure analysis separately.
+The application/runtime checks must include read-only arbitrary-UID HTTP startup,
+tenant task deadlines, TLS verification, PDF fonts and real neural speech, beyond
+the codec checks above. No GPU hardware result is implied by a pipe-conversion
+test; test the standalone GPU server on the intended CUDA hardware as well.

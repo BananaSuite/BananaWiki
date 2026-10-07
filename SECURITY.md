@@ -4,7 +4,7 @@
 
 Report vulnerabilities privately through GitHub's private vulnerability
 reporting:
-<https://github.com/OverloadedTech/BananaWiki/security/advisories/new>
+<https://github.com/BananaSuite/BananaWiki/security/advisories/new>
 
 Include the affected version or commit, the steps to reproduce, the impact,
 and a suggested fix if you have one. Do not include real credentials or other

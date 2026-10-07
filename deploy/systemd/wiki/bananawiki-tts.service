@@ -1,5 +1,5 @@
 # Managed by BananaSuite
-# bananawiki-ops: 2
+# bananawiki-ops: 3
 [Unit]
 Description=BananaWiki text-to-speech worker (bananawiki)
 After=network-online.target

@@ -4,6 +4,18 @@
 
 ### Changed
 
+* Hosting assigns finite XFS project byte and inode quotas before seeding,
+  imports, copies, restores and launches; quota drift, unsupported storage,
+  uncertain container state and insufficient capacity fail closed. Launches
+  verify Docker’s actual mounted directory while a trusted bootstrap waits
+  behind a private network-namespace gate. Interrupted task containers are
+  found by actual mounted inode even after folder renames and removed before
+  stopped repair. Renamed live servers refuse admission, and hosting services
+  cannot access host process handles or change filesystem quota flags.
+* New hosting reservations remain pending until provisioning completes.
+  Recovery and start refuse unfinished or failed wikis, and interrupted
+  provisioning can be cancelled safely without releasing a live reservation.
+
 * Page editor actions and insertion dialogs share small template macros.
   Formatting and insertion tools use a clear separator and consistent spacing.
 * Hosting textareas share label, help-text and value rendering; transfer

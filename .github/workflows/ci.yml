@@ -51,12 +51,34 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y age openssh-client
       - name: Install (wheels only, as on a managed server)
         run: |
-          python -m pip install --only-binary=:all: --no-deps --upgrade 'pip>=26.2.1'
+          python -m pip install --only-binary=:all: --no-deps --upgrade 'pip>=26.2.1' 'setuptools>=83'
           python -m pip install --only-binary=:all: -r requirements.txt pytest pytest-xdist
       - name: Tests
         run: python -m pytest tests -q -n 2 -p no:cacheprovider -o addopts=""
       - name: Root filesystem boundary tests
         run: sudo "$(command -v python)" -m pytest tests/ops/test_ops_tenant_files.py -q -p no:cacheprovider -o addopts=""
+      - name: Build and exercise the installed distribution
+        if: matrix.python == '3.12'
+        run: |
+          python -m pip install --only-binary=:all: build
+          python -m build --outdir "$RUNNER_TEMP/wiki-dist"
+          package_probe="$RUNNER_TEMP/wiki-package-probe"
+          mkdir -p "$package_probe"
+          python -m pip install --no-deps --target "$package_probe/installed" "$RUNNER_TEMP"/wiki-dist/*.whl
+          cp -a tests "$package_probe/tests"
+          cd "$package_probe"
+          export PYTHONPATH="$package_probe/installed"
+          python -c 'from pathlib import Path; import bananawiki; assert Path(bananawiki.__file__).resolve().is_relative_to(Path("installed").resolve())'
+          python -m pytest tests/test_core_assets.py tests/test_core_json_requests.py \
+            tests/features/test_api_protocol.py \
+            tests/features/test_auth_onboarding.py \
+            tests/ops/test_ops_agent.py tests/hosting/test_runtime_agent_ops.py \
+            tests/hosting/test_runtime_agent.py::test_start_replaces_outdated_sandbox_even_when_image_and_policy_match \
+            tests/features/test_plugins_external.py::test_plugin_kit_download \
+            'tests/features/test_tts_gpu.py::test_piper_privacy_default_precedes_import_and_preserves_operator_setting[local-None]' \
+            'tests/features/test_tts_gpu.py::test_piper_privacy_default_precedes_import_and_preserves_operator_setting[local-0]' \
+            tests/ops/test_ops_components.py::test_release_refreshes_inherited_build_tools_before_installing_dependencies \
+            -q -p no:cacheprovider -o addopts=""
 
   audit:
     runs-on: ubuntu-latest
@@ -79,7 +101,7 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/runtime-audit"
           runtime_python="$RUNNER_TEMP/runtime-audit/bin/python"
-          "$runtime_python" -m pip install --only-binary=:all: --no-deps --upgrade 'pip>=26.2.1'
+          "$runtime_python" -m pip install --only-binary=:all: --no-deps --upgrade 'pip>=26.2.1' 'setuptools>=83'
           if [ "$INSTALL_METHOD" = requirements ]; then
             "$runtime_python" -m pip install --only-binary=:all: -r requirements.txt
           else

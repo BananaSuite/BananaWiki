@@ -44,7 +44,7 @@ def test_provision_creates_the_1x_layout_seeds_inside_the_sandbox_and_starts(set
     assert agent.tasks() == ["seed"]
     started = agent.ops("tenant.start")[0]
     assert started["tenant"] == "acme" and started["network"] == "isolated" and "publish_port" not in started
-    assert started["limits"] == {"memory_mb": 768, "cpus": 1.0, "pids": 256, "nofile": 1024}
+    assert started["limits"] == {"memory_mb": 768, "cpus": 1.0, "pids": 256, "nofile": 1024, "storage_bytes": 0}
     with _db(runtime) as conn:
         owner = conn.execute("SELECT * FROM users").fetchone()
         assert owner["username"] == "owner1" and owner["role"] == "owner" and owner["force_password_change"] == 1
@@ -64,6 +64,18 @@ def test_start_is_idempotent_and_recreates_on_policy_change(setup):
     runtime.start(replace(spec, policy=TenantPolicy(easy_wiki=True)))
     assert len(agent.ops("tenant.start")) == 2
     assert agent.ops("tenant.start")[-1]["env"]["BW_EASY_WIKI"] == "1"
+
+
+@pytest.mark.parametrize("key,value", [("quota_protected", False), ("quota_protected", None),
+                                     ("ipv6_disabled", False), ("ipv6_disabled", None)])
+def test_start_replaces_outdated_sandbox_even_when_image_and_policy_match(setup, key, value):
+    runtime, agent = setup
+    spec = make_spec()
+    provision(runtime, spec)
+    agent.containers[spec.data_dir_name][key] = value
+    runtime.start(spec)
+    assert len(agent.ops("tenant.start")) == 2
+    assert agent.containers[spec.data_dir_name][key] is True
 
 
 def test_start_clears_stale_1x_state_and_restores_missing_aliases(setup):

@@ -11,7 +11,6 @@ the folder get its real name. No plugin code runs during installation.
 
 from __future__ import annotations
 
-import json
 import re
 import shutil
 import stat
@@ -19,6 +18,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from ....core.json import loads as safe_json_loads
 from ....core.timeutil import now_sql
 from ... import plugins_external, registry
 from ...db import db
@@ -102,7 +102,7 @@ def inspect(path: str | Path) -> tuple[Manifest, tuple[str, ...], list[Member]]:
             if not any(p == (*prefix, "__init__.py") for _i, p in members):
                 raise ManifestError("plugins.error.no_package")
             try:
-                data = json.loads(archive.read(manifest_info).decode("utf-8"))
+                data = safe_json_loads(archive.read(manifest_info).decode("utf-8"))
             except (UnicodeDecodeError, ValueError) as error:
                 raise ManifestError("plugins.error.manifest_invalid_json") from error
     except (zipfile.BadZipFile, zipfile.LargeZipFile, NotImplementedError, OSError) as error:
@@ -226,4 +226,3 @@ def sdk_bundle() -> bytes:
             if path.is_file() and "__pycache__" not in path.parts:
                 bundle.write(path, f"bananawiki-plugin-kit/hello_plugin/{path.relative_to(example).as_posix()}")
     return buffer.getvalue()
-

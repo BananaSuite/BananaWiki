@@ -18,6 +18,7 @@ from .. import __version__
 from ..core import web
 from ..core.assets import SharedAssetsFlask
 from ..core.i18n import Catalog
+from ..core.json import SafeJSONProvider
 from ..core.ratelimit import MemoryLimiter
 from ..core.sqlite import Database, DatabaseUnavailable, is_unavailable
 from . import auth, i18n, settings, templating, wikihosts
@@ -92,6 +93,7 @@ def create_app(config: HostingConfig | None = None, *, runtime: Runtime | None =
     _configure_logging(cfg)
     app = SharedAssetsFlask("bananawiki.hosting", root_path=str(PACKAGE_ROOT), template_folder="templates",
                            static_folder="static", static_url_path="/static")
+    app.json = SafeJSONProvider(app)
     app.config["HOSTING"] = cfg
     app.config.update(
         SECRET_KEY=cfg.secret_key,

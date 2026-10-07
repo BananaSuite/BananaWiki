@@ -29,6 +29,9 @@
   {% endif %}
   {{ ui.post(url_for('admin.delete_terminated', instance_id=inst.id), t('hosting.admin.delete_permanently'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}
 </div></section>
+{% elif inst.status in ('provisioning', 'provisioning_failed') %}
+<section class="card"><p>{{ t('hosting.instances.provisioning_notice') }}</p>
+{{ ui.post(url_for('admin.terminate_instance', instance_id=inst.id), t('hosting.instance.terminate'), 'btn btn--small btn--danger', confirm=t('hosting.instance.terminate_confirm')) }}</section>
 {% else %}
 <section class="card"><h2>{{ t('hosting.admin.lifecycle') }}</h2><div class="btn-row">
   {% if inst.status == 'running' %}{{ ui.post(url_for('admin.stop_instance', instance_id=inst.id), t('hosting.instance.stop')) }}{{ ui.post(url_for('admin.force_restart', instance_id=inst.id), t('hosting.admin.force_restart')) }}

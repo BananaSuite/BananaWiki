@@ -37,6 +37,7 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 from ... import __version__
+from ...core.json import loads as safe_json_loads
 from ..config import ArchiveSettings
 from . import RuntimeFailure, tenantfs
 
@@ -200,7 +201,7 @@ def _check_manifest(archive: zipfile.ZipFile, names: set[str]) -> None:
             raw = source.read(MAX_MANIFEST_BYTES + 1)
         if len(raw) > MAX_MANIFEST_BYTES:
             raise RuntimeFailure("archive_invalid", "manifest.json is too large")
-        manifest = json.loads(raw.decode("utf-8"))
+        manifest = safe_json_loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError, zipfile.BadZipFile, RuntimeError, zlib.error, lzma.LZMAError, OSError):
         raise RuntimeFailure("archive_invalid", "manifest.json is not JSON") from None
     version = manifest.get("format_version") if isinstance(manifest, dict) else None

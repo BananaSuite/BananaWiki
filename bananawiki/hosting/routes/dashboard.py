@@ -102,7 +102,7 @@ def instance_detail(instance_id: str):
     item = instances.describe(inst)
     legacy_password = instances.take_legacy_password(inst) if manager else ""
     users, users_total = [], 0
-    if manager and inst["status"] != "terminated":
+    if manager and inst["status"] != "terminated" and instances.provisioning_ready(inst):
         try:
             users, users_total = instances.runtime().list_users(instances.spec(inst, with_policy=False), limit=50)
         except (RuntimeFailure, ValueError):

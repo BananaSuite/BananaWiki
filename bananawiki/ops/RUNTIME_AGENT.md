@@ -12,7 +12,7 @@ and runs the agent) and `bananawiki/hosting` (which calls it).
 
 | Item | Value |
 |---|---|
-| Unit | `<service>-agent.service`, `User=root`, `Group=<service>`, `PrivateNetwork=true`, `CapabilityBoundingSet=CAP_DAC_READ_SEARCH`, `ProtectSystem=strict`, `StateDirectory=<service>-routes` (0755, read by Caddy) |
+| Unit | `<service>-agent.service`, `User=root`, `Group=<service>`, `PrivateNetwork=true`, `PrivateDevices=true`, `CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_FOWNER CAP_CHOWN CAP_SYS_ADMIN CAP_SYS_PTRACE`, `ProtectSystem=strict`, routes state (0755) and private quota state (0700); mount, ptrace and process-vm syscalls denied |
 | Command | `/usr/bin/python3 -E -s <root>/current/banana --root <root> agent serve` (stdlib only) |
 | Socket | `/run/<service>-agent/agent.sock`, mode 0660, group `<service>`; directory 0750 |
 | Portal setting | `BW_RUNTIME_AGENT_SOCKET` in `config/app.env` (written by the controller) |
@@ -23,7 +23,13 @@ and runs the agent) and `bananawiki/hosting` (which calls it).
 Operator-only settings in `app.env` (ceilings for what the portal may ask for):
 `HOSTING_CONTAINER_IMAGE` (set by the updater to `bananawiki-tenant:<revision>`),
 `INSTANCES_DIR`, `HOSTING_AGENT_MAX_MEMORY_MB` (4096), `HOSTING_AGENT_MAX_CPUS` (4),
-`HOSTING_AGENT_MAX_PIDS` (4096), `HOSTING_AGENT_MAX_NOFILE` (65536).
+`HOSTING_AGENT_MAX_PIDS` (4096), `HOSTING_AGENT_MAX_NOFILE` (65536),
+`HOSTING_AGENT_MAX_STORAGE_BYTES` (10 GiB), `HOSTING_AGENT_MAX_INODES` (100,000),
+`HOSTING_AGENT_PROJECT_ID_START` (1,000,000), and
+`HOSTING_AGENT_STORAGE_RESERVE_BYTES` (256 MiB). Hosting requires a dedicated
+XFS filesystem with project accounting/enforcement enabled and an unassigned,
+non-inheriting instances parent. Custom instances paths need a matching unit
+write-path override. See [hosting](../../docs/hosting.md) for host prerequisites.
 
 `sudo bananawiki agent status` pings the agent.
 
@@ -43,7 +49,8 @@ Transition: when `BW_RUNTIME_AGENT_SOCKET` is not set, the release was
 installed by the 1.4 updater and its portal unit still has
 `SupplementaryGroups=docker`. `connect()` then returns an in-process
 `TenantRuntime` with the same `call()` and the same validation, running
-Docker as the portal. The next `bananawiki update` (also when no new revision
+Docker as the portal. This legacy fallback cannot satisfy the private hard-quota
+contract and refuses launches and tasks until convergence. The next `bananawiki update` (also when no new revision
 exists) or `bananawiki restart` converges the units: the agent is installed,
 the portal leaves the `docker` group and the socket variable appears. The
 portal must not call `docker` any other way.
@@ -61,7 +68,8 @@ JSON response line back.
 
 Error codes: `forbidden`, `unsupported_protocol`, `invalid_request`,
 `unknown_operation`, `invalid_tenant`, `unknown_tenant`, `invalid_env`,
-`invalid_owner`, `docker_failed`, `not_configured`, `too_large`, `internal`;
+`invalid_owner`, `docker_failed`, `not_configured`, `quota_unavailable`,
+`sandbox_outdated`, `sandbox_unavailable`, `too_large`, `internal`;
 the client adds `unavailable` (socket unreachable) and `protocol`.
 
 A tenant is named by its directory under `INSTANCES_DIR`: `<slug>` or
@@ -77,6 +85,7 @@ must exist, must not be a symlink, and must be owned by the service account
 | `image.status` | — | `{image, present}` |
 | `tenant.list` | — | `{tenants: [status…]}` (containers labelled as tenants of this `INSTANCES_DIR`) |
 | `tenant.status` | `tenant` | `{tenant, container, running, address, internal_port, data_dir, image, started_at}` or `{tenant, running: false, exists: false}` |
+| `tenant.quota` | `tenant`, `prepare` (boolean, default false), optional `limits.storage_bytes` | `{tenant, storage_quota_verified, storage_quota}`; stopped-only adoption, live verification or bounded limit update |
 | `tenant.start` | see below | the tenant's status after `docker run` |
 | `tenant.stop` | `tenant`, `timeout` (1–120 s, default 15) | `{tenant, stopped: true}`: container and its network removed |
 | `tenant.logs` | `tenant`, `lines` (1–1000, default 200) | `{tenant, lines: [...]}` |
@@ -89,7 +98,7 @@ must exist, must not be a symlink, and must be owned by the service account
 |---|---|---|
 | `tenant` | required | as above |
 | `env` | `{}` | at most 200 `BW_*` keys, values ≤ 8 KiB without CR/LF/NUL; `BW_SECRET_KEY` and `BW_SETUP_TOKEN` refused. Give container paths (`/data/...`). |
-| `limits` | `{}` | `memory_mb` 128–ceiling (512), `cpus` 0.1–ceiling (1), `pids` 32–ceiling (256), `nofile` 128–ceiling (1024) |
+| `limits` | `{}` | `memory_mb` 128–ceiling (512), `cpus` 0.1–ceiling (1), `pids` 32–ceiling (256), `nofile` 128–ceiling (1024), `storage_bytes` 0–finite host ceiling (0 uses host ceiling) |
 | `internal_port` | 5001 | 1024–65535; also set as `BW_PORT` |
 | `network` | `"isolated"` | `"isolated"`: per-tenant `--internal` bridge; `"outbound"`: per-tenant routed bridge |
 | `publish_port` | none | only with `"outbound"`: publishes `127.0.0.1:<port>` → internal port |
@@ -171,9 +180,46 @@ that check also requires every running wiki the portal publishes to have a
 site block pointing at its current container, and the maintenance service
 publishes the table right after recovering the wikis.
 
+## Storage launch gate
+
+`tenant.quota` allocates a persistent private project ID and finite byte/inode
+limits before the portal creates content. Kernel project accounting,
+enforcement, inheritance, filesystem UUID, inode number/generation and exact
+limits must match the registry. Uncertain Docker state never authorizes repair;
+adoption of restored/legacy trees requires a confirmed stopped container.
+
+Docker mounts the normal tenant path and starts only the fixed stdlib inert
+`tenant_guard`. Before release or a task, the root agent opens the actual
+`/proc/<Docker State.Pid>/root/data` descriptor and verifies it against the
+prepared witness. A substituted directory is destroyed before tenant-controlled
+code or data is accessed. The server release socket uses Linux’s abstract UNIX namespace within the
+container network namespace; no filesystem marker can release it. The inert
+guard disables process dumping and tracing before waiting. Hosting portal and
+maintenance units cannot access `/proc`, including the bootstrap startup window,
+and start through a trusted stdlib entrypoint that restricts `ioctl` arguments
+before loading the application. It permits Python's descriptor/socket setup
+requests while denying filesystem project/flag setters, so the service account
+cannot change quota assignments outside a tenant's container policy. The root agent
+retains the filesystem ioctls needed for quota assignment and verification.
+Server gates expire after 120 seconds; task gates
+have a bounded lifetime covering the requested task deadline. Running container
+status and administrative exec also verify the actual mounted directory.
+`CAP_SYS_PTRACE` permits this cross-UID proc descriptor check; ptrace and
+process-vm syscalls remain denied. Before stopped repair, restart, stop or a
+new one-shot task, the agent removes and confirms absence of that tenant’s
+tasks left by an interrupted agent generation. It compares actual mounted
+device/inode identities across live servers and tasks, so renaming a folder
+cannot hide a writer. A live server using the folder under another name refuses
+admission until it is stopped. A held root descriptor binds this inventory to
+the inode the quota provisioner subsequently opens; replacing the pathname
+refuses before quota mutation. Guard admission is serialized across tenant
+names, while unrelated admitted tasks execute concurrently.
+The agent accepts no caller-provided PID,
+descriptor, quota device or project ID.
+
 ## What the portal still owns
 
-* Recreating containers for every `instances.status='running'` row after
+* Recreating containers for ready `instances.status='running'` rows after
   start (the updater removes all tenant containers during an update and
   checks each tenant's `/health` on its bridge address).
 * Creating tenant directories (as the service account) and the
@@ -190,4 +236,11 @@ publishes the table right after recovering the wikis.
   backups and exports. Moving to per-tenant UIDs needs those file operations
   to move into the agent first (`tenant.archive` / `tenant.restore`); the
   protocol version will be bumped then.
-* Filesystem quotas: use XFS project quotas or per-tenant volumes on the host.
+* Managed tenant networking is IPv4-only: bridge creation requests IPv6 off
+  and inspects the actual result, refusing enabled or uninspectable networks.
+  The `all` and `default` `disable_ipv6=1` container sysctls also prevent
+  link-local traffic. Starting/recovering a tenant replaces missing sandbox
+  settings even if its image/application policy matches; administrative exec
+  refuses an outdated running sandbox. Host Caddy IPv6 clients are unaffected.
+  A derived IPv6 runtime needs independent IPv6 INPUT/neighbor-discovery checks;
+  IPv4 INPUT rules cannot protect IPv6 traffic.

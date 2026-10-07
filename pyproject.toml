@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=83", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -58,9 +58,9 @@ dev = [
 bananawiki = "bananawiki.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/OverloadedTech/BananaWiki"
-Source = "https://github.com/OverloadedTech/BananaWiki"
-Issues = "https://github.com/OverloadedTech/BananaWiki/issues"
+Homepage = "https://github.com/BananaSuite/BananaWiki"
+Source = "https://github.com/BananaSuite/BananaWiki"
+Issues = "https://github.com/BananaSuite/BananaWiki/issues"
 
 [tool.setuptools.dynamic]
 version = { attr = "bananawiki.__version__" }
@@ -69,6 +69,9 @@ version = { attr = "bananawiki.__version__" }
 include = ["bananawiki*", "bananawiki_sdk*"]
 
 [tool.setuptools.package-data]
+"bananawiki.ops" = ["seccomp/*"]
+"bananawiki.wiki.features.auth" = ["builtin_docs/**/*.md"]
+"bananawiki.wiki.features.plugin_manager" = ["PLUGINS.md", "examples/**/*"]
 "*" = [
     "templates/**/*",
     "static/**/*",

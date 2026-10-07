@@ -3,7 +3,7 @@
 Every file starts with the ``# Managed by BananaSuite`` marker 1.4 used, so
 either version recognises the other's files as its own and refuses to touch
 units it did not write. Units for 1.6 releases also carry
-``# bananawiki-ops: 2``; its absence tells the controller that a release was
+``# bananawiki-ops: 3``; an older marker tells the controller that a release was
 installed by the 1.4 updater and its units still need converging.
 """
 
@@ -44,10 +44,11 @@ _APP_SANDBOX = (
 )
 
 # The runtime agent runs as root (it drives the Docker socket) but needs no
-# network, no writable files outside its runtime directory and only enough
-# privilege to look into the service-owned tenant directories.
+# network. Its quota operations are limited to validated tenant descriptors
+# and private allocation metadata; it cannot mount filesystems or create namespaces.
 _AGENT_SANDBOX = (
     "NoNewPrivileges=true\n"
+    "PrivateDevices=true\n"
     "PrivateTmp=true\n"
     "PrivateNetwork=true\n"
     "ProtectSystem=strict\n"
@@ -62,10 +63,12 @@ _AGENT_SANDBOX = (
     "RestrictRealtime=true\n"
     "RestrictSUIDSGID=true\n"
     "LockPersonality=true\n"
-    "CapabilityBoundingSet=CAP_DAC_READ_SEARCH\n"
+    "CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_FOWNER CAP_CHOWN CAP_SYS_ADMIN CAP_SYS_PTRACE\n"
     "AmbientCapabilities=\n"
     "SystemCallArchitectures=native\n"
     "SystemCallFilter=@system-service\n"
+    "SystemCallFilter=quotactl_fd\n"
+    "SystemCallFilter=~@mount @module @raw-io @reboot @swap ptrace process_vm_readv process_vm_writev\n"
     "SystemCallErrorNumber=EPERM\n"
     "RestrictAddressFamilies=AF_UNIX\n"
 )
@@ -88,15 +91,21 @@ def service_unit(settings: dict[str, Any], service: Service, features: ReleaseFe
         # The routes directory is read by Caddy (its own user), hence 0755.
         runtime = (
             f"RuntimeDirectory={service.name}\nRuntimeDirectoryMode=0750\n"
-            f"StateDirectory={name}-routes\nStateDirectoryMode=0755\n"
+            f"StateDirectory={name}-routes {name}-quotas\nStateDirectoryMode=0755\n"
             f"Environment=HOME=/run/{service.name} DOCKER_CONFIG=/run/{service.name}/docker\n"
         )
         sandbox = _AGENT_SANDBOX
-        writable = ""
+        writable = f"ReadWritePaths={root / 'data/instances'}\n"
     else:
         identity = f"User={name}\nGroup={name}\n"
         runtime = f"Environment=HOME={root / 'data'}\n"
         sandbox = _APP_SANDBOX
+        if settings["mode"] == "hosting":
+            # Same-UID tenant processes must not expose namespace or memory
+            # handles to the less privileged portal, including bootstrap.
+            # The hosting entrypoint adds an inherited argument filter for
+            # quota setters while permitting Python's descriptor/socket ioctls.
+            sandbox += "InaccessiblePaths=/proc\n"
         writable = f"ReadWritePaths={root / 'data'}\n"
     return (
         f"{MANAGED_MARKER}\n{UNIT_GENERATION}\n[Unit]\nDescription={service.description} ({name})\n"
@@ -181,7 +190,7 @@ def examples() -> dict[str, str]:
     """The ``deploy/systemd/<mode>/*`` examples: what ``install`` writes for /opt/bananawiki."""
     from .profile import services
 
-    features = ReleaseFeatures(runtime_agent=True, hardened=True)
+    features = ReleaseFeatures(runtime_agent=True, hardened=True, hosting_entrypoint=True)
     output = {}
     for mode, port in (("wiki", 5001), ("hosting", 5099)):
         settings = {"root": "/opt/bananawiki", "service": "bananawiki", "mode": mode, "port": port}

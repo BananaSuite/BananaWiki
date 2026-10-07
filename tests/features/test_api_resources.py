@@ -80,6 +80,21 @@ def test_create_validation_and_slug_conflicts(api_app, client, world, people):
     assert call(client, "POST", "/pages", token, json={"title": "x", "slug": "admin"}).json["code"] == "slug_reserved"
 
 
+@pytest.mark.parametrize("body", [
+    {"title": "\ud800"},
+    {"title": "Surrogate", "content": "\udfff"},
+    {"title": "Surrogate", "ignored": [{"\ud800": "value"}]},
+])
+def test_invalid_unicode_json_cannot_write_pages_or_break_the_audit(api_app, client, db, people, body):
+    token = issue(api_app, people["admin"])
+    before = db.scalar("SELECT COUNT(*) FROM pages")
+    response = call(client, "POST", "/pages", token, json=body, headers={"Idempotency-Key": "invalid-json"})
+    assert response.status_code == 400
+    assert response.json["code"] == "body_not_object"
+    assert db.scalar("SELECT COUNT(*) FROM pages") == before
+    assert db.scalar("SELECT request_body FROM api_service__audit_log ORDER BY id DESC LIMIT 1") == ""
+
+
 def test_update_history_and_edit_conflict(api_app, client, world, people):
     token = issue(api_app, people["admin"])
     page = call(client, "GET", "/pages/open-page", token).json["page"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import logging
 import os
 import pkgutil
@@ -33,6 +34,7 @@ from .. import __version__
 from ..core import web
 from ..core.assets import SharedAssetsFlask
 from ..core.i18n import Catalog
+from ..core.json import SafeJSONProvider
 from ..core.ratelimit import MemoryLimiter
 from ..core.sqlite import Database, DatabaseUnavailable, is_unavailable
 from . import auth, i18n, migrations, registry, settings
@@ -78,6 +80,17 @@ class _MaintenanceGate:
 
     def __call__(self, environ: dict, start_response: Any):
         if self.path and os.path.exists(self.path) and not environ.get("PATH_INFO", "").startswith("/health"):
+            path = environ.get("PATH_INFO", "")
+            if path == "/api/v1" or path.startswith("/api/v1/"):
+                request_id = uuid.uuid4().hex
+                body = json.dumps({"ok": False, "code": "maintenance", "error": "The wiki is being updated.",
+                                   "request_id": request_id}).encode("utf-8")
+                start_response("503 Service Unavailable", [
+                    ("Content-Type", "application/json"), ("Cache-Control", "no-store"),
+                    ("X-Request-ID", request_id), ("Retry-After", "30"),
+                    ("Content-Length", str(len(body))),
+                ])
+                return [body]
             body = b"BananaWiki is being updated. Please try again in a minute.\n"
             start_response("503 Service Unavailable", [
                 ("Content-Type", "text/plain; charset=utf-8"),
@@ -170,6 +183,7 @@ def create_app(config: Config | None = None, **overrides: Any) -> Flask:
         static_folder="static",
         static_url_path="/static",
     )
+    app.json = SafeJSONProvider(app)
     app.config["BW"] = cfg
     app.config.update(
         SECRET_KEY=cfg.secret_key,
@@ -445,9 +459,26 @@ def _install_core_routes(app: Flask) -> None:
 
 
 def _install_error_handlers(app: Flask) -> None:
+    def api_failure(code: int, name: str, message: str):
+        # Framework and storage failures also obey the API's error contract.
+        # Keep this response independent of translations/settings: those may
+        # be the database read that failed in the first place.
+        g.request_id = g.get("request_id") or uuid.uuid4().hex[:16]
+        response = jsonify({"ok": False, "code": name, "error": message, "request_id": g.request_id})
+        response.status_code = code
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     @app.errorhandler(HTTPException)
     def _http_error(error: HTTPException):
         code = error.code or 500
+        if request.path == "/api/v1" or request.path.startswith("/api/v1/"):
+            name = "body_too_large" if code == 413 else "internal_error" if code >= 500 else error.name.lower().replace(" ", "_")
+            response = api_failure(code, name, error.name)
+            for header, value in error.get_headers():
+                if header.lower() not in {"content-type", "content-length"}:
+                    response.headers.add(header, value)
+            return response
         if auth.wants_json():
             return jsonify({"error": error.description or error.name}), code
         try:
@@ -468,6 +499,8 @@ def _install_error_handlers(app: Flask) -> None:
         else:
             log.exception("Unhandled error on %s %s (request %s)", request.method, request.path, g.get("request_id"))
             code, message = 500, "Something went wrong. The error has been logged."
+        if request.path == "/api/v1" or request.path.startswith("/api/v1/"):
+            return api_failure(code, "storage_unavailable" if code == 503 else "internal_error", message)
         if auth.wants_json():
             return jsonify({"error": message, "request_id": g.get("request_id")}), code
         try:

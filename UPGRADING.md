@@ -76,9 +76,9 @@ sudo bananawiki status
 ```
 
 * `source show` tells you where updates come from. BananaWiki lives at
-  `https://github.com/OverloadedTech/BananaWiki`; if your server follows
+  `https://github.com/BananaSuite/BananaWiki`; if your server follows
   another URL that no longer receives releases, change it with
-  `sudo bananawiki source set --repo https://github.com/OverloadedTech/BananaWiki.git --branch main`.
+  `sudo bananawiki source set --repo https://github.com/BananaSuite/BananaWiki.git --branch main`.
 * The **first** `update` is carried out by the 1.4 updater that is installed
   on the server: it fetches 1.6 (a fast-forward of 1.4), builds the release,
   writes the `before-update-*.tar.gz` package, switches to 1.6 and waits for

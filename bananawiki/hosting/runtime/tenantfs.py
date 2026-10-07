@@ -204,12 +204,14 @@ def remove_tree(path: Path) -> None:
 # ── Layout ────────────────────────────────────────────────────────────────────
 
 
-def create(root: Path) -> None:
+def create(root: Path, *, prepare=None) -> None:
     """Create a new tenant directory with the 1.4 layout; refuses an existing one."""
     try:
         root.mkdir(mode=0o700)
     except FileExistsError:
         raise RuntimeFailure("data_exists", root.name) from None
+    if prepare is not None:
+        prepare()
     ensure_layout(root)
 
 

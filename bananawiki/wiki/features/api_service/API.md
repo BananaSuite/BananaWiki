@@ -85,8 +85,10 @@ Successful answers have `"ok": true`. Errors always look like this:
 {"ok": false, "error": "Page not found.", "code": "page_not_found"}
 ```
 
-`code` is stable and meant for programs; `error` is translated into the
-caller's language. Some errors add fields: `field` (invalid input),
+`code` is stable and meant for programs; application errors are translated
+into the caller's language. Unexpected server/storage failures and HTTP routing
+errors use a generic message and include a `request_id`, also sent in the
+`X-Request-ID` header. Some errors add fields: `field` (invalid input),
 `scope`/`write` (`scope_missing`), `revision` (`edit_conflict`), `invalid`
 and `refused` (settings).
 
@@ -101,7 +103,8 @@ and `refused` (settings).
 | 413 | body larger than 2 MiB (or an upload over its limit) |
 | 422 | `Idempotency-Key` reused for a different request or by another token |
 | 429 | rate limit (per account, per minute; `Retry-After` in seconds) |
-| 503 | API switched off, or maintenance mode |
+| 500 | unexpected server error (`internal_error`) |
+| 503 | API switched off, maintenance mode, or temporary storage failure (`storage_unavailable`) |
 
 Endpoints of a feature that is switched off (Kanban, Canvas, Attachments)
 answer 404.
@@ -120,7 +123,14 @@ answer 404.
   same key with another request, or from another token, is 422
   (`idempotency_key_reused`); a retry while the first is still running 409.
   Server errors and 429 answers are not stored. File uploads (multipart)
-  refuse the header. Answers that carry a new secret (`POST /tokens`,
+  refuse the header. Database changes and their replay record commit
+  together; server errors or worker interruption roll back the keyed write.
+  Answers larger than 2 MiB retain only their status and refuse replay
+  without repeating the operation. Replays check the owner's current role and
+  access to returned pages, categories, canvases and boards. A newly unreadable
+  or deleted resource refuses replay with 409 `idempotency_replay_unavailable`
+  without revealing old contents or repeating the write. Page and canvas
+  replays retain their `ETag`. Answers that carry a new secret (`POST /tokens`,
   `POST /admin/webhooks`, `POST /admin/webhooks/<id>/rotate-secret`) are
   never stored: a retry of a successful one is refused with 409
   `idempotency_replay_unavailable` and the first answer's `status`, and is
@@ -132,7 +142,8 @@ answer 404.
   (`If-Match: *` accepts any version).
 
 Timestamps are ISO 8601 in UTC (`2025-01-31T09:30:00Z`). Request bodies must
-be JSON objects. Booleans are JSON `true`/`false` (`0`/`1` are accepted);
+be JSON objects with valid Unicode, finite numbers and at most 64 nested
+objects/arrays. Booleans are JSON `true`/`false` (`0`/`1` are accepted);
 strings like `"false"` are refused.
 
 ## Pages (`pages`)

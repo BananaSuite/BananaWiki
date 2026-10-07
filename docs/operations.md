@@ -112,7 +112,7 @@ reaches your server, so follow a branch you trust, or require signatures.
 
 ```sh
 sudo bananawiki source show
-sudo bananawiki source set --repo https://github.com/OverloadedTech/BananaWiki.git --branch main
+sudo bananawiki source set --repo https://github.com/BananaSuite/BananaWiki.git --branch main
 sudo bananawiki source check          # what update would deploy, without deploying
 ```
 

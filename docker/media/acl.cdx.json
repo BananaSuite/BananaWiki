@@ -1,0 +1,42 @@
+{
+  "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "version": 1,
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:deb/debian/libacl1@2.4.0-1",
+      "name": "libacl1",
+      "version": "2.4.0-1",
+      "purl": "pkg:deb/debian/libacl1@2.4.0-1",
+      "cpe": "cpe:2.3:a:acl_project:acl:2.4.0:*:*:*:*:*:*:*",
+      "licenses": [{"license": {"id": "LGPL-2.1-or-later"}}],
+      "externalReferences": [
+        {"type": "website", "url": "https://savannah.nongnu.org/projects/acl/"},
+        {"type": "advisories", "url": "https://security-tracker.debian.org/tracker/CVE-2026-54369"},
+        {"type": "distribution", "url": "https://deb.debian.org/debian/pool/main/a/acl/"}
+      ],
+      "properties": [
+        {"name": "bananawiki:source:sha256", "value": "e661131456d2708a01c614a0f400e11d7d1bfaeb6f3e74b75bb980b72f0161a3"},
+        {"name": "bananawiki:source:signing-key", "value": "259B3792B3D6D319212CC4DCD5BF9FEB0313653A"},
+        {"name": "bananawiki:publisher", "value": "Official Debian sid binary authenticated using signed package indexes; installed on compatible trixie runtime"},
+        {"name": "bananawiki:security:legacy-api", "value": "Legacy pathname APIs retain their symlink-following contract. Safe *_at/descriptor APIs and consumer-level review are required for privileged attacker-controlled paths."}
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:deb/debian/tar@1.35%2Bdfsg-6",
+      "name": "tar",
+      "version": "1.35+dfsg-6",
+      "purl": "pkg:deb/debian/tar@1.35%2Bdfsg-6",
+      "licenses": [{"license": {"id": "GPL-3.0-or-later"}}],
+      "properties": [
+        {"name": "bananawiki:compatibility", "value": "Official Debian package includes upstream namespace-collision compatibility patch for ACL 2.4.0 exports"}
+      ]
+    }
+  ],
+  "dependencies": [
+    {"ref": "pkg:deb/debian/tar@1.35%2Bdfsg-6", "dependsOn": ["pkg:deb/debian/libacl1@2.4.0-1"]}
+  ]
+}

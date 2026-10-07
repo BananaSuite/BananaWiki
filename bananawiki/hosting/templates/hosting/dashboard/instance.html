@@ -32,7 +32,11 @@
   </dl>
 </section>
 
-{% if inst.status != 'terminated' %}
+{% if inst.status in ('provisioning', 'provisioning_failed') %}
+<section class="card"><p>{{ t('hosting.instances.provisioning_notice') }}</p>
+{% if 'terminate' in permissions %}{{ ui.post(url_for('dashboard.terminate', instance_id=inst.id), t('hosting.instance.terminate'), 'btn btn--small btn--danger', confirm=t('hosting.instance.terminate_confirm')) }}{% endif %}</section>
+{% endif %}
+{% if inst.status not in ('terminated', 'provisioning', 'provisioning_failed') %}
 {% if 'analytics' in permissions or 'manage_collaborators' in permissions or (manager and domains_configured) %}
 <nav class="instance-tools" aria-label="{{ t('hosting.instance.settings') }}">
   {% if 'analytics' in permissions %}<a href="{{ url_for('dashboard.analytics', instance_id=inst.id) }}">{{ t('hosting.analytics.title') }}</a>{% endif %}
@@ -73,7 +77,7 @@
 
 {% with transfers=incoming %}{% include "hosting/_transfers.html" %}{% endwith %}
 
-{% if is_owner and inst.status != 'terminated' and not current_account.is_admin %}
+{% if is_owner and inst.status not in ('terminated', 'provisioning', 'provisioning_failed') and not current_account.is_admin %}
 <section class="card"><h2>{{ t('hosting.features.title') }}</h2>
 {% for feature, column in {'public_access': 'public_wiki_allowed', 'page_builder': 'page_builder_allowed'}.items() %}
   <div class="setting-row">

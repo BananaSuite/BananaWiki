@@ -13,6 +13,7 @@ in the browser.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from typing import Any
@@ -24,9 +25,9 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from .....core.ratelimit import SqlLimiter
 from .....core.timeutil import parse, sql_in, utcnow
 from .....core.web import client_ip
-from .... import auth, registry, settings
+from .... import auth, registry, settings, storage
 from ....db import db
-from .. import audit, idempotency, tokens
+from .. import audit, idempotency, replay, tokens
 from ..errors import MAX_JSON_BODY, ApiError
 
 bp = registry.feature_blueprint("api_service", "api_v1", __name__, url_prefix="/api/v1")
@@ -34,6 +35,7 @@ bp = registry.feature_blueprint("api_service", "api_v1", __name__, url_prefix="/
 RATE_WINDOW = 60
 RATE_BUCKET = "api_service"
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+log = logging.getLogger("bananawiki.api")
 
 
 def requires(scope: str, *, write: bool = False, feature: str | None = None) -> Callable[[Callable], Callable]:
@@ -162,20 +164,57 @@ def _idempotency(user: dict[str, Any], token: dict[str, Any]):
     except RequestEntityTooLarge:
         return ApiError(413, "body_too_large").response()
     fingerprint = idempotency.request_hash(request.method, request.path, request.query_string, body)
+    # The operation and its replay record must commit together. Otherwise a
+    # worker dying after a service commits can leave a successful mutation
+    # without a record, and the client's retry runs it a second time.
+    transaction = db.transaction()
+    transaction.__enter__()
     try:
         reservation, stored = idempotency.begin(user["id"], token["id"], key, fingerprint)
     except ApiError as error:
+        transaction.__exit__(type(error), error, error.__traceback__)
         return error.response()
+    except BaseException as error:
+        transaction.__exit__(type(error), error, error.__traceback__)
+        raise
     if stored is not None:
+        transaction.__exit__(None, None, None)
         if stored["response_body"] is None:
             return ApiError(409, "idempotency_replay_unavailable",
                             extra={"status": stored["status_code"]}).response()
-        replay = current_app.response_class(stored["response_body"] or "", status=stored["status_code"],
-                                            mimetype="application/json")
-        replay.headers[idempotency.REPLAY_HEADER] = "true"
-        return replay
+        view = current_app.view_functions.get(request.endpoint or "")
+        scope = getattr(view, "_api_scope", ("", False))[0]
+        if stored["status_code"] < 400 and not replay.allowed(stored["response_body"], scope, user):
+            return ApiError(409, "idempotency_replay_unavailable",
+                            extra={"status": stored["status_code"]}).response()
+        response = current_app.response_class(stored["response_body"] or "", status=stored["status_code"],
+                                              mimetype="application/json")
+        response.headers[idempotency.REPLAY_HEADER] = "true"
+        etag = replay.etag(stored["response_body"])
+        if etag is not None:
+            response.headers["ETag"] = etag
+        return response
     g.api_idempotency = reservation
+    g.api_idempotency_transaction = transaction
+    # Bulk page deletion also removes files. Keep them until the transaction
+    # commits so a failed response cannot restore rows pointing at lost files.
+    g._deferred_storage_deletions = []
     return None
+
+
+def _rollback_idempotent_write(error: BaseException | None = None) -> None:
+    g.pop("api_idempotency", None)
+    g.pop("_deferred_storage_deletions", None)
+    transaction = g.pop("api_idempotency_transaction", None)
+    if transaction is not None:
+        reason = error or RuntimeError("The idempotent request did not complete")
+        transaction.__exit__(type(reason), reason, reason.__traceback__)
+
+
+@bp.teardown_request
+def discard_incomplete_write(error: BaseException | None) -> None:
+    """Roll back workers interrupted before response processing completes."""
+    _rollback_idempotent_write(error)
 
 
 def request_etag() -> list[str] | None:
@@ -222,6 +261,8 @@ def authenticate():
     if not tokens.parse_grant(token["permissions"]).allows(scope[0], write=scope[1]):
         return ApiError(403, "scope_missing", extra={"scope": scope[0], "write": scope[1]},
                         scope=scope[0]).response()
+    if scope[0] in tokens.ADMIN_ONLY_SCOPES and not tokens.is_admin_role(user):
+        return ApiError(403, "admin_required").response()
     feature = getattr(view, "_api_feature", None)
     if feature and not registry.is_enabled(feature):
         return ApiError(404, "not_found").response()
@@ -236,19 +277,39 @@ def authenticate():
 @bp.after_request
 def record_call(response):
     token = g.get("api_token")
-    if token is not None and g.get("user") is not None:
-        audit.record(
-            token_id=token["id"], user=g.user, endpoint=request.path, method=request.method,
-            status=response.status_code, ip=client_ip(),
-            body=g.get("api_body") if request.method in WRITE_METHODS else None,
-            duration_ms=int((time.perf_counter() - g.get("api_started", time.perf_counter())) * 1000),
-        )
-    reservation = g.pop("api_idempotency", None)
-    if reservation is not None:
-        view = current_app.view_functions.get(request.endpoint or "")
-        secret = getattr(view, "_api_secret_response", False) and response.status_code < 400
-        idempotency.finish(reservation, response.status_code,
-                           None if secret else b"" if response.direct_passthrough else response.get_data())
+    if response.status_code >= 500 or response.status_code == 429:
+        _rollback_idempotent_write()
+    try:
+        if token is not None and g.get("user") is not None and not g.get("api_record_failed"):
+            audit.record(
+                token_id=token["id"], user=g.user, endpoint=request.path, method=request.method,
+                status=response.status_code, ip=client_ip(),
+                body=g.get("api_body") if request.method in WRITE_METHODS else None,
+                duration_ms=int((time.perf_counter() - g.get("api_started", time.perf_counter())) * 1000),
+            )
+        reservation = g.pop("api_idempotency", None)
+        if reservation is not None:
+            view = current_app.view_functions.get(request.endpoint or "")
+            secret = getattr(view, "_api_secret_response", False) and response.status_code < 400
+            idempotency.finish(reservation, response.status_code,
+                               None if secret else b"" if response.direct_passthrough else response.get_data())
+        transaction = g.pop("api_idempotency_transaction", None)
+        if transaction is not None:
+            transaction.__exit__(None, None, None)
+    except BaseException as error:
+        # Flask may run after_request again for the resulting error response.
+        # A broken audit path must not keep failing while reporting its error.
+        g.api_record_failed = True
+        _rollback_idempotent_write(error)
+        raise
+    for folder, filename in g.pop("_deferred_storage_deletions", []):
+        try:
+            storage.delete(folder, filename)
+        except OSError:
+            # The committed row no longer makes this file reachable; ordinary
+            # orphan cleanup retries it. The stored successful result remains
+            # authoritative even if disk cleanup needs another attempt.
+            log.warning("Could not remove an orphaned file after an API write")
     _rate_headers(response)
     # Interceptors written for the browser may flash messages; a bearer call has no session to keep them.
     if token is not None and session.modified:

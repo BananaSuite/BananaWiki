@@ -22,6 +22,7 @@ from bananawiki.ops import tenant_task
 from bananawiki.ops.runtime_agent import AgentError
 
 from .hosting_support import portal_environ
+from .quota_fakes import FakeProjectQuota
 
 WIKI_PASSWORD = "wiki-password-1"
 IMAGE = "bananawiki-tenant:test"
@@ -36,6 +37,7 @@ class FakeAgent:
         self.routes: list[dict[str, Any]] | None = None
         self.log_lines: list[str] = []
         self.started = 0
+        self.quota = FakeProjectQuota(self.instances_dir)
 
     def call(self, op: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         args = args or {}
@@ -60,7 +62,8 @@ class FakeAgent:
         item = self.containers.get(tenant)
         if item is None:
             return {"tenant": tenant, "running": False, "exists": False}
-        return {key: item[key] for key in ("tenant", "running", "address", "internal_port", "image", "started_at")}
+        return {key: item.get(key) for key in ("tenant", "running", "address", "internal_port", "image", "started_at",
+                                             "quota_protected", "ipv6_disabled", "storage_quota_verified", "storage_quota")}
 
     def tenant_list(self, args: dict[str, Any]) -> dict[str, Any]:
         return {"tenants": [self._status(name) for name in self.containers]}
@@ -69,6 +72,16 @@ class FakeAgent:
         self._dir(args["tenant"])
         return self._status(args["tenant"])
 
+    def tenant_quota(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._dir(args["tenant"])
+        limits = args.get("limits", {})
+        if args.get("prepare"):
+            witness = self.quota.prepare(args["tenant"], byte_limit=limits.get("storage_bytes", 0) or 10 * 1024 ** 3,
+                                         inode_limit=100_000, repair=True)
+        else:
+            witness = self.quota.verify(args["tenant"])
+        return {"tenant": args["tenant"], "storage_quota_verified": True, "storage_quota": witness.to_dict()}
+
     def tenant_start(self, args: dict[str, Any]) -> dict[str, Any]:
         self._dir(args["tenant"])
         self.started += 1
@@ -76,6 +89,8 @@ class FakeAgent:
             "tenant": args["tenant"], "running": True, "address": f"172.30.0.{self.started}",
             "internal_port": args.get("internal_port", 5001), "image": IMAGE,
             "started_at": f"2026-01-01T00:00:{self.started:02d}.000000000Z", "args": args,
+            "quota_protected": True, "ipv6_disabled": True, "storage_quota_verified": True,
+            "storage_quota": self.quota.verify(args["tenant"]).to_dict(),
         }
         return self._status(args["tenant"])
 

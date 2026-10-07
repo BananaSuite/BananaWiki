@@ -9,7 +9,8 @@ import re
 
 import pytest
 
-from bananawiki.wiki.features.api_service import idempotency, openapi
+from bananawiki.core.sqlite import DatabaseUnavailable
+from bananawiki.wiki.features.api_service import audit, idempotency, openapi, serialize
 
 from .api_support import call, enable_api, issue
 from .pages_support import in_app, make_category, make_page, restrict, set_feature
@@ -28,6 +29,21 @@ def people(make_user):
         "editor": make_user("editor1", role="editor", api_access_enabled=1),
         "reader": make_user("reader1", api_access_enabled=1),
     }
+
+
+def test_operator_maintenance_preserves_the_api_error_contract(app_factory, tmp_path):
+    marker = tmp_path / "maintenance"
+    marker.write_text("1")
+    app = app_factory(environ={"BW_MAINTENANCE_FILE": str(marker)})
+    client = app.test_client()
+    response = client.post("/api/v1/pages", json={"title": "Wait"})
+    assert response.status_code == 503 and response.json["ok"] is False
+    assert response.json["code"] == "maintenance"
+    assert response.json["request_id"] == response.headers["X-Request-ID"]
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Retry-After"] == "30"
+    assert client.get("/health").status_code == 200
+    assert client.get("/login").status_code == 503
 
 
 # ── Rate limit headers ────────────────────────────────────────────────────────
@@ -56,6 +72,7 @@ def test_idempotent_post_is_replayed_not_repeated(api_app, client, db, people):
     assert first.status_code == 201 and "Idempotent-Replayed" not in first.headers
     again = call(client, "POST", "/pages", token, json=body, headers={"Idempotency-Key": "abc-123"})
     assert again.status_code == 201 and again.headers["Idempotent-Replayed"] == "true"
+    assert again.headers["ETag"] == first.headers["ETag"]
     assert again.json == first.json
     assert db.scalar("SELECT COUNT(*) FROM pages WHERE slug = 'once'") == 1
     # The key is bound to the token that used it: another token of the account gets no replay.
@@ -117,6 +134,214 @@ def test_idempotency_never_stores_secrets(api_app, client, db, people):
     assert call(client, "POST", "/tokens", token, json=refused, headers={"Idempotency-Key": "mint-2"}).status_code == 403
     again = call(client, "POST", "/tokens", token, json=refused, headers={"Idempotency-Key": "mint-2"})
     assert again.status_code == 403 and again.headers["Idempotent-Replayed"] == "true"
+
+
+def test_idempotent_page_replay_applies_current_category_access(api_app, client, db, people):
+    category = make_category(api_app, "Restricted later")
+    user = people["admin"]
+    token = issue(api_app, user)
+    body = {"title": "Previously readable", "content": "private text", "category_id": category["id"]}
+    headers = {"Idempotency-Key": "page-access"}
+    first = call(client, "POST", "/pages", token, json=body, headers=dict(headers))
+    assert first.status_code == 201
+    db.execute("UPDATE users SET role = 'editor', api_access_enabled = 1 WHERE id = ?", (user["id"],))
+    restrict(db, user, read=[], write=[])
+    assert call(client, "GET", "/pages/previously-readable", token).status_code == 404
+    retry = call(client, "POST", "/pages", token, json=body, headers=dict(headers))
+    assert retry.status_code == 409 and retry.json["code"] == "idempotency_replay_unavailable"
+    assert b"private text" not in retry.data
+    assert db.scalar("SELECT COUNT(*) FROM pages WHERE title = 'Previously readable'") == 1
+
+
+@pytest.mark.parametrize("kind", ["canvas", "kanban"])
+def test_idempotent_replay_applies_current_private_resource_ownership(api_app, client, db, people, kind):
+    set_feature(api_app, kind, True)
+    user = people["admin"]
+    token = issue(api_app, user, [kind])
+    body = {"title": "Private resource"}
+    headers = {"Idempotency-Key": "private-resource"}
+    path = "/canvas" if kind == "canvas" else "/kanban/boards"
+    first = call(client, "POST", path, token, json=body, headers=dict(headers))
+    assert first.status_code == 201
+    db.execute("UPDATE users SET role = 'editor', api_access_enabled = 1 WHERE id = ?", (user["id"],))
+    if kind == "canvas":
+        resource = first.json["canvas"]
+        db.execute("UPDATE canvas__layouts SET creator_id = ?, visibility = 'private' WHERE id = ?",
+                   (people["editor"]["id"], resource["id"]))
+    else:
+        resource = first.json["board"]
+        db.execute("UPDATE kanban_boards SET created_by = ?, visibility = 'private' WHERE id = ?",
+                   (people["editor"]["id"], resource["id"]))
+    retry = call(client, "POST", path, token, json=body, headers=dict(headers))
+    assert retry.status_code == 409 and retry.json["code"] == "idempotency_replay_unavailable"
+    assert b"Private resource" not in retry.data
+
+
+def test_administrator_response_replay_rejects_a_demoted_account(api_app, client, db, people):
+    user = people["admin"]
+    token = issue(api_app, user, ["users"])
+    body = {"username": "created_member", "password": "long enough password"}
+    headers = {"Idempotency-Key": "administrator-response"}
+    assert call(client, "POST", "/users", token, json=body, headers=dict(headers)).status_code == 201
+    db.execute("UPDATE users SET role = 'editor', api_access_enabled = 1 WHERE id = ?", (user["id"],))
+    retry = call(client, "POST", "/users", token, json=body, headers=dict(headers))
+    assert retry.status_code == 403 and retry.json["code"] == "admin_required"
+    assert db.scalar("SELECT COUNT(*) FROM users WHERE username = 'created_member'") == 1
+
+
+def test_idempotent_category_replay_applies_current_access(api_app, client, db, people):
+    user = people["admin"]
+    token = issue(api_app, user, ["categories"])
+    body = {"name": "Private category"}
+    headers = {"Idempotency-Key": "category-access"}
+    first = call(client, "POST", "/categories", token, json=body, headers=dict(headers))
+    assert first.status_code == 201
+    db.execute("UPDATE users SET role = 'editor', api_access_enabled = 1 WHERE id = ?", (user["id"],))
+    restrict(db, user, read=[], write=[])
+    retry = call(client, "POST", "/categories", token, json=body, headers=dict(headers))
+    assert retry.status_code == 409 and retry.json["code"] == "idempotency_replay_unavailable"
+    assert b"Private category" not in retry.data
+
+
+@pytest.mark.parametrize("kind", ["column", "ticket", "comment", "checklist"])
+def test_idempotent_kanban_child_response_applies_current_board_access(api_app, client, db, people, kind):
+    set_feature(api_app, "kanban", True)
+    user = people["admin"]
+    token = issue(api_app, user, ["kanban"])
+    board = call(client, "POST", "/kanban/boards", token, json={"title": "Restricted board"}).json["board"]
+    path = f"/kanban/boards/{board['id']}/columns"
+    body = {"title": "Private child content"}
+    if kind != "column":
+        column = call(client, "POST", path, token, json={"title": "Column"}).json["column"]
+        path = f"/kanban/columns/{column['id']}/tickets"
+    if kind in ("comment", "checklist"):
+        ticket = call(client, "POST", path, token, json={"title": "Ticket"}).json["ticket"]
+        path = f"/kanban/tickets/{ticket['id']}/{'comments' if kind == 'comment' else 'checklist'}"
+        body = {"content" if kind == "comment" else "text": "Private child content"}
+    headers = {"Idempotency-Key": "child-access"}
+    first = call(client, "POST", path, token, json=body, headers=dict(headers))
+    assert first.status_code == 201
+    db.execute("UPDATE users SET role = 'editor', api_access_enabled = 1 WHERE id = ?", (user["id"],))
+    db.execute("UPDATE kanban_boards SET created_by = ?, visibility = 'private' WHERE id = ?",
+               (people["editor"]["id"], board["id"]))
+    retry = call(client, "POST", path, token, json=body, headers=dict(headers))
+    assert retry.status_code == 409 and retry.json["code"] == "idempotency_replay_unavailable"
+    assert b"Private child content" not in retry.data
+
+
+def test_idempotency_keeps_success_when_the_answer_exceeds_the_storage_budget(api_app, client, db, people,
+                                                                           monkeypatch):
+    monkeypatch.setattr(idempotency, "MAX_STORED_BODY", 32)
+    token = issue(api_app, people["admin"])
+    body = {"title": "Large answer", "content": "A response larger than the replay budget."}
+    first = call(client, "POST", "/pages", token, json=body, headers={"Idempotency-Key": "large-answer"})
+    assert first.status_code == 201
+    stored = db.one("SELECT status_code, response_body FROM api_service__idempotency "
+                    "WHERE idempotency_key = 'large-answer'")
+    assert stored == {"status_code": 201, "response_body": None}
+    replay = call(client, "POST", "/pages", token, json=body, headers={"Idempotency-Key": "large-answer"})
+    assert replay.status_code == 409 and replay.json["code"] == "idempotency_replay_unavailable"
+    assert replay.json["status"] == 201
+    assert db.scalar("SELECT COUNT(*) FROM pages WHERE title = 'Large answer'") == 1
+
+
+@pytest.mark.parametrize("component, method", [(audit, "record"), (idempotency, "finish"),
+                                                (serialize, "page_full")])
+def test_idempotent_write_and_response_record_are_atomic(api_app, client, db, people, monkeypatch,
+                                                        component, method):
+    """A failure after a service writes must leave no mutation for a retry to repeat."""
+    original = getattr(component, method)
+    attempts = 0
+
+    def fail_once(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("response recording failed")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(component, method, fail_once)
+    monkeypatch.setitem(api_app.config, "PROPAGATE_EXCEPTIONS", False)
+    token = issue(api_app, people["admin"])
+    body = {"title": "Atomic create"}
+    first = call(client, "POST", "/pages", token, json=body, headers={"Idempotency-Key": "atomic-create"})
+    assert first.status_code == 500
+    assert first.json["ok"] is False and first.json["code"] == "internal_error"
+    assert first.json["request_id"] == first.headers["X-Request-ID"]
+    assert db.scalar("SELECT COUNT(*) FROM pages WHERE title = 'Atomic create'") == 0
+    assert db.scalar("SELECT COUNT(*) FROM api_service__idempotency WHERE idempotency_key = 'atomic-create'") == 0
+    retry = call(client, "POST", "/pages", token, json=body, headers={"Idempotency-Key": "atomic-create"})
+    assert retry.status_code == 201
+    assert db.scalar("SELECT COUNT(*) FROM pages WHERE title = 'Atomic create'") == 1
+
+
+def test_interrupted_idempotent_write_is_rolled_back_at_teardown(api_app, client, db, people, monkeypatch):
+    def interrupted(_page):
+        raise SystemExit("worker interrupted")
+
+    monkeypatch.setattr(serialize, "page_full", interrupted)
+    token = issue(api_app, people["admin"])
+    with pytest.raises(SystemExit):
+        call(client, "POST", "/pages", token, json={"title": "Interrupted"},
+             headers={"Idempotency-Key": "interrupted"})
+    assert db.scalar("SELECT COUNT(*) FROM pages WHERE title = 'Interrupted'") == 0
+    assert db.scalar("SELECT COUNT(*) FROM api_service__idempotency WHERE idempotency_key = 'interrupted'") == 0
+
+
+def test_api_storage_failure_has_a_stable_error_without_reading_translations(api_app, client, monkeypatch):
+    from bananawiki.wiki import settings
+
+    monkeypatch.setattr(settings, "load", lambda: (_ for _ in ()).throw(DatabaseUnavailable("private-storage-path")))
+    response = call(client, "GET", "/pages", "unverified-token")
+    assert response.status_code == 503
+    assert response.json["ok"] is False and response.json["code"] == "storage_unavailable"
+    assert response.json["request_id"] == response.headers["X-Request-ID"]
+    assert "private-storage-path" not in response.get_data(as_text=True)
+    assert response.cache_control.no_store
+
+
+@pytest.mark.parametrize("method, path, status, code", [("GET", "/unknown", 404, "not_found"),
+                                                        ("DELETE", "/status", 405, "method_not_allowed")])
+def test_framework_api_errors_use_the_same_error_shape(api_app, client, method, path, status, code):
+    response = call(client, method, path)
+    assert response.status_code == status
+    assert response.json["ok"] is False and response.json["code"] == code
+    assert response.json["request_id"] == response.headers["X-Request-ID"]
+    assert response.cache_control.no_store
+    if status == 405:
+        assert "GET" in response.headers["Allow"]
+
+
+def test_idempotent_delete_preserves_attachment_files_until_commit(api_app, client, db, people, monkeypatch):
+    from bananawiki.wiki import storage
+
+    page = make_page(api_app, "Atomic delete")
+    token = issue(api_app, people["admin"])
+    attachment = upload(client, token, page["slug"]).json["attachment"]
+    filename = db.scalar("SELECT filename FROM page_attachments WHERE id = ?", (attachment["id"],))
+    path = in_app(api_app, lambda: storage.resolve("attachments", filename))
+    original = idempotency.finish
+    attempts = 0
+
+    def fail_once(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("response recording failed")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(idempotency, "finish", fail_once)
+    monkeypatch.setitem(api_app.config, "PROPAGATE_EXCEPTIONS", False)
+    body = {"slugs": [page["slug"]]}
+    headers = {"Idempotency-Key": "atomic-delete"}
+    first = call(client, "POST", "/pages/bulk-delete", token, json=body, headers=dict(headers))
+    assert first.status_code == 500
+    assert db.scalar("SELECT COUNT(*) FROM pages WHERE id = ?", (page["id"],)) == 1
+    assert db.scalar("SELECT COUNT(*) FROM page_attachments WHERE id = ?", (attachment["id"],)) == 1
+    assert path.read_bytes() == b"data"
+    retry = call(client, "POST", "/pages/bulk-delete", token, json=body, headers=dict(headers))
+    assert retry.status_code == 200 and retry.json["deleted"] == 1
+    assert not path.exists()
 
 
 def test_idempotency_rows_without_a_token_are_dropped_by_the_upgrade(api_app, db, people):

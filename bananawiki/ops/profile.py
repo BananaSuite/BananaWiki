@@ -39,11 +39,13 @@ class ReleaseFeatures:
 
     runtime_agent: bool = False
     hardened: bool = False
+    hosting_entrypoint: bool = False
 
     @classmethod
     def of(cls, release: Path) -> ReleaseFeatures:
         ours = (release / "bananawiki" / "ops" / "runtime_agent.py").is_file()
-        return cls(runtime_agent=ours, hardened=ours)
+        return cls(runtime_agent=ours, hardened=ours,
+                   hosting_entrypoint=(release / "bananawiki" / "ops" / "hosting_entrypoint.py").is_file())
 
 
 @dataclass(frozen=True)
@@ -228,6 +230,10 @@ def environment(settings: dict[str, Any], previous: dict[str, str] | None = None
             "HOSTING_EXPORT_TEMP_DIR": str(data / "exports"), "HOSTING_BOOTSTRAP_TOKEN": secrets.token_hex(32),
             "BASE_DOMAIN": domain, "PORTAL_DOMAIN": settings.get("portal_domain", ""),
             "INSTANCE_URL_SUFFIX": "hosting", "HOSTING_INSTANCE_RUNTIME": "docker",
+            "HOSTING_AGENT_MAX_STORAGE_BYTES": str(10 * 1024 ** 3),
+            "HOSTING_AGENT_MAX_INODES": "100000",
+            "HOSTING_AGENT_STORAGE_RESERVE_BYTES": str(256 * 1024 ** 2),
+            "HOSTING_AGENT_PROJECT_ID_START": "1000000",
             "BW_SOURCE_URL": source_link(settings["source_url"]),
             # Portal helpers import the wiki configuration too; keep its files out of the release tree.
             **wiki_paths(data / "wiki-runtime"),
@@ -269,6 +275,9 @@ def services(settings: dict[str, Any], features: ReleaseFeatures | None = None) 
         Service(name + "-maintenance", [python, "-m", "hosting.maintenance", "--interval", "300"],
                 "BananaWiki hosting maintenance", after=after),
     ]
+    if features is not None and features.hardened and features.hosting_entrypoint:
+        for service, mode in zip(output[-2:], ("portal", "maintenance"), strict=True):
+            service.command[:] = [python, "-E", "-s", "-m", "bananawiki.ops.hosting_entrypoint", mode]
     return output
 
 
