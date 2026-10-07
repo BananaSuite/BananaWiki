@@ -21,7 +21,7 @@ from typing import Any
 
 from . import DEFAULT_ROOT, PRODUCT, caddy, caddy_blocks, profile
 from .files import atomic_write, digest_file, maintenance_lock, read_environment, read_json, write_json
-from .manager import PROXY_ROLLBACK, Manager
+from .manager import PROXY_ROLLBACK, Manager, tenant_names
 
 APP_COMMANDS = ("create-admin", "reset-password", "db", "jobs", "config", "setup-token", "hosting-admin")
 FAILED_OUTCOMES = {"failed", "paused", "rolled_back"}
@@ -83,8 +83,12 @@ def parser() -> argparse.ArgumentParser:
     restore.add_argument("--port", type=int)
     rollback = commands.add_parser("rollback", help="Restore the package saved before the last successful update")
     rollback.add_argument("--package", type=Path)
-    for name in ("status", "start", "stop", "restart", "recover"):
+    for name in ("status", "start", "stop", "restart"):
         commands.add_parser(name)
+    recover = commands.add_parser("recover", help="Finish an interrupted operation: put its recorded state back")
+    recover.add_argument("--abandon", action="store_true",
+                         help="Drop an interrupted operation that recover cannot finish, putting nothing back; "
+                              "maintenance mode stays on until start")
     updates = commands.add_parser("updates", help="Opt into or out of automatic source updates")
     updates.add_argument("action", choices=("status", "enable", "disable"))
     updates.add_argument("--interval", type=int, help="Check interval in minutes (5 to 10080)")
@@ -237,18 +241,32 @@ def configure_proxy(manager: Manager, args: argparse.Namespace) -> dict[str, Any
 
 
 def lifecycle(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | None:
-    """Start, stop, restart or recover the remembered set of services (restart also converges units)."""
+    """Start, stop, restart or recover the remembered set of services (restart also converges units).
+
+    ``start`` and ``restart`` wait for the wikis that served before. Only
+    ``restart``, which may rewrite units and the Caddyfile, fails when one of
+    them does not serve again; ``start`` reports it and leaves maintenance.
+    """
     with maintenance_lock(manager.root):
         recovered = manager.recover()
+        recovery = manager.last_event if recovered else {}
         settings = manager.settings()
         services = manager.services(settings)
         names = [service.name for service in services]
-        containers = manager.system.containers(settings)
+        if args.command == "restart":
+            manager.system.check_docker(settings)  # before anything is stopped
         if args.command in {"stop", "restart"}:
             manager.system.stop(names)
+        # Listed once the maintenance service is stopped: until then it can stop or remove wikis. recover needs
+        # no list: it may have brought the platform back without Docker (nothing to put back, no wiki stopped).
+        containers = manager.system.containers(settings) if args.command != "recover" else []
+        serving = manager.system.serving_tenants(containers) if args.command in {"start", "restart"} else []
+        if args.command in {"stop", "restart"}:
             manager.system.stop_containers(containers)
         undo: dict[str, Any] = {}
         details: dict[str, Any] = {}
+        if args.command == "recover":
+            details = {key: recovery[key] for key in ("data_restored", "unready_tenants") if key in recovery}
         try:
             if args.command == "restart":
                 manager.write_runtime(settings)
@@ -256,10 +274,14 @@ def lifecycle(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | No
                 details = manager.refresh_proxy(settings, undo)
             if args.command in {"start", "restart"}:
                 manager.system.start(names)
-                if not manager.system.healthy(settings, services, containers):
+                readiness = manager.system.readiness(settings, services, serving)
+                if readiness.platform or (readiness.tenants and args.command == "restart"):
                     raise RuntimeError("The service failed readiness checks. Inspect its journal before allowing "
                                        "traffic.")
+                manager.tenant_maintenance(settings, False)
                 (manager.root / "data/.banana-maintenance").unlink(missing_ok=True)
+                if readiness.tenants:
+                    details["unready_tenants"] = tenant_names(readiness.tenants)
         except BaseException:
             manager.restore_proxy(undo)
             raise
@@ -315,7 +337,10 @@ def dispatch(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | Non
         return manager.update(automatic=args.automatic, allow_divergent=args.allow_divergent,
                               retry_failed=args.retry_failed)
     if command in {"backup", "migrate"}:
-        return {"package": str(manager.backup(args.output)), "contains_secrets": True}
+        package = manager.backup(args.output)
+        unready = manager.last_event.get("unready_tenants")
+        return {"package": str(package), "contains_secrets": True,
+                **({"unready_tenants": unready} if unready else {})}
     if command == "backups":
         return backups(manager, args)
     if command == "restore":
@@ -351,6 +376,9 @@ def dispatch(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | Non
                     manager.settings()["revision"])
             return {"revision": revision, "selected_branch": branch, "fast_forward": forward, "deployed": False}
         return manager.source()
+    if command == "recover" and args.abandon:
+        with maintenance_lock(manager.root):
+            return manager.abandon()
     if command in {"start", "stop", "restart", "recover"}:
         return lifecycle(manager, args)
     if command == "proxy":

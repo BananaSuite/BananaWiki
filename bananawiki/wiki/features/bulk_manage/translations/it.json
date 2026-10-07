@@ -9,6 +9,7 @@
   "bulk_manage.done.boards": "{count} bacheche eliminate.",
   "bulk_manage.done.canvases": "{count} lavagne eliminate.",
   "bulk_manage.done.categories": "{count} categorie eliminate.",
+  "bulk_manage.done.categories_skipped": "{count} categorie eliminate, {skipped} saltate perché alcune delle loro pagine non possono essere eliminate.",
   "bulk_manage.done.pages": "{count} pagine eliminate, {handled} gestite dalle regole delle pagine (protette o programmate per l'eliminazione), {skipped} saltate.",
   "bulk_manage.empty": "Niente da mostrare.",
   "bulk_manage.feature.description": "Elimina più elementi insieme.",

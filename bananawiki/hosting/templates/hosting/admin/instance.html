@@ -15,7 +15,7 @@
   <dt>{{ t('hosting.instance.storage') }}</dt><dd>{{ inst.storage_mb }} MB / {{ inst.storage_limit_effective_mb or '∞' }} MB</dd>
   <dt>{{ t('hosting.instance.health') }}</dt><dd>{{ t('hosting.health.' ~ inst.health, inst.health) }}</dd>
   <dt>{{ t('hosting.instance.use_case') }}</dt><dd>{{ inst.declared_use_case or '—' }}</dd>
-  {% if inst.status == 'terminated' %}<dt>{{ t('hosting.instance.retained_until') }}</dt><dd>{{ inst.data_retained_until|datetime if inst.data_retained_until else '—' }}</dd>{% endif %}
+  {% if inst.status == 'terminated' %}<dt>{{ t('hosting.instance.retained_until') }}</dt><dd>{{ inst.data_retained_until|datetime if inst.data_retained_until else '—' }}{% if inst.grace_period_suspended %} ({{ t('hosting.instance.retention_paused') }}){% endif %}</dd>{% endif %}
 </dl></section>
 
 {% if inst.status == 'terminated' %}
@@ -28,7 +28,9 @@
   {{ ui.post(url_for('admin.grace_unsuspend' if inst.grace_period_suspended else 'admin.grace_suspend', instance_id=inst.id), t('hosting.admin.grace_unsuspend') if inst.grace_period_suspended else t('hosting.admin.grace_suspend')) }}
   {% endif %}
   {{ ui.post(url_for('admin.delete_terminated', instance_id=inst.id), t('hosting.admin.delete_permanently'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}
-</div></section>
+</div>
+{% if inst.grace_active %}<p class="small muted">{{ t('hosting.admin.grace_paused_note') if inst.grace_period_suspended else t('hosting.admin.grace_pause_hint') }}</p>{% endif %}
+</section>
 {% elif inst.status in ('provisioning', 'provisioning_failed') %}
 <section class="card"><p>{{ t('hosting.instances.provisioning_notice') }}</p>
 {{ ui.post(url_for('admin.terminate_instance', instance_id=inst.id), t('hosting.instance.terminate'), 'btn btn--small btn--danger', confirm=t('hosting.instance.terminate_confirm')) }}</section>

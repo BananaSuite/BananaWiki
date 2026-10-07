@@ -69,8 +69,25 @@ Permissions say *what* someone may do; category access says *where*.
 * Where a category is hidden but a subcategory is readable, the readable
   subcategory moves up in the navigation.
 
-Set it per account on **Admin → Users → (account) → Editor access** (for
-editors) and **Permissions**, or for a whole group with a custom role.
+Set category access per account on **Admin → Users → (account) → Editor
+access** (for editors) and **Permissions**, or for a whole group with a
+custom role.
+
+Two permissions sit on top of read access:
+
+* `page.view_all` is needed to read pages at all. Without it a user or
+  editor reads no page anywhere (pages, navigation, search, previews,
+  history, exports, API, pages received through federation).
+* `category.view_all` is needed to see categories where they are listed:
+  the navigation, subcategory lists, category search results and
+  `GET /categories` of the API. Without it these show no categories (pages
+  without a category stay in the navigation); a readable category still
+  opens from a link or a page's breadcrumbs. Category choices in forms
+  (page settings, page builder blocks) are not listings: they still offer
+  the categories the user may write to or read.
+
+Administrators always hold both; anonymous visitors in public mode need
+neither. Both are in the defaults of users and editors.
 
 ## Custom roles
 
@@ -128,7 +145,7 @@ permission is only granted while that feature is on.
 
 | Key | What it allows | Editor default | User default | Feature | Assignable to |
 |---|---|---|---|---|---|
-| `category.view_all` | See every readable category | yes | yes | — | users and editors |
+| `category.view_all` | See readable categories in the navigation, lists and search | yes | yes | — | users and editors |
 | `category.create` | Create categories | yes | no | — | editors |
 | `category.edit` | Rename and edit categories | yes | no | — | editors |
 | `category.delete` | Delete categories | yes | no | — | editors |

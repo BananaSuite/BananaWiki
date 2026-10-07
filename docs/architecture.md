@@ -51,8 +51,9 @@ and fill template slots, so features do not import each other's internals
 except the shared services (pages, categories, accounts, auth, settings,
 storage, markdown). The schema is versioned (`PRAGMA user_version`): 1.4
 databases are version 3, version 4 is the 1.6 takeover migration plus
-each feature's `schema.py`, and version 5 adds the durable chat upload usage
-ledger. Later changes use numbered migrations so already upgraded databases
+each feature's `schema.py`, version 5 adds the durable chat upload usage
+ledger and version 6 records who imposed a suspension. Later changes use
+numbered migrations so already upgraded databases
 receive them too.
 
 ## Why things are the way they are

@@ -14,7 +14,7 @@ def make_db(path):
 def build_v3(path):
     """A database exactly as 1.4 left it (schema version 3)."""
     conn = sqlite3.connect(path)
-    sql = (migrations._BASELINE_SQL).read_text()
+    sql = (migrations._BASELINE_SQL).read_text(encoding="utf-8")
     conn.executescript(sql)
     conn.execute("INSERT INTO site_settings (id, setup_done) VALUES (1, 1)")
     conn.execute("INSERT INTO users (id, username, password, role) VALUES ('u1', 'alice', 'x', 'owner')")
@@ -48,6 +48,22 @@ def test_v3_database_is_taken_over(tmp_path):
     assert conn.execute("SELECT expires_at FROM user_sessions").fetchone()["expires_at"] == "2099-01-01 00:00:00"
     if conn.execute("SELECT 1 FROM sqlite_master WHERE name='pages_fts'").fetchone():
         assert conn.execute("SELECT COUNT(*) AS n FROM pages_fts WHERE pages_fts MATCH 'hello'").fetchone()["n"] == 1
+
+
+def test_earlier_suspensions_count_as_imposed_by_an_owner(tmp_path):
+    path = tmp_path / "wiki.db"
+    build_v3(path)
+    conn = sqlite3.connect(path)
+    conn.execute("INSERT INTO suspension_audit (user_id, action, performed_by, created_at) "
+                 "VALUES ('u1', 'suspend', 'u1', '2026-01-01 00:00:00')")
+    conn.commit()
+    conn.close()
+    db = make_db(path)
+    db.initialize()
+    conn = db.connect()
+    assert conn.execute("SELECT imposed_by_top FROM suspension_audit").fetchone()["imposed_by_top"] == 1
+    migrations.v6_account_history.upgrade(conn)
+    assert conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'idx_username_history_old'").fetchone()
 
 
 def test_fresh_and_upgraded_schemas_match(tmp_path):

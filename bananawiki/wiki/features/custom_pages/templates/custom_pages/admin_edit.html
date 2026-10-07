@@ -34,7 +34,7 @@
       <p class="hint" data-cp-type-help>{{ t('custom_pages.type_help.' ~ (form.content_type or 'wiki_page')) }}</p>
     </div>
   </div>
-  {{ forms.checkbox('is_published', t('custom_pages.field.published'), checked=form.is_published, hint=t('custom_pages.hint.published')) }}
+  {{ forms.checkbox('is_published', t('custom_pages.field.published'), checked=form.is_published, hint=t('custom_pages.hint.published') if public_allowed else t('custom_pages.hint.published_members')) }}
 
   <fieldset data-cp-section="meta">
     <legend>{{ t('custom_pages.section.meta') }}</legend>
@@ -51,6 +51,7 @@
     {% else %}
     <p class="hint">{{ t('custom_pages.hint.builder_off') }}</p>
     {% endif %}
+    {% if public_allowed and not public_builder_allowed %}<p class="hint">{{ t('custom_pages.hint.builder_members') }}</p>{% endif %}
   </fieldset>
 
   <fieldset data-cp-section="content">

@@ -16,7 +16,7 @@ from typing import Any
 from flask import abort, redirect, render_template, request, session, url_for
 
 from ....core.ratelimit import SqlLimiter
-from ....core.web import client_ip, safe_next
+from ....core.web import allow_form_action, client_ip, safe_next
 from ... import accounts, auth, settings
 from ...db import db
 from ...i18n import t
@@ -194,6 +194,9 @@ def platform_oauth_link_account():
     if auth.is_impersonating():
         abort(403)
     link = oauth.link_of(user["id"])
+    if link is None:
+        # The link form below is answered with a redirect to the portal.
+        allow_form_action(oauth.config()["authorize_url"])
     if request.method == "GET":
         return render_template("auth/oauth_link.html", link=link)
     if link is not None:

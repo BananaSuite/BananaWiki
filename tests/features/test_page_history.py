@@ -37,6 +37,20 @@ def test_history_list_and_entry_views(app, admin_client, admin):
     assert admin_client.get(f"/page/story/history/{newest}?against={oldest}&view=source").status_code == 200
 
 
+def test_diff_of_repetitive_versions_is_bounded_and_says_so(app, admin_client, admin):
+    """R-04: the same line repeated made each diff view quadratic (hours of CPU for large pages)."""
+    page = make_page(app, "Lines", "a\n" * 20_000, author_id=admin["id"])
+    in_app(app, lambda: service.update(service.get(page["id"]), author_id=admin["id"],
+                                       content="b\n" + "a\n" * 19_998 + "c\n"))
+    newest = _history(app, page["id"])[0]["id"]
+    for view in ("source_diff", "diff"):
+        response = admin_client.get(f"/page/lines/history/{newest}?view={view}")
+        assert response.status_code == 200
+        assert "too different to compare in detail" in response.get_data(as_text=True)
+    ordinary = admin_client.get(f"/page/lines/history/{newest}?view=source").get_data(as_text=True)
+    assert "too different to compare in detail" not in ordinary
+
+
 def test_entry_of_other_page_is_404(app, admin_client, admin):
     _two_versions(app, admin)
     other = make_page(app, "Other")

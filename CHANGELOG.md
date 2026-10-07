@@ -15,7 +15,14 @@
 * New hosting reservations remain pending until provisioning completes.
   Recovery and start refuse unfinished or failed wikis, and interrupted
   provisioning can be cancelled safely without releasing a live reservation.
-
+* Hosting requires Linux x86_64: on other architectures the portal and
+  maintenance service refuse to start and the runtime agent launches no wiki.
+* REST API: JSON bodies and uploaded JSON files with non-finite numbers,
+  unpaired surrogates or more than 64 nesting levels are refused;
+  `Idempotency-Key` replays re-check current access and answer 409
+  `idempotency_replay_unavailable` when a returned resource became
+  unreadable or the answer exceeded 2 MiB; keyed writes commit with their
+  replay record; server, storage and routing errors carry a `request_id`.
 * Page editor actions and insertion dialogs share small template macros.
   Formatting and insertion tools use a clear separator and consistent spacing.
 * Hosting textareas share label, help-text and value rendering; transfer
@@ -55,6 +62,40 @@
   unless an operator separately installs `langdetect`.
 * Container images use Debian 13, apply available system security updates
   during the build, and omit Python package installers from the runtime image.
+* `page.view_all` now controls reading and `category.view_all` category
+  listings (navigation, lists, search, `GET /api/v1/categories`). Schema 6
+  grants both once to every saved permission set and custom role, so nothing
+  changes on upgrade; sets saved afterwards are enforced as saved.
+* Deleting a category with its pages (web, API, bulk) is all or nothing and
+  follows each page's rules: hidden, forbidden, protected, checked-out or
+  scheduled pages refuse it before anything changes, and deletion slowdown
+  applies. The API's `page_action=delete` also needs the `pages` write scope
+  and answers 202, 403 or 409.
+* Renaming or deleting an account no longer edits pages or drafts.
+  `/users/<former name>` leads to the account, former names stay reserved for
+  it, and members rename themselves at most 3 times a day.
+* A suspended administrator lifts their own suspension only when it was not
+  imposed by an owner or superuser (schema 6 records it; older suspensions
+  count as imposed). Lock-mode merges demote, lock and clear the overrides of
+  the source; merges recheck everything in their transaction and cannot remove
+  the last active administrator.
+* Contribution approvals apply the version the reviewer saw: a proposal or
+  page changed meanwhile is refused instead of overwritten.
+* Hosting: "Pause deletion countdown" really pauses the purge and adds the
+  paused time to the retention; 1.4 wikis whose download was blocked stay
+  paused until an administrator resumes them. Deleted accounts become
+  `~deleted-<id>`.
+* Hosting updates rebuild the tenant image on a freshly pulled base with
+  current Debian and Python packages (`BW_REFRESH`), falling back to the
+  cached base with `image_warnings` when the pull fails, or when the build
+  fails on the new base (its ACL stage pins two exact Debian unstable
+  versions); only a build that also fails on the previous base, such as in a
+  Debian mirror or PyPI outage, records the commit as failed until
+  `update --retry-failed`. An unhealthy wiki is reported in
+  `unready_tenants` instead of keeping the platform in maintenance or rolling
+  back the update; `recover --abandon` drops an operation that cannot finish.
+* API token expiries are at most 10 years ahead. Profile pictures are limited
+  to 4 megapixels and profile/background uploads to 10 per 10 minutes.
 
 ### Fixed
 
@@ -114,6 +155,20 @@
   rewrite (light theme in the portal, misaligned cards, broken phone top
   bar, unstyled inputs, code highlighting, menus running off screen), and a
   plainer look closer to 1.4.
+* Platform sign-in and account linking work in Chromium and Edge: the consent
+  and linking pages allow the validated redirect origin in `form-action`.
+* Far dates (an API token expiring in 9999, for example) no longer make the API
+  administration and token pages fail; they are shown in UTC.
+* Hosting: a failed or cancelled create, duplicate or import leaves alone a
+  data folder that already existed under its name, and any folder when the
+  portal never handed it to the runtime agent (the one exception, a portal
+  worker killed outright while the agent works on the creation, is described
+  in docs/hosting.md); terminating moves the data before releasing the name.
+  Recovery, purges, expiry and account deletion continue past a failing wiki
+  or account. A user name cannot block another account's deletion.
+* Hosting: containers are listed after the maintenance service stops and a
+  missing container no longer fails recovery; if Docker does not answer when
+  an operation begins, nothing is changed and the update is not marked failed.
 
 ### Security
 
@@ -165,6 +220,23 @@
   maintenance marker or make backup packages unrestorable; packages are
   verified before use; tenant files are captured by descriptor. Remote
   backups are authenticated; older snapshots need `--allow-unauthenticated`.
+* Single requests have bounded cost: read-aloud text normalisation is linear
+  and runs outside write transactions; unterminated `[[video`, `[[kanban` and
+  `[[canvas` shortcodes, repeated `[TOC]` markers and misaligned code fences no
+  longer bypass the Markdown limits; page-list excerpts read a bounded start
+  of each page; every diff shares a work budget; images are checked against
+  per-use pixel limits before decoding.
+* Custom pages no longer reach anonymous visitors (or suspended
+  administrators) on hosts that forbid public wikis.
+* The REST API can no longer delete protected, hidden or slowed-down pages
+  through a category deletion.
+* Renaming an account can no longer change pages it cannot read, and a
+  suspended administrator can no longer lift a suspension imposed by an owner
+  or superuser.
+* Hosted wikis keep receiving operating-system and Python security updates:
+  every update reruns the tenant image's package upgrade and Python install
+  instead of reusing cached layers (the FFmpeg and ACL build stages are
+  rebuilt when the base image changes).
 
 ## 1.6.0
 

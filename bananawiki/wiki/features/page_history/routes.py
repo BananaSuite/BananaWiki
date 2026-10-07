@@ -105,14 +105,16 @@ def attach(bp: Blueprint) -> None:
                    "builder_json": entry.get("builder_json") or "", "builder_public": entry.get("builder_public")}
         body = rendering.body(version)
         shown: Any = body
+        diff_complete = True
         if view == "diff":
             old = {**version, "content": previous["content"], "builder_json": previous.get("builder_json") or ""}
-            shown = diff.rendered_diff(str(rendering.body(old)), str(body))
+            shown, diff_complete = diff.rendered_diff(str(rendering.body(old)), str(body))
         elif view == "source_diff":
-            shown = diff.source_diff(previous["content"], entry["content"])
+            shown, diff_complete = diff.source_diff(previous["content"], entry["content"])
         can_manage = service.can_edit(page)
         return render_template(
             "page_history/entry.html", page=page, entry=entry, previous=previous, view=view, shown=shown,
+            diff_complete=diff_complete,
             editor_url=rendering.profile_url(entry["editor"]),
             can_revert=can_manage and auth.has_permission("history.revert"),
         )

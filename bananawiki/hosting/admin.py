@@ -226,6 +226,7 @@ def cmd_account_delete(args: argparse.Namespace) -> None:
 
     account = _account(args.account)
     _require_yes(args, "Deleting an account")
+    accounts.check_deletable(account["id"])
     for inst in instances.owned_by(account["id"]):
         instances.terminate(inst, actor_id=None, reason="account_deleted")
     accounts.delete(account["id"])

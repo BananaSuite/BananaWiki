@@ -149,10 +149,12 @@ def _conflict(page: dict[str, Any], current: dict[str, Any], *, title: str, cont
     The form now carries the current revision, so saving again deliberately
     replaces the other version with the (merged) text in the editor.
     """
+    changes = diff.source_diff(current["content"], content)
     info = {
         "current": current,
         "their_editor": rendering.editor_name(current.get("last_edited_by")),
-        "diff": diff.source_diff(current["content"], content),
+        "diff": changes.html,
+        "diff_complete": changes.complete,
         "title_changed": current["title"] != title,
     }
     auth.flash_t("pages.flash.conflict", "warning")

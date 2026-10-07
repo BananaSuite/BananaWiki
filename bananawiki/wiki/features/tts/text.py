@@ -15,7 +15,9 @@ import hashlib
 import importlib.util
 import logging
 import re
+import threading
 import unicodedata
+from collections import OrderedDict
 from collections.abc import Iterable
 
 log = logging.getLogger("bananawiki.tts")
@@ -159,40 +161,95 @@ _EN_STOPWORDS = frozenset({
 SUPPORTED_SET = frozenset(SUPPORTED_LANGUAGES)
 
 # ── Normalisation ─────────────────────────────────────────────────────────────
+#
+# The output must stay that of 1.4 (it is hashed), but the 1.4 expressions
+# backtracked quadratically on unclosed constructs ("[" * n, "<" * n, a fence
+# never closed, long runs of spaces). The ones below give the same text and
+# do linear work:
+#
+# * an atomic group stops the fence's info string from being tried again;
+# * the second alternative of _IMAGE, _LINK and _REF_DEF takes a bracket that
+#   cannot start a match up to its "]" (every bracket before that "]" would
+#   fail the same way) and puts it back unchanged;
+# * links, images and tags are only looked for up to the last ")" or ">",
+#   after which no match can end (see _through_last);
+# * _RULE and _TABLE_SEP lost a second run of spaces that backtracked against
+#   the first one;
+# * _REF_DEF starts at the line holding the "[" rather than at the blank
+#   lines before it, which only become spaces either way.
 
-_FENCED_CODE = re.compile(r"```(?:\w*\n?)?(.*?)```", re.DOTALL)
+MAX_SOURCE_CHARS = 1_000_000  # the longest page the editor saves; anything longer is cut first
+
+_FENCED_CODE = re.compile(r"```(?>\w*\n?)(.*?)```", re.DOTALL)
 _INLINE_CODE = re.compile(r"`([^`]*)`")
-_IMAGE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
-_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
-_REF_DEF = re.compile(r"^\s*\[[^\]]+\]:\s*\S+.*$", re.MULTILINE)
+_IMAGE = re.compile(r"!\[([^\]]*)\]\([^)]*\)|(!\[[^\]]*\]?)")
+_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)|(\[[^\]]*\]?)")
+_REF_DEF = re.compile(r"^[^\S\n]*\[[^\]]+\]:\s*\S+.*$|^([^\S\n]*\[[^\]]*\]?)", re.MULTILINE)
 _HTML_TAG = re.compile(r"<[^>]+>")
 _LINE_PREFIX = re.compile(r"^[ \t]*(?:#+|[>\-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?", re.MULTILINE)
-_RULE = re.compile(r"^[ \t]*(?:[-*_]\s*){3,}\s*$", re.MULTILINE)
-_TABLE_SEP = re.compile(r"^[ \t]*\|?[ \t]*:?-{2,}:?(?:[ \t]*\|[ \t]*:?-{2,}:?)+[ \t]*\|?[ \t]*$", re.MULTILINE)
+_RULE = re.compile(r"^[ \t]*(?:[-*_]\s*){3,}$", re.MULTILINE)
+_TABLE_SEP = re.compile(
+    r"^[ \t]*(?:\|[ \t]*)?:?-{2,}:?(?:[ \t]*\|[ \t]*:?-{2,}:?)+[ \t]*(?:\|[ \t]*)?$", re.MULTILINE)
 _EMPHASIS = re.compile(r"(\*{1,3}|_{1,3}|~~)(.+?)\1")
 _STRAY_PUNCT = re.compile(r"[*_~`|]+")
 _SPACES = re.compile(r"\s+")
 
 
+def _through_last(closer: str, pattern: re.Pattern[str], repl: str, body: str) -> str:
+    """``pattern.sub`` on *body* up to its last *closer*, which ends every match."""
+    end = body.rfind(closer) + 1
+    return pattern.sub(repl, body[:end]) + body[end:]
+
+
+def _drop_ref_def(match: re.Match[str]) -> str:
+    return match.group(1) or " "
+
+
 def normalize_text(title: str | None, content: str | None) -> str:
     """The plain text that is read aloud: Markdown and HTML removed, code dropped."""
     title = (title or "").strip()
-    body = content or ""
+    body = (content or "")[:MAX_SOURCE_CHARS]
     body = _FENCED_CODE.sub(" ", body)
-    body = _REF_DEF.sub(" ", body)
-    body = _IMAGE.sub(r"\1", body)
-    body = _LINK.sub(r"\1", body)
+    body = _REF_DEF.sub(_drop_ref_def, body)
+    body = _through_last(")", _IMAGE, r"\1\2", body)
+    body = _through_last(")", _LINK, r"\1\2", body)
     body = _INLINE_CODE.sub(r"\1", body)
     body = _EMPHASIS.sub(r"\2", body)
     body = _TABLE_SEP.sub(" ", body)
     body = _RULE.sub(" ", body)
     body = _LINE_PREFIX.sub("", body)
-    body = _HTML_TAG.sub(" ", body)
+    body = _through_last(">", _HTML_TAG, " ", body)
     body = _STRAY_PUNCT.sub(" ", body)
     body = unicodedata.normalize("NFC", body)
     body = _SPACES.sub(" ", body).strip()
     spoken = (f"{title}. {body}" if body else title) if title else body
     return spoken[:MAX_INPUT_CHARS]
+
+
+SPOKEN_CACHE_SIZE = 64
+_spoken_cache: OrderedDict[tuple[str, bytes], str] = OrderedDict()
+_spoken_lock = threading.Lock()
+
+
+def spoken_text(title: str | None, content: str | None) -> str:
+    """:func:`normalize_text` of a page, remembered for the pages seen last.
+
+    Page views and status polls compare the audio's hash with the current
+    text on every request; keyed on a digest of the content, a repeat costs
+    one SHA-256 of the page instead of a normalisation.
+    """
+    key = (title or "", hashlib.sha256((content or "").encode("utf-8", "surrogatepass")).digest())
+    with _spoken_lock:
+        spoken = _spoken_cache.get(key)
+        if spoken is not None:
+            _spoken_cache.move_to_end(key)
+            return spoken
+    spoken = normalize_text(title, content)
+    with _spoken_lock:
+        _spoken_cache[key] = spoken
+        while len(_spoken_cache) > SPOKEN_CACHE_SIZE:
+            _spoken_cache.popitem(last=False)
+    return spoken
 
 
 def content_hash(spoken: str, language: str) -> str:

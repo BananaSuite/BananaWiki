@@ -142,7 +142,7 @@ def _future_datetime(value: Any) -> str | None:
     text = value.strip()
     try:
         naive = datetime.fromisoformat(text.replace("Z", "+00:00")).tzinfo is None
-        moment = from_local_input(text) if naive else parse(text)
+        moment = from_local_input(text) if naive else parse(text, bounded=True)
         stored = to_sql(moment) if moment else None
     except (ValueError, OverflowError):
         stored = None

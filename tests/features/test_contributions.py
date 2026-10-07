@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from bananawiki.core.timeutil import sql_in
@@ -119,6 +121,45 @@ def test_diff_lines():
     assert {"op": "del", "text": "b"} in rows and {"op": "add", "text": "B"} in rows
 
 
+def test_diff_lines_of_huge_or_repetitive_proposals_is_bounded():
+    """R-04: a million empty lines, or one line repeated, made the review page unusable."""
+    rows = service.diff_lines("line one\nline two\n", "\n" * 999_999)
+    assert len(rows) == service.MAX_DIFF_ROWS + 1
+    assert rows[:2] == [{"op": "del", "text": "line one"}, {"op": "del", "text": "line two"}]
+    assert rows[-1] == {"op": "more", "text": str(999_999 - (service.MAX_DIFF_ROWS - 2))}
+    coarse = service.diff_lines("a\n" * 100_000, "b\n" + "a\n" * 99_998 + "c\n")
+    assert coarse[0]["op"] == "coarse" and coarse[-1]["op"] == "more"
+    assert len(coarse) == service.MAX_DIFF_ROWS + 2
+    assert {"op": "add", "text": "b"} in coarse  # the proposed text gets half of the rows
+
+
+def test_approval_refuses_a_proposal_edited_after_review(ctx, people, page):
+    """S-04: the proposer swaps the content while the reviewer looks at the old diff."""
+    cid = service.propose(page, people["reader"], title="Article", content="typo fixed\n", reason="typo")
+    seen = service.review_version(service.get(cid))
+    service.update_own(service.get(cid), people["reader"], title="Article", content="DEFACED\n", reason="typo")
+    with pytest.raises(ContributionError) as err:
+        service.approve(cid, people["admin"], reviewed_version=seen, page_revision=page["revision"])
+    assert err.value.key == "contributions.error.changed_since_review"
+    assert service.get(cid)["status"] == "pending"
+    assert pages.get(page["id"])["content"] == "line one\nline two\n"
+    # Once the reviewer has looked at the current version, it can be approved (or denied).
+    current = service.review_version(service.get(cid))
+    updated = service.approve(cid, people["admin"], reviewed_version=current, page_revision=page["revision"])
+    assert updated["content"] == "DEFACED\n"
+
+
+def test_approval_does_not_overwrite_a_concurrent_page_edit(ctx, people, page):
+    cid = service.propose(page, people["reader"], title="Article", content="proposed\n", reason="r")
+    seen = service.review_version(service.get(cid))
+    pages.update(pages.get(page["id"]), author_id=people["admin"]["id"], content="edited meanwhile\n")
+    with pytest.raises(ContributionError) as err:
+        service.approve(cid, people["admin"], reviewed_version=seen, page_revision=page["revision"])
+    assert err.value.key == "contributions.error.page_changed_since_review"
+    assert pages.get(page["id"])["content"] == "edited meanwhile\n"
+    assert service.get(cid)["status"] == "pending"  # the claim was rolled back with the edit
+
+
 def test_edit_denied_interceptor(app, people, page):
     with app.test_request_context(f"/page/{page['slug']}/edit"), connection_scope():
         as_user(people["reader"])
@@ -145,10 +186,49 @@ def test_routes_flow_and_idor(client, login, people, page, make_user):
     client.post("/logout")
     login(client, people["admin"])
     assert client.get("/admin/contributions").status_code == 200
-    assert client.get(f"/admin/contributions/{cid}").status_code == 200
-    client.post(f"/admin/contributions/{cid}/approve", data={"review_reason": "ok"})
+    client.post(f"/admin/contributions/{cid}/approve", data={"review_reason": "ok", **_review_form(client, cid)})
     with client.application.test_request_context(), connection_scope():
         assert pages.get(page["id"])["content"] == "new"
+
+
+def _review_form(client, contribution_id):
+    """Open the review page and return the hidden fields its form sends."""
+    response = client.get(f"/admin/contributions/{contribution_id}")
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    return {name: re.search(rf'name="{name}" value="([^"]*)"', body).group(1) for name in ("version", "page_revision")}
+
+
+def test_review_form_binds_the_approval_to_what_was_shown(client, login, people, page):
+    """S-04: edits to the proposal or the page after the review page was opened are not approved blindly."""
+    app = client.application
+    with app.test_request_context(), connection_scope():
+        cid = service.propose(page, people["reader"], title="Article", content="typo fixed\n", reason="typo")
+    login(client, people["admin"])
+    approve = f"/admin/contributions/{cid}/approve"
+    form = _review_form(client, cid)
+    with app.test_request_context(), connection_scope():
+        service.update_own(service.get(cid), people["reader"], title="Article", content="DEFACED\n", reason="typo")
+    response = client.post(approve, data=form)
+    assert response.status_code == 302 and response.headers["Location"].endswith(f"/admin/contributions/{cid}")
+    assert "The proposal was changed after you opened it" in client.get(response.headers["Location"]).get_data(as_text=True)
+    form = _review_form(client, cid)
+    for kept in (["page_revision"], ["version"], []):  # an incomplete form, or an old one without either, is refused
+        response = client.post(approve, data={name: form[name] for name in kept})
+        assert response.headers["Location"].endswith(f"/admin/contributions/{cid}")
+    with app.test_request_context(), connection_scope():
+        assert service.get(cid)["status"] == "pending"
+        assert pages.get(page["id"])["content"] == "line one\nline two\n"
+        pages.update(pages.get(page["id"]), author_id=people["admin"]["id"], content="edited meanwhile\n")
+    response = client.post(approve, data=form)
+    assert response.status_code == 302 and response.headers["Location"].endswith(f"/admin/contributions/{cid}")
+    with app.test_request_context(), connection_scope():
+        assert pages.get(page["id"])["content"] == "edited meanwhile\n"
+        assert service.get(cid)["status"] == "pending"
+    response = client.post(approve, data=_review_form(client, cid))
+    assert response.headers["Location"].endswith("/admin/contributions")
+    with app.test_request_context(), connection_scope():
+        assert pages.get(page["id"])["content"] == "DEFACED\n" and service.get(cid)["status"] == "approved"
 
 
 def test_quota_request_routes(client, login, people):

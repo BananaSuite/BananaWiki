@@ -6,6 +6,8 @@ Version history
 4    BananaWiki 1.6 takeover: repairs 1.4 data, normalises timestamps, adds
      indexes and full-text search. See :mod:`.v4_takeover`.
 5    Durable chat upload usage, so deleting messages cannot reset daily quotas.
+6    Who imposed a suspension (``suspension_audit.imposed_by_top``) and an
+     index for former user names. See :mod:`.v6_account_history`.
 
 A 1.4 database at version 3 upgrades in place. New databases are created from
 ``baseline_v3.sql`` followed by every later migration, so fresh and upgraded
@@ -19,13 +21,14 @@ import uuid
 from pathlib import Path
 
 from ...core.sqlite import execute_script
-from . import v4_takeover, v5_chat_upload_usage
+from . import v4_takeover, v5_chat_upload_usage, v6_account_history
 
 APPLICATION_ID = 0x42574B49  # "BWKI", unchanged from 1.4
 BASELINE = 3
 MIGRATIONS = (
     v4_takeover.upgrade,  # 3 -> 4
     v5_chat_upload_usage.upgrade,  # 4 -> 5
+    v6_account_history.upgrade,  # 5 -> 6
 )
 LATEST = BASELINE + len(MIGRATIONS)
 

@@ -294,6 +294,28 @@ def test_update_prunes_tenant_images(managed_root, fake_system, upstream):
     assert result["images_removed"] == [f"bananawiki-tenant:{'0' * 40}"]
 
 
+def test_update_reports_a_tenant_image_built_on_a_cached_base(managed_root, fake_system, upstream):
+    first = upstream.commit("hosting 1")
+    legacy_install(managed_root, fake_system, upstream, first, mode="hosting")
+    second = upstream.commit("hosting 2")
+    fake_system.build_warnings = ["Could not pull python:3.12-slim-trixie: built on the cached copy."]
+    manager = Manager(managed_root, system=fake_system)
+    result = manager.update()
+    assert result["outcome"] == "complete" and result["image_warnings"] == fake_system.build_warnings
+    original = fake_system._run
+
+    def run(command, **kwargs):
+        result = original(command, **kwargs)
+        if command[:3] == ["docker", "image", "inspect"]:
+            result.stdout = "2026-10-04T08:00:00Z\n"
+        return result
+
+    fake_system.runner = run
+    assert manager.status()["tenant_image_built"] == "2026-10-04T08:00:00Z"
+    assert ["docker", "image", "inspect", "--format", "{{.Created}}", f"bananawiki-tenant:{second}"] \
+        in fake_system.commands
+
+
 def test_automatic_update_respects_policy_and_stopped_service(managed_root, fake_system, upstream, legacy):
     upstream.commit("1.6")
     manager = Manager(managed_root, system=fake_system)

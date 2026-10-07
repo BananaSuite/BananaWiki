@@ -146,6 +146,7 @@
   "kanban.diff.column_limit_removed": "Work-in-progress limit of “{title}” removed",
   "kanban.diff.column_removed": "Column “{title}” deleted",
   "kanban.diff.column_renamed": "Column “{old}” renamed to “{new}”",
+  "kanban.diff.description_coarse": "The two descriptions are too different to compare in detail: part of the text is shown as removed and added again as a whole.",
   "kanban.diff.ticket_added": "Ticket “{title}” added to {column}",
   "kanban.diff.ticket_archived": "Ticket “{title}” archived",
   "kanban.diff.ticket_changed": "Ticket “{title}”: {fields} changed",

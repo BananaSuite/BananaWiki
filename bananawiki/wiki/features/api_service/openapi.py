@@ -121,8 +121,10 @@ ENDPOINTS: tuple[Endpoint, ...] = (
     Endpoint("PUT", "/categories/{category_id}", "Rename, move or set sequential navigation", "categories", True,
              group="categories", body={"name": STRING, "parent_id": NULLABLE_ID, "sequential_nav": BOOLEAN},
              responses=(200, 400, 403, 404), result={"category": _ref("Category")}),
-    Endpoint("DELETE", "/categories/{category_id}", "Delete a category", "categories", True, group="categories",
-             params=("page_action", "target_id"), responses=(200, 400, 403, 404), result=_DELETED),
+    Endpoint("DELETE", "/categories/{category_id}", "Delete a category (202 when a grace period applies to its pages)",
+             "categories", True, group="categories", params=("page_action", "target_id"),
+             responses=(200, 202, 400, 403, 404, 409),
+             result={**_DELETED, "pending_deletion": STRINGS, "kept": STRINGS}),
     # Kanban
     Endpoint("GET", "/kanban/boards", "Boards the caller can open (archived ones with archived=1)", "kanban",
              group="kanban", feature="kanban", params=("archived",), paginated=True, responses=(200, 400),

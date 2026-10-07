@@ -35,7 +35,7 @@ def compat(relative: str) -> Path:
     ["update", "--automatic"], ["update", "--allow-divergent", "--retry-failed"],
     ["backup", "--output", "/b.tar.gz"], ["migrate", "--output", "/b.tar.gz"],
     ["restore", "/p.tar.gz", "--domain", "x.org", "--port", "5005"], ["rollback"], ["rollback", "--package", "/p"],
-    ["status"], ["start"], ["stop"], ["restart"], ["recover"],
+    ["status"], ["start"], ["stop"], ["restart"], ["recover"], ["recover", "--abandon"],
     ["updates", "enable", "--interval", "30", "--keep-backups", "5"], ["updates", "disable"],
     ["source", "set", "--repo", "git@github.com:o/r.git", "--ssh-key", "/k", "--known-hosts", "/h"],
     ["source", "check"], ["source", "show"], ["source", "set", "--clear-credentials", "--clear-signatures"],

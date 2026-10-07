@@ -95,6 +95,16 @@ def test_edit_conflict_shows_diff_and_keeps_text(app, admin_client, admin):
     assert again.status_code == 302 and get_page(app, page["id"])["content"] == "merged"
 
 
+def test_edit_conflict_diff_is_bounded(app, admin_client, admin):
+    """R-04: a conflict between two repetitive versions shows a coarse diff instead of hanging."""
+    page = make_page(app, "Lines", "a\n" * 20_000)
+    in_app(app, lambda: service.update(service.get(page["id"]), author_id=admin["id"], content="b\n" + "a\n" * 20_000))
+    response = admin_client.post("/page/lines/edit", data={"title": "Lines", "content": "a\n" * 20_000 + "c",
+                                                            "revision": page["revision"]})
+    assert response.status_code == 409
+    assert "too different to compare in detail" in response.get_data(as_text=True)
+
+
 def test_edit_requires_edit_all_and_category_write(app, client, make_user, login, db):
     locked = make_category(app, "Locked")
     page = make_page(app, "Guarded", "x", category_id=locked["id"])

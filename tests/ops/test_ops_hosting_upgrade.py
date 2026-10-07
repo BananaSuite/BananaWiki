@@ -63,7 +63,10 @@ class Portal:
         if "bananawiki-maintenance" not in names:
             return
         tenant_dir = str((self.root / "data/instances/acme").resolve())
-        if not any(item["data_dir"] == tenant_dir for item in self.system.tenant_containers):
+        existing = [item for item in self.system.tenant_containers if item["data_dir"] == tenant_dir]
+        for item in existing:
+            item["running"] = True  # a stopped container is started again
+        if not existing:
             self.address += 1
             self.system.tenant_containers.append({
                 "id": f"c{self.address}", "running": True, "addresses": [f"172.18.0.{self.address}"],
@@ -267,12 +270,18 @@ def test_readiness_requires_each_running_wiki_routed_to_its_current_container(ro
     manager.update()
     settings = manager.settings()
     services = manager.services(settings)
-    assert fake_system.route_issues(settings, services, []) == []
+    acme = str((root / "data/instances/acme").resolve())
+
+    def issues() -> tuple[list[str], dict[str, str]]:
+        platform: list[str] = []
+        return platform, fake_system.tenant_issues(settings, services, [acme], platform)
+
+    assert issues() == ([], {})
     fake_system.tenant_containers[-1]["addresses"] = ["172.18.0.99"]  # recreated, routes not refreshed yet
-    assert fake_system.route_issues(settings, services, []) == ["Tenant is not routed to its container: acme"]
+    assert issues() == ([], {acme: "not routed to its container"})
     (fake_system.state_dir / "bananawiki-routes/routes.json").unlink()
-    assert fake_system.route_issues(settings, services, []) == ["The portal has not published the wiki routes yet."]
+    assert issues() == (["The portal has not published the wiki routes yet."], {})
     # Port mode has no Caddy routes to wait for.
     environment = root / "config/app.env"
     environment.write_text(environment.read_text() + "HOSTING_MODE=port\n")
-    assert fake_system.route_issues(settings, services, []) == []
+    assert issues() == ([], {})

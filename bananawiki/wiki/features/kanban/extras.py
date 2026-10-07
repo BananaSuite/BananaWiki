@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import difflib
 import time
 from typing import Any
 
 from flask import current_app
-from markupsafe import Markup, escape
+from markupsafe import Markup
 from werkzeug.datastructures import FileStorage
 
 from ....core.timeutil import now_sql
@@ -15,6 +14,7 @@ from ... import storage
 from ...db import db
 from ...i18n import t
 from ...markdown import render
+from ..pages import diff
 from . import access, events, fields, signals, store
 
 # The 1.4 list of attachment types (the site's upload policy applies on top).
@@ -169,14 +169,18 @@ def get_history_entry(entry_id: int) -> dict[str, Any] | None:
 
 
 def diff_html(old: str, new: str) -> Markup:
-    """A line diff with every line escaped: ``<del>`` removed, ``<ins>`` added."""
-    parts = []
-    for line in difflib.ndiff((old or "").splitlines(), (new or "").splitlines()):
-        marker, text = line[:2], escape(line[2:])
-        if marker == "- ":
-            parts.append(Markup('<del class="diff-del">{}</del>').format(text))
-        elif marker == "+ ":
-            parts.append(Markup('<ins class="diff-add">{}</ins>').format(text))
-        elif marker == "  ":
-            parts.append(Markup("<span>{}</span>").format(text))
+    """A line diff with every line escaped: ``<del>`` removed, ``<ins>`` added.
+
+    Compared within the work budget of the pages diff; a note says when the
+    two descriptions were too different to compare line by line.
+    """
+    before, after = (old or "").splitlines(), (new or "").splitlines()
+    ops, complete = diff.opcodes(before, after, diff.Budget())
+    parts = [] if complete else [Markup('<span class="muted">{}</span>').format(t("kanban.diff.description_coarse"))]
+    for tag, i1, i2, j1, j2 in ops:
+        if tag == "equal":
+            parts.extend(Markup("<span>{}</span>").format(line) for line in after[j1:j2])
+            continue
+        parts.extend(Markup('<del class="diff-del">{}</del>').format(line) for line in before[i1:i2])
+        parts.extend(Markup('<ins class="diff-add">{}</ins>').format(line) for line in after[j1:j2])
     return Markup("\n").join(parts)

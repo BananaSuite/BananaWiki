@@ -114,6 +114,9 @@ def test_admin_approval_moves_data_and_deletes_source(app, make_user, login, db,
 
 def test_locked_source_is_suspended_and_renamed(app, make_user, login, db, admin):
     new, old, merge_id = _setup_confirmed(app, make_user, login, db)
+    db.execute("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, 'page.view_all')", (old["id"],))
+    db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 0)",
+               (old["id"],))
     boss = app.test_client()
     login(boss, admin)
     boss.post(f"/admin/merge-requests/{merge_id}/approve")
@@ -121,6 +124,9 @@ def test_locked_source_is_suspended_and_renamed(app, make_user, login, db, admin
     assert db.scalar("SELECT merged_by FROM account_merge_logs") == admin["id"]
     row = db.one("SELECT username, suspended FROM users WHERE id = ?", (old["id"],))
     assert row["username"] == "merged_oldbob" and row["suspended"] == 1
+    # Demoted like any other account: no overrides left to come back on reactivation.
+    for table in ("user_permissions", "user_category_access"):
+        assert db.scalar(f"SELECT COUNT(*) FROM {table} WHERE user_id = ?", (old["id"],)) == 0
     assert db.scalar("SELECT COUNT(*) FROM user_sessions WHERE user_id = ? AND revoked_at IS NULL",
                      (old["id"],)) == 0
 

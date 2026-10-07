@@ -29,6 +29,8 @@ from ...registry import emit
 from ..pages import service as pages
 
 AVATAR_MAX_BYTES = 1 * MIB
+# Avatars are shown small: a larger picture only costs memory to decode.
+AVATAR_MAX_PIXELS = 4_000_000
 AVATAR_DIR = "avatars"
 AVATAR_RE = re.compile(r"^avatars/[0-9a-f]{32}\.(png|jpe?g|gif|webp)$")
 MAX_REAL_NAME = 100
@@ -36,6 +38,7 @@ MAX_BIO = 500
 MEMBERS_PER_PAGE = 50
 PASSWORD_CHECKS = 10
 PASSWORD_WINDOW = 15 * 60
+RENAMES_PER_DAY = 3
 PROFILE_FIELDS = ("real_name", "bio", "birth_date", "avatar_filename", "page_published", "page_disabled_by_admin")
 
 
@@ -147,9 +150,10 @@ def upload_url(name: str | None) -> str:
     return url_for("uploaded_file", filename=name) if name else ""
 
 
-def store_image(upload: FileStorage | None, subdir: str, *, max_bytes: int) -> tuple[str, Path]:
+def store_image(upload: FileStorage | None, subdir: str, *, max_bytes: int, max_pixels: int) -> tuple[str, Path]:
     """Store an image through :mod:`storage` and move it into ``uploads/<subdir>/``."""
-    stored = storage.save(upload, "uploads", allowed=IMAGE_EXTENSIONS, max_bytes=max_bytes, images_only=True)
+    stored = storage.save(upload, "uploads", allowed=IMAGE_EXTENSIONS, max_bytes=max_bytes, images_only=True,
+                          max_pixels=max_pixels)
     source = storage.resolve("uploads", stored.filename)
     assert source is not None
     target_dir = storage.folder_path("uploads") / subdir
@@ -164,8 +168,16 @@ def delete_upload(name: str | None) -> None:
         storage.delete("uploads", name)
 
 
+def uploads_of(user: dict[str, Any]) -> list[str]:
+    """The account's stored images: avatar and background."""
+    from . import preferences
+
+    names = [(get_profile(user["id"]) or {}).get("avatar_filename"), preferences.stored(user).get("background_image")]
+    return [name for name in names if name]
+
+
 def save_avatar(user_id: str, upload: FileStorage | None) -> str:
-    name, _path = store_image(upload, AVATAR_DIR, max_bytes=AVATAR_MAX_BYTES)
+    name, _path = store_image(upload, AVATAR_DIR, max_bytes=AVATAR_MAX_BYTES, max_pixels=AVATAR_MAX_PIXELS)
     previous = (get_profile(user_id) or {}).get("avatar_filename")
     upsert_profile(user_id, avatar_filename=name)
     if previous and previous != name:
@@ -282,6 +294,30 @@ def active_admin_count() -> int:
     ))
 
 
+def rename_self(user: dict[str, Any], new_username: str | None, password: str | None) -> dict[str, Any]:
+    """Self-service rename: password confirmed, at most :data:`RENAMES_PER_DAY` a day.
+
+    Pages are not edited: the account may not be allowed to read them all, and every
+    rewrite would add a revision. Mentions of the old name lead to the account
+    through ``username_history`` (``routes.profile``), and the old name stays
+    reserved for it (:func:`accounts.username_taken`), hence the limit.
+    """
+    if not password_ok(user, password):
+        raise ProfileError("auth.error.current_password_wrong")
+    limiter = SqlLimiter(db.session)
+    reservation = limiter.reserve(f"user:{user['id']}", "account:rename", RENAMES_PER_DAY, 86400)
+    if reservation is None:
+        raise ProfileError("users.error.rename_limit", limit=RENAMES_PER_DAY)
+    try:
+        renamed = accounts.rename(user, new_username or "", changed_by=user["id"])
+    except accounts.AccountError:
+        limiter.release(reservation)
+        raise
+    if renamed["username"] == user["username"]:
+        limiter.release(reservation)
+    return renamed
+
+
 def delete_own_account(user: dict[str, Any], password: str | None) -> None:
     """Self-service deletion: password confirmed, never the last administrator."""
     if user.get("is_superuser"):
@@ -295,10 +331,7 @@ def delete_own_account(user: dict[str, Any], password: str | None) -> None:
 def delete_account(user: dict[str, Any], *, deleted_by: str | None, protect_last_admin: bool = False,
                    protect_superuser: bool = False, expected_password_hash: str | None = None) -> None:
     """Delete an account and the images only it referenced."""
-    from . import preferences
-
-    files = [(get_profile(user["id"]) or {}).get("avatar_filename"),
-             preferences.stored(user).get("background_image")]
+    files = uploads_of(user)
     try:
         accounts.delete(user, deleted_by=deleted_by, protect_last_admin=protect_last_admin,
                         protect_superuser=protect_superuser, expected_password_hash=expected_password_hash)
@@ -352,16 +385,20 @@ def may_reactivate_self(user: dict[str, Any]) -> bool:
     """Whether a suspended administrator may lift the suspension themselves (1.4 allowed any).
 
     Not when an owner or superuser imposed it: that suspension is exactly what the
-    hierarchy exists for. Owners and superusers can always lift their own.
+    hierarchy exists for. The rank counts as it was when the suspension was recorded
+    (``suspension_audit.imposed_by_top``), and anything unknown keeps the account
+    suspended: no audit entry for the current suspension, or a suspender who is gone.
+    Owners and superusers can always lift their own.
     """
     if not auth.is_admin(user) or not user.get("suspended"):
         return False
     if user["role"] == "owner" or user.get("is_superuser"):
         return True
-    performer = db.scalar("SELECT performed_by FROM suspension_audit WHERE user_id = ? AND action = 'suspend' "
-                          "ORDER BY created_at DESC, id DESC LIMIT 1", (user["id"],))
-    by = accounts.by_id(performer) if performer and performer != user["id"] else None
-    return not (by and (by["role"] == "owner" or by.get("is_superuser")))
+    latest = db.one("SELECT action, performed_by, imposed_by_top FROM suspension_audit WHERE user_id = ? "
+                    "ORDER BY created_at DESC, id DESC LIMIT 1", (user["id"],))
+    if latest is None or latest["action"] != "suspend" or latest["imposed_by_top"]:
+        return False
+    return accounts.by_id(latest["performed_by"]) is not None
 
 
 def reactivate_self(user: dict[str, Any]) -> None:
@@ -379,15 +416,7 @@ def reactivate_self(user: dict[str, Any]) -> None:
                                        "created_at": now_sql()})
 
 
-# ── Event handlers and housekeeping ───────────────────────────────────────────
-
-
-def on_user_renamed(user: dict[str, Any], old_username: str, changed_by: str | None = None) -> None:
-    pages.rewrite_mentions(old_username, "@" + user["username"])
-
-
-def on_user_deleted(user: dict[str, Any], deleted_by: str | None = None) -> None:
-    pages.rewrite_mentions(user["username"], "@account deleted")
+# ── Housekeeping ──────────────────────────────────────────────────────────────
 
 
 def collect_orphan_images(min_age_seconds: int = 3600) -> int:

@@ -295,11 +295,17 @@ class Runtime(Protocol):
         ``policy.global_tour``), applies the upload policy to the tenant DB,
         then starts the container like :meth:`start`.
 
-        The portal inserts the ``instances`` row (status ``running``) first
-        and, when this raises, terminates the row and calls :meth:`destroy`.
+        The portal first inserts the ``instances`` row as a pending
+        reservation (status ``stopped``, ``provisioning_state`` ``pending``)
+        and, when this raises, calls :meth:`destroy` and then terminates the
+        row; while destroy fails the row keeps its reservation. After
+        ``data_exists`` it terminates the row without :meth:`destroy`: that
+        directory was never this wiki's (nor is anything under the name of a
+        creation cancelled before this was called).
         The password must not be stored or logged anywhere.
         Raises ``data_exists`` when the directory is already there (never
-        overwrite), ``start_failed``/``unavailable`` otherwise.
+        overwrite), and only then: it means nothing was written or started.
+        ``start_failed``/``unavailable`` otherwise.
         1.4: ``instance_manager.provision_instance`` + ``instance_database._seed_instance_db``.
         """
 
@@ -346,8 +352,9 @@ class Runtime(Protocol):
         Used for renames, apex/hosting mode changes, termination with a grace
         period (``slug`` -> ``slug--terminated-<id8>``) and restores. Refuses
         (``data_exists``) when the target exists and differs from the source;
-        a missing source raises ``not_found``. Must not follow links planted
-        by the tenant. 1.4: ``_move_dir_safely``.
+        a missing source raises ``not_found`` (checked first, so data an
+        interrupted move already took away reads as gone). Must not follow
+        links planted by the tenant. 1.4: ``_move_dir_safely``.
         """
 
     def destroy(self, spec: TenantSpec) -> None:
@@ -436,12 +443,19 @@ class Runtime(Protocol):
         uploaded by an admin), validate members (no traversal, links or
         oversized content per ``HOSTING_IMPORT_*``), migrate the database
         inside the tenant image, then start it. Raises ``archive_invalid``,
-        ``too_large``, ``no_space``. On failure the portal terminates the row
-        and calls :meth:`destroy`. 1.4: ``provision_instance_from_archive``."""
+        ``too_large``, ``no_space``, and ``data_exists`` (without touching
+        anything) when the directory is already there. On any other failure
+        the portal terminates the row and calls :meth:`destroy`.
+        1.4: ``provision_instance_from_archive``."""
 
     def duplicate(self, source: TenantSpec, target: TenantSpec) -> None:
         """Copy *source*'s database snapshot and asset folders into a new
-        tenant *target*, then start it. 1.4: ``duplicate_instance``."""
+        tenant *target*, then start it. Raises ``data_exists`` when
+        *target*'s directory is already there, checked first and without
+        touching anything (even when *source* is missing too), and
+        ``not_found`` when *source*'s is missing. On any other failure the
+        portal terminates the row and calls :meth:`destroy` on *target*.
+        1.4: ``duplicate_instance``."""
 
     # ── Plugin safety (host-side state, out of the tenant's reach) ───────
 

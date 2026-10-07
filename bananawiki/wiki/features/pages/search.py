@@ -171,7 +171,7 @@ def search_categories(query: Query, *, user: dict[str, Any] | None,
     found = []
     for cid in _category_ids(paths, terms):
         path = paths[cid]
-        if any(term in path.casefold() for term in excluded):
+        if any(term in path.casefold() for term in excluded) or not categories.listed(cid, user):
             continue
         found.append({"id": cid, "name": path.rsplit(" / ", 1)[-1], "path": path,
                       "path_html": highlight(path, terms)})

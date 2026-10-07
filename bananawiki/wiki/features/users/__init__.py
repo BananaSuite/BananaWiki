@@ -61,10 +61,6 @@ FEATURE = Feature(
                                "users.admin_merge_requests", _merges_awaiting,
                                oldest=lambda user: merge.awaiting_admin_oldest(), order=40)],
     jobs=[Job("users.collect_orphan_images", 86400, service.collect_orphan_images, initial_delay=600)],
-    events={
-        "user.renamed": [service.on_user_renamed],
-        "user.deleted": [service.on_user_deleted],
-    },
     slots={
         "page.scripts": _display_css,
         "auth.account_status": _account_status,

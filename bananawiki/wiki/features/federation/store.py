@@ -264,11 +264,17 @@ def finish(claimed: dict[str, Any], payload: dict[str, Any] | None, error_key: s
 
 
 def can_read(user: dict[str, Any] | None, copy: dict[str, Any] | None) -> bool:
-    """Administrators, or readers of the pairing's audience category; stale copies are hidden."""
+    """Administrators, or readers of the pairing's audience category who hold ``page.view_all``.
+
+    Copies are pages too, so the permission that gates local pages gates them.
+    Stale copies are hidden.
+    """
     if not user or not copy or copy["last_success"] < time.time() - STALE_AFTER:
         return False
     if auth.is_admin(user):
         return True
+    if not auth.has_permission("page.view_all", user):
+        return False
     return copy["audience_category"] is not None and auth.can_read_category(copy["audience_category"], user)
 
 

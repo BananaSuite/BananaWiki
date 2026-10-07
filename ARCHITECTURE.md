@@ -109,8 +109,9 @@ zone). Convert `datetime-local` form input with `templating.from_local_input`.
 ### Schema changes
 
 The schema is versioned (`PRAGMA user_version`). BananaWiki 1.4 databases are
-at version 3; version 4 is the 1.6 takeover migration and version 5 adds the
-durable chat upload usage ledger. New schema changes need a numbered migration
+at version 3; version 4 is the 1.6 takeover migration, version 5 adds the
+durable chat upload usage ledger and version 6 records who imposed a
+suspension. New schema changes need a numbered migration
 registered in `migrations/__init__.py` so existing installations receive them.
 Feature schema helpers must be idempotent (use `CREATE TABLE IF NOT EXISTS`
 and `core.sqlite.add_columns`). The takeover still calls `upgrade_v4(conn)`;

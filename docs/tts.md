@@ -21,7 +21,8 @@ Nothing here is required: without Piper the wiki works normally and
    refreshes audio that fell out of date.
 
 Audio made by 1.4 stays valid: the spoken text and its hash are computed
-exactly as before.
+exactly as before (text beyond the 1,000,000 characters a page can hold is
+ignored), in time proportional to the length of the page.
 
 ## Install
 

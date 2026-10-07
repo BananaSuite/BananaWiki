@@ -50,7 +50,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     BW_PORT=5001 \
     BW_INSTANCE_DIR=/data
 
-RUN groupadd --system --gid 997 bananawiki \
+# The updater passes the build time here (and pulls the base image first), so
+# every release re-runs the distribution upgrade and the package installation
+# below instead of reusing layers cached by an earlier release. An argument
+# changes the cache key of every RUN that follows it. It is declared in this
+# final stage only: the FFmpeg and ACL stages above stay cached (a newly
+# pulled base image still rebuilds them). The upgrade never downgrades the
+# newer ACL packages installed above.
+ARG BW_REFRESH=unset
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 997 bananawiki \
     && useradd --system --uid 997 --gid 997 --home-dir /data --no-create-home \
         --shell /usr/sbin/nologin bananawiki
 

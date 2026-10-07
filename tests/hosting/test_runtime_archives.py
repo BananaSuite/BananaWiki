@@ -338,6 +338,71 @@ def test_duplicate_copies_data_and_revokes_credentials(setup):
     with pytest.raises(RuntimeFailure) as error:
         runtime.duplicate(spec, target)
     assert error.value.code == "data_exists"
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.duplicate(make_spec("gone"), target)
+    assert error.value.code == "data_exists", "a taken target is reported first: the portal never cleans it up"
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.duplicate(make_spec("gone"), replace(make_spec("other"), instance_id="idother"))
+    assert error.value.code == "not_found"
+    assert not (Path(runtime._cfg().instances_dir) / "other").exists()
+
+
+def test_import_never_cleans_up_a_directory_it_did_not_create(setup, tmp_path, monkeypatch):
+    from bananawiki.hosting.runtime import tenantfs
+
+    runtime, _agent, spec, _root = setup
+    path = _export(runtime, spec, tmp_path)
+    late = Path(runtime._cfg().instances_dir) / "late"
+    lexists = os.path.lexists
+    removed = []
+
+    def race(candidate):
+        found = lexists(candidate)
+        if Path(candidate) == late and not found:
+            # Another directory takes the name between the check and the creation.
+            late.mkdir()
+            (late / "theirs.txt").write_text("not ours")
+        return found
+
+    monkeypatch.setattr(os.path, "lexists", race)
+    monkeypatch.setattr(tenantfs, "remove_tree", removed.append)
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.import_archive(make_spec("late"), path)
+    assert error.value.code == "data_exists", "the portal must not clean up a directory it did not create"
+    assert (late / "theirs.txt").read_text() == "not ours"
+    assert removed == []
+
+
+def test_import_reports_unexpected_storage_errors_and_removes_its_folder(setup, tmp_path, monkeypatch):
+    from bananawiki.hosting.runtime import agent as agent_module
+
+    runtime, _agent, _spec, _root = setup
+    archive = _zip(tmp_path, [("bananawiki.db", b"database")])
+
+    def full(*_arguments):
+        raise OSError(errno.EDQUOT, "Disk quota exceeded")
+
+    monkeypatch.setattr(agent_module.tenant_archives, "unpack", full)
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.import_archive(make_spec("target"), archive)
+    assert error.value.code == "no_space"
+    assert not (Path(runtime._cfg().instances_dir) / "target").exists()
+
+
+def test_import_keeps_its_verdict_when_the_cleanup_fails(setup, tmp_path, monkeypatch):
+    from bananawiki.hosting.runtime import tenantfs
+
+    runtime, _agent, _spec, _root = setup
+    archive = tmp_path / "plain.zip"
+    archive.write_bytes(b"not a zip")
+
+    def stuck(_path):
+        raise RuntimeFailure("failed", "could not delete the import folder")
+
+    monkeypatch.setattr(tenantfs, "remove_tree", stuck)
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.import_archive(make_spec("stuck"), archive)
+    assert error.value.code == "archive_invalid", "a failed cleanup does not replace the verdict"
 
 
 def test_export_of_a_planted_database_link_fails_safely(setup, tmp_path):

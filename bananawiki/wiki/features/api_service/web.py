@@ -6,7 +6,6 @@ from typing import Any
 
 from flask import abort, redirect, render_template, request, url_for
 
-from ....core.timeutil import now_sql, to_sql
 from ... import accounts, auth, settings
 from ...db import db
 from ...registry import feature_blueprint, is_enabled
@@ -85,13 +84,10 @@ def create_token():
         expires_at = None
         raw_expiry = (request.form.get("expires_at") or "").strip()
         if raw_expiry:
-            moment = from_local_input(raw_expiry)
-            expires_at = to_sql(moment) if moment else None
-            if expires_at is None:
-                auth.flash_t("api_service.flash.invalid_expiry", "error")
-                return redirect(url_for("api_service.tokens_page"))
-            if expires_at <= now_sql():
-                auth.flash_t("api_service.flash.expiry_in_past", "error")
+            try:
+                expires_at = tokens.expiry_sql(from_local_input(raw_expiry))
+            except ApiError as error:
+                auth.flash_t(f"api_service.flash.{error.code}", "error", **error.values)
                 return redirect(url_for("api_service.tokens_page"))
         try:
             tokens.check_quota(user["id"])

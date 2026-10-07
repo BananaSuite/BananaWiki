@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from ....core.timeutil import now_sql
 from ... import auth
 from ...db import db
-from ...registry import emit
+from ...registry import emit, intercept
 from . import service
 
 MAX_NAME = 100
@@ -19,6 +20,38 @@ class CategoryError(ValueError):
         super().__init__(key)
         self.key = key
         self.values = values
+
+
+class PagesRefused(CategoryError):
+    """Deleting a category with its pages was refused; nothing was changed.
+
+    ``reason`` is ``hidden`` (the category holds pages the user cannot see),
+    ``forbidden`` (the user may not delete some of its pages) or ``blocked``
+    (some pages are protected, checked out or already pending deletion);
+    ``pages`` are the refused pages, all visible to the user. The message
+    names the first few only: it travels in the session cookie as a flash.
+    """
+
+    TITLES_SHOWN = 10
+
+    def __init__(self, reason: str, pages: list[dict[str, Any]] | None = None):
+        self.reason = reason
+        self.pages = pages or []
+        values = {}
+        if self.pages:
+            titles = [page["title"] for page in self.pages[:self.TITLES_SHOWN]]
+            if len(self.pages) > self.TITLES_SHOWN:
+                titles.append(f"… (+{len(self.pages) - self.TITLES_SHOWN})")
+            values["titles"] = ", ".join(titles)
+        super().__init__(f"pages.error.category_pages_{reason}", **values)
+
+
+@dataclass(frozen=True)
+class Removal:
+    """Pages :func:`delete_with_pages` left in place (slugs); they lose the category."""
+
+    pending: tuple[str, ...] = ()  # scheduled for deletion instead (Deletion Slowdown)
+    kept: tuple[str, ...] = ()  # kept by another feature's ``page.delete`` interceptor
 
 
 def get(category_id: int | str | None) -> dict[str, Any] | None:
@@ -49,13 +82,27 @@ def is_descendant(category_id: int, ancestor_id: int) -> bool:
     return any(c["id"] == ancestor_id for c in ancestors(category_id)[:-1]) or category_id == ancestor_id
 
 
+def listed(category_id: int | None, user: dict[str, Any] | None = None) -> bool:
+    """Whether *user* sees *category_id* where categories are listed.
+
+    The navigation, the category list of the API, category search results
+    and subcategory lists need ``category.view_all`` on top of read access
+    (administrators hold it; anonymous readers in public mode need none).
+    Opening a readable category from a link needs read access only.
+    """
+    user = auth.current_user() if user is None else user
+    if user is not None and not auth.has_permission("category.view_all", user):
+        return False
+    return auth.can_read_category(category_id, user)
+
+
 def tree(user: dict[str, Any] | None = None, *, include_pages: bool = True) -> dict[str, Any]:
     """Navigation tree filtered for *user*.
 
     Returns ``{"categories": [node...], "uncategorized": [page...]}`` where a
     node is ``{id, name, sequential_nav, pages, children, page_count}``.
-    A category the user cannot read is left out, but its readable
-    descendants are lifted into its place (their names stay hidden).
+    A category the user may not list (:func:`listed`) is left out, but its
+    listed descendants are lifted into its place (their names stay hidden).
     """
     user = auth.current_user() if user is None else user
     categories = all_categories()
@@ -78,7 +125,7 @@ def tree(user: dict[str, Any] | None = None, *, include_pages: bool = True) -> d
                 continue  # defensive: never loop on a corrupted parent chain
             children = build(category["id"], trail | {category["id"]})
             own_pages = pages_by_category.get(category["id"], [])
-            if auth.can_read_category(category["id"], user):
+            if listed(category["id"], user):
                 if not admin and not own_pages and not children and user is not None and not _is_writer(user):
                     continue
                 nodes.append({
@@ -218,28 +265,67 @@ def paths(readable: Callable[[int], bool] | None = None) -> dict[int, str]:
 
 def delete(category: dict[str, Any], *, page_action: str = "uncategorize", target_id: int | None = None,
            actor_id: str | None = None) -> None:
-    """Delete a category. Its pages are uncategorised, moved or deleted; children move up to its parent."""
+    """Delete a category. Its pages are uncategorised, moved or deleted; children move up to its parent.
+
+    ``page_action="delete"`` deletes the pages without any permission check
+    or interceptor, for the system's own use (replacing the built-in guide);
+    deletions on behalf of someone go through :func:`delete_with_pages`.
+    """
     if page_action not in ("uncategorize", "move", "delete"):
         raise CategoryError("wiki.error.invalid_action")
-    pages = db.all("SELECT * FROM pages WHERE category_id = ?", (category["id"],))
+    if page_action == "delete":
+        # Pages first: if one fails, the category stays with the pages left.
+        for page in db.all("SELECT * FROM pages WHERE category_id = ? AND is_home = 0", (category["id"],)):
+            service.delete(page, actor_id=actor_id)
     with db.transaction():
         if page_action == "move":
             if target_id is None or not get(target_id) or int(target_id) == category["id"]:
                 raise CategoryError("wiki.error.category_missing")
             db.execute("UPDATE pages SET category_id = ? WHERE category_id = ?", (int(target_id), category["id"]))
-        elif page_action == "uncategorize":
+        else:
             db.execute("UPDATE pages SET category_id = NULL WHERE category_id = ?", (category["id"],))
         db.execute("UPDATE categories SET parent_id = ? WHERE parent_id = ?", (category["parent_id"], category["id"]))
-        if page_action == "delete":
-            for page in pages:
-                if page["is_home"]:
-                    db.execute("UPDATE pages SET category_id = NULL WHERE id = ?", (page["id"],))
         db.execute("DELETE FROM categories WHERE id = ?", (category["id"],))
-    if page_action == "delete":
-        for page in pages:
-            if not page["is_home"]:
-                service.delete(page, actor_id=actor_id)
     emit("category.deleted", category=category, actor_id=actor_id)
+
+
+def delete_with_pages(category: dict[str, Any], user: dict[str, Any], *, page_action: str = "uncategorize",
+                      target_id: int | None = None) -> Removal:
+    """Delete *category* for *user*: the one path of the web interface, the API and bulk deletion.
+
+    With ``page_action="delete"`` every page goes as if *user* deleted it on
+    its own. All of them must be visible to *user*, deletable
+    (:func:`service.can_delete`) and not blocked (:func:`access.edit_blocked`);
+    otherwise :class:`PagesRefused` is raised before anything changes. Each
+    page then passes the ``page.delete`` interceptors, so Deletion Slowdown
+    schedules it instead; pages that stay (scheduled, or kept by a feature)
+    and the home page lose the category, which is deleted last.
+    """
+    if page_action != "delete":
+        delete(category, page_action=page_action, target_id=target_id, actor_id=user["id"])
+        return Removal()
+    from . import access  # access imports this module
+
+    pages = db.all("SELECT * FROM pages WHERE category_id = ? AND is_home = 0 ORDER BY id", (category["id"],))
+    if not all(service.can_view(page, user) for page in pages):
+        raise PagesRefused("hidden")
+    forbidden = [page for page in pages if not service.can_delete(page, user)]
+    if forbidden:
+        raise PagesRefused("forbidden", forbidden)
+    blocked = [page for page in pages if access.edit_blocked(page, user)]
+    if blocked:
+        raise PagesRefused("blocked", blocked)
+    pending: list[str] = []
+    kept: list[str] = []
+    for page in pages:
+        if intercept("page.delete", page=page, user=user) is None:
+            service.delete(page, actor_id=user["id"])
+            continue
+        after = service.get(page["id"], with_content=False)
+        if after is not None:
+            (pending if after["pending_deletion"] else kept).append(page["slug"])
+    delete(category, page_action="uncategorize", actor_id=user["id"])
+    return Removal(tuple(pending), tuple(kept))
 
 
 def count_pages(category_id: int) -> int:

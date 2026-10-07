@@ -156,23 +156,31 @@ def reset(user: dict[str, Any] | None, response: Response) -> None:
 
 
 def save_background(user: dict[str, Any], upload: Any) -> str:
-    """Store a background picture as a JPEG no larger than the configured limits."""
+    """Store a background picture as a JPEG no larger than the configured limits.
+
+    The pixel limit is checked on the upload's header, before it is decoded. The
+    picture is scaled down before it is flattened onto white, and a JPEG is
+    decoded straight at a reduced scale when it is much larger than needed.
+    """
     from PIL import Image, ImageOps
 
     cfg = current_app.config["BW"]
-    name, path = service.store_image(upload, BACKGROUND_DIR, max_bytes=cfg.background_image_max_upload)
+    edge = cfg.background_image_max_dimension
+    name, path = service.store_image(upload, BACKGROUND_DIR, max_bytes=cfg.background_image_max_upload,
+                                     max_pixels=cfg.background_image_max_pixels)
     try:
-        with Image.open(path) as image:
-            width, height = image.size
-            if width * height > cfg.background_image_max_pixels:
-                raise service.ProfileError("users.error.background_too_large")
-            picture = ImageOps.exif_transpose(image).convert("RGBA")
-        flat = Image.new("RGBA", picture.size, (255, 255, 255, 255))
-        flat.alpha_composite(picture)
-        flat = flat.convert("RGB")
-        flat.thumbnail((cfg.background_image_max_dimension,) * 2, Image.Resampling.LANCZOS)
-        buffer = io.BytesIO()
-        flat.save(buffer, format="JPEG", quality=82, optimize=True, progressive=True)
+        with storage.image_slot():
+            with Image.open(path) as image:
+                width, height = image.size
+                scale = min(1.0, edge / max(width, height))
+                image.draft(None, (max(1, int(width * scale)), max(1, int(height * scale))))
+                ImageOps.exif_transpose(image, in_place=True)
+                picture = image.convert("RGBA")
+            picture.thumbnail((edge, edge), Image.Resampling.LANCZOS)
+            flat = Image.new("RGBA", picture.size, (255, 255, 255, 255))
+            flat.alpha_composite(picture)
+            buffer = io.BytesIO()
+            flat.convert("RGB").save(buffer, format="JPEG", quality=82, optimize=True, progressive=True)
     finally:
         service.delete_upload(name)
     final = f"{BACKGROUND_DIR}/{secrets.token_hex(16)}.jpg"

@@ -18,13 +18,15 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import os
+import re
 import secrets
 import socket
 import sqlite3
 import string
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +49,7 @@ MAX_EXTENSION_SECONDS = 10 * 365 * 86400
 LOG_NAMES = ("error.log", "access.log")
 _ID_ALPHABET = string.ascii_lowercase + string.digits
 _PASSWORD_ALPHABET = string.ascii_letters + string.digits
+_MARKER_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def provisioning_ready(inst: dict[str, Any]) -> bool:
@@ -80,6 +83,55 @@ def _provisioning_lock(inst: dict[str, Any], *, wait: bool = False) -> Iterator[
         lock.release()
 
 
+PROVISIONING_STARTED = "instance.provisioning_started"
+PROVISIONING_REFUSED = "instance.provisioning_refused"
+
+
+def _refusal_marker(instance_id: str) -> Path:
+    """The file that records, outside ``hosting.db``, that the runtime refused to create this wiki's data.
+
+    It sits next to the provisioning lock stripes and is never removed: it
+    is a few bytes per refused creation, keyed by the wiki's unique id, and
+    it still protects the directory if ``hosting.db`` is restored from a
+    backup taken before the refused row was terminated.
+    """
+    name = instance_id if _MARKER_NAME.fullmatch(instance_id) else hashlib.sha256(instance_id.encode()).hexdigest()
+    return Path(cfg().platform_state_dir) / ".provisioning-refused" / name
+
+
+def _mark_refused(inst: dict[str, Any], code: str) -> None:
+    """Write the refusal marker atomically and durably, before any database statement about the refusal.
+
+    A failing write is logged and the refusal goes on to the database: the
+    directory is then lost only if the database writes fail as well.
+    """
+    from ..ops.files import atomic_write  # POSIX only, like the hosting platform
+
+    try:
+        atomic_write(_refusal_marker(inst["id"]),
+                     f"{code} {now_sql()} {inst['subdomain']} ({inst.get('domain_mode') or 'hosting'})\n")
+    except (OSError, ValueError) as error:
+        log.error("Could not record outside the database that the runtime refused to create wiki %s: %s",
+                  inst["id"], error)
+
+
+def _refusal_marked(instance_id: str) -> bool:
+    """Whether the refusal marker exists.
+
+    A check that fails is raised: the caller then neither deletes the data nor
+    releases the reservation (its container may still run), and a later cancel
+    retries.
+    """
+    try:
+        os.lstat(_refusal_marker(instance_id))
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        log.error("Cannot check the refusal marker of wiki %s: %s", instance_id, error)
+        raise
+    return True
+
+
 def _provision(inst: dict[str, Any], operation: Callable[[TenantSpec], None]) -> None:
     """Reserve initialization until all seed/copy/import and startup work is done."""
     with _provisioning_lock(inst, wait=True):
@@ -87,8 +139,16 @@ def _provision(inst: dict[str, Any], operation: Callable[[TenantSpec], None]) ->
         if not fresh or fresh["status"] != "stopped" or fresh["provisioning_state"] != "pending":
             raise ServiceError("hosting.instances.changed_state")
         initial_spec = spec(fresh)
+        # Recorded before the runtime may create anything under this wiki's
+        # name: a creation cancelled without it never reached the runtime, so
+        # whatever sits under the name is not its own (see _discard_failed).
+        events.record("instance", inst["id"], PROVISIONING_STARTED)
         try:
             operation(initial_spec)
+        except RuntimeFailure as error:
+            _discard_failed(inst, error)
+            raise _fail(error) from error
+        try:
             # Global settings or the account's privileges may have changed
             # while the slow seed/copy ran. Complete with the current policy.
             settings.load(fresh=True)
@@ -97,6 +157,8 @@ def _provision(inst: dict[str, Any], operation: Callable[[TenantSpec], None]) ->
                 runtime().apply_limits(current_spec)
                 runtime().restart(current_spec, force=True)
         except RuntimeFailure as error:
+            # The wiki was created and started: whatever this step reports,
+            # the data under its name is its own.
             _discard_failed(inst)
             raise _fail(error) from error
         with db.transaction():
@@ -161,6 +223,25 @@ def generate_password(length: int = 12) -> str:
 def _fail(error: RuntimeFailure) -> ServiceError:
     log.warning("Runtime operation failed: %s", error)
     return ServiceError(f"hosting.runtime.{error.code}")
+
+
+def _each(rows: list[dict[str, Any]], action: Callable[[dict[str, Any]], Any], failure: str) -> int:
+    """Apply *action* to every row on its own and count the rows it handled (False skips one).
+
+    A failing row is logged and the rest still run: a wiki that keeps failing
+    (a refusal, a runtime or file error) is retried on the next maintenance
+    pass instead of holding up every wiki after it.
+    """
+    count = 0
+    for row in rows:
+        try:
+            if action(row) is not False:
+                count += 1
+        except ServiceError as error:
+            log.warning(failure, row["id"], error.key)
+        except Exception as error:  # noqa: BLE001 - one wiki must not block the others
+            log.exception(failure, row["id"], error)
+    return count
 
 
 # ── Policy and specs ──────────────────────────────────────────────────────────
@@ -423,15 +504,59 @@ def create(account: dict[str, Any], slug: str, *, domain_mode: str = "hosting", 
     return get(inst["id"]), username, password  # type: ignore[return-value]
 
 
-def _discard_failed(inst: dict[str, Any]) -> None:
-    """Remove a wiki whose provisioning failed: terminate the row, drop any data."""
+def _discard_failed(inst: dict[str, Any], error: RuntimeFailure | None = None) -> None:
+    """Remove a wiki whose provisioning failed: terminate the row, drop the data it created.
+
+    *error* is the failure the runtime operation itself raised (None when the
+    creation was cancelled, its owner lost the right to it or a step after
+    the operation failed). Data under the wiki's name is destroyed only when
+    it can be this wiki's own:
+
+    * ``data_exists`` means the runtime refused before writing or starting
+      anything: the directory is someone else's (data a failed move left
+      behind, a manual copy). Before any database statement the refusal is
+      written to a marker file (see :func:`_refusal_marker`), then recorded
+      as an event. Either record is enough for a later cancellation or
+      expiry to leave the directory alone, so neither a failing event nor a
+      failing row update below turns the refusal into a deletion. A worker
+      killed outright between handing the creation to the runtime and
+      recording its answer leaves neither record: that creation is then
+      treated as one the runtime worked on (an accepted residual).
+    * Without ``instance.provisioning_started`` the runtime was never asked
+      to create anything (the creator gave up on a busy lock or was
+      interrupted after the reservation), so whatever sits under the name is
+      not this wiki's either. Unfinished wikis left by a build without that
+      event are treated the same way: their partial data is left behind
+      rather than risking data they did not create.
+
+    In both cases the directory is left untouched for an administrator to
+    look at; this wiki holds no runtime resources, so its row is terminated
+    at once, in one update, and gives up its name, port and capacity (only
+    the directory keeps the name taken). Otherwise the runtime may have left
+    a directory or a container of this wiki behind, and while they cannot be
+    destroyed the row keeps its reservation (terminating it retries the
+    cleanup).
+    """
+    terminated = {"status": "terminated", "terminated_at": now_sql(), "port": None,
+                  "subdomain": urls.archived_slug(inst["id"], inst["subdomain"]),
+                  "terminated_reason": "provisioning_failed", "data_retained_until": None}
+    refused = error is not None and error.code == "data_exists"
+    if refused:
+        _mark_refused(inst, error.code)
+        events.record("instance", inst["id"], PROVISIONING_REFUSED, None, error.code)
+    if refused or not _runtime_may_own_data(inst["id"]):
+        log.error("Wiki %s not created: the data directory under its name, if any, is not its own and was left "
+                  "untouched", inst["id"])
+        db.update("instances", {"provisioning_state": "failed", **terminated}, "id = ?", (inst["id"],))
+        return
     db.update("instances", {"provisioning_state": "failed"}, "id = ?", (inst["id"],))
     try:
         runtime().destroy(spec(inst, with_policy=False))
-    except RuntimeFailure as error:
+    except RuntimeFailure as cleanup:
         # A failing runtime may have started a container before reporting an
         # error. Do not release its port/name/capacity while resources remain.
-        log.error("Could not clean up failed wiki %s; retaining its resource reservation: %s", inst["id"], error)
+        log.error("Could not clean up failed wiki %s; retaining its resource reservation: %s", inst["id"],
+                  cleanup)
         try:
             runtime().stop(spec(inst, with_policy=False))
         except RuntimeFailure as stop_error:
@@ -441,10 +566,56 @@ def _discard_failed(inst: dict[str, Any]) -> None:
         else:
             db.update("instances", {"status": "stopped", "stopped_at": now_sql()}, "id = ?", (inst["id"],))
         return
-    db.update("instances", {"status": "terminated", "terminated_at": now_sql(), "port": None,
-                            "subdomain": urls.archived_slug(inst["id"], inst["subdomain"]),
-                            "terminated_reason": "provisioning_failed", "data_retained_until": None},
-              "id = ?", (inst["id"],))
+    db.update("instances", terminated, "id = ?", (inst["id"],))
+
+
+def _runtime_may_own_data(instance_id: str) -> bool:
+    """Whether the runtime was asked to create this wiki's data and did not refuse because it existed.
+
+    The refusal marker and the ``instance.provisioning_refused`` event count
+    the same: either one means the data under the name is not this wiki's.
+    """
+    if _refusal_marked(instance_id):
+        return False
+    actions = set(db.column(
+        "SELECT action FROM hosting_events WHERE subject_type = 'instance' AND subject_id = ? AND action IN (?, ?)",
+        (instance_id, PROVISIONING_STARTED, PROVISIONING_REFUSED)))
+    return PROVISIONING_STARTED in actions and PROVISIONING_REFUSED not in actions
+
+
+def _data_dir(inst: dict[str, Any]) -> str:
+    return urls.data_dir_name(inst["subdomain"], inst.get("domain_mode") or "hosting")
+
+
+def _settle_data(instance_id: str, moved_to: str) -> None:
+    """After a row update failed, move data already moved to *moved_to* back where the row expects it.
+
+    Data must never sit under a name its row does not hold: the next wiki
+    created with that name would find it (and fail), and the wiki that owns
+    it could no longer reach it.
+    """
+    current = get(instance_id)
+    if current is None:
+        return
+    expected = _data_dir(current)
+    if expected == moved_to:
+        return
+    try:
+        runtime().relocate(instance_id, moved_to, expected)
+    except RuntimeFailure as error:
+        log.error("Data of wiki %s is stuck in %s (expected %s): %s", instance_id, moved_to, expected, error)
+
+
+def _undo_move(inst: dict[str, Any], moved_to: str, was_running: bool) -> None:
+    """Put a wiki back as it was when its row could not take the name its data moved to."""
+    _settle_data(inst["id"], moved_to)
+    if not was_running:
+        return
+    try:
+        runtime().start(spec(inst))
+    except RuntimeFailure as error:
+        log.warning("Wiki %s stays stopped: %s", inst["id"], error)
+        db.update("instances", {"status": "stopped", "stopped_at": now_sql()}, "id = ?", (inst["id"],))
 
 
 # ── Pause, resume, restart ────────────────────────────────────────────────────
@@ -604,7 +775,22 @@ def suspension_history(instance_id: str) -> list[dict[str, Any]]:
 
 
 def terminate(inst: dict[str, Any], *, actor_id: str | None, reason: str = "manual") -> None:
-    """Stop the wiki, archive its name and keep its data for the grace period."""
+    """Stop the wiki, archive its name and keep its data for the grace period.
+
+    A wiki whose creation never finished (pending or failed) is cancelled
+    instead: its partial data is destroyed, never kept as retained data, and
+    its name, port and capacity are released only once that cleanup is done.
+    Data under its name that the runtime never created for it (it was never
+    asked to, or refused because the directory existed) is left untouched.
+
+    Otherwise the data moves to the archived name before the row gives up the
+    original one. When the move fails the wiki keeps its name (stopped) and
+    the termination can simply be retried; data left under a released name
+    would make the next wiki of that name fail and could no longer be
+    restored. Without a grace period the archived data is then deleted; if
+    that fails it stays under the archived name until an administrator
+    deletes the wiki.
+    """
     if not provisioning_ready(inst):
         with _provisioning_lock(inst):
             fresh = get(inst["id"])
@@ -629,26 +815,43 @@ def terminate(inst: dict[str, Any], *, actor_id: str | None, reason: str = "manu
         raise _fail(error) from error
     grace = settings.grace_period_days()
     archived = urls.archived_slug(inst["id"], inst["subdomain"])
-    with db.transaction():
-        changed = db.update("instances", {
-            "status": "terminated", "terminated_at": now_sql(), "port": None, "subdomain": archived,
-            "data_retained_until": sql_in(days=grace) if grace > 0 else None, "terminated_reason": reason,
-            "admin_password_plain": None,
-        }, "id = ? AND status != 'terminated'", (inst["id"],))
-        if not changed:
-            raise ServiceError("hosting.instances.changed_state")
-        db.execute("DELETE FROM instance_custom_domains WHERE instance_id = ?", (inst["id"],))
-        db.execute("UPDATE instance_ownership_transfers SET status = 'cancelled', resolved_at = ? "
-                   "WHERE instance_id = ? AND status = 'pending'", (now_sql(), inst["id"]))
-        events.record("instance", inst["id"], f"instance.terminated.{reason}", actor_id)
+    archived_dir = urls.data_dir_name(archived, runtime_spec.domain_mode)
+    moved = False
     try:
-        if grace > 0:
-            runtime().relocate(inst["id"], runtime_spec.data_dir_name,
-                               urls.data_dir_name(archived, runtime_spec.domain_mode))
-        else:
-            runtime().destroy(runtime_spec)
+        runtime().relocate(inst["id"], runtime_spec.data_dir_name, archived_dir)
+        moved = True
     except RuntimeFailure as error:
-        log.error("Data of terminated wiki %s not moved: %s", inst["id"], error)
+        if error.code != "not_found":
+            if inst["status"] == "running":
+                _cas(inst["id"], ("running",), {"status": "stopped", "stopped_at": now_sql()})
+                sync_routes()
+            raise _fail(error) from error
+        log.warning("Terminated wiki %s had no data directory to keep", inst["id"])
+    try:
+        with db.transaction():
+            # A rename since *inst* was read moved the data elsewhere (the move
+            # above then found nothing): the row must not release that name.
+            changed = db.update("instances", {
+                "status": "terminated", "terminated_at": now_sql(), "port": None, "subdomain": archived,
+                "data_retained_until": sql_in(days=grace) if grace > 0 else None, "terminated_reason": reason,
+                "admin_password_plain": None, "grace_period_suspended": 0,
+            }, "id = ? AND status != 'terminated' AND subdomain = ? AND domain_mode IS ?",
+                (inst["id"], inst["subdomain"], inst.get("domain_mode")))
+            if not changed:
+                raise ServiceError("hosting.instances.changed_state")
+            db.execute("DELETE FROM instance_custom_domains WHERE instance_id = ?", (inst["id"],))
+            db.execute("UPDATE instance_ownership_transfers SET status = 'cancelled', resolved_at = ? "
+                       "WHERE instance_id = ? AND status = 'pending'", (now_sql(), inst["id"]))
+            events.record("instance", inst["id"], f"instance.terminated.{reason}", actor_id)
+    except (ServiceError, sqlite3.Error):
+        if moved:
+            _settle_data(inst["id"], archived_dir)
+        raise
+    if grace <= 0:
+        try:
+            runtime().destroy(spec({**inst, "subdomain": archived, "status": "terminated"}, with_policy=False))
+        except RuntimeFailure as error:
+            log.error("Data of terminated wiki %s not deleted: %s", inst["id"], error)
     sync_routes()
 
 
@@ -669,17 +872,25 @@ def restore(inst: dict[str, Any], *, actor_id: str, extend_days: int | None = No
         raise ServiceError("hosting.instances.name_taken")
     days = extend_days if extend_days and extend_days > 0 else cfg().limits.duration_days
     old_dir = urls.data_dir_name(inst["subdomain"], mode)
+    new_dir = urls.data_dir_name(target, mode)
     try:
-        runtime().relocate(inst["id"], old_dir, urls.data_dir_name(target, mode))
+        runtime().relocate(inst["id"], old_dir, new_dir)
     except RuntimeFailure as error:
         raise _fail(error) from error
-    with db.transaction():
-        db.update("instances", {
-            "status": "stopped", "subdomain": target, "port": _allocate_port(), "stopped_at": now_sql(),
-            "expires_at": None if mode == "apex" else sql_in(days=days), "terminated_at": None,
-            "data_retained_until": None, "terminated_reason": None, "grace_period_suspended": 0,
-        }, "id = ?", (inst["id"],))
-        events.record("instance", inst["id"], "instance.restored", actor_id, target)
+    try:
+        with db.transaction():
+            db.update("instances", {
+                "status": "stopped", "subdomain": target, "port": _allocate_port(), "stopped_at": now_sql(),
+                "expires_at": None if mode == "apex" else sql_in(days=days), "terminated_at": None,
+                "data_retained_until": None, "terminated_reason": None, "grace_period_suspended": 0,
+            }, "id = ?", (inst["id"],))
+            events.record("instance", inst["id"], "instance.restored", actor_id, target)
+    except sqlite3.IntegrityError as error:
+        _settle_data(inst["id"], new_dir)
+        raise ServiceError("hosting.instances.name_taken") from error
+    except (ServiceError, sqlite3.Error):
+        _settle_data(inst["id"], new_dir)
+        raise
     restored = get(inst["id"])
     try:
         start(restored, actor_id=actor_id)  # type: ignore[arg-type]
@@ -699,30 +910,84 @@ def hard_delete(inst: dict[str, Any], *, actor_id: str) -> None:
     events.record("instance", inst["id"], "instance.deleted", actor_id)
 
 
+_GRACE_DUE = ("status = 'terminated' AND data_retained_until IS NOT NULL AND data_retained_until <= ? "
+              "AND grace_period_suspended = 0")
+
+
 def purge_expired_grace_periods() -> int:
-    purged = 0
-    for inst in db.all("SELECT * FROM instances WHERE status = 'terminated' AND data_retained_until IS NOT NULL "
-                       "AND data_retained_until <= ?", (now_sql(),)):
+    """Delete the data and rows of terminated wikis whose retention ended (paused countdowns wait)."""
+
+    def purge(inst: dict[str, Any]) -> bool:
+        # An administrator may have paused the countdown since the list was read.
+        if not db.scalar(f"SELECT 1 FROM instances WHERE id = ? AND {_GRACE_DUE}", (inst["id"], now_sql())):
+            return False
         try:
             runtime().destroy(spec(inst, with_policy=False))
-        except (RuntimeFailure, ValueError) as error:
+        except RuntimeFailure as error:
             log.warning("Retained data of %s not deleted yet: %s", inst["id"], error)
-            continue
+            return False
         db.execute("DELETE FROM instances WHERE id = ?", (inst["id"],))
-        purged += 1
-    return purged
+        return True
+
+    rows = db.all(f"SELECT * FROM instances WHERE {_GRACE_DUE} ORDER BY data_retained_until, id", (now_sql(),))
+    return _each(rows, purge, "Retained data of %s not deleted yet: %s")
 
 
-def set_grace_suspended(inst: dict[str, Any], suspended: bool, *, actor_id: str) -> None:
+def _grace_paused_since(inst: dict[str, Any]) -> datetime | None:
+    """When the current pause of the deletion countdown began.
+
+    That is the latest ``instance.grace_suspended`` event of this
+    termination; a pause with no such event (set before 1.6 recorded one)
+    counts from the termination, so resuming never shortens the retention.
+    """
+    terminated = parse(inst.get("terminated_at"))
+    paused = parse(db.scalar(
+        "SELECT created_at FROM hosting_events WHERE subject_type = 'instance' AND subject_id = ? "
+        "AND action = 'instance.grace_suspended' ORDER BY id DESC LIMIT 1", (inst["id"],)))
+    if paused and (terminated is None or paused >= terminated):
+        return paused
+    return terminated
+
+
+def set_grace_suspended(inst: dict[str, Any], suspended: bool, *, actor_id: str) -> bool:
+    """Pause or resume the deletion countdown of a terminated wiki's retained data.
+
+    While paused the data is kept however long the pause lasts (the purge
+    skips the wiki) and its owner cannot download it. Resuming pushes
+    ``data_retained_until`` back by the paused time, so the countdown goes on
+    from where it stopped. Asking for the current state again changes nothing
+    and returns False.
+    """
     if inst["status"] != "terminated" or not inst.get("data_retained_until"):
         raise ServiceError("hosting.instances.not_in_grace")
-    db.update("instances", {"grace_period_suspended": 1 if suspended else 0}, "id = ?", (inst["id"],))
-    events.record("instance", inst["id"], "instance.grace_" + ("suspended" if suspended else "unsuspended"), actor_id)
+    paused = bool(inst.get("grace_period_suspended"))
+    if suspended == paused:
+        return False
+    values: dict[str, Any] = {"grace_period_suspended": 1 if suspended else 0}
+    if suspended:
+        if not grace_active(inst):
+            raise ServiceError("hosting.instances.not_in_grace")
+    else:
+        since = _grace_paused_since(inst)
+        until = parse(inst["data_retained_until"])
+        if since and until:
+            values["data_retained_until"] = to_sql(until + max(timedelta(0), utcnow() - since))
+    with db.transaction():
+        changed = db.update("instances", values, "id = ? AND status = 'terminated' AND grace_period_suspended = ?",
+                            (inst["id"], 1 if paused else 0))
+        if not changed:
+            raise ServiceError("hosting.instances.changed_state")
+        events.record("instance", inst["id"], "instance.grace_" + ("suspended" if suspended else "unsuspended"),
+                      actor_id)
+    return True
 
 
 def grace_active(inst: dict[str, Any]) -> bool:
+    """Whether a terminated wiki's data is retained: until its date, or for as long as the countdown is paused."""
     until = inst.get("data_retained_until")
-    return inst["status"] == "terminated" and bool(until) and not is_past(until)
+    if inst["status"] != "terminated" or not until:
+        return False
+    return bool(inst.get("grace_period_suspended")) or not is_past(until)
 
 
 # ── Expiry ────────────────────────────────────────────────────────────────────
@@ -753,43 +1018,36 @@ def shift_expiry(inst: dict[str, Any], seconds: int, *, actor_id: str) -> None:
 
 
 def terminate_expired() -> int:
-    count = 0
-    for inst in db.all("SELECT * FROM instances WHERE status IN ('running', 'stopped') AND expires_at IS NOT NULL "
-                       "AND expires_at <= ?", (now_sql(),)):
-        try:
-            terminate(inst, actor_id=None, reason="expired")
-            count += 1
-        except ServiceError as error:
-            log.warning("Expired wiki %s not terminated: %s", inst["id"], error.key)
-    return count
+    rows = db.all("SELECT * FROM instances WHERE status IN ('running', 'stopped') AND expires_at IS NOT NULL "
+                  "AND expires_at <= ? ORDER BY expires_at, id", (now_sql(),))
+    return _each(rows, lambda inst: terminate(inst, actor_id=None, reason="expired"),
+                 "Expired wiki %s not terminated: %s")
 
 
 def lift_expired_suspensions() -> int:
-    count = 0
-    for inst in db.all("SELECT * FROM instances WHERE status = 'suspended' AND suspended_until IS NOT NULL "
-                       "AND suspended_until <= ?", (now_sql(),)):
-        try:
-            unsuspend(inst, actor_id=None)
-            count += 1
-        except ServiceError as error:
-            log.warning("Timed suspension of %s not lifted: %s", inst["id"], error.key)
-    return count
+    rows = db.all("SELECT * FROM instances WHERE status = 'suspended' AND suspended_until IS NOT NULL "
+                  "AND suspended_until <= ? ORDER BY suspended_until, id", (now_sql(),))
+    return _each(rows, lambda inst: unsuspend(inst, actor_id=None), "Timed suspension of %s not lifted: %s")
 
 
 def enforce_storage_quotas(overrun_ratio: float = 1.10) -> int:
     """Suspend non-admin wikis that materially exceed their storage cap."""
-    count = 0
-    for inst in db.all("SELECT * FROM instances WHERE status IN ('running', 'stopped')"):
+
+    def check(inst: dict[str, Any]) -> bool:
         limit = storage_limit_mb(inst)
         if limit is None:
-            continue
+            return False
         used = usage_bytes(inst)
         if used <= limit * 1024 * 1024 * overrun_ratio:
-            continue
+            return False
         suspend(inst, actor_id=None, reason=f"Automatic storage protection: {used / 1048576:.1f} MB used, "
                 f"{limit} MB allowed.", reason_visible=True, duration_label="storage")
-        count += 1
-    return count
+        return True
+
+    # An unfinished creation cannot be suspended; it is cancelled, never enforced.
+    rows = db.all("SELECT * FROM instances WHERE status IN ('running', 'stopped') AND provisioning_state = 'ready' "
+                  "ORDER BY created_at, id")
+    return _each(rows, check, "Storage quota of %s not enforced: %s")
 
 
 # ── Names, owners and quotas ──────────────────────────────────────────────────
@@ -816,10 +1074,11 @@ def rename(inst: dict[str, Any], slug: str, domain_mode: str, *, actor_id: str, 
         return inst
     was_running = inst["status"] == "running"
     old_spec = spec(inst, with_policy=False)
+    new_dir = urls.data_dir_name(slug, domain_mode)
     try:
         if was_running:
             runtime().stop(old_spec)
-        runtime().relocate(inst["id"], old_spec.data_dir_name, urls.data_dir_name(slug, domain_mode))
+        runtime().relocate(inst["id"], old_spec.data_dir_name, new_dir)
     except RuntimeFailure as error:
         raise _fail(error) from error
     values: dict[str, Any] = {"subdomain": slug, "domain_mode": domain_mode}
@@ -827,7 +1086,13 @@ def rename(inst: dict[str, Any], slug: str, domain_mode: str, *, actor_id: str, 
         values.update(expires_at=None, storage_limit_mb=0)
     elif old_mode == "apex":
         values["expires_at"] = sql_in(days=ADMIN_EXPIRY_DAYS if admin_owner else cfg().limits.duration_days)
-    db.update("instances", values, "id = ?", (inst["id"],))
+    try:
+        db.update("instances", values, "id = ?", (inst["id"],))
+    except sqlite3.Error as error:
+        _undo_move(inst, new_dir, was_running)
+        if isinstance(error, sqlite3.IntegrityError):
+            raise ServiceError("hosting.instances.name_taken") from error
+        raise
     db.execute("DELETE FROM instance_custom_domains WHERE instance_id = ? AND verified_at IS NULL", (inst["id"],))
     events.record("instance", inst["id"], "instance.renamed", actor_id,
                   f"{inst['subdomain']} ({old_mode}) -> {slug} ({domain_mode})")
@@ -891,14 +1156,21 @@ def rename_for_non_admin(inst: dict[str, Any], *, actor_id: str) -> dict[str, An
         slug = f"{base[:30]}-{number}"
         number += 1
     old_spec = spec(inst, with_policy=False)
+    new_dir = urls.data_dir_name(slug, "hosting")
     try:
         if inst["status"] == "running":
             runtime().stop(old_spec)
-        runtime().relocate(inst["id"], old_spec.data_dir_name, urls.data_dir_name(slug, "hosting"))
+        runtime().relocate(inst["id"], old_spec.data_dir_name, new_dir)
     except RuntimeFailure as error:
         raise _fail(error) from error
-    db.update("instances", {"subdomain": slug, "domain_mode": "hosting",
-                            "expires_at": sql_in(days=cfg().limits.duration_days)}, "id = ?", (inst["id"],))
+    try:
+        db.update("instances", {"subdomain": slug, "domain_mode": "hosting",
+                                "expires_at": sql_in(days=cfg().limits.duration_days)}, "id = ?", (inst["id"],))
+    except sqlite3.Error as error:
+        _undo_move(inst, new_dir, inst["status"] == "running")
+        if isinstance(error, sqlite3.IntegrityError):
+            raise ServiceError("hosting.instances.name_taken") from error
+        raise
     events.record("instance", inst["id"], "instance.renamed", actor_id, f"{base} (apex) -> {slug} (hosting)")
     return get(inst["id"])  # type: ignore[return-value]
 
@@ -1065,7 +1337,8 @@ def dashboard_list(account: dict[str, Any]) -> list[dict[str, Any]]:
     show_retained = bool(account["is_admin"]) or settings.flag("allow_owner_download_expired")
     rows = db.all(
         "SELECT * FROM instances WHERE account_id = ? AND (status != 'terminated' OR (? = 1 AND "
-        "data_retained_until > ?)) ORDER BY created_at DESC", (account["id"], 1 if show_retained else 0, now_sql()),
+        "(data_retained_until > ? OR (data_retained_until IS NOT NULL AND grace_period_suspended = 1)))) "
+        "ORDER BY created_at DESC", (account["id"], 1 if show_retained else 0, now_sql()),
     )
     items = [{**describe(row, admin_owner=bool(account["is_admin"])), "role": "owner"} for row in rows]
     shared = db.all(

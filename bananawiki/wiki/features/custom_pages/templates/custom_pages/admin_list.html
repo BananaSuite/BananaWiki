@@ -8,7 +8,7 @@
     <a class="btn btn--primary" href="{{ url_for('custom_pages.admin_create') }}">{{ t('custom_pages.admin.create') }}</a>
   </div>
 </header>
-<div class="alert alert--warning"><div class="alert__body">{{ t('custom_pages.admin.public_notice') }}</div></div>
+<div class="alert alert--warning"><div class="alert__body">{{ t('custom_pages.admin.public_notice') if public_allowed else t('custom_pages.admin.members_notice') }}</div></div>
 
 {% if pages %}
 <div class="table-wrap">

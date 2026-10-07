@@ -15,6 +15,8 @@ from bananawiki.wiki.features.pages import categories
 from bananawiki.wiki.features.pages import service as pages
 from bananawiki.wiki.features.tts import backends, options, service, text, worker
 
+from .pages_support import restrict
+
 AUDIO = b"ID3" + b"\x00" * 200
 
 
@@ -356,8 +358,7 @@ def test_restricted_page_is_invisible(app, client, make_user, login, make_page, 
     page = make_page("Hidden plan", category_id=secret["id"])
     _complete(ctx, page, work)
     reader = make_user("reader")
-    db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 1)",
-               (reader["id"],))
+    restrict(db, reader, read=[])  # role defaults, no readable category
     login(client, reader)
     for suffix in ("status", "audio", "download"):
         assert client.get(f"/page/hidden-plan/tts/{suffix}").status_code == 404

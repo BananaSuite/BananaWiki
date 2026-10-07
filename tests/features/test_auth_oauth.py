@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from conftest import PASSWORD
 
-from bananawiki.core import http
+from bananawiki.core import http, web
 from bananawiki.wiki.features.auth import platform_oauth
 
 PORTAL = "https://portal.example"
@@ -251,6 +251,48 @@ def test_link_and_unlink_from_settings(oauth_app, oauth_client, oauth_db, portal
     oauth_client.post("/settings/unlink-platform-account", data={"password": PASSWORD})
     assert oauth_db.scalar("SELECT COUNT(*) FROM platform_oauth_links") == 0
     assert user["id"] not in portal.links
+
+
+def _form_action(response):
+    """The sources of the response's CSP ``form-action`` directive."""
+    for directive in response.headers["Content-Security-Policy"].split(";"):
+        name, _, sources = directive.strip().partition(" ")
+        if name == "form-action":
+            return sources
+    return None
+
+
+def test_link_page_lets_its_form_redirect_to_the_portal_only(oauth_client, portal, make_user, login):
+    # Chromium checks the redirect that answers the link form against this page's form-action.
+    login(oauth_client, make_user("bob"))
+    page = oauth_client.get("/settings/link-platform-account")
+    assert page.status_code == 200 and _form_action(page) == f"'self' {PORTAL}"
+    refused = oauth_client.post("/settings/link-platform-account", data={"password": "wrong password"})
+    assert refused.status_code == 401 and _form_action(refused) == f"'self' {PORTAL}"
+    assert _form_action(oauth_client.get("/settings/profile")) == "'self'"
+    assert _form_action(oauth_client.get("/login")) == "'self'"
+    response = oauth_client.post("/settings/link-platform-account", data={"password": PASSWORD})
+    _callback(oauth_client, parse_qs(urlsplit(response.headers["Location"]).query), "/platform-oauth/link-callback")
+    linked = oauth_client.get("/settings/link-platform-account")
+    assert b"/settings/unlink-platform-account" in linked.data and _form_action(linked) == "'self'"
+
+
+def test_link_page_takes_only_the_origin_of_the_authorize_url(app_factory, make_user, login):
+    app = app_factory(environ={**OAUTH_ENV, "BW_PLATFORM_OAUTH_AUTHORIZE_URL": "http://Portal.Local:8080/o/authorize?x=1"})
+    client = app.test_client()
+    login(client, make_user("bob"))
+    assert _form_action(client.get("/settings/link-platform-account")) == "'self' http://portal.local:8080"
+
+
+@pytest.mark.parametrize(("url", "origin"), [
+    ("https://Portal.Example/oauth/authorize?next=/x", "https://portal.example"),
+    ("http://127.0.0.1:8080/oauth/authorize", "http://127.0.0.1:8080"),
+    ("", None), ("/oauth/authorize", None), ("javascript:alert(1)", None), ("ftp://portal.example/x", None),
+    ("https://user:pw@portal.example/", None), ("https://portal.example:99999/", None), ("https://[::1]/", None),
+    ("https://portal.example;script-src *", None), ("https://a b.example/", None),
+])
+def test_only_a_plain_origin_reaches_the_policy(url, origin):
+    assert web.csp_origin(url) == origin
 
 
 def test_link_callback_bound_to_the_user_who_started_it(oauth_app, oauth_db, portal, make_user, login):

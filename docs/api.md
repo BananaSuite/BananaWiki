@@ -192,7 +192,18 @@ Creating needs `category.create`, renaming `category.edit`, moving
 `category.reorder` (with write access to the category and the new parent),
 sequential navigation `category.manage_sequential`, deleting
 `category.delete`. A category cannot move into itself or its subcategories;
-names are at most 100 characters.
+names are at most 100 characters. `GET /categories` lists categories only
+for callers with `category.view_all`.
+
+`page_action=delete` also needs `page.delete` and a token with the `pages`
+scope and write access (otherwise 403 `cannot_delete` or `scope_missing`).
+It deletes the pages as `DELETE /pages/<slug>` would, all or nothing: if the
+category holds pages the caller cannot see or may not delete, the answer is
+403 (`category_pages_hidden`, `category_pages_forbidden`); protected,
+checked-out or pending pages give 409 (`category_pages_blocked`). Refused
+pages are listed by slug in `pages`. With Deletion Slowdown on, the answer is
+202 and `pending_deletion` lists the scheduled pages; they, and pages another
+feature keeps (`kept`), lose the category.
 
 ## Accounts (`users`, administrators)
 
@@ -232,8 +243,9 @@ offset are read in the site time zone.
 * `GET /tokens`, `DELETE /tokens/<id>`: the caller's own tokens.
 * `POST /tokens {name?, permissions?, expires_at?}`: issue a token that can
   never exceed the calling one — no flag or scope it lacks, no later expiry;
-  an omitted expiry inherits the caller's. Each token is independent:
-  revoking the parent does not revoke its children.
+  an omitted expiry inherits the caller's. An expiry is at most 10 years
+  ahead (400 `expiry_too_far`), on the token page too. Each token is
+  independent: revoking the parent does not revoke its children.
 * `GET /admin/tokens`, `POST /admin/tokens/<id>/revoke` (the tokens of a
   superuser, an owner or another administrator only as the hierarchy allows),
   `PUT /admin/users/<id>/api-access {enabled}`,

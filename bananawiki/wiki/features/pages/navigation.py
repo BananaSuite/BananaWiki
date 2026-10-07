@@ -4,7 +4,8 @@ A wiki can hold thousands of pages; the sidebar loads at most
 ``INITIAL_PER_CATEGORY`` links per category (``INITIAL_TOTAL`` overall) and
 the reader loads more in batches of ``BATCH_SIZE``. Visibility is applied in
 SQL through :func:`service.visible_filter`, and category names the reader
-cannot open are never shown: their readable descendants move up instead.
+may not list (:func:`categories.listed`) are never shown: their listed
+descendants move up instead.
 """
 
 from __future__ import annotations
@@ -88,7 +89,7 @@ def _category_nodes(user, counts, section) -> list[dict[str, Any]]:
             if category["id"] in trail:
                 continue
             children = build(category["id"], trail | {category["id"]})
-            if not auth.can_read_category(category["id"], user):
+            if not categories.listed(category["id"], user):
                 nodes.extend(children)
                 continue
             data = section(category["id"])

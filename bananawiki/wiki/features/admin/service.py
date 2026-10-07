@@ -355,7 +355,8 @@ def suspend(actor: dict[str, Any], target: dict[str, Any], *, until: str | None,
         db.insert("suspension_audit", {
             "user_id": target["id"], "action": "suspend", "reason": reason or None,
             "reason_visible": int(reason_visible), "time_visible": int(time_visible), "duration": label,
-            "suspended_until": until, "performed_by": actor["id"], "created_at": now_sql(),
+            "suspended_until": until, "performed_by": actor["id"], "imposed_by_top": int(_is_top(actor)),
+            "created_at": now_sql(),
         })
         auth.revoke_sessions(target["id"])
     emit("user.suspended", user=get_user(target["id"]), until=until, actor_id=actor["id"])

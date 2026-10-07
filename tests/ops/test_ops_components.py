@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -27,7 +28,7 @@ from bananawiki.ops.files import (
 from bananawiki.ops.manager import Manager
 from bananawiki.ops.snapshot import Snapshot
 from bananawiki.ops.source import GitSource, valid_branch, valid_url
-from bananawiki.ops.system import System
+from bananawiki.ops.system import System, base_images
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -284,6 +285,182 @@ def test_caddyfile_hardening():
         caddy.render({**settings_for("wiki"), "domain": ""})
 
 
+# Tenant image --------------------------------------------------------------------
+
+
+def test_base_images_of_a_dockerfile(tmp_path):
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text("FROM --platform=linux/amd64 python:3.12-slim AS build\nRUN true\nFROM build\n"
+                          "FROM scratch\nFROM ${BASE}\nfrom debian:trixie-slim\n")
+    assert base_images(dockerfile) == ["python:3.12-slim", "debian:trixie-slim"]
+    assert base_images(shipped("Dockerfile.tenant")) == ["python:3.12-slim-trixie"]
+
+
+def test_shipped_tenant_image_refreshes_its_packages_on_every_build():
+    """A new BW_REFRESH value changes the cache key of every RUN after it: the upgrade and the installation.
+
+    It is declared in the final stage only, so the FFmpeg and ACL build stages stay cached.
+    """
+    lines = shipped("Dockerfile.tenant").read_text().splitlines()
+    final = max(index for index, line in enumerate(lines) if line.upper().startswith("FROM "))
+    assert [line for line in lines if "BW_REFRESH" in line and not line.startswith("#")] == ["ARG BW_REFRESH=unset"]
+    refresh = lines.index("ARG BW_REFRESH=unset")
+    upgrade = next(index for index, line in enumerate(lines)
+                   if index > refresh and line.startswith("RUN apt-get update"))
+    install = next(index for index, line in enumerate(lines) if "--requirement requirements.txt" in line)
+    assert final < refresh < upgrade < install
+    assert lines[upgrade + 1].strip() == "&& apt-get upgrade -y \\"
+
+
+def test_tenant_image_is_built_on_a_freshly_pulled_base_with_fresh_updates(tmp_path, capsys):
+    release = tmp_path / "release"
+    release.mkdir()
+    shutil.copyfile(shipped("Dockerfile.tenant"), release / "Dockerfile.tenant")
+    commands: list[list[str]] = []
+    state: dict = {"pull": 0, "base": "sha256:old"}
+
+    def runner(command, **_):
+        commands.append(command)
+        if command[:2] == ["docker", "pull"]:
+            if state["pull"] == "timeout":
+                raise subprocess.TimeoutExpired(command, 600)
+            if state["pull"] == 0:
+                state["base"] = "sha256:new"
+            return subprocess.CompletedProcess(command, state["pull"], "", "")
+        if command[:3] == ["docker", "image", "inspect"]:
+            return subprocess.CompletedProcess(command, 0, state["base"] + "\n", "")
+        if command[:2] == ["docker", "build"] and state.get("build_fails"):
+            return subprocess.CompletedProcess(command, 1, "", "E: Unable to fetch some archives")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    def docker() -> list[list[str]]:
+        return [command for command in commands if command[:3] != ["docker", "image", "inspect"]]
+
+    system = System(runner=runner)
+    assert system.build_tenant_image(settings_for("hosting"), release) == []
+    assert docker()[0] == ["docker", "pull", "--quiet", "python:3.12-slim-trixie"]
+    build = docker()[1]
+    assert build[:3] == ["docker", "build", "--pull=false"]
+    assert re.fullmatch(r"BW_REFRESH=\d{8}T\d{6}Z", build[build.index("--build-arg") + 1])
+    assert build[-3:] == ["-t", f"bananawiki-tenant:{'a' * 40}", str(release)]
+    # The base image the pull replaced would stay on disk untagged: removed after the build.
+    assert docker()[2:] == [["docker", "image", "rm", "sha256:old"]]
+    commands.clear()
+    assert system.build_tenant_image(settings_for("hosting"), release) == []
+    assert [command[:2] for command in docker()] == [["docker", "pull"], ["docker", "build"]]
+    # Registry unreachable or not answering: the release is still built (on the cached base), with a warning.
+    for failure in (1, "timeout"):
+        state["pull"] = failure
+        commands.clear()
+        warnings = system.build_tenant_image(settings_for("hosting"), release)
+        assert len(warnings) == 1 and "Could not pull python:3.12-slim-trixie" in warnings[0]
+        assert [command[:2] for command in docker()] == [["docker", "pull"], ["docker", "build"]]
+    assert "Warning: Could not pull" in capsys.readouterr().err
+    # A build that fails on the newly pulled base and again on the previous one (tagged back for it) raises; the
+    # previous base is kept, the new one dropped (the next pull brings it back).
+    state.update(pull=0, base="sha256:older", build_fails=True)
+    commands.clear()
+    with pytest.raises(RuntimeError, match="docker build failed"):
+        system.build_tenant_image(settings_for("hosting"), release)
+    assert [command[:2] for command in docker()] == [["docker", "pull"], ["docker", "build"], ["docker", "tag"],
+                                                      ["docker", "build"], ["docker", "image"]]
+    assert docker()[-1] == ["docker", "image", "rm", "sha256:new"]
+    assert ["docker", "image", "rm", "sha256:older"] not in docker()
+
+
+def test_a_build_failing_on_a_newly_pulled_base_falls_back_to_the_previous_one(tmp_path, capsys):
+    """The ACL stage fetches two exact Debian unstable versions; a new base image rebuilds it, and fails once
+    unstable has moved past them. The update then still brings the final stage's fresh packages."""
+    release = tmp_path / "release"
+    release.mkdir()
+    shutil.copyfile(shipped("Dockerfile.tenant"), release / "Dockerfile.tenant")
+    base = "python:3.12-slim-trixie"
+    commands: list[list[str]] = []
+    host: dict = {"tags": {base: "sha256:old"}, "registry": "sha256:new", "failing": {"sha256:new"},
+                  "built_on": [], "tag_fails": False}
+
+    def runner(command, **_):
+        commands.append(command)
+        tags = host["tags"]
+        if command[:2] == ["docker", "pull"]:
+            tags[command[-1]] = host["registry"]
+        elif command[:3] == ["docker", "image", "inspect"]:
+            identifier = tags.get(command[-1])
+            return subprocess.CompletedProcess(command, 0 if identifier else 1, (identifier or "") + "\n", "")
+        elif command[:2] == ["docker", "tag"]:
+            if host["tag_fails"]:
+                return subprocess.CompletedProcess(command, 1, "", "No such image")
+            tags[command[3]] = command[2]
+        elif command[:2] == ["docker", "build"]:
+            host["built_on"].append(tags[base])
+            if tags[base] in host.get("timeouts", ()):
+                raise subprocess.TimeoutExpired(command, 1800)
+            if tags[base] in host["failing"]:
+                return subprocess.CompletedProcess(command, 100, "", "E: Version '2.4.0-1' for 'libacl1' was not found")
+        elif command[:3] == ["docker", "image", "rm"]:  # deleting a tagged image drops its tag too
+            host["tags"] = {name: value for name, value in tags.items() if value != command[3]}
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    def docker() -> list[list[str]]:
+        return [command for command in commands if command[:3] != ["docker", "image", "inspect"]]
+
+    def attempt() -> list[str]:
+        commands.clear()
+        host["built_on"] = []
+        return system.build_tenant_image(settings_for("hosting"), release)
+
+    log = tmp_path / "logs/last-command.log"
+    system = System(runner=runner, log_dir=log.parent)
+    for _update in range(2):  # every update tries the new base image again, and falls back while it fails
+        warnings = attempt()
+        builds = [command for command in docker() if command[:2] == ["docker", "build"]]
+        assert docker() == [["docker", "pull", "--quiet", base], builds[0], ["docker", "tag", "sha256:old", base],
+                            builds[0], ["docker", "image", "rm", "sha256:new"]]
+        assert builds == [builds[0], builds[0]]  # the same BW_REFRESH: the final stage still refreshes
+        assert host["built_on"] == ["sha256:new", "sha256:old"] and host["tags"] == {base: "sha256:old"}
+        assert len(warnings) == 1
+        assert warnings[0].startswith(f"The tenant image did not build on the newly pulled {base}: "
+                                      f"docker build failed (exit 100). Details are in the private log {log}.")
+        assert "built on the previous base image instead" in warnings[0]
+        assert "libacl1" in log.read_text()  # the unchecked tag kept the first build's output
+        stderr = capsys.readouterr().err
+        assert "retrying once on the previous base image" in stderr and f"Warning: {warnings[0]}" in stderr
+    # The previous base fails too: raised, and the previous base stays tagged so that a retry falls back again.
+    host["failing"] = {"sha256:new", "sha256:old"}
+    with pytest.raises(RuntimeError, match="docker build failed"):
+        attempt()
+    assert host["built_on"] == ["sha256:new", "sha256:old"] and host["tags"] == {base: "sha256:old"}
+    assert [command for command in docker() if command[:3] == ["docker", "image", "rm"]] == [
+        ["docker", "image", "rm", "sha256:new"]]
+    host["failing"] = {"sha256:new"}  # e.g. PyPI answers again: update --retry-failed
+    assert len(attempt()) == 1 and host["tags"] == {base: "sha256:old"}
+    # The previous base cannot be tagged back: the first failure is raised and the previous base dropped as before.
+    host["tag_fails"] = True
+    with pytest.raises(RuntimeError, match=r"docker build failed \(exit 100\)"):
+        attempt()
+    assert host["built_on"] == ["sha256:new"] and host["tags"] == {base: "sha256:new"}
+    assert docker()[-1] == ["docker", "image", "rm", "sha256:old"]
+    # No base image replaced by this pull: nothing to fall back to, the failure is raised at once.
+    host.update(tag_fails=False, failing={"sha256:new"})
+    with pytest.raises(RuntimeError, match="docker build failed"):
+        attempt()
+    assert [command[:2] for command in docker()] == [["docker", "pull"], ["docker", "build"]]
+    # A timeout (or an interruption) on the new base is raised without a retry, but the previous base is
+    # tagged again and kept, so the next update can still fall back to it.
+    host.update(tags={base: "sha256:old"}, failing={"sha256:new"}, timeouts={"sha256:new"})
+    with pytest.raises(subprocess.TimeoutExpired):
+        attempt()
+    assert host["built_on"] == ["sha256:new"] and host["tags"] == {base: "sha256:old"}
+    assert docker()[-2:] == [["docker", "tag", "sha256:old", base], ["docker", "image", "rm", "sha256:new"]]
+    host["timeouts"] = set()
+    assert len(attempt()) == 1 and host["built_on"] == ["sha256:new", "sha256:old"]
+    # Once the new base builds (a release with updated pins), the previous one is dropped as before.
+    host.update(tags={base: "sha256:old"}, failing=set())
+    assert attempt() == []
+    assert host["built_on"] == ["sha256:new"] and host["tags"] == {base: "sha256:new"}
+    assert docker()[-1] == ["docker", "image", "rm", "sha256:old"]
+
+
 # Git sources ----------------------------------------------------------------------
 
 
@@ -391,7 +568,7 @@ def test_preflight_refuses_foreign_units(tmp_path, fake_system):
 # Host layer with a recording runner --------------------------------------------------
 
 
-def test_healthy_probes_tenants_from_the_hosting_database(tmp_path):
+def test_readiness_probes_the_wikis_that_served_and_still_run(tmp_path):
     root = tmp_path / "opt/bananawiki"
     (root / "config").mkdir(parents=True)
     instances = root / "data/instances"
@@ -420,13 +597,34 @@ def test_healthy_probes_tenants_from_the_hosting_database(tmp_path):
 
     system = System(runner=runner, probe=lambda url: probed.append(url) or 200, sleep=lambda _s: None)
     settings = {**settings_for("hosting"), "root": str(root)}
-    assert system.healthy(settings, profile.services(settings), timeout=0)
+    acme, gone = str((instances / "acme").resolve()), str((instances / "gone").resolve())
+    # "gone" is stopped in the database: never waited for, even though it served before.
+    assert system.readiness(settings, profile.services(settings), [acme, gone], timeout=0).ready
     assert "http://172.18.0.2:5001/health" in probed
     inspect[0]["State"]["Running"] = False
     system.log_dir = root / "config"
-    assert not system.healthy(settings, [], timeout=0)
+    assert system.readiness(settings, [], [acme], timeout=0) == ([], {acme: "no running container"})
     failure = read_json(root / "config/last-readiness-failure.json")
-    assert any("no running container" in issue for issue in failure["issues"])
+    assert failure["issues"] == ["Tenant acme: no running container"]
+    # Wikis nobody waits for are not even inspected.
+    assert system.readiness(settings, [], [], timeout=0).ready
+
+
+def test_readiness_does_not_wait_for_unfinished_creations(tmp_path):
+    root = tmp_path / "opt/bananawiki"
+    (root / "config").mkdir(parents=True)
+    instances = root / "data/instances"
+    instances.mkdir(parents=True)
+    database = sqlite3.connect(root / "data/hosting.db")
+    database.execute("CREATE TABLE instances (subdomain TEXT, domain_mode TEXT, status TEXT, provisioning_state TEXT)")
+    database.executemany("INSERT INTO instances VALUES (?, 'subdomain', 'running', ?)",
+                         [("acme", "ready"), ("broken", "failed")])
+    database.commit()
+    database.close()
+    write_environment(root / "config/app.env", {"HOSTING_DATABASE_PATH": str(root / "data/hosting.db"),
+                                                "INSTANCES_DIR": str(instances)})
+    settings = {**settings_for("hosting"), "root": str(root)}
+    assert System().expected_tenant_directories(settings) == {str((instances / "acme").resolve())}
 
 
 def test_run_hides_command_output_in_a_private_log(tmp_path):

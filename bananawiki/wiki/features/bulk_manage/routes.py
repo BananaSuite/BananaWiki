@@ -56,16 +56,24 @@ def index():
 @bp.post("/admin/bulk/categories/delete")
 @auth.admin_required
 def delete_categories():
+    """A category whose pages cannot all be deleted is skipped and keeps them."""
+    user = auth.current_user()
     action = request.form.get("page_action", "uncategorize")
     if action not in ("uncategorize", "delete"):
         action = "uncategorize"
-    deleted = 0
+    deleted = skipped = 0
     for category_id in _ids():
         category = categories.get(category_id)
         if category is None:
             continue
-        categories.delete(category, page_action=action, actor_id=auth.current_user()["id"])
+        try:
+            categories.delete_with_pages(category, user, page_action=action)
+        except categories.PagesRefused:
+            skipped += 1
+            continue
         deleted += 1
+    if skipped:
+        return _done("bulk_manage.done.categories_skipped", count=deleted, skipped=skipped)
     return _done("bulk_manage.done.categories", count=deleted)
 
 

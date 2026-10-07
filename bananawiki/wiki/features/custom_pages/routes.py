@@ -63,6 +63,8 @@ def _form_context(page: dict | None, form=None) -> dict:
         "groups": service.CONTENT_TYPE_GROUPS,
         "type_fields": {kind: sorted(fields) for kind, fields in service.TYPE_FIELDS.items()},
         "max_video_mb": service.max_video_bytes() // (1024 * 1024),
+        "public_allowed": service.public_allowed(),
+        "public_builder_allowed": service.public_allowed(builder=True),
     }
 
 
@@ -74,7 +76,8 @@ def admin_list():
     _require_manager()
     return render_template("custom_pages/admin_list.html", pages=service.list_all(),
                            groups=service.CONTENT_TYPE_GROUPS, builder_available=service.builder_available(),
-                           max_video_mb=service.max_video_bytes() // (1024 * 1024))
+                           max_video_mb=service.max_video_bytes() // (1024 * 1024),
+                           public_allowed=service.public_allowed())
 
 
 @bp.post("/admin/custom-pages/settings")
@@ -151,7 +154,20 @@ def admin_file_delete(file_id: int):
     return redirect(url_for("custom_pages.admin_edit", page_id=row["custom_page_id"]))
 
 
-# ── Public serving (published pages are public on purpose) ─────────────────────
+# ── Public serving (published pages are public on purpose, unless the host forbids it) ──
+
+
+def _members_gate(page: dict | None):
+    """Answer like the wiki's own gate when *page* is for members only and the visitor is not one.
+
+    Anonymous visitors are sent to sign in, accounts that may not use the wiki
+    (pending, denied, suspended) to their status. None: no objection.
+    """
+    if not service.members_only(page) or service.is_visible(page):
+        return None
+    if auth.current_user() is None:
+        return auth.redirect_to_login()
+    return redirect(url_for("auth.account_status"))
 
 
 @bp.get("/_cpf/<int:file_id>/<path:filename>")
@@ -159,7 +175,11 @@ def admin_file_delete(file_id: int):
 def file_download(file_id: int, filename: str):
     """A file of a custom page (the 1.4 URL shape). *filename* is cosmetic."""
     row = service.get_file(file_id)
-    if row is None or not service.is_visible(service.get(row["custom_page_id"])):
+    page = service.get(row["custom_page_id"]) if row else None
+    refused = _members_gate(page)
+    if refused is not None:
+        return refused
+    if not service.is_visible(page):
         abort(404)
     return rendering.send_file_row(row)
 
@@ -169,7 +189,12 @@ def file_download(file_id: int, filename: str):
 def document(page_id: int):
     """The author's HTML document, only ever served with a CSP sandbox."""
     page = service.get(page_id)
-    if not service.is_visible(page) or page["content_type"] not in service.SANDBOXED_TYPES:
+    if page is None or page["content_type"] not in service.SANDBOXED_TYPES:
+        abort(404)
+    refused = _members_gate(page)
+    if refused is not None:
+        return refused
+    if not service.is_visible(page):
         abort(404)
     return rendering.document_response(page)
 
@@ -203,8 +228,13 @@ def serve(path: str):
     page = service.get_by_path(request.path)
     if page is None and request.path.endswith("/") and len(request.path) > 1:
         trimmed = service.get_by_path(request.path.rstrip("/"))
-        if service.is_visible(trimmed) and request.method in SERVED_METHODS:
+        # Members-only pages too: the address without the slash then asks for a sign-in.
+        reachable = service.is_visible(trimmed) or service.members_only(trimmed)
+        if reachable and request.method in SERVED_METHODS:
             return redirect(trimmed["path"], code=308)
+    refused = _members_gate(page)
+    if refused is not None:
+        return refused
     if not service.is_visible(page):
         return _no_custom_page()
     if request.method not in SERVED_METHODS:

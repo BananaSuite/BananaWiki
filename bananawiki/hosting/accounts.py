@@ -484,10 +484,29 @@ def suspension_history(account_id: str) -> list[dict[str, Any]]:
 
 def expired_suspensions() -> list[str]:
     return db.column("SELECT id FROM accounts WHERE suspended = 1 AND suspended_until IS NOT NULL "
-                     "AND suspended_until <= ? AND deleted_at IS NULL", (now_sql(),))
+                     "AND suspended_until <= ? AND deleted_at IS NULL ORDER BY suspended_until, id", (now_sql(),))
 
 
 # ── Deletion ──────────────────────────────────────────────────────────────────
+
+
+def tombstone_name(account_id: str) -> str:
+    """The username a deleted account keeps: the ``~`` puts it outside what :func:`check_username` accepts."""
+    return f"~deleted-{account_id}"
+
+
+def check_deletable(account_id: str) -> None:
+    """Refuse a deletion that :func:`delete` could not finish, before anything irreversible happens.
+
+    Callers check this before they terminate or transfer the account's
+    wikis, so a refusal leaves the account and its wikis as they were.
+    """
+    account = get(account_id)
+    if account is None or account["deleted_at"]:
+        raise ServiceError("hosting.accounts.not_found")
+    holder = by_username(tombstone_name(account_id))
+    if holder is not None and holder["id"] != account_id:
+        raise ServiceError("hosting.accounts.delete_failed")
 
 
 def delete(account_id: str) -> None:
@@ -495,22 +514,26 @@ def delete(account_id: str) -> None:
 
     The tombstone keeps retained (terminated) wikis attributable until their
     grace period ends; :func:`purge_tombstones` removes it afterwards. The
-    caller terminates or transfers the account's wikis first.
+    caller checks :func:`check_deletable`, then terminates or transfers the
+    account's wikis first.
     """
-    with db.transaction():
-        db.execute("UPDATE hosting_account_sessions SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL",
-                   (now_sql(), account_id))
-        db.execute("DELETE FROM hosting_api_tokens WHERE account_id = ?", (account_id,))
-        db.execute("DELETE FROM hosting_oauth_access_tokens WHERE account_id = ?", (account_id,))
-        db.execute("DELETE FROM instance_collaborators WHERE account_id = ?", (account_id,))
-        db.update("accounts", {
-            "username": f"deleted-{account_id}", "email": "", "password": "!", "suspended": 1, "suspend_reason": "",
-            "approval_status": "denied", "decision_reason": "", "pending_deletion": 0, "pending_deletion_at": None,
-            "totp_enabled": 0, "totp_secret_encrypted": "", "totp_recovery_hashes": "[]", "signup_use_case": "",
-            "email_verification_token_hash": "", "password_reset_token_hash": "", "email_flagged_previous": "",
-            "deleted_at": now_sql(),
-        }, "id = ?", (account_id,))
-        db.execute("UPDATE accounts SET session_version = session_version + 1 WHERE id = ?", (account_id,))
+    try:
+        with db.transaction():
+            db.execute("UPDATE hosting_account_sessions SET revoked_at = ? WHERE account_id = ? "
+                       "AND revoked_at IS NULL", (now_sql(), account_id))
+            db.execute("DELETE FROM hosting_api_tokens WHERE account_id = ?", (account_id,))
+            db.execute("DELETE FROM hosting_oauth_access_tokens WHERE account_id = ?", (account_id,))
+            db.execute("DELETE FROM instance_collaborators WHERE account_id = ?", (account_id,))
+            db.update("accounts", {
+                "username": tombstone_name(account_id), "email": "", "password": "!", "suspended": 1,
+                "suspend_reason": "", "approval_status": "denied", "decision_reason": "", "pending_deletion": 0,
+                "pending_deletion_at": None, "totp_enabled": 0, "totp_secret_encrypted": "",
+                "totp_recovery_hashes": "[]", "signup_use_case": "", "email_verification_token_hash": "",
+                "password_reset_token_hash": "", "email_flagged_previous": "", "deleted_at": now_sql(),
+            }, "id = ?", (account_id,))
+            db.execute("UPDATE accounts SET session_version = session_version + 1 WHERE id = ?", (account_id,))
+    except sqlite3.IntegrityError as error:
+        raise ServiceError("hosting.accounts.delete_failed") from error
 
 
 def schedule_deletion(account_id: str, seconds: int, reason: str, actor_id: str) -> None:
@@ -535,7 +558,8 @@ def deletion_remaining(account: dict[str, Any]) -> int | None:
 
 
 def due_deletions() -> list[str]:
-    rows = db.all("SELECT * FROM accounts WHERE pending_deletion = 1 AND deleted_at IS NULL")
+    rows = db.all("SELECT * FROM accounts WHERE pending_deletion = 1 AND deleted_at IS NULL "
+                  "ORDER BY pending_deletion_at, id")
     return [row["id"] for row in rows if deletion_remaining(row) == 0]
 
 
@@ -554,7 +578,7 @@ def expired_denials() -> list[str]:
         return []
     return db.column(
         "SELECT id FROM accounts WHERE approval_status = 'denied' AND deleted_at IS NULL AND is_admin = 0 "
-        "AND denied_at IS NOT NULL AND denied_at <= ?", (sql_in(seconds=-timeout),),
+        "AND denied_at IS NOT NULL AND denied_at <= ? ORDER BY denied_at, id", (sql_in(seconds=-timeout),),
     )
 
 

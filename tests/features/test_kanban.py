@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import time
 
 import pytest
 
@@ -210,6 +211,25 @@ def test_description_history_and_diff(admin_client, board):
     assert len(entries) == 2
     detail = admin_client.get(f"/api/kanban/history/{entries[0]['id']}").get_json()
     assert "&lt;script&gt;" in detail["diff_html"] and "<script>" not in detail["diff_html"]
+
+
+def test_description_diff_is_bounded(admin_client, board):
+    """R-04: ndiff took about a minute on a description of one line repeated."""
+    column_id = columns(admin_client, board)[0]["id"]
+    ticket = new_ticket(admin_client, column_id)
+    admin_client.put(f"/api/kanban/tickets/{ticket['id']}", json={"description": "ab\n" * 3333})
+    admin_client.put(f"/api/kanban/tickets/{ticket['id']}", json={"description": "x\n" + "ab\n" * 3331 + "y"})
+    newest = admin_client.get(f"/api/kanban/tickets/{ticket['id']}/history").get_json()[0]
+    started = time.monotonic()
+    detail = admin_client.get(f"/api/kanban/history/{newest['id']}").get_json()
+    assert time.monotonic() - started < 30  # generous: well under a second
+    assert "too different to compare in detail" in detail["diff_html"]
+    assert '<ins class="diff-add">x</ins>' in detail["diff_html"]
+    small = admin_client.put(f"/api/kanban/tickets/{ticket['id']}", json={"description": "x\nab\ny"})
+    assert small.status_code == 200
+    newest = admin_client.get(f"/api/kanban/tickets/{ticket['id']}/history").get_json()[0]
+    detail = admin_client.get(f"/api/kanban/history/{newest['id']}").get_json()
+    assert detail["diff_html"].startswith("<span>x</span>\n<span>ab</span>\n<del")
 
 
 def test_assignees_must_reach_board(app, admin_client, db, board, make_user):

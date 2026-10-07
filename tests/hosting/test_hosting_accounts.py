@@ -271,3 +271,36 @@ def test_account_deletion_needs_the_password(web, make_account, login, query):
     web.post("/account/delete", data={"current_password": PASSWORD})
     assert query("SELECT deleted_at FROM accounts WHERE id = ?", (user["id"],), one=True)["deleted_at"]
     assert web.get("/dashboard").status_code == 302
+
+
+def test_deleted_accounts_keep_a_name_nobody_can_choose(web, make_account, make_wiki, login, query):
+    from bananawiki.hosting import accounts
+    from bananawiki.hosting.errors import ServiceError
+
+    victim = make_account()
+    squatter = make_account(f"deleted-{victim['id']}")  # the 1.6.0 tombstone name was a valid username
+    make_wiki(victim, "leaving")
+    login(web, victim)
+    web.post("/account/delete", data={"current_password": PASSWORD})
+    row = query("SELECT username, deleted_at FROM accounts WHERE id = ?", (victim["id"],), one=True)
+    assert row["deleted_at"] and row["username"] == f"~deleted-{victim['id']}"
+    assert query("SELECT status FROM instances", one=True)["status"] == "terminated"
+    assert query("SELECT username FROM accounts WHERE id = ?", (squatter["id"],), one=True)["username"] == \
+        squatter["username"]
+    with pytest.raises(ServiceError):
+        accounts.check_username(row["username"])
+
+
+def test_account_deletion_is_refused_before_any_wiki_is_terminated(portal, make_account, make_wiki, login, query):
+    victim, holder, admin = make_account(), make_account(), make_account(admin=True)
+    make_wiki(victim, "survivor")
+    # A name in the tombstone's place (not reachable through the forms; a restored or edited database).
+    query("UPDATE accounts SET username = ? WHERE id = ?", (f"~deleted-{victim['id']}", holder["id"]))
+    own, admin_client = portal.test_client(), portal.test_client()
+    login(own, victim)
+    login(admin_client, admin)
+    page = own.post("/account/delete", data={"current_password": PASSWORD}, follow_redirects=True)
+    assert "could not be deleted" in page.get_data(as_text=True)
+    admin_client.post(f"/admin/accounts/{victim['id']}/delete", data={"instance_action": "terminate"})
+    assert query("SELECT deleted_at FROM accounts WHERE id = ?", (victim["id"],), one=True)["deleted_at"] is None
+    assert query("SELECT status FROM instances", one=True)["status"] == "running"

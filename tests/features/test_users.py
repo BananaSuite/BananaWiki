@@ -47,7 +47,7 @@ def test_change_username_needs_password(client, make_user, login, db):
     assert db.scalar("SELECT username FROM users WHERE id = ?", (user["id"],)) == "bob"
 
 
-def test_change_username_records_history_and_rewrites_mentions(app, client, make_user, login, db):
+def test_change_username_records_history_and_leaves_pages_alone(app, client, make_user, login, db):
     user = make_user("bob")
     page = make_page(app, "Team", "Ask @bob about it.")
     login(client, user)
@@ -55,8 +55,9 @@ def test_change_username_records_history_and_rewrites_mentions(app, client, make
     assert response.status_code == 302
     assert db.scalar("SELECT username FROM users WHERE id = ?", (user["id"],)) == "robert"
     assert db.scalar("SELECT old_username FROM username_history WHERE user_id = ?", (user["id"],)) == "bob"
-    assert db.scalar("SELECT content FROM pages WHERE id = ?", (page["id"],)) == "Ask @robert about it."
-    assert db.scalar("SELECT COUNT(*) FROM page_history WHERE page_id = ?", (page["id"],)) == 2
+    assert db.scalar("SELECT content FROM pages WHERE id = ?", (page["id"],)) == "Ask @bob about it."
+    assert db.scalar("SELECT COUNT(*) FROM page_history WHERE page_id = ?", (page["id"],)) == 1
+    assert client.get("/users/bob").headers["Location"].endswith("/users/robert")
 
 
 def test_change_username_refuses_taken_name(client, make_user, login, db):
@@ -123,12 +124,13 @@ def test_protected_and_last_admin_accounts_cannot_be_deleted(client, make_user, 
     assert db.scalar("SELECT 1 FROM users WHERE id = ?", (keeper["id"],))
 
 
-def test_deleting_an_account_replaces_mentions(app, client, make_user, login, db):
+def test_deleting_an_account_leaves_pages_alone(app, client, make_user, login, db):
     user = make_user("bob")
     page = make_page(app, "Team", "Thanks @bob!")
     login(client, user)
     client.post("/settings/delete", data={"password": PASSWORD})
-    assert db.scalar("SELECT content FROM pages WHERE id = ?", (page["id"],)) == "Thanks @account deleted!"
+    assert db.scalar("SELECT content FROM pages WHERE id = ?", (page["id"],)) == "Thanks @bob!"
+    assert db.scalar("SELECT COUNT(*) FROM page_history WHERE page_id = ?", (page["id"],)) == 1
 
 
 def test_owner_toggle(client, make_user, login, db):
@@ -162,7 +164,10 @@ def test_owner_toggle_is_admin_only(client, make_user, login, db):
 
 
 def test_suspended_admin_can_reactivate_self(client, make_user, login, db):
+    moderator = make_user("moderator", role="admin")
     boss = make_user("boss", role="admin", suspended=1)
+    db.execute("INSERT INTO suspension_audit (user_id, action, performed_by, imposed_by_top, created_at) "
+               "VALUES (?, 'suspend', ?, 0, '2026-01-01 00:00:00')", (boss["id"], moderator["id"]))
     login(client, boss)
     assert b"Reactivate my account" in client.get("/account-status").data
     client.post("/settings/reactivate")

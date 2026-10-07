@@ -21,12 +21,13 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from flask import current_app
 
 from ....core import crypto
-from ....core.timeutil import is_past, now_sql, parse, to_sql, utcnow
+from ....core.timeutil import is_past, now_sql, parse, sql_in, to_sql, utcnow
 from ... import settings
 from ...db import db
 from .errors import ApiError
@@ -38,6 +39,8 @@ USERBOT_TOKEN_NAME = "userbot"
 MAX_NAME = 64
 RATE_LIMIT_BOUNDS = (1, 10000)
 MAX_TOKENS_BOUNDS = (1, 100)
+# Tokens expire at most this far ahead (or never, without an expiry).
+MAX_EXPIRY_YEARS = 10
 LAST_USED_RESOLUTION_SECONDS = 60
 _PUBLIC_COLUMNS = "id, user_id, name, permissions, last_used_at, expires_at, active, created_at"
 
@@ -243,25 +246,25 @@ def check_quota(user_id: str) -> None:
         raise ApiError(400, "token_limit", maximum=maximum)
 
 
+def expiry_sql(moment: datetime | None) -> str:
+    """The stored form of an expiry; refuse a missing or past time, or one too far ahead."""
+    stored = to_sql(moment)
+    if stored is None:
+        raise ApiError(400, "invalid_expiry")
+    if stored <= now_sql():
+        raise ApiError(400, "expiry_in_past")
+    if stored > sql_in(days=366 * MAX_EXPIRY_YEARS):
+        raise ApiError(400, "expiry_too_far", years=MAX_EXPIRY_YEARS)
+    return stored
+
+
 def future_expiry(value: Any) -> str | None:
-    """Parse an ISO-8601 expiry (naive values are UTC); refuse past or unreadable times."""
+    """Parse an ISO-8601 expiry (naive values are UTC); refuse past, distant or unreadable times."""
     if value in (None, ""):
         return None
     if not isinstance(value, str):
         raise ApiError(400, "invalid_expiry")
-    try:
-        moment = parse(value.strip())
-    except (OverflowError, ValueError):
-        moment = None
-    if moment is None:
-        raise ApiError(400, "invalid_expiry")
-    try:
-        stored = to_sql(moment)
-    except (OverflowError, ValueError):
-        raise ApiError(400, "invalid_expiry") from None
-    if stored is None or stored <= now_sql():
-        raise ApiError(400, "expiry_in_past")
-    return stored
+    return expiry_sql(parse(value.strip()))  # unbounded: 9999-12-31 is too far ahead, not unreadable
 
 
 def child_grant(parent: dict[str, Any], owner: dict[str, Any], permissions: Any,

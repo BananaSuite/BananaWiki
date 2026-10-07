@@ -1,0 +1,2 @@
+# The runtime agent checks these profiles by SHA-256: never convert their line endings.
+bananawiki/ops/seccomp/*.json -text

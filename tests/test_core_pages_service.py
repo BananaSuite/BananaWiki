@@ -1,5 +1,6 @@
 import pytest
 
+from bananawiki.wiki import permissions
 from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.pages import categories, service
 
@@ -41,6 +42,8 @@ def test_visibility_and_restricted_categories(ctx, make_user, db):
     hidden = service.create("Hidden", author_id=None)
     service.set_fields(hidden["id"], is_deindexed=1)
     reader = make_user("reader")
+    for key in permissions.defaults("user"):  # individual settings replace the defaults: keep them
+        db.execute("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, ?)", (reader["id"], key))
     db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 1)",
                (reader["id"],))
     db.execute("INSERT INTO user_allowed_categories (user_id, category_id, access_type) VALUES (?, ?, 'read')",

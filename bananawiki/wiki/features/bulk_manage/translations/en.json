@@ -9,6 +9,7 @@
   "bulk_manage.done.boards": "{count} boards deleted.",
   "bulk_manage.done.canvases": "{count} canvases deleted.",
   "bulk_manage.done.categories": "{count} categories deleted.",
+  "bulk_manage.done.categories_skipped": "{count} categories deleted, {skipped} skipped because some of their pages cannot be deleted.",
   "bulk_manage.done.pages": "{count} pages deleted, {handled} handled by page rules (protected or scheduled for deletion), {skipped} skipped.",
   "bulk_manage.empty": "Nothing here.",
   "bulk_manage.feature.description": "Delete many items at once.",

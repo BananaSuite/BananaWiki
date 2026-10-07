@@ -325,7 +325,7 @@
   "permission.category.reorder": "Reorder categories",
   "permission.category.reorder.hint": "Change the order and nesting of categories",
   "permission.category.view_all": "View all categories",
-  "permission.category.view_all.hint": "See every readable category",
+  "permission.category.view_all.hint": "See readable categories in the navigation, lists and search",
   "permission.chat.create_group": "Create group chats",
   "permission.chat.create_group.hint": "Create group chats",
   "permission.chat.dm": "Direct messages",

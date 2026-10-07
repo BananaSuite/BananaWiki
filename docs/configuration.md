@@ -156,9 +156,9 @@ run yourself, leave them unset.
 | Variable | Default | Meaning |
 |---|---|---|
 | `BW_MANAGED_HOSTING` (alias `BW_HOSTED_MODE`) | `0` | The wiki is a tenant of a hosting platform: third-party plugins require the operator's `HOSTING_ALLOW_TENANT_PLUGINS` opt-in, site import off, upload size and remote GPU settings owned by the host, builder pages never public. |
-| `BW_FORBID_PUBLIC_MODE` | `0` | The host forbids public mode. |
+| `BW_FORBID_PUBLIC_MODE` | `0` | The host forbids public mode; published custom pages are then shown to signed-in members only. |
 | `BW_FORBID_PAGE_BUILDER` | `0` | The host forbids the page builder. |
-| `BW_FORBID_PUBLIC_BUILDER_PAGES` | same as `BW_MANAGED_HOSTING` | Page-builder pages are never shown to anonymous visitors. |
+| `BW_FORBID_PUBLIC_BUILDER_PAGES` | same as `BW_MANAGED_HOSTING` | Page-builder pages, custom pages included, are never shown to anonymous visitors. |
 | `BW_MANAGED_TTS_DISABLED` | `0` | The host switched read-aloud generation off (existing audio stays playable). |
 | `BW_STORAGE_LIMIT_BYTES` | 0 (none) | Uploads are refused once the stored files reach this size. |
 | `BW_PLATFORM_UPLOAD_BLACKLIST` | none | File extensions the host refuses, on top of the administrator's rules. |

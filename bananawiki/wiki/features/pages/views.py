@@ -106,7 +106,7 @@ def category(category_id: int):
         listing=listing,
         breadcrumbs=[c for c in categories.ancestors(category_id)[:-1] if auth.can_read_category(c["id"], user)],
         subcategories=[c for c in categories.all_categories()
-                       if c["parent_id"] == category_id and auth.can_read_category(c["id"], user)],
+                       if c["parent_id"] == category_id and categories.listed(c["id"], user)],
         can_create_page=service.can_create(category_id, user) if user else False,
         **management_context(category_row),
     )

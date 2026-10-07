@@ -199,15 +199,18 @@ def review_detail(contribution_id: int):
         diff=service.diff_lines(page["content"], contribution["content"]),
         page_changed=contribution.get("base_revision") is not None
         and contribution["base_revision"] != page["revision"],
-        max_review_reason=service.MAX_REVIEW_REASON,
+        max_review_reason=service.MAX_REVIEW_REASON, version=service.review_version(contribution),
     )
 
 
 @bp.post("/admin/contributions/<int:contribution_id>/approve")
 def approve(contribution_id: int):
+    """Approve exactly what the form showed: a stale or incomplete form re-opens the review."""
     user = _reviewer()
     try:
-        page = service.approve(contribution_id, user, request.form.get("review_reason", ""))
+        page = service.approve(contribution_id, user, request.form.get("review_reason", ""),
+                               reviewed_version=request.form.get("version", ""),
+                               page_revision=request.form.get("page_revision", -1, type=int))
     except ContributionError as exc:
         flash_error(exc)
         return redirect(url_for("contributions.review_detail", contribution_id=contribution_id)

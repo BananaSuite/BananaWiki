@@ -225,6 +225,7 @@ def stop_impersonating():
 
 
 def _terminate_or_transfer(target: dict[str, Any], transfer_to: str) -> None:
+    accounts.check_deletable(target["id"])
     owned = instances.owned_by(target["id"])
     if transfer_to:
         recipient = accounts.active_by_username(transfer_to)
@@ -657,16 +658,28 @@ def delete_terminated(instance_id: str):
 @auth.admin_required
 @rate_limit(20)
 def grace_suspend(instance_id: str):
-    return _instance_action(instance_id, lambda i: instances.set_grace_suspended(i, True, actor_id=_actor()),
-                            "hosting.admin.grace_suspended")
+    return _grace_action(instance_id, True)
 
 
 @bp.post("/admin/instances/<instance_id>/grace-unsuspend")
 @auth.admin_required
 @rate_limit(20)
 def grace_unsuspend(instance_id: str):
-    return _instance_action(instance_id, lambda i: instances.set_grace_suspended(i, False, actor_id=_actor()),
-                            "hosting.admin.grace_unsuspended")
+    return _grace_action(instance_id, False)
+
+
+def _grace_action(instance_id: str, suspended: bool):
+    inst = _instance_or_404(instance_id)
+    try:
+        changed = instances.set_grace_suspended(inst, suspended, actor_id=_actor())
+    except ServiceError as error:
+        flash_error(error)
+        return admin_back(instance_id)
+    if suspended:
+        _done("hosting.admin.grace_suspended" if changed else "hosting.admin.grace_already_suspended")
+    else:
+        _done("hosting.admin.grace_unsuspended" if changed else "hosting.admin.grace_not_suspended")
+    return admin_back(instance_id)
 
 
 @bp.post("/admin/instances/<instance_id>/suspend")

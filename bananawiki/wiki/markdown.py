@@ -14,20 +14,31 @@ Output is sanitised with nh3 (the ammonia HTML sanitiser) against a strict
 allow-list: only known classes, ids only on headings, ``style`` limited to a
 few spacing properties, links forced to ``rel="noopener noreferrer"``. Embeds
 are generated *after* sanitising from validated parameters only.
+
+Rendering work is bounded by the source size: only the first ``[TOC]`` marker
+becomes a table of contents, a document embeds at most :data:`MAX_EMBEDS`
+players and boards, and a document whose HTML would exceed
+:data:`MAX_HTML_CHARS` is shown as escaped source like any other over-budget
+input.
 """
 
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 from collections.abc import Callable, Iterable
 from html import escape
 from urllib.parse import quote
+from xml.etree.ElementTree import Element
 
 import markdown as _markdown
 import nh3
 from markdown.extensions import Extension
+from markdown.extensions.attr_list import get_attrs_and_remainder
 from markdown.extensions.fenced_code import FencedBlockPreprocessor, FencedCodeExtension
+from markdown.extensions.toc import TocExtension, TocTreeprocessor
 from markdown.inlinepatterns import SimpleTagInlineProcessor
+from markdown.treeprocessors import Treeprocessor
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import TextLexer, get_lexer_by_name, guess_lexer
@@ -41,6 +52,28 @@ MAX_HEADINGS = 1000
 MAX_HIGHLIGHT_LINES = 256
 MAX_LEXER_SAMPLE_CHARS = 4096
 MAX_HIGHLIGHT_CODE_CHARS = 64 * 1024
+# Python-Markdown handles blank-line separated blocks one at a time, at a cost
+# that grows faster than their number; a highlighted code block costs about
+# ten paragraphs, a table four. Ordinary megabyte articles stay near 12,000.
+MAX_BLOCK_COST = 25_000
+_CODE_BLOCK_COST = 10
+_TABLE_BLOCK_COST = 4
+# Highlighted code reaches about eleven times its source. Reference links can
+# repeat one long URL in every use, which is what this limit stops.
+MAX_HTML_CHARS = 16_000_000
+MAX_EMBEDS = 200
+# Player detection rescans the rest of a URL from each "youtube.com/watch?" in it.
+MAX_VIDEO_URL_CHARS = 2048
+# Room for the longest video URL and the other options, as escaped HTML.
+MAX_SHORTCODE_CHARS = MAX_VIDEO_URL_CHARS + 512
+# Excerpts render only the start of a page, under smaller allowances: page
+# lists show many of them in one view.
+EXCERPT_SOURCE_CHARS = 4096
+MAX_EXCERPT_WORK = 1_000_000
+MAX_EXCERPT_BLOCK_COST = 400
+# The toc extension's search for a free heading id grows with every repeated
+# title, so heading counts are weighed too.
+MAX_EXCERPT_HEADINGS = 200
 
 _TAGS = {
     "a", "abbr", "acronym", "b", "blockquote", "br", "code", "dd", "del", "details", "div", "dl", "dt",
@@ -93,12 +126,21 @@ _HEADING_ID = re.compile(r"^[A-Za-z0-9_\-.:]{1,120}$")
 _FENCE = re.compile(r"^\s*(```|~~~)")
 _LIST_ITEM = re.compile(r"^(\d+[.)]|[-*+])\s+\S")
 _INDENTED_LIST_ITEM = re.compile(r"^([ \t]*)(\d+[.)]|[-*+])\s")
-_SHORTCODE_LINE = re.compile(r"^[ \t]*\[\[(?:video|canvas|kanban)\s+[^\]]*?\]\][ \t]*$", re.IGNORECASE)
+# A single ``\s``: the attribute class already accepts further whitespace, and
+# ``\s+`` before it made an unclosed shortcode quadratic in its line length.
+_SHORTCODE_LINE = re.compile(r"^[ \t]*\[\[(?:video|canvas|kanban)\s[^\]]*?\]\][ \t]*$", re.IGNORECASE)
 _BLANK_RUN = re.compile(r"(\n[ \t]*){3,}")
+_FENCE_RUN = re.compile(r"(`{3,}|~{3,})[ ]*")
+# An opening fence whose legacy ``hl_lines`` value may continue on later lines.
+_LEGACY_HL_OPENING = re.compile(r"(`{3,}|~{3,})[ ]*\.?[\w#.+-]*[ ]*hl_lines=([\"'])")
 
 
 def _split_fences(text: str) -> list[tuple[bool, list[str]]]:
-    """Split source lines into runs of (inside_fence, lines)."""
+    """Split source lines into runs of (inside_fence, lines).
+
+    A loose reading that keeps preprocessing out of code, indented fences
+    included. What the parser really treats as code is :func:`_fenced_code`.
+    """
     runs: list[tuple[bool, list[str]]] = []
     inside = False
     current: list[str] = []
@@ -119,6 +161,111 @@ def _split_fences(text: str) -> list[tuple[bool, list[str]]]:
     if current:
         runs.append((inside, current))
     return runs
+
+
+def _normalise_whitespace(text: str) -> str:
+    """*text* as Python-Markdown's first preprocessor hands it on."""
+    text = text.replace("\x02", "").replace("\x03", "")
+    text = text.replace("\r\n", "\n").replace("\r", "\n") + "\n\n"
+    return re.sub(r"(?<=\n) +\n", "\n", text.expandtabs(4))
+
+
+def _lines_ending_in_quotes(lines: list[str]) -> dict[str, list[int]]:
+    """The numbers of the *lines* that end in each quote character, trailing spaces aside."""
+    ends: dict[str, list[int]] = {}
+    for number, line in enumerate(lines):
+        line = line.rstrip(" ")
+        if line.endswith(('"', "'")):
+            ends.setdefault(line[-1], []).append(number)
+    return ends
+
+
+def _fenced_code(lines: list[str]) -> tuple[list[tuple[int, int]], int, str | None]:
+    """The code blocks Python-Markdown's fenced_code preprocessor extracts from normalised *lines*.
+
+    It searches for an opening fence at the start of a line and closes it at
+    the first later line holding exactly the same fence. An opening without
+    a closer stays text; one with malformed ``{attributes}`` is skipped, and
+    the lines after it are searched again. Returns the first and last line of
+    each block, the characters the preprocessor's pattern scans in vain (an
+    opening without a closer rescans the rest of the document, once for each
+    line its legacy hl_lines value may end on) and the fence of the first
+    opening left without a closer that a closer at the end would turn into
+    a block.
+    """
+    closers: dict[str, list[int]] = {}
+    starts: dict[int, int] = {}  # where each line that may be a fence starts
+    size = 0
+    for number, line in enumerate(lines):
+        if line.startswith(("```", "~~~")):
+            starts[number] = size
+            if closer := _FENCE_RUN.fullmatch(line):
+                closers.setdefault(closer.group(1), []).append(number)
+        size += len(line) + 1
+    quote_ends: dict[str, list[int]] | None = None
+    blocks: list[tuple[int, int]] = []
+    wasted = 0
+    unclosed = None
+    candidates = list(starts)
+    index = 0
+    while index < len(candidates):
+        number = candidates[index]
+        index += 1
+        line = lines[number]
+        fence = _FENCE_RUN.match(line)
+        if fence is None:
+            continue
+        mark, spaces = fence.group(1), fence.end() - fence.end(1)
+        # The number of spaces after the fence does not change the reading;
+        # probing the line with all of them would be as slow as the parser.
+        probe = mark + " " * min(spaces, 1) + line[fence.end():]
+        opening = FencedBlockPreprocessor.FENCED_BLOCK_RE.fullmatch(probe + "\n" + mark)
+        # The pattern retries an opening that never closes for each way of
+        # sharing those spaces between its optional parts, up to 2 * (spaces + 2)
+        # scans of the rest; trying the ways alone is quadratic in the spaces.
+        rescan = (size - starts[number]) * 2 * (spaces + 2)
+        wasted_here = spaces * spaces
+        end = number
+        quote = opening.group("quot") if opening else None
+        if opening is None:
+            legacy = _LEGACY_HL_OPENING.match(probe)
+            if legacy is None:
+                wasted += wasted_here
+                continue
+            quote = legacy.group(2)
+        tries = 1
+        if quote:
+            # A legacy hl_lines value may run on to any later line that ends
+            # in its quote, and the rest is searched again from each of them.
+            if quote_ends is None:
+                quote_ends = _lines_ending_in_quotes(lines)
+            ends = quote_ends.get(quote, [])
+            position = bisect_right(ends, number)
+            # The opening line counts when the value can already end there.
+            tries = len(ends) - position + (opening is not None)
+            if opening is None:
+                # Otherwise the value ends on the first of those lines.
+                if position == len(ends):
+                    wasted += wasted_here + rescan
+                    continue
+                end = ends[position]
+        wasted_here += rescan * tries
+        attrs = opening.group("attrs") if opening else None
+        malformed = bool(attrs and get_attrs_and_remainder(attrs)[1])
+        closing = closers.get(mark, [])
+        position = bisect_right(closing, end)
+        if position == len(closing):
+            wasted += wasted_here
+            if not malformed:  # a closer would only make the parser skip it
+                unclosed = unclosed or mark
+            continue
+        last = closing[position]
+        if malformed:
+            wasted += starts[last] + len(lines[last]) + 1 - starts[number]
+            continue
+        blocks.append((number, last))
+        index = bisect_right(candidates, last)
+    return blocks, wasted, unclosed
 
 
 def _map_prose(text: str, transform: Callable[[list[str]], list[str]]) -> str:
@@ -219,34 +366,44 @@ def _preprocess(text: str, fix_lists: bool) -> str:
     return _map_prose(text, _preserve_blank_runs)
 
 
-def _parser_work_exceeded(text: str) -> bool:
-    """Bound repeated delimiter searches and nesting before parsing prose.
+def _parser_work_exceeded(text: str, limit: int = MAX_PARSE_WORK, block_limit: int = MAX_BLOCK_COST,
+                          heading_limit: int = MAX_HEADINGS) -> bool:
+    """Bound repeated delimiter searches, nesting and block count before parsing prose.
 
     The Markdown link parser searches the remaining paragraph for each
     opening bracket. A byte limit alone allows quadratic work on unmatched
-    input. Estimate that search work per paragraph; fenced code is literal
-    and bypasses inline parsing, so it does not consume this allowance.
+    input. Estimate that search work per paragraph, after the parser's own
+    whitespace normalisation. Fenced code is literal and bypasses inline
+    parsing, so it does not consume this allowance; only the blocks the
+    parser really extracts count as code, and the work of searching for
+    fences that never close does. Blocks, fenced ones included, are weighed
+    against *block_limit* and headings against *heading_limit*.
     """
-    prose = []
-    for inside_fence, lines in _split_fences(text):
-        source = "\n".join(lines)
-        # The preprocessing helper also identifies unfinished and loosely
-        # indented fences. Only the parser's exact, complete fence syntax is
-        # safe to exempt from inline work. Unconfirmed runs remain joined so
-        # they cannot reset the paragraph's work or nesting limits.
-        fence = FencedBlockPreprocessor.FENCED_BLOCK_RE.fullmatch(source) if inside_fence else None
-        # The parser rejects a stray closing brace in its attribute capture.
-        # A brace inside a quoted value is conservatively counted as prose.
-        if fence and "}" not in (fence.group("attrs") or ""):
-            prose.extend(("", ""))
-        else:
-            prose.extend(lines)
+    lines = _normalise_whitespace(text).split("\n")
+    code, work, _ = _fenced_code(lines)
+    if work > limit:
+        return True
+    prose: list[str] = []
+    blocks = start = 0
+    for first, last in code:
+        prose.extend(lines[start:first])
+        prose.extend(("", ""))
+        blocks += _CODE_BLOCK_COST
+        start = last + 1
+    prose.extend(lines[start:])
     source = "\n".join(prose)
-    work = headings = 0
+    headings = 0
     for paragraph in source.split("\n\n"):
+        block = paragraph.lstrip("\n")
+        if block.strip():
+            # Indented code is highlighted too (or is a nested list item).
+            blocks += (_CODE_BLOCK_COST if block.startswith(("    ", "\t"))
+                       else _TABLE_BLOCK_COST if "|" in block else 1)
+        if blocks > block_limit:
+            return True
         delimiters = sum(paragraph.count(marker) for marker in "[*_`<~&\\\n")
         work += len(paragraph) * delimiters
-        if work > MAX_PARSE_WORK:
+        if work > limit:
             return True
         square_depth = round_depth = 0
         for line in paragraph.split("\n"):
@@ -269,7 +426,7 @@ def _parser_work_exceeded(text: str) -> bool:
                 headings += 1
                 # Repeated heading slugs otherwise cause quadratic collision
                 # searches across paragraphs in the toc extension.
-                if headings > MAX_HEADINGS:
+                if headings > heading_limit:
                     return True
         # Skip escaped characters and code spans; brackets inside literal
         # code do not create a nested Markdown document.
@@ -342,9 +499,13 @@ def sanitize(html: str) -> str:
 
 # ── Post-sanitisation embeds ──────────────────────────────────────────────────
 
-_VIDEO_SHORTCODE = re.compile(r"<p>\s*\[\[video\s+(?P<attrs>[^\]]*?)\]\]\s*</p>", re.IGNORECASE)
-_EMBED_SHORTCODE = re.compile(r"<p>\s*\[\[(?P<kind>canvas|kanban)\s+(?P<attrs>[^\]]*?)\]\]\s*</p>", re.IGNORECASE)
-_SHORTCODE_ATTR = re.compile(r'([a-z]+)\s*=\s*(?:"|&quot;)([^"&]*)(?:"|&quot;)', re.IGNORECASE)
+# Attributes stay inside their own paragraph (inline tags allowed) and are
+# bounded, so an unclosed ``[[video`` cannot rescan the rest of the document.
+_SHORTCODE_ATTRS = rf"(?P<attrs>(?:[^\]<]|<(?!/?p>)){{0,{MAX_SHORTCODE_CHARS}}}?)"
+_VIDEO_SHORTCODE = re.compile(rf"<p>\s*\[\[video\s{_SHORTCODE_ATTRS}\]\]\s*</p>", re.IGNORECASE)
+_EMBED_SHORTCODE = re.compile(rf"<p>\s*\[\[(?P<kind>canvas|kanban)\s{_SHORTCODE_ATTRS}\]\]\s*</p>", re.IGNORECASE)
+# Names start after a non-letter: retrying inside a long word was quadratic.
+_SHORTCODE_ATTR = re.compile(r'(?<![a-z])([a-z]+)\s*=\s*(?:"|&quot;)([^"&]*)(?:"|&quot;)', re.IGNORECASE)
 _BARE_VIDEO = re.compile(
     r'<p>\s*(?:<a href="(?P<href>https?://[^"]+)"[^>]*>(?P=href)</a>|(?P<bare>https?://[^\s<>"]+))\s*</p>',
     re.IGNORECASE,
@@ -355,7 +516,7 @@ _DIMENSION = re.compile(r"^\d{2,4}$")
 
 def video_embed_src(url: str | None) -> str | None:
     """Canonical player URL for YouTube or Vimeo links, else None."""
-    if not url:
+    if not url or len(url) > MAX_VIDEO_URL_CHARS:
         return None
     match = re.search(r"(?:youtube\.com/(?:watch\?(?:[^#]*&)?v=|embed/|shorts/)|youtu\.be/)([A-Za-z0-9_-]{11})", url)
     if match and re.match(r"https?://(?:www\.|m\.)?(?:youtube\.com|youtu\.be)/", url, re.IGNORECASE):
@@ -415,24 +576,43 @@ def _shortcode_attrs(raw: str) -> dict[str, str]:
     return {key.lower(): value for key, value in _SHORTCODE_ATTR.findall(raw)}
 
 
-def _embed_videos(html: str, bare_links: bool) -> str:
+class _EmbedBudget:
+    """Players and boards a document may still embed; later ones stay literal text."""
+
+    def __init__(self) -> None:
+        self.left = MAX_EMBEDS
+
+    def spend(self, markup: str | None, match: re.Match[str]) -> str:
+        if not markup:
+            return match.group(0)
+        self.left -= 1
+        return markup
+
+
+def _embed_videos(html: str, bare_links: bool, budget: _EmbedBudget) -> str:
     def shortcode(match: re.Match[str]) -> str:
+        if not budget.left:
+            return match.group(0)
         attrs = _shortcode_attrs(match.group("attrs"))
         url = attrs.pop("url", "").replace("&amp;", "&")
-        return video_iframe(url, **attrs) or match.group(0)
+        return budget.spend(video_iframe(url, **attrs), match)
 
     html = _VIDEO_SHORTCODE.sub(shortcode, html)
     if bare_links:
         def bare(match: re.Match[str]) -> str:
+            if not budget.left:
+                return match.group(0)
             url = (match.group("href") or match.group("bare") or "").replace("&amp;", "&")
-            return video_iframe(url) or match.group(0)
+            return budget.spend(video_iframe(url), match)
 
         html = _BARE_VIDEO.sub(bare, html)
     return html
 
 
-def _embed_boards(html: str) -> str:
+def _embed_boards(html: str, budget: _EmbedBudget) -> str:
     def replace(match: re.Match[str]) -> str:
+        if not budget.left:
+            return match.group(0)
         kind = match.group("kind").lower()
         attrs = _shortcode_attrs(match.group("attrs"))
         ref = attrs.get("slug" if kind == "canvas" else "board", "")
@@ -445,9 +625,10 @@ def _embed_boards(html: str) -> str:
             dims += f' data-width="{width}"'
         if _DIMENSION.match(height):
             dims += f' data-height="{height}"'
-        return (
+        return budget.spend(
             f'<div class="bw-embed bw-embed-{kind}" data-embed-type="{kind}" '
-            f'data-embed-ref="{escape(ref, quote=True)}"{dims}></div>'
+            f'data-embed-ref="{escape(ref, quote=True)}"{dims}></div>',
+            match,
         )
 
     return _EMBED_SHORTCODE.sub(replace, html)
@@ -521,8 +702,18 @@ class _SafeFencedBlocks(FencedBlockPreprocessor):
                 result = opening + result[result.index("\n"):]
             return result
 
-        text = self.FENCED_BLOCK_RE.sub(bounded_fence, "\n".join(lines))
-        return super().run(text.split("\n"))
+        # Rewrite exactly the blocks the upstream search extracts: it also
+        # finds blocks inside an opening it skipped for malformed attributes.
+        out: list[str] = []
+        start = 0
+        for first, last in _fenced_code(lines)[0]:
+            block = "\n".join(lines[first:last + 1])
+            match = self.FENCED_BLOCK_RE.fullmatch(block)
+            out.extend(lines[start:first])
+            out.extend((bounded_fence(match) if match else block).split("\n"))
+            start = last + 1
+        out.extend(lines[start:])
+        return super().run(out)
 
     def handle_attrs(self, attrs: Iterable[tuple[str, str]]) -> tuple[str, list[str], dict[str, object]]:
         element_id = ""
@@ -552,6 +743,68 @@ class _SafeFencedCode(FencedCodeExtension):
     def extendMarkdown(self, md):  # noqa: N802 - Python-Markdown API name
         md.registerExtension(self)
         md.preprocessors.register(_SafeFencedBlocks(md, self.getConfigs()), "fenced_code_block", 25)
+
+
+class _FirstTocMarker(TocTreeprocessor):
+    """Only the first ``[TOC]`` marker becomes the table; later ones stay literal text.
+
+    Upstream copies the table into every marker and finds each marker by
+    scanning its siblings, so a short source repeating the marker grew the
+    output with markers × headings and the work with markers squared.
+    """
+
+    def replace_marker(self, root: Element, elem: Element) -> None:
+        for parent, child in self.iterparent(root):
+            # Upstream's test: the marker as the only content of an element.
+            if child.text and child.text.strip() == self.marker and len(child) == 0:
+                parent[list(parent).index(child)] = elem
+                return
+
+
+class _TableOfContents(TocExtension):
+    TreeProcessorClass = _FirstTocMarker
+
+
+class _OutputTooLarge(Exception):
+    """The document's HTML would be longer than :data:`MAX_HTML_CHARS`."""
+
+
+class _BoundedOutput(Treeprocessor):
+    """Stop before serialising a tree whose HTML would exceed :data:`MAX_HTML_CHARS`.
+
+    Every use of a reference link repeats its definition's URL and title, so a
+    small source can expand into gigabytes. The uses share those strings: each
+    distinct string is measured once, keeping this walk linear in the source.
+    """
+
+    def run(self, root: Element) -> None:
+        measured: dict[int, int] = {}
+
+        def size(value: str | None) -> int:
+            if not value:
+                return 0
+            known = measured.get(id(value))
+            if known is None:
+                # Room for the entities the serialiser may write.
+                known = measured[id(value)] = (len(value) + 4 * value.count("&") + 5 * value.count('"')
+                                               + 3 * (value.count("<") + value.count(">")))
+            return known
+
+        # Stashed raw HTML (highlighted code, inline tags) is inserted unchanged.
+        total = sum(len(block) for block in self.md.htmlStash.rawHtmlBlocks if isinstance(block, str))
+        for element in root.iter():
+            tag = element.tag if isinstance(element.tag, str) else ""
+            total += 2 * len(tag) + 5 + size(element.text) + size(element.tail)
+            for name, value in element.attrib.items():
+                total += len(name) + 4 + size(value)
+            if total > MAX_HTML_CHARS:
+                raise _OutputTooLarge
+
+
+class _OutputLimit(Extension):
+    def extendMarkdown(self, md):  # noqa: N802 - Python-Markdown API name
+        # After the table of contents (5), the last step that adds elements.
+        md.treeprocessors.register(_BoundedOutput(md), "bw_output_limit", 1)
 
 
 _TASK_ITEM = re.compile(r"<li>(\s*<p>)?\s*\[( |x|X)\]\s+")
@@ -593,20 +846,24 @@ def render(
     try:
         html = _markdown.markdown(
             prepared,
-            extensions=["tables", _SafeFencedCode(), "codehilite", "toc", "nl2br", _Strikethrough()],
+            extensions=["tables", _SafeFencedCode(), "codehilite", _TableOfContents(), "nl2br", _Strikethrough(),
+                        _OutputLimit()],
             extension_configs={"codehilite": {"css_class": "codehilite", "guess_lang": False}},
             output_format="html",
         )
-    except RecursionError:
+    except (RecursionError, _OutputTooLarge):
         # Keep imported content readable if an upstream extension encounters
-        # an additional recursive construct not covered by the preflight.
+        # an additional recursive construct not covered by the preflight, or
+        # the document expands beyond the output limit.
         return _plain_source(text)
     html = _task_lists(sanitize(html))
-    html = _embed_videos(html, bare_links=embed_videos)
-    html = _embed_boards(html)
+    embeds = _EmbedBudget()
+    html = _embed_videos(html, embed_videos, embeds)
+    html = _embed_boards(html, embeds)
     if mentions:
         html = _link_mentions(html, profile_url)
-    return html
+    # Embeds and mentions lengthen the HTML after the tree was measured.
+    return html if len(html) <= MAX_HTML_CHARS else _plain_source(text)
 
 
 def highlight_code(code: str | None, language: str | None = None) -> str:
@@ -638,6 +895,38 @@ def to_plain_text(text: str | None) -> str:
     return re.sub(r"\s+", " ", unescape(_STRIP_TAGS.sub(" ", html))).strip()
 
 
+def _source_head(text: str, limit: int) -> str:
+    """The lines of *text* that fit in *limit* characters, closing a code fence left open."""
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    line_end = head.rfind("\n")
+    if line_end > 0:
+        head = head[:line_end]
+    unclosed = _fenced_code(_normalise_whitespace(head).split("\n"))[2]
+    if unclosed:
+        # A long code block at the start stays code, not fence markers and text.
+        head += "\n" + unclosed
+    return head
+
+
 def excerpt(text: str | None, length: int = 200) -> str:
-    plain = to_plain_text(text)
-    return plain if len(plain) <= length else plain[: length - 1].rstrip() + "…"
+    """Plain-text preview of at most *length* characters.
+
+    Only the start of the source is rendered, within a small work allowance,
+    so a list of many pages costs the same however long the pages are. A
+    dense start is retried shorter; a preview of a cut source ends in "…".
+    """
+    source = text or ""
+    for limit in (EXCERPT_SOURCE_CHARS, EXCERPT_SOURCE_CHARS // 4):
+        head = _source_head(source, limit)
+        # Weigh the parser input too: blank-line runs become <br> tags.
+        if not any(_parser_work_exceeded(form, MAX_EXCERPT_WORK, MAX_EXCERPT_BLOCK_COST, MAX_EXCERPT_HEADINGS)
+                   for form in (head, _preprocess(head, True))):
+            plain = to_plain_text(head)
+            break
+    else:
+        plain = re.sub(r"\s+", " ", head).strip()
+    if len(plain) <= length and (len(source) <= limit or not plain):
+        return plain
+    return plain[: length - 1].rstrip() + "…"

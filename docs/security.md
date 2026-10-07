@@ -70,7 +70,8 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   `/source`, published custom pages, and, while **public mode** is on, the
   read-only views (pages, categories, search, announcements, public boards and
   canvases, read-aloud audio). Public mode can have an end date and can be
-  forbidden by a host (`BW_FORBID_PUBLIC_MODE`).
+  forbidden by a host (`BW_FORBID_PUBLIC_MODE`), which also keeps published
+  custom pages for signed-in members.
 * Every action checks a permission from the [catalogue](permissions.md) and
   the object itself: this page, this category, this board. Objects you may
   not read answer 404, so their existence is not revealed.
@@ -118,6 +119,14 @@ contain no inline event handlers; the few inline script blocks
 carry the per-request nonce. `style-src-attr 'unsafe-inline'` is needed for
 the sanitised spacing styles page content may use.
 
+Chromium-based browsers also apply `form-action` to the redirect that follows
+a form submission. Two pages answer their form with a redirect to another
+site, so their own response adds that origin (never a path) to `form-action`:
+the wiki's `/settings/link-platform-account` adds the portal's (from
+`BW_PLATFORM_OAUTH_AUTHORIZE_URL`), and the portal's OAuth consent page adds
+the wiki's, taken from a redirect URI already checked against the wiki's
+address and verified domain. Every other page keeps `form-action 'self'`.
+
 `img-src https:` lets pages show images from other sites. A reader's browser
 then contacts that site, which learns the reader's address. If that matters,
 ask editors to upload images instead of linking them.
@@ -146,6 +155,11 @@ ask editors to upload images instead of linking them.
   the host's blacklist and the storage quota are checked before anything is
   kept. Images are verified, and still images are re-encoded, which removes
   EXIF and GPS metadata.
+* An image's size in pixels is read from its header and checked before it is
+  decoded: 40 megapixels at most, 4 for avatars and
+  `BW_BACKGROUND_IMAGE_MAX_PIXELS` for display backgrounds. Each worker
+  process decodes one picture at a time, and an account can change its avatar
+  or background ten times in ten minutes.
 * Downloads send `X-Content-Type-Options: nosniff` and
   `Content-Security-Policy: default-src 'none'; sandbox`. Only images, audio,
   video, PDF and plain text are shown inline; everything else is a download

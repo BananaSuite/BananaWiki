@@ -12,6 +12,7 @@
   "page_history.confirm.delete": "Delete this history entry?",
   "page_history.confirm.revert": "Restore this version? The current text stays in the history.",
   "page_history.deattribute": "Remove author",
+  "page_history.diff_coarse": "These versions are too different to compare in detail: part of the text is shown as removed and added again as a whole.",
   "page_history.empty": "This page has no history entries.",
   "page_history.entry_title": "Version: {title}",
   "page_history.error.user_missing": "That user does not exist.",

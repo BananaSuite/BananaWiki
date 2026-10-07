@@ -8,12 +8,12 @@ import pytest
 
 from bananawiki.core import crypto, http
 from bananawiki.core.sqlite import Session
-from bananawiki.wiki import accounts, registry
+from bananawiki.wiki import accounts, permissions, registry
 from bananawiki.wiki import db as db_module
 from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.federation import protocol, store, sync
 
-from .pages_support import make_category, make_page
+from .pages_support import make_category, make_page, restrict
 
 PASSWORD = "correct horse battery"
 
@@ -130,8 +130,7 @@ def test_sync_stores_copies_and_readers_see_them(pair):
     assert copy["title"] == "Shared doc" and copy["source_path"] == "/page/shared-doc"
 
     outsider = a.user("outsider", "user")
-    a.db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 1)",
-                 (outsider["id"],))
+    restrict(a.db, outsider, read=[])
     a.login(outsider)
     assert "Shared doc" not in a.client.get("/federation").get_data(as_text=True)
     assert a.client.get(f"/federation/copies/{b.wiki_id}/{copy['page_id']}").status_code == 404
@@ -142,6 +141,23 @@ def test_sync_stores_copies_and_readers_see_them(pair):
     view = a.client.get(f"/federation/copies/{b.wiki_id}/{copy['page_id']}")
     assert view.status_code == 200 and "# Hello" in view.get_data(as_text=True)
     assert view.headers["Cache-Control"] == "no-store" and view.headers["Referrer-Policy"] == "no-referrer"
+
+
+def test_copies_need_page_view_all_like_local_pages(pair):
+    a, b, _inbox = pair
+    share_page(b)
+    a.run(lambda: sync.sync_peer(b.wiki_id, force=True, transport=transport_to(b)))
+    page_id = a.db.scalar("SELECT page_id FROM federation_copies")
+    reader = a.user("no_pages", "user")
+    keys = {k for k in permissions.defaults("user") if "page.view_all" not in permissions.with_implications({k})}
+    restrict(a.db, reader, keys=keys)
+    a.login(reader)
+    assert a.client.get("/page/home").status_code == 404
+    assert "Shared doc" not in a.client.get("/federation").get_data(as_text=True)
+    assert a.client.get(f"/federation/copies/{b.wiki_id}/{page_id}").status_code == 404
+    a.client.post("/logout")
+    a.login(a.user("default_reader", "user"))
+    assert a.client.get(f"/federation/copies/{b.wiki_id}/{page_id}").status_code == 200
 
 
 def test_stale_copies_are_hidden(pair):

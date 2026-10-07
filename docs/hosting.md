@@ -149,6 +149,20 @@ copying succeeds. Recovery and manual start refuse unfinished or failed
 reservations. A worker interrupted during creation cannot expose a half-created
 wiki; administrators can cancel it after its provisioning lock is released and
 create it again. Failed cleanup retains the reservation until removal succeeds.
+Neither a failed creation nor a cancellation deletes a data folder the creation
+did not make: when the folder already existed, or the portal never handed the
+creation to the runtime agent, it is left untouched for an administrator to
+inspect. The agent's refusal of an existing folder is written to
+`.provisioning-refused/<wiki id>` under `HOSTING_PLATFORM_STATE_DIR` before
+the database records it, so a failed database write does not lose it; these
+files are a few bytes each and are kept. One case remains: a portal worker
+killed outright (`kill -9`, power loss) after it handed the creation to the
+agent and before it recorded the agent's answer. Cancelling that creation, or
+its expiry, deletes the folder under its name, because the portal cannot tell
+whether the agent made it. Before cancelling a wiki that stays in
+provisioning, or letting it expire, check its folder. The folder can also be
+lost if both the marker file and the database records of the refusal fail to
+be written.
 
 The agent applies a pinned Docker default seccomp allowlist with quota-changing
 ioctls excluded. Without this restriction, an ordinary file owner can change
@@ -256,10 +270,20 @@ Owners create wikis on the dashboard (`/instances/create`) up to
   which an administrator approves;
 * download an export of the wiki.
 
+While public access is restricted (by default, for owners who are not
+platform administrators) and not approved, a wiki runs with
+`BW_FORBID_PUBLIC_MODE=1`: no public mode, and its custom pages (with their
+files, redirects and sandboxed documents) are shown only to signed-in members;
+anonymous visitors are sent to sign in. Builder pages, custom ones included,
+stay members-only while public builder pages are forbidden
+(`BW_FORBID_PUBLIC_BUILDER_PAGES`).
+
 A wiki lives `INSTANCE_DURATION_DAYS` unless an administrator extends it or
 makes it indefinite. When it expires or is terminated, it enters the grace
 period configured in the platform settings, during which an administrator can
-restore it; afterwards its data is deleted.
+restore it; afterwards its data is deleted. An administrator can pause that
+countdown: the data is then kept until the countdown resumes (the paused time
+is added to the grace period), and the owner cannot download it meanwhile.
 
 Platform sign-in: every wiki is an OAuth client of the portal, so owners and
 collaborators sign in to their wikis with their portal account
@@ -308,8 +332,11 @@ follow the wiki's own sign-up policy.
 
 Tenants are part of every managed update: the updater stops them, and the
 maintenance service starts every wiki whose status is `running` again with
-the new image; the update is rolled back if any of them does not become
-healthy.
+the new image; the update is rolled back if any of them that was serving
+before does not become healthy. A wiki that was already failing does not
+block updates, and one that does not come back from a backup or a recovery
+is reported instead of keeping the platform in maintenance (see
+[operations](operations.md#managed-servers)).
 
 ## Portal REST API
 

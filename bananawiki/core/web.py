@@ -5,15 +5,18 @@
   exempt because browsers never attach those automatically.
 * Content-Security-Policy with a per-request nonce. Templates must not use
   inline event handlers; inline ``<script>`` blocks need ``nonce="{{ csp_nonce }}"``.
+  ``form-action`` is ``'self'``; a view whose form is answered with a
+  redirect to another site lists that origin with :func:`allow_form_action`.
 * Standard hardening headers and safe redirect targets.
 """
 
 from __future__ import annotations
 
 import hmac
+import re
 import secrets
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from urllib.parse import urljoin, urlsplit
 
 from flask import Flask, Response, abort, g, request, session
@@ -22,6 +25,9 @@ CSRF_SESSION_KEY = "_csrf"
 CSRF_FORM_FIELD = "csrf_token"
 CSRF_HEADERS = ("X-CSRF-Token", "X-CSRFToken")
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
+FORM_ACTION_KEY = "_csp_form_action"
+# CSP host-source syntax: letters, digits, dots and dashes (no IPv6 literals).
+_SOURCE_HOST = re.compile(r"[a-z0-9.-]+")
 
 
 def csrf_token() -> str:
@@ -63,6 +69,35 @@ def csp_nonce() -> str:
     return nonce
 
 
+def csp_origin(url: str) -> str | None:
+    """``scheme://host[:port]`` of an http(s) URL as a CSP source, or None."""
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return None
+    host = parts.hostname or ""
+    if parts.scheme not in ("http", "https") or parts.username or parts.password or not _SOURCE_HOST.fullmatch(host):
+        return None
+    return f"{parts.scheme}://{host}" + (f":{port}" if port else "")
+
+
+def allow_form_action(url: str) -> None:
+    """Add ``url``'s origin to ``form-action`` for this response only.
+
+    Chromium also checks ``form-action`` against the redirects that follow a
+    form submission, under the policy of the page holding the form. A page
+    whose form is answered with a redirect to another site (the OAuth consent
+    and account-linking steps) must therefore list that site. Only the origin
+    is added, never a path; a URL without a plain http(s) origin is ignored.
+    """
+    origin = csp_origin(url)
+    if origin:
+        extra: list[str] = g.setdefault(FORM_ACTION_KEY, [])
+        if origin not in extra:
+            extra.append(origin)
+
+
 @dataclass
 class SecurityPolicy:
     """Headers applied to every HTML response."""
@@ -74,6 +109,7 @@ class SecurityPolicy:
     media_src: list[str] = field(default_factory=lambda: ["'self'", "blob:", "data:"])
     connect_src: list[str] = field(default_factory=lambda: ["'self'"])
     frame_ancestors: list[str] = field(default_factory=lambda: ["'self'"])
+    form_action: list[str] = field(default_factory=lambda: ["'self'"])
     extra_script_src: list[str] = field(default_factory=list)
 
     def header(self, nonce: str) -> str:
@@ -91,7 +127,7 @@ class SecurityPolicy:
             "frame-ancestors": self.frame_ancestors,
             "object-src": ["'none'"],
             "base-uri": ["'self'"],
-            "form-action": ["'self'"],
+            "form-action": self.form_action,
             "manifest-src": ["'self'"],
             "worker-src": ["'self'", "blob:"],
         }
@@ -109,6 +145,9 @@ def apply_security_headers(response: Response, policy: SecurityPolicy, *, hsts: 
     elif "X-Frame-Options" not in headers and policy.frame_ancestors == ["'self'"]:
         headers["X-Frame-Options"] = "SAMEORIGIN"
     if "Content-Security-Policy" not in headers:
+        extra = [origin for origin in g.get(FORM_ACTION_KEY, ()) if origin not in policy.form_action]
+        if extra:
+            policy = replace(policy, form_action=[*policy.form_action, *extra])
         headers["Content-Security-Policy"] = policy.header(csp_nonce())
     if hsts and request.is_secure:
         headers.setdefault("Strict-Transport-Security", "max-age=31536000")

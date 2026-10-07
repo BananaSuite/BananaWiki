@@ -84,15 +84,21 @@ The wiki itself: Markdown pages in a tree of categories.
 Settings: per-user daily upload quotas and the upload rules
 (**Admin → Site settings → Uploads**).
 Permissions: `page.*`, `category.*`, `search.*` (see [permissions](permissions.md)).
-Renaming an account rewrites `@old` mentions in pages and drafts and records a
-history entry for each changed page.
+Renaming or deleting an account leaves pages and drafts as they are: a
+mention of a former name (`/users/<old name>`) leads to the renamed account,
+and a former name stays reserved for its account until the account is
+deleted. Members can rename themselves three times a day. Account merges
+still rewrite the source's `@mentions`, with a history entry per page.
 
 ## Page history
 
 Every save, rename or revert stores the full page in `page_history`.
 `/page/<slug>/history` lists versions; each version can be viewed rendered,
 as Markdown, or as a difference to the previous one, and restored (the
-current text stays in the history). Holders of the permissions can delete
+current text stays in the history). Differences are computed within a fixed
+work budget: when two versions are too different (or too repetitive) to
+compare in detail, the part that could not be compared shows as removed and
+re-added as a whole, with a note. Holders of the permissions can delete
 entries, clear a page's history, credit entries to another account or remove
 the author.
 
@@ -157,6 +163,7 @@ content, so search, history and exports keep working.
   pages, a category or recently updated pages) and a **canvas or Kanban
   embed**. Page lists and embeds are resolved for each reader with their own
   permissions, so they never show a page, canvas or board the reader cannot open.
+  The page lists of one page show at most 48 pages together.
 * Every block has layout options from a fixed list: alignment, a background
   from the theme palette and spacing. Layouts follow the width the page really
   gets, so columns and cards stack on phones.
@@ -222,7 +229,12 @@ People who may read a page but not edit it (`contribution.propose`) propose an
 edit with a reason from the page (`/page/<slug>/propose-edit`). Reviewers
 (`contribution.review` plus edit rights on the page, and administrators)
 approve or deny it at `/admin/contributions`; approving applies the edit
-credited to the proposer. Each user has a quota of waiting proposals
+credited to the proposer. An approval applies exactly the version the
+reviewer opened: if the proposal or the page changed in the meantime it is
+refused and the review shows the current state. The review lists at most
+5000 lines of the diff and counts the changed lines it leaves out; approving
+still applies the whole proposal, not only what was shown. Each user has a quota of
+waiting proposals
 (`default_contribution_quota`, requests up to
 `contribution_quota_auto_approve_max` approved automatically). Old proposals
 expire. **My contributions** at `/my-contributions`.
@@ -419,7 +431,11 @@ See [read aloud](tts.md) for installation and configuration.
   (both confirm with their passwords), an administrator approves
   (**Admin → Account merges**), and everything the source account owns moves
   to the target. Administrators can also merge directly
-  (`/admin/users/merge`).
+  (`/admin/users/merge`). The source is then deleted, or kept locked: renamed
+  `merged_<name>`, made a plain user with an unknown password, signed out,
+  its API tokens revoked and suspended so that only an administrator can
+  reactivate it. The last owner and the last active administrator cannot be
+  merged away.
 
 ## Badges
 
@@ -458,6 +474,11 @@ snippet, and **visual builder page**. Author HTML, CSS and JavaScript run in a
 sandboxed document with no access to the wiki's cookies. A custom page can never take over an address
 the wiki uses. **Admin → Custom pages**; permission `custom_page.manage`
 (administrators only); setting `custom_pages_max_video_size_mb`.
+
+A host can forbid that: under `BW_FORBID_PUBLIC_MODE` published custom pages,
+their files, redirects and sandboxed documents are for signed-in members only,
+and under `BW_FORBID_PUBLIC_BUILDER_PAGES` so are visual builder pages.
+Anonymous visitors are sent to sign in, as on the rest of the wiki.
 
 A visual builder page is edited in the page builder (**Edit in the visual
 builder**, available while the page builder is on) with the same blocks,

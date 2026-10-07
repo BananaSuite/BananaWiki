@@ -30,6 +30,7 @@
   {% endfor %}
 </nav>
 {% if previous and view in ('diff', 'source_diff') %}<p class="hint">{{ t('page_history.compared_with', date=previous.created_at|datetime) }}</p>{% endif %}
+{% if not diff_complete %}<p class="hint">{{ t('page_history.diff_coarse') }}</p>{% endif %}
 {% if view == 'source' %}
 <pre class="diff">{{ entry.content }}</pre>
 {% elif view == 'source_diff' %}

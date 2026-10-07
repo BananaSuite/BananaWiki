@@ -9,6 +9,7 @@ from bananawiki.core.timeutil import sql_in
 from bananawiki.wiki import storage
 from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.chat import retention, schema
+from bananawiki.wiki.migrations import LATEST
 
 from .chat_support import JSON, chat_folder, create_group, send, set_settings, start_dm, upload
 
@@ -116,7 +117,7 @@ def test_upload_usage_migrates_from_v4_and_is_removed_with_account(app, app_fact
     db.execute("DROP TABLE chat__upload_usage")
     db.execute("PRAGMA user_version = 4")
     upgraded = app_factory()
-    assert db.scalar("PRAGMA user_version") == 5
+    assert db.scalar("PRAGMA user_version") == LATEST
     assert db.column("SELECT created_at FROM chat__upload_usage ORDER BY source") == [dm_time, group_time]
     # Re-running the hook neither doubles usage nor erases a deleted upload.
     schema.upgrade_v5(db.conn)

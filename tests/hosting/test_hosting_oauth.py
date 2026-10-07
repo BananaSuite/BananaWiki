@@ -118,6 +118,44 @@ def test_foreign_redirect_uri_is_refused(web, make_account, login, wiki_client):
     assert response.status_code == 400
 
 
+def _form_action(response):
+    """The sources of the response's CSP ``form-action`` directive."""
+    for directive in response.headers["Content-Security-Policy"].split(";"):
+        name, _, sources = directive.strip().partition(" ")
+        if name == "form-action":
+            return sources
+    return None
+
+
+def _consent_page(client, redirect_uri, client_id):
+    params = {"response_type": "code", "client_id": client_id, "redirect_uri": redirect_uri, "state": "xyz",
+              "code_challenge": CHALLENGE, "code_challenge_method": "S256"}
+    return client.get("/oauth/authorize?" + urlencode(params))
+
+
+def test_consent_page_lets_its_form_redirect_to_the_wiki_only(web, make_account, login, wiki_client):
+    # Chromium checks the redirect that answers the consent form against this page's form-action.
+    login(web, make_account())
+    page = _consent_page(web, wiki_client["redirect_uri"], wiki_client["id"])
+    assert page.status_code == 200
+    wiki = urlparse(wiki_client["redirect_uri"])
+    assert _form_action(page) == f"'self' {wiki.scheme}://{wiki.netloc}"
+    refused = _consent_page(web, "https://evil.example/cb", wiki_client["id"])
+    assert refused.status_code == 400 and _form_action(refused) == "'self'"
+    assert _form_action(web.get("/dashboard")) == "'self'"
+    assert _form_action(web.get("/account")) == "'self'"
+
+
+def test_consent_page_allows_the_verified_custom_domain_it_answers_to(web, make_account, login, wiki_client, query):
+    query("INSERT INTO instance_custom_domains (domain, instance_id, verification_token, created_at, verified_at, "
+          "verified_until) VALUES ('docs.example.org', ?, 'token', '2026-01-01 00:00:00', '2026-01-01 00:00:00', "
+          "'2999-01-01 00:00:00')", (wiki_client["wiki"]["id"],))
+    login(web, make_account())
+    page = _consent_page(web, "https://docs.example.org/platform-oauth/callback", wiki_client["id"])
+    assert page.status_code == 200
+    assert _form_action(page) == "'self' https://docs.example.org"
+
+
 def test_denying_consent_returns_an_error_to_the_wiki(web, make_account, login, wiki_client):
     login(web, make_account())
     response = web.post(f"/oauth/authorize?response_type=code&client_id={wiki_client['id']}"

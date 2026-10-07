@@ -176,9 +176,10 @@ the routes directory, re-renders a Caddyfile it installed (digest in
 are kept), validates it and
 reloads Caddy only when it changed, and puts the previous file back when the
 readiness check fails. For hosting releases with the agent in subdomain mode
-that check also requires every running wiki the portal publishes to have a
-site block pointing at its current container, and the maintenance service
-publishes the table right after recovering the wikis.
+that check also requires the published table and, for every wiki that served
+before the operation and that the portal publishes, a site block pointing at
+its current container; the maintenance service publishes the table right
+after recovering the wikis.
 
 ## Storage launch gate
 

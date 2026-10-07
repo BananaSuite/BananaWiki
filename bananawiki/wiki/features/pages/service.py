@@ -8,6 +8,7 @@ Visibility
 ----------
 A page is visible to a user when they can read its category and:
 
+* signed-in users hold ``page.view_all`` (administrators always do);
 * it is not pending deletion, unless they may delete pages;
 * it is not hidden (``is_deindexed``), unless they may see hidden pages;
 * anonymous visitors (public mode) additionally never see builder pages that
@@ -141,6 +142,8 @@ def can_view(page: dict[str, Any] | None, user: dict[str, Any] | None = None, *,
         return True
     if auth.is_admin(user):
         return True
+    if not auth.has_permission("page.view_all", user):
+        return False
     if not auth.can_read_category(page.get("category_id"), user):
         return False
     if _flag(page, "pending_deletion") and not auth.has_permission("page.delete", user):
@@ -196,6 +199,8 @@ def visible_filter(user: dict[str, Any] | None = None, alias: str = "p") -> tupl
         return clause, []
     if auth.is_admin(user):
         return "1", []
+    if not auth.has_permission("page.view_all", user):
+        return "0", []
     grants = auth.grants(user)
     assert grants is not None
     parts: list[str] = []
@@ -562,7 +567,13 @@ def _mention_pattern(username: str) -> re.Pattern[str]:
 
 
 def rewrite_mentions(old_username: str, replacement: str) -> int:
-    """Replace ``@old_username`` in pages and drafts, recording a history entry per page."""
+    """Replace ``@old_username`` in pages and drafts, recording a history entry per page.
+
+    Used by account merges, an administrator's decision; renaming or deleting an
+    account leaves pages alone. A page that cannot take the change (edited or
+    deleted meanwhile, or over the size limit with a longer name) keeps its text
+    instead of stopping the merge half-way.
+    """
     pattern = _mention_pattern(old_username)
     like = "%@" + old_username.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
     changed = 0
@@ -571,10 +582,15 @@ def rewrite_mentions(old_username: str, replacement: str) -> int:
         if page is None:
             continue
         new_content = pattern.sub(replacement, page["content"])
-        if new_content != page["content"]:
-            update(page, author_id=None, content=new_content,
+        if new_content == page["content"]:
+            continue
+        try:
+            update(page, author_id=None, content=new_content, expected_revision=page["revision"],
                    edit_message=f"Updated mention of @{old_username}")
-            changed += 1
+        except PageError as error:
+            current_app.logger.warning("Mention of @%s left in page %s: %s", old_username, page["id"], error)
+            continue
+        changed += 1
     for draft in db.all("SELECT id, content FROM drafts WHERE content LIKE ? ESCAPE '\\'", (like,)):
         new_content = pattern.sub(replacement, draft["content"])
         if new_content != draft["content"]:

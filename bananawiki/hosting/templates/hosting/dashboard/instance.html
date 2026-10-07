@@ -28,7 +28,7 @@
     <dt>{{ t('hosting.instance.mode') }}</dt><dd>{{ t('hosting.instance.easy_wiki') if inst.easy_wiki else t('hosting.instance.full_wiki') }}</dd>
     <dt>{{ t('hosting.instance.upload_limit') }}</dt><dd>{{ upload_policy.upload_max_size_mb }} MB</dd>
     {% if inst.status == 'running' %}<dt>{{ t('hosting.instance.health') }}</dt><dd>{{ t('hosting.health.' ~ inst.health, inst.health) }}</dd>{% endif %}
-    {% if inst.status == 'terminated' and inst.grace_active %}<dt>{{ t('hosting.instance.retained_until') }}</dt><dd>{{ inst.data_retained_until|datetime }}</dd>{% endif %}
+    {% if inst.status == 'terminated' and inst.grace_active %}<dt>{{ t('hosting.instance.retained_until') }}</dt><dd>{{ inst.data_retained_until|datetime }}{% if inst.grace_period_suspended %} ({{ t('hosting.instance.retention_paused') }}){% endif %}</dd>{% endif %}
   </dl>
 </section>
 

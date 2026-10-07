@@ -108,7 +108,7 @@ def page_audio(page: dict[str, Any]) -> PageAudio:
     if row["status"] in ACTIVE:
         return PageAudio(row, False, True)
     usable = audio_path(row) is not None and row["content_hash"] == text.content_hash(
-        text.normalize_text(page.get("title"), page.get("content")), row["language"])
+        text.spoken_text(page.get("title"), page.get("content")), row["language"])
     return PageAudio(row, usable, False)
 
 
@@ -131,23 +131,56 @@ def serialize(row: dict[str, Any] | None, *, usable: bool = False) -> dict[str, 
 # ── Queueing ──────────────────────────────────────────────────────────────────
 
 
+def _chosen_language(language: str | None) -> str | None:
+    """The enabled code for an explicit *language*, None for automatic detection."""
+    if not language or language == "auto":
+        return None
+    chosen = text.normalize_language(language, allowed=options.enabled_languages())
+    if chosen is None:
+        raise TtsError("tts.error.unsupported_language")
+    return chosen
+
+
 def plan(page: dict[str, Any], language: str | None = None) -> tuple[str, str, str] | None:
     """``(spoken, language, hash)`` for *page*, or None when it has nothing to read."""
-    spoken = text.normalize_text(page.get("title"), page.get("content"))
+    chosen = _chosen_language(language)
+    spoken = text.spoken_text(page.get("title"), page.get("content"))
     if not spoken.strip():
         return None
-    allowed = options.enabled_languages()
-    if language and language != "auto":
-        chosen = text.normalize_language(language, allowed=allowed)
-        if chosen is None:
-            raise TtsError("tts.error.unsupported_language")
-    else:
-        chosen = text.detect_language(spoken, allowed=allowed)
+    if chosen is None:
+        chosen = text.detect_language(spoken, allowed=options.enabled_languages())
     return spoken, chosen, text.content_hash(spoken, chosen)
 
 
 def _usable_row(row: dict[str, Any]) -> bool:
     return row["status"] == "completed" and audio_path(row) is not None
+
+
+def _limit_reason(limits: tuple[int, int], requested_by: str | None) -> str | None:
+    """``queue_full`` or ``user_queue_full`` when *limits* leave no room for another job."""
+    total, per_user = limits
+    if db.scalar("SELECT COUNT(*) FROM tts_generations WHERE status IN ('pending', 'processing')",
+                 default=0) >= total:
+        return "queue_full"
+    if requested_by and db.scalar("SELECT COUNT(*) FROM tts_generations WHERE status IN ('pending', 'processing') "
+                                  "AND requested_by = ?", (requested_by,), default=0) >= per_user:
+        return "user_queue_full"
+    return None
+
+
+def _refused_early(page_id: int, requested_by: str | None, limits: tuple[int, int]) -> Outcome | None:
+    """The answer to a reader's request when it does not depend on the page text.
+
+    Runs before the page is normalised, so a refused request costs a few
+    queries; :func:`request` checks everything again in its transaction.
+    """
+    existing = generation(page_id)
+    if existing is not None and existing["status"] in ACTIVE:
+        return Outcome(existing, False, "already_in_progress")
+    if existing is not None and _usable_row(existing):
+        return None  # whether it is still current ("already_generated") needs the text
+    reason = _limit_reason(limits, requested_by)
+    return Outcome(existing, False, reason) if reason else None
 
 
 def request(page: dict[str, Any], *, requested_by: str | None, language: str | None = None,
@@ -159,6 +192,11 @@ def request(page: dict[str, Any], *, requested_by: str | None, language: str | N
     (``(total, per_user)``, readers pressing "Generate") an existing job
     always wins and the number of active jobs is capped.
     """
+    if limits:
+        _chosen_language(language)  # an unsupported language is still refused first
+        refused = _refused_early(page["id"], requested_by, limits)
+        if refused is not None:
+            return refused
     planned = plan(page, language)
     if planned is None:
         raise TtsError("tts.error.empty_page")
@@ -174,16 +212,9 @@ def request(page: dict[str, Any], *, requested_by: str | None, language: str | N
             if _usable_row(existing) and (same or (limits and fresh)):
                 return Outcome(existing, False, "already_generated")
         if limits:
-            total, per_user = limits
-            active = db.scalar("SELECT COUNT(*) FROM tts_generations WHERE status IN ('pending', 'processing')",
-                               default=0)
-            if active >= total:
-                return Outcome(existing, False, "queue_full")
-            if requested_by and db.scalar(
-                "SELECT COUNT(*) FROM tts_generations WHERE status IN ('pending', 'processing') "
-                "AND requested_by = ?", (requested_by,), default=0,
-            ) >= per_user:
-                return Outcome(existing, False, "user_queue_full")
+            reason = _limit_reason(limits, requested_by)
+            if reason:
+                return Outcome(existing, False, reason)
         if existing:
             replaced = existing["filename"]
             db.execute("DELETE FROM tts_generations WHERE id = ?", (existing["id"],))
@@ -205,14 +236,7 @@ def queue_state(user: dict[str, Any] | None) -> str | None:
     """Why a reader cannot start a generation right now (None: they can)."""
     if options.host_disabled():
         return "disabled_by_host"
-    total, per_user = manual_limits()
-    if db.scalar("SELECT COUNT(*) FROM tts_generations WHERE status IN ('pending', 'processing')",
-                 default=0) >= total:
-        return "queue_full"
-    if user and db.scalar("SELECT COUNT(*) FROM tts_generations WHERE status IN ('pending', 'processing') "
-                          "AND requested_by = ?", (user["id"],), default=0) >= per_user:
-        return "user_queue_full"
-    return None
+    return _limit_reason(manual_limits(), user["id"] if user else None)
 
 
 # ── Removing ──────────────────────────────────────────────────────────────────
@@ -290,7 +314,7 @@ def on_page_updated(page: dict[str, Any], author_id: str | None = None, **_: Any
         return
     row = generation(current["id"])
     if row is not None:
-        spoken = text.normalize_text(current.get("title"), current.get("content"))
+        spoken = text.spoken_text(current.get("title"), current.get("content"))
         if row["status"] != "failed" and row["content_hash"] == text.content_hash(spoken, row["language"]):
             return
     had_audio = row is not None and (row["status"] in ACTIVE or _usable_row(row))
@@ -398,29 +422,42 @@ def retry_failed(requested_by: str | None) -> int:
 # ── Worker side ───────────────────────────────────────────────────────────────
 
 
+_RUNNABLE = "g.status = 'pending' AND (g.not_before IS NULL OR g.not_before <= ?)"
+
+
 def claim(scan: int = 10) -> Job | None:
-    """Atomically take the oldest runnable pending job (or None)."""
+    """Atomically take the oldest runnable pending job (or None).
+
+    The page is normalised before the write transaction, which only checks
+    that the job is still pending and the page still has the text that was
+    read: a long page never holds the database's write lock.
+    """
     now = now_sql()
-    with db.transaction():
-        rows = db.all(
-            "SELECT g.id, g.page_id, g.language, g.content_hash, g.retry_count, p.title, p.content "
-            "FROM tts_generations g JOIN pages p ON p.id = g.page_id "
-            "WHERE g.status = 'pending' AND (g.not_before IS NULL OR g.not_before <= ?) "
-            "ORDER BY g.requested_at, g.id LIMIT ?",
-            (now, scan),
-        )
-        for row in rows:
-            spoken = text.normalize_text(row["title"], row["content"])
+    for job_id in db.column(f"SELECT g.id FROM tts_generations g WHERE {_RUNNABLE} "
+                            "ORDER BY g.requested_at, g.id LIMIT ?", (now, scan)):
+        page = db.one("SELECT p.title, p.content FROM tts_generations g JOIN pages p ON p.id = g.page_id "
+                      "WHERE g.id = ?", (job_id,))
+        if page is None:
+            continue
+        spoken = text.spoken_text(page["title"], page["content"])
+        with db.transaction():
+            row = db.one(
+                "SELECT g.page_id, g.language, g.retry_count FROM tts_generations g JOIN pages p ON p.id = g.page_id "
+                f"WHERE g.id = ? AND {_RUNNABLE} AND p.title IS ? AND p.content IS ?",
+                (job_id, now, page["title"], page["content"]),
+            )
+            if row is None:
+                continue  # claimed by another worker, replaced or edited meanwhile
             if not spoken.strip():
-                db.execute("DELETE FROM tts_generations WHERE id = ?", (row["id"],))
+                db.execute("DELETE FROM tts_generations WHERE id = ?", (job_id,))
                 continue
             digest = text.content_hash(spoken, row["language"])
             db.execute(
                 "UPDATE tts_generations SET status = 'processing', started_at = ?, lease_until = ?, "
                 "content_hash = ?, completed_at = NULL WHERE id = ? AND status = 'pending'",
-                (now, sql_in(seconds=LEASE_SECONDS), digest, row["id"]),
+                (now, sql_in(seconds=LEASE_SECONDS), digest, job_id),
             )
-            return Job(row["id"], row["page_id"], row["language"], digest, spoken, int(row["retry_count"] or 0))
+            return Job(job_id, row["page_id"], row["language"], digest, spoken, int(row["retry_count"] or 0))
     return None
 
 

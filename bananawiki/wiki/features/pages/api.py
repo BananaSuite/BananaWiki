@@ -106,7 +106,7 @@ def api_sidebar_search():
     pages = service.search(query, limit=20, titles_only=titles_only)
     paths = _readable_paths()
     user = auth.current_user()
-    found = [c for c in categories.search(query, limit=10) if auth.can_read_category(c["id"], user)]
+    found = [c for c in categories.search(query, limit=10) if categories.listed(c["id"], user)]
     return jsonify({
         "categories": [{"id": c["id"], "name": c["name"], "path": paths.get(c["id"], c["name"]),
                         "parent_id": c["parent_id"]} for c in found],

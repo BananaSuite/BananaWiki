@@ -26,11 +26,58 @@ one, recover the operator's original trust file and configure
 `source set --require-signatures FILE` before updating. Failed restores now
 restore repository credentials and signer trust along with the previous data.
 
-The latest build upgrades databases at schema 3 or 4 to schema 5, with an
-automatic database backup first. The new chat upload ledger keeps the
-24-hour allowance consumed when a message or conversation is deleted.
+The latest build upgrades databases at schema 3, 4 or 5 to schema 6, with an
+automatic database backup first. Schema 5 adds a chat upload ledger that keeps
+the 24-hour allowance consumed when a message or conversation is deleted.
 Retained uploads from the preceding 24 hours are counted during the upgrade;
-uploads deleted before the upgrade cannot be reconstructed.
+uploads deleted before the upgrade cannot be reconstructed. Schema 6 records
+whether an owner or superuser imposed a suspension, indexes former user names,
+and grants `page.view_all` and `category.view_all` to every saved permission
+set, because both are now enforced (see [Permissions](#permissions)).
+
+Already on 1.6.0? These changes of the latest build need attention (details in
+[Behaviour changes](#behaviour-changes)):
+
+* `page.view_all` and `category.view_all` are enforced. The upgrade grants
+  them to every saved permission set, so nothing changes until an
+  administrator saves permissions without them.
+* `DELETE /api/v1/categories/<id>?page_action=delete` also needs the `pages`
+  write scope and refuses hidden, forbidden or protected pages; API tokens
+  expire at most 10 years ahead.
+* Renaming or deleting an account no longer edits pages; members rename
+  themselves at most 3 times a day and former names stay reserved.
+* Suspensions recorded before the upgrade are lifted by an owner or
+  superuser, not by the suspended administrator.
+* On hosts that forbid public wikis, custom pages are for signed-in members.
+* Hosting: "Pause deletion countdown" really pauses the deletion; tenant
+  images are rebuilt on a fresh base at every update, so the Docker registry,
+  the Debian mirror and PyPI must be reachable during updates (a mirror or
+  PyPI outage records the commit as failed until `update --retry-failed`).
+* Hosting needs hard XFS project quotas: the runtime agent assigns byte and
+  inode limits before it seeds, imports, copies, restores or starts a wiki,
+  and refuses on any other storage. Put the installation's `data/instances/`
+  on a dedicated XFS filesystem with project quotas enforced (`prjquota`, see
+  [docs/hosting.md](docs/hosting.md)) **before updating**. Otherwise an
+  update of a server with running wikis keeps them down for the whole
+  readiness timeout (up to 2 hours with many wikis), is then rolled back and
+  records the commit as failed until `update --retry-failed`; on a server
+  without running wikis it completes, but no wiki can be created, started or
+  restored until the storage enforces project quotas.
+* Hosting now runs only on Linux x86_64: on any other architecture the
+  portal and the maintenance service refuse to start and the runtime agent
+  refuses to launch any wiki, so an update is rolled back. Do not update an
+  arm64 hosting server.
+* Hosting: a new wiki stays reserved as "Creating" until its provisioning
+  finishes (hosting database version 4; existing wikis are marked ready). An
+  interrupted or failed creation is never started or recovered: terminate it
+  and create it again.
+* REST API and JSON uploads: JSON with non-finite numbers, unpaired
+  surrogates or more than 64 nesting levels is refused (400 on the API).
+  `Idempotency-Key` replays re-check current access and may answer 409
+  `idempotency_replay_unavailable` without running again; server, storage
+  and routing errors under `/api/v1` carry `code` and `request_id`.
+* The default source link (`BW_SOURCE_URL`) and the default repository of
+  new managed installations are now `https://github.com/BananaSuite/BananaWiki`.
 
 Hosted third-party Python plugins now require `HOSTING_ALLOW_TENANT_PLUGINS=1`
 in the operator's hosting environment. The default is disabled; existing
@@ -94,8 +141,9 @@ sudo bananawiki status
   agent's routes directory (`/var/lib/bananawiki-routes`) and, if the
   Caddyfile was installed with `bananawiki proxy --install`, re-renders it to
   import that directory (Caddy is reloaded only when the file changes). The
-  step is finished only when every running wiki is healthy and routed. If the
-  readiness checks fail, the old units, `app.env` and Caddyfile are put back.
+  step is finished only when every wiki that was serving is healthy and
+  routed again. If the readiness checks fail, the old units, `app.env` and
+  Caddyfile are put back.
   **On a hosting server the wikis are not reachable between the two updates**,
   so run the second one right away. A Caddyfile you wrote yourself is left
   alone; `update` then warns until it contains
@@ -233,6 +281,10 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   changed only by themselves, superusers only by themselves. The account made
   at `/setup` on a new wiki is an owner and a superuser; on an upgraded wiki,
   make sure at least one trusted person is an owner or superuser.
+* **A suspended administrator lifts their own suspension only** when an
+  administrator who still has an account imposed it (1.4 allowed any).
+  Suspensions imposed by an owner or superuser, and every suspension recorded
+  before the upgrade, are lifted by an owner or superuser.
 * **Sign-up approval is enforced**: pending and denied accounts can no longer
   use the wiki (1.4 let them in). Check **Admin → Users** for pending accounts
   after upgrading if you had approval turned on.
@@ -240,6 +292,12 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   minutes, across workers; a successful sign-in no longer resets the
   address counter.
 * The setup token is accepted only in the setup form, not in the URL.
+* Members can rename themselves at most 3 times a day. A former name stays
+  reserved for its account until that account is deleted, and
+  `/users/<former name>` leads to it.
+* Account merges in "lock" mode demote the source account to a plain user,
+  clear its permission overrides, replace its password and suspend it. A merge
+  can no longer remove the last active administrator.
 * The guided tour no longer shows other roles' real pages: it illustrates
   them.
 * Bot protection tokens are single-use and are also checked in test
@@ -259,6 +317,22 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
 * The **page builder** needs the right to edit the page, whatever
   `page_builder_access` says (plain users can no longer edit pages through it).
 * A permission of a switched-off feature is never granted.
+* **`page.view_all` and `category.view_all` are enforced.** Without
+  `page.view_all` an account reads no page, including federated copies;
+  without `category.view_all` it sees no category in the navigation, category
+  lists and search (category pickers in forms are unchanged). Both were shown
+  but never checked before, so schema 6 grants them once to every saved
+  individual permission set and custom role: nothing changes on upgrade.
+  Untick them afterwards only for accounts that must not read. To list the
+  accounts that would read nothing:
+  `SELECT username FROM users u WHERE role IN ('user', 'editor') AND
+  custom_role_id IS NULL AND EXISTS (SELECT 1 FROM user_category_access a
+  WHERE a.user_id = u.id) AND NOT EXISTS (SELECT 1 FROM user_permissions p
+  WHERE p.user_id = u.id AND p.permission_key = 'page.view_all');`
+* **Deleting a category with its pages** (web, API, bulk delete) is all or
+  nothing: hidden pages, pages the account may not delete and protected,
+  checked-out or already scheduled pages refuse the whole deletion before
+  anything changes; deletion slowdown still applies.
 
 ### REST API
 
@@ -277,6 +351,27 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   are gone; use maintenance mode.
 * New: history, search, single category, `expected_revision`, paging,
   `/api/v1/openapi.json`. See [docs/api.md](docs/api.md).
+* `DELETE /api/v1/categories/<id>?page_action=delete` also needs the token's
+  `pages` scope with write access. It answers 403 (`category_pages_hidden`,
+  `category_pages_forbidden`) or 409 (`category_pages_blocked`) with the
+  affected slugs, and 202 when pages were only scheduled for deletion.
+* Token expiry dates are at most 10 years ahead (`expiry_too_far`); existing
+  tokens keep their expiry and can still be revoked.
+* JSON request bodies with non-finite numbers (`NaN`, `Infinity`), unpaired
+  Unicode surrogates or more than 64 nested objects/arrays are refused with
+  400. The same check applies to uploaded JSON files: Kanban and canvas
+  imports, themes, language packs, plugin manifests, 1.4 `site_export.json`
+  and federation snapshots.
+* `Idempotency-Key`: a keyed `POST` commits its changes together with its
+  replay record. A replay re-checks the token owner's current role and access
+  to the pages, categories, canvases and boards it returns; when one became
+  unreadable, or the first answer was larger than 2 MiB, it answers 409
+  `idempotency_replay_unavailable` with the first answer's `status` instead
+  of replaying or running again.
+* Unexpected server errors (500 `internal_error`), temporary storage
+  failures (503 `storage_unavailable`) and routing errors under `/api/v1` use
+  the error envelope with a generic message and a `request_id` (also sent as
+  `X-Request-ID`).
 
 ### Features
 
@@ -321,11 +416,27 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   previous revision), so numbers differ from 1.4.
 * **Contribution approval** is switched by its own setting
   (`contribution_approval_enabled`); the migration keeps it on where 1.4 had
-  it on.
-* **Mentions:** renaming an account records a history entry on every page
-  whose `@mention` was rewritten.
+  it on. An approval applies the version the reviewer saw: if the proposal or
+  the page changed meanwhile, it is refused and the review is shown again.
+* **Very large changes** in page history, edit conflicts, contribution reviews
+  and kanban history show a coarser comparison or a "too large to display"
+  note instead of an exact diff.
+* **Custom pages** on hosts that forbid public wikis
+  (`BW_FORBID_PUBLIC_MODE=1`, or `BW_FORBID_PUBLIC_BUILDER_PAGES=1` for
+  builder pages, the default under managed hosting) are for signed-in members:
+  anonymous visitors are sent to sign in.
+* **Markdown limits:** only the first `[TOC]` expands, a page embeds at most
+  200 videos, boards and canvases, and the page builder's page lists show at
+  most 48 pages per document. Content that would cost too much to render is
+  shown as escaped source.
+* **Mentions:** renaming or deleting an account no longer edits pages. A
+  mention of a former name leads to the renamed account, and the former name
+  stays reserved for it. Account merges still rewrite the mentions, with a
+  history entry on every changed page.
 * **Uploads:** still images are re-encoded on upload, which removes EXIF/GPS
-  metadata.
+  metadata. Profile pictures are limited to 4 megapixels, the background
+  image limit is checked before processing, and each account may upload 10
+  profile or background images per 10 minutes.
 * **Plugins:** third-party plugins load only at start-up (enabling one takes
   effect after a restart, which the plugin page can trigger); 1.4 plugins run
   through an adapter whose limits are listed in
@@ -373,6 +484,62 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   no longer asks public IP-echo services for its address; tenant logs go to
   Docker's rotated log driver; tenant databases are migrated only inside the
   tenant container.
+* Hosting: pausing the deletion countdown of a terminated wiki now really
+  pauses it (1.4 only blocked the owner's download). A terminated wiki whose
+  download was blocked in 1.4 is therefore kept until an administrator
+  resumes its countdown on its admin page; the paused time is then added to
+  its grace period.
+* Hosting: every update rebuilds the tenant image on a freshly pulled base
+  image with current Debian and Python packages, so the Docker registry, the
+  Debian mirror and PyPI must be reachable. If only the base image pull
+  fails, the cached base is used and `update` reports `image_warnings`; if
+  the Debian mirror or PyPI fails, the commit is recorded as failed until
+  `update --retry-failed`. A wiki that does not
+  come back is reported in `unready_tenants` instead of keeping the platform
+  in maintenance; `recover --abandon` drops an operation that cannot finish.
+  If Docker does not answer when an operation begins, nothing is changed.
+  See [docs/operations.md](docs/operations.md). The tenant image builds FFmpeg
+  and the ACL packages in earlier stages that a refresh alone does not
+  rebuild; when the pulled base image changed they are rebuilt too, which also
+  needs `ffmpeg.org` and the Debian source archive. The ACL stage installs two
+  exact Debian unstable versions (`libacl1` 2.4.0-1, `tar` 1.35+dfsg-6), so
+  that rebuild fails once unstable replaces them: the build then falls back
+  to the previous base image, still with fresh Debian and Python packages,
+  and `update` reports `image_warnings`. Only a build that fails on the
+  previous base image too records the commit as failed.
+* Hosting: the runtime agent assigns and verifies hard XFS project byte and
+  inode quotas before every seed, import, copy, restore and launch. On storage
+  without enforced project quotas, changed project identities or too little
+  capacity it refuses, and the wiki stays stopped. Existing wikis are adopted
+  when they next start (the recovery after the update restarts every
+  running wiki that lacks verified quotas). Ceilings default to 10 GiB and
+  100,000 inodes per wiki (`HOSTING_AGENT_MAX_STORAGE_BYTES`,
+  `HOSTING_AGENT_MAX_INODES`); see [docs/hosting.md](docs/hosting.md).
+* Hosting: a new wiki is inserted as a pending reservation and becomes
+  running only when its seed, copy or import and its first start have
+  finished. Until then, and while a failed creation still awaits its cleanup,
+  it counts against the limits, cannot be started, changed or recovered, and
+  is cancelled by terminating it. Neither a failure nor a cancellation deletes
+  a data folder the creation did not make: when the folder already existed,
+  or the portal never handed the creation to the runtime agent, the folder is
+  left untouched for an administrator (a creation refused because its folder
+  existed is terminated at once and does not count against the limits; the
+  refusal is also kept under `HOSTING_PLATFORM_STATE_DIR` in
+  `.provisioning-refused/`). The exception is a portal worker killed outright
+  while the agent works on a creation: cancelling that creation, or its
+  expiry, deletes the folder under its name. See
+  [docs/hosting.md](docs/hosting.md).
+* Hosting runs only on Linux x86_64. On any other architecture the portal
+  and maintenance units, which now start through
+  `bananawiki.ops.hosting_entrypoint`, exit with status 78, and the runtime
+  agent refuses to launch any wiki (`sandbox_unavailable`).
+* The default source link (`BW_SOURCE_URL`) and the default repository of
+  new managed installations are now `https://github.com/BananaSuite/BananaWiki`;
+  existing installations keep their configured repository.
+* Hosting: backups and recoveries no longer start the stopped wiki
+  containers again with `docker start`; they remove them and the portal
+  starts every wiki marked running again in a new container, as after an
+  update.
 
 ### Removed
 

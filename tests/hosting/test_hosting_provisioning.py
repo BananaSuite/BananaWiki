@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -155,6 +156,30 @@ def test_failed_cleanup_stays_reserved_and_excluded_from_recovery(portal, runtim
         assert instances.get(failed["id"])["status"] == "terminated"
 
 
+def test_recovery_never_hands_an_unfinished_wiki_to_the_runtime(portal, runtime, make_account, make_wiki,
+                                                               monkeypatch):
+    owner = make_account()
+    make_wiki(owner, "finished")
+    provision = runtime.provision
+
+    def then_fail(*args, **kwargs):
+        provision(*args, **kwargs)
+        raise RuntimeFailure("start_failed", "synthetic")
+
+    monkeypatch.setattr(runtime, "provision", then_fail)
+    runtime.fail_next("destroy", "unavailable")
+    runtime.fail_next("stop", "unavailable")
+    with portal.test_request_context("/"), connection_scope():
+        with pytest.raises(ServiceError):
+            instances.create(owner, "failed-provision")
+        assert instances.by_slug("failed-provision", "hosting")["status"] == "running"
+    recovered = []
+    recover = runtime.recover
+    monkeypatch.setattr(runtime, "recover", lambda specs: recovered.extend(specs) or recover(specs))
+    maintenance.recover(portal)
+    assert [spec.slug for spec in recovered] == ["finished"]
+
+
 def test_cancel_before_creator_lock_does_not_launch_an_orphan(portal, runtime, make_account, login, monkeypatch):
     owner = make_account()
     creator, operator = portal.test_client(), portal.test_client()
@@ -218,6 +243,41 @@ def test_global_policy_changed_during_seed_is_applied_before_completion(ctx, run
     assert inst["status"] == "running" and inst["provisioning_state"] == "ready"
     assert not runtime.tenants["policy-seed"].spec.policy.forbid_public_mode
     assert runtime.called("apply_limits") == runtime.called("restart") == ["policy-seed"]
+
+
+def test_a_failure_after_the_first_start_always_cleans_up(ctx, runtime, make_account, monkeypatch):
+    """Only the runtime operation itself can report data that is not the wiki's own; later steps cannot."""
+    owner = make_account()
+    provision = runtime.provision
+
+    def changed_policy(*args, **kwargs):
+        provision(*args, **kwargs)
+        settings.update(forbid_non_admin_public_wikis=0)
+
+    monkeypatch.setattr(runtime, "provision", changed_policy)
+    runtime.fail_next("apply_limits", "data_exists")
+    with pytest.raises(ServiceError):
+        instances.create(owner, "policy-seed")
+    assert "policy-seed" in runtime.called("destroy") and "policy-seed" not in runtime.tenants
+    failed = db.one("SELECT * FROM instances WHERE account_id = ?", (owner["id"],))
+    assert failed["status"] == "terminated" and failed["provisioning_state"] == "failed"
+
+
+def test_storage_quota_sweep_leaves_unfinished_creations_to_their_cancellation(ctx, runtime, make_account,
+                                                                              make_wiki, monkeypatch, caplog):
+    owner = make_account()
+    pending = instances._insert(owner, "aaa-pending", "hosting", admin_username="admin", custom_credentials=False,
+                                easy_wiki=False, use_case="")
+    db.execute("UPDATE instances SET created_at = '2000-01-01 00:00:00', storage_limit_mb = 1 WHERE id = ?",
+               (pending["id"],))
+    ready = make_wiki(owner, "zzz-ready")
+    db.execute("UPDATE instances SET storage_limit_mb = 1 WHERE id = ?", (ready["id"],))
+    monkeypatch.setattr(instances, "usage_bytes", lambda inst: 50 * 1024 * 1024)
+    with caplog.at_level(logging.WARNING, logger="bananawiki.hosting.instances"):
+        assert instances.enforce_storage_quotas() == 1
+    assert instances.get(ready["id"])["status"] == "suspended"
+    assert instances.get(pending["id"])["status"] == "stopped"
+    assert not [record for record in caplog.records if "not enforced" in record.getMessage()]
 
 
 def test_v4_migration_preserves_legacy_status_and_marks_existing_rows_ready():

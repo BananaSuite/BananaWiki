@@ -146,7 +146,9 @@ How the image is built:
 * Python 3.12 (Debian 13/trixie), dependencies from wheels only, plus verified
   source-built FFmpeg 9.0.2 with the WAV/MP3 speech components,
   and DejaVu fonts for PDF export. Available distribution security updates
-  are applied during the build. Rebuild regularly to receive later fixes.
+  are applied when the image is first built. A plain rebuild reuses Docker's
+  cached base image and layers and gets no new fixes: rebuild regularly with
+  `--pull --no-cache` (see **Updates** below; this also rebuilds FFmpeg).
   The ACL library is updated to Debian's authenticated `libacl1` 2.4.0-1,
   together with compatible GNU tar 1.35+dfsg-6. Their corresponding source,
   licenses and verification inventory are in `/usr/local/share/bananawiki/acl`.
@@ -187,7 +189,8 @@ secret key), for example with
 followed by `docker compose cp wiki:/tmp/wiki.tar.gz .` (the export must be
 written outside `/data`; see [operations](operations.md#moving-a-wiki-without-banana)).
 
-**Updates.** `git pull && docker compose build && docker compose up -d`. The
+**Updates.** `git pull && docker compose build --pull --no-cache && docker compose up -d`
+(without Compose: `docker build --pull --no-cache -t bananawiki .`). The
 database is upgraded when the new container starts, after an automatic copy
 to `/data/backups/`.
 
@@ -358,7 +361,15 @@ portal (`bananawiki.service`), its maintenance service
 (`bananawiki-maintenance.service`) and the privileged runtime agent
 (`bananawiki-agent.service`), and builds the tenant image
 `bananawiki-tenant:<commit>` from `Dockerfile.tenant`. Docker must be
-installed first. `sudo bananawiki proxy --install` then installs a Caddy
+installed first. Every release build (`install`, `update`, `restore`) pulls
+the newest base image and runs the Debian upgrade and the package
+installation again, so updates also bring the wikis the latest distribution
+and Python security fixes; with the registry unreachable, or when the build
+fails on a newly pulled base image (the ACL stage pins two Debian unstable
+versions), the image is built on the previous base image and `update`
+reports `image_warnings`. Between
+releases the image does not change: `status` shows when it was built
+(`tenant_image_built`). `sudo bananawiki proxy --install` then installs a Caddy
 configuration that serves the static site on the base domain (and redirects
 `www.<domain>` to it), the portal on the portal domain and every wiki through
 on-demand TLS, or through one wildcard certificate with `--tls cloudflare-dns`
