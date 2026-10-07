@@ -501,7 +501,12 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   See [docs/operations.md](docs/operations.md). The tenant image builds FFmpeg
   and the ACL packages in earlier stages that a refresh alone does not
   rebuild; when the pulled base image changed they are rebuilt too, which also
-  needs `ffmpeg.org` and the Debian source archive.
+  needs `ffmpeg.org` and the Debian source archive. The ACL stage installs two
+  exact Debian unstable versions (`libacl1` 2.4.0-1, `tar` 1.35+dfsg-6), so
+  that rebuild fails once unstable replaces them: the build then falls back
+  to the previous base image, still with fresh Debian and Python packages,
+  and `update` reports `image_warnings`. Only a build that fails on the
+  previous base image too records the commit as failed.
 * Hosting: the runtime agent assigns and verifies hard XFS project byte and
   inode quotas before every seed, import, copy, restore and launch. On storage
   without enforced project quotas, changed project identities or too little
@@ -516,9 +521,14 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   it counts against the limits, cannot be started, changed or recovered, and
   is cancelled by terminating it. Neither a failure nor a cancellation deletes
   a data folder the creation did not make: when the folder already existed,
-  or the creation never got as far as making it, the folder is left untouched
-  for an administrator (a creation refused because its folder existed is
-  terminated at once and does not count against the limits).
+  or the portal never handed the creation to the runtime agent, the folder is
+  left untouched for an administrator (a creation refused because its folder
+  existed is terminated at once and does not count against the limits; the
+  refusal is also kept under `HOSTING_PLATFORM_STATE_DIR` in
+  `.provisioning-refused/`). The exception is a portal worker killed outright
+  while the agent works on a creation: cancelling that creation, or its
+  expiry, deletes the folder under its name. See
+  [docs/hosting.md](docs/hosting.md).
 * Hosting runs only on Linux x86_64. On any other architecture the portal
   and maintenance units, which now start through
   `bananawiki.ops.hosting_entrypoint`, exit with status 78, and the runtime

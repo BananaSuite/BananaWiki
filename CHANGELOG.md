@@ -87,8 +87,11 @@
   `~deleted-<id>`.
 * Hosting updates rebuild the tenant image on a freshly pulled base with
   current Debian and Python packages (`BW_REFRESH`), falling back to the
-  cached base with `image_warnings` when only the pull fails; a Debian mirror
-  or PyPI outage records the commit as failed until `update --retry-failed`. An unhealthy wiki is reported in
+  cached base with `image_warnings` when the pull fails, or when the build
+  fails on the new base (its ACL stage pins two exact Debian unstable
+  versions); only a build that also fails on the previous base, such as in a
+  Debian mirror or PyPI outage, records the commit as failed until
+  `update --retry-failed`. An unhealthy wiki is reported in
   `unready_tenants` instead of keeping the platform in maintenance or rolling
   back the update; `recover --abandon` drops an operation that cannot finish.
 * API token expiries are at most 10 years ahead. Profile pictures are limited
@@ -156,8 +159,11 @@
   and linking pages allow the validated redirect origin in `form-action`.
 * Far dates (an API token expiring in 9999, for example) no longer make the API
   administration and token pages fail; they are shown in UTC.
-* Hosting: a failed create, duplicate or import never deletes a data folder it
-  did not create; terminating moves the data before releasing the name.
+* Hosting: a failed or cancelled create, duplicate or import leaves alone a
+  data folder that already existed under its name, and any folder when the
+  portal never handed it to the runtime agent (the one exception, a portal
+  worker killed outright while the agent works on the creation, is described
+  in docs/hosting.md); terminating moves the data before releasing the name.
   Recovery, purges, expiry and account deletion continue past a failing wiki
   or account. A user name cannot block another account's deletion.
 * Hosting: containers are listed after the maintenance service stops and a
