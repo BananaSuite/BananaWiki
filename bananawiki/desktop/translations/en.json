@@ -55,6 +55,7 @@
   "error.server_failed": "The wiki could not start. Details are in the logs folder inside the data folder.",
   "error.server_exited": "The wiki stopped while starting. Details are in the logs folder inside the data folder.",
   "error.server_timeout": "The wiki did not answer in time. Details are in the logs folder inside the data folder.",
+  "error.port_taken": "Another program answered on the wiki's network port. Close it and try again.",
   "error.archive_invalid": "This file is not a ZIP backup.",
   "error.archive_no_database": "This backup does not contain a wiki database.",
   "error.archive_damaged": "This backup is damaged.",

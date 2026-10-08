@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import http.server
 import os
 import socket
+import sys
+import threading
 import urllib.request
 
 import pytest
@@ -16,7 +19,7 @@ from bananawiki.desktop.server import WikiServer
 
 
 def fetch(url: str) -> int:
-    return server._get(url, timeout=10)
+    return server._get(url, timeout=10)[0]
 
 
 def port_open(port: int) -> bool:
@@ -88,6 +91,76 @@ def test_restart_after_stop(folder, free_port):
         wiki.stop()
 
 
+def test_health_answers_carry_the_start_nonce(folder, free_port):
+    wiki = WikiServer(folder, port=free_port, backend="waitress")
+    first = wiki.start()
+    nonce = server._get(first.local_url + "health", timeout=10)[1].get(server.START_HEADER)
+    assert nonce and server._get(first.local_url + "setup", timeout=10)[1].get(server.START_HEADER) is None
+    wiki.stop()
+    second = wiki.start()
+    try:
+        assert server._get(second.local_url + "health", timeout=10)[1].get(server.START_HEADER) not in (None, nonce)
+    finally:
+        wiki.stop()
+
+
+class _Alive:
+    port = 0
+
+    def alive(self) -> bool:
+        return True
+
+
+@pytest.mark.parametrize("status, nonce", [(200, None), (200, "guessed"), (503, None)])
+def test_another_server_on_the_port_is_not_taken_for_the_wiki(status, nonce):
+    class Foreign(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - http.server API
+            self.send_response(status)
+            if nonce:
+                self.send_header(server.START_HEADER, nonce)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    foreign = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Foreign)
+    threading.Thread(target=foreign.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises(DesktopError) as caught:
+            server.wait_until_ready(foreign.server_address[1], _Alive(), timeout=10, nonce="the-real-one")
+    finally:
+        foreign.shutdown()
+        foreign.server_close()
+    assert caught.value.key == "port_taken"
+
+
+def test_two_wikis_never_share_a_port(folder, tmp_path, free_port, monkeypatch):
+    monkeypatch.setattr(network, "FALLBACK_PORTS", (free_port + 1, free_port + 2))
+    first = WikiServer(folder, port=free_port, backend="waitress")
+    second = WikiServer(DataFolder(tmp_path / "other"), port=free_port, backend="waitress")
+    first.start()
+    try:
+        assert second.start().port in (free_port + 1, free_port + 2)
+        second.stop()
+    finally:
+        first.stop()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SO_EXCLUSIVEADDRUSE is Windows-only")
+@pytest.mark.parametrize("share_on_lan", [False, True])
+def test_no_other_program_can_bind_the_wiki_port_on_windows(folder, free_port, share_on_lan):
+    wiki = WikiServer(folder, share_on_lan=share_on_lan, port=free_port, backend="waitress")
+    wiki.start()
+    try:
+        for option in (socket.SO_REUSEADDR, socket.SO_EXCLUSIVEADDRUSE):
+            with socket.socket() as intruder:
+                intruder.setsockopt(socket.SOL_SOCKET, option, 1)
+                with pytest.raises(OSError):
+                    intruder.bind(("127.0.0.1", free_port))
+    finally:
+        wiki.stop()
+
+
 def test_busy_port_falls_back_to_another(folder, free_port, monkeypatch):
     monkeypatch.setattr(network, "FALLBACK_PORTS", (free_port + 1, free_port + 2))
     with socket.socket() as blocker:
@@ -143,6 +216,7 @@ def test_gunicorn_backend_runs_a_child_process(folder, free_port):
     try:
         assert info.backend == "gunicorn"
         assert fetch(info.local_url + "health") == 200
+        assert server._get(info.local_url + "health", timeout=10)[1].get(server.START_HEADER)
         assert info.setup_token == hmac.new(folder.secret_key().encode(), b"initial-admin-setup",
                                             hashlib.sha256).hexdigest()
     finally:
