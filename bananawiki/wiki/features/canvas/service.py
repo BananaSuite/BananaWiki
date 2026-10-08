@@ -12,17 +12,24 @@ client started from and is refused with :class:`VersionConflict` when the
 canvas changed in between; it and history restores append a ``snapshot``
 event that tells open editors to reload.
 
-Changes made by the server (a linked page was renamed or deleted) go through
-the same path: the version is bumped and ``upsert_node`` events are appended,
-so open editors pick them up instead of overwriting them.
+Wiki-page nodes store only the id of their page (:func:`link_pages`); its
+title and slug are read when the canvas is shown, as the viewer may see them
+(:mod:`.present`). Changes made by the server to older nodes that still carry
+a slug (a linked page was renamed or deleted) go through the same path as
+edits: the version is bumped and ``upsert_node`` events are appended, so open
+editors pick them up instead of overwriting them.
 
 Retention
 ---------
 The op log keeps the newest :data:`EVENTS_KEEP` operations per canvas and
 drops operations older than a day (the newest one always stays, so sequence
-numbers never restart). History snapshots written by one person within
-:data:`HISTORY_COALESCE_MINUTES` are merged into one entry, and each canvas
-keeps its newest :data:`HISTORY_KEEP` entries.
+numbers never restart). History snapshots hold the whole document, so their
+number and size are bounded: edits, saves and title changes by one person
+within :data:`HISTORY_COALESCE_MINUTES`, and changes by anyone within
+:data:`HISTORY_MIN_SECONDS` of the latest entry (people editing together),
+update that entry instead of adding one; each canvas keeps its newest
+:data:`HISTORY_KEEP` entries and, of those, only as many as fit in
+:data:`HISTORY_MAX_BYTES` (the newest always stays).
 
 Events
 ------
@@ -44,12 +51,14 @@ put back a state someone chose deliberately.
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections.abc import Callable, Iterable
 from typing import Any
 
 from flask import g, has_app_context
 
 from ....core.timeutil import now_sql, sql_in
+from ... import accounts
 from ...db import db
 from ...registry import emit
 from ..pages import service as pages
@@ -59,12 +68,19 @@ from .access import LAYOUT_SELECT
 MAX_TITLE = 200
 MAX_DESCRIPTION = 2000
 HISTORY_KEEP = 200
+HISTORY_MAX_BYTES = 32 * 1024 * 1024
 HISTORY_COALESCE_MINUTES = 15
+HISTORY_MIN_SECONDS = 60
+#: Entries later changes may be merged into (not creations, imports or restores).
+_COALESCED_MESSAGES = frozenset({"edited", "saved", "info"})
+#: Bytes of a stored snapshot; octet_length (SQLite 3.43) does not read the snapshot itself.
+_SNAPSHOT_BYTES = "octet_length(data)" if sqlite3.sqlite_version_info >= (3, 43) else "length(CAST(data AS BLOB))"
 EVENTS_KEEP = 500
 EVENTS_MAX_AGE_HOURS = 24
 SYNC_BATCH = 500
 RESERVED_SLUGS = frozenset({"create", "import", "api", "static", "settings"})
-_WIKI_NODE_MARKER = '"wiki_page"'
+#: Only wiki-page nodes saved by older versions store a slug (and the page title).
+_STORED_SLUG_MARKER = '"page_slug"'
 
 
 class CanvasError(ValueError):
@@ -150,8 +166,8 @@ def document(layout_id: int) -> dict[str, Any]:
 def create(title: str, description: str, creator_id: str, *, data: Any = None,
            message: str = "created") -> dict[str, Any]:
     title, description = clean_info(title, description)
-    doc = model.clean_document(data if data is not None else model.EMPTY_DOCUMENT)
-    link_pages(doc["nodes"])
+    doc = model.clean_document(data if data is not None else model.EMPTY_DOCUMENT, strict=True)
+    link_pages(doc["nodes"], creator_id)
     text = model.serialize(doc)
     now = now_sql()
     with db.transaction():
@@ -173,7 +189,7 @@ def update_info(layout: dict[str, Any], title: str | None, description: str | No
             "UPDATE canvas__layouts SET title = ?, description = ?, updated_at = ? WHERE id = ?",
             (title, description, now_sql(), layout["id"]),
         )
-        record_history(layout["id"], user_id, "info")
+        record_history(layout["id"], user_id, "info", coalesce=True)
     _emit("canvas.updated", layout["id"], user_id)
 
 
@@ -282,27 +298,44 @@ def order_version() -> int:
 # ── Wiki page links ───────────────────────────────────────────────────────────
 
 
-def link_pages(nodes: Iterable[dict[str, Any]]) -> None:
-    """Point wiki-page nodes at their page by id, with the page's current title and slug.
+def link_pages(nodes: Iterable[dict[str, Any]], actor_id: str | None) -> None:
+    """Point wiki-page nodes at their page by id only, as *actor_id* may.
 
-    Nodes from older versions only carry the slug; they gain the page id so
-    later renames and deletions can follow them.
+    Titles and slugs are never stored: they are read from the page when the
+    canvas is shown (:mod:`.present`), so a canvas, its history and its exports
+    hold nothing about a page beyond its id. Nodes from older versions that
+    only carry a slug gain the page id when the actor may read that page (so
+    later renames and deletions can follow them) and otherwise keep the slug
+    they were given.
     """
     wiki_nodes = [node for node in nodes if node["type"] == "wiki_page"]
     if not wiki_nodes:
         return
-    ids = sorted({node["page_id"] for node in wiki_nodes if node.get("page_id")})
     slugs = sorted({node["page_slug"] for node in wiki_nodes if not node.get("page_id") and node.get("page_slug")})
-    found = _pages_by(ids, slugs, "id, title, slug")
-    by_id = {page["id"]: page for page in found}
-    by_slug = {page["slug"]: page for page in found}
+    actor = _acting_user(actor_id) if slugs else None
+    by_slug = {page["slug"]: page for page in _readable_pages_by_slug(slugs, actor)} if actor else {}
     for node in wiki_nodes:
-        page = by_id.get(node.get("page_id")) if node.get("page_id") else by_slug.get(node.get("page_slug"))
+        page = None if node.get("page_id") else by_slug.get(node.get("page_slug"))
         if page is not None:
-            node.update(page_id=page["id"], page_slug=page["slug"], label=page["title"])
-            node.pop("deleted", None)
-        elif node.get("page_id") or node.get("page_slug"):
-            node["deleted"] = True
+            node["page_id"] = page["id"]
+        model.drop_page_details(node)
+
+
+def _acting_user(user_id: str | None) -> dict[str, Any] | None:
+    if not user_id:
+        return None
+    user = g.get("user") if has_app_context() else None
+    if user and user["id"] == user_id:
+        return user
+    return accounts.by_id(user_id)
+
+
+def _readable_pages_by_slug(slugs: list[str], user: dict[str, Any]) -> list[dict[str, Any]]:
+    if not slugs:
+        return []
+    where, params = pages.visible_filter(user)
+    return db.all(f"SELECT p.id, p.slug FROM pages p WHERE p.slug IN ({','.join('?' for _ in slugs)}) AND {where}",
+                  [*slugs, *params])
 
 
 def _pages_by(ids: list[int], slugs: list[str], columns: str) -> list[dict[str, Any]]:
@@ -319,9 +352,13 @@ def _pages_by(ids: list[int], slugs: list[str], columns: str) -> list[dict[str, 
 
 
 def _rewrite_page_nodes(matches: Callable[[dict[str, Any]], bool], change: Callable[[dict[str, Any]], None]) -> int:
-    """Apply *change* to matching wiki-page nodes in every canvas; return canvases changed."""
+    """Apply *change* to matching wiki-page nodes in every canvas; return canvases changed.
+
+    Only nodes saved by older versions still carry a slug, so canvases whose
+    nodes hold just page ids are left as they are.
+    """
     candidates = db.column(
-        "SELECT id FROM canvas__layouts WHERE instr(data, ?) > 0", (_WIKI_NODE_MARKER,)
+        "SELECT id FROM canvas__layouts WHERE instr(data, ?) > 0", (_STORED_SLUG_MARKER,)
     )
     changed_layouts = 0
     for layout_id in candidates:
@@ -330,13 +367,17 @@ def _rewrite_page_nodes(matches: Callable[[dict[str, Any]], bool], change: Calla
             if row is None:
                 continue
             doc = model.clean_document(row["data"])
-            touched = [node for node in doc["nodes"] if node["type"] == "wiki_page" and matches(node)]
-            if not touched:
+            changed = []
+            for node in doc["nodes"]:
+                if node["type"] == "wiki_page" and matches(node):
+                    before = dict(node)
+                    change(node)
+                    if node != before:
+                        changed.append(node)
+            if not changed:
                 continue
-            for node in touched:
-                change(node)
             _store(layout_id, doc)
-            for node in touched:
+            for node in changed:
                 _append_event(layout_id, "upsert_node", {"op": "upsert_node", "node": node}, None, "server")
             changed_layouts += 1
         _emit("canvas.updated", layout_id, None)
@@ -352,8 +393,8 @@ def _same_page(page: dict[str, Any], *slugs: str | None) -> Callable[[dict[str, 
 
 def _point_at(page: dict[str, Any]) -> Callable[[dict[str, Any]], None]:
     def change(node: dict[str, Any]) -> None:
-        node.update(page_id=page["id"], page_slug=page["slug"], label=page["title"])
-        node.pop("deleted", None)
+        node["page_id"] = page["id"]
+        model.drop_page_details(node)
 
     return change
 
@@ -374,11 +415,8 @@ def on_page_restored(page: dict[str, Any], **_: Any) -> None:
 
 
 def on_page_deleted(page: dict[str, Any], **_: Any) -> None:
-    def flag(node: dict[str, Any]) -> None:
-        node["page_id"] = page["id"]
-        node["deleted"] = True
-
-    _rewrite_page_nodes(_same_page(page, page.get("slug")), flag)
+    # Nodes keep the id, so restoring the page brings the link back.
+    _rewrite_page_nodes(_same_page(page, page.get("slug")), _point_at(page))
 
 
 # ── Saving ────────────────────────────────────────────────────────────────────
@@ -412,7 +450,7 @@ def apply(layout: dict[str, Any], ops: Any, *, user_id: str, session_id: str,
             raise _locked_error([item["id"] for item in rejected])
         if not applied:
             return {"version": row["version"], "seq": head_seq(layout["id"]), "applied": [], "rejected": rejected}
-        link_pages(op["node"] for op in applied if op["op"] == "upsert_node")
+        link_pages((op["node"] for op in applied if op["op"] == "upsert_node"), user_id)
         version = _store(layout["id"], doc)
         seq = 0
         for op in applied:
@@ -429,21 +467,25 @@ def save_document(layout: dict[str, Any], data: Any, *, expected_version: int | 
     """Replace the whole document unless someone saved since *expected_version*.
 
     Refused with ``canvas.error.locked`` when it changes or drops a locked node.
+    Wiki-page nodes sent without their page (the sender could not see it),
+    and locked ones whatever page they name, keep the stored link.
     """
     if not isinstance(data, dict) or not isinstance(data.get("nodes"), list) or not isinstance(
             data.get("edges"), list):
         raise CanvasError("canvas.error.bad_document")
-    doc = model.clean_document(data)
-    link_pages(doc["nodes"])
+    doc = model.clean_document(data, strict=True)
     with db.transaction():
         current = db.scalar("SELECT version FROM canvas__layouts WHERE id = ?", (layout["id"],))
         if current is None:
             raise CanvasError("canvas.error.not_found")
         if expected_version is not None and int(current) != int(expected_version):
             raise VersionConflict(int(current))
-        locked = model.locked_changes(document(layout["id"]), doc)
+        stored = document(layout["id"])
+        model.keep_page_links(stored, doc)
+        locked = model.locked_changes(stored, doc)
         if locked:
             raise _locked_error(locked)
+        link_pages(doc["nodes"], user_id)
         version = _store(layout["id"], doc)
         seq = _append_event(layout["id"], "snapshot", {}, user_id, session_id)
         _trim_events(layout["id"])
@@ -531,7 +573,7 @@ def _event_payload(op_type: str, raw: str | None) -> dict[str, Any] | None:
 
 def record_history(layout_id: int, user_id: str | None, message: str, *, is_revert: bool = False,
                    coalesce: bool = False) -> int | None:
-    """Snapshot the canvas; merge with the previous entry when it is the same session of work."""
+    """Snapshot the canvas; with *coalesce*, update the latest entry when it is the same session of work."""
     row = db.one("SELECT title, description, data FROM canvas__layouts WHERE id = ?", (layout_id,))
     if row is None:
         return None
@@ -543,9 +585,7 @@ def record_history(layout_id: int, user_id: str | None, message: str, *, is_reve
     state = (row["title"], row["description"], row["data"])
     if latest and not is_revert and (latest["title"], latest["description"], latest["data"]) == state:
         return None
-    if (coalesce and latest and not latest["is_revert"] and latest["edited_by"] == user_id
-            and latest["edit_message"] == message
-            and latest["created_at"] >= sql_in(minutes=-HISTORY_COALESCE_MINUTES)):
+    if coalesce and latest and _same_session(latest, user_id):
         db.execute("UPDATE canvas__history SET title = ?, description = ?, data = ? WHERE id = ?",
                    (*state, latest["id"]))
         return latest["id"]
@@ -554,12 +594,32 @@ def record_history(layout_id: int, user_id: str | None, message: str, *, is_reve
         "edited_by": user_id, "edit_message": message, "is_revert": 1 if is_revert else 0,
         "created_at": now_sql(),
     })
-    db.execute(
-        "DELETE FROM canvas__history WHERE layout_id = ? AND id NOT IN "
-        "(SELECT id FROM canvas__history WHERE layout_id = ? ORDER BY id DESC LIMIT ?)",
-        (layout_id, layout_id, HISTORY_KEEP),
-    )
+    _trim_history("WHERE layout_id = ?", (layout_id,))
     return entry_id
+
+
+def _same_session(latest: dict[str, Any], user_id: str | None) -> bool:
+    """Whether a change by *user_id* belongs in the *latest* history entry.
+
+    The entry keeps its author and message; any edit, save or title change
+    joins it, so alternating between them cannot add an entry per request.
+    """
+    if latest["is_revert"] or latest["edit_message"] not in _COALESCED_MESSAGES:
+        return False
+    if latest["edited_by"] == user_id and latest["created_at"] >= sql_in(minutes=-HISTORY_COALESCE_MINUTES):
+        return True
+    return latest["created_at"] >= sql_in(seconds=-HISTORY_MIN_SECONDS)
+
+
+def _trim_history(where: str, params: tuple[Any, ...]) -> int:
+    """Drop entries past the newest :data:`HISTORY_KEEP` or :data:`HISTORY_MAX_BYTES` of each canvas."""
+    newest = "(PARTITION BY layout_id ORDER BY id DESC)"
+    return db.execute(
+        f"DELETE FROM canvas__history WHERE id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER {newest} "
+        f"AS position, SUM({_SNAPSHOT_BYTES}) OVER {newest} AS kept FROM canvas__history {where}) "
+        f"WHERE position > 1 AND (position > ? OR kept > ?))",
+        (*params, HISTORY_KEEP, HISTORY_MAX_BYTES),
+    ).rowcount
 
 
 def history(layout_id: int) -> list[dict[str, Any]]:
@@ -582,7 +642,7 @@ def history_entry(layout: dict[str, Any], entry_id: int) -> dict[str, Any] | Non
 
 def revert(layout: dict[str, Any], entry: dict[str, Any], *, user_id: str, session_id: str) -> int:
     doc = model.clean_document(entry["data"])
-    link_pages(doc["nodes"])
+    link_pages(doc["nodes"], user_id)
     title = (entry["title"] or layout["title"])[:MAX_TITLE]
     with db.transaction():
         db.execute("UPDATE canvas__layouts SET title = ?, description = ? WHERE id = ?",
@@ -608,18 +668,13 @@ def clear_history(layout: dict[str, Any]) -> None:
 
 
 def prune() -> dict[str, int]:
-    """Background job: drop old operations and history beyond the per-canvas cap."""
+    """Background job: drop old operations and history beyond the per-canvas caps."""
     events = db.execute(
         "DELETE FROM canvas__events WHERE created_at < ? AND seq < "
         "(SELECT MAX(e.seq) FROM canvas__events e WHERE e.layout_id = canvas__events.layout_id)",
         (sql_in(hours=-EVENTS_MAX_AGE_HOURS),),
     ).rowcount
-    entries = db.execute(
-        "DELETE FROM canvas__history WHERE id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER "
-        "(PARTITION BY layout_id ORDER BY id DESC) AS position FROM canvas__history) WHERE position > ?)",
-        (HISTORY_KEEP,),
-    ).rowcount
-    return {"events": events, "history": entries}
+    return {"events": events, "history": _trim_history("", ())}
 
 
 def referenced_upload_names() -> set[str]:

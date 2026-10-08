@@ -375,7 +375,7 @@ in one worker at a time. Jobs of a switched-off feature do not run.
 | `audit.prune` | 1 day | Applies the audit log retention. |
 | `auth.prune_rate_limits` | 1 hour | Removes old rate-limit records. |
 | `badges.evaluate` | 15 min | Awards automatic badges. |
-| `canvas.prune` | 1 hour | Trims canvas operation logs. |
+| `canvas.prune` | 1 hour | Trims canvas operation logs and histories (200 entries, 32 MB per canvas). |
 | `chat.retention` | 1 hour | Applies the chat retention policy when due. |
 | `chat.housekeeping` | 1 day | Removes orphaned chat files and 1.4 leftovers of deleted messages. |
 | `contributions.expire` | 1 hour | Expires old proposed edits and drops long-resolved ones. |

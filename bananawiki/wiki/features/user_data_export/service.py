@@ -21,7 +21,9 @@ What is never exported:
   group messages are left out (the row keeps its ids and times) when the
   page, board, canvas or group is no longer readable by the account, checked
   with the same functions the web interface uses. History rows of boards and
-  canvases are exported as ids and times only.
+  canvases are exported as ids and times only, and a canvas document shows
+  linked wiki pages as the canvas view does: titles and slugs of pages the
+  account cannot read are left out.
 
 Nothing is built in memory: rows and files are written to the ZIP stream as
 they are read.
@@ -42,6 +44,8 @@ from ....core.timeutil import now_sql
 from ... import storage
 from ...db import db
 from ..canvas import access as canvas_access
+from ..canvas import model as canvas_model
+from ..canvas import present as canvas_present
 from ..chat import groups as chat_groups
 from ..kanban import access as kanban_access
 from ..pages import service as pages
@@ -61,8 +65,10 @@ class Rows:
 
     With *resource* (``page``, ``board``, ``canvas`` or ``group``) the column
     *resource_id* holds the id of what the row belongs to, and the *content*
-    columns are emptied when the account can no longer read it. A row whose
-    resource id is NULL (a draft of a page not created yet) belongs to nothing.
+    columns are emptied when the account can no longer read it, or else passed
+    through *shown* (with the account) when the content itself refers to
+    things the account may not read. A row whose resource id is NULL (a draft
+    of a page not created yet) belongs to nothing.
     """
 
     table: str
@@ -70,10 +76,18 @@ class Rows:
     resource: str | None = None
     resource_id: str = ""
     content: tuple[str, ...] = ()
+    shown: Callable[[dict[str, Any], dict[str, Any]], None] | None = None
 
 
 _TICKET_BOARD = ("JOIN kanban_tickets t ON t.id = {alias}.ticket_id "
                  "JOIN kanban_columns c ON c.id = t.column_id")
+
+
+def _canvas_document(row: dict[str, Any], user: dict[str, Any]) -> None:
+    """The canvas document with wiki-page links as *user* may see them (stays a JSON string)."""
+    shown = canvas_present.redacted_document(canvas_model.clean_document(row["data"]), user)
+    row["data"] = json.dumps(shown, ensure_ascii=False, separators=(",", ":"))
+
 
 EXPORTED: tuple[Rows, ...] = (
     # Account
@@ -172,7 +186,7 @@ EXPORTED: tuple[Rows, ...] = (
     # Canvases
     Rows("canvas__layouts", "SELECT id, slug, title, description, category_id, visibility, is_published, is_archived, "
                             "data, version, created_at, updated_at FROM canvas__layouts WHERE creator_id = ? ORDER BY id",
-         "canvas", "id", ("slug", "title", "description", "data")),
+         "canvas", "id", ("slug", "title", "description", "data"), _canvas_document),
     Rows("canvas__history", "SELECT id, layout_id, edit_message, is_revert, created_at FROM canvas__history "
                             "WHERE edited_by = ? ORDER BY id", "canvas", "layout_id", ("edit_message",)),
     Rows("canvas__permissions", "SELECT layout_id, permission, created_at FROM canvas__permissions WHERE user_id = ?"),
@@ -262,6 +276,8 @@ class _Readable:
         def redact(row: dict[str, Any]) -> dict[str, Any]:
             if not self(kind, row.get(spec.resource_id)):
                 row.update(dict.fromkeys(spec.content))
+            elif spec.shown is not None:
+                spec.shown(row, self.user)
             return row
 
         return redact

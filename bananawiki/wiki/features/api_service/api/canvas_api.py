@@ -4,8 +4,10 @@ Scope ``canvas``; everything answers 404 while the Canvas feature is off. The
 rules are ``features/canvas/access.py``: a canvas the token's owner cannot
 see answers 404, one they can see but not edit 403; deleting belongs to the
 creator and administrators; creating needs ``canvas.create`` and global write
-access. Documents are returned with wiki-page nodes the caller may not read
-stripped of their title and slug, as in exports.
+access. Documents are returned with wiki-page nodes whose page the caller may
+not read stripped of the page id, title and slug, as in exports; a wiki-page
+node sent without a page keeps the stored one, and a locked one keeps its
+page whatever page is sent.
 
 ``GET /canvas/<slug>`` answers with ``ETag: "v<version>"``; sending it back
 as ``If-Match`` on ``PUT /canvas/<slug>/document`` refuses the save with 412

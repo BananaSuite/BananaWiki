@@ -200,7 +200,8 @@ def test_outline_respects_canvas_and_page_access(app, canvas, owner, make_user, 
     db.execute("INSERT INTO canvas__permissions (layout_id, user_id, permission) VALUES (?, ?, 'view')",
                (canvas["id"], stranger["id"]))
     html = client.get(f"/canvas/{canvas['slug']}/outline").get_data(as_text=True)
-    assert "Classified" not in html and "hidden words" not in html and "You cannot see the linked page" in html
+    assert "Classified" not in html and "hidden words" not in html
+    assert "The linked page was deleted or you cannot see it." in html
     assert "Classified" not in client.get(f"/canvas/{canvas['slug']}/outline?format=md").get_data(as_text=True)
     client.get("/logout")
     login(client, owner)

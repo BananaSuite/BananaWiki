@@ -339,9 +339,28 @@ Free-form visual boards (`/canvas`): notes, shapes, images, videos, code and
 links to wiki pages, connected by edges. Several people can edit at once:
 small operations are merged on the server, and a whole-document save made on
 an outdated copy is refused instead of overwriting others. History with
-restore (200 entries kept), sharing per person or role (view, edit, or an
-explicit "none"), ZIP export and import with images, embeds in pages with
-`[[canvas slug="…"]]`. Renaming or deleting a linked page updates its node.
+restore (the newest 200 entries, and only as many of them as fit in 32 MB of
+snapshots per canvas; changes by one person within 15 minutes, or by anyone
+within a minute of the latest entry, share one entry, which keeps the name of
+the person who started it), sharing per person
+or role (view, edit, or an explicit "none"), ZIP export and import with
+images, embeds in pages with
+`[[canvas slug="…"]]`. A wiki-page node stores only the id of its page: the
+title, address and excerpt are read from the page when the canvas is shown,
+so renaming or deleting the page updates the node. Readers who may not open
+the page see neither its title nor whether it still exists (only
+administrators see "deleted"), and the same applies to exports, the REST API
+and the personal data export. Notes and code are rendered on the server and
+kept in a per-process cache; one view renders at most about half a million
+characters of them, and on canvases with more text the remaining notes are
+shown as plain text. Code without a language is shown unhighlighted. An
+import reads at most 7 MB of canvas data and a zip of at most one image per
+node. A document listing more nodes or edges than a canvas may hold
+(counting every listed entry, even invalid or repeated ones) is refused
+before it is processed, whether it comes from an import, a whole-document
+save or the REST API. An export zip is written to a temporary file and
+holds at most 2000 files and 512 MB of them; a canvas showing more is
+exported with a note in place of its files.
 
 New canvases can start from a template (flowchart, mind map, retrospective
 board, SWOT analysis). The editor snaps to a grid (G), aligns and
@@ -367,11 +386,15 @@ override it). Unlocking, locking, restacking (`layer`) and grouping stay
 allowed for every editor. The editor skips refused operations and reports
 them (`rejected` in the `/ops` answer, then reloads); the REST API and
 whole-document saves refuse the whole request with the error code `locked`.
-History restores are not blocked.
+History restores are not blocked. A locked wiki-page node keeps its page
+whatever page an operation or save names for it (unlock it first to link
+another page), and a wiki-page node sent without a page keeps the stored one,
+since readers who may not open that page receive the node without it.
 
 Events (after commit): `canvas.created`, `canvas.updated` (once per
 operation batch, save, restore, change of title, visibility, sharing or
-owner, or page-link update) and `canvas.deleted`, with `canvas` (the layout
+owner, or page-link update of a node saved by an older version) and
+`canvas.deleted`, with `canvas` (the layout
 row) and `actor_id`; the web interface and the REST API emit the same.
 
 Settings (**Admin → Canvas**): `canvas_access`, `canvas_write_access`,
