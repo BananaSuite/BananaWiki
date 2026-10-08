@@ -97,6 +97,27 @@
 * API token expiries are at most 10 years ahead. Profile pictures are limited
   to 4 megapixels and profile/background uploads to 10 per 10 minutes.
 
+* The wiki session cookie is `__Host-<name>` over HTTPS; existing sessions move
+  to it on their first HTTPS request. Desktop and plain HTTP keep the old name.
+* Deleting an account hands its kanban tickets and comments on other boards to
+  the board owner and its boards to an administrator, through a new
+  `user.delete` interceptor, instead of deleting them.
+* Schema 7: a read-aloud job whose worker dies three times is marked failed.
+  `BW_TTS_MAX_JOB_SECONDS` bounds a job; on POSIX Piper runs in a child process
+  per job, in pieces of at most 500 characters, optionally limited by
+  `BW_TTS_PIPER_MEMORY_MB`.
+* Administrators can release a former user name reserved for an account.
+* Hosting schema 5: collaborators and merge records survive the deletion of the
+  account that created them, and merges keep platform sign-in to the merged
+  account's wikis. Hosting dates are bounded to the years 1900-9998.
+* `HOSTING_ALLOW_TENANT_PLUGINS=1` is refused in port and onion mode, where the
+  portal and the wikis share cookies.
+* Managed servers: packages scale with the number of files
+  (`BANANA_PACKAGE_MAX_FILES`); the database is migrated once before the
+  workers start; `stop`, `converge` and every operation check Docker and
+  project-quota storage before anything stops; `start` after `stop` reports
+  wikis that did not come back.
+
 ### Fixed
 
 * Speech conversion accepts only local MP3/PCM WAV inputs and the required audio
@@ -157,6 +178,13 @@
   plainer look closer to 1.4.
 * Platform sign-in and account linking work in Chromium and Edge: the consent
   and linking pages allow the validated redirect origin in `form-action`.
+* Renaming a page updates links inside builder documents too, without
+  overwriting concurrent saves, and always redirects to the new address.
+* Hosting: deleting an account checks every wiki before acting on any; admin
+  bulk actions report per-item failures instead of answering 500; maintenance
+  backs off rows that keep failing; "Extend" no longer fails on far expiries.
+* Desktop: the launcher binds its port exclusively on Windows and verifies its
+  own /health answer, so another program on the port is reported.
 * Far dates (an API token expiring in 9999, for example) no longer make the API
   administration and token pages fail; they are shown in UTC.
 * Hosting: a failed or cancelled create, duplicate or import leaves alone a
@@ -237,6 +265,16 @@
   every update reruns the tenant image's package upgrade and Python install
   instead of reusing cached layers (the FFmpeg and ACL build stages are
   rebuilt when the base image changes).
+* Canvas page nodes no longer store or reveal titles and slugs of pages their
+  author cannot read, in reads or in the personal data export.
+* A hosted wiki can no longer plant another wiki's session cookie over HTTPS
+  (`__Host-` prefix); tenant plugins are refused where the portal and the wikis
+  share a host.
+* The desktop launcher's port cannot be shared or taken over on Windows.
+* Single requests and imports have bounded cost: canvas renders are cached,
+  kanban and canvas imports check sizes before parsing, exports use temporary
+  files, histories are pruned by size and kanban bulk actions refuse oversized
+  input up front.
 
 ## 1.6.0
 

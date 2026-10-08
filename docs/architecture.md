@@ -52,7 +52,8 @@ except the shared services (pages, categories, accounts, auth, settings,
 storage, markdown). The schema is versioned (`PRAGMA user_version`): 1.4
 databases are version 3, version 4 is the 1.6 takeover migration plus
 each feature's `schema.py`, version 5 adds the durable chat upload usage
-ledger and version 6 records who imposed a suspension. Later changes use
+ledger, version 6 records who imposed a suspension and version 7 counts
+read-aloud claims lost with their worker. Later changes use
 numbered migrations so already upgraded databases
 receive them too.
 
