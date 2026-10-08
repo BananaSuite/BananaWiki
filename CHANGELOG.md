@@ -112,6 +112,11 @@
   account's wikis. Hosting dates are bounded to the years 1900-9998.
 * `HOSTING_ALLOW_TENANT_PLUGINS=1` is refused in port and onion mode, where the
   portal and the wikis share cookies.
+* Hosting platform backups continue past a wiki that cannot be copied in full
+  and report it (`backup_manifest.json`, `platform-backup.json`, the settings
+  card); each wiki is bounded by its storage limit and hard links are stored
+  once. Drive keeps the last complete backup. A wiki's own export leaves out
+  files no import accepts and lists them in its manifest.
 * Managed servers: packages scale with the number of files
   (`BANANA_PACKAGE_MAX_FILES`); the database is migrated once before the
   workers start; `stop`, `converge` and every operation check Docker and
@@ -271,6 +276,9 @@
   (`__Host-` prefix); tenant plugins are refused where the portal and the wikis
   share a host.
 * The desktop launcher's port cannot be shared or taken over on Windows.
+* Tenant imports and platform restores accept only stored or deflated ZIP
+  members, so bzip2 and LZMA members can no longer bypass the decompression
+  limits. One wiki can no longer make every platform backup fail.
 * Single requests and imports have bounded cost: canvas renders are cached,
   kanban and canvas imports check sizes before parsing, exports use temporary
   files, histories are pruned by size and kanban bulk actions refuse oversized

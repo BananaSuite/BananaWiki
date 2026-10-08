@@ -68,6 +68,12 @@ Already on 1.6.0? These changes of the latest build need attention (details in
   `BANANA_PACKAGE_MAX_FILES` files (default 1,000,000).
 * Hosting dates (wiki expiry, suspensions, invites, banners) accept the years
   1900-9998; expiries already stored after 9998 are kept and can be shortened.
+* Hosting platform backups no longer stop at the first wiki that fails: such a
+  wiki is listed as incomplete on the settings card (and in
+  `backup_manifest.json`) while the others are saved, and a backup is
+  "complete" only when every wiki was saved in full. Each wiki may add at most
+  its storage limit plus a tenth and 64 MiB. Tenant archives with bzip2 or LZMA
+  members are refused.
 
 * `page.view_all` and `category.view_all` are enforced. The upgrade grants
   them to every saved permission set, so nothing changes until an
