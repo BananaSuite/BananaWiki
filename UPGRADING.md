@@ -404,6 +404,10 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   affected slugs, and 202 when pages were only scheduled for deletion.
 * Token expiry dates are at most 10 years ahead (`expiry_too_far`); existing
   tokens keep their expiry and can still be revoked.
+* Canvas: a locked wiki-page node keeps its page link. An operation or a
+  document that changes only the page of a locked node is now applied without
+  that change instead of answering 400 `locked`, and a wiki-page node sent
+  without `page_id` or `page_slug` keeps its stored link.
 * JSON request bodies with non-finite numbers (`NaN`, `Infinity`), unpaired
   Unicode surrogates or more than 64 nested objects/arrays are refused with
   400. The same check applies to uploaded JSON files: Kanban and canvas

@@ -288,6 +288,10 @@ refused as a whole with 400 `locked`; `locked` lists the ids of the locked
 nodes concerned (at most 10) and `locked_count` how many there are. Unlock
 them first: an `upsert_node` that only changes `locked` to `false` is
 allowed, unlocking and editing in the same operation is not.
+A wiki-page node keeps its stored page link while it is locked: a change of
+`page_id` or `page_slug` on a locked node is dropped and the rest of the
+operation applies, and a wiki-page node sent without `page_id` or `page_slug`
+keeps the link it has. To link another page, unlock the node first.
 A `PUT /canvas/<slug>` that changes both the title or description and the
 visibility sends two `canvas.updated` webhook events.
 
