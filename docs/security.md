@@ -37,6 +37,20 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
 * Sessions end after 7 days, or 30 with **remember me**; without remember me
   the cookie is a browser-session cookie. The cookie is `HttpOnly`,
   `SameSite=Lax`, and `Secure` on HTTPS (or as `BW_SECURE_COOKIES` says).
+* A `Secure` session cookie is named `__Host-<name>` (`__Host-bw_session`,
+  `__Host-bw_session_<slug>` on hosted wikis), with `Path=/` and no
+  `Domain`. Browsers refuse such a cookie from any other host, so a wiki on a
+  sibling subdomain cannot plant a session (its own account, or a half-done
+  portal sign-in) for another wiki. Plain HTTP keeps the plain name (desktop
+  app, local use) and has no such protection.
+* After the upgrade to this naming, a session under the plain name is moved
+  to the prefixed name on its first HTTPS request, so nobody is signed out,
+  and the plain cookie is expired; signing out clears both. Only a cookie
+  signed before the wiki first started with this naming moves (the time is
+  kept in `.host_cookie_since` in the instance folder): the wiki never issues
+  the plain name over HTTPS after that, so a newer one can only have been
+  planted, and it is ignored. A request with two plain-name cookies is never
+  moved either.
 * Sessions are revoked when the password changes (other sessions), when an
   administrator resets the password or suspends the account, on "sign out
   everywhere" (**Settings → Sessions**), on **Admin → Sessions** (one session

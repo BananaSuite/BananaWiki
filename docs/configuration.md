@@ -71,8 +71,8 @@ instance directory (never overwriting anything). See [UPGRADING](../UPGRADING.md
 | `BW_PORT` | `5001` | Listen port (1–65535). |
 | `BW_PROXY_MODE` | `0` | Trust `X-Forwarded-For`, `-Proto` and `-Host` from **one** proxy in front. Turn it on only when the port is reachable through that proxy alone. `X-Forwarded-Prefix` is never trusted. |
 | `BW_PREFERRED_URL_SCHEME` | `https` with proxy mode, else `http` | Scheme of absolute links the wiki generates. |
-| `BW_SESSION_COOKIE_NAME` | `bw_session` | Name of the session cookie (hosted wikis use `bw_session_<slug>`). |
-| `BW_SECURE_COOKIES` | follows the request | `1` always marks cookies `Secure`, `0` never; unset: `Secure` on HTTPS requests. |
+| `BW_SESSION_COOKIE_NAME` | `bw_session` | Name of the session cookie (hosted wikis use `bw_session_<slug>`). A `Secure` cookie gets the `__Host-` prefix: `__Host-bw_session`. |
+| `BW_SECURE_COOKIES` | follows the request | `1` always marks cookies `Secure` (and `__Host-` named), `0` never; unset: `Secure` on HTTPS requests. |
 | `BW_PASSWORD_HASH_METHOD` (alias `HASH_METHOD`) | `auto` | `auto` (scrypt when available, else PBKDF2-SHA256), `scrypt` or `pbkdf2`. Existing hashes of any Werkzeug format keep working. |
 | `BW_SOURCE_URL` | `https://github.com/BananaSuite/BananaWiki` | Where `/source` redirects (AGPL section 13). Must be an http(s) URL without credentials. Point it at the source of the version you run. |
 | `BW_LOGGING_LEVEL` | `medium` | `off`, `minimal` (warnings), `medium` (information), `verbose` (same as `medium`) or `debug`. **1.4 default:** `verbose`. |

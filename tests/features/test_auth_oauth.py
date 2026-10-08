@@ -206,6 +206,37 @@ def test_merge_requires_local_password(oauth_client, oauth_db, portal, make_user
     assert oauth_db.scalar("SELECT user_id FROM platform_oauth_links WHERE account_id = 'acct-1'") == local["id"]
 
 
+def _https_callback(client):
+    """Portal sign-in over HTTPS up to the callback; returns the callback response."""
+    started = client.get("/platform-oauth/login", base_url="https://localhost")
+    state = parse_qs(urlsplit(started.headers["Location"]).query)["state"][0]
+    return client.get(f"/platform-oauth/callback?code=abc&state={state}", base_url="https://localhost")
+
+
+def test_merge_over_https_keeps_its_state_in_the_prefixed_cookie(oauth_client, oauth_db, portal, make_user):
+    local = make_user("portaluser")
+    response = _https_callback(oauth_client)
+    assert response.headers["Location"].endswith("/platform-oauth/merge")
+    assert any(header.startswith("__Host-bw_session=") for header in response.headers.getlist("Set-Cookie"))
+    response = oauth_client.post("/platform-oauth/merge", data={"password": PASSWORD}, base_url="https://localhost")
+    assert response.status_code == 302
+    assert oauth_db.scalar("SELECT user_id FROM platform_oauth_links WHERE account_id = 'acct-1'") == local["id"]
+    assert oauth_client.get("/_probe/private", base_url="https://localhost").data == b"private"
+
+
+def test_a_planted_merge_flow_is_ignored_over_https(oauth_app, oauth_client, oauth_db, portal, make_user):
+    # Another wiki on the same base domain plants the merge state of its admin's portal account
+    # (named like a local account here) for /platform-oauth/merge, hoping its owner types the password.
+    make_user("portaluser")
+    _https_callback(oauth_client)
+    planted = oauth_client.get_cookie("__Host-bw_session") or oauth_client.get_cookie("bw_session")
+    victim = oauth_app.test_client()
+    victim.set_cookie("bw_session", planted.value, path="/platform-oauth/merge")
+    response = victim.post("/platform-oauth/merge", data={"password": PASSWORD}, base_url="https://localhost")
+    assert response.headers["Location"].endswith("/login")
+    assert oauth_db.scalar("SELECT COUNT(*) FROM platform_oauth_links") == 0
+
+
 def test_merge_without_pending_flow_is_refused(oauth_client, portal):
     assert oauth_client.post("/platform-oauth/merge", data={"password": PASSWORD}).headers["Location"].endswith(
         "/login")

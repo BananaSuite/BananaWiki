@@ -26,7 +26,9 @@ from flask import (
     session,
     url_for,
 )
-from flask.sessions import SecureCookieSessionInterface
+from flask.sessions import SecureCookieSession, SecureCookieSessionInterface
+from flask.wrappers import Request
+from itsdangerous import BadSignature
 from werkzeug.exceptions import BadRequest, HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -45,6 +47,9 @@ log = logging.getLogger("bananawiki")
 
 GLOBAL_RATE_LIMIT = 300  # requests per minute per client, per worker
 MAX_JSON_BYTES = 2 * 1024 * 1024
+HOST_COOKIE_PREFIX = "__Host-"
+# In the instance folder: when this wiki first started with prefixed session cookies.
+HOST_COOKIE_MARKER = ".host_cookie_since"
 
 
 class _SessionInterface(SecureCookieSessionInterface):
@@ -52,7 +57,23 @@ class _SessionInterface(SecureCookieSessionInterface):
 
     ``Secure`` follows the actual request scheme unless ``BW_SECURE_COOKIES``
     forces it; "remember me" sessions last longer than ordinary ones.
+
+    A secure cookie is named ``__Host-<name>``. Hosted wikis are sibling
+    subdomains and a wiki controls its own responses (its admins may run
+    plugins), so it could set ``<name>`` for the parent domain and sign a
+    visitor of another wiki in as someone else. Browsers refuse a ``__Host-``
+    cookie with a Domain or a path other than ``/``. Plain HTTP keeps the
+    plain name (desktop app, local use).
+
+    Over HTTPS a plain-name session is read once, when the prefixed one is
+    missing, and moved to the prefixed name, so an upgrade signs nobody out.
+    Only a cookie signed before this version first started (*legacy_before*)
+    moves: after that the wiki never issues one over HTTPS, so a newer one
+    can only have been planted.
     """
+
+    def __init__(self, legacy_before: float = 0.0):
+        self.legacy_before = legacy_before
 
     def get_cookie_secure(self, app: Flask) -> bool:
         forced = app.config["BW"].secure_cookies
@@ -63,12 +84,73 @@ class _SessionInterface(SecureCookieSessionInterface):
         except RuntimeError:
             return False
 
+    def get_cookie_name(self, app: Flask) -> str:
+        name = app.config["SESSION_COOKIE_NAME"]
+        return HOST_COOKIE_PREFIX + name if self.get_cookie_secure(app) else name
+
+    def get_cookie_domain(self, app: Flask) -> str | None:
+        return None if self.get_cookie_secure(app) else super().get_cookie_domain(app)
+
+    def get_cookie_path(self, app: Flask) -> str:
+        return "/" if self.get_cookie_secure(app) else super().get_cookie_path(app)
+
+    def open_session(self, app: Flask, request: Request) -> SecureCookieSession | None:
+        plain = app.config["SESSION_COOKIE_NAME"]
+        if not self.get_cookie_secure(app) or self.get_cookie_name(app) in request.cookies:
+            return super().open_session(app, request)
+        serializer = self.get_signing_serializer(app)
+        legacy = request.cookies.getlist(plain)
+        if serializer is None or len(legacy) != 1:  # none, or one planted beside the real one
+            return super().open_session(app, request)
+        max_age = int(app.permanent_session_lifetime.total_seconds())
+        try:
+            data, signed_at = serializer.loads(legacy[0], max_age=max_age, return_timestamp=True)
+        except BadSignature:
+            return self.session_class()
+        if signed_at.timestamp() >= self.legacy_before:
+            return self.session_class()
+        session_obj = self.session_class(data)
+        session_obj.modified = True  # re-issued under the prefixed name
+        return session_obj
+
+    def save_session(self, app: Flask, session_obj: Any, response: Response) -> None:
+        super().save_session(app, session_obj, response)
+        plain = app.config["SESSION_COOKIE_NAME"]
+        if self.get_cookie_secure(app) and plain in request.cookies:
+            response.delete_cookie(plain, path="/", secure=True, httponly=True, samesite="Lax")
+            response.vary.add("Cookie")
+
     def get_expiration_time(self, app: Flask, session_obj: Any):
         if session_obj.permanent and session_obj.get("_remember_me"):
             from datetime import UTC, datetime
 
             return datetime.now(UTC) + timedelta(days=app.config["BW"].remember_me_days)
         return super().get_expiration_time(app, session_obj)
+
+
+def _host_cookie_since(cfg: Config) -> int:
+    """When this instance first started with ``__Host-`` session cookies (written once, never moved)."""
+    path = os.path.join(cfg.instance_dir, HOST_COOKIE_MARKER)
+    now = int(time.time())
+    try:
+        os.makedirs(cfg.instance_dir, mode=0o700, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    except FileExistsError:
+        try:
+            with open(path, encoding="ascii") as handle:
+                text = handle.read(32).strip()
+            return int(text) if text else now  # empty: another worker is writing it right now
+        except (OSError, ValueError) as error:
+            log.warning("Cannot read %s (%s); plain-name sessions move only if signed before now", path, error)
+            return now
+    except OSError as error:
+        log.warning("Cannot write %s (%s); plain-name sessions move only if signed before now", path, error)
+        return now
+    try:
+        os.write(fd, str(now).encode("ascii"))
+    finally:
+        os.close(fd)
+    return now
 
 
 class _MaintenanceGate:
@@ -199,7 +281,7 @@ def create_app(config: Config | None = None, **overrides: Any) -> Flask:
         TESTING=cfg.testing,
         PREFERRED_URL_SCHEME=cfg.preferred_url_scheme or ("https" if cfg.proxy_mode else "http"),
     )
-    app.session_interface = _SessionInterface()
+    app.session_interface = _SessionInterface(_host_cookie_since(cfg))
     app.jinja_env.trim_blocks = True
     app.jinja_env.lstrip_blocks = True
     if cfg.proxy_mode:

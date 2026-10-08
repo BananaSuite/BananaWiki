@@ -27,6 +27,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Set-Cookie", "a=1; Path=/")
         self.send_header("Set-Cookie", "b=2; Path=/")
+        if self.path == "/login":
+            self.send_header("Set-Cookie", "__Host-bw_session_team=v1; Secure; HttpOnly; Path=/; SameSite=Lax")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
@@ -66,6 +68,18 @@ def test_a_running_wiki_is_proxied_not_the_portal(web, runtime, make_account, ma
     assert seen["cookie"] == "s=abc"
     assert response.headers.getlist("Set-Cookie") == ["a=1; Path=/", "b=2; Path=/"]
     assert "bwh_session" not in response.headers.get("Set-Cookie", "")
+
+
+def test_prefixed_wiki_session_cookies_pass_through_over_https(web, runtime, make_account, make_wiki, upstream):
+    # The wiki names its session __Host-bw_session_<slug> when it sees HTTPS (X-Forwarded-Proto).
+    make_wiki(make_account(), "team")
+    runtime.upstreams["team"] = upstream
+    web.set_cookie("__Host-bw_session_team", "v0", domain=_host("team"))
+    response = web.get("/login", headers={"Host": _host("team")}, base_url=f"https://{_host('team')}")
+    seen = response.get_json()
+    assert seen["proto"] == "https" and seen["cookie"] == "__Host-bw_session_team=v0"
+    assert "__Host-bw_session_team=v1; Secure; HttpOnly; Path=/; SameSite=Lax" in response.headers.getlist(
+        "Set-Cookie")
 
 
 def test_portal_pages_are_never_served_on_a_wiki_host(web, runtime, make_account, make_wiki):
