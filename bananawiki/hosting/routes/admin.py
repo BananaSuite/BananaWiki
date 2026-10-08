@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import secrets
@@ -62,6 +63,7 @@ from .common import (
 from .dashboard import export_instance, stream_file
 
 bp = Blueprint("admin", __name__)
+log = logging.getLogger("bananawiki.hosting.routes.admin")
 _UPLOAD_ID = re.compile(r"^[A-Za-z0-9_-]{16,96}$")
 
 
@@ -226,16 +228,14 @@ def stop_impersonating():
 
 def _terminate_or_transfer(target: dict[str, Any], transfer_to: str) -> None:
     accounts.check_deletable(target["id"])
-    owned = instances.owned_by(target["id"])
     if transfer_to:
         recipient = accounts.active_by_username(transfer_to)
         if recipient is None or recipient["id"] == target["id"]:
             raise ServiceError("hosting.accounts.not_found")
-        for inst in owned:
+        for inst in instances.deletable_wikis(target["id"], transfer=True):
             instances.move_to_owner(inst, recipient, actor_id=account()["id"])
         return
-    for inst in owned:
-        instances.terminate(inst, actor_id=account()["id"], reason="account_deleted")
+    instances.terminate_all(target["id"], actor_id=account()["id"])
 
 
 @bp.route("/admin/accounts/<account_id>/delete", methods=["GET", "POST"])
@@ -266,7 +266,8 @@ def delete_account(account_id: str):
 @auth.admin_required
 @rate_limit(5)
 def bulk_delete_accounts():
-    done = 0
+    """Delete every selected account on its own; the ones refused or failing are counted and the rest go on."""
+    done = failed = 0
     for account_id in request.form.getlist("account_ids")[:200]:
         target = accounts.get(account_id)
         if target is None or target["id"] == account()["id"] or target["deleted_at"]:
@@ -277,8 +278,13 @@ def bulk_delete_accounts():
             events.record("account", account_id, "account.deleted", account()["id"])
             done += 1
         except ServiceError:
-            continue
+            failed += 1
+        except Exception:  # noqa: BLE001 - one account must not abort the others
+            log.exception("Bulk deletion of account %s failed", account_id)
+            failed += 1
     _done("hosting.admin.accounts_deleted", count=done)
+    if failed:
+        flash(t("hosting.admin.accounts_not_deleted", count=failed), "error")
     return _dashboard()
 
 
@@ -975,7 +981,12 @@ def rotate_oauth(instance_id: str):
 
 
 def _admin_bulk(action, allowed: tuple[str, ...], key: str):
-    done = skipped = 0
+    """Apply *action* to every selected wiki on its own.
+
+    A refusal counts as skipped. An unexpected error is logged and reported,
+    and the wikis after it are still handled.
+    """
+    done = skipped = failed = 0
     for instance_id in request.form.getlist("instance_ids")[:500]:
         inst = instances.get(instance_id)
         if inst is None:
@@ -988,7 +999,12 @@ def _admin_bulk(action, allowed: tuple[str, ...], key: str):
             done += 1
         except ServiceError:
             skipped += 1
+        except Exception:  # noqa: BLE001 - one wiki must not abort the others
+            log.exception("Bulk action on wiki %s failed", instance_id)
+            failed += 1
     flash(t(key, done=done, skipped=skipped), "success")
+    if failed:
+        flash(t("hosting.bulk.failed", count=failed), "error")
     return _dashboard()
 
 

@@ -97,6 +97,52 @@ def test_deleting_an_account_can_transfer_its_wikis(web, make_account, make_wiki
     assert row == {"account_id": heir["id"], "status": "running"}
 
 
+def test_bulk_wiki_actions_report_an_unexpected_error_and_go_on(web, make_account, make_wiki, login, query,
+                                                                monkeypatch):
+    from bananawiki.hosting import instances
+
+    admin, owner = make_account(admin=True), make_account()
+    broken, fine = make_wiki(owner, "broken-one"), make_wiki(owner, "fine-one")
+    login(web, admin)
+    stop = instances.stop
+
+    def flaky(inst, **kwargs):
+        if inst["id"] == broken["id"]:
+            raise OSError("container state unreadable")
+        return stop(inst, **kwargs)
+
+    monkeypatch.setattr(instances, "stop", flaky)
+    response = web.post("/admin/instances/bulk-stop", data={"instance_ids": [broken["id"], fine["id"]]})
+    assert response.status_code == 302
+    page = web.get(response.headers["Location"]).get_data(as_text=True)
+    assert "Stopped 1, skipped 0." in page and "1 could not be handled because of an unexpected error" in page
+    statuses = {row["id"]: row["status"] for row in query("SELECT id, status FROM instances")}
+    assert statuses == {broken["id"]: "running", fine["id"]: "stopped"}
+
+
+def test_bulk_account_deletion_reports_failures_and_goes_on(web, make_account, login, query, monkeypatch):
+    import sqlite3
+
+    from bananawiki.hosting import accounts
+
+    admin, first, second = make_account(admin=True), make_account(), make_account()
+    login(web, admin)
+    delete = accounts.delete
+
+    def flaky(account_id):
+        if account_id == first["id"]:
+            raise sqlite3.OperationalError("disk I/O error")
+        delete(account_id)
+
+    monkeypatch.setattr(accounts, "delete", flaky)
+    response = web.post("/admin/accounts/bulk-delete", data={"account_ids": [first["id"], second["id"]]})
+    assert response.status_code == 302
+    page = web.get(response.headers["Location"]).get_data(as_text=True)
+    assert "1 accounts deleted." in page and "1 accounts could not be deleted" in page
+    deleted = {row["id"]: row["deleted_at"] for row in query("SELECT id, deleted_at FROM accounts")}
+    assert deleted[first["id"]] is None and deleted[second["id"]]
+
+
 def test_admin_wiki_lifecycle_and_restore(web, make_account, make_wiki, login, runtime, query):
     admin, user = make_account(admin=True), make_account()
     wiki = make_wiki(user, "managed")

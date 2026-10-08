@@ -129,8 +129,7 @@ def delete_account():
         return redirect(url_for("account.account"))
     try:
         accounts.check_deletable(current["id"])
-        for inst in instances.owned_by(current["id"]):
-            instances.terminate(inst, actor_id=current["id"], reason="account_deleted")
+        instances.terminate_all(current["id"], actor_id=current["id"])
         accounts.delete(current["id"])
     except ServiceError as error:
         flash_error(error)

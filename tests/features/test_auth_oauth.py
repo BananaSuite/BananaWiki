@@ -57,7 +57,13 @@ class FakePortal:
         if path == "/oauth/userinfo":
             return _answer(200, json.dumps(self.profile).encode())
         if path == "/oauth/link-status":
-            user_id = parse_qs(urlsplit(url).query)["wiki_user_id"][0]
+            query = parse_qs(urlsplit(url).query)
+            if "account_id" in query:  # which wiki user a portal account is linked to
+                linked = [user for user, account in self.links.items() if account == query["account_id"][0]]
+                status = {"linked": True, "hosting_account_id": query["account_id"][0],
+                          "wiki_user_id": linked[0]} if linked else {"linked": False}
+                return _answer(200, json.dumps(status).encode())
+            user_id = query["wiki_user_id"][0]
             if user_id in self.links:
                 return _answer(200, f'{{"linked": true, "hosting_account_id": "{self.links[user_id]}"}}'.encode())
             return _answer(200, b'{"linked": false}')

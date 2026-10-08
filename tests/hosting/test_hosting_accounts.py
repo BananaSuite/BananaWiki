@@ -304,3 +304,105 @@ def test_account_deletion_is_refused_before_any_wiki_is_terminated(portal, make_
     admin_client.post(f"/admin/accounts/{victim['id']}/delete", data={"instance_action": "terminate"})
     assert query("SELECT deleted_at FROM accounts WHERE id = ?", (victim["id"],), one=True)["deleted_at"] is None
     assert query("SELECT status FROM instances", one=True)["status"] == "running"
+
+
+def _unfinished(portal, query, owner, slug, *, started=False):
+    """A creation that never finished, older than the owner's live wikis (listed after them)."""
+    from bananawiki.hosting import events, instances
+    from bananawiki.hosting.db import connection_scope
+
+    with portal.test_request_context("/"), connection_scope(portal.extensions["bananawiki.hosting.database"]):
+        pending = instances._insert(owner, slug, "hosting", admin_username="admin", custom_credentials=False,
+                                    easy_wiki=False, use_case="")
+        if started:
+            events.record("instance", pending["id"], instances.PROVISIONING_STARTED)
+    query("UPDATE instances SET created_at = '2000-01-01 00:00:00' WHERE id = ?", (pending["id"],))
+    return pending
+
+
+def _state(query, wiki) -> tuple:
+    row = query("SELECT status, provisioning_state, account_id FROM instances WHERE id = ?", (wiki["id"],), one=True)
+    return row["status"], row["provisioning_state"], row["account_id"]
+
+
+def test_account_deletion_waits_for_a_running_creation_before_terminating_anything(portal, make_account, make_wiki,
+                                                                                   login, query, monkeypatch):
+    from filelock import FileLock, Timeout
+
+    from bananawiki.hosting import admin as cli
+    from bananawiki.hosting import maintenance
+
+    victim, admin = make_account(), make_account(admin=True)
+    live = make_wiki(victim, "live-one")
+    pending = _unfinished(portal, query, victim, "being-made")
+    own, admin_client = portal.test_client(), portal.test_client()
+    login(own, victim)
+    login(admin_client, admin)
+
+    def busy(self, *_args, **_kwargs):
+        raise Timeout(self.lock_file)
+
+    monkeypatch.setattr(FileLock, "acquire", busy)  # the creator holds the provisioning lock
+    page = own.post("/account/delete", data={"current_password": PASSWORD}, follow_redirects=True)
+    assert "Creation is still in progress" in page.get_data(as_text=True)
+    admin_client.post(f"/admin/accounts/{victim['id']}/delete", data={"instance_action": "terminate"})
+    assert cli.main(["account", "delete", victim["username"], "--yes"], app=portal) == 1
+    query("UPDATE accounts SET pending_deletion = 1, pending_deletion_at = '2000-01-01 00:00:00', "
+          "pending_deletion_seconds = 60 WHERE id = ?", (victim["id"],))
+    assert maintenance.run_once(portal)["scheduled deletions"] == 0
+    assert query("SELECT deleted_at FROM accounts WHERE id = ?", (victim["id"],), one=True)["deleted_at"] is None
+    assert _state(query, live) == ("running", "ready", victim["id"])
+    assert _state(query, pending) == ("stopped", "pending", victim["id"])
+    monkeypatch.undo()
+    assert maintenance.run_once(portal)["scheduled deletions"] == 1
+    assert _state(query, live)[0] == _state(query, pending)[0] == "terminated"
+
+
+def test_transferring_on_deletion_refuses_an_unfinished_wiki_before_moving_any(portal, make_account, make_wiki,
+                                                                                login, query):
+    victim, heir, admin = make_account(), make_account(), make_account(admin=True)
+    live = make_wiki(victim, "kept-live")
+    pending = _unfinished(portal, query, victim, "half-made")
+    client = portal.test_client()
+    login(client, admin)
+    page = client.post(f"/admin/accounts/{victim['id']}/delete", follow_redirects=True,
+                       data={"instance_action": "transfer", "transfer_username": heir["username"]})
+    assert "half-made has not finished being created" in page.get_data(as_text=True)
+    assert query("SELECT deleted_at FROM accounts WHERE id = ?", (victim["id"],), one=True)["deleted_at"] is None
+    assert _state(query, live) == ("running", "ready", victim["id"])
+    assert _state(query, pending) == ("stopped", "pending", victim["id"])
+
+
+def test_a_creation_whose_cleanup_fails_stops_the_deletion_before_live_wikis(portal, runtime, make_account,
+                                                                             make_wiki, login, query):
+    victim = make_account()
+    live = make_wiki(victim, "still-live")
+    pending = _unfinished(portal, query, victim, "half-done", started=True)
+    own = portal.test_client()
+    login(own, victim)
+    runtime.fail_next("destroy")
+    own.post("/account/delete", data={"current_password": PASSWORD})
+    assert query("SELECT deleted_at FROM accounts WHERE id = ?", (victim["id"],), one=True)["deleted_at"] is None
+    assert _state(query, live) == ("running", "ready", victim["id"])
+    assert _state(query, pending)[:2] == ("stopped", "failed")
+    own.post("/account/delete", data={"current_password": PASSWORD})
+    assert query("SELECT deleted_at FROM accounts WHERE id = ?", (victim["id"],), one=True)["deleted_at"]
+    assert _state(query, live)[0] == _state(query, pending)[0] == "terminated"
+
+
+def test_purging_an_inviter_keeps_the_collaborators_it_added(portal, ctx, make_account, make_wiki, query):
+    from bananawiki.hosting import accounts, collaborators, instances
+
+    alice, bob, carol = make_account(), make_account(), make_account()
+    wiki = make_wiki(alice, "handed-on")
+    collaborators.add(instances.get(wiki["id"]), alice, carol["username"], "custom", ["view", "download"])
+    instances.move_to_owner(instances.get(wiki["id"]), bob, actor_id=alice["id"])
+    accounts.check_deletable(alice["id"])
+    instances.terminate_all(alice["id"], actor_id=alice["id"])
+    accounts.delete(alice["id"])
+    assert accounts.purge_tombstones() == 1
+    assert query("SELECT id FROM accounts WHERE id = ?", (alice["id"],), one=True) is None
+    row = query("SELECT account_id, invited_by FROM instance_collaborators WHERE instance_id = ?", (wiki["id"],),
+                one=True)
+    assert row == {"account_id": carol["id"], "invited_by": None}
+    assert collaborators.can(instances.get(wiki["id"]), accounts.get(carol["id"]), "download")

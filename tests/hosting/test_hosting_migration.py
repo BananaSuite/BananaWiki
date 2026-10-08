@@ -153,3 +153,44 @@ def test_fresh_database_starts_at_latest_with_settings_row(portal, query):
     assert query("SELECT signup_mode FROM hosting_settings WHERE id = 1", one=True)["signup_mode"] == "open"
     conn = sqlite3.connect(portal.config["HOSTING"].database_path)
     assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST
+
+
+def _schema(app) -> list[tuple]:
+    conn = _db(app)
+    try:
+        return conn.execute("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' "
+                            "ORDER BY type, name").fetchall()
+    finally:
+        conn.close()
+
+
+def test_fresh_and_upgraded_schemas_match(legacy, tmp_path):
+    assert _schema(build_portal(tmp_path / "fresh")) == _schema(legacy)
+
+
+def test_upgrade_keeps_invitations_and_merges_when_their_author_is_purged(tmp_path):
+    environ = portal_environ(tmp_path)
+    path = Path(environ["HOSTING_DATABASE_PATH"])
+    _legacy_database(path)
+    conn = sqlite3.connect(path)
+    conn.execute("INSERT INTO accounts (id, username, password, created_at) VALUES ('a3', 'carol', 'x', "
+                 "'2025-01-01 00:00:00')")
+    conn.execute("INSERT INTO instance_collaborators (id, instance_id, account_id, role, permissions, invited_by, "
+                 "created_at) VALUES (7, 'i1', 'a3', 'custom', '[\"view\"]', 'a1', '2025-03-01 00:00:00')")
+    conn.execute("INSERT INTO hosting_account_merge_logs (id, target_account_id, source_account_id, merged_by, "
+                 "instances_transferred, created_at) VALUES (4, 'a2', 'a3', 'a1', 2, '2025-04-01 00:00:00')")
+    conn.execute("UPDATE sqlite_sequence SET seq = 40 WHERE name = 'instance_collaborators'")  # rows deleted since
+    conn.commit()
+    conn.close()
+    conn = _db(build_portal(tmp_path, environ=environ))
+    assert conn.execute("SELECT id, account_id, invited_by FROM instance_collaborators").fetchall() == [(7, "a3", "a1")]
+    assert conn.execute("SELECT seq FROM sqlite_sequence WHERE name = 'instance_collaborators'").fetchone() == (40,)
+    assert conn.execute("SELECT id, merged_by, instances_transferred FROM hosting_account_merge_logs").fetchall() == \
+        [(4, "a1", 2)]
+    indexes = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    assert {"ix_instance_collaborators_instance", "ix_instance_collaborators_account", "ix_merge_logs_target",
+            "ix_merge_logs_source"} <= indexes
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("DELETE FROM accounts WHERE id = 'a1'")
+    assert conn.execute("SELECT account_id, invited_by FROM instance_collaborators").fetchall() == [("a3", None)]
+    assert conn.execute("SELECT merged_by FROM hosting_account_merge_logs").fetchall() == [(None,)]

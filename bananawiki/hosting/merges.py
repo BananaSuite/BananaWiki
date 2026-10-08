@@ -135,6 +135,8 @@ def _merge(source_id: str, target_id: str, admin: dict[str, Any]) -> int:
                "(SELECT id FROM instances WHERE account_id = ?)", (target_id, target_id))
     db.execute("UPDATE OR IGNORE instance_collaborators SET account_id = ? WHERE account_id = ?", (target_id, source_id))
     db.execute("DELETE FROM instance_collaborators WHERE account_id = ?", (source_id,))
+    # The source may be deleted later: what it invited stays attributed to the merged account.
+    db.execute("UPDATE instance_collaborators SET invited_by = ? WHERE invited_by = ?", (target_id, source_id))
     db.execute("DELETE FROM hosting_oauth_account_links WHERE account_id = ? AND instance_id IN "
                "(SELECT instance_id FROM hosting_oauth_account_links WHERE account_id = ?)", (source_id, target_id))
     db.execute("UPDATE hosting_oauth_account_links SET account_id = ? WHERE account_id = ?", (target_id, source_id))

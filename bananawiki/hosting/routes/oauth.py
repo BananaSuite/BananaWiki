@@ -12,6 +12,11 @@ HTTP Basic ``client_id:client_secret`` (preferred), or ``client_id`` and
 ``link-status`` requires the wiki's credentials, and a wiki may only link a
 hosting account that has signed in to it (holds a live access token).
 Every endpoint answers 404 while platform sign-in is switched off.
+
+An account merge moves the source's links to the target here only, so the
+wiki's own row still names the source. ``link-status`` therefore also answers
+by ``account_id`` (the wiki then realigns its row), linking the same pair
+again succeeds, and ``unlink`` also removes the link of a ``wiki_user_id``.
 """
 
 from __future__ import annotations
@@ -185,13 +190,19 @@ def link_status():
     if inst is None:
         return _json_error(401, "invalid_client")
     wiki_user_id = (request.args.get("wiki_user_id") or "").strip()
-    if not wiki_user_id:
+    account_id = (request.args.get("account_id") or "").strip()
+    if wiki_user_id:
+        row = db.one("SELECT * FROM hosting_oauth_account_links WHERE instance_id = ? AND wiki_user_id = ? "
+                     "ORDER BY id DESC LIMIT 1", (inst["id"], wiki_user_id))
+    elif account_id:
+        row = db.one("SELECT * FROM hosting_oauth_account_links WHERE instance_id = ? AND account_id = ?",
+                     (inst["id"], account_id))
+    else:
         return _json_error(400, "missing_parameters")
-    row = db.one("SELECT * FROM hosting_oauth_account_links WHERE instance_id = ? AND wiki_user_id = ?",
-                 (inst["id"], wiki_user_id))
     if row is None:
         return jsonify({"linked": False})
-    return jsonify({"linked": True, "hosting_account_id": row["account_id"], "hosting_username": row["wiki_username"]})
+    return jsonify({"linked": True, "hosting_account_id": row["account_id"], "hosting_username": row["wiki_username"],
+                    "wiki_user_id": row["wiki_user_id"]})
 
 
 @bp.post("/oauth/link")
@@ -214,9 +225,17 @@ def link():
     with db.transaction():
         if not oauth.account_authorized_client(account_id, inst["oauth_client_id"]):
             return _json_error(403, "account_not_authorized")
-        if db.scalar("SELECT 1 FROM hosting_oauth_account_links WHERE instance_id = ? AND account_id = ?",
-                     (inst["id"], account_id)):
+        linked = db.scalar("SELECT wiki_user_id FROM hosting_oauth_account_links WHERE instance_id = ? "
+                           "AND account_id = ?", (inst["id"], account_id))
+        if linked is not None and linked != wiki_user_id:
             return _json_error(409, "This hosting account is already linked to another wiki user on this instance.")
+        if linked is not None:
+            db.execute("UPDATE hosting_oauth_account_links SET wiki_username = ? WHERE instance_id = ? "
+                       "AND account_id = ?", (wiki_username, inst["id"], account_id))
+            return jsonify({"ok": True})
+        # The wiki links a wiki user to one hosting account: a link of it to another one here is stale.
+        db.execute("DELETE FROM hosting_oauth_account_links WHERE instance_id = ? AND wiki_user_id = ?",
+                   (inst["id"], wiki_user_id))
         db.insert("hosting_oauth_account_links", {"instance_id": inst["id"], "account_id": account_id,
                                                   "wiki_user_id": wiki_user_id, "wiki_username": wiki_username})
         events.record("account", account_id, "oauth.linked", account_id, inst["subdomain"])
@@ -234,9 +253,13 @@ def unlink():
     if inst is None:
         return _json_error(403, "invalid_client_secret")
     account_id = str(data.get("account_id") or "").strip()
-    if not account_id:
+    wiki_user_id = str(data.get("wiki_user_id") or "").strip()[:128]
+    if not account_id and not wiki_user_id:
         return _json_error(400, "missing_parameters")
-    db.execute("DELETE FROM hosting_oauth_account_links WHERE instance_id = ? AND account_id = ?", (inst["id"], account_id))
+    for column, value in (("account_id", account_id), ("wiki_user_id", wiki_user_id)):
+        if value:
+            db.execute(f"DELETE FROM hosting_oauth_account_links WHERE instance_id = ? AND {column} = ?",
+                       (inst["id"], value))
     return jsonify({"ok": True})
 
 

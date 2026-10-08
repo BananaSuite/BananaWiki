@@ -33,7 +33,7 @@ from typing import Any
 from filelock import FileLock, Timeout
 from flask import current_app
 
-from ..core.timeutil import is_past, now_sql, parse, sql_in, to_sql, utcnow
+from ..core.timeutil import MAX_YEAR, is_past, now_sql, parse, sql_in, to_sql, utcnow
 from . import accounts, events, oauth, settings, urls
 from .config import HostingConfig
 from .db import db
@@ -225,23 +225,88 @@ def _fail(error: RuntimeFailure) -> ServiceError:
     return ServiceError(f"hosting.runtime.{error.code}")
 
 
-def _each(rows: list[dict[str, Any]], action: Callable[[dict[str, Any]], Any], failure: str) -> int:
+def _each(rows: list[dict[str, Any]], action: Callable[[dict[str, Any]], Any], failure: str,
+          step: str | None = None) -> int:
     """Apply *action* to every row on its own and count the rows it handled (False skips one).
 
     A failing row is logged and the rest still run: a wiki that keeps failing
-    (a refusal, a runtime or file error) is retried on the next maintenance
-    pass instead of holding up every wiki after it.
+    (a refusal, a runtime or file error) is retried on a later maintenance
+    pass instead of holding up every wiki after it. With *step*, a row that
+    failed several passes in a row waits between attempts (see
+    :func:`maintenance_due`).
     """
     count = 0
     for row in rows:
+        failures = maintenance_due("instance", row["id"], step) if step else 0
+        if failures is None:
+            continue
         try:
-            if action(row) is not False:
-                count += 1
-        except ServiceError as error:
-            log.warning(failure, row["id"], error.key)
+            handled = action(row) is not False
         except Exception as error:  # noqa: BLE001 - one wiki must not block the others
-            log.exception(failure, row["id"], error)
+            if isinstance(error, (ServiceError, RuntimeFailure)):
+                log.warning(failure, row["id"], getattr(error, "key", error))
+            else:
+                log.exception(failure, row["id"], error)
+            if step:
+                maintenance_result("instance", row["id"], step, failures, error)
+            continue
+        if handled:
+            count += 1
+        if step:
+            maintenance_result("instance", row["id"], step, failures)
     return count
+
+
+RETRY_AFTER_FAILURES = 3
+RETRY_WAIT = timedelta(minutes=15)
+RETRY_WAIT_MAX = timedelta(days=1)
+
+
+def retry_wait(failures: int) -> timedelta:
+    """How long a maintenance row waits after *failures* failures in a row."""
+    if failures < RETRY_AFTER_FAILURES:
+        return timedelta(0)
+    return min(RETRY_WAIT_MAX, RETRY_WAIT * 2 ** min(failures - RETRY_AFTER_FAILURES, 10))
+
+
+def maintenance_due(subject_type: str, subject_id: str, step: str) -> int | None:
+    """The failures in a row of maintenance *step* on this row, or None while it waits.
+
+    After ``RETRY_AFTER_FAILURES`` failures in a row the row is tried again
+    only after :func:`retry_wait` (15 minutes, doubling up to a day), so a
+    row that fails on every pass stops costing every pass its runtime
+    timeouts and log lines. The count lives in the moderation log, where
+    administrators see it: ``maintenance.<step>.failed`` events since the
+    last ``maintenance.<step>.recovered``.
+    """
+    row = db.one(
+        "SELECT COUNT(*) AS failures, MAX(created_at) AS latest FROM hosting_events "
+        "WHERE subject_type = ? AND subject_id = ? AND action = ? AND id > COALESCE((SELECT MAX(id) "
+        "FROM hosting_events WHERE subject_type = ? AND subject_id = ? AND action = ?), 0)",
+        (subject_type, subject_id, f"maintenance.{step}.failed",
+         subject_type, subject_id, f"maintenance.{step}.recovered"),
+    )
+    failures = int(row["failures"] or 0) if row else 0
+    latest = parse(row["latest"]) if row else None
+    if latest is not None and utcnow() - latest < retry_wait(failures):
+        return None
+    return failures
+
+
+def maintenance_result(subject_type: str, subject_id: str, step: str, failures: int,
+                       error: BaseException | None = None) -> None:
+    """Record a failed attempt of maintenance *step* on this row, or the success that ends a run of them."""
+    try:
+        if error is not None:
+            events.record(subject_type, subject_id, f"maintenance.{step}.failed", None,
+                          getattr(error, "key", None) or f"{type(error).__name__}: {error}")
+            if failures + 1 >= RETRY_AFTER_FAILURES:
+                log.warning("Maintenance step %s failed %d times in a row for %s %s; next attempt in %s", step,
+                            failures + 1, subject_type, subject_id, retry_wait(failures + 1))
+        elif failures:
+            events.record(subject_type, subject_id, f"maintenance.{step}.recovered")
+    except sqlite3.Error:
+        log.exception("Could not record the maintenance result of %s %s", subject_type, subject_id)
 
 
 # ── Policy and specs ──────────────────────────────────────────────────────────
@@ -746,11 +811,13 @@ def unsuspend(inst: dict[str, Any], *, actor_id: str | None) -> None:
         started = parse(inst.get("suspended_at"))
         delta = max(0, int((utcnow() - started).total_seconds())) if started else 0
         expires = parse(inst.get("expires_at"))
+        # An expiry at the end of datetime's range keeps its date.
+        credited = _shifted(expires, delta) if expires else None
         db.update("instances", {
             "suspended_at": None, "suspended_until": None, "suspend_reason": "", "suspend_reason_visible": 0,
             "suspend_time_visible": 0, "status": "stopped",
             "suspended_accumulated_seconds": int(inst.get("suspended_accumulated_seconds") or 0) + delta,
-            "expires_at": to_sql(expires + timedelta(seconds=delta)) if expires else inst.get("expires_at"),
+            "expires_at": to_sql(credited) if credited else inst.get("expires_at"),
         }, "id = ?", (inst["id"],))
         _audit(inst["id"], "unsuspend", actor_id, None, False, False, None, None)
     start(get(inst["id"]), actor_id=actor_id)  # type: ignore[arg-type]
@@ -855,6 +922,34 @@ def terminate(inst: dict[str, Any], *, actor_id: str | None, reason: str = "manu
     sync_routes()
 
 
+def deletable_wikis(account_id: str, *, transfer: bool = False) -> list[dict[str, Any]]:
+    """The live wikis of an account about to be deleted, once none of them can stop the deletion half-way.
+
+    Callers check this before they terminate or transfer any wiki, so a
+    refusal leaves every wiki as it was: an unfinished creation cannot be
+    transferred, and one still running cannot be cancelled until it ends.
+    """
+    owned = owned_by(account_id)
+    for inst in owned:
+        if provisioning_ready(inst):
+            continue
+        if transfer:
+            raise ServiceError("hosting.accounts.wiki_unfinished", slug=inst["subdomain"])
+        with _provisioning_lock(inst):  # refuses while its creator holds the lock
+            pass
+    return owned
+
+
+def terminate_all(account_id: str, *, actor_id: str | None, reason: str = "account_deleted") -> None:
+    """Terminate every wiki of an account that is being deleted.
+
+    Unfinished creations are cancelled first: one whose cleanup fails stops
+    the deletion before any live wiki has been terminated.
+    """
+    for inst in sorted(deletable_wikis(account_id), key=provisioning_ready):
+        terminate(inst, actor_id=actor_id, reason=reason)
+
+
 def restore(inst: dict[str, Any], *, actor_id: str, extend_days: int | None = None) -> dict[str, Any]:
     """Bring a terminated wiki back from its retained data."""
     if inst["status"] != "terminated":
@@ -921,16 +1016,12 @@ def purge_expired_grace_periods() -> int:
         # An administrator may have paused the countdown since the list was read.
         if not db.scalar(f"SELECT 1 FROM instances WHERE id = ? AND {_GRACE_DUE}", (inst["id"], now_sql())):
             return False
-        try:
-            runtime().destroy(spec(inst, with_policy=False))
-        except RuntimeFailure as error:
-            log.warning("Retained data of %s not deleted yet: %s", inst["id"], error)
-            return False
+        runtime().destroy(spec(inst, with_policy=False))
         db.execute("DELETE FROM instances WHERE id = ?", (inst["id"],))
         return True
 
     rows = db.all(f"SELECT * FROM instances WHERE {_GRACE_DUE} ORDER BY data_retained_until, id", (now_sql(),))
-    return _each(rows, purge, "Retained data of %s not deleted yet: %s")
+    return _each(rows, purge, "Retained data of %s not deleted yet: %s", "purge_retained_data")
 
 
 def _grace_paused_since(inst: dict[str, Any]) -> datetime | None:
@@ -1006,28 +1097,45 @@ def set_expiry(inst: dict[str, Any], expires_at: str | None, *, actor_id: str) -
         terminate(get(inst["id"]), actor_id=actor_id, reason="expired")  # type: ignore[arg-type]
 
 
+def _shifted(moment: datetime, seconds: int) -> datetime | None:
+    """*moment* moved by *seconds*, or None past the ends of ``datetime``."""
+    try:
+        return moment + timedelta(seconds=seconds)
+    except OverflowError:
+        return None
+
+
 def shift_expiry(inst: dict[str, Any], seconds: int, *, actor_id: str) -> None:
-    """Extend (positive) or shorten (negative) the expiry by *seconds*."""
+    """Extend (positive) or shorten (negative) the expiry by *seconds*.
+
+    An extension past the year ``MAX_YEAR`` is refused rather than clamped:
+    an expiry already that far (earlier releases accepted any year) keeps its
+    date and the administrator is told why. Shortening it still works.
+    """
     if (inst.get("domain_mode") or "hosting") == "apex":
         raise ServiceError("hosting.instances.apex_perpetual")
     seconds = max(-MAX_EXTENSION_SECONDS, min(MAX_EXTENSION_SECONDS, int(seconds)))
     base = parse(inst.get("expires_at")) or utcnow()
     if seconds > 0 and base < utcnow():
         base = utcnow()
-    set_expiry(inst, to_sql(base + timedelta(seconds=seconds)), actor_id=actor_id)
+    moved = _shifted(base, seconds)
+    if moved is None or (seconds > 0 and parse(moved, bounded=True) is None):
+        raise ServiceError("hosting.instances.expiry_out_of_range", max=MAX_YEAR)
+    set_expiry(inst, to_sql(moved), actor_id=actor_id)
 
 
 def terminate_expired() -> int:
     rows = db.all("SELECT * FROM instances WHERE status IN ('running', 'stopped') AND expires_at IS NOT NULL "
                   "AND expires_at <= ? ORDER BY expires_at, id", (now_sql(),))
     return _each(rows, lambda inst: terminate(inst, actor_id=None, reason="expired"),
-                 "Expired wiki %s not terminated: %s")
+                 "Expired wiki %s not terminated: %s", "terminate_expired")
 
 
 def lift_expired_suspensions() -> int:
     rows = db.all("SELECT * FROM instances WHERE status = 'suspended' AND suspended_until IS NOT NULL "
                   "AND suspended_until <= ? ORDER BY suspended_until, id", (now_sql(),))
-    return _each(rows, lambda inst: unsuspend(inst, actor_id=None), "Timed suspension of %s not lifted: %s")
+    return _each(rows, lambda inst: unsuspend(inst, actor_id=None), "Timed suspension of %s not lifted: %s",
+                 "lift_suspension")
 
 
 def enforce_storage_quotas(overrun_ratio: float = 1.10) -> int:
