@@ -212,7 +212,7 @@
   "users.settings.sections": "Sezioni delle impostazioni",
   "users.settings.status": "Il tuo account",
   "users.settings.title": "Impostazioni",
-  "users.settings.username_mentions_hint": "Le pagine non vengono modificate: le menzioni del vecchio nome portano ancora al tuo profilo e nessun altro può prendere quel nome.",
+  "users.settings.username_mentions_hint": "Le pagine non vengono modificate: le menzioni del vecchio nome portano ancora al tuo profilo e nessun altro può prendere quel nome, a meno che un amministratore non lo liberi.",
   "users.settings.view_profile": "Vedi il profilo",
   "users.suspended.reactivate": "Riattiva il mio account",
   "users.suspended.reactivate_confirm": "Revocare la sospensione del tuo account?",

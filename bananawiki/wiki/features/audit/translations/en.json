@@ -25,6 +25,7 @@
   "audit.action.user.created": "Account created",
   "audit.action.user.deleted": "Account deleted",
   "audit.action.user.login": "Signed in",
+  "audit.action.user.name_released": "Former username released",
   "audit.action.user.password_changed": "Password changed",
   "audit.action.user.password_reset": "Password reset by an administrator",
   "audit.action.user.renamed": "Account renamed",

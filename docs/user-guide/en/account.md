@@ -28,8 +28,8 @@ themselves are not translated.
 Change your password in Settings. Doing so signs out your other sessions (the
 current one stays) and stops your API tokens. Changing your user name
 leaves pages as they are: `@mentions` of your old name still lead to your
-profile, and nobody else can take that name. You can change it three times a
-day.
+profile, and nobody else can take that name unless an administrator releases
+it. You can change it three times a day.
 
 ## Sessions
 

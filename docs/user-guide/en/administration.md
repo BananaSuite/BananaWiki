@@ -20,7 +20,9 @@ Open **Admin** from the account menu.
 * **Users**: create accounts, approve or deny sign-ups, change roles, assign
   custom roles, set individual permissions and category access, suspend,
   reset passwords, end sessions, impersonate (to see the wiki as someone
-  else; logged).
+  else; logged). An account's **Audit** page lists its former user names,
+  which nobody else can take; release one there when another account needs
+  it.
 * **Custom roles**: named sets of permissions and category restrictions for
   groups of people.
 * **Invite codes**: codes for the sign-up page, with a number of uses, an

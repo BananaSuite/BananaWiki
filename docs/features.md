@@ -87,8 +87,15 @@ Permissions: `page.*`, `category.*`, `search.*` (see [permissions](permissions.m
 Renaming or deleting an account leaves pages and drafts as they are: a
 mention of a former name (`/users/<old name>`) leads to the renamed account,
 and a former name stays reserved for its account until the account is
-deleted. Members can rename themselves three times a day. Account merges
-still rewrite the source's `@mentions`, with a history entry per page.
+deleted or an administrator releases the name on the account's **Audit**
+page (**Admin → Users**; the release is recorded in the audit log), after
+which old mentions no longer lead to it and its renames away from the name
+leave the account's history and data export. On a wiki upgraded from 1.4,
+which did not reserve names, several accounts may have given up the same
+name: releasing it from the latest one passes it to the one before, and the
+administrator is told so. Members can rename themselves three times a day.
+Account merges still rewrite the source's `@mentions`, with a history entry
+per page.
 
 ## Page history
 
@@ -559,7 +566,8 @@ Everything under **Admin** (`/admin/dashboard`), for administrators:
 * **Dashboard**: accounts, pending approvals, suspensions, traffic.
 * **Users**: create, search and filter accounts; roles, custom roles,
   permissions, category access; suspend, reset passwords, end sessions,
-  impersonate, edit attributions, per-account audit. Pending sign-ups are
+  impersonate, edit attributions, per-account audit (where a former user
+  name reserved for the account can be released). Pending sign-ups are
   approved or denied here.
 * **Custom roles**, **Invite codes** (with a number of uses, an expiry and an
   assigned role or custom role; editors granted the `invite.*` permissions

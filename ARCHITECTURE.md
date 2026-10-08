@@ -209,6 +209,7 @@ a failing handler is logged, never raised.
 | `category.created` / `category.deleted` | `category`, `actor_id` |
 | `user.created` | `user` |
 | `user.renamed` | `user`, `old_username`, `changed_by` |
+| `user.name_released` | `user`, `username` (the former name), `released_by`, `reserved_for` (None: anyone may take the name; else the account that gave it up before, which keeps it) |
 | `user.deleted` | `user`, `deleted_by` |
 | `user.login` | `user` |
 | `user.password_changed` | `user_id` |

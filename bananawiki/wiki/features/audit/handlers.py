@@ -26,6 +26,14 @@ def user_renamed(user: dict[str, Any], old_username: str = "", changed_by: Any =
            details={"old_username": old_username, "new_username": user.get("username")}, **_user_target(user))
 
 
+def user_name_released(user: dict[str, Any], username: str = "", released_by: Any = None,
+                       reserved_for: dict[str, Any] | None = None, **_: Any) -> None:
+    details = {"username": user.get("username"), "released_name": username}
+    if reserved_for:
+        details["still_reserved_for"] = reserved_for.get("username")
+    record("user.name_released", actor_id=released_by, details=details, **_user_target(user))
+
+
 def user_login(user: dict[str, Any], **_: Any) -> None:
     record("user.login", actor_id=user.get("id"), details={"username": user.get("username")}, **_user_target(user))
 
@@ -74,6 +82,7 @@ EVENTS = {
     "user.created": [user_created],
     "user.deleted": [user_deleted],
     "user.renamed": [user_renamed],
+    "user.name_released": [user_name_released],
     "user.login": [user_login],
     "user.role_changed": [user_role_changed],
     "user.suspended": [user_suspended],

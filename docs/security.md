@@ -233,14 +233,14 @@ plugin, and logs every step. A plugin only loads after a restart.
 ## Audit log
 
 **Admin → Audit log** (feature `audit`) records sign-ins, account creation,
-renames, deletions, role changes, password changes and resets, suspensions,
-page and category deletions and restores, attachment uploads and deletions,
-site settings, appearance and language changes, documentation, bulk Markdown
-and whole-site exports and imports (and refused attempts), and server
-restarts, with the acting account and address. Retention is configurable
-(0 keeps entries forever; the `audit.prune` job applies it). Plugin actions
-go to the application log (`bananawiki.plugins`), and the REST API keeps its
-own log of every call (**Admin → REST API**).
+renames, released former user names, deletions, role changes, password
+changes and resets, suspensions, page and category deletions and restores,
+attachment uploads and deletions, site settings, appearance and language
+changes, documentation, bulk Markdown and whole-site exports and imports (and
+refused attempts), and server restarts, with the acting account and address.
+Retention is configurable (0 keeps entries forever; the `audit.prune` job
+applies it). Plugin actions go to the application log (`bananawiki.plugins`),
+and the REST API keeps its own log of every call (**Admin → REST API**).
 
 ## Checklist for production
 

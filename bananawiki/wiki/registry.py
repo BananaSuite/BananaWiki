@@ -219,7 +219,7 @@ def emit(event: str, **payload: Any) -> None:
     handler is logged and never breaks the caller.
     Known events: ``page.created``, ``page.updated``, ``page.deleted``,
     ``page.restored``, ``user.created``, ``user.deleted``, ``user.renamed``,
-    ``user.login``, ``category.deleted``, ``kanban.board.created``,
+    ``user.name_released``, ``user.login``, ``category.deleted``, ``kanban.board.created``,
     ``kanban.board.updated``, ``kanban.board.deleted``, ``kanban.ticket.created``,
     ``kanban.ticket.updated``, ``kanban.ticket.moved``, ``kanban.ticket.deleted``,
     ``kanban.comment.created``, ``canvas.created``, ``canvas.updated``,

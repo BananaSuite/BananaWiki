@@ -48,7 +48,7 @@ can be moved individually; unset folders follow `BW_INSTANCE_DIR`.
 | `BW_CUSTOM_PAGE_FILES_FOLDER` | `<instance>/custom_page_files` | Files of custom pages. |
 | `BW_TTS_FOLDER` | `<instance>/tts` | Generated read-aloud audio. |
 | `BW_TTS_PIPER_VOICE_DIR` | `<instance>/piper-voices` | Piper voice models. |
-| `BW_SITE_EXPORT_TEMP_DIR` | `<instance>/tmp_exports` | Scratch space for whole-site export and import. |
+| `BW_SITE_EXPORT_TEMP_DIR` | `<instance>/tmp_exports` | Scratch space for whole-site export and import, attachment and bulk Markdown exports, and personal data exports. |
 | `BW_EXTERNAL_PLUGINS_DIR` | `<instance>/plugins` | Third-party plugins. |
 | `BW_LOG_FILE` | `<instance>/logs/bananawiki.log` | Application log, rotated at 10 MB with 5 old files. **1.4 default:** `<source>/logs/bananawiki.log`. |
 

@@ -30,7 +30,8 @@ Cambia la password nelle Impostazioni. Così facendo le altre sessioni vengono
 chiuse (quella attuale resta) e i tuoi token API smettono di funzionare.
 Cambiando il nome utente le pagine restano come sono: le `@menzioni` del
 vecchio nome portano ancora al tuo profilo e nessun altro può prendere quel
-nome. Puoi cambiarlo tre volte al giorno.
+nome, a meno che un amministratore non lo liberi. Puoi cambiarlo tre volte
+al giorno.
 
 ## Sessioni
 

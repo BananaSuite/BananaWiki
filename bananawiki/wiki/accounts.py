@@ -22,6 +22,7 @@ from .registry import emit, prepare
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_-]{3,50}$")
 RESERVED_USERNAMES = frozenset({"admin", "system", "deleted", "anonymous", "api", "root", "bananawiki"})
 _ID_ALPHABET = string.ascii_lowercase + string.digits
+_ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
 
 
 class AccountError(ValueError):
@@ -91,13 +92,49 @@ def username_taken(username: str, *, except_id: str | None = None) -> bool:
     """Whether another account uses *username*, or gave it up last in a rename.
 
     A former name stays reserved for its account (which may take it back) so
-    that nobody else inherits its mentions; deleting the account frees it.
+    that nobody else inherits its mentions; deleting the account frees it, and
+    so does an administrator's :func:`release_name`.
     """
     row = by_username(username)
     if row is not None:
         return row["id"] != except_id
     holder = former_holder(username)
     return holder is not None and holder != except_id
+
+
+def reserved_names(user_id: str) -> list[str]:
+    """Former names nobody else may take because of this account, most recently given up first."""
+    names = db.column(
+        "SELECT old_username, MAX(id) FROM username_history WHERE user_id = ? "
+        "GROUP BY old_username COLLATE NOCASE ORDER BY MAX(id) DESC",
+        (user_id,),
+    )
+    return [name for name in names if by_username(name) is None and former_holder(name) == user_id]
+
+
+def release_name(user: dict[str, Any], username: str, *,
+                 released_by: str | None = None) -> tuple[str, dict[str, Any] | None]:
+    """Stop *username*, a former name reserved for *user*, from leading to it.
+
+    The account's renames away from that name leave ``username_history``, as if
+    it had never held it: old ``@mentions`` and ``/users/<name>`` stop leading
+    to it. Returns the name as it was recorded, and the account it is still
+    reserved for when another account gave it up before (wikis upgraded from
+    1.4 did not reserve names); otherwise any account can now take it.
+    """
+    wanted = (username or "").strip().translate(_ASCII_LOWER)
+    with db.transaction():
+        # Fold ASCII letters only, as SQLite's NOCASE does in every lookup here.
+        name = next((name for name in reserved_names(user["id"])
+                     if name.translate(_ASCII_LOWER) == wanted), None)
+        if name is None:
+            raise AccountError("admin.users.error.name_not_reserved", username=(username or "").strip())
+        db.execute("DELETE FROM username_history WHERE user_id = ? AND old_username = ? COLLATE NOCASE",
+                   (user["id"], name))
+        holder = by_id(former_holder(name))
+    emit("user.name_released", user=by_id(user["id"]) or user, username=name, released_by=released_by,
+         reserved_for=holder)
+    return name, holder
 
 
 def create(
