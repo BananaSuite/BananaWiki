@@ -71,6 +71,31 @@ Several workers can run at once: jobs are claimed in the database, and jobs of
 a worker that stopped are put back in the queue. `BW_TTS_WORKER_COUNT` sets the
 threads per worker.
 
+### Limits
+
+One page cannot stop the worker or hold the queue for good:
+
+* Piper reads the text in pieces of at most 500 characters, cut after a
+  sentence where possible. Its memory grows with the length of a sentence,
+  and a page may hold 20,000 characters without a full stop.
+* On Linux (any POSIX system) Piper runs in a child process of the worker,
+  started for each job, so the voice is loaded for every page. If it runs out
+  of memory, crashes or runs longer than `BW_TTS_MAX_JOB_SECONDS` (default 3600),
+  only that job fails. `BW_TTS_PIPER_MEMORY_MB` also limits its address space
+  (`RLIMIT_AS`), so it fails before the server runs out of memory. The limit
+  is off by default because ONNX Runtime reserves more address space than it
+  uses, more on servers with many CPU cores: try a value (for example 4096)
+  on your server before you rely on it. A lower `BW_MEMORY_LIMIT_MB` applies
+  as well. On Windows and in the packaged desktop app Piper runs inside the
+  worker.
+* No job runs longer than `BW_TTS_MAX_JOB_SECONDS`: its lease is no longer
+  renewed and the job fails ("The job ran longer than ..."). With a GPU
+  server, keep it above `BW_TTS_REMOTE_GPU_TIMEOUT`.
+* A job whose worker stopped while reading it (killed, crashed) goes back to
+  the queue. The third time, it fails ("The worker stopped 3 times ...")
+  instead of stopping the next worker too. **Retry** on the admin page queues
+  it again from scratch.
+
 ## Settings
 
 **Admin → Read aloud** (`/admin/tts`):

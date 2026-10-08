@@ -66,6 +66,21 @@ def test_earlier_suspensions_count_as_imposed_by_an_owner(tmp_path):
     assert conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'idx_username_history_old'").fetchone()
 
 
+def test_tts_jobs_start_without_lost_attempts(tmp_path):
+    path = tmp_path / "wiki.db"
+    build_v3(path)
+    conn = sqlite3.connect(path)
+    conn.execute("INSERT INTO tts_generations (page_id, language, status, content_hash) "
+                 "VALUES (1, 'en', 'processing', 'x')")
+    conn.commit()
+    conn.close()
+    db = make_db(path)
+    db.initialize()
+    conn = db.connect()
+    assert conn.execute("SELECT attempts FROM tts_generations").fetchone()["attempts"] == 0
+    migrations.v7_tts_attempts.upgrade(conn)  # idempotent
+
+
 def test_fresh_and_upgraded_schemas_match(tmp_path):
     fresh = make_db(tmp_path / "fresh.db")
     fresh.initialize()

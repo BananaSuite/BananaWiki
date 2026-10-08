@@ -6,6 +6,10 @@ durable across processes:
 * ``not_before`` - a retried or rate-limited job waits until this time;
 * ``lease_until`` - a worker that claimed a job renews this while it works,
   so a job whose worker died is handed to another worker once it expires.
+
+Schema 7 adds ``attempts``: the claims of a job that ended without an answer
+from their worker (it was killed or crashed). A job that keeps stopping its
+worker fails instead of going back to the queue forever.
 """
 
 from __future__ import annotations
@@ -22,3 +26,9 @@ def upgrade_v4(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_tts_generations_queue ON tts_generations(status, requested_at, id)"
     )
+
+
+def upgrade_v7(conn: sqlite3.Connection) -> None:
+    if not table_exists(conn, "tts_generations"):
+        return
+    add_columns(conn, "tts_generations", {"attempts": "INTEGER NOT NULL DEFAULT 0"})

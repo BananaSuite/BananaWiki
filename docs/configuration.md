@@ -201,6 +201,8 @@ Invalid values log a warning and fall back to the default.
 | `BW_TTS_AUTO_RESUME_MAX_DELAY_SECONDS` | 30.0 | Longest retry delay. |
 | `BW_TTS_RATE_LIMIT_COOLDOWN_SECONDS` | 900 | Pause after the GPU server answers `429`. |
 | `BW_TTS_SHUTDOWN_GRACE_SECONDS` | 20 | Jobs still running this long after a stop request go back to the queue. |
+| `BW_TTS_MAX_JOB_SECONDS` | 3600 (300–86400) | Longest a job may run; then Piper is stopped and the job fails. Keep it above `BW_TTS_REMOTE_GPU_TIMEOUT`. |
+| `BW_TTS_PIPER_MEMORY_MB` | 0 (none) | Address-space limit (`RLIMIT_AS`) of the Piper process on Linux; a page that needs more fails. See [read aloud](tts.md#limits). |
 | `BW_TTS_PERFORMANCE_MODE` | from the admin page | `auto`, `balanced` or `fast`. |
 | `BW_TTS_PIPER_AUTO_DOWNLOAD` | `1` | Download missing Piper voices on first use. |
 | `BW_TTS_PIPER_VOICE_MAP` | built-in voices | Extra or replacement voices: JSON (`{"de": "de_DE-thorsten-high"}`) or `de=de_DE-thorsten-high,pt=pt_BR-faber-medium`. |
