@@ -14,9 +14,10 @@ folder (hosting archives, with ``storage/<name>/`` asset paths) and
 JSON dump is turned into a database inside the tenant container).
 
 Import safety: the whole member list is checked before anything is written
-(no absolute or ``..`` paths, backslashes, links, special files or
-duplicates; member count, unpacked size and compression ratio bounded by
-``HOSTING_IMPORT_*``; free disk space), members are streamed to new files in
+(no absolute or ``..`` paths, backslashes, links, special files, duplicates
+or members compressed other than stored or deflated; member count, unpacked
+size and compression ratio bounded by ``HOSTING_IMPORT_*``; free disk
+space), members are streamed to new files in
 a staging folder, and only the database and the data folders are taken:
 code (``external_plugins/``, ``config.py``), secret keys, logs and anything
 else in the archive is ignored.
@@ -26,12 +27,13 @@ from __future__ import annotations
 
 import errno
 import json
-import lzma
+import logging
 import os
 import shutil
 import stat
 import zipfile
 import zlib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -40,6 +42,8 @@ from ... import __version__
 from ...core.json import loads as safe_json_loads
 from ..config import ArchiveSettings
 from . import RuntimeFailure, tenantfs
+
+log = logging.getLogger("bananawiki.hosting.runtime.archives")
 
 FORMAT_VERSION = 1
 MANIFEST = "manifest.json"
@@ -53,6 +57,25 @@ MAX_RATIO = 200
 MAX_MANIFEST_BYTES = 1024 * 1024
 # ZipInfo.compress_level is public from Python 3.13; 3.11 and 3.12 read _compresslevel.
 _LEVEL_ATTRIBUTE = "compress_level" if hasattr(zipfile.ZipInfo, "compress_level") else "_compresslevel"
+# zipfile bounds each read of a deflated member, but hands bzip2 and LZMA data
+# to decompressors without an output limit: a few hundred bytes expand to
+# gigabytes in memory before any size check sees them. BananaWiki only ever
+# writes stored and deflated members.
+READABLE_COMPRESSION = frozenset({zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED})
+# Restores and imports unpack below folders of their own, within Linux's
+# 4096-byte path limit: a longer tenant path would make the whole archive
+# fail to unpack.
+MAX_NAME_BYTES = 3072
+# An export's manifest names at most this many of the files it left out:
+# a tenant can create any number, and a manifest over MAX_MANIFEST_BYTES
+# would make the import refuse the archive.
+MAX_LISTED_FILES = 50
+# Imports strip these from member paths (the hosting import storage/ after
+# assets/): an exported file below them lands where the wiki's own goes.
+ALIAS_PREFIXES = ("assets/", "storage/")
+# What a member adds to an archive besides its data and its name (stored
+# twice): the local and central headers with their ZIP64 fields.
+MEMBER_OVERHEAD = 128
 
 
 @dataclass(frozen=True)
@@ -60,6 +83,30 @@ class Unpacked:
     has_database: bool
     has_json_dump: bool
     skipped: int
+
+
+# ── Member names ──────────────────────────────────────────────────────────────
+
+
+def unsafe_name(name: str) -> bool:
+    """A member path that imports and platform restores refuse: absolute, with
+    ``.`` or ``..`` parts, a NUL, a backslash or a colon (a drive or stream on Windows)."""
+    return ("\\" in name or "\x00" in name or name.startswith("/")
+            or any(part in ("", ".", "..") or ":" in part for part in PurePosixPath(name).parts))
+
+
+def storable_name(name: str) -> bool:
+    """Whether an export or backup may write *name*: every reader must take it back.
+
+    A tenant can create any file name, and one refused member fails the whole
+    import or restore.
+    """
+    try:
+        size = len(name.encode("utf-8"))
+    except UnicodeEncodeError:
+        # Bytes that are not UTF-8: a ZIP stores names as UTF-8 only.
+        return False
+    return 0 < size <= MAX_NAME_BYTES and not unsafe_name(name)
 
 
 # ── Writing ───────────────────────────────────────────────────────────────────
@@ -91,33 +138,133 @@ def write_fd(archive: zipfile.ZipFile, fd: int, info: os.stat_result, name: str,
             tenantfs.copy_observed(source, target, info.st_size)
 
 
-def add_tenant_tree(archive: zipfile.ZipFile, root: Path, prefix: str, settings: ArchiveSettings, *,
-                    portable: bool) -> None:
-    """Add a tenant's files below *prefix*.
+def _parents(member: str) -> Iterable[str]:
+    parts = member.split("/")
+    return ("/".join(parts[:end]) for end in range(1, len(parts)))
 
-    *portable* (exports): asset folders are flattened from ``storage/<name>``
-    to ``<name>``, hidden folders and secrets are left out. Otherwise
-    (platform backups) the tree is kept as it is, including the tenant's
-    ``.secret_key`` so sessions survive a restore.
+
+def _in_asset_folder(relative: str) -> bool:
+    """Whether a tenant path lies below ``storage/<asset folder>/``, the folders exports flatten."""
+    parts = relative.split("/", 2)
+    return len(parts) == 3 and parts[0] == "storage" and parts[1] in tenantfs.ASSET_FOLDERS
+
+
+def _shown(relative: str) -> str:
+    """A tenant path as text a page can show: file names may hold bytes that are not UTF-8."""
+    return os.fsencode(relative).decode("utf-8", "backslashreplace")
+
+
+def member_cost(member: str, size: int) -> int:
+    """What a member of *size* bytes adds to an archive: its data, its name twice and its headers."""
+    return size + 2 * len(member.encode("utf-8")) + MEMBER_OVERHEAD
+
+
+def add_tenant_tree(archive: zipfile.ZipFile, root: Path, prefix: str, settings: ArchiveSettings, *,
+                    portable: bool, reserved: Iterable[str] = (), directories: Iterable[str] = (),
+                    budget: int | None = None, links: list[str] | None = None) -> list[str]:
+    """Add a tenant's files below *prefix*; returns the files it left out.
+
+    *portable* (exports): the asset folders (:data:`tenantfs.ASSET_FOLDERS`)
+    are flattened from ``storage/<name>`` to ``<name>``; anything else below
+    ``storage/`` keeps its path. ``storage/`` is walked first, so where a
+    top-level asset folder (a tenant can replace the ``<name>`` link with a
+    folder of its own) holds a file ``storage/<name>`` holds too, the
+    ``storage/`` copy is the one exported, as :meth:`duplicate` prefers it.
+    Hidden folders and secrets are left out. Otherwise (platform backups)
+    the tree is kept as it is, including the tenant's ``.secret_key`` so
+    sessions survive a restore.
+
+    *reserved* names the members the caller writes itself (the database
+    copy, the manifest), *directories* the member paths a reader needs as
+    folders (the layout a restore prepares). A tenant can create any file
+    name, and one member that an import or restore refuses fails all of
+    it, so a file is left out when its name an archive cannot hold or a
+    reader would refuse (see :func:`storable_name`), when it would turn up
+    twice or as both a file and a folder, a reserved member or directory
+    included, or when it lies in a folder named like the database or its
+    journals (a wiki that swapped its database for a folder once the copy
+    was taken). An export also leaves out the files an import would take
+    for the wiki's own: below a top-level ``assets/`` folder, or below
+    ``storage/`` but outside its asset folders, such as
+    ``storage/translations/xx.json`` or ``storage/favicons/custom_*`` (see
+    :data:`ALIAS_PREFIXES`): next to the file it names it would turn up
+    twice, or as both a file and a folder, once imported. Such paths no
+    import maps (``storage/storage/...``) are kept, and ignored by imports.
+    The tenant paths of the files left out are returned, as text a page can
+    show; the caller decides what an archive without them is worth.
+
+    A tenant's files can cost an archive far more than they cost the
+    tenant's storage quota: a sparse file takes its full length, every hard
+    link to a file a full copy. *links*, when given, collects the further
+    links to a file already archived, which are left out: each file goes in
+    once, whatever number of names it has. *budget* bounds what the files
+    add to the archive (see :func:`member_cost`, each file at its apparent
+    size): the walk stops before a file that would exceed it, with a
+    ``too_large`` :class:`RuntimeFailure`.
     """
+    refused: list[str] = []
+    files = set(reserved)
+    folders = set(directories)
+    folders.update([parent for name in (*files, *folders) for parent in _parents(name)])
+    archived: set[tuple[int, int]] = set()
+    used = 0
     dir_fd = tenantfs.open_dir(root)
+    walk = tenantfs.iter_files(dir_fd, skip_dirs=SKIPPED_DIRS | {tenantfs.EXCHANGE}, skip_hidden=portable,
+                               first=("storage",) if portable else ())
     try:
-        for relative, fd, info in tenantfs.iter_files(dir_fd, skip_dirs=SKIPPED_DIRS | {tenantfs.EXCHANGE},
-                                                      skip_hidden=portable):
+        for relative, fd, info in walk:
             name = relative.rsplit("/", 1)[-1]
             skipped = name in SKIPPED_FILES and not (name == ".secret_key" and not portable)
             if skipped or name.endswith((".lock", "-wal", "-shm", "-journal")):
                 os.close(fd)
                 continue
-            if portable and relative.startswith("storage/"):
-                relative = relative[len("storage/"):]
-            write_fd(archive, fd, info, f"{prefix}{relative}", settings)
+            member = prefix + (relative[len("storage/"):] if portable and _in_asset_folder(relative) else relative)
+            in_database = "/" in relative and relative.split("/", 1)[0] in tenantfs.DATABASE_FILES
+            clash = member in files or member in folders or any(parent in files for parent in _parents(member))
+            flat = member[len(prefix):]
+            alias = portable and flat.startswith(ALIAS_PREFIXES) and destination(flat, "") is not None
+            if in_database or clash or alias or not storable_name(member):
+                os.close(fd)
+                refused.append(_shown(relative))
+                continue
+            identity = (info.st_dev, info.st_ino)
+            if links is not None and identity in archived:
+                os.close(fd)
+                links.append(_shown(relative))
+                continue
+            used += member_cost(member, info.st_size)
+            if budget is not None and used > budget:
+                os.close(fd)
+                raise RuntimeFailure("too_large", f"its files take more than the {budget // 1024 ** 2} MiB its "
+                                                  f"storage limit allows in a backup (a sparse file at its full "
+                                                  f"size); stopped at {_shown(relative)}"[:300])
+            if links is not None:
+                archived.add(identity)
+            files.add(member)
+            folders.update(_parents(member))
+            write_fd(archive, fd, info, member, settings)
     finally:
+        # Closing the walk early closes the folder descriptors os.fwalk holds.
+        walk.close()
         os.close(dir_fd)
+    return refused
+
+
+def refused_detail(refused: list[str]) -> str:
+    """What to report about the files :func:`add_tenant_tree` left out."""
+    return (f"{len(refused)} file(s) left out: an archive cannot hold their names, or a restore would refuse "
+            f"them (not UTF-8, a ':' or '\\', too long, or clashing with another file, the database or a folder "
+            f"the wiki needs): {', '.join(refused[:5])}")[:300]
 
 
 def export(root: Path, snapshot: str, destination_dir: Path, slug: str, settings: ArchiveSettings) -> Path:
-    """Write ``bananawiki-<slug>-<time>.zip``; *snapshot* is the database copy inside *root*."""
+    """Write ``bananawiki-<slug>-<time>.zip``; *snapshot* is the database copy inside *root*.
+
+    Tenant files no import would accept, or would take for the wiki's own,
+    are left out, logged and listed in ``manifest.json`` (``omitted_files``,
+    the first :data:`MAX_LISTED_FILES`, and ``omitted_file_count``): the
+    rest of the wiki still moves.
+    """
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     safe = "".join(c for c in slug if c.isalnum() or c in "-_") or "wiki"
     path = Path(destination_dir) / f"bananawiki-{safe}-{stamp}.zip"
@@ -130,7 +277,6 @@ def export(root: Path, snapshot: str, destination_dir: Path, slug: str, settings
                               allowZip64=True)
     try:
         with archive:
-            archive.writestr(MANIFEST, json.dumps(manifest, indent=2, sort_keys=True))
             parent, _, name = snapshot.rpartition("/")
             dir_fd = tenantfs.open_dir(root, parent)
             try:
@@ -138,7 +284,18 @@ def export(root: Path, snapshot: str, destination_dir: Path, slug: str, settings
             finally:
                 os.close(dir_fd)
             write_fd(archive, fd, os.fstat(fd), RAW_DB, settings)
-            add_tenant_tree(archive, root, "", settings, portable=True)
+            # The manifest goes last, so that it can list what was left out:
+            # its name is reserved, a tenant file cannot take its place. Nor
+            # can a file named like an asset folder take the place of that
+            # folder's files.
+            omitted = add_tenant_tree(archive, root, "", settings, portable=True, reserved=(MANIFEST, RAW_DB),
+                                      directories=tenantfs.ASSET_FOLDERS)
+            if omitted:
+                log.warning("The export of %s left out %d file(s) no import would accept or keep apart from the "
+                            "wiki's own: %s", slug, len(omitted), ", ".join(omitted[:5])[:300])
+            manifest.update(omitted_files=[item[:300] for item in omitted[:MAX_LISTED_FILES]],
+                            omitted_file_count=len(omitted))
+            archive.writestr(MANIFEST, json.dumps(manifest, indent=2, sort_keys=True))
     except BaseException:
         path.unlink(missing_ok=True)
         raise
@@ -146,6 +303,11 @@ def export(root: Path, snapshot: str, destination_dir: Path, slug: str, settings
 
 
 # ── Reading ───────────────────────────────────────────────────────────────────
+
+
+def readable_member(info: zipfile.ZipInfo) -> bool:
+    """Neither encrypted nor compressed with a method whose output zipfile cannot bound."""
+    return not info.flag_bits & 1 and info.compress_type in READABLE_COMPRESSION
 
 
 def _layout_prefix(names: set[str]) -> str:
@@ -161,12 +323,9 @@ def _layout_prefix(names: set[str]) -> str:
 
 
 def _safe_name(name: str) -> PurePosixPath:
-    if not name or "\\" in name or "\x00" in name or name.startswith("/"):
+    if not name or unsafe_name(name):
         raise RuntimeFailure("archive_invalid", "unsafe member path")
-    path = PurePosixPath(name)
-    if any(part in ("", ".", "..") or ":" in part for part in path.parts):
-        raise RuntimeFailure("archive_invalid", "unsafe member path")
-    return path
+    return PurePosixPath(name)
 
 
 def destination(name: str, prefix: str) -> str | None:
@@ -202,7 +361,7 @@ def _check_manifest(archive: zipfile.ZipFile, names: set[str]) -> None:
         if len(raw) > MAX_MANIFEST_BYTES:
             raise RuntimeFailure("archive_invalid", "manifest.json is too large")
         manifest = safe_json_loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError, zipfile.BadZipFile, RuntimeError, zlib.error, lzma.LZMAError, OSError):
+    except (UnicodeDecodeError, ValueError, zipfile.BadZipFile, RuntimeError, zlib.error, OSError):
         raise RuntimeFailure("archive_invalid", "manifest.json is not JSON") from None
     version = manifest.get("format_version") if isinstance(manifest, dict) else None
     if type(version) is not int or not 1 <= version <= FORMAT_VERSION:
@@ -218,8 +377,7 @@ def plan(archive: zipfile.ZipFile, settings: ArchiveSettings, free_bytes: int) -
     total = 0
     for info in members:
         _safe_name(info.filename.rstrip("/") if info.is_dir() else info.filename)
-        if info.flag_bits & 1 or info.compress_type not in (
-                zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED, zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA):
+        if not readable_member(info):
             raise RuntimeFailure("archive_invalid", "encrypted or unsupported ZIP members cannot be imported")
         kind = stat.S_IFMT(info.external_attr >> 16)
         if kind not in (0, stat.S_IFREG, stat.S_IFDIR):
@@ -275,7 +433,7 @@ def unpack(archive_path: Path, staging: Path, settings: ArchiveSettings) -> Unpa
                 with archive.open(info) as source, open(path, "xb") as output:
                     os.fchmod(output.fileno(), 0o600)
                     shutil.copyfileobj(source, output, 1024 * 1024)
-        except (zipfile.BadZipFile, EOFError, ValueError, RuntimeError, zlib.error, lzma.LZMAError) as error:
+        except (zipfile.BadZipFile, EOFError, ValueError, RuntimeError, zlib.error) as error:
             raise RuntimeFailure("archive_invalid", f"damaged archive: {error}") from None
         except OSError as error:
             if error.errno in (errno.ENOSPC, errno.EDQUOT):

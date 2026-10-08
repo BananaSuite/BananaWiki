@@ -65,6 +65,9 @@ class FakeAgent:
         return {key: item.get(key) for key in ("tenant", "running", "address", "internal_port", "image", "started_at",
                                              "quota_protected", "ipv6_disabled", "storage_quota_verified", "storage_quota")}
 
+    def ping(self, args: dict[str, Any]) -> dict[str, Any]:
+        return {"protocol": 1, "docker": True, "image": IMAGE}
+
     def tenant_list(self, args: dict[str, Any]) -> dict[str, Any]:
         return {"tenants": [self._status(name) for name in self.containers]}
 

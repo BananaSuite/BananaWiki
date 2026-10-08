@@ -95,6 +95,10 @@
   {{ ui.field('gdrive_backup_time', t('hosting.settings.gdrive_time'), s.gdrive_backup_time, type='time') }}
 {% endcall %}
 <section class="card"><h2>{{ t('hosting.settings.backups') }}</h2>
+  {% set backup = backup_status or {} %}
+  <p class="small muted">{% if backup.complete_at %}{{ t('hosting.settings.backup_complete_at', when=backup.complete_at|datetime) }}{% else %}{{ t('hosting.settings.backup_complete_never') }}{% endif %}</p>
+  {% if backup.skipped %}<div class="alert alert--warning"><div class="alert__body">{{ t('hosting.settings.backup_skipped', when=backup.finished_at|datetime) }}
+    <ul>{% for item in backup.skipped %}<li><code>{{ item.tenant }}</code>: {{ t('hosting.runtime.' ~ item.code) }}{% if item.detail %} <span class="small">({{ item.detail }})</span>{% endif %}</li>{% endfor %}</ul></div></div>{% endif %}
   <div class="btn-row">
     {{ ui.post(url_for('admin.settings_page'), t('hosting.settings.gdrive_test'), hidden={'action': 'gdrive_test'}) }}
     {{ ui.post(url_for('admin.settings_page'), t('hosting.settings.gdrive_now'), hidden={'action': 'gdrive_backup_now'}) }}

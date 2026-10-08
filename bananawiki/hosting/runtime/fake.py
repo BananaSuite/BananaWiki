@@ -36,6 +36,7 @@ class FakeRuntime:
         self.routes: list[TenantSpec] = []
         self.domain_results: dict[str, DomainCheck] = {}
         self.upstreams: dict[str, tuple[str, int]] = {}
+        self.backup_status: dict[str, Any] = {}
         self._failures: dict[str, RuntimeFailure] = {}
 
     # Test helpers ---------------------------------------------------------
@@ -258,6 +259,9 @@ class FakeRuntime:
 
     def restore_platform(self, archives: Sequence[Path]) -> None:
         self._record("restore_platform", str(len(archives)))
+
+    def platform_backup_status(self) -> dict[str, Any]:
+        return self.backup_status
 
     def backup_key(self) -> bytes:
         return b"k" * 32

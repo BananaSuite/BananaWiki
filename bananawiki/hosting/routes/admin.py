@@ -1352,7 +1352,8 @@ def settings_page():
     return render_template("hosting/admin/settings.html", settings=settings.load(),
                            gpu_token_set=bool(settings.get("global_tts_gpu_auth_token")),
                            suffix=urls.instance_suffix(), email_configured=notifications.configured(),
-                           notify_interval=settings.NOTIFY_INTERVAL_MINUTES)
+                           notify_interval=settings.NOTIFY_INTERVAL_MINUTES,
+                           backup_status=instances.runtime().platform_backup_status())
 
 
 def _gdrive(action: str) -> None:

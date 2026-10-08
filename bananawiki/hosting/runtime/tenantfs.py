@@ -32,6 +32,7 @@ EXCHANGE = ".bw-host"
 DATABASE_FILES = ("bananawiki.db", "bananawiki.db-wal", "bananawiki.db-shm", "bananawiki.db-journal",
                   "bananawiki.db.initialized", "bananawiki.db.schema.lock")
 STALE_STATE_FILES = ("bananawiki.pid", "tts_worker.pid", ".starting", ".port", "gunicorn.pid", ".maintenance.lock")
+SHORT_READ_DELAYS = (0.05, 0.1, 0.2)
 _NOFOLLOW = os.O_NOFOLLOW | os.O_CLOEXEC
 _FILE_FLAGS = os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | _NOFOLLOW
@@ -89,17 +90,22 @@ def open_file(dir_fd: int, name: str, *, max_bytes: int | None = None) -> int:
         raise
 
 
-def iter_files(dir_fd: int, *, skip_dirs: frozenset[str] = frozenset(),
-               skip_hidden: bool = False) -> Iterator[tuple[str, int, os.stat_result]]:
+def iter_files(dir_fd: int, *, skip_dirs: frozenset[str] = frozenset(), skip_hidden: bool = False,
+               first: tuple[str, ...] = ()) -> Iterator[tuple[str, int, os.stat_result]]:
     """Yield ``(relative path, fd, stat)`` for each regular file below *dir_fd*; the caller closes *fd*.
 
     ``os.fwalk`` does not enter linked directories, and files are opened
     relative to their directory's descriptor; links and special files are
-    skipped silently.
+    skipped silently. The top-level folders named in *first* are walked
+    before the others, in that order (otherwise the order is the file
+    system's).
     """
     for dirpath, dirnames, filenames, walk_fd in os.fwalk(".", dir_fd=dir_fd, follow_symlinks=False):
         dirnames[:] = [name for name in dirnames
                        if name not in skip_dirs and not (skip_hidden and name.startswith("."))]
+        if first and dirpath == ".":
+            # os.fwalk enters the folders in the order this list has once the loop body resumes it.
+            dirnames.sort(key=lambda name: first.index(name) if name in first else len(first))
         for name in filenames:
             try:
                 fd = os.open(name, _FILE_FLAGS, dir_fd=walk_fd)
@@ -144,12 +150,28 @@ def copy_out(root: Path, relative: str, destination: Path) -> int:
 
 
 def copy_observed(source: BinaryIO, target: BinaryIO, size: int) -> None:
-    """Copy the observed bytes of a hostile file; later appends cannot prolong the copy."""
+    """Copy the observed bytes of a hostile file; later appends cannot prolong the copy.
+
+    A read that would block, or that finds the file empty before anything was
+    copied (a tenant rewriting it: truncate, then write), is retried a few
+    times. A file that shrinks once copying began fails the copy: reading on
+    would join its old start to new content. After a rewrite the copy holds
+    the start of the new content, never more than the size first observed:
+    like an append, a rewrite cannot prolong the copy.
+    """
     remaining = size
+    retries = iter(SHORT_READ_DELAYS)
     while remaining:
-        block = source.read(min(remaining, 1024 * 1024))
+        try:
+            block = source.read(min(remaining, 1024 * 1024))
+        except BlockingIOError:
+            block = None
         if not block:
-            raise RuntimeFailure("failed", "a tenant file shrank during the copy; retry the operation")
+            delay = next(retries, None) if block is None or remaining == size else None
+            if delay is None:
+                raise RuntimeFailure("failed", "a tenant file shrank during the copy; retry the operation")
+            time.sleep(delay)
+            continue
         target.write(block)
         remaining -= len(block)
 

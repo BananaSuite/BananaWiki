@@ -31,7 +31,9 @@ platform). In port mode the agent publishes each wiki on
 
 from __future__ import annotations
 
+import contextlib
 import errno
+import fcntl
 import hashlib
 import http.client
 import ipaddress
@@ -44,9 +46,9 @@ import shutil
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +61,7 @@ from ...ops.runtime_agent import MAX_HOSTS_PER_TENANT
 from ...ops.runtime_agent import TENANT as AGENT_TENANT
 from ..config import LEGACY_DATA_DIR, HostingConfig
 from . import (
+    FAILURE_CODES,
     DomainCheck,
     LogTail,
     RuntimeFailure,
@@ -87,6 +90,7 @@ LOG_LINES = 1000
 LEFTOVER_SECONDS = 24 * 3600
 LEGACY_LOG_SECONDS = 7 * 24 * 3600
 GDRIVE_RETRY_SECONDS = 3600
+BACKUP_STATE = "platform-backup.json"
 LEGACY_LOGS = ("access.log", "error.log", "bananawiki.log")
 _ACCESS_LINE = re.compile(r'^\S+ \S+ \S+ \[[^\]]+\] "')
 _AGENT_CODES = {
@@ -98,6 +102,11 @@ _AGENT_CODES = {
 }
 
 Probe = Callable[[str, int], bool]
+
+
+class TaskRefusal(RuntimeFailure):
+    """The tenant task ran in the wiki's sandbox and answered with a failure: the wiki's verdict on itself,
+    unlike a task the runtime could not run (a timeout, the agent or Docker failing)."""
 
 
 def http_health(address: str, port: int) -> bool:
@@ -259,7 +268,7 @@ class AgentRuntime:
         if not isinstance(result, dict):
             raise RuntimeFailure("failed", "the tenant task gave no answer")
         if not result.get("ok"):
-            raise RuntimeFailure(str(result.get("error") or "failed"), str(result.get("detail") or "")[:300])
+            raise TaskRefusal(str(result.get("error") or "failed"), str(result.get("detail") or "")[:300])
         return result
 
     def _prepare_storage(self, spec: TenantSpec) -> None:
@@ -733,16 +742,62 @@ class AgentRuntime:
         try:
             return self._snapshot(tenant)
         except RuntimeFailure as error:
-            if error.code in ("db_missing", "db_unsafe"):
+            # db_unsafe (a database the tenant replaced with a link) is for the
+            # backup to report: that wiki is not held in full.
+            if error.code == "db_missing":
                 log.warning("Backing up %s without its database: %s", tenant, error)
                 return None
+            if isinstance(error, TaskRefusal):
+                # Its sandbox ran and refused (a damaged database): no sign of a platform fault.
+                raise platform_backup.WikiFault(error.code, error.detail) from None
             raise
 
     def export_platform(self, destination_dir: Path) -> Path:
         cfg = self._cfg()
-        key = self.backup_key()
-        return platform_backup.export(cfg, Path(destination_dir), key, self._backup_copy,
-                               lambda tenant, copy: tenantfs.unlink(self._root(cfg, tenant), copy))
+        exported = self._export_platform(cfg, Path(destination_dir))
+        self._record_platform_backup(cfg, exported)
+        return exported.path
+
+    def _export_platform(self, cfg: HostingConfig, destination_dir: Path) -> platform_backup.Exported:
+        return platform_backup.export(cfg, destination_dir, self.backup_key(), self._backup_copy,
+                                      lambda tenant, copy: tenantfs.unlink(self._root(cfg, tenant), copy),
+                                      self._answers)
+
+    def _answers(self) -> bool:
+        """Whether the agent and its Docker daemon answer: a wiki's failure may have been theirs."""
+        try:
+            answer = self._call("ping", {})
+        except Exception:  # noqa: BLE001 - whatever the failure, the runtime is not answering
+            return False
+        return isinstance(answer, dict) and answer.get("docker") is True
+
+    def _record_platform_backup(self, cfg: HostingConfig, exported: platform_backup.Exported) -> None:
+        """Note a backup that now exists (handed out, or uploaded) for :meth:`platform_backup_status`."""
+        path = Path(cfg.platform_state_dir) / BACKUP_STATE
+        finished = datetime.now(UTC).isoformat(timespec="seconds")
+        try:
+            with _state_lock(path):
+                complete = self.platform_backup_status().get("complete_at") if exported.skipped else finished
+                _write_state(path, {"finished_at": finished, "complete_at": complete,
+                                    "skipped": list(exported.skipped)})
+        except OSError as error:
+            log.warning("The platform backup status was not saved: %s", error)
+
+    def platform_backup_status(self) -> dict[str, Any]:
+        try:
+            data = json.loads((Path(self._cfg().platform_state_dir) / BACKUP_STATE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        items = data.get("skipped")
+        skipped = [{"tenant": item["tenant"], "detail": item["detail"],
+                    "code": item["code"] if item["code"] in FAILURE_CODES else "failed"}
+                   for item in (items if isinstance(items, list) else ())
+                   if isinstance(item, dict) and all(isinstance(item.get(k), str) for k in ("tenant", "code", "detail"))]
+        return {"finished_at": data.get("finished_at") if isinstance(data.get("finished_at"), str) else None,
+                "complete_at": data.get("complete_at") if isinstance(data.get("complete_at"), str) else None,
+                "skipped": skipped}
 
     def restore_platform(self, archives: Sequence[Path]) -> None:
         cfg = self._cfg()
@@ -774,8 +829,9 @@ class AgentRuntime:
 
     def _save_drive_state(self, cfg: HostingConfig, **values: str) -> None:
         path = self._drive_state_path(cfg)
-        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        path.write_text(json.dumps({**self._drive_state(cfg), **values}), encoding="utf-8")
+        # Retention relies on last_complete: no overlapping backup may drop it, nor a reader see half a file.
+        with _state_lock(path):
+            _write_state(path, {**self._drive_state(cfg), **values})
 
     def gdrive_test(self) -> str:
         settings = self._drive_settings()
@@ -790,12 +846,35 @@ class AgentRuntime:
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
         work = Path(tempfile.mkdtemp(prefix="bwh-gdrive-", dir=root))
         try:
-            name = gdrive.upload(client, settings, self.export_platform(work))
+            exported = self._export_platform(cfg, work)
+            name = gdrive.upload(client, settings, exported.path)
         finally:
             shutil.rmtree(work, ignore_errors=True)
+        # Recorded once uploaded: a backup that never reached Drive exists nowhere.
+        self._record_platform_backup(cfg, exported)
+        if not exported.skipped:
+            # Drive dates the file when it receives it, after the export started
+            # (by its own clock, though): the name pins it whatever the clocks say.
+            self._save_drive_state(cfg, last_success=datetime.now().isoformat(),
+                                   last_complete=exported.started.isoformat(), last_complete_name=name)
+            removed = gdrive.prune(client, settings)
+            return f"{name} uploaded; {removed} old backup(s) removed."
         self._save_drive_state(cfg, last_success=datetime.now().isoformat())
-        removed = gdrive.prune(client, settings)
-        return f"{name} uploaded; {removed} old backup(s) removed."
+        # Retention keeps the latest complete backup and everything after it:
+        # they may hold the only copy of the wikis this one is missing.
+        state = self._drive_state(cfg)
+        removed = 0
+        try:
+            complete = datetime.fromisoformat(state["last_complete"])
+        except (KeyError, TypeError, ValueError):
+            complete = None
+        if complete is not None and complete.tzinfo is not None:
+            horizon = min(datetime.now(UTC), complete + timedelta(days=settings.retention_days))
+            removed = gdrive.prune(client, settings, now=horizon, keep=(str(state.get("last_complete_name") or ""),))
+        missing = [item["tenant"] for item in exported.skipped]
+        listed = ", ".join(missing[:10]) + (f" and {len(missing) - 10} more" if len(missing) > 10 else "")
+        return (f"{name} uploaded without {listed}; {removed} old backup(s) removed, "
+                "the latest complete one is kept.")
 
     def store_gdrive_credentials(self, content: bytes) -> str:
         path = Path(self._cfg().database_path).parent / ".gdrive_credentials.json"
@@ -857,6 +936,30 @@ class AgentRuntime:
             for item in exchange.iterdir():
                 if now - item.lstat().st_mtime > LEFTOVER_SECONDS:
                     tenantfs.unlink(root, f"{tenantfs.EXCHANGE}/{item.name}")
+
+
+@contextlib.contextmanager
+def _state_lock(path: Path) -> Iterator[None]:
+    """Serialise read-modify-writes of a platform state file: the web workers and the maintenance service
+    both back up."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock = os.open(path.with_name(f".{path.name}.lock"), os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(lock)
+
+
+def _write_state(path: Path, data: dict[str, Any]) -> None:
+    """Replace a small platform state file in one step (a reader never sees half of it)."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    pending = path.with_name(f".{path.name}.{_token()}")
+    try:
+        pending.write_text(json.dumps(data), encoding="utf-8")
+        os.replace(pending, path)
+    finally:
+        pending.unlink(missing_ok=True)
 
 
 def create_runtime(config: HostingConfig | None = None) -> AgentRuntime:

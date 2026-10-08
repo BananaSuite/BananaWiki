@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import errno
+import io
 import json
 import os
 import sqlite3
@@ -15,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from bananawiki.hosting.runtime import RuntimeFailure
+from bananawiki.hosting.runtime import RuntimeFailure, tenantfs
 from bananawiki.hosting.runtime.archives import destination
 
 from .agent_fakes import make_runtime, make_spec, provision
@@ -105,6 +106,202 @@ def test_export_refuses_a_tenant_file_that_shrank(setup, tmp_path):
     asset.write_bytes(b"o")
     with zipfile.ZipFile(tmp_path / "shrinking.zip", "w") as archive, pytest.raises(RuntimeFailure, match="shrank"):
         archives.write_fd(archive, fd, info, "uploads/shrinking.bin", runtime._cfg().archives)
+
+
+def test_export_waits_for_a_tenant_file_that_is_being_rewritten(setup, tmp_path, monkeypatch):
+    from bananawiki.hosting.runtime import archives, tenantfs
+
+    runtime, _agent, _spec, root = setup
+    asset = root / "storage/uploads/rewritten.bin"
+    asset.write_bytes(b"original")
+    fd = os.open(asset, os.O_RDONLY)
+    info = os.fstat(fd)
+    asset.write_bytes(b"")  # the tenant truncates the file, then writes it again
+    monkeypatch.setattr(tenantfs, "time", SimpleNamespace(sleep=lambda _seconds: asset.write_bytes(b"replaced")))
+    with zipfile.ZipFile(tmp_path / "rewritten.zip", "w") as archive:
+        archives.write_fd(archive, fd, info, "uploads/rewritten.bin", runtime._cfg().archives)
+    with zipfile.ZipFile(tmp_path / "rewritten.zip") as archive:
+        assert archive.read("uploads/rewritten.bin") == b"replaced"
+
+
+class ScriptedFile:
+    """A tenant file as the host reads it: each read returns (or raises) the next scripted result."""
+
+    def __init__(self, *reads):
+        self.reads = list(reads)
+
+    def read(self, size):
+        result = self.reads.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result[:size]
+
+
+def test_a_file_that_shrinks_once_copied_from_is_never_joined_to_new_content(monkeypatch):
+    """Retrying after part of the file is copied would read the new content from the old offset: a torn copy."""
+    from bananawiki.hosting.runtime import tenantfs
+
+    monkeypatch.setattr(tenantfs, "SHORT_READ_DELAYS", (0, 0, 0))
+    target = io.BytesIO()
+    with pytest.raises(RuntimeFailure, match="shrank"):
+        tenantfs.copy_observed(ScriptedFile(b"old-", b"", b"new-content"), target, 8)
+    assert target.getvalue() == b"old-"
+    target = io.BytesIO()
+    tenantfs.copy_observed(ScriptedFile(b"abcd", BlockingIOError(), b"efgh"), target, 8)
+    assert target.getvalue() == b"abcdefgh", "a read that would block is only waited for"
+
+
+@pytest.mark.parametrize(("folder", "name", "reported"), [
+    ("storage/uploads", b"\xff\xfe.png", "storage/uploads/\\xff\\xfe.png"),
+    ("external_plugins/tool", b"cache-12:00.json", "external_plugins/tool/cache-12:00.json"),
+], ids=["not-utf8", "colon"])
+def test_export_leaves_out_tenant_files_no_import_accepts(setup, tmp_path, app_factory, folder, name, reported):
+    """A tenant (its plugins) can create a file name of any bytes: ZIP names are UTF-8, and an import refuses
+    the whole archive for one name with a ':'. Such a file must not cost the owner the export of the wiki."""
+    from werkzeug.datastructures import FileStorage
+
+    from bananawiki.wiki.features.site_admin import migration
+
+    runtime, _agent, spec, root = setup
+    with open(os.path.join(os.fsencode(root / folder), name), "wb") as handle:
+        handle.write(b"hostile")
+    path = _export(runtime, spec, tmp_path)
+    with zipfile.ZipFile(path) as archive:
+        names = archive.namelist()
+        manifest = json.loads(archive.read("manifest.json"))
+    assert {"bananawiki.db", "uploads/photo.png", "external_plugins/tool/plugin.py"} <= set(names)
+    assert not [member for member in names if ":" in member], "the hosting import would refuse the archive"
+    assert manifest["omitted_files"] == [reported] and manifest["omitted_file_count"] == 1, "the owner can be told"
+
+    runtime.import_archive(make_spec("copy"), path)
+    copy = Path(runtime._cfg().instances_dir) / "copy"
+    assert (copy / "storage" / "uploads" / "photo.png").read_bytes() == b"\x89PNG data"
+    wiki = app_factory(environ={"BW_INSTANCE_DIR": str(tmp_path / "standalone")})
+    with wiki.app_context():
+        staged = migration.stage(FileStorage(io.BytesIO(path.read_bytes()), filename="site.zip"))
+    try:
+        assert (staged.folders["uploads"] / "photo.png").read_bytes() == b"\x89PNG data"
+    finally:
+        staged.discard()
+
+
+def _both_imports(runtime, path: Path, tmp_path, app_factory, folder: str, name: str) -> tuple[bytes, bytes]:
+    """The file *folder*/*name* as the hosting import and the standalone import of *path* take it."""
+    from werkzeug.datastructures import FileStorage
+
+    from bananawiki.wiki.features.site_admin import migration
+
+    runtime.import_archive(make_spec("copy"), path)
+    copy = Path(runtime._cfg().instances_dir) / "copy"
+    assert runtime.list_users(make_spec("copy"))[0], "the wiki's own database was imported"
+    hosted = (copy / "storage" / folder / name if folder in tenantfs.ASSET_FOLDERS else copy / folder / name
+              ).read_bytes()
+    wiki = app_factory(environ={"BW_INSTANCE_DIR": str(tmp_path / "standalone")})
+    with wiki.app_context():
+        staged = migration.stage(FileStorage(io.BytesIO(path.read_bytes()), filename="site.zip"))
+    try:
+        return hosted, (staged.folders[folder] / name).read_bytes()
+    finally:
+        staged.discard()
+
+
+@pytest.mark.parametrize(("hostile", "neighbour"), [
+    ("assets/uploads/photo.png", None),
+    ("assets/uploads/photo.png/x.png", None),
+    ("assets/translations/xx.json", "translations/xx.json"),
+    ("storage/translations/xx.json", "translations/xx.json"),
+    ("storage/favicons/custom_a.png", "favicons/custom_a.png"),
+], ids=["assets-file", "assets-folder", "assets-translation", "storage-translation", "storage-favicon"])
+def test_export_leaves_out_tenant_files_imports_take_for_the_wikis_own(setup, tmp_path, app_factory, hostile,
+                                                                     neighbour):
+    """Imports strip assets/ (the hosting import storage/ as well) from member paths: a tenant file below such a
+    folder lands where the wiki's own file goes. Next to it, the hosting import refused the export (duplicate
+    files, a path used as a file and a folder) and the standalone import failed or took it instead; flattened
+    like an asset folder, storage/translations/xx.json and storage/favicons/custom_a.png took the place of the
+    wiki's own files in the export, whichever the walk met first."""
+    runtime, _agent, spec, root = setup
+    for relative in (hostile, neighbour):
+        if relative:
+            (root / relative).parent.mkdir(parents=True, exist_ok=True)
+            (root / relative).write_bytes(b'{"own": 1}' if relative == neighbour else b"hostile")
+    path = _export(runtime, spec, tmp_path)
+    with zipfile.ZipFile(path) as archive:
+        names = archive.namelist()
+        manifest = json.loads(archive.read("manifest.json"))
+        assert archive.read("uploads/photo.png") == b"\x89PNG data"
+        assert neighbour is None or archive.read(neighbour) == b'{"own": 1}'
+    assert names.count(neighbour or "uploads/photo.png") == 1
+    assert manifest["omitted_files"] == [hostile] and manifest["omitted_file_count"] == 1
+
+    folder, name = (neighbour or "uploads/photo.png").split("/")
+    hosted, standalone = _both_imports(runtime, path, tmp_path, app_factory, *(
+        ("uploads", "photo.png") if folder == "translations" else (folder, name)))
+    assert hosted == standalone == (b"\x89PNG data" if neighbour is None or folder == "translations"
+                                    else b'{"own": 1}')
+    if folder == "translations":
+        # The standalone import takes only valid language packs; the hosting import takes the file as it is.
+        copy = Path(runtime._cfg().instances_dir) / "copy"
+        assert (copy / neighbour).read_bytes() == b'{"own": 1}'
+
+
+@pytest.mark.parametrize("inert", ["storage/storage/uploads/photo.png", "storage/assets/uploads/photo.png",
+                                   "storage/favicons/other.png"], ids=["storage-storage", "storage-assets", "other"])
+def test_export_keeps_storage_paths_no_import_maps(setup, tmp_path, app_factory, inert):
+    """Only storage/<asset folder>/ is flattened: below storage/, a path no import maps stays as it is and both
+    imports ignore it."""
+    runtime, _agent, spec, root = setup
+    (root / inert).parent.mkdir(parents=True, exist_ok=True)
+    (root / inert).write_bytes(b"inert")
+    path = _export(runtime, spec, tmp_path)
+    with zipfile.ZipFile(path) as archive:
+        assert archive.read(inert) == b"inert" and archive.read("uploads/photo.png") == b"\x89PNG data"
+        manifest = json.loads(archive.read("manifest.json"))
+    assert manifest["omitted_files"] == [] and manifest["omitted_file_count"] == 0
+    assert _both_imports(runtime, path, tmp_path, app_factory, "uploads", "photo.png") == (b"\x89PNG data",) * 2
+
+
+def test_export_prefers_the_storage_copy_of_an_asset_folder(setup, tmp_path, app_factory, monkeypatch):
+    """A wiki can replace its uploads link with a folder, or its attachments link with a file: the export kept
+    whichever file the walk met first, so the top-level copy could replace the wiki's own, and a file named
+    attachments left every storage/attachments file out."""
+    runtime, _agent, spec, root = setup
+    (root / "uploads").unlink()
+    (root / "uploads").mkdir()
+    (root / "uploads" / "photo.png").write_bytes(b"top-level")
+    (root / "uploads" / "only.png").write_bytes(b"only here")
+    (root / "attachments").unlink()
+    (root / "attachments").write_bytes(b"not a folder")
+    (root / "storage" / "attachments" / "doc.pdf").write_bytes(b"%PDF")
+    walk = os.fwalk
+
+    def top_level_folders_first(*args, **kwargs):
+        # The order a file system may well list them in: storage/ last.
+        for dirpath, dirnames, filenames, walk_fd in walk(*args, **kwargs):
+            dirnames.sort(reverse=True)
+            yield dirpath, dirnames, filenames, walk_fd
+
+    monkeypatch.setattr(os, "fwalk", top_level_folders_first)
+    path = _export(runtime, spec, tmp_path)
+    monkeypatch.setattr(os, "fwalk", walk)
+    with zipfile.ZipFile(path) as archive:
+        assert archive.read("uploads/photo.png") == b"\x89PNG data"
+        assert archive.read("uploads/only.png") == b"only here", "files only the top-level folder holds still move"
+        assert archive.read("attachments/doc.pdf") == b"%PDF"
+        manifest = json.loads(archive.read("manifest.json"))
+    assert sorted(manifest["omitted_files"]) == ["attachments", "uploads/photo.png"]
+    assert _both_imports(runtime, path, tmp_path, app_factory, "uploads", "photo.png") == (b"\x89PNG data",) * 2
+
+
+def test_a_tenant_file_cannot_take_the_place_of_the_export_manifest(setup, tmp_path):
+    """The manifest is written last: a tenant's own manifest.json would otherwise be the one imports read."""
+    runtime, _agent, spec, root = setup
+    (root / "manifest.json").write_text('{"format_version": 99}')
+    path = _export(runtime, spec, tmp_path)
+    with zipfile.ZipFile(path) as archive:
+        assert archive.namelist().count("manifest.json") == 1
+        manifest = json.loads(archive.read("manifest.json"))
+    assert manifest["format_version"] == 1 and manifest["omitted_files"] == ["manifest.json"]
+    runtime.import_archive(make_spec("copy"), path)
 
 
 @pytest.mark.parametrize("operation", ["copy_out", "copy_tree"])
@@ -258,6 +455,21 @@ def test_import_limits(tmp_path):
     with pytest.raises(RuntimeFailure) as error:
         runtime.import_archive(make_spec("big"), big)
     assert error.value.code == "too_large"
+
+
+@pytest.mark.parametrize("method", [zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA], ids=["bzip2", "lzma"])
+def test_import_refuses_members_whose_decompression_cannot_be_bounded(setup, tmp_path, method):
+    """zipfile decompresses bzip2 and LZMA reads without an output limit: a member of a few hundred bytes
+    can take gigabytes of memory, whatever size it declares."""
+    runtime, _agent, _spec, root = setup
+    archive = tmp_path / "packed.zip"
+    with zipfile.ZipFile(archive, "w") as handle:
+        handle.write(root / "bananawiki.db", "bananawiki.db", compress_type=method)
+        handle.writestr("uploads/a.png", b"a")
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.import_archive(make_spec("packed"), archive)
+    assert error.value.code == "archive_invalid"
+    assert not (Path(runtime._cfg().instances_dir) / "packed").exists()
 
 
 @pytest.mark.parametrize("failure", [errno.ENOSPC, errno.EDQUOT])

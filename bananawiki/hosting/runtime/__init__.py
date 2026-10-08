@@ -504,8 +504,16 @@ class Runtime(Protocol):
         """Write an encrypted full backup (consistent ``hosting.db`` snapshot,
         the portal secret key, every tenant directory) into *destination_dir*
         and return the ``.bwenc`` file. Must never write a plaintext copy
-        outside *destination_dir*. 1.4: ``backups.build_full_backup`` +
-        ``backup_crypto.encrypt_backup``."""
+        outside *destination_dir*. A wiki that cannot be copied is left out
+        (and named in the archive's ``backup_manifest.json``) instead of
+        failing the whole backup; the backup fails when the runtime itself
+        stops answering, or when no wiki at all could be saved. 1.4:
+        ``backups.build_full_backup`` + ``backup_crypto.encrypt_backup``."""
+
+    def platform_backup_status(self) -> dict[str, Any]:
+        """The latest platform backup, for the settings page: ``{"finished_at",
+        "complete_at" (the latest one that held every wiki, or None),
+        "skipped": [{"tenant", "code", "detail"}]}``; ``{}`` before the first."""
 
     def restore_platform(self, archives: Sequence[Path]) -> None:
         """Replace the platform with the uploaded backup parts (``.zip`` or
@@ -560,6 +568,8 @@ class UnavailableRuntime:
             return lambda spec: False
         if name in ("list_plugin_snapshots",):
             return lambda spec: []
+        if name == "platform_backup_status":
+            return lambda: {}
         if name == "sync_routes":
             return lambda specs: None
         if name == "upstream":

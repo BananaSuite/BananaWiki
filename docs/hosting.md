@@ -340,9 +340,56 @@ follow the wiki's own sign-up policy.
   cover the portal, every tenant and the static site.
 * **Google Drive** (platform settings): daily encrypted platform backups at
   a chosen time to a Drive folder, using a Google service-account key file,
-  kept for a configurable number of days.
+  kept for a configurable number of days. After an incomplete backup,
+  retention keeps the latest complete one (known by its name, whatever
+  Drive's clock says) and everything newer.
 * **Platform export** from the administrator pages, encrypted with the key in
   `HOSTING_BACKUP_KEY_PATH`.
+
+A wiki that cannot be saved in full no longer stops a platform backup: the
+others are saved, `backup_manifest.json` in the archive names the wikis it
+does not hold in full, and the platform settings show them with the time of
+the latest complete backup; a restore logs them too. Such a wiki is only
+reported, with whatever could be saved of it, when:
+
+* its database snapshot fails or times out (nothing of the wiki is saved);
+* its sandbox refuses the database copy (a damaged database, one replaced
+  with a link or a special file), or the wiki removes or replaces the copy:
+  its other files are still saved;
+* its `storage` folder or one of its asset folders is a link or a special
+  file, its folder cannot be read, or a file shrinks while it is copied;
+* it holds files a restore would refuse, which are left out: a name that is
+  not UTF-8, with a `:` or a backslash, or a path longer than 3 KiB, a file
+  where the wiki needs a folder, a folder named like its database;
+* it holds further hard links to a file already saved: each file goes in
+  once, under one of its names;
+* its files exceed its byte budget, and the rest are left out. The budget is
+  the wiki's storage limit (from `hosting.db`; the default limit for a wiki
+  without one of its own) plus a tenth of it and 64 MiB, on top of its
+  database copy, counting each file at its apparent size (a sparse file at
+  its full length) with its entry in the archive. Administrators', apex and
+  unlimited wikis have no budget.
+
+The whole backup fails, and a scheduled Drive backup is retried an hour
+later, only for faults of the platform: the runtime agent or Docker stops
+answering after a wiki failed, the runtime could make the database copy of
+no wiki at all, or `hosting.db`, the session key or the backup file itself
+cannot be written (a full disk included). A wiki that kept itself out does
+not count there: a platform whose only wiki does still gets a backup of
+`hosting.db`. A Drive backup counts only once it is uploaded.
+
+A wiki's own export (and the download during the grace period) leaves out
+the files no import would accept or would take for the wiki's own: names
+that are not UTF-8, with a `:` or a backslash, or longer than 3 KiB, a file
+clashing with another file or a folder, and files below `assets/`, or below
+`storage/` but outside its asset folders (`storage/translations/xx.json`,
+`storage/favicons/custom_*`), that an import would put where the wiki's own
+go. They are logged and listed in the export's `manifest.json`
+(`omitted_files`, the first 50, and `omitted_file_count`). Where a top-level
+asset folder and `storage/<folder>` hold the same file, the `storage/` copy
+is exported. Imports and platform restores accept only stored and deflated
+ZIP members (bzip2 and LZMA data cannot be decompressed with a bounded
+amount of memory).
 
 Tenants are part of every managed update: the updater stops them, and the
 maintenance service starts every wiki whose status is `running` again with
