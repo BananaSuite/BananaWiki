@@ -229,7 +229,9 @@ and `BW_RUNTIME_AGENT_SOCKET`. A wiki installation starts with:
 `BW_PREFERRED_URL_SCHEME` (`https` with a domain), `BW_ENV=production`, a
 random `BW_SETUP_TOKEN`, `BW_SOURCE_URL` (the web page of the update source),
 `BW_SYSTEMD_SERVICE` (informational), and every folder variable pointing into
-`<root>/data`.
+`<root>/data`. `BANANA_PACKAGE_MAX_FILES` (default 1000000, 1000–100000000),
+which you add, sets how many files a backup or update package may hold (see
+[operations](operations.md#managed-servers-portable-packages)).
 
 ## Hosting portal
 

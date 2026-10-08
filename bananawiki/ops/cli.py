@@ -246,6 +246,9 @@ def lifecycle(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | No
     ``start`` and ``restart`` wait for the wikis that served before. Only
     ``restart``, which may rewrite units and the Caddyfile, fails when one of
     them does not serve again; ``start`` reports it and leaves maintenance.
+    The other wikis running in the portal database (after ``stop``, all of
+    them) are not waited for: those that do not serve once the command is
+    complete are reported.
     """
     with maintenance_lock(manager.root):
         recovered = manager.recover()
@@ -253,8 +256,11 @@ def lifecycle(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | No
         settings = manager.settings()
         services = manager.services(settings)
         names = [service.name for service in services]
+        # Before anything is stopped; a restart must also be able to bring the running wikis back.
         if args.command == "restart":
-            manager.system.check_docker(settings)  # before anything is stopped
+            manager.preflight(settings)
+        elif args.command == "stop":
+            manager.system.check_docker(settings)
         if args.command in {"stop", "restart"}:
             manager.system.stop(names)
         # Listed once the maintenance service is stopped: until then it can stop or remove wikis. recover needs
@@ -286,6 +292,11 @@ def lifecycle(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | No
             manager.restore_proxy(undo)
             raise
         (manager.config_dir / PROXY_ROLLBACK).unlink(missing_ok=True)
+        if args.command in {"start", "restart"}:
+            # The wikis not waited for: checked once, now that the command is complete, and only reported.
+            unready = {*details.get("unready_tenants", ()), *manager.check_tenants(settings, None, waited=serving)}
+            if unready:
+                details["unready_tenants"] = sorted(unready)
         return manager.event(args.command, "complete", recovered=recovered, **details)
 
 

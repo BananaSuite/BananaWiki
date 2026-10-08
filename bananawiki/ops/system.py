@@ -28,9 +28,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from . import MANAGED_MARKER, units
+from . import MANAGED_MARKER, project_quota, units
 from .caddy_blocks import parse_version
-from .files import atomic_write, digest_file, read_environment, read_json
+from .files import Refused, atomic_write, digest_file, read_environment, read_json
 from .profile import TENANT_IMAGE, ReleaseFeatures, Service, hosting_storage_link, inside_tenant
 from .runtime_agent import ROUTES_FILE, ROUTES_WANTED
 
@@ -50,8 +50,12 @@ class Readiness(NamedTuple):
         return not self.platform and not self.tenants
 
 
-class DockerUnavailable(RuntimeError):
+class DockerUnavailable(Refused):
     """Docker did not answer when an operation began (:meth:`System.check_docker`): nothing was changed."""
+
+
+class TenantStorageUnsupported(Refused):
+    """The wikis running when an operation began could not start again (:meth:`System.check_tenant_storage`)."""
 
 
 def base_images(dockerfile: Path) -> list[str]:
@@ -522,15 +526,53 @@ class System:
         except (RuntimeError, OSError, subprocess.SubprocessError) as error:
             raise DockerUnavailable(f"Docker did not answer, so nothing was changed: {error}") from error
 
+    def check_tenant_storage(self, settings: dict[str, Any]) -> None:
+        """Fail with :class:`TenantStorageUnsupported` unless the running wikis could start again (hosting only).
+
+        For releases whose runtime agent starts a wiki only on storage that
+        enforces XFS project quotas. Checked, like :meth:`check_docker`,
+        before an operation stops anything: on other storage every wiki it
+        stops would stay down until the readiness checks give up. Without a
+        running wiki nothing would be kept down, and nothing is checked.
+        """
+        if settings["mode"] != "hosting":
+            return
+        try:
+            running = self.run(["docker", "ps", "--quiet", "--filter", TENANT_FILTER], timeout=60).stdout.split()
+        except (RuntimeError, OSError, subprocess.SubprocessError) as error:
+            raise DockerUnavailable(f"Docker did not answer, so nothing was changed: {error}") from error
+        if not running:
+            return
+        root = Path(settings["root"])
+        instances = Path(read_environment(root / "config/app.env").get("INSTANCES_DIR", root / "data/instances"))
+        try:
+            self.quota_storage(instances)
+        except (project_quota.QuotaError, OSError) as error:
+            raise TenantStorageUnsupported(
+                f"Could not confirm that the wiki storage {instances} enforces XFS project quotas, which this release "
+                f"needs to start a wiki ({error}), so nothing was changed: the running wikis would not start again. "
+                "Put the wiki storage on an XFS filesystem mounted with prjquota (see docs/operations.md), then "
+                "retry.") from error
+
+    def quota_storage(self, instances: Path) -> None:
+        """Raise unless *instances* is on XFS with project quotas enforced (:func:`.project_quota.check_storage`)."""
+        project_quota.check_storage(instances)
+
     def containers(self, settings: dict[str, Any]) -> list[dict[str, Any]]:
         if settings["mode"] != "hosting":
             return []
-        ids = self.run(["docker", "ps", "--all", "--quiet", "--filter", TENANT_FILTER]).stdout.split()
-        if not ids:
-            return []
+        # A wiki removed between ``ps`` and ``inspect`` (the maintenance service terminates wikis while it runs)
+        # fails the ``inspect``: list once more, so that only a Docker that keeps failing is an error.
+        for last in (False, True):
+            ids = self.run(["docker", "ps", "--all", "--quiet", "--filter", TENANT_FILTER]).stdout.split()
+            if not ids:
+                return []
+            inspected = self.run(["docker", "inspect", *ids], check=last)
+            if not inspected.returncode:
+                break
         base = (Path(settings["root"]) / "data/instances").resolve()
         output = []
-        for item in json.loads(self.run(["docker", "inspect", *ids]).stdout):
+        for item in json.loads(inspected.stdout):
             labels = item.get("Config", {}).get("Labels") or {}
             directory = Path(labels.get("org.bananawiki.data-dir", "/"))
             if not directory.is_absolute() or not directory.resolve().is_relative_to(base):

@@ -228,6 +228,25 @@ class _Kernel:
         self._quotactl(fd, 4, project, value)
 
 
+def check_storage(instances_dir: Path) -> None:
+    """Raise :class:`QuotaError` unless *instances_dir* is on XFS with project quota accounting and enforcement on.
+
+    What every tenant start needs before its own checks. The lifecycle
+    controller asks first, so that it never stops wikis that could not start again.
+    """
+    _require_root()
+    try:
+        fd = os.open(instances_dir, _OPEN | os.O_DIRECTORY)
+        try:
+            kernel = _Kernel()
+            kernel.filesystem(fd)
+            kernel.enforced(fd)
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        raise QuotaError(f"Tenant storage quotas could not be verified: {exc}") from exc
+
+
 def _mount_id(fd: int) -> int:
     with open(f"/proc/self/fdinfo/{fd}", encoding="ascii") as source:
         for line in source:

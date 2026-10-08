@@ -9,6 +9,7 @@ import sqlite3
 import sys
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -194,6 +195,34 @@ def test_gunicorn_settings(monkeypatch):
     assert conf.control_socket_disable is True
     namespace = runpy.run_path(str(compat("gunicorn.conf.py")))
     assert namespace["bind"] == "[::]:6000" and namespace["worker_class"] == "gthread"
+
+
+def test_the_gunicorn_master_upgrades_the_database_before_any_worker_starts(wiki_env, caplog):
+    """A worker that upgraded a large database was killed by its timeout, rolling the upgrade back (R-26)."""
+    from bananawiki.wiki import migrations
+
+    path = wiki_env / "instance" / "bananawiki.db"
+    path.parent.mkdir()
+    legacy = sqlite3.connect(path)  # as 1.4 left it: schema version 3
+    legacy.executescript(migrations._BASELINE_SQL.read_text(encoding="utf-8"))
+    legacy.execute(f"PRAGMA application_id={migrations.APPLICATION_ID}")
+    legacy.execute("PRAGMA user_version=3")
+    legacy.commit()
+    legacy.close()
+    import bananawiki.ops.gunicorn_conf as conf
+
+    conf = importlib.reload(conf)
+    conf.on_starting(SimpleNamespace(log=SimpleNamespace(info=lambda *_args: None)))
+    upgraded = sqlite3.connect(path)
+    assert upgraded.execute("PRAGMA user_version").fetchone()[0] == migrations.LATEST
+    upgraded.close()
+    assert len(list((wiki_env / "instance" / "backups").glob("pre-upgrade-v3-*.db"))) == 1
+    # The managed units and Compose run the root gunicorn.conf.py: Gunicorn takes the hook from it.
+    hook = runpy.run_path(str(compat("gunicorn.conf.py")))["on_starting"]
+    gunicorn_config = pytest.importorskip("gunicorn.config")
+    settings = gunicorn_config.Config()
+    settings.set("on_starting", hook)
+    assert settings.on_starting is hook
 
 
 def test_wsgi_shim_serves_health_during_maintenance(wiki_env, monkeypatch):

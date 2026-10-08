@@ -34,18 +34,21 @@ class ReleaseFeatures:
     so hosting mode gets the privileged ``<name>-agent`` helper and the portal
     loses Docker access. ``hardened``: the release was written for the 1.6
     sandbox (1.4 releases get the exact units 1.4 wrote, so a rollback runs
-    them the way they were tested).
+    them the way they were tested). ``project_quotas``: its runtime agent
+    starts a wiki only on storage that enforces XFS project quotas.
     """
 
     runtime_agent: bool = False
     hardened: bool = False
     hosting_entrypoint: bool = False
+    project_quotas: bool = False
 
     @classmethod
     def of(cls, release: Path) -> ReleaseFeatures:
-        ours = (release / "bananawiki" / "ops" / "runtime_agent.py").is_file()
-        return cls(runtime_agent=ours, hardened=ours,
-                   hosting_entrypoint=(release / "bananawiki" / "ops" / "hosting_entrypoint.py").is_file())
+        ops = release / "bananawiki" / "ops"
+        ours = (ops / "runtime_agent.py").is_file()
+        return cls(runtime_agent=ours, hardened=ours, hosting_entrypoint=(ops / "hosting_entrypoint.py").is_file(),
+                   project_quotas=ours and (ops / "project_quota.py").is_file())
 
 
 @dataclass(frozen=True)

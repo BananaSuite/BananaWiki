@@ -29,11 +29,17 @@ package is then written from the snapshot after the services are back up.
 
 A snapshot directory has the same layout as an extracted package
 (``data/``, ``site/``, ``config/``), so the same restore code handles both.
+What was captured, and how, is recorded in ``index.jsonl``: a header line,
+then one compact line per file (about 100 bytes), written and read as a
+stream, so its size never limits the installation. Earlier 1.6 controllers
+wrote one indented ``index.json``, read only up to 16 MiB (about 76,000
+files); a journal of theirs is still recovered.
 """
 
 from __future__ import annotations
 
 import errno
+import json
 import os
 import secrets
 import shutil
@@ -43,10 +49,23 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from .files import MAINTENANCE_MARKER, open_directory, open_regular, read_json, regular_files, write_json
+from .files import (
+    DEFAULT_MAX_FILES,
+    MAINTENANCE_MARKER,
+    Refused,
+    fsync_directory,
+    open_directory,
+    open_regular,
+    read_json,
+    regular_files,
+)
 
 CONFIG_FILES = ("installation.json", "source.json", "app.env", "repo.token", "repo.key", "repo.known_hosts",
                 "repo.allowed_signers", "updates.json")
+INDEX = "index.jsonl"
+LEGACY_INDEX = "index.json"
+_METHODS = {"sqlite", "copy", "link"}
+_LINE = 64 * 1024  # one index line: a path, its capture method and its signature
 _DATABASE_SUFFIXES = {".db", ".sqlite", ".sqlite3"}
 _SIDECARS = ("-wal", "-shm", "-journal")
 _MUTABLE_SUFFIXES = {".log", ".jsonl", ".lock", ".pid", ".tmp"}
@@ -165,6 +184,21 @@ def _copy(source: Path, destination: Path) -> str:
     return "copy"
 
 
+def sources(root: Path, allowed_link: Callable[[Path], bool] | None = None) -> dict[str, Path]:
+    """What a snapshot of the installation at *root* captures, by package entry name."""
+    output: dict[str, Path] = {}
+    for path, name in regular_files(root / "data", allowed_link=allowed_link):
+        if not is_sidecar(path):
+            output["data/" + name] = path
+    for path, name in regular_files(root / "site"):
+        output["site/" + name] = path
+    for name in CONFIG_FILES:
+        path = root / "config" / name
+        if path.is_file() and not path.is_symlink():
+            output["config/" + name] = path
+    return output
+
+
 def _signature(info: os.stat_result) -> list[int]:
     return [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns]
 
@@ -178,26 +212,29 @@ def _current(path: Path) -> os.stat_result | None:
 
 
 class Snapshot:
-    """``staging/snapshot-<id>/`` with ``index.json`` recording what was captured and how.
+    """``staging/snapshot-<id>/`` with ``index.jsonl`` recording what was captured and how.
 
     *allowed_link* marks the entries tenants control: links and special files
     there are skipped, and their files are copied, never hard-linked.
     """
 
-    def __init__(self, path: Path, root: Path, allowed_link: Callable[[Path], bool] | None = None):
+    def __init__(self, path: Path, root: Path, allowed_link: Callable[[Path], bool] | None = None, *,
+                 max_files: int = DEFAULT_MAX_FILES):
         self.path = Path(path)
         self.root = Path(root)
         self.allowed_link = allowed_link
+        self.max_files = max_files  # the package limit it was taken under, and its package written with
 
     @classmethod
-    def create(cls, root: Path, allowed_link: Callable[[Path], bool] | None = None) -> Snapshot:
+    def create(cls, root: Path, allowed_link: Callable[[Path], bool] | None = None, *,
+               max_files: int = DEFAULT_MAX_FILES) -> Snapshot:
         staging = Path(root) / "staging"
         staging.mkdir(mode=0o700, parents=True, exist_ok=True)
         path = staging / ("snapshot-" + secrets.token_hex(6))
         path.mkdir(mode=0o700)
-        snapshot = cls(path, root, allowed_link)
+        snapshot = cls(path, root, allowed_link, max_files=max_files)
         try:
-            snapshot.capture()
+            snapshot.capture(max_files)
         except BaseException:
             snapshot.remove()
             raise
@@ -209,25 +246,58 @@ class Snapshot:
         path = Path(path)
         if path.parent != Path(root) / "staging" or not path.name.startswith("snapshot-") or path.is_symlink():
             raise ValueError("The journal names an unexpected snapshot directory.")
-        if not (path / "index.json").is_file():
+        if not any((path / name).is_file() for name in (INDEX, LEGACY_INDEX)):
             raise ValueError("The snapshot recorded in the journal is incomplete or missing.")
         return cls(path, root, allowed_link)
+
+    # Index --------------------------------------------------------------
+
+    def index(self) -> dict[str, dict[str, Any]]:
+        """What was captured: ``{package entry name: {"method": ..., "signature": [...]}}``."""
+        path = self.path / INDEX
+        if not path.is_file() and (self.path / LEGACY_INDEX).is_file():
+            return read_json(self.path / LEGACY_INDEX)["files"]  # written by an earlier controller
+        index: dict[str, dict[str, Any]] = {}
+        with os.fdopen(open_regular(path), "rb") as source:
+            header = self._line(source)
+            if not isinstance(header, dict) or header.get("schema") != 2:
+                raise ValueError("The snapshot index is damaged.")
+            while (entry := self._line(source)) is not None:
+                if (not isinstance(entry, list) or len(entry) != 3 or not isinstance(entry[0], str)
+                        or entry[1] not in _METHODS or not isinstance(entry[2], list)):
+                    raise ValueError("The snapshot index is damaged.")
+                index[entry[0]] = {"method": entry[1], "signature": entry[2]}
+        return index
+
+    @staticmethod
+    def _line(source: BinaryIO) -> Any:
+        line = source.readline(_LINE + 1)
+        if not line:
+            return None
+        if len(line) > _LINE or not line.endswith(b"\n"):
+            raise ValueError("The snapshot index is damaged.")
+        return json.loads(line)
+
+    def _write_index(self, index: dict[str, dict[str, Any]], *, complete: bool) -> None:
+        """Stream ``index.jsonl`` into a private temporary file, then rename it into place durably."""
+        fd, temporary = tempfile.mkstemp(prefix=".index-", dir=self.path)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as target:
+                target.write(json.dumps({"schema": 2, "complete": complete}) + "\n")
+                for name, entry in index.items():
+                    target.write(json.dumps([name, entry["method"], entry["signature"]], separators=(",", ":"))
+                                 + "\n")
+                target.flush()
+                os.fsync(target.fileno())
+            os.replace(temporary, self.path / INDEX)
+            fsync_directory(self.path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
     # Capture ------------------------------------------------------------
 
     def _sources(self) -> dict[str, Path]:
-        output: dict[str, Path] = {}
-        data = self.root / "data"
-        for path, name in regular_files(data, allowed_link=self.allowed_link):
-            if not is_sidecar(path):
-                output["data/" + name] = path
-        for path, name in regular_files(self.root / "site"):
-            output["site/" + name] = path
-        for name in CONFIG_FILES:
-            path = self.root / "config" / name
-            if path.is_file() and not path.is_symlink():
-                output["config/" + name] = path
-        return output
+        return sources(self.root, self.allowed_link)
 
     def _untrusted(self, name: str) -> bool:
         return self.allowed_link is not None and self.allowed_link(self.root / name)
@@ -273,10 +343,17 @@ class Snapshot:
             elif self._untrusted(name) or _mutable(name, size):
                 needed += size
         if shutil.disk_usage(self.path).free < needed + 128 * 1024 * 1024:
-            raise ValueError("Not enough free space for a pre-update snapshot.")
+            # Checked while capturing, before anything stops.
+            raise Refused("Not enough free space for a pre-update snapshot, so nothing was changed. Free some "
+                          "space, then retry.")
 
-    def capture(self) -> None:
+    def capture(self, max_files: int = DEFAULT_MAX_FILES) -> None:
         sources = self._sources()
+        # Before anything stops: a package of more files (these and the release's source) could not be written.
+        if len(sources) + 1 > max_files:
+            raise Refused(f"The installation holds {len(sources):,} files, more than a package may hold "
+                          f"({max_files:,}), so nothing was changed. Raise BANANA_PACKAGE_MAX_FILES in "
+                          "config/app.env, or remove files, then retry.")
         self._check_space(sources)
         index = {}
         for name in sources:
@@ -285,12 +362,11 @@ class Snapshot:
                 index[name] = entry
         (self.path / "data").mkdir(mode=0o700, exist_ok=True)
         (self.path / "site").mkdir(mode=0o700, exist_ok=True)
-        write_json(self.path / "index.json", {"schema": 1, "files": index, "complete": False})
+        self._write_index(index, complete=False)
 
     def refresh(self) -> dict[str, int]:
         """Bring the snapshot up to date once nothing writes any more; return change counts."""
-        record = read_json(self.path / "index.json")
-        index: dict[str, Any] = record["files"]
+        index = self.index()
         sources = self._sources()
         counts = {"kept": 0, "updated": 0, "removed": 0}
         for name in sorted(set(index) - set(sources)):
@@ -312,19 +388,18 @@ class Snapshot:
                 continue
             index[name] = added
             counts["updated"] += 1
-        write_json(self.path / "index.json", {"schema": 1, "files": index, "complete": True})
+        self._write_index(index, complete=True)
         return counts
 
     # Use ----------------------------------------------------------------
 
     def inputs(self) -> list[tuple[Path, str]]:
         """Package entries (``data/…``, ``site/…``, ``config/…``) in a stable order."""
-        index = read_json(self.path / "index.json")["files"]
-        return [(self.path / name, name) for name in sorted(index)]
+        return [(self.path / name, name) for name in sorted(self.index())]
 
     def copy_tree(self, name: str, destination: Path) -> None:
         """Materialise ``data`` or ``site`` at *destination* (hard links where the snapshot linked)."""
-        index = read_json(self.path / "index.json")["files"]
+        index = self.index()
         destination.mkdir(mode=0o700, parents=True, exist_ok=True)
         prefix = name + "/"
         for entry_name, entry in index.items():

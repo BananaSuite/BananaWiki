@@ -21,6 +21,7 @@ application ids, marker files and lock files are unchanged.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import sqlite3
@@ -35,7 +36,10 @@ from filelock import FileLock, Timeout
 
 Migration = Callable[[sqlite3.Connection], None]
 
+log = logging.getLogger("bananawiki.database")
+
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_BOOT_LOCK_NOTICE = 60.0  # seconds between "still waiting" log lines
 _UNAVAILABLE_CODES = {
     sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED, sqlite3.SQLITE_CORRUPT,
     sqlite3.SQLITE_NOTADB, sqlite3.SQLITE_IOERR, sqlite3.SQLITE_FULL,
@@ -340,16 +344,24 @@ class Database:
 
     @contextmanager
     def boot_lock(self, what: str = "Database initialisation") -> Iterator[None]:
-        """Serialise first-boot work across worker processes."""
+        """Serialise first-boot work across processes, waiting for as long as another process holds it.
+
+        An upgrade can outlast any fixed timeout (a large 1.4 database on a
+        slow disk). Giving up made a Gunicorn worker fail to boot, which
+        stopped the server and killed the worker that was migrating: the
+        upgrade was rolled back at every restart.
+        """
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         lock_path = Path(str(self.path) + ".schema.lock")
         if lock_path.is_symlink():
             raise DatabaseUnavailable("The schema lock file cannot be a symbolic link.")
-        lock = FileLock(str(lock_path), timeout=120, mode=0o600)
-        try:
-            lock.acquire()
-        except Timeout as error:
-            raise DatabaseUnavailable(f"{what} is still running in another process.") from error
+        lock = FileLock(str(lock_path), mode=0o600)
+        while True:
+            try:
+                lock.acquire(timeout=_BOOT_LOCK_NOTICE)
+                break
+            except Timeout:
+                log.warning("%s is still running in another process; waiting for it to finish.", what)
         try:
             yield
         finally:

@@ -292,9 +292,7 @@ def create_app(config: Config | None = None, **overrides: Any) -> Flask:
     # Storage and schema ------------------------------------------------
     from . import takeover
 
-    takeover.relocate_legacy_folders(cfg)
-    database = open_database(cfg)
-    database.initialize(before=lambda conn: takeover.backup_before_upgrade(cfg, database, conn))
+    database = takeover.prepare_storage(cfg)
     app.extensions["bananawiki.database"] = database
 
     # Translations and features ----------------------------------------

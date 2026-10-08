@@ -29,7 +29,9 @@ there too.
   systemd units are current, the last operation and update, local packages
   and the encrypted-backup status. On hosting servers `tenant_image_built`
   is when the running tenant image was built, i.e. how old its distribution
-  packages are.
+  packages are. `package_files` is how many files a package would hold now
+  and `package_file_limit` the most it may hold; `warnings` appears when
+  backups and updates are near that limit or would fail.
 * **Admin → Dashboard** shows request, page-view and error counts;
   **Admin → Server** has the error log and a restart button.
 * `bananawiki db check` runs SQLite's integrity check and prints the schema
@@ -104,7 +106,7 @@ What happens:
 5. The services stop, the snapshot is refreshed (only what changed), the
    `current` link switches to the new release, units are rewritten, and the
    services start. The database is upgraded by the new release when it
-   starts.
+   starts (by the Gunicorn master, before its workers start).
 6. If the new release does not pass its readiness checks (`/health`; on
    hosting servers also the published wiki routes and every wiki that
    answered its own health check when the update began and is still marked
@@ -139,12 +141,28 @@ check never changes the outcome), are listed as
 wiki that was waited for does not serve is recorded in
 `config/last-readiness-failure.json`. Only an update or a restore is rolled
 back, and a `restart` fails, when a wiki that served before does not serve
-again. If Docker does not answer when a backup, an update, a restore or a
-`restart` begins, the command fails before anything is stopped (for an
-update, before the new release's tenant image is built); such an update is
-not recorded as a failed commit, so the next automatic run tries it again. A Docker that stops answering later, while readiness is checked,
+again. `start` and `restart` wait only for the wikis that served when they
+began (after a `stop`, none); the other wikis running in the portal
+database that do not serve once the command is complete are checked once,
+without waiting, and listed as `unready_tenants` too, as after
+`install --restore` on a new server. If Docker does not answer when a
+backup, an update (also one that only brings the units up to date), a
+restore, a `stop` or a `restart` begins, the command fails before anything
+is stopped (for an update, before the new release's tenant image is built);
+such an update is not recorded as a failed commit, so the next automatic run
+tries it again. A Docker that stops answering later, while readiness is checked,
 counts as the application not being ready: the command waits for it up to
-the readiness timeout.
+the readiness timeout. Releases whose runtime agent enforces XFS project
+quotas start a wiki only when the wiki storage (`INSTANCES_DIR`, by default
+`data/instances`) is on XFS mounted with project quotas enforced
+(`prjquota`). While a wiki is running, a backup, an update to such a
+release, a restore of one or a `restart` under one first checks that
+storage, as does an update that brings the units of such a release up to
+date (the maintenance service, started again, restarts every wiki whose
+storage quota is not verified): on any other the command fails before
+anything is stopped, instead of stopping wikis that would stay down until
+the readiness timeout (an update is then not recorded as a failed commit
+either).
 
 Options: `--allow-divergent`; `--retry-failed` retries a commit that failed
 before (automatic runs skip such commits).
@@ -190,8 +208,20 @@ ALLOWED_SIGNERS` deploys only commits SSH-signed by a listed key
 * Desktop: replace the application; the data folder stays.
 
 Before a release that changes the schema starts, it writes a copy of the
-database to `<instance>/backups/pre-upgrade-v<old>-<time>.db`. Upgrading
-from 1.4 has its own guide: [UPGRADING](../UPGRADING.md).
+database to `<instance>/backups/pre-upgrade-v<old>-<time>.db` (under a
+temporary name first, so a file with that name is always complete). Under
+Gunicorn the master process copies and upgrades the database before it
+starts any worker, so the worker timeout (`BW_WORKER_TIMEOUT`) does not
+limit an upgrade; other processes that open the database meanwhile (the
+read-aloud worker, `bananawiki` commands) wait for it, logging every
+minute. An upgrade that failed or was interrupted is tried again at the
+next start without a new copy as long as the database has not changed
+since the last one (a copy that an earlier release left half-written, with
+a `-journal` beside it, is never kept as that copy). The master imports
+BananaWiki's modules to do this, so the plugin manager's restart button
+(SIGHUP) loads plugins again but not an updated BananaWiki: restart the
+service for that. Upgrading from 1.4 has its own guide:
+[UPGRADING](../UPGRADING.md).
 
 ## Backups
 
@@ -215,6 +245,28 @@ one 1.4 used; packages move in both directions. The wiki is stopped only for
 the moment a consistent copy is taken. Every new package is read back and
 verified (checksums, database integrity) before the command reports it; a
 package that fails is deleted and the command fails.
+
+A package holds at most 1,000,000 files by default (`data/`, `site/`, the
+configuration and the source archive). `BANANA_PACKAGE_MAX_FILES=N` in
+`config/app.env` changes that (1000 to 100000000); it applies to backups,
+updates and restores on this server, and a server restoring the package
+needs a limit at least as high (`install --restore` on a new server uses
+the default). A backup or update of an installation with more files, with
+an invalid value, or without the free space for its snapshot is refused
+before anything is stopped (an update is then not recorded as a failed
+commit), and `status` warns from 80% of the limit (`package_files`,
+`package_file_limit`, `warnings`). While a backup or update runs, the
+controller needs about 1.5 GB of memory per million files. 1.4 and earlier
+1.6 releases restore packages of at most 100,000 files.
+
+Earlier 1.6 controllers fail every backup and update of an installation
+with more than about 76,000 files, after the services stopped (they start
+again). Such a server cannot update to this release with its installed
+controller: run that one update with this release's controller, from a
+checkout of the update source, for example
+`git clone --branch BRANCH SOURCE_URL /root/bananawiki-update` then
+`sudo /root/bananawiki-update/banana --root /opt/bananawiki update`. Later
+updates run the installed controller as usual.
 
 Manual packages are never pruned automatically.
 

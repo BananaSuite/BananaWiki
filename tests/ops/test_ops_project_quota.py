@@ -574,6 +574,19 @@ def test_real_backend_refuses_unsupported_host_filesystem_before_creating_regist
     assert not model.manager.state_dir.exists()
 
 
+def test_the_storage_check_before_wikis_stop_needs_enforced_project_quotas(model, monkeypatch):
+    """The lifecycle controller asks before an operation stops wikis the agent would refuse to start again."""
+    with pytest.raises(quota.QuotaError, match="XFS filesystem"):
+        quota.check_storage(model.instances)  # the real kernel, and this test's storage is not XFS
+    monkeypatch.setattr(quota, "_Kernel", lambda: model.kernel)
+    quota.check_storage(model.instances)
+    with pytest.raises(quota.QuotaError, match="could not be verified"):
+        quota.check_storage(model.instances / "missing")
+    model.kernel.enforcement = False
+    with pytest.raises(quota.QuotaError, match="enforcement"):
+        quota.check_storage(model.instances)
+
+
 def test_state_inside_tenant_tree_is_not_a_trusted_registry(model):
     with pytest.raises(quota.QuotaError, match="outside tenant"):
         quota.ProjectQuota(model.instances, model.tenant / "registry", max_bytes=1024, max_inodes=10)

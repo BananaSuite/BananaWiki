@@ -22,7 +22,7 @@ from bananawiki.ops import files as files_module
 from bananawiki.ops import manager as manager_module
 from bananawiki.ops import profile
 from bananawiki.ops import snapshot as snapshot_module
-from bananawiki.ops.files import read_json, read_package, write_package
+from bananawiki.ops.files import read_package, write_package
 from bananawiki.ops.manager import Manager
 from bananawiki.ops.snapshot import Snapshot
 
@@ -109,7 +109,7 @@ def test_tenant_files_are_copied_into_the_snapshot_never_linked(tmp_path):
     (root / "data/uploads").mkdir()
     (root / "data/uploads/platform.bin").write_bytes(b"p" * 200_000)
     snapshot = tenant_snapshot(root)
-    index = read_json(snapshot.path / "index.json")["files"]
+    index = snapshot.index()
     assert index[UPLOAD]["method"] == "copy"
     assert (snapshot.path / UPLOAD).stat().st_ino != (tenant / "storage/uploads/big.bin").stat().st_ino
     # Files outside tenant directories are still hard-linked (they are not rewritten in place).
@@ -169,8 +169,8 @@ def corrupt_packages(monkeypatch) -> None:
     """What the race produced: an archived file that no longer matches the manifest."""
     real = manager_module.write_package
 
-    def write_then_corrupt(destination, manifest, inputs):
-        package = real(destination, manifest, inputs)
+    def write_then_corrupt(destination, manifest, inputs, **options):
+        package = real(destination, manifest, inputs, **options)
         members = []
         with tarfile.open(package) as archive:
             for member in archive.getmembers():
@@ -227,7 +227,7 @@ def test_a_directory_swapped_for_a_link_after_the_walk_is_not_followed(tmp_path,
 
     swap_after_walk(monkeypatch, swap)
     snapshot = tenant_snapshot(root)
-    index = read_json(snapshot.path / "index.json")["files"]
+    index = snapshot.index()
     assert UPLOAD not in index
     assert not (snapshot.path / UPLOAD).exists()
     snapshot.remove()
@@ -266,7 +266,7 @@ def test_fifos_and_links_swapped_in_after_the_walk_neither_block_nor_leak(tmp_pa
     worker.join(30)
     assert done, "capturing the tenant tree blocked"
     snapshot = done[0]
-    index = read_json(snapshot.path / "index.json")["files"]
+    index = snapshot.index()
     assert "data/instances/acme/other.db" not in index
     assert "data/instances/acme/notes.txt" not in index
     assert index["data/instances/acme/bananawiki.db"]["method"] == "sqlite"
@@ -300,7 +300,7 @@ def test_a_database_swapped_for_a_link_after_the_walk_is_not_captured(tmp_path, 
 
     swap_after_walk(monkeypatch, swap)
     snapshot = tenant_snapshot(root)
-    assert "data/instances/acme/bananawiki.db" not in read_json(snapshot.path / "index.json")["files"]
+    assert "data/instances/acme/bananawiki.db" not in snapshot.index()
     snapshot.remove()
 
 
