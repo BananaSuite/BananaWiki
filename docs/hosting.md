@@ -76,7 +76,8 @@ The contract between the portal and the agent is
   upload limits and the GPU settings, public builder pages off, third-party
   plugins off by default. The operator can set `HOSTING_ALLOW_TENANT_PLUGINS=1`
   to allow them in container isolation; never those in
-  `HOSTING_TENANT_PLUGIN_DENYLIST`.
+  `HOSTING_TENANT_PLUGIN_DENYLIST`. Subdomain mode only: the portal refuses
+  to start with it in port or onion mode ([addresses](#addresses)).
 
 When the operator enables third-party plugins, a wiki's administrators can
 install Python code inside their container. Treat everything the container holds as readable by
@@ -196,6 +197,19 @@ those deployment checks.
   from `INSTANCE_PORT_START` to `INSTANCE_PORT_END`. Needs
   `HOSTING_TENANT_NETWORK=outbound`.
 * **Onion mode**: for Tor hidden services; also needs outbound networking.
+
+In port and onion mode the portal and every wiki share one host name, and
+browsers ignore the port when they send or store cookies. Cookies are
+therefore **not isolated**: every wiki receives the portal's session cookie
+and the other wikis' session cookies, and any wiki can set cookies that the
+portal and the other wikis accept. HTTPS does not change this: the
+`__Host-` prefix binds a cookie to the host name, which the wikis share, so a
+wiki can set the portal's `__Host-` cookie too. Each container is published
+on its own port and the portal is not in the way, so BananaWiki cannot strip
+these cookies: a wiki's code must be trusted as much as the portal's, and
+the portal refuses to start when `HOSTING_ALLOW_TENANT_PLUGINS=1` is set in
+these modes. Use subdomain mode when the wikis' administrators are not
+trusted.
 
 Names that would collide with platform records (`www`, `mail`, `admin`,
 `api`, the portal's own label …) are reserved.

@@ -67,6 +67,14 @@ Already on 1.6.0? These changes of the latest build need attention (details in
   portal and the maintenance service refuse to start and the runtime agent
   refuses to launch any wiki, so an update is rolled back. Do not update an
   arm64 hosting server.
+* Hosting in port or onion mode (managed servers without a domain, or
+  `BASE_DOMAIN` empty, an IP address or `localhost`) refuses
+  `HOSTING_ALLOW_TENANT_PLUGINS=1`, because the portal and the wikis share
+  cookies there: the portal, the maintenance service and `hosting-admin`
+  refuse to start, so an update is rolled back and records the commit as
+  failed. Remove the setting from `config/app.env` (or set it to `0`, or
+  configure a domain for subdomain mode) **before updating**; after a
+  rolled-back update, do the same and run `update --retry-failed`.
 * Hosting: a new wiki stays reserved as "Creating" until its provisioning
   finishes (hosting database version 4; existing wikis are marked ready). An
   interrupted or failed creation is never started or recovered: terminate it
@@ -83,8 +91,10 @@ Hosted third-party Python plugins now require `HOSTING_ALLOW_TENANT_PLUGINS=1`
 in the operator's hosting environment. The default is disabled; existing
 plugin files and settings are kept, and built-in features are unaffected.
 Operators who trust their tenants' custom plugins must explicitly enable
-this setting and restart the portal and tenant containers. Quarantined wikis
-always keep external plugins disabled. Application storage limits still
+this setting and restart the portal and tenant containers. The opt-in
+applies only in subdomain mode: port and onion mode refuse it (see
+[addresses](docs/hosting.md#addresses)). Quarantined wikis always keep
+external plugins disabled. Application storage limits still
 require filesystem quotas for a hard limit against tenant code.
 
 Container builds now use Debian 13 and apply available distribution updates.

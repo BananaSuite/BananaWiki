@@ -22,7 +22,9 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   hosted third-party plugins are disabled unless the operator sets
   `HOSTING_ALLOW_TENANT_PLUGINS=1`. Enabling plugins allows arbitrary Python
   inside the tenant container and requires tested host resource controls;
-  see [hosting](hosting.md#isolation).
+  see [hosting](hosting.md#isolation). Port and onion mode do not isolate
+  cookies between the portal and the wikis; use subdomain mode when wiki
+  administrators are not trusted ([addresses](hosting.md#addresses)).
 
 ## Accounts and sessions
 
