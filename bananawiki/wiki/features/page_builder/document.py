@@ -690,3 +690,48 @@ def is_current(page: dict[str, Any], document: dict[str, Any]) -> bool:
     """
     content = page.get("content") or ""
     return content == to_markdown(document) or content.startswith(LEGACY_MARKER)
+
+
+# ── Rewriting ─────────────────────────────────────────────────────────────────
+
+
+def rewrite(page: dict[str, Any], change: Callable[[str], str], *,
+            renamed: tuple[str, str] | None = None) -> dict[str, str] | None:
+    """``content`` and ``builder_json`` of *page* with *change* applied to every text of its document.
+
+    ``pages.service`` uses it when links to a renamed page or mentions of a
+    merged account change: the page gets a matching Markdown twin, so it keeps
+    rendering from its document. *renamed* (old and new slug) also moves the
+    page lists that select that page. None when the page body does not come
+    from a document (its Markdown is then all there is to change). Raises
+    :class:`DocumentError` when a changed text no longer fits.
+    """
+    raw = page.get("builder_json") or ""
+    if not raw:
+        return None
+    try:
+        loaded = load(raw)
+    except DocumentError:
+        return None
+    if not is_current(page, loaded):
+        return None
+    changed = validate(_rewritten(loaded, change, renamed), complete=False)
+    content = page.get("content") or ""
+    # 1.4 pages keep their compiled HTML: it is how they are recognised.
+    return {"content": change(content) if content.startswith(LEGACY_MARKER) else to_markdown(changed),
+            "builder_json": raw if changed == loaded else dump(changed)}
+
+
+def _rewritten(value: Any, change: Callable[[str], str], renamed: tuple[str, str] | None) -> Any:
+    # Every string: texts, links and captions alike (fixed choices never hold a link or a mention).
+    if isinstance(value, str):
+        return change(value)
+    if isinstance(value, list):
+        return [_rewritten(item, change, renamed) for item in value]
+    if not isinstance(value, dict):
+        return value
+    rewritten = {key: _rewritten(item, change, renamed) for key, item in value.items()}
+    if renamed and value.get("type") == "pages":
+        old, new = renamed
+        rewritten["slugs"] = [new if slug == old else slug for slug in value["slugs"]]
+    return rewritten

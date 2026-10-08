@@ -350,3 +350,86 @@ def test_settings_page(builder_on, admin_client, db):
 def test_settings_page_admin_only(builder_on, client, make_user, login):
     login(client, make_user("editor5", role="editor"))
     assert client.get("/admin/page-builder").status_code == 403
+
+
+# ── Links to a renamed page, mentions of a merged account ─────────────────────
+
+LINKING = {"version": 2, "blocks": [
+    {"type": "hero", "title": "Start here", "button_label": "Read the guide", "button_url": "/page/guide"},
+    {"type": "text", "format": "markdown", "text": "See [the guide](/page/guide) or [older](/page/guide-archive)."},
+    {"type": "cards", "items": [{"title": "Read on", "text": "", "url": "/page/guide"}]},
+    {"type": "pages", "source": "selected", "slugs": ["guide", "guide-archive"]},
+]}
+
+
+@pytest.mark.parametrize("builder_off_meanwhile", [False, True])
+def test_renaming_a_page_keeps_linking_builder_pages_current(builder_on, admin_client, app, db, page,
+                                                            builder_off_meanwhile):
+    from bananawiki.wiki.features.pages import service
+
+    with app.test_request_context(), connection_scope():
+        service.create("Guide", "The guide", author_id=None)
+        service.create("Guide archive", "Older", author_id=None)
+    assert publish(admin_client, page, document=LINKING).status_code == 200
+    published = fresh(db, page)
+    entries = db.scalar("SELECT COUNT(*) FROM page_history WHERE page_id = ?", (page["id"],))
+    if builder_off_meanwhile:
+        db.execute("UPDATE site_settings SET page_builder_enabled = 0")
+    response = admin_client.post("/page/guide/rename", data={"new_slug": "guide-v2"})
+    assert response.headers["Location"].endswith("/page/guide-v2")
+    db.execute("UPDATE site_settings SET page_builder_enabled = 1")
+
+    row = fresh(db, page)
+    blocks = json.loads(row["builder_json"])["blocks"]
+    assert blocks[0]["button_url"] == "/page/guide-v2" and blocks[2]["items"][0]["url"] == "/page/guide-v2"
+    assert blocks[1]["text"] == "See [the guide](/page/guide-v2) or [older](/page/guide-archive)."
+    assert blocks[3]["slugs"] == ["guide-v2", "guide-archive"]
+    # Document and Markdown twin change together, in one revision.
+    assert row["revision"] == published["revision"] + 1
+    assert db.scalar("SELECT COUNT(*) FROM page_history WHERE page_id = ?", (page["id"],)) == entries + 1
+    shown = admin_client.get(f"/page/{page['slug']}").data
+    assert b"builder-section--hero" in shown and b'<a href="/page/guide-v2">Guide</a>' in shown
+
+
+def test_renaming_a_page_updates_1_4_builder_pages(builder_on, admin_client, app, db, page):
+    from bananawiki.wiki import registry
+    from bananawiki.wiki.features.pages import service
+
+    with app.test_request_context(), connection_scope():
+        service.create("A", "", author_id=None)
+    legacy_json = json.dumps({"version": 1, "blocks": [{"type": "button", "label": "Go", "url": "/page/a"}]})
+    compiled = '<section class="builder-page">\n\n<a class="builder-button" href="/page/a">Go</a>'
+    db.execute("UPDATE pages SET builder_json = ?, content = ? WHERE id = ?", (legacy_json, compiled, page["id"]))
+    admin_client.post("/page/a/rename", data={"new_slug": "a-new"})
+    row = fresh(db, page)
+    assert row["content"] == compiled.replace("/page/a", "/page/a-new")
+    with app.test_request_context(), connection_scope():
+        html = str(registry.intercept("page.render", page=dict(row)))
+    assert 'href="/page/a-new"' in html and 'href="/page/a"' not in html
+
+def test_a_builder_page_that_cannot_take_the_new_link_stays_whole(builder_on, admin_client, app, db, page):
+    from bananawiki.wiki.features.pages import service
+
+    with app.test_request_context(), connection_scope():
+        service.create("A", "", author_id=None)
+    full_heading = "x" * (300 - len(" /page/a")) + " /page/a"
+    document = {"version": 2, "blocks": [{"type": "hero", "title": "Hero"},
+                                         {"type": "heading", "level": 2, "text": full_heading}]}
+    assert publish(admin_client, page, document=document).status_code == 200
+    published = fresh(db, page)
+    response = admin_client.post("/page/a/rename", data={"new_slug": "a-longer-address"})
+    assert response.headers["Location"].endswith("/page/a-longer-address")
+    assert fresh(db, page) == published
+    assert b"builder-section--hero" in admin_client.get(f"/page/{page['slug']}").data
+
+
+def test_merged_mentions_keep_builder_pages_current(builder_on, admin_client, app, db, page):
+    from bananawiki.wiki.features.pages import service
+
+    document = {"version": 2, "blocks": [{"type": "hero", "title": "Team"},
+                                         {"type": "text", "format": "markdown", "text": "Ask @src, not @srcbot."}]}
+    assert publish(admin_client, page, document=document).status_code == 200
+    with app.test_request_context(), connection_scope():
+        assert service.rewrite_mentions("src", "@target") == 1
+    assert json.loads(fresh(db, page)["builder_json"])["blocks"][1]["text"] == "Ask @target, not @srcbot."
+    assert b"builder-section--hero" in admin_client.get(f"/page/{page['slug']}").data

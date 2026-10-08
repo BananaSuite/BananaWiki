@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -39,6 +40,7 @@ from ...registry import emit
 MAX_TITLE = 200
 MAX_CONTENT = 1_000_000
 MAX_EDIT_MESSAGE = 500
+REWRITE_ATTEMPTS = 3  # reads of a page whose links or mentions change while others save it
 PAGE_COLUMNS = (
     "id, title, slug, category_id, is_home, sort_order, is_deindexed, pending_deletion, "
     "pending_deletion_by, pending_deletion_at, protected_by, protected_at, difficulty_tag, "
@@ -442,7 +444,9 @@ def move(page: dict[str, Any], category_id: int | None, *, actor_id: str | None)
 def change_slug(page: dict[str, Any], new_slug: str, *, actor_id: str | None = None) -> dict[str, Any]:
     """Give *page* a new address and rewrite ``/page/<old>`` links in other pages and drafts.
 
-    Each rewritten page gets a history entry attributed to *actor_id*.
+    Each rewritten page gets a history entry attributed to *actor_id*. A page
+    that cannot take the new links keeps the old ones (it is logged); the
+    rename stands and ``page.renamed`` is emitted all the same.
     """
     slug = slugify(new_slug)
     if slug in RESERVED_SLUGS:
@@ -455,8 +459,10 @@ def change_slug(page: dict[str, Any], new_slug: str, *, actor_id: str | None = N
         db.execute("UPDATE pages SET slug = ? WHERE id = ?", (slug, page["id"]))
     changed = get(page["id"])
     assert changed is not None
-    _rewrite_links(page["slug"], slug, exclude_page_id=page["id"], actor_id=actor_id)
-    emit("page.renamed", page=changed, old_slug=page["slug"])
+    try:
+        _rewrite_links(page["slug"], slug, exclude_page_id=page["id"], actor_id=actor_id)
+    finally:
+        emit("page.renamed", page=changed, old_slug=page["slug"])
     return changed
 
 
@@ -468,19 +474,70 @@ def _rewrite_links(old_slug: str, new_slug: str, *, exclude_page_id: int, actor_
     old_link, new_link = f"/page/{old_slug}", f"/page/{new_slug}"
     # "/page/notes" must not match "/page/notes-archive".
     pattern = re.compile(re.escape(old_link) + r"(?![\w-])")
+
+    def change(text: str) -> str:
+        return pattern.sub(new_link, text)
+
     like = _like_pattern(old_link)
+    # A builder page's Markdown twin shows every link of its document, so the content finds those too.
     for row in db.all("SELECT id FROM pages WHERE id != ? AND content LIKE ? ESCAPE '\\'", (exclude_page_id, like)):
-        other = get(row["id"])
-        if other is None:
-            continue
-        rewritten = pattern.sub(new_link, other["content"])
-        if rewritten != other["content"]:
-            update(other, author_id=actor_id, content=rewritten,
-                   edit_message=f"Updated links to /page/{new_slug}")
+        try:
+            _rewrite_page(row["id"], change, author_id=actor_id, edit_message=f"Updated links to /page/{new_slug}",
+                          renamed=(old_slug, new_slug))
+        except PageError as error:
+            current_app.logger.warning("Links to /page/%s left in page %s: %s", old_slug, row["id"], error)
     for draft in db.all("SELECT id, content FROM drafts WHERE content LIKE ? ESCAPE '\\'", (like,)):
-        rewritten = pattern.sub(new_link, draft["content"])
+        rewritten = change(draft["content"])
         if rewritten != draft["content"]:
             db.execute("UPDATE drafts SET content = ? WHERE id = ?", (rewritten, draft["id"]))
+
+
+def _rewrite_page(page_id: int, change: Callable[[str], str], *, author_id: str | None, edit_message: str,
+                  renamed: tuple[str, str] | None = None) -> bool:
+    """Save page *page_id* with *change* applied to its text; whether it changed.
+
+    A builder page whose body comes from its document gets the change in the
+    document and a matching Markdown twin, whether or not the builder is
+    switched on, so it keeps rendering from it. A save by someone else in
+    between means reading the page again; a page that cannot take the change
+    raises :class:`PageError` and stays as it is.
+    """
+    for attempt in range(1, REWRITE_ATTEMPTS + 1):
+        page = get(page_id)
+        if page is None:
+            return False
+        values = _changed_text(page, change, renamed)
+        if values is None:
+            return False
+        try:
+            update(page, author_id=author_id, edit_message=edit_message, expected_revision=page["revision"],
+                   **values)
+        except EditConflict:
+            if attempt == REWRITE_ATTEMPTS:
+                raise
+            continue
+        return True
+    return False
+
+
+def _changed_text(page: dict[str, Any], change: Callable[[str], str],
+                  renamed: tuple[str, str] | None) -> dict[str, str] | None:
+    """The ``content`` (and ``builder_json``) of *page* after *change*, or None when nothing changes."""
+    values: dict[str, str] | None = None
+    if page.get("builder_json"):
+        # The document is stored with the page: kept in step here, not by a handler of the
+        # feature, which would not run while the builder is switched off.
+        from ..page_builder import document
+
+        try:
+            values = document.rewrite(page, change, renamed=renamed)
+        except document.DocumentError as error:
+            raise PageError(error.key) from None
+    if values is None:
+        values = {"content": change(page["content"])}
+    if all(value == (page.get(key) or "") for key, value in values.items()):
+        return None
+    return values
 
 
 def set_home(page: dict[str, Any]) -> None:
@@ -570,29 +627,25 @@ def rewrite_mentions(old_username: str, replacement: str) -> int:
     """Replace ``@old_username`` in pages and drafts, recording a history entry per page.
 
     Used by account merges, an administrator's decision; renaming or deleting an
-    account leaves pages alone. A page that cannot take the change (edited or
-    deleted meanwhile, or over the size limit with a longer name) keeps its text
+    account leaves pages alone. A page edited meanwhile is read again; one that
+    cannot take the change (over a size limit with a longer name) keeps its text
     instead of stopping the merge half-way.
     """
     pattern = _mention_pattern(old_username)
+
+    def change(text: str) -> str:
+        return pattern.sub(replacement, text)
+
     like = "%@" + old_username.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
     changed = 0
     for row in db.all("SELECT id FROM pages WHERE content LIKE ? ESCAPE '\\'", (like,)):
-        page = get(row["id"])
-        if page is None:
-            continue
-        new_content = pattern.sub(replacement, page["content"])
-        if new_content == page["content"]:
-            continue
         try:
-            update(page, author_id=None, content=new_content, expected_revision=page["revision"],
-                   edit_message=f"Updated mention of @{old_username}")
+            if _rewrite_page(row["id"], change, author_id=None, edit_message=f"Updated mention of @{old_username}"):
+                changed += 1
         except PageError as error:
-            current_app.logger.warning("Mention of @%s left in page %s: %s", old_username, page["id"], error)
-            continue
-        changed += 1
+            current_app.logger.warning("Mention of @%s left in page %s: %s", old_username, row["id"], error)
     for draft in db.all("SELECT id, content FROM drafts WHERE content LIKE ? ESCAPE '\\'", (like,)):
-        new_content = pattern.sub(replacement, draft["content"])
+        new_content = change(draft["content"])
         if new_content != draft["content"]:
             db.execute("UPDATE drafts SET content = ? WHERE id = ?", (new_content, draft["id"]))
     return changed
