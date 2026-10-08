@@ -5,7 +5,7 @@ from . import api  # noqa: F401 - registers the JSON routes on the blueprint
 from .embed import page_scripts
 from .events import prune
 from .extras import sweep_orphan_files
-from .service import forget_user
+from .service import forget_user, hand_over
 from .views import bp, nav_visible
 
 FEATURE = Feature(
@@ -22,5 +22,6 @@ FEATURE = Feature(
         Job("kanban.sweep_files", 86400, sweep_orphan_files, initial_delay=600),
     ],
     events={"user.deleted": [forget_user]},
+    interceptors={"user.delete": hand_over},
     slots={"page.scripts": page_scripts},
 )

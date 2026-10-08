@@ -316,12 +316,36 @@ type: `Fix login @alice +backend !high color:red due:tomorrow`.
   limits, checklists and archived tickets); each version lists what changed
   since the previous one. Restoring a version never deletes tickets, comments
   or attachments (tickets created later stay on the board) and brings back
-  the archived state of the tickets it knew. The newest 200 entries are kept.
+  the archived state of the tickets it knew. The newest 200 entries are kept,
+  within 64 MB per board (a large board keeps fewer versions, always the
+  latest one). Moves of a ticket, reorderings and checklist changes of a
+  ticket by the same person within two minutes share one entry. Each ticket
+  keeps its newest 100 description changes, within 1 MB.
 * **Sharing**: private, shared or public boards; a role or a person gets view
   or write access. Board settings, sharing and deletion belong to the creator
   and administrators.
+* **Deleted accounts**: deleting an account (by its holder, by an
+  administrator, in a merge, or from the hosting portal) keeps what it added.
+  Its boards pass to the administrator who deleted it (otherwise to the
+  longest-standing owner or administrator, active ones first), its tickets
+  and comments to the owner of the board they are on (each comment headed by
+  a note, in the site's language, naming the deleted author), and it leaves
+  assignee lists and shares.
+  Each board that changed records the hand-over in its activity (and in its
+  history when its state changed), except when the hosting portal removes the
+  user. This also happens while Kanban is switched off. With no other owner or
+  administrator left, the account's own boards are deleted with it.
 * Export and import as JSON (or ZIP with attachments), the 1.4 format plus
-  column limits, checklists and archived state.
+  column limits, checklists and archived state. A ZIP holds at most 4,999
+  attachments and 1 GB; a board with more can still be exported as JSON
+  without its attachments (**More → Export without attachments**, also
+  offered for any board). An import unpacks only the files its
+  tickets refer to, streamed into storage, and skips those that no longer fit
+  in the storage quota; its `board.json` is held to the 20 MB of a JSON
+  import. An archive is refused when its file list is larger than 5,000
+  files need, when `board.json` or a file it refers to is neither stored nor
+  deflated, is encrypted or cannot be read, or when such a file over 1 MB is
+  packed more than 200 times smaller.
 * **Events** for other features and webhooks: `kanban.board.created|updated|deleted`,
   `kanban.ticket.created|updated|moved|deleted` (bulk changes: one per ticket)
   and `kanban.comment.created`, emitted after the change is saved.

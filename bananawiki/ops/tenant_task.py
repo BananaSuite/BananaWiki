@@ -306,6 +306,12 @@ def set_password(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
 
 
 def remove_user(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
+    """Delete the account, handing over its kanban boards and work as the wiki does.
+
+    Without the wiki application, the boards get no activity or history entry for it.
+    """
+    from bananawiki.wiki.features.kanban.service import release
+
     username = _username(request)
     with _session(cfg) as db, db.transaction():
         user = db.one("SELECT id, role FROM users WHERE username = ? COLLATE NOCASE", (username,))
@@ -313,6 +319,7 @@ def remove_user(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
             raise TaskError("user_not_found", username)
         if user["role"] == "owner":
             raise TaskError("protected_user", username)
+        release(db, user["id"])
         db.execute("DELETE FROM users WHERE id = ?", (user["id"],))
     return {}
 

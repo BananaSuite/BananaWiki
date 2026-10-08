@@ -251,6 +251,29 @@ def intercept(point: str, **context: Any) -> Any:
     return None
 
 
+def prepare(point: str, **context: Any) -> None:
+    """Run the interceptors of *point* of every built-in feature, switched off or not, and
+    of enabled external plugins; answers are ignored.
+
+    For points where features look after their stored data before a core
+    action changes it (``user.delete``): switching a built-in feature off
+    keeps its data, so it must stay intact. A switched-off plugin is left
+    out, as after a restart, when it is not loaded at all. Errors are logged
+    with the feature's id, propagate and stop the action.
+    """
+    from .plugins_external import runtime
+
+    plugins = set(runtime().loaded_ids())
+    for feature_id, handler in registry()._interceptors.get(point, []):
+        if feature_id in plugins and not is_enabled(feature_id):
+            continue
+        try:
+            handler(**context)
+        except Exception:
+            log.exception("Interceptor for %s in feature %s failed", point, feature_id)
+            raise
+
+
 def render_slot(slot: str, **context: Any) -> str:
     """HTML contributed by enabled features to a named template slot."""
     from markupsafe import Markup

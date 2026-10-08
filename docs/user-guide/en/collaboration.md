@@ -60,7 +60,9 @@ something, write it down on a page.
   checklists and archived tickets, and what changed in each; restoring one
   never deletes tickets, comments or files.
 * The board's creator can share it with people or roles (view or write),
-  make it public, export or delete it.
+  make it public, export or delete it. **More → Export without attachments**
+  exports just the board, for example when its files are too many or too
+  large for one export.
 * Put a board into a page with `[[kanban board="<number>"]]`.
 
 ## Canvases

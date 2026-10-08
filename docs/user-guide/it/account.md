@@ -61,7 +61,10 @@ account confermano con la propria password, poi un amministratore approva.
 ## Eliminare l'account
 
 **Elimina account** rimuove definitivamente il tuo account. Le pagine che hai
-scritto restano; la loro cronologia non riporta più il tuo nome.
+scritto restano; la loro cronologia non riporta più il tuo nome. Le bacheche
+Kanban che hai creato passano a un amministratore, mentre le tue schede e i
+tuoi commenti restano sulle bacheche, a nome del proprietario della bacheca;
+ogni commento si apre con una nota che ti indica come autore.
 
 ## Se il tuo account è bloccato
 

@@ -17,7 +17,7 @@ from flask import current_app
 from ..core import passwords
 from ..core.timeutil import now_sql
 from .db import db
-from .registry import emit
+from .registry import emit, prepare
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_-]{3,50}$")
 RESERVED_USERNAMES = frozenset({"admin", "system", "deleted", "anonymous", "api", "root", "bananawiki"})
@@ -194,6 +194,8 @@ def delete(user: dict[str, Any], *, deleted_by: str | None = None, protect_last_
            emit_event: bool = True) -> None:
     """Delete an account and everything it owns (authorship becomes anonymous).
 
+    Just before the row goes, the ``user.delete`` interceptors (:func:`registry.prepare`)
+    hand over what others still need, such as kanban tickets on other people's boards.
     Without *emit_event*, a caller deleting inside its own transaction announces
     ``user.deleted`` once that has committed.
     """
@@ -211,6 +213,7 @@ def delete(user: dict[str, Any], *, deleted_by: str | None = None, protect_last_
             active = db.scalar("SELECT COUNT(*) FROM users WHERE role IN ('admin', 'owner') AND suspended = 0")
             if active <= 1:
                 raise AccountError("users.error.last_admin")
+        prepare("user.delete", user=current, deleted_by=deleted_by)
         db.execute("DELETE FROM users WHERE id = ?", (user["id"],))
     if emit_event:
         emit("user.deleted", user=current, deleted_by=deleted_by)

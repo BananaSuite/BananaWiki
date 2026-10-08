@@ -132,10 +132,13 @@ def _filter() -> filters.TicketFilter:
 
 
 def _ids(data: dict[str, Any]) -> list[int]:
+    """Distinct ticket ids of a bulk request; more than ``BULK_LIMIT`` are refused before reading them."""
     ids = data.get("ids")
     if not isinstance(ids, list) or not ids:
         raise invalid("ids", "array")
-    return [row_id(item, "ids") for item in ids]
+    if len(ids) > service.BULK_LIMIT:
+        raise from_service(KanbanError("kanban.error.too_many"))
+    return list(dict.fromkeys(row_id(item, "ids") for item in ids))
 
 
 @bp.get("/kanban/boards")
@@ -247,7 +250,7 @@ def list_archived_tickets(board_id: int):
 @bp.post("/kanban/boards/<int:board_id>/tickets/archive")
 @requires("kanban", write=True, feature=FEATURE)
 def archive_board_tickets(board_id: int):
-    """``{ids: [ticket ids]}`` (all on this board, at most 500); answers how many were archived."""
+    """``{ids: [ticket ids]}`` (all on this board, at most 500 ids); answers how many were archived."""
     board = _board(board_id, "write")
     tickets = _run(service.tickets_of_board, board, _ids(json_body()))
     return ok(archived=_run(service.archive_tickets, board, tickets, caller()))

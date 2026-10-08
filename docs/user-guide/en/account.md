@@ -59,7 +59,9 @@ approves.
 ## Deleting your account
 
 **Delete account** removes your account permanently. Pages you wrote stay;
-their history no longer names you.
+their history no longer names you. Kanban boards you created pass to an
+administrator, and your tickets and comments stay on their boards under the
+board owner's name; each comment starts with a note saying you wrote it.
 
 ## If your account is blocked
 

@@ -16,8 +16,14 @@ the board list and makes it read-only until it is restored.
 from __future__ import annotations
 
 import zlib
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from flask import g, has_app_context
+
+from ....core.i18n import Catalog
+from ....core.sqlite import Session
 from ....core.timeutil import now_sql
 from ...db import db
 from ...i18n import t
@@ -31,12 +37,15 @@ ARCHIVE_LIST_LIMIT = 500
 
 
 def _log(board_id: int, user: User | None, *, op: str, payload: dict[str, Any], action: str, message: str,
-         coalesce: bool = False) -> None:
-    """Activity entry, sync event and history snapshot for a change (inside its transaction)."""
+         coalesce: bool = False, entry: str | None = None) -> None:
+    """Activity entry, sync event and history snapshot for a change (inside its transaction).
+
+    *entry* names the history entry when it differs from the activity *message*.
+    """
     user_id = user["id"] if user else None
     events.append(board_id, op, payload, user_id)
     events.log_activity(board_id, user_id, action, message)
-    history.record(board_id, user_id, message, coalesce=coalesce)
+    history.record(board_id, user_id, entry or message, coalesce=coalesce)
 
 
 def _column_payload(column: dict[str, Any]) -> dict[str, Any]:
@@ -279,7 +288,7 @@ def ordered_boards(user: User | None, *, archived: bool = False) -> list[dict[st
     """
     boards = [board for board in access.visible_boards(user) if bool(board.get("archived_at")) == archived]
     by_id = {board["id"]: board for board in boards}
-    ordered = store.reorder(list(by_id), _saved_order(_order_key(user)))
+    ordered = store.reorder(list(by_id), _saved_order(_order_key(user)), bounded=False)
     return [by_id[board_id] for board_id in ordered]
 
 
@@ -293,7 +302,7 @@ def save_board_order(user: User, board_ids: list[Any]) -> None:
     key = _order_key(user)
     if key is None:
         every = store.reorder(db.column("SELECT id FROM kanban_boards ORDER BY created_at DESC, id DESC"),
-                              _saved_order(None))
+                              _saved_order(None), bounded=False)
         slots = iter(wanted)
         visible_set = set(visible)
         wanted = [next(slots) if board_id in visible_set else board_id for board_id in every]
@@ -411,7 +420,7 @@ def _assignees(board: dict[str, Any], raw: Any, *, strict: bool) -> list[str]:
     if not isinstance(raw, list):
         raise KanbanError("kanban.error.invalid_assignees")
     allowed = access.assignable_ids(board)
-    result: list[str] = []
+    result: dict[str, None] = {}
     for item in raw:
         user_id = str(item or "").strip()
         if not user_id or user_id in result:
@@ -420,8 +429,8 @@ def _assignees(board: dict[str, Any], raw: Any, *, strict: bool) -> list[str]:
             if strict:
                 raise KanbanError("kanban.error.assignee_no_access")
             continue
-        result.append(user_id)
-    return result
+        result[user_id] = None
+    return list(result)
 
 
 def _ids_for_usernames(usernames: list[str]) -> list[str]:
@@ -495,10 +504,7 @@ def update_ticket(board: dict[str, Any], ticket: dict[str, Any], user: User, dat
     assignees = _requested_assignees(board, data, shorthand, strict=True)
     with db.transaction():
         if "description" in values and values["description"] != (ticket["description"] or ""):
-            db.insert("kanban_ticket_history", {
-                "ticket_id": ticket["id"], "old_description": ticket["description"] or "",
-                "new_description": values["description"], "changed_by": user["id"], "created_at": now_sql(),
-            })
+            history.record_description(ticket["id"], ticket["description"] or "", values["description"], user["id"])
         db.update("kanban_tickets", values, "id = ?", (ticket["id"],))
         if assignees is not None:
             store.set_assignees(ticket["id"], assignees)
@@ -534,9 +540,11 @@ def move_ticket(board: dict[str, Any], ticket: dict[str, Any], target: dict[str,
             columns[str(source_id)] = source
         card = store.ticket_card(ticket["id"])
         assert card is not None
+        # The history entry leaves the column out, so moving a ticket back and forth shares one entry.
         _log(board["id"], user, op="ticket_upsert", payload={"ticket": card, "columns": columns},
              action="ticket_moved", coalesce=True,
-             message=t("kanban.log.ticket_moved", title=card["title"], column=target["title"]))
+             message=t("kanban.log.ticket_moved", title=card["title"], column=target["title"]),
+             entry=t("kanban.log.ticket_moved_entry", title=card["title"]))
     signals.moved([(ticket["id"], source_id)], board["id"], user)
     return {"ticket": card, "columns": columns}
 
@@ -579,20 +587,22 @@ def delete_tickets(board: dict[str, Any], tickets: list[dict[str, Any]], user: U
     signals.tickets("deleted", doomed, store.get_board(board["id"]) or board, user)
 
 
-def tickets_of_board(board: dict[str, Any], raw_ids: Any) -> list[dict[str, Any]]:
-    """Resolve a list of ticket ids that must all belong to *board*."""
+def _selection(raw_ids: Any) -> list[Any]:
+    """A bulk request's list of ids, refused before any work when it holds more than ``BULK_LIMIT``."""
     if not isinstance(raw_ids, list) or not raw_ids:
         raise KanbanError("kanban.error.nothing_selected")
-    ids: list[int] = []
-    for raw in raw_ids:
-        try:
-            value = int(raw)
-        except (TypeError, ValueError) as error:
-            raise KanbanError("kanban.error.nothing_selected") from error
-        if value not in ids:
-            ids.append(value)
-    if len(ids) > BULK_LIMIT:
+    if len(raw_ids) > BULK_LIMIT:
         raise KanbanError("kanban.error.too_many")
+    return raw_ids
+
+
+def tickets_of_board(board: dict[str, Any], raw_ids: Any) -> list[dict[str, Any]]:
+    """Resolve a list of ticket ids that must all belong to *board*."""
+    selection = _selection(raw_ids)
+    try:
+        ids = list(dict.fromkeys(int(raw) for raw in selection))
+    except (TypeError, ValueError) as error:
+        raise KanbanError("kanban.error.nothing_selected") from error
     marks = ",".join("?" * len(ids))
     rows = db.all(
         f"SELECT t.*, c.board_id FROM kanban_tickets t JOIN kanban_columns c ON c.id = t.column_id "
@@ -605,16 +615,13 @@ def tickets_of_board(board: dict[str, Any], raw_ids: Any) -> list[dict[str, Any]
 
 
 def columns_of_board(board: dict[str, Any], raw_ids: Any) -> list[dict[str, Any]]:
-    if not isinstance(raw_ids, list) or not raw_ids:
-        raise KanbanError("kanban.error.nothing_selected")
-    columns = []
-    for raw in raw_ids[:BULK_LIMIT]:
+    columns: dict[int, dict[str, Any]] = {}
+    for raw in _selection(raw_ids):
         column = store.get_column(raw)
         if column is None or column["board_id"] != board["id"]:
             raise KanbanError("kanban.error.not_on_board", status=404)
-        if column not in columns:
-            columns.append(column)
-    return columns
+        columns.setdefault(column["id"], column)
+    return list(columns.values())
 
 
 def bulk_update(board: dict[str, Any], tickets: list[dict[str, Any]], user: User, action: str,
@@ -664,9 +671,10 @@ def bulk_update(board: dict[str, Any], tickets: list[dict[str, Any]], user: User
 def _bulk_move(tickets: list[dict[str, Any]], target: dict[str, Any]) -> None:
     """Append *tickets* to *target* (in board order) and close the gaps they leave."""
     moving = [ticket["id"] for ticket in sorted(tickets, key=lambda row: (row["sort_order"], row["id"]))]
+    leaving = set(moving)
     for column_id in {ticket["column_id"] for ticket in tickets} - {target["id"]}:
-        store.write_ticket_order(column_id, [tid for tid in store.ticket_ids(column_id) if tid not in moving])
-    staying = [tid for tid in store.ticket_ids(target["id"]) if tid not in moving]
+        store.write_ticket_order(column_id, [tid for tid in store.ticket_ids(column_id) if tid not in leaving])
+    staying = [tid for tid in store.ticket_ids(target["id"]) if tid not in leaving]
     store.write_ticket_order(target["id"], staying + moving)
 
 
@@ -892,7 +900,147 @@ def revert(board: dict[str, Any], entry: dict[str, Any], user: User) -> dict[str
 # ── Account clean-up ──────────────────────────────────────────────────────────
 
 
+_HANDED_OVER = "_kanban_handed_over"
+
+
+@dataclass(frozen=True)
+class Released:
+    """What :func:`release` changed: boards that passed to *heir*, boards where the
+    account's tickets or comments changed owner, and boards it was only assigned on."""
+
+    heir: dict[str, Any] | None
+    owned: frozenset[int]
+    added: frozenset[int]
+    assigned: frozenset[int]
+
+    @property
+    def boards(self) -> list[int]:
+        return sorted(self.owned | self.added | self.assigned)
+
+
+def _credit(session: Session, user_id: str) -> str:
+    """The note that heads a deleted account's comments once they show under a board owner's
+    name, in the site's language (bundled translations only: no Flask application needed)."""
+    username = str(session.scalar("SELECT username FROM users WHERE id = ?", (user_id,)) or "")
+    language = str(session.scalar("SELECT interface_language FROM site_settings WHERE id = 1") or "")
+    note = Catalog([Path(__file__).with_name("translations")]).translate(
+        language, "kanban.comment.deleted_author", username=username.replace("_", r"\_"))
+    return note + "\n\n"
+
+
+def _heir(session: Session, user_id: str, deleted_by: str | None) -> dict[str, Any] | None:
+    """Who takes over a deleted account's boards: the administrator deleting it, else the
+    longest-standing owner or administrator (active ones first). Administrators can open
+    every board already, so a private board gains no reader."""
+    if deleted_by and deleted_by != user_id:
+        row = session.one("SELECT id, username FROM users WHERE id = ? AND role IN ('owner', 'admin')",
+                          (deleted_by,))
+        if row is not None:
+            return row
+    return session.one(
+        "SELECT id, username FROM users WHERE id != ? AND role IN ('owner', 'admin') "
+        "ORDER BY suspended, role != 'owner', created_at, rowid LIMIT 1",
+        (user_id,),
+    )
+
+
+def release(session: Session, user_id: str, deleted_by: str | None = None) -> Released:
+    """Hand over what an account about to be deleted added to kanban, in *session*'s transaction.
+
+    The database deletes an account's boards, tickets and comments with it
+    (``ON DELETE CASCADE``), other people's tickets and discussions included.
+    Instead its boards go to an administrator (:func:`_heir`) and its tickets
+    and comments to the owner of the board they are on, each comment headed
+    by a note naming its author (:func:`_credit`); it leaves assignee lists,
+    shares and saved orders. With no other administrator left, the
+    account's own boards are deleted with it, as before; what it added to
+    other people's boards is still kept. Needs no Flask application: the
+    hosting operator's "remove wiki user" task (:mod:`bananawiki.ops.tenant_task`)
+    calls it directly, :func:`hand_over` everywhere else.
+    """
+    session.execute("DELETE FROM kanban_user_board_order WHERE user_id = ?", (user_id,))
+    session.execute("DELETE FROM kanban_board_shares WHERE share_type = 'user' AND target = ?", (user_id,))
+    heir = _heir(session, user_id, deleted_by)
+    owned = frozenset(session.column("SELECT id FROM kanban_boards WHERE created_by = ?", (user_id,)))
+    added = frozenset(session.column(
+        "SELECT c.board_id FROM kanban_tickets t JOIN kanban_columns c ON c.id = t.column_id "
+        "WHERE t.created_by = :uid "
+        "UNION SELECT c.board_id FROM kanban_ticket_comments m JOIN kanban_tickets t ON t.id = m.ticket_id "
+        "JOIN kanban_columns c ON c.id = t.column_id WHERE m.user_id = :uid",
+        {"uid": user_id},
+    ))
+    assigned = frozenset(session.column(
+        "SELECT c.board_id FROM kanban_tickets t JOIN kanban_columns c ON c.id = t.column_id "
+        "WHERE t.assigned_to = :uid "
+        "UNION SELECT c.board_id FROM kanban_ticket_assignees a JOIN kanban_tickets t ON t.id = a.ticket_id "
+        "JOIN kanban_columns c ON c.id = t.column_id WHERE a.user_id = :uid",
+        {"uid": user_id},
+    ))
+    if heir is None:  # its own boards are deleted with the account
+        added, assigned, owned = added - owned, assigned - owned, frozenset()
+    released = Released(heir, owned, added - owned, assigned - owned - added)
+    if not released.boards:
+        return released
+    if owned and heir is not None:
+        session.execute("UPDATE kanban_boards SET created_by = ? WHERE created_by = ?", (heir["id"], user_id))
+    session.execute(
+        "UPDATE kanban_tickets SET created_by = (SELECT b.created_by FROM kanban_columns c "
+        "JOIN kanban_boards b ON b.id = c.board_id WHERE c.id = kanban_tickets.column_id) WHERE created_by = ?",
+        (user_id,),
+    )
+    session.execute(
+        "UPDATE kanban_ticket_comments SET content = ? || content, user_id = (SELECT b.created_by "
+        "FROM kanban_tickets t JOIN kanban_columns c ON c.id = t.column_id JOIN kanban_boards b ON b.id = c.board_id "
+        "WHERE t.id = kanban_ticket_comments.ticket_id) WHERE user_id = ?",
+        (_credit(session, user_id), user_id),
+    )
+    session.execute("DELETE FROM kanban_ticket_assignees WHERE user_id = ?", (user_id,))
+    session.execute(
+        "UPDATE kanban_tickets SET assigned_to = (SELECT a.user_id FROM kanban_ticket_assignees a "
+        "WHERE a.ticket_id = kanban_tickets.id ORDER BY a.assigned_at LIMIT 1) WHERE assigned_to = ?",
+        (user_id,),
+    )
+    return released
+
+
+def hand_over(user: User, deleted_by: str | None = None, **_: Any) -> None:
+    """``user.delete``, inside the deleting transaction: keep what the account added to kanban (:func:`release`).
+
+    Every board that changed gets an activity entry and a reset for open
+    pages (and a history entry when its state changed). This runs while the
+    feature is switched off too.
+    """
+    released = release(db, user["id"], deleted_by)
+    boards = released.boards
+    if not boards:
+        return
+    heir = released.heir
+    actor = heir["id"] if heir is not None and heir["id"] == deleted_by else None
+    marks = ",".join("?" * len(boards))
+    owners = {row["id"]: row["username"] for row in db.all(
+        f"SELECT b.id, u.username FROM kanban_boards b JOIN users u ON u.id = b.created_by WHERE b.id IN ({marks})",
+        boards,
+    )}
+    for board_id in boards:
+        if board_id in released.owned:
+            key = "kanban.log.account_deleted_board"
+        elif board_id in released.added:
+            key = "kanban.log.account_deleted"
+        else:
+            key = "kanban.log.account_deleted_assignee"
+        message = t(key, username=user["username"], owner=owners.get(board_id, ""))
+        events.append(board_id, "board_reset", {}, actor)
+        events.log_activity(board_id, actor, "account_deleted", message)
+        history.record(board_id, actor, message)
+    if has_app_context():
+        g.setdefault(_HANDED_OVER, {})[user["id"]] = (boards, actor)
+
+
 def forget_user(user: User, **_: Any) -> None:
-    """``user.deleted``: drop the account's list order and individual shares."""
-    db.execute("DELETE FROM kanban_user_board_order WHERE user_id = ?", (user["id"],))
-    db.execute("DELETE FROM kanban_board_shares WHERE share_type = 'user' AND target = ?", (user["id"],))
+    """``user.deleted``: announce the boards :func:`hand_over` changed (``kanban.board.updated``)."""
+    handed = g.get(_HANDED_OVER, {}).pop(user["id"], None) if has_app_context() else None
+    if handed is None:
+        return
+    boards, actor = handed
+    for board_id in boards:
+        signals.board("updated", store.get_board(board_id), {"id": actor} if actor else None)

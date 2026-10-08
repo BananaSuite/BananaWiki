@@ -22,6 +22,7 @@
       <summary class="btn btn--small">{{ t('pages.actions.more') }}</summary>
       <div class="menu__panel" role="menu">
         <a role="menuitem" href="{{ url_for('kanban.board_history', board_id=board.id) }}">{{ t('kanban.board.history') }}</a>
+        {% if can_export %}<a role="menuitem" href="{{ url_for('kanban.export', board_id=board.id, format='json') }}">{{ t('kanban.board.export_json') }}</a>{% endif %}
         <button type="button" role="menuitem" data-print>{{ t('kanban.board.print') }}</button>
         {% if is_owner %}
         <button type="button" role="menuitem" data-dialog-open="kanban-share-dialog">{{ t('kanban.board.sharing') }}</button>

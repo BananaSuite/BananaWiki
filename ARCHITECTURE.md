@@ -251,7 +251,11 @@ turns "delete" into "schedule deletion"; page protection blocks edits).
 `Feature.interceptors = {"point": handler}`; the owner of the action calls
 `registry.intercept("point", **context)` and uses the first non-`None`
 answer. Unlike events, interceptors run before the action and their errors
-propagate.
+propagate. `registry.prepare("point", **context)` instead runs the
+interceptors of the point of every built-in feature, switched off or not,
+and of enabled external plugins, and ignores their answers: features use it
+to keep their stored data intact. A failing interceptor is logged with its
+feature's id and stops the action.
 
 | Point | Called by | Context | Answer |
 |---|---|---|---|
@@ -260,6 +264,7 @@ propagate.
 | `page.delete` | pages, before deleting | `page`, `user` | a response when the feature handled it (e.g. scheduled deletion), or `None` to delete now |
 | `page.saved` | pages, after a successful save from the editor | `page`, `user` | ignored (use for releasing check-outs, clearing drafts) |
 | `page.create_denied` | pages, when the user may not create in a category | `user`, `category_id` | a response, or `None` for 403 |
+| `user.delete` | `accounts.delete` through `registry.prepare`, inside its transaction, just before the row goes | `user`, `deleted_by` | ignored (hand over rows the database would delete with the account, e.g. kanban tickets) |
 | `page.render` | pages, when rendering a page body | `page` (with content) | `Markup` replacing the Markdown body (page builder pages), or `None` |
 
 ### Background jobs
