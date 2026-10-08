@@ -13,6 +13,7 @@ list except :func:`archived_tickets`.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from itertools import islice
 from typing import Any
 
 from ....core.timeutil import now_sql
@@ -21,6 +22,8 @@ from ...db import db
 from . import fields
 
 FOLDER = "kanban_attachments"
+# Ids an ordering may name beyond the current ones (left over from rows deleted meanwhile).
+REORDER_SLACK = 100
 
 TICKET_SELECT = (
     "SELECT t.*, c.board_id, lu.username AS legacy_assignee, cu.username AS created_by_username, "
@@ -79,18 +82,22 @@ def ticket_ids(column_id: int) -> list[int]:
                      "ORDER BY sort_order, id", (column_id,))
 
 
-def reorder(current: list[int], wanted: Iterable[Any]) -> list[int]:
-    """*current* rearranged to follow *wanted*; unknown ids are ignored, missing ones keep their order."""
+def reorder(current: list[int], wanted: Iterable[Any], *, bounded: bool = True) -> list[int]:
+    """*current* rearranged to follow *wanted*; unknown ids are ignored, missing ones keep their order.
+
+    A *bounded* (sent by a client) *wanted* is read up to ``len(current) +
+    REORDER_SLACK`` entries: a longer list is no ordering of *current*.
+    """
     known = set(current)
-    ordered: list[int] = []
-    for raw in wanted:
+    ordered: dict[int, None] = {}
+    for raw in islice(wanted, len(current) + REORDER_SLACK if bounded else None):
         try:
             item = int(raw)
         except (TypeError, ValueError):
             continue
-        if item in known and item not in ordered:
-            ordered.append(item)
-    return ordered + [item for item in current if item not in ordered]
+        if item in known:
+            ordered.setdefault(item)
+    return [*ordered, *(item for item in current if item not in ordered)]
 
 
 def write_column_order(board_id: int, ordered: list[int]) -> None:

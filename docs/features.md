@@ -87,8 +87,15 @@ Permissions: `page.*`, `category.*`, `search.*` (see [permissions](permissions.m
 Renaming or deleting an account leaves pages and drafts as they are: a
 mention of a former name (`/users/<old name>`) leads to the renamed account,
 and a former name stays reserved for its account until the account is
-deleted. Members can rename themselves three times a day. Account merges
-still rewrite the source's `@mentions`, with a history entry per page.
+deleted or an administrator releases the name on the account's **Audit**
+page (**Admin → Users**; the release is recorded in the audit log), after
+which old mentions no longer lead to it and its renames away from the name
+leave the account's history and data export. On a wiki upgraded from 1.4,
+which did not reserve names, several accounts may have given up the same
+name: releasing it from the latest one passes it to the one before, and the
+administrator is told so. Members can rename themselves three times a day.
+Account merges still rewrite the source's `@mentions`, with a history entry
+per page.
 
 ## Page history
 
@@ -316,12 +323,36 @@ type: `Fix login @alice +backend !high color:red due:tomorrow`.
   limits, checklists and archived tickets); each version lists what changed
   since the previous one. Restoring a version never deletes tickets, comments
   or attachments (tickets created later stay on the board) and brings back
-  the archived state of the tickets it knew. The newest 200 entries are kept.
+  the archived state of the tickets it knew. The newest 200 entries are kept,
+  within 64 MB per board (a large board keeps fewer versions, always the
+  latest one). Moves of a ticket, reorderings and checklist changes of a
+  ticket by the same person within two minutes share one entry. Each ticket
+  keeps its newest 100 description changes, within 1 MB.
 * **Sharing**: private, shared or public boards; a role or a person gets view
   or write access. Board settings, sharing and deletion belong to the creator
   and administrators.
+* **Deleted accounts**: deleting an account (by its holder, by an
+  administrator, in a merge, or from the hosting portal) keeps what it added.
+  Its boards pass to the administrator who deleted it (otherwise to the
+  longest-standing owner or administrator, active ones first), its tickets
+  and comments to the owner of the board they are on (each comment headed by
+  a note, in the site's language, naming the deleted author), and it leaves
+  assignee lists and shares.
+  Each board that changed records the hand-over in its activity (and in its
+  history when its state changed), except when the hosting portal removes the
+  user. This also happens while Kanban is switched off. With no other owner or
+  administrator left, the account's own boards are deleted with it.
 * Export and import as JSON (or ZIP with attachments), the 1.4 format plus
-  column limits, checklists and archived state.
+  column limits, checklists and archived state. A ZIP holds at most 4,999
+  attachments and 1 GB; a board with more can still be exported as JSON
+  without its attachments (**More → Export without attachments**, also
+  offered for any board). An import unpacks only the files its
+  tickets refer to, streamed into storage, and skips those that no longer fit
+  in the storage quota; its `board.json` is held to the 20 MB of a JSON
+  import. An archive is refused when its file list is larger than 5,000
+  files need, when `board.json` or a file it refers to is neither stored nor
+  deflated, is encrypted or cannot be read, or when such a file over 1 MB is
+  packed more than 200 times smaller.
 * **Events** for other features and webhooks: `kanban.board.created|updated|deleted`,
   `kanban.ticket.created|updated|moved|deleted` (bulk changes: one per ticket)
   and `kanban.comment.created`, emitted after the change is saved.
@@ -339,9 +370,28 @@ Free-form visual boards (`/canvas`): notes, shapes, images, videos, code and
 links to wiki pages, connected by edges. Several people can edit at once:
 small operations are merged on the server, and a whole-document save made on
 an outdated copy is refused instead of overwriting others. History with
-restore (200 entries kept), sharing per person or role (view, edit, or an
-explicit "none"), ZIP export and import with images, embeds in pages with
-`[[canvas slug="…"]]`. Renaming or deleting a linked page updates its node.
+restore (the newest 200 entries, and only as many of them as fit in 32 MB of
+snapshots per canvas; changes by one person within 15 minutes, or by anyone
+within a minute of the latest entry, share one entry, which keeps the name of
+the person who started it), sharing per person
+or role (view, edit, or an explicit "none"), ZIP export and import with
+images, embeds in pages with
+`[[canvas slug="…"]]`. A wiki-page node stores only the id of its page: the
+title, address and excerpt are read from the page when the canvas is shown,
+so renaming or deleting the page updates the node. Readers who may not open
+the page see neither its title nor whether it still exists (only
+administrators see "deleted"), and the same applies to exports, the REST API
+and the personal data export. Notes and code are rendered on the server and
+kept in a per-process cache; one view renders at most about half a million
+characters of them, and on canvases with more text the remaining notes are
+shown as plain text. Code without a language is shown unhighlighted. An
+import reads at most 7 MB of canvas data and a zip of at most one image per
+node. A document listing more nodes or edges than a canvas may hold
+(counting every listed entry, even invalid or repeated ones) is refused
+before it is processed, whether it comes from an import, a whole-document
+save or the REST API. An export zip is written to a temporary file and
+holds at most 2000 files and 512 MB of them; a canvas showing more is
+exported with a note in place of its files.
 
 New canvases can start from a template (flowchart, mind map, retrospective
 board, SWOT analysis). The editor snaps to a grid (G), aligns and
@@ -367,11 +417,15 @@ override it). Unlocking, locking, restacking (`layer`) and grouping stay
 allowed for every editor. The editor skips refused operations and reports
 them (`rejected` in the `/ops` answer, then reloads); the REST API and
 whole-document saves refuse the whole request with the error code `locked`.
-History restores are not blocked.
+History restores are not blocked. A locked wiki-page node keeps its page
+whatever page an operation or save names for it (unlock it first to link
+another page), and a wiki-page node sent without a page keeps the stored one,
+since readers who may not open that page receive the node without it.
 
 Events (after commit): `canvas.created`, `canvas.updated` (once per
 operation batch, save, restore, change of title, visibility, sharing or
-owner, or page-link update) and `canvas.deleted`, with `canvas` (the layout
+owner, or page-link update of a node saved by an older version) and
+`canvas.deleted`, with `canvas` (the layout
 row) and `actor_id`; the web interface and the REST API emit the same.
 
 Settings (**Admin → Canvas**): `canvas_access`, `canvas_write_access`,
@@ -512,7 +566,8 @@ Everything under **Admin** (`/admin/dashboard`), for administrators:
 * **Dashboard**: accounts, pending approvals, suspensions, traffic.
 * **Users**: create, search and filter accounts; roles, custom roles,
   permissions, category access; suspend, reset passwords, end sessions,
-  impersonate, edit attributions, per-account audit. Pending sign-ups are
+  impersonate, edit attributions, per-account audit (where a former user
+  name reserved for the account can be released). Pending sign-ups are
   approved or denied here.
 * **Custom roles**, **Invite codes** (with a number of uses, an expiry and an
   assigned role or custom role; editors granted the `invite.*` permissions

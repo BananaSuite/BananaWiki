@@ -106,6 +106,22 @@ def test_invites_and_signup_mode(cli, query):
     assert cli("invite", "delete", str(invite["id"]))[0] == 1
 
 
+def test_dates_outside_the_supported_years_are_refused(cli, make_account, make_wiki, query):
+    make_wiki(make_account("hank"), "hanks")
+    code, _out, err = cli("instance", "set-expiry", "hanks", "9999-12-31T00:00:00")
+    assert code == 1 and "between the years 1900 and 9998" in err
+    code, _out, err = cli("instance", "suspend", "hanks", "--until", "9999-12-31T00:00:00Z")
+    assert code == 1 and "between the years 1900 and 9998" in err
+    code, _out, err = cli("instance", "suspend", "hanks", "--hours", "99999999999")
+    assert code == 1 and "too large" in err
+    assert query("SELECT status FROM instances", one=True)["status"] == "running"
+    query("UPDATE instances SET expires_at = '9999-12-31 00:00:00'")
+    code, _out, err = cli("instance", "extend", "hanks", "30")
+    assert code == 1 and "9998" in err
+    assert cli("instance", "set-expiry", "hanks", "2100-01-01T00:00:00+02:00")[0] == 0
+    assert query("SELECT expires_at FROM instances", one=True)["expires_at"] == "2099-12-31 22:00:00"
+
+
 def test_audit_failure_is_reported_not_swallowed(cli, portal, monkeypatch):
     monkeypatch.setattr(admin, "AUDIT_FILE", "missing-dir/audit.log")
     code, _out, err = cli("account", "create", "gina", stdin=PASSWORD + "\n")

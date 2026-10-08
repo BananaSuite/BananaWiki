@@ -344,6 +344,7 @@ def user_audit(user_id: str):
         "admin/user_audit.html",
         target=target,
         trail=service.audit_trail(target["id"]),
+        reserved_names=accounts.reserved_names(target["id"]),
         contributions=service.contribution_count(target["id"]),
         protection=service.protection_error(actor(), target),
     )
@@ -375,6 +376,13 @@ def attributions(user_id: str):
         elif action == "delete_all_role_history":
             count = service.delete_role_history(me, target)
             auth.flash_t("admin.attributions.history_deleted", "success", count=count)
+        elif action == "release_name":
+            name, holder = service.release_name(me, target, request.form.get("username", ""))
+            if holder is None:
+                auth.flash_t("admin.audit.name_released", "success", username=name)
+            else:
+                auth.flash_t("admin.audit.name_still_reserved", "warning", username=name,
+                             holder=holder["username"])
         else:
             abort(400)
     except AccountError as error:

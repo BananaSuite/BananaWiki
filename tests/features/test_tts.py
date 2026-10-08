@@ -301,6 +301,66 @@ def test_stale_lease_and_release_requeue(app, ctx, make_page, db):
     assert generation(db, page)["status"] == "pending"
 
 
+def _lose_worker(db):
+    """The worker holding the job died: its lease runs out unrenewed."""
+    db.execute("UPDATE tts_generations SET lease_until = '2000-01-01 00:00:00' WHERE status = 'processing'")
+
+
+def test_job_that_keeps_stopping_its_worker_fails(app, ctx, make_page, db):
+    page = make_page()
+    with ctx():
+        service.request(page, requested_by=None)
+        for lost in range(1, service.MAX_ATTEMPTS + 1):
+            assert service.claim() is not None
+            _lose_worker(db)
+            requeued = service.recover_stale()
+            row = generation(db, page)
+            assert row["attempts"] == lost
+            if lost < service.MAX_ATTEMPTS:
+                assert requeued == 1 and row["status"] == "pending"
+        assert requeued == 0 and row["status"] == "failed"
+        assert f"stopped {service.MAX_ATTEMPTS} times" in row["error_message"]
+        assert service.claim() is None
+        assert service.retry(row, None)  # the admin's Retry starts afresh
+    row = generation(db, page)
+    assert row["status"] == "pending" and row["attempts"] == 0
+
+
+def test_answered_claims_do_not_count_as_lost(app, ctx, make_page, db):
+    page = make_page()
+    with ctx():
+        service.request(page, requested_by=None)
+        for _ in range(service.MAX_ATTEMPTS + 1):
+            service.release(service.claim().id)
+            job = service.claim()
+            assert service.fail(job, backends.SynthesisError("HTTP 429", rate_limited=True)) == "cooldown"
+            db.execute("UPDATE tts_generations SET not_before = NULL")
+        assert generation(db, page)["attempts"] == 0
+        service.claim()
+        _lose_worker(db)
+        assert service.recover_stale() == 1
+    assert generation(db, page)["status"] == "pending"
+
+
+def test_lease_is_not_renewed_past_max_job_seconds(app, ctx, make_page, synth, db):
+    set_config(app, max_job_seconds=300)
+    page = make_page()
+    with ctx():
+        service.request(page, requested_by=None)
+        job = service.claim()
+        service.renew([job.id])
+        assert generation(db, page)["lease_until"] > db.scalar("SELECT datetime('now')")
+        db.execute("UPDATE tts_generations SET started_at = datetime('now', '-400 seconds')")
+        service.renew([job.id])
+        row = generation(db, page)
+        assert row["lease_until"] == db.scalar("SELECT datetime(started_at, '+300 seconds') FROM tts_generations")
+        assert service.recover_stale() == 0
+        row = generation(db, page)
+        assert row["status"] == "failed" and "longer than 300 seconds" in row["error_message"]
+        assert service.process(job, synth) == "cancelled"  # the overdue worker's audio is discarded
+    assert tts_files(app) == []
+
+
 def test_superseded_job_discards_its_file(app, ctx, make_page, synth, db):
     page = make_page()
     with ctx():

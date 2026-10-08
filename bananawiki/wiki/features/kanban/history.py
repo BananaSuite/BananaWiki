@@ -20,9 +20,13 @@ comments, attachments and description history were lost):
   the board, after the restored ones, together with their comments and
   attachments; archived ones stay archived.
 
-Consecutive moves by the same person within a short window share one entry,
-identical snapshots are skipped, and only the newest ``HISTORY_KEPT`` entries
-of a board are kept.
+Consecutive moves of a ticket (whichever column they lead to), reorderings
+and checklist changes of a ticket by the same person within a short window
+share one entry, and identical snapshots are skipped. A board keeps its newest
+``HISTORY_KEPT`` entries, and of those only as many as fit in
+``HISTORY_MAX_BYTES``: a large board keeps fewer versions, never fewer than
+the newest. A ticket's description history (``kanban_ticket_history``) is
+bounded the same way by ``TICKET_HISTORY_KEPT`` and ``TICKET_HISTORY_MAX_BYTES``.
 """
 
 from __future__ import annotations
@@ -35,6 +39,9 @@ from ...db import db
 from . import fields, store
 
 HISTORY_KEPT = 200
+HISTORY_MAX_BYTES = 64 * 1024 * 1024
+TICKET_HISTORY_KEPT = 100
+TICKET_HISTORY_MAX_BYTES = 1024 * 1024
 COALESCE_SECONDS = 120
 SNAPSHOT_VERSION = 2
 
@@ -114,14 +121,32 @@ def record(board_id: int, user_id: str | None, message: str, *, is_revert: bool 
               "created_at": now_sql()}
     if coalesce and latest and _can_merge(latest, user_id, message):
         db.update("kanban_board_history", values, "id = ?", (latest["id"],))
-        return int(latest["id"])
-    entry_id = db.insert("kanban_board_history", {"board_id": board_id, **values})
-    db.execute(
-        "DELETE FROM kanban_board_history WHERE board_id = ? AND id NOT IN "
-        "(SELECT id FROM kanban_board_history WHERE board_id = ? ORDER BY id DESC LIMIT ?)",
-        (board_id, board_id, HISTORY_KEPT),
-    )
+        entry_id = int(latest["id"])
+    else:
+        entry_id = db.insert("kanban_board_history", {"board_id": board_id, **values})
+    _prune("kanban_board_history", "board_id", board_id, "length(CAST(snapshot AS BLOB))",
+           HISTORY_KEPT, HISTORY_MAX_BYTES)
     return entry_id
+
+
+def _prune(table: str, owner: str, owner_id: int, size: str, kept: int, max_bytes: int) -> None:
+    """Keep the newest *kept* rows of *owner_id*, and of those the newest that fit in *max_bytes*
+    (the newest row always stays, whatever its size)."""
+    db.execute(
+        f"DELETE FROM {table} WHERE id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER newest AS position, "
+        f"SUM({size}) OVER newest AS total FROM {table} WHERE {owner} = ? WINDOW newest AS (ORDER BY id DESC)) "
+        "WHERE position > 1 AND (position > ? OR total > ?))",
+        (owner_id, kept, max_bytes),
+    )
+
+
+def record_description(ticket_id: int, old: str, new: str, user_id: str | None) -> None:
+    """Add a ticket's description change to its history; call inside the transaction that made it."""
+    db.insert("kanban_ticket_history", {"ticket_id": ticket_id, "old_description": old, "new_description": new,
+                                        "changed_by": user_id, "created_at": now_sql()})
+    _prune("kanban_ticket_history", "ticket_id", ticket_id,
+           "length(CAST(old_description AS BLOB)) + length(CAST(new_description AS BLOB))",
+           TICKET_HISTORY_KEPT, TICKET_HISTORY_MAX_BYTES)
 
 
 def _can_merge(latest: dict[str, Any], user_id: str | None, message: str) -> bool:
@@ -336,10 +361,7 @@ def _restore_ticket(item: dict[str, Any], existing: dict[str, Any] | None, colum
     else:
         ticket_id = existing["id"]
         if (existing["description"] or "") != description:
-            db.insert("kanban_ticket_history", {
-                "ticket_id": ticket_id, "old_description": existing["description"] or "",
-                "new_description": description, "changed_by": user_id, "created_at": now_sql(),
-            })
+            record_description(ticket_id, existing["description"] or "", description, user_id)
         db.update("kanban_tickets", {**values, "column_id": column_id}, "id = ?", (ticket_id,))
     store.set_assignees(ticket_id, _snapshot_assignees(item))
     if "checklist" in item:

@@ -55,6 +55,7 @@
   "error.server_failed": "Non è stato possibile avviare la wiki. I dettagli sono nella cartella logs dentro la cartella dei dati.",
   "error.server_exited": "La wiki si è fermata durante l'avvio. I dettagli sono nella cartella logs dentro la cartella dei dati.",
   "error.server_timeout": "La wiki non ha risposto in tempo. I dettagli sono nella cartella logs dentro la cartella dei dati.",
+  "error.port_taken": "Un altro programma ha risposto sulla porta di rete della wiki. Chiudilo e riprova.",
   "error.archive_invalid": "Questo file non è un backup ZIP.",
   "error.archive_no_database": "Questo backup non contiene un database della wiki.",
   "error.archive_damaged": "Questo backup è danneggiato.",

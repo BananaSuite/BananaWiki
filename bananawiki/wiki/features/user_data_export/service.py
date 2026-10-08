@@ -21,27 +21,37 @@ What is never exported:
   group messages are left out (the row keeps its ids and times) when the
   page, board, canvas or group is no longer readable by the account, checked
   with the same functions the web interface uses. History rows of boards and
-  canvases are exported as ids and times only.
+  canvases are exported as ids and times only, and a canvas document shows
+  linked wiki pages as the canvas view does: titles and slugs of pages the
+  account cannot read are left out.
 
-Nothing is built in memory: rows and files are written to the ZIP stream as
-they are read.
+Nothing is built in memory, and no database read stays open while the
+client downloads: the compressed rows of one table wait in a spooled
+temporary file (in the exports work folder) until that table's read is
+finished, and files are written to the ZIP stream as they are read.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
 import zipfile
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from flask import current_app
+
 from ....core.sqlite import quote_identifier, tuples
 from ....core.timeutil import now_sql
 from ... import storage
 from ...db import db
 from ..canvas import access as canvas_access
+from ..canvas import model as canvas_model
+from ..canvas import present as canvas_present
 from ..chat import groups as chat_groups
 from ..kanban import access as kanban_access
 from ..pages import service as pages
@@ -51,6 +61,7 @@ from ..users import service as users
 FORMAT = "bananawiki-user-data-export"
 VERSION = "3.1"
 CHUNK = 256 * 1024
+SPOOL = 4 * CHUNK  # compressed bytes kept in memory before the spool moves to a temporary file
 ACCOUNT_COLUMNS = ("id", "username", "role", "suspended", "suspended_until", "approval_status", "invite_code",
                    "is_superuser", "created_at", "last_login_at", "chat_disabled", "userbot_enabled")
 
@@ -61,8 +72,10 @@ class Rows:
 
     With *resource* (``page``, ``board``, ``canvas`` or ``group``) the column
     *resource_id* holds the id of what the row belongs to, and the *content*
-    columns are emptied when the account can no longer read it. A row whose
-    resource id is NULL (a draft of a page not created yet) belongs to nothing.
+    columns are emptied when the account can no longer read it, or else passed
+    through *shown* (with the account) when the content itself refers to
+    things the account may not read. A row whose resource id is NULL (a draft
+    of a page not created yet) belongs to nothing.
     """
 
     table: str
@@ -70,10 +83,18 @@ class Rows:
     resource: str | None = None
     resource_id: str = ""
     content: tuple[str, ...] = ()
+    shown: Callable[[dict[str, Any], dict[str, Any]], None] | None = None
 
 
 _TICKET_BOARD = ("JOIN kanban_tickets t ON t.id = {alias}.ticket_id "
                  "JOIN kanban_columns c ON c.id = t.column_id")
+
+
+def _canvas_document(row: dict[str, Any], user: dict[str, Any]) -> None:
+    """The canvas document with wiki-page links as *user* may see them (stays a JSON string)."""
+    shown = canvas_present.redacted_document(canvas_model.clean_document(row["data"]), user)
+    row["data"] = json.dumps(shown, ensure_ascii=False, separators=(",", ":"))
+
 
 EXPORTED: tuple[Rows, ...] = (
     # Account
@@ -172,7 +193,7 @@ EXPORTED: tuple[Rows, ...] = (
     # Canvases
     Rows("canvas__layouts", "SELECT id, slug, title, description, category_id, visibility, is_published, is_archived, "
                             "data, version, created_at, updated_at FROM canvas__layouts WHERE creator_id = ? ORDER BY id",
-         "canvas", "id", ("slug", "title", "description", "data")),
+         "canvas", "id", ("slug", "title", "description", "data"), _canvas_document),
     Rows("canvas__history", "SELECT id, layout_id, edit_message, is_revert, created_at FROM canvas__history "
                             "WHERE edited_by = ? ORDER BY id", "canvas", "layout_id", ("edit_message",)),
     Rows("canvas__permissions", "SELECT layout_id, permission, created_at FROM canvas__permissions WHERE user_id = ?"),
@@ -262,6 +283,8 @@ class _Readable:
         def redact(row: dict[str, Any]) -> dict[str, Any]:
             if not self(kind, row.get(spec.resource_id)):
                 row.update(dict.fromkeys(spec.content))
+            elif spec.shown is not None:
+                spec.shown(row, self.user)
             return row
 
         return redact
@@ -272,22 +295,35 @@ def _table_exists(table: str) -> bool:
 
 
 class _Sink:
-    """A write-only stream for :class:`zipfile.ZipFile` whose bytes are collected and drained."""
+    """A write-only stream for :class:`zipfile.ZipFile` whose bytes wait until drained.
+
+    They are kept in memory up to :data:`SPOOL` bytes, then in an anonymous
+    temporary file in the exports work folder. No ``tell``/``seek``: the ZIP is
+    written as a stream.
+    """
 
     def __init__(self) -> None:
-        self._parts: list[bytes] = []
+        folder = current_app.config["BW"].folders.exports
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        # Closed by close(), also when the download stops halfway (_Writer.discard).
+        self._spool = tempfile.SpooledTemporaryFile(max_size=SPOOL, dir=folder)  # noqa: SIM115
 
     def write(self, data: bytes) -> int:
-        self._parts.append(bytes(data))
-        return len(data)
+        return self._spool.write(data)
 
     def flush(self) -> None:
         return None
 
-    def drain(self) -> bytes:
-        data = b"".join(self._parts)
-        self._parts.clear()
-        return data
+    def drain(self) -> Iterator[bytes]:
+        """Yield what was written since the last drain, :data:`CHUNK` bytes at a time."""
+        self._spool.seek(0)
+        while chunk := self._spool.read(CHUNK):
+            yield chunk
+        self._spool.seek(0)
+        self._spool.truncate()
+
+    def close(self) -> None:
+        self._spool.close()
 
 
 def _json_value(value: Any) -> Any:
@@ -322,37 +358,54 @@ class _Writer:
     def json(self, name: str, data: Any) -> Iterator[bytes]:
         with self.zip.open(name, "w", force_zip64=True) as out:
             out.write(json.dumps(data, indent=2, ensure_ascii=False, default=str).encode("utf-8"))
-        yield self.sink.drain()
+        yield from self.sink.drain()
 
     def rows(self, name: str, sql: str, params: list[Any],
              redact: Callable[[dict[str, Any]], dict[str, Any]] | None = None) -> Iterator[bytes]:
-        """Stream the rows of *sql* as a JSON array, each passed through *redact* first."""
+        """Write the rows of *sql* as a JSON array, each passed through *redact* first.
+
+        Nothing is yielded until the statement is finished: a generator suspended
+        mid-statement keeps its read snapshot, which stops WAL checkpoints for as
+        long as the client takes to download. The read lasts only as long as the
+        server takes to compress the table.
+        """
         count = 0
         with self.zip.open(name, "w", force_zip64=True) as out:
             out.write(b"[")
-            for row in db.execute(sql, params):
-                if redact is not None:
-                    row = redact(row)
-                out.write((b",\n" if count else b"\n") + json.dumps(
-                    {key: _json_value(value) for key, value in row.items()}, ensure_ascii=False, default=str
-                ).encode("utf-8"))
-                count += 1
-                if count % 200 == 0:
-                    yield self.sink.drain()
+            cursor = db.execute(sql, params)
+            try:
+                for row in cursor:
+                    if redact is not None:
+                        row = redact(row)
+                    out.write((b",\n" if count else b"\n") + json.dumps(
+                        {key: _json_value(value) for key, value in row.items()},
+                        ensure_ascii=False, default=str,
+                    ).encode("utf-8"))
+                    count += 1
+            finally:
+                cursor.close()
             out.write(b"\n]\n")
         self.summary[name] = count
-        yield self.sink.drain()
+        yield from self.sink.drain()
 
     def file(self, name: str, path: Path) -> Iterator[bytes]:
         with self.zip.open(name, "w", force_zip64=True) as out, path.open("rb") as source:
             while chunk := source.read(CHUNK):
                 out.write(chunk)
-                yield self.sink.drain()
-        yield self.sink.drain()
+                yield from self.sink.drain()
+        yield from self.sink.drain()
 
     def close(self) -> Iterator[bytes]:
         self.zip.close()
-        yield self.sink.drain()
+        yield from self.sink.drain()
+        self.sink.close()
+
+    def discard(self) -> None:
+        """Close the archive and its spool, whether or not the archive was finished."""
+        try:
+            self.zip.close()
+        finally:
+            self.sink.close()
 
 
 def _account(user: dict[str, Any]) -> dict[str, Any]:
@@ -375,6 +428,13 @@ UPLOADED_FILES = (
 def stream(user: dict[str, Any]) -> Iterator[bytes]:
     """Yield the ZIP archive of everything *user* owns, chunk by chunk."""
     writer = _Writer()
+    try:
+        yield from _archive(writer, user)
+    finally:
+        writer.discard()  # also when the client goes away halfway
+
+
+def _archive(writer: _Writer, user: dict[str, Any]) -> Iterator[bytes]:
     yield from writer.json("manifest.json", {
         "format": FORMAT, "version": VERSION, "exported_at": now_sql(), "account_id": user["id"],
         "username": user["username"],

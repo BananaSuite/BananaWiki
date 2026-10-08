@@ -22,7 +22,9 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   hosted third-party plugins are disabled unless the operator sets
   `HOSTING_ALLOW_TENANT_PLUGINS=1`. Enabling plugins allows arbitrary Python
   inside the tenant container and requires tested host resource controls;
-  see [hosting](hosting.md#isolation).
+  see [hosting](hosting.md#isolation). Port and onion mode do not isolate
+  cookies between the portal and the wikis; use subdomain mode when wiki
+  administrators are not trusted ([addresses](hosting.md#addresses)).
 
 ## Accounts and sessions
 
@@ -37,6 +39,20 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
 * Sessions end after 7 days, or 30 with **remember me**; without remember me
   the cookie is a browser-session cookie. The cookie is `HttpOnly`,
   `SameSite=Lax`, and `Secure` on HTTPS (or as `BW_SECURE_COOKIES` says).
+* A `Secure` session cookie is named `__Host-<name>` (`__Host-bw_session`,
+  `__Host-bw_session_<slug>` on hosted wikis), with `Path=/` and no
+  `Domain`. Browsers refuse such a cookie from any other host, so a wiki on a
+  sibling subdomain cannot plant a session (its own account, or a half-done
+  portal sign-in) for another wiki. Plain HTTP keeps the plain name (desktop
+  app, local use) and has no such protection.
+* After the upgrade to this naming, a session under the plain name is moved
+  to the prefixed name on its first HTTPS request, so nobody is signed out,
+  and the plain cookie is expired; signing out clears both. Only a cookie
+  signed before the wiki first started with this naming moves (the time is
+  kept in `.host_cookie_since` in the instance folder): the wiki never issues
+  the plain name over HTTPS after that, so a newer one can only have been
+  planted, and it is ignored. A request with two plain-name cookies is never
+  moved either.
 * Sessions are revoked when the password changes (other sessions), when an
   administrator resets the password or suspends the account, on "sign out
   everywhere" (**Settings → Sessions**), on **Admin → Sessions** (one session
@@ -217,14 +233,14 @@ plugin, and logs every step. A plugin only loads after a restart.
 ## Audit log
 
 **Admin → Audit log** (feature `audit`) records sign-ins, account creation,
-renames, deletions, role changes, password changes and resets, suspensions,
-page and category deletions and restores, attachment uploads and deletions,
-site settings, appearance and language changes, documentation, bulk Markdown
-and whole-site exports and imports (and refused attempts), and server
-restarts, with the acting account and address. Retention is configurable
-(0 keeps entries forever; the `audit.prune` job applies it). Plugin actions
-go to the application log (`bananawiki.plugins`), and the REST API keeps its
-own log of every call (**Admin → REST API**).
+renames, released former user names, deletions, role changes, password
+changes and resets, suspensions, page and category deletions and restores,
+attachment uploads and deletions, site settings, appearance and language
+changes, documentation, bulk Markdown and whole-site exports and imports (and
+refused attempts), and server restarts, with the acting account and address.
+Retention is configurable (0 keeps entries forever; the `audit.prune` job
+applies it). Plugin actions go to the application log (`bananawiki.plugins`),
+and the REST API keeps its own log of every call (**Admin → REST API**).
 
 ## Checklist for production
 

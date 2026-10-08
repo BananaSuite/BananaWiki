@@ -51,6 +51,15 @@
   {% if trail.usernames %}
   <ul class="small">{% for entry in trail.usernames %}<li>{{ entry.changed_at|datetime }}: {{ entry.old_username }} → {{ entry.new_username }}</li>{% endfor %}</ul>
   {% else %}<p class="muted">{{ t('admin.audit.empty') }}</p>{% endif %}
+  {% if reserved_names %}
+  <h3>{{ t('admin.audit.reserved_names') }}</h3>
+  <p class="hint">{{ t('admin.audit.reserved_hint') }}</p>
+  <ul class="small">
+    {% for name in reserved_names %}
+    <li>{{ name }}{% if not protection %} {{ forms.post_button(attr_url, t('admin.audit.release_name'), 'btn btn--small', confirm=t('admin.audit.release_confirm', username=name), hidden={'action': 'release_name', 'username': name}) }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
 </section>
 
 <section class="card">

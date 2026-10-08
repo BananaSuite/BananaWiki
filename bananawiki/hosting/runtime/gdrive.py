@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import tempfile
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -158,8 +159,9 @@ def upload(client: Any, settings: DriveSettings, path: Path) -> str:
     return str(response.get("name") or path.name)
 
 
-def prune(client: Any, settings: DriveSettings, now: datetime | None = None) -> int:
-    """Delete this platform's backups older than the retention period; returns how many."""
+def prune(client: Any, settings: DriveSettings, now: datetime | None = None, keep: Collection[str] = ()) -> int:
+    """Delete this platform's backups older than the retention period, except those named in *keep*;
+    returns how many."""
     cutoff = (now or datetime.now(UTC)) - timedelta(days=settings.retention_days)
     query = (f"'{settings.folder_id}' in parents and name contains 'bananawiki_' and "
              f"createdTime < '{cutoff.strftime('%Y-%m-%dT%H:%M:%S')}' and trashed = false")
@@ -170,7 +172,8 @@ def prune(client: Any, settings: DriveSettings, now: datetime | None = None) -> 
             page = client.files().list(q=query, fields="nextPageToken, files(id, name)", pageSize=100,
                                        pageToken=token).execute()
             for item in page.get("files", []):
-                if str(item.get("name", "")).startswith(PREFIXES):
+                name = str(item.get("name", ""))
+                if name.startswith(PREFIXES) and name not in keep:
                     client.files().delete(fileId=item["id"]).execute()
                     deleted += 1
             token = page.get("nextPageToken")

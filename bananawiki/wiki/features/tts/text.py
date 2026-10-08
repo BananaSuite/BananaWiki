@@ -256,6 +256,45 @@ def content_hash(spoken: str, language: str) -> str:
     return hashlib.sha256(((spoken or "") + "\x00" + language).encode("utf-8")).hexdigest()
 
 
+# ── Pieces for the synthesiser ────────────────────────────────────────────────
+
+CHUNK_CHARS = 500
+# Where a piece may end, best first: after a sentence, after a clause, at a
+# space. The spoken text has single spaces only (see normalize_text).
+_CHUNK_BREAKS = (
+    (". ", "! ", "? ", "… ", "。", "！", "？"),
+    ("; ", ": ", ", ", "；", "：", "，", "、"),
+    (" ",),
+)
+
+
+def speech_chunks(spoken: str, limit: int = CHUNK_CHARS) -> list[str]:
+    """*spoken* in pieces of at most *limit* characters, read one after another.
+
+    Piper synthesises a sentence at once and its memory grows faster than
+    the sentence: a page of 20,000 characters without a full stop could
+    exhaust the server. A piece ends at the last sentence end in the second
+    half of its window, else at a clause mark or a space, else at *limit*.
+    Every piece but the last covers at least half a window, so cutting stays
+    linear in the text. The hash still covers the whole spoken text.
+    """
+    limit = max(2, limit)
+    pieces: list[str] = []
+    start = 0
+    while len(spoken) - start > limit:
+        low, high = start + limit // 2, start + limit
+        cut = high
+        for marks in _CHUNK_BREAKS:
+            ends = [found + len(mark.rstrip()) for mark in marks if (found := spoken.rfind(mark, low, high)) >= 0]
+            if ends:
+                cut = max(ends)
+                break
+        pieces.append(spoken[start:cut].strip())
+        start = cut
+    pieces.append(spoken[start:].strip())
+    return [piece for piece in pieces if piece]
+
+
 # ── Languages ─────────────────────────────────────────────────────────────────
 
 

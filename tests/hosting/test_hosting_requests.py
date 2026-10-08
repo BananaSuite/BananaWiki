@@ -139,3 +139,17 @@ def test_merge_request_to_self_is_refused(web, make_account, login, query):
     login(web, user)
     web.post("/account/merge-request", data={"target_username": user["username"]})
     assert query("SELECT COUNT(*) AS n FROM hosting_account_merge_requests", one=True)["n"] == 0
+
+
+def test_a_merge_hands_the_sources_invitations_to_the_target(portal, ctx, make_account, make_wiki, query):
+    from bananawiki.hosting import accounts, collaborators, instances, merges
+
+    source, target, carol, admin = make_account(), make_account(), make_account(), make_account(admin=True)
+    wiki = make_wiki(source, "invited-to")
+    collaborators.add(instances.get(wiki["id"]), source, carol["username"], "custom", ["view"])
+    merges.admin_merge(source["username"], target["username"], admin)
+    assert query("SELECT invited_by FROM instance_collaborators", one=True)["invited_by"] == target["id"]
+    accounts.delete(admin["id"])
+    assert accounts.purge_tombstones() == 1
+    log = query("SELECT source_account_id, target_account_id, merged_by FROM hosting_account_merge_logs", one=True)
+    assert log == {"source_account_id": source["id"], "target_account_id": target["id"], "merged_by": None}

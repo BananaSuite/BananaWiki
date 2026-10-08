@@ -1192,9 +1192,16 @@
     }
     if (type === "image" && form.elements.alt.value.trim()) fields.alt = form.elements.alt.value.trim();
     if (type === "wiki_page") {
-      if (!this.pageChoice) { error.textContent = BW.t("canvas.dialog.page_required"); return false; }
-      fields.page_id = this.pageChoice.id;
-      if (this.pageChoice.slug) { fields.page_slug = this.pageChoice.slug; fields.label = this.pageChoice.title; }
+      /* A linked page this editor may not see arrives without its id; the server keeps the link. */
+      var linked = state.nodeId && this.scene.node(state.nodeId);
+      if (!this.pageChoice && !(linked && (linked.restricted || linked.deleted))) {
+        error.textContent = BW.t("canvas.dialog.page_required");
+        return false;
+      }
+      if (this.pageChoice) {
+        fields.page_id = this.pageChoice.id;
+        if (this.pageChoice.slug) { fields.page_slug = this.pageChoice.slug; fields.label = this.pageChoice.title; }
+      }
     }
     if (state.nodeId) {
       var node = this.scene.node(state.nodeId);
@@ -1202,7 +1209,7 @@
       ["display_text", "content", "language", "url", "alt", "shape", "color", "label", "page_id", "page_slug"].forEach(function (key) {
         if (!(key in fields)) delete node[key];
       });
-      if (type === "wiki_page" && !this.pageChoice.slug) fields.page_slug = node.page_slug;
+      if (type === "wiki_page" && this.pageChoice && !this.pageChoice.slug) fields.page_slug = node.page_slug;
       Object.keys(fields).forEach(function (key) { if (fields[key] !== undefined && fields[key] !== "") node[key] = fields[key]; });
       if (!fields.display_text) delete node.display_text;
       delete node.deleted;

@@ -31,7 +31,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from ..core.timeutil import to_sql
+from ..core.timeutil import MAX_YEAR, MIN_YEAR, parse, to_sql
 from .errors import ServiceError
 from .runtime import RuntimeFailure
 
@@ -121,20 +121,32 @@ def _instance(ref: str, domain_mode: str | None = None) -> dict[str, Any]:
     return found
 
 
+def _moment(value: str, name: str) -> datetime:
+    """An ISO date and time (UTC unless it says otherwise) within the years the portal accepts."""
+    if parse(value) is None:
+        raise CliError(f"{name} must be an ISO date and time.")
+    moment = parse(value, bounded=True)
+    if moment is None:
+        raise CliError(f"{name} must be between the years {MIN_YEAR} and {MAX_YEAR}.")
+    return moment.astimezone(UTC)
+
+
 def _until(args: argparse.Namespace) -> tuple[str | None, str]:
     if args.until:
-        try:
-            moment = datetime.fromisoformat(args.until.replace("Z", "+00:00"))
-        except ValueError as error:
-            raise CliError("--until must be an ISO date and time.") from error
-        moment = moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+        moment = _moment(args.until, "--until")
         if moment <= datetime.now(UTC):
             raise CliError("--until must be in the future.")
         return to_sql(moment), moment.strftime("%Y-%m-%d %H:%M UTC")
     if args.hours:
         if args.hours <= 0:
             raise CliError("--hours must be positive.")
-        return to_sql(datetime.now(UTC) + timedelta(hours=args.hours)), f"{args.hours}h"
+        try:
+            moment = datetime.now(UTC) + timedelta(hours=args.hours)
+        except OverflowError:
+            moment = None
+        if moment is None or moment.year > MAX_YEAR:
+            raise CliError(f"--hours is too large: the suspension would end after the year {MAX_YEAR}.")
+        return to_sql(moment), f"{args.hours}h"
     return None, "permanent"
 
 
@@ -227,8 +239,7 @@ def cmd_account_delete(args: argparse.Namespace) -> None:
     account = _account(args.account)
     _require_yes(args, "Deleting an account")
     accounts.check_deletable(account["id"])
-    for inst in instances.owned_by(account["id"]):
-        instances.terminate(inst, actor_id=None, reason="account_deleted")
+    instances.terminate_all(account["id"], actor_id=None)
     accounts.delete(account["id"])
     _audit("account.delete", {"account_id": account["id"], "username": account["username"]})
     _print(args, {"ok": True}, f"Deleted {account['username']}; their wikis were terminated.")
@@ -304,11 +315,7 @@ def cmd_instance_extend(args: argparse.Namespace) -> None:
 
 def cmd_instance_set_expiry(args: argparse.Namespace) -> None:
     inst = _instance(args.instance, args.domain_mode)
-    try:
-        moment = datetime.fromisoformat(args.expires_at.replace("Z", "+00:00"))
-    except ValueError as error:
-        raise CliError("expires_at must be an ISO date and time.") from error
-    moment = moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+    moment = _moment(args.expires_at, "expires_at")
     _instances().set_expiry(inst, to_sql(moment), actor_id=None)
     _audit("instance.set_expiry", {"instance_id": inst["id"], "expires_at": to_sql(moment)})
     _print(args, {"ok": True}, f"{inst['subdomain']} now expires at {to_sql(moment)} UTC.")

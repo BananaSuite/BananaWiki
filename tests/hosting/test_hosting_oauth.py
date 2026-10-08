@@ -232,9 +232,50 @@ def test_link_only_for_accounts_that_signed_in_to_that_wiki(web, make_account, l
                                                            "wiki_username": "wikiuser"})
     assert response.get_json() == {"ok": True}
     status = web.get("/oauth/link-status?wiki_user_id=7", headers=auth).get_json()
-    assert status == {"linked": True, "hosting_account_id": user["id"], "hosting_username": "wikiuser"}
+    assert status == {"linked": True, "hosting_account_id": user["id"], "hosting_username": "wikiuser",
+                      "wiki_user_id": "7"}
     web.post("/oauth/unlink", headers=auth, json={"account_id": user["id"]})
     assert web.get("/oauth/link-status?wiki_user_id=7", headers=auth).get_json() == {"linked": False}
+
+
+def test_links_survive_an_account_merge_on_the_wiki_side(portal, web, make_account, login, wiki_client, query):
+    """The wiki keeps naming the source; the portal answers by account, relinks idempotently, unlinks by wiki user."""
+    source, target, admin = make_account(), make_account(), make_account(admin=True)
+    auth = {"Authorization": "Basic " + base64.b64encode(f"{wiki_client['id']}:{wiki_client['secret']}".encode()).decode()}
+    login(web, source)
+    _token(web, wiki_client, _authorize(web, wiki_client)["code"][0])
+    assert web.post("/oauth/link", headers=auth, json={"account_id": source["id"], "wiki_user_id": "7",
+                                                       "wiki_username": "sam"}).get_json() == {"ok": True}
+    with portal.test_request_context("/"), connection_scope():
+        from bananawiki.hosting import merges
+
+        merges.admin_merge(source["username"], target["username"], admin)
+    status = web.get(f"/oauth/link-status?account_id={target['id']}", headers=auth).get_json()
+    assert status == {"linked": True, "hosting_account_id": target["id"], "hosting_username": "sam",
+                      "wiki_user_id": "7"}
+    assert web.get(f"/oauth/link-status?account_id={source['id']}", headers=auth).get_json() == {"linked": False}
+    member = portal.test_client()
+    login(member, target)
+    _token(member, wiki_client, _authorize(member, wiki_client)["code"][0])
+    relink = web.post("/oauth/link", headers=auth, json={"account_id": target["id"], "wiki_user_id": "7",
+                                                          "wiki_username": "sam2"})
+    assert relink.get_json() == {"ok": True}, "the same pair again is not a conflict"
+    other = web.post("/oauth/link", headers=auth, json={"account_id": target["id"], "wiki_user_id": "8"})
+    assert other.status_code == 409
+    web.post("/oauth/unlink", headers=auth, json={"account_id": source["id"], "wiki_user_id": "7"})
+    assert query("SELECT * FROM hosting_oauth_account_links") == []
+
+
+def test_linking_a_wiki_user_again_replaces_its_stale_link(portal, make_account, login, wiki_client, query):
+    first, second = make_account(), make_account()
+    auth = {"Authorization": "Basic " + base64.b64encode(f"{wiki_client['id']}:{wiki_client['secret']}".encode()).decode()}
+    for account in (first, second):
+        browser = portal.test_client()
+        login(browser, account)
+        _token(browser, wiki_client, _authorize(browser, wiki_client)["code"][0])
+        assert browser.post("/oauth/link", headers=auth, json={"account_id": account["id"], "wiki_user_id": "9"}
+                            ).get_json() == {"ok": True}
+    assert query("SELECT account_id FROM hosting_oauth_account_links") == [{"account_id": second["id"]}]
 
 
 def test_consent_post_is_csrf_protected(tmp_path, make_account):

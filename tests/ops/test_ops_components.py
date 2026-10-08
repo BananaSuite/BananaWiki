@@ -23,6 +23,7 @@ from bananawiki.ops.files import (
     read_package,
     regular_files,
     write_environment,
+    write_json,
     write_package,
 )
 from bananawiki.ops.manager import Manager
@@ -71,7 +72,7 @@ def test_snapshot_links_immutable_files_and_copies_databases_online(tmp_path):
     writer.execute("INSERT INTO t VALUES ('committed')")
     writer.commit()  # the writer stays open: the WAL is not checkpointed
     snapshot = Snapshot.create(root)
-    index = read_json(snapshot.path / "index.json")["files"]
+    index = snapshot.index()
     assert index["data/uploads/big.bin"]["method"] == "link"
     assert (snapshot.path / "data/uploads/big.bin").stat().st_ino == upload.stat().st_ino
     assert index["data/logs/app.log"]["method"] == "copy"
@@ -143,6 +144,73 @@ def test_package_round_trip_and_tamper_detection(tmp_path):
             output.addfile(member, io.BytesIO(data))
     with pytest.raises(ValueError, match="integrity"), read_package(tampered, "BananaWiki", tmp_path / "stage"):
         pass
+
+
+def test_package_limits_follow_the_configured_file_count(tmp_path):
+    """BANANA_PACKAGE_MAX_FILES: a package of exactly the limit is written and restored (with its manifest)."""
+    source = tmp_path / "src"
+    source.mkdir()
+    inputs = []
+    for number in range(30):
+        (source / f"{number}.txt").write_text(str(number))
+        inputs.append((source / f"{number}.txt", f"data/{number}.txt"))
+    with pytest.raises(ValueError, match="package limit of 29 files"):
+        write_package(tmp_path / "over.tar.gz", {"product": "BananaWiki"}, inputs, max_files=29)
+    package = write_package(tmp_path / "p.tar.gz", {"product": "BananaWiki"}, inputs, max_files=30)
+    with read_package(package, "BananaWiki", tmp_path / "stage", max_files=30) as (tree, manifest):
+        assert len(manifest["files"]) == 30 and (tree / "data/29.txt").read_text() == "29"
+    with pytest.raises(ValueError, match="file limits"), \
+            read_package(package, "BananaWiki", tmp_path / "stage", max_files=29):
+        pass
+
+
+def test_a_package_manifest_is_bounded_by_the_files_it_holds(tmp_path):
+    """Bounded by the configured limit instead, a one-file package could make a restore load about 1 GB."""
+    import hashlib
+    import io
+
+    content = b"content"
+    raw = json.dumps({"schema": 1, "product": "BananaWiki", "padding": "x" * (17 * 1024 * 1024),
+                      "files": {"data/a.txt": {"sha256": hashlib.sha256(content).hexdigest(),
+                                               "size": len(content)}}}).encode()
+    package = tmp_path / "padded.tar.gz"
+    with tarfile.open(package, "w:gz") as archive:
+        for name, data in (("data/a.txt", content), ("manifest.json", raw)):
+            info = tarfile.TarInfo(name)
+            info.size, info.mode = len(data), 0o600
+            archive.addfile(info, io.BytesIO(data))
+    with pytest.raises(ValueError, match="manifest.json"), read_package(package, "BananaWiki", tmp_path / "stage"):
+        pass
+
+
+def test_a_snapshot_recorded_by_an_earlier_controller_is_still_put_back(tmp_path):
+    """Its journal is recovered by the release the update switched to, whose controller reads ``index.jsonl``."""
+    root = make_root(tmp_path)
+    (root / "data/page.txt").write_text("before")
+    snapshot = Snapshot.create(root)
+    index = snapshot.index()
+    (snapshot.path / "index.jsonl").unlink()
+    write_json(snapshot.path / "index.json", {"schema": 1, "files": index, "complete": True})
+    opened = Snapshot.open(snapshot.path, root)
+    assert opened.index() == index and [name for _path, name in opened.inputs()] == sorted(index)
+    opened.copy_tree("data", tmp_path / "restored")
+    assert (tmp_path / "restored/page.txt").read_text() == "before"
+    (snapshot.path / "index.json").unlink()
+    with pytest.raises(ValueError, match="incomplete or missing"):
+        Snapshot.open(snapshot.path, root)
+
+
+def test_a_damaged_snapshot_index_is_refused(tmp_path):
+    root = make_root(tmp_path)
+    (root / "data/page.txt").write_text("before")
+    snapshot = Snapshot.create(root)
+    index = snapshot.path / "index.jsonl"
+    lines = index.read_bytes().splitlines(keepends=True)
+    for damaged in (lines[0] + lines[1][:-1], lines[0] + b'["data/x", "move", []]\n',
+                    lines[0] + b'["' + b"x" * 70_000 + b'", "copy", []]\n'):
+        index.write_bytes(damaged)
+        with pytest.raises(ValueError, match="damaged"):
+            snapshot.index()
 
 
 def test_extract_rejects_traversal_and_links(tmp_path):

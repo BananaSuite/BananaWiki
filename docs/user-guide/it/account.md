@@ -30,7 +30,8 @@ Cambia la password nelle Impostazioni. Così facendo le altre sessioni vengono
 chiuse (quella attuale resta) e i tuoi token API smettono di funzionare.
 Cambiando il nome utente le pagine restano come sono: le `@menzioni` del
 vecchio nome portano ancora al tuo profilo e nessun altro può prendere quel
-nome. Puoi cambiarlo tre volte al giorno.
+nome, a meno che un amministratore non lo liberi. Puoi cambiarlo tre volte
+al giorno.
 
 ## Sessioni
 
@@ -61,7 +62,10 @@ account confermano con la propria password, poi un amministratore approva.
 ## Eliminare l'account
 
 **Elimina account** rimuove definitivamente il tuo account. Le pagine che hai
-scritto restano; la loro cronologia non riporta più il tuo nome.
+scritto restano; la loro cronologia non riporta più il tuo nome. Le bacheche
+Kanban che hai creato passano a un amministratore, mentre le tue schede e i
+tuoi commenti restano sulle bacheche, a nome del proprietario della bacheca;
+ogni commento si apre con una nota che ti indica come autore.
 
 ## Se il tuo account è bloccato
 

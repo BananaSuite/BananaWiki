@@ -68,7 +68,9 @@ decide qualcosa, scrivilo in una pagina.
   colonne, le checklist e le schede archiviate, e cosa è cambiato in
   ciascuno; ripristinarne uno non elimina mai schede, commenti o file.
 * Chi ha creato la bacheca può condividerla con persone o ruoli (lettura o
-  scrittura), renderla pubblica, esportarla o eliminarla.
+  scrittura), renderla pubblica, esportarla o eliminarla. **Altro → Esporta
+  senza allegati** esporta solo la bacheca, per esempio quando i suoi file
+  sono troppi o troppo grandi per un'unica esportazione.
 * Inserisci una bacheca in una pagina con `[[kanban board="<numero>"]]`.
 
 ## Canvas

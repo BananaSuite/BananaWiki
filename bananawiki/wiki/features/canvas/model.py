@@ -250,11 +250,13 @@ def clean_viewport(raw: Any) -> dict[str, float]:
     }
 
 
-def clean_document(raw: Any) -> dict[str, Any]:
+def clean_document(raw: Any, *, strict: bool = False) -> dict[str, Any]:
     """A clean copy of a whole document; anything unreadable becomes empty.
 
     Duplicate ids keep their last occurrence, and edges whose ends are not
-    nodes of the document are dropped.
+    nodes of the document are dropped. With *strict* (documents sent by
+    clients and imports) a document listing more nodes or edges than a canvas
+    may hold is refused before any of them is cleaned.
     """
     if isinstance(raw, (str, bytes)):
         try:
@@ -262,14 +264,18 @@ def clean_document(raw: Any) -> dict[str, Any]:
         except (TypeError, ValueError):
             raw = None
     raw = raw if isinstance(raw, dict) else {}
+    raw_nodes = raw.get("nodes") if isinstance(raw.get("nodes"), list) else []
+    raw_edges = raw.get("edges") if isinstance(raw.get("edges"), list) else []
+    if strict:
+        check_counts(len(raw_nodes), len(raw_edges))
     nodes: dict[str, dict[str, Any]] = {}
-    for item in raw.get("nodes") if isinstance(raw.get("nodes"), list) else []:
+    for item in raw_nodes:
         node = clean_node(item)
         if node is not None:
             nodes.pop(node["id"], None)
             nodes[node["id"]] = node
     edges: dict[str, dict[str, Any]] = {}
-    for item in raw.get("edges") if isinstance(raw.get("edges"), list) else []:
+    for item in raw_edges:
         edge = clean_edge(item)
         if edge is not None and edge["from"] in nodes and edge["to"] in nodes:
             edges.pop(edge["id"], None)
@@ -278,12 +284,16 @@ def clean_document(raw: Any) -> dict[str, Any]:
             "viewport": clean_viewport(raw.get("viewport"))}
 
 
+def check_counts(nodes: int, edges: int) -> None:
+    if nodes > MAX_NODES:
+        raise DocumentError("canvas.error.too_many_nodes", limit=MAX_NODES)
+    if edges > MAX_EDGES:
+        raise DocumentError("canvas.error.too_many_edges", limit=MAX_EDGES)
+
+
 def serialize(document: dict[str, Any]) -> str:
     """Stored form of a clean document; refuses documents over the limits."""
-    if len(document["nodes"]) > MAX_NODES:
-        raise DocumentError("canvas.error.too_many_nodes", limit=MAX_NODES)
-    if len(document["edges"]) > MAX_EDGES:
-        raise DocumentError("canvas.error.too_many_edges", limit=MAX_EDGES)
+    check_counts(len(document["nodes"]), len(document["edges"]))
     text = json.dumps(document, ensure_ascii=False, separators=(",", ":"))
     if len(text.encode("utf-8")) > MAX_DOCUMENT_BYTES:
         raise DocumentError("canvas.error.too_large", limit_mb=MAX_DOCUMENT_BYTES // (1024 * 1024))
@@ -340,6 +350,8 @@ def apply_ops(document: dict[str, Any], ops: Any,
         kind = raw.get("op") or raw.get("type")
         if kind == "upsert_node":
             node = clean_node(raw.get("node"))
+            if node is not None:
+                keep_page_link(nodes.get(node["id"]), node)
             if node is not None and lock_violation(nodes.get(node["id"]), node):
                 _reject(rejected, kind, node["id"])
             elif node is not None:
@@ -378,6 +390,41 @@ def locked_changes(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     """Ids of locked nodes of *before* that the whole document *after* changes or drops."""
     new = {node["id"]: node for node in after["nodes"]}
     return [node["id"] for node in before["nodes"] if lock_violation(node, new.get(node["id"]))]
+
+
+def drop_page_details(node: dict[str, Any]) -> None:
+    """Remove what a wiki-page node shows of its page; only a slug without a page id stays."""
+    node.pop("label", None)
+    node.pop("deleted", None)
+    if node.get("page_id"):
+        node.pop("page_slug", None)
+
+
+def keep_page_link(current: dict[str, Any] | None, new: dict[str, Any]) -> None:
+    """Give wiki-page node *new* the page of *current* when it arrives without one.
+
+    Readers who may not see a linked page receive its node without the page
+    (see :mod:`.present`), so what they save carries the stored link forward.
+    A locked node always keeps its stored page, whatever page *new* names:
+    otherwise the lock check would tell a reader who guesses page ids which
+    one the node links to.
+    """
+    if current is None or new["type"] != "wiki_page" or current["type"] != "wiki_page":
+        return
+    if not current.get("locked") and (new.get("page_id") or new.get("page_slug")):
+        return
+    for key in ("page_id", "page_slug"):
+        if current.get(key):
+            new[key] = current[key]
+        else:
+            new.pop(key, None)
+
+
+def keep_page_links(before: dict[str, Any], after: dict[str, Any]) -> None:
+    """:func:`keep_page_link` for every node of the whole document *after*."""
+    old = {node["id"]: node for node in before["nodes"]}
+    for node in after["nodes"]:
+        keep_page_link(old.get(node["id"]), node)
 
 
 # ── Helpers used by exports, imports and upload cleanup ──────────────────────

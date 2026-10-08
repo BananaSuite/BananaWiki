@@ -28,7 +28,7 @@ import secrets
 import shutil
 import subprocess
 import tarfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,7 +36,9 @@ from typing import Any
 
 from . import DEFAULT_SOURCE_URL, PRODUCT, caddy, profile
 from .files import (
+    DEFAULT_MAX_FILES,
     MAINTENANCE_MARKER,
+    Refused,
     absolute_path,
     append_jsonl,
     atomic_write,
@@ -53,8 +55,9 @@ from .files import (
 )
 from .profile import TENANT_IMAGE, ReleaseFeatures, Service
 from .snapshot import Snapshot, stale_snapshots
+from .snapshot import sources as snapshot_sources
 from .source import GitSource, credential_host, valid_branch, valid_revision, valid_url
-from .system import DockerUnavailable, System
+from .system import System
 
 DEFAULT_POLICY = {"enabled": False, "interval_minutes": 60, "keep_backups": 3}
 PRUNED_PREFIXES = ("auto", "before-update")
@@ -65,6 +68,10 @@ log = logging.getLogger("bananawiki.ops")
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+class InvalidPackageLimit(Refused, ValueError):
+    """``BANANA_PACKAGE_MAX_FILES`` is not a valid number of files; checked before anything changes."""
 
 
 def tenant_names(directories: Iterable[str]) -> list[str]:
@@ -105,6 +112,21 @@ class Manager:
         if not 2 <= keep <= 30:
             raise ValueError("Keep between 2 and 30 automatic backups.")
         return data
+
+    def package_limit(self) -> int:
+        """The most files a package (so a backup or an update) may hold: ``BANANA_PACKAGE_MAX_FILES`` in ``app.env``.
+
+        Without ``app.env`` yet (``install --restore`` on a new server) the default applies.
+        An invalid value raises :class:`InvalidPackageLimit`: operations read
+        it before they stop anything.
+        """
+        value = read_environment(self.config_dir / "app.env").get("BANANA_PACKAGE_MAX_FILES", "").strip()
+        if not value:
+            return DEFAULT_MAX_FILES
+        if not value.isascii() or not value.isdigit() or not 1000 <= int(value) <= 100_000_000:
+            raise InvalidPackageLimit("BANANA_PACKAGE_MAX_FILES in config/app.env must be a number of files "
+                                      "between 1000 and 100000000.")
+        return int(value)
 
     def source(self) -> dict[str, Any]:
         data = read_json(self.config_dir / "source.json")
@@ -489,23 +511,30 @@ class Manager:
         (self.config_dir / "transaction.json").unlink(missing_ok=True)
         return unready, sorted(others)
 
-    def check_tenants(self, settings: dict[str, Any], directories: list[str]) -> list[str]:
+    def check_tenants(self, settings: dict[str, Any], directories: Collection[str] | None, *,
+                      waited: Collection[str] = ()) -> list[str]:
         """The wikis of *directories* still running in the portal database that do not serve now (one probe each).
 
-        Only a report, made once an operation is complete: whatever goes wrong
-        here leaves the operation and its result as they are.
+        *directories* None means every wiki running in the portal database
+        (none of them served when the operation began: after ``stop``, or on
+        a new server), except those already *waited* for. Only a report, made
+        once an operation is complete: whatever goes wrong here leaves the
+        operation and its result as they are.
         """
-        if not directories:
+        if settings["mode"] != "hosting" or directories is not None and not directories:
             return []
         platform: list[str] = []  # Docker or the portal database not answering, for example
         try:
-            issues = self.system.tenant_issues(settings, self.services(settings), directories, platform)
+            if directories is None:
+                directories = self.system.expected_tenant_directories(settings)
+            directories = set(directories) - set(waited)
+            issues = (self.system.tenant_issues(settings, self.services(settings), directories, platform)
+                      if directories else {})
         except Exception as error:  # noqa: BLE001 - never turns a completed operation into a failed one
             platform.append(str(error))
             issues = {}
         if platform:
-            log.warning("The wikis that were failing before the operation were not fully checked: %s",
-                        "; ".join(platform))
+            log.warning("Once the operation was complete, the wikis were not fully checked: %s", "; ".join(platform))
         return tenant_names(issues)
 
     def allowed_link(self, settings: dict[str, Any]) -> Callable[[Path], bool] | None:
@@ -514,17 +543,30 @@ class Manager:
         data = self.root / "data"
         return lambda path: profile.inside_tenant(path, data)
 
+    def preflight(self, settings: dict[str, Any], *revisions: str) -> None:
+        """Refuse an operation (:class:`~.files.Refused`) before it stops anything.
+
+        Docker must answer, and the wikis running now must be able to start
+        again under each release of *revisions* (default: the current one).
+        """
+        self.system.check_docker(settings)
+        if any(self.features(revision).project_quotas for revision in revisions or (settings["revision"],)):
+            self.system.check_tenant_storage(settings)
+
     def guarded(self, settings: dict[str, Any], body: Callable[[dict[str, Any]], Any], *,
-                candidate: str | None = None) -> tuple[Any, Snapshot]:
+                candidate: str | None = None, target: str | None = None) -> tuple[Any, Snapshot]:
         """Snapshot (live), quiesce, refresh, run *body*; on any failure put everything back.
 
-        Returns ``(body result, snapshot)``; the caller writes the package from
-        the snapshot once the service is back and then removes it.
+        *target* is the release that runs once *body* succeeded (default:
+        *candidate*, else the current one). Returns ``(body result,
+        snapshot)``; the caller writes the package from the snapshot once the
+        service is back and then removes it.
         """
         # Before anything stops. The journal's list of containers is taken only in quiesce, once the maintenance
         # service is stopped.
-        self.system.check_docker(settings)
-        snapshot = Snapshot.create(self.root, self.allowed_link(settings))
+        max_files = self.package_limit()
+        self.preflight(settings, settings["revision"], target or candidate or settings["revision"])
+        snapshot = Snapshot.create(self.root, self.allowed_link(settings), max_files=max_files)
         journal = self.journal_state(settings)
         journal.update(candidate=candidate, snapshot=str(snapshot.path))
         try:
@@ -548,7 +590,8 @@ class Manager:
         The package is only returned (recorded as the rollback target, uploaded
         and followed by remote pruning) once :func:`read_package` accepts it,
         exactly as a restore would. The snapshot is removed first, so the
-        verification does not need space for both.
+        verification does not need space for both. The package limit is the
+        one the snapshot was taken under (a restore replaces ``app.env``).
         """
         source_archive = self.release(settings["revision"]) / ".source.tar.gz"
         inputs = [*snapshot.inputs(), (source_archive, "source.tar.gz")]
@@ -557,16 +600,16 @@ class Manager:
                 "product": PRODUCT, "mode": settings["mode"], "revision": settings["revision"],
                 "created_at": _now(), "old_root": str(self.root), "model_weights_excluded": False,
                 "excluded_paths": [],
-            }, inputs)
+            }, inputs, max_files=snapshot.max_files)
         finally:
             snapshot.remove()
-        self.verify_package(package)
+        self.verify_package(package, snapshot.max_files)
         return package
 
-    def verify_package(self, package: Path) -> None:
+    def verify_package(self, package: Path, max_files: int) -> None:
         """Refuse (and delete) a package that a restore would refuse."""
         try:
-            with read_package(package, PRODUCT, self.root / "staging"):
+            with read_package(package, PRODUCT, self.root / "staging", max_files=max_files):
                 pass
         except Exception as error:
             package.unlink(missing_ok=True)
@@ -638,9 +681,11 @@ class Manager:
             candidate = {**settings, "revision": sha, "source_url": source["url"]}
             try:
                 # Before stage(): building the tenant image needs Docker, and a build that fails because
-                # Docker is down would otherwise be recorded as this revision's failure.
+                # Docker is down would otherwise be recorded as this revision's failure. An invalid package
+                # limit is refused here too, rather than once the release is built.
+                self.package_limit()
                 self.system.check_docker(settings)
-            except DockerUnavailable as error:
+            except Refused as error:
                 self.event("update", "failed", revision=sha, reason=str(error))
                 raise
             try:
@@ -676,7 +721,7 @@ class Manager:
                 details["image_warnings"] = warnings
             try:
                 others, snapshot = self.guarded(settings, apply, candidate=sha)
-            except DockerUnavailable as error:
+            except Refused as error:
                 # Nothing was stopped: not this revision's failure, so the next automatic run tries it again.
                 self.event("update", "failed", revision=sha, reason=str(error))
                 raise
@@ -734,12 +779,20 @@ class Manager:
             details = self.refresh_proxy(settings, undo)
             (self.config_dir / PROXY_ROLLBACK).unlink(missing_ok=True)
             return {"units": units_outdated, **details}
+        # Before anything stops. Only restarted services need the storage check: the maintenance service, once
+        # started again, restarts every running wiki whose storage quota is not verified.
+        if units_outdated:
+            self.preflight(settings)
+        else:
+            self.system.check_docker(settings)
         saved = self.system.save_units(settings, names)
         environment = (self.config_dir / "app.env").read_bytes()
-        serving = self.system.serving_tenants(self.system.containers(settings))
         try:
             if units_outdated:
                 self.system.stop(names)
+            # Listed once the maintenance service is stopped: until then it can remove wikis (R-13).
+            serving = self.system.serving_tenants(self.system.containers(settings))
+            if units_outdated:
                 self.write_runtime(settings)
                 self.install_units(settings)
             details = self.refresh_proxy(settings, undo)
@@ -873,7 +926,14 @@ class Manager:
                             copy_source=journal.get("restore_source", False))
             restored = True
         elif from_package:
-            with read_package(Path(journal["backup"]), PRODUCT, self.root / "staging") as (extracted, manifest):
+            # Written by the 1.4 updater (at most 100,000 files): put back whatever the setting says now.
+            try:
+                max_files = max(self.package_limit(), DEFAULT_MAX_FILES)
+            except InvalidPackageLimit as error:
+                log.warning("%s The default applies to this recovery.", error)
+                max_files = DEFAULT_MAX_FILES
+            with read_package(Path(journal["backup"]), PRODUCT, self.root / "staging",
+                              max_files=max_files) as (extracted, manifest):
                 self.apply_tree(extracted, manifest["old_root"], settings,
                                 copy_source=journal.get("restore_source", False))
             restored = True
@@ -929,7 +989,8 @@ class Manager:
             existing = read_json(self.config_dir / "installation.json")
             if new and existing:
                 raise ValueError("Use restore on an existing installation, or choose an empty --root.")
-            with read_package(Path(package), PRODUCT, self.root / "staging") as (extracted, manifest):
+            with read_package(Path(package), PRODUCT, self.root / "staging",
+                              max_files=self.package_limit()) as (extracted, manifest):
                 restored = self.restored_settings(extracted, manifest, name=name, domain=domain, port=port)
                 if existing and restored["mode"] != existing["mode"]:
                     raise ValueError("A restore cannot change deployment mode. Use a separate installation root.")
@@ -940,7 +1001,7 @@ class Manager:
                 if not existing:
                     self.system.preflight(restored, self.services(restored))
 
-                def apply(journal: dict[str, Any] | None) -> list[str]:
+                def apply(journal: dict[str, Any] | None) -> list[str] | None:
                     if journal:
                         # Updates preserve the operator's source settings, but
                         # a restore replaces them and must roll them back too.
@@ -961,11 +1022,11 @@ class Manager:
                         raise RuntimeError("The restored service failed its health checks. Maintenance mode remains active.")
                     self.tenant_maintenance(restored, False)
                     (self.root / "data" / MAINTENANCE_MARKER).unlink(missing_ok=True)
-                    return []
+                    return None  # no wiki served here before: every one running in the database is checked
 
                 details: dict[str, Any] = {}
                 if existing:
-                    others, snapshot = self.guarded(self.settings(), apply)
+                    others, snapshot = self.guarded(self.settings(), apply, target=restored["revision"])
                     try:
                         details["previous_package"] = str(
                             self.package_from(snapshot, existing, self.backup_name("before-restore")))
@@ -973,11 +1034,11 @@ class Manager:
                         details["backup_warning"] = f"The pre-restore package could not be written: {error}"
                     finally:
                         snapshot.remove()
-                    unready = self.check_tenants(restored, others)
-                    if unready:
-                        details["unready_tenants"] = unready
                 else:
-                    apply(None)
+                    others = apply(None)
+                unready = self.check_tenants(restored, others)
+                if unready:
+                    details["unready_tenants"] = unready
             return self.event("restore", "complete", revision=restored["revision"], automatic_updates=False, **details)
 
     def _disable_remote_schedule(self, settings: dict[str, Any]) -> None:
@@ -1052,7 +1113,23 @@ class Manager:
             "environment_file": str(self.config_dir / "app.env"),
             "backups": sorted(path.name for path in (self.root / "backups").glob("*.tar.gz")),
             "remote_backups": Store(self.config_dir / "remote-backup", PRODUCT).status(),
+            **self.package_status(settings),
         }
+
+    def package_status(self, settings: dict[str, Any]) -> dict[str, Any]:
+        """How many files a package would hold now, the limit, and a warning when backups and updates near it."""
+        try:
+            limit = self.package_limit()
+            files = len(snapshot_sources(self.root, self.allowed_link(settings))) + 1  # and the release's source
+        except (OSError, ValueError) as error:
+            return {"package_files": None, "package_file_limit": None,
+                    "warnings": [f"Backups and updates would fail: {error}"]}
+        output: dict[str, Any] = {"package_files": files, "package_file_limit": limit}
+        if files > limit * 0.8:
+            output["warnings"] = [
+                f"The installation holds {files:,} files and a package may hold {limit:,}: beyond that every "
+                "backup and update is refused. Raise BANANA_PACKAGE_MAX_FILES in config/app.env, or remove files."]
+        return output
 
     def uninstall(self, *, purge: bool = False, confirm: str = "") -> dict[str, Any]:
         from .backups.files import lock as backup_lock

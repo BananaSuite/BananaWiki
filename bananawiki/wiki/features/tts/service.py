@@ -11,6 +11,8 @@ One row per page (``page_id`` is unique)::
   worker threads or processes can share the queue.
 * A claimed row carries a lease that the worker renews; a row whose lease
   expired (the worker died) goes back to ``pending`` (:func:`recover_stale`).
+  The lease is never renewed past ``BW_TTS_MAX_JOB_SECONDS``, and a job that
+  ran that long, or whose worker died :data:`MAX_ATTEMPTS` times, fails.
 * A failure is retried with exponential backoff (``not_before``) until the
   retry budget is used; a rate-limited backend postpones the job without
   using the budget; permanent errors fail at once.
@@ -40,6 +42,7 @@ log = logging.getLogger("bananawiki.tts")
 
 ACTIVE = ("pending", "processing")
 LEASE_SECONDS = 120
+MAX_ATTEMPTS = 3  # claims that may end without an answer from their worker
 ORPHAN_MIN_AGE_SECONDS = 3600
 ERROR_MAX = 500
 
@@ -430,7 +433,9 @@ def claim(scan: int = 10) -> Job | None:
 
     The page is normalised before the write transaction, which only checks
     that the job is still pending and the page still has the text that was
-    read: a long page never holds the database's write lock.
+    read: a long page never holds the database's write lock. The claim
+    counts as an attempt until the worker reports back (see
+    :func:`recover_stale`).
     """
     now = now_sql()
     for job_id in db.column(f"SELECT g.id FROM tts_generations g WHERE {_RUNNABLE} "
@@ -454,7 +459,7 @@ def claim(scan: int = 10) -> Job | None:
             digest = text.content_hash(spoken, row["language"])
             db.execute(
                 "UPDATE tts_generations SET status = 'processing', started_at = ?, lease_until = ?, "
-                "content_hash = ?, completed_at = NULL WHERE id = ? AND status = 'pending'",
+                "content_hash = ?, completed_at = NULL, attempts = attempts + 1 WHERE id = ? AND status = 'pending'",
                 (now, sql_in(seconds=LEASE_SECONDS), digest, job_id),
             )
             return Job(job_id, row["page_id"], row["language"], digest, spoken, int(row["retry_count"] or 0))
@@ -462,10 +467,15 @@ def claim(scan: int = 10) -> Job | None:
 
 
 def renew(job_ids: list[int]) -> None:
+    """Extend the leases of running jobs, never past ``BW_TTS_MAX_JOB_SECONDS`` after their start."""
     if job_ids:
         marks = ",".join("?" for _ in job_ids)
-        db.execute(f"UPDATE tts_generations SET lease_until = ? WHERE status = 'processing' AND id IN ({marks})",
-                   (sql_in(seconds=LEASE_SECONDS), *job_ids))
+        lease = sql_in(seconds=LEASE_SECONDS)
+        db.execute(
+            "UPDATE tts_generations SET lease_until = MIN(?, COALESCE(datetime(started_at, ?), ?)) "
+            f"WHERE status = 'processing' AND id IN ({marks})",
+            (lease, f"+{int(options.config().max_job_seconds)} seconds", lease, *job_ids),
+        )
 
 
 def final_filename(job: Job, extension: str) -> str:
@@ -491,13 +501,18 @@ def retry_delay(retry_count: int) -> float:
     return min(delay, cfg.resume_max_delay) if cfg.resume_max_delay > 0 else delay
 
 
+# A worker that reports back gives its claim back: only claims that ended
+# without an answer (the worker died) stay counted in ``attempts``.
+_ANSWERED = "attempts = MAX(attempts - 1, 0)"
+
+
 def fail(job: Job, error: backends.SynthesisError) -> str:
     """Record a failure: ``"cooldown"``, ``"retry"`` or ``"failed"``."""
     message = str(error)[:ERROR_MAX]
     cfg = options.config()
     if error.rate_limited:
         cursor = db.execute(
-            "UPDATE tts_generations SET status = 'pending', started_at = NULL, lease_until = NULL, "
+            f"UPDATE tts_generations SET status = 'pending', started_at = NULL, lease_until = NULL, {_ANSWERED}, "
             "error_message = ?, not_before = ? WHERE id = ? AND status = 'processing'",
             (message, sql_in(seconds=cfg.rate_limit_cooldown), job.id),
         )
@@ -505,7 +520,7 @@ def fail(job: Job, error: backends.SynthesisError) -> str:
     if error.retryable and job.retry_count < cfg.max_auto_resume_attempts:
         cursor = db.execute(
             "UPDATE tts_generations SET status = 'pending', retry_count = retry_count + 1, started_at = NULL, "
-            "lease_until = NULL, error_message = ?, not_before = ? WHERE id = ? AND status = 'processing'",
+            f"lease_until = NULL, {_ANSWERED}, error_message = ?, not_before = ? WHERE id = ? AND status = 'processing'",
             (message, sql_in(seconds=retry_delay(job.retry_count + 1)), job.id),
         )
         if cursor.rowcount:
@@ -521,19 +536,45 @@ def fail(job: Job, error: backends.SynthesisError) -> str:
 def release(job_id: int) -> None:
     """Give a job back to the queue (worker shutting down)."""
     db.execute(
-        "UPDATE tts_generations SET status = 'pending', started_at = NULL, lease_until = NULL "
+        f"UPDATE tts_generations SET status = 'pending', started_at = NULL, lease_until = NULL, {_ANSWERED} "
         "WHERE id = ? AND status = 'processing'", (job_id,),
     )
 
 
+_EXPIRED = "status = 'processing' AND COALESCE(lease_until, datetime(started_at, ?), requested_at) < ?"
+_FAIL_STALE = "UPDATE tts_generations SET status = 'failed', error_message = ?, completed_at = ?, lease_until = NULL "
+
+
 def recover_stale() -> int:
-    """Hand jobs whose worker stopped renewing its lease back to the queue."""
-    cursor = db.execute(
-        "UPDATE tts_generations SET status = 'pending', started_at = NULL, lease_until = NULL "
-        "WHERE status = 'processing' AND COALESCE(lease_until, datetime(started_at, ?), requested_at) < ?",
-        (f"+{LEASE_SECONDS} seconds", now_sql()),
-    )
-    return cursor.rowcount
+    """Hand jobs whose worker stopped renewing its lease back to the queue.
+
+    Two kinds fail instead, because running them again would only repeat
+    what went wrong: a job whose lease ran out at ``BW_TTS_MAX_JOB_SECONDS``
+    (:func:`renew` stops there) took too long, and a job claimed
+    :data:`MAX_ATTEMPTS` times without an answer keeps stopping its worker
+    (out of memory, a crash in the speech engine). Returns the number of
+    jobs put back in the queue.
+    """
+    now = now_sql()
+    expired = (f"+{LEASE_SECONDS} seconds", now)
+    seconds = int(options.config().max_job_seconds)
+    too_long = db.execute(
+        f"{_FAIL_STALE} WHERE {_EXPIRED} AND lease_until >= datetime(started_at, ?)",
+        (f"The job ran longer than {seconds} seconds (BW_TTS_MAX_JOB_SECONDS).", now, *expired,
+         f"+{seconds} seconds"),
+    ).rowcount
+    lost = db.execute(
+        f"{_FAIL_STALE} WHERE {_EXPIRED} AND attempts >= ?",
+        (f"The worker stopped {MAX_ATTEMPTS} times while reading this page (for example it ran out of "
+         "memory), so the job is not retried automatically.", now, *expired, MAX_ATTEMPTS),
+    ).rowcount
+    if too_long or lost:
+        log.warning("Read-aloud: %s job(s) ran too long and %s stopped their worker too often; marked failed",
+                    too_long, lost)
+    return db.execute(
+        f"UPDATE tts_generations SET status = 'pending', started_at = NULL, lease_until = NULL WHERE {_EXPIRED}",
+        expired,
+    ).rowcount
 
 
 def process(job: Job, synthesizer: backends.Synthesizer) -> str:

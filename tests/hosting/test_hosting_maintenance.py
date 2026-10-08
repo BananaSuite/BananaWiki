@@ -132,6 +132,78 @@ def test_one_failing_account_deletion_does_not_block_the_next(portal, make_accou
     assert query(active, (first["id"],), one=True) is None, "retried on the next pass"
 
 
+def _age_failures(query, step: str, minutes: int) -> None:
+    query("UPDATE hosting_events SET created_at = ? WHERE action = ?", (sql_in(minutes=-minutes),
+                                                                       f"maintenance.{step}.failed"))
+
+
+def _events(query, subject_id: str, action: str) -> int:
+    return query("SELECT COUNT(*) AS n FROM hosting_events WHERE subject_id = ? AND action = ?",
+                 (subject_id, action), one=True)["n"]
+
+
+def test_an_expired_wiki_failing_on_every_pass_waits_between_attempts(portal, make_account, make_wiki, query,
+                                                                       runtime, monkeypatch):
+    owner = make_account()
+    stuck, later = make_wiki(owner, "stuck-expired"), make_wiki(owner, "later-expired")
+    query("UPDATE instances SET expires_at = '2000-01-01 00:00:00'")
+    stop, attempts = runtime.stop, []
+
+    def broken(spec):
+        if spec.slug == "stuck-expired":
+            attempts.append(spec.slug)
+            raise OSError("container state unreadable")
+        stop(spec)
+
+    monkeypatch.setattr(runtime, "stop", broken)
+    for _ in range(4):
+        maintenance.run_once(portal)
+    assert len(attempts) == 3, "after three failures in a row the wiki waits"
+    assert _events(query, stuck["id"], "maintenance.terminate_expired.failed") == 3
+    assert query("SELECT status FROM instances WHERE id = ?", (later["id"],), one=True)["status"] == "terminated"
+    monkeypatch.setattr(runtime, "stop", stop)
+    _age_failures(query, "terminate_expired", 10)
+    maintenance.run_once(portal)
+    assert query("SELECT status FROM instances WHERE id = ?", (stuck["id"],), one=True)["status"] == "running"
+    _age_failures(query, "terminate_expired", 16)
+    maintenance.run_once(portal)
+    assert query("SELECT status FROM instances WHERE id = ?", (stuck["id"],), one=True)["status"] == "terminated"
+    assert _events(query, stuck["id"], "maintenance.terminate_expired.recovered") == 1
+
+
+def test_an_account_deletion_failing_on_every_pass_waits_between_attempts(portal, make_account, make_wiki, query,
+                                                                          runtime):
+    user = make_account(pending_deletion=1, pending_deletion_at="2000-01-01 00:00:00", pending_deletion_seconds=60)
+    make_wiki(user, "never-stops")
+    for _ in range(3):
+        runtime.fail_next("stop", "stop_failed")
+        assert maintenance.run_once(portal)["scheduled deletions"] == 0
+    assert maintenance.run_once(portal)["scheduled deletions"] == 0, "it waits, although it would work now"
+    assert len(runtime.called("stop")) == 3
+    _age_failures(query, "delete_account", 16)
+    assert maintenance.run_once(portal)["scheduled deletions"] == 1
+    assert _events(query, user["id"], "maintenance.delete_account.recovered") == 1
+
+
+def test_retained_data_the_runtime_cannot_delete_counts_as_a_failure(portal, ctx, make_account, make_wiki, query,
+                                                                     runtime):
+    wiki = make_wiki(make_account(), "kept-data")
+    instances.terminate(instances.get(wiki["id"]), actor_id=None)
+    query("UPDATE instances SET data_retained_until = '2000-01-01 00:00:00' WHERE id = ?", (wiki["id"],))
+    runtime.fail_next("destroy")
+    assert maintenance.run_once(portal)["grace periods"] == 0
+    assert _events(query, wiki["id"], "maintenance.purge_retained_data.failed") == 1
+    assert maintenance.run_once(portal)["grace periods"] == 1
+    assert _events(query, wiki["id"], "maintenance.purge_retained_data.recovered") == 1
+
+
+def test_the_wait_doubles_up_to_a_day():
+    assert instances.retry_wait(instances.RETRY_AFTER_FAILURES - 1) == timedelta(0)
+    assert instances.retry_wait(instances.RETRY_AFTER_FAILURES) == timedelta(minutes=15)
+    assert instances.retry_wait(instances.RETRY_AFTER_FAILURES + 1) == timedelta(minutes=30)
+    assert instances.retry_wait(10_000) == timedelta(days=1)
+
+
 def test_a_failing_step_does_not_stop_the_pass(portal, monkeypatch):
     def boom():
         raise RuntimeError("step failed")

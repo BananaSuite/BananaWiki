@@ -212,7 +212,7 @@
   "users.settings.sections": "Settings sections",
   "users.settings.status": "Your account",
   "users.settings.title": "Settings",
-  "users.settings.username_mentions_hint": "Pages are not changed: mentions of your old name still lead to your profile, and nobody else can take that name.",
+  "users.settings.username_mentions_hint": "Pages are not changed: mentions of your old name still lead to your profile, and nobody else can take that name unless an administrator releases it.",
   "users.settings.view_profile": "View profile",
   "users.suspended.reactivate": "Reactivate my account",
   "users.suspended.reactivate_confirm": "Lift the suspension of your own account?",

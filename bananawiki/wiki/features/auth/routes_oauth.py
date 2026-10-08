@@ -108,7 +108,7 @@ def platform_oauth_callback():
         if not code:
             raise oauth.OAuthError("auth.oauth.error.portal", "callback without a code")
         account_id, portal_username = oauth.fetch_profile(oauth.exchange_code(code, state, "login"))
-        user = oauth.linked_user(account_id)
+        user = oauth.linked_user(account_id) or oauth.realign_portal_link(account_id, portal_username)
         if user is not None:
             return _finish(user, entry.get("next") or "")
         local = accounts.by_username(portal_username)

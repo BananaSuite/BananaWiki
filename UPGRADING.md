@@ -26,17 +26,54 @@ one, recover the operator's original trust file and configure
 `source set --require-signatures FILE` before updating. Failed restores now
 restore repository credentials and signer trust along with the previous data.
 
-The latest build upgrades databases at schema 3, 4 or 5 to schema 6, with an
+The latest build upgrades databases at schema 3 to 6 to schema 7, with an
 automatic database backup first. Schema 5 adds a chat upload ledger that keeps
 the 24-hour allowance consumed when a message or conversation is deleted.
 Retained uploads from the preceding 24 hours are counted during the upgrade;
 uploads deleted before the upgrade cannot be reconstructed. Schema 6 records
 whether an owner or superuser imposed a suspension, indexes former user names,
 and grants `page.view_all` and `category.view_all` to every saved permission
-set, because both are now enforced (see [Permissions](#permissions)).
+set, because both are now enforced (see [Permissions](#permissions)). Schema 7
+counts read-aloud claims lost with their worker: upgrade the web application
+and the read-aloud worker together, because a worker of an earlier release
+cannot open a schema 7 database. Hosting databases move to version 5, which
+keeps collaborators and merge records when the account that created them is
+deleted.
 
 Already on 1.6.0? These changes of the latest build need attention (details in
 [Behaviour changes](#behaviour-changes)):
+
+* Over HTTPS (or with `BW_SECURE_COOKIES=1`) the wiki session cookie is named
+  `__Host-<name>` (for example `__Host-bw_session`). Users stay signed in: a
+  session moves to the new name on its first HTTPS request. Going back to an
+  earlier release signs HTTPS users out once, and tools that read the cookie
+  by name over HTTPS must use the new name.
+* Deleting an account no longer deletes its kanban tickets and comments on
+  other people's boards: they go to the board owner (comments start with a
+  note naming the former author), its own boards go to an administrator, and
+  it is removed from assignees and shares.
+* Read aloud: schema 7 (upgrade the web application and the worker together).
+  A job whose worker dies three times is marked failed; `BW_TTS_MAX_JOB_SECONDS`
+  (default 3600) bounds a job. On Linux, Piper runs in a child process per job
+  (about 1-2 s more per job) whose memory can be limited with
+  `BW_TTS_PIPER_MEMORY_MB`.
+* Managed servers with more than about 76,000 files in `data/`: earlier 1.6
+  controllers fail every backup and update of such an installation once the
+  services have stopped (they start again), so the installed controller cannot
+  update to this release. Run that one update with this release's controller
+  from a checkout of the update source:
+  `git clone --branch BRANCH SOURCE_URL /root/bananawiki-update`, then
+  `sudo /root/bananawiki-update/banana --root /opt/bananawiki update`. Later
+  updates use the installed controller as usual. Packages can now hold up to
+  `BANANA_PACKAGE_MAX_FILES` files (default 1,000,000).
+* Hosting dates (wiki expiry, suspensions, invites, banners) accept the years
+  1900-9998; expiries already stored after 9998 are kept and can be shortened.
+* Hosting platform backups no longer stop at the first wiki that fails: such a
+  wiki is listed as incomplete on the settings card (and in
+  `backup_manifest.json`) while the others are saved, and a backup is
+  "complete" only when every wiki was saved in full. Each wiki may add at most
+  its storage limit plus a tenth and 64 MiB. Tenant archives with bzip2 or LZMA
+  members are refused.
 
 * `page.view_all` and `category.view_all` are enforced. The upgrade grants
   them to every saved permission set, so nothing changes until an
@@ -67,6 +104,14 @@ Already on 1.6.0? These changes of the latest build need attention (details in
   portal and the maintenance service refuse to start and the runtime agent
   refuses to launch any wiki, so an update is rolled back. Do not update an
   arm64 hosting server.
+* Hosting in port or onion mode (managed servers without a domain, or
+  `BASE_DOMAIN` empty, an IP address or `localhost`) refuses
+  `HOSTING_ALLOW_TENANT_PLUGINS=1`, because the portal and the wikis share
+  cookies there: the portal, the maintenance service and `hosting-admin`
+  refuse to start, so an update is rolled back and records the commit as
+  failed. Remove the setting from `config/app.env` (or set it to `0`, or
+  configure a domain for subdomain mode) **before updating**; after a
+  rolled-back update, do the same and run `update --retry-failed`.
 * Hosting: a new wiki stays reserved as "Creating" until its provisioning
   finishes (hosting database version 4; existing wikis are marked ready). An
   interrupted or failed creation is never started or recovered: terminate it
@@ -83,8 +128,10 @@ Hosted third-party Python plugins now require `HOSTING_ALLOW_TENANT_PLUGINS=1`
 in the operator's hosting environment. The default is disabled; existing
 plugin files and settings are kept, and built-in features are unaffected.
 Operators who trust their tenants' custom plugins must explicitly enable
-this setting and restart the portal and tenant containers. Quarantined wikis
-always keep external plugins disabled. Application storage limits still
+this setting and restart the portal and tenant containers. The opt-in
+applies only in subdomain mode: port and onion mode refuse it (see
+[addresses](docs/hosting.md#addresses)). Quarantined wikis always keep
+external plugins disabled. Application storage limits still
 require filesystem quotas for a hard limit against tenant code.
 
 Container builds now use Debian 13 and apply available distribution updates.
@@ -357,6 +404,10 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   affected slugs, and 202 when pages were only scheduled for deletion.
 * Token expiry dates are at most 10 years ahead (`expiry_too_far`); existing
   tokens keep their expiry and can still be revoked.
+* Canvas: a locked wiki-page node keeps its page link. An operation or a
+  document that changes only the page of a locked node is now applied without
+  that change instead of answering 400 `locked`, and a wiki-page node sent
+  without `page_id` or `page_slug` keeps its stored link.
 * JSON request bodies with non-finite numbers (`NaN`, `Infinity`), unpaired
   Unicode surrogates or more than 64 nested objects/arrays are refused with
   400. The same check applies to uploaded JSON files: Kanban and canvas

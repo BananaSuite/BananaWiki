@@ -94,10 +94,15 @@ addresses (and the setup code while setup is pending) and stops on Ctrl+C.
   background thread of the launcher (every platform; always bundled). From a
   source install on Linux or macOS without waitress it runs **gunicorn** with
   one worker as a child process instead. The server is ready when `/health`
-  answers.
+  answers with the nonce drawn for this start (response header
+  `X-BananaWiki-Start`); an answer without it comes from another program on
+  the same port and stops the start with an error.
 * `backup.py` writes and restores the ZIP files.
 * `network.py` finds the LAN address without contacting the internet and
-  picks a free port.
+  picks a free port. The launcher binds waitress's port itself: on Windows
+  for exclusive use (`SO_EXCLUSIVEADDRUSE`), so no other program can bind the
+  same port and receive the wiki's requests; on Linux and macOS with
+  `SO_REUSEADDR`, as waitress does.
 * `app.py` is the tkinter window; slow work runs on a worker thread.
 * Strings live in `translations/en.json` and `translations/it.json`.
 

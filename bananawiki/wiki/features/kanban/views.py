@@ -261,8 +261,12 @@ def export(board_id: int):
         body = json.dumps(document, indent=2, ensure_ascii=False)
         return Response(body, mimetype="application/json",
                         headers={"Content-Disposition": f'attachment; filename="{name}.kanban.json"'})
-    return send_file(transfer.export_zip(document, bundle), mimetype="application/zip", as_attachment=True,
-                     download_name=f"{name}.kanban.zip")
+    try:
+        archive = transfer.export_zip(document, bundle)
+    except KanbanError as error:
+        _flash_error(error)
+        return _to_board(board_id)
+    return send_file(archive, mimetype="application/zip", as_attachment=True, download_name=f"{name}.kanban.zip")
 
 
 # ── History ───────────────────────────────────────────────────────────────────

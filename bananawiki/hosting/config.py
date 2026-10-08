@@ -468,4 +468,11 @@ def load_config(environ: dict[str, str] | None = None, **overrides: object) -> H
     cfg = HostingConfig(**values)  # type: ignore[arg-type]
     if cfg.port_range[0] >= cfg.port_range[1]:
         raise ConfigError("INSTANCE_PORT_START must be lower than INSTANCE_PORT_END.")
+    if cfg.allow_tenant_plugins and cfg.hosting_mode in ("port", "onion"):
+        # Cookies ignore the port: every wiki would receive, and could set, the portal's session cookie.
+        raise ConfigError(
+            "HOSTING_ALLOW_TENANT_PLUGINS=1 requires subdomain hosting: in port and onion mode the portal "
+            "and every wiki share one host, so a wiki's plugins could read or replace the portal's session "
+            "cookie. Configure a domain and its proxy, or set HOSTING_ALLOW_TENANT_PLUGINS=0."
+        )
     return cfg

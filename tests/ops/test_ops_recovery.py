@@ -38,7 +38,8 @@ from bananawiki.ops.files import (
     write_json,
 )
 from bananawiki.ops.manager import Manager
-from bananawiki.ops.system import DockerUnavailable, System, _http_status
+from bananawiki.ops.project_quota import QuotaError
+from bananawiki.ops.system import DockerUnavailable, System, TenantStorageUnsupported, _http_status
 
 
 class Wikis:
@@ -340,8 +341,9 @@ def test_docker_unreachable_when_an_operation_begins_changes_nothing(hosting):
     original_prepare = system.prepare_release
     system.runner, system.containers = unreachable, containers  # type: ignore[method-assign]
     system.prepare_release = prepare_release  # type: ignore[method-assign]
-    restart = argparse.Namespace(command="restart")
-    for operation in (manager.backup, manager.update, lambda: lifecycle(manager, restart)):
+    restart, stop = argparse.Namespace(command="restart"), argparse.Namespace(command="stop")
+    for operation in (manager.backup, manager.update, lambda: lifecycle(manager, restart),
+                      lambda: lifecycle(manager, stop)):
         with pytest.raises(RuntimeError, match="Docker did not answer, so nothing was changed: docker ps"):
             operation()
         assert_in_service(root, wikis)
@@ -697,3 +699,197 @@ def test_the_docker_check_before_an_operation_only_lists_ids():
 
     with pytest.raises(DockerUnavailable, match="nothing was changed"):
         System(runner=hung).check_docker({"mode": "hosting"})
+
+
+def test_inspect_failing_for_a_wiki_removed_after_the_listing_lists_again():
+    """The maintenance service may remove a wiki between ``docker ps`` and ``docker inspect`` while it runs."""
+    present = ["a" * 12, "b" * 12]
+    calls: list[list[str]] = []
+
+    def runner(command, **_):
+        calls.append(command)
+        if command[:2] == ["docker", "ps"]:
+            listed = "".join(item + "\n" for item in present)
+            if "b" * 12 in present:
+                present.remove("b" * 12)  # terminated before the inspect
+            return subprocess.CompletedProcess(command, 0, listed, "")
+        missing = [item for item in command[2:] if item not in present]
+        found = [{"Id": item, "State": {"Running": True}, "NetworkSettings": {"Networks": {}},
+                  "Config": {"Labels": {"org.bananawiki.data-dir": f"/srv/data/instances/{item[0]}"}}}
+                 for item in command[2:] if item in present]
+        return subprocess.CompletedProcess(command, 1 if missing else 0, json.dumps(found),
+                                           "".join(f"Error: No such object: {item}\n" for item in missing))
+
+    settings = {"mode": "hosting", "root": "/srv"}
+    assert [item["id"] for item in System(runner=runner).containers(settings)] == ["a" * 12]
+    assert [command[:2] for command in calls] == [["docker", "ps"], ["docker", "inspect"]] * 2
+
+    def failing(command, **_):  # a Docker that keeps failing still fails the operation
+        if command[:2] == ["docker", "ps"]:
+            return subprocess.CompletedProcess(command, 0, "a" * 12 + "\n", "")
+        return subprocess.CompletedProcess(command, 1, "", "Error response from daemon: busy")
+
+    with pytest.raises(RuntimeError, match="docker inspect failed"):
+        System(runner=failing).containers(settings)
+
+
+# Before anything stops, and after the services start -------------------------------------------
+
+
+def outdate_units(hosting) -> None:
+    unit = hosting.system.unit_dir / "bananawiki.service"
+    unit.write_text(unit.read_text() + "# written by an older controller\n")
+
+
+def stops(system: FakeSystem) -> int:
+    return len([command for command in system.commands if command[:2] == ["systemctl", "stop"]])
+
+
+def test_convergence_lists_the_wikis_once_the_maintenance_service_stopped(hosting):
+    """Until it stops, the maintenance service can remove a wiki between the listing and the inspection (R-13)."""
+    system = hosting.system
+    outdate_units(hosting)
+    listed_while: list[bool] = []
+    original = system.containers
+
+    def containers(settings):
+        listed_while.append("bananawiki-maintenance" in system.running)
+        return original(settings)
+
+    system.containers = containers  # type: ignore[method-assign]
+    result = hosting.manager.update()
+    assert result["outcome"] == "current" and result["units_converged"] is True
+    assert listed_while[0] is False  # the wikis that serve, listed before anything starts again
+    assert_in_service(hosting.root, hosting.wikis)
+
+
+def test_convergence_with_docker_down_changes_nothing(hosting):
+    root, system = hosting.root, hosting.system
+    outdate_units(hosting)
+    before = (system.unit_dir / "bananawiki.service").read_text()
+    original = system.runner
+
+    def unreachable(command, **options):
+        if command[:1] == ["docker"]:
+            return subprocess.CompletedProcess(command, 1, "", "Cannot connect to the Docker daemon.\n")
+        return original(command, **options)
+
+    system.runner = unreachable
+    stopped = stops(system)
+    with pytest.raises(DockerUnavailable, match="nothing was changed"):
+        hosting.manager.update()
+    assert stops(system) == stopped
+    assert (system.unit_dir / "bananawiki.service").read_text() == before
+    assert {"bananawiki", "bananawiki-maintenance", "bananawiki-agent"} <= system.running
+    assert_in_service(root, hosting.wikis)
+
+
+QUOTAS = {"bananawiki/ops/project_quota.py": "# XFS project quotas\n"}
+
+
+def with_project_quotas(hosting, *, enforced: bool) -> list[Path]:
+    """The storage as the runtime agent of a release with ``project_quota.py`` sees it before starting a wiki."""
+    checked: list[Path] = []
+
+    def quota_storage(instances):
+        checked.append(instances)
+        if not enforced:
+            raise QuotaError("Tenant storage must be an XFS filesystem with enforced project quotas")
+
+    hosting.system.quota_storage = quota_storage  # type: ignore[method-assign]
+    return checked
+
+
+def test_an_update_to_a_release_with_quotas_on_storage_without_them_stops_nothing(hosting):
+    """Every wiki it stopped would stay down until the readiness checks gave up, then the update rolled back."""
+    root, system, wikis, manager = hosting.root, hosting.system, hosting.wikis, hosting.manager
+    new = hosting.upstream.commit("1.6.1", extra=QUOTAS)
+    checked = with_project_quotas(hosting, enforced=False)
+    stopped = stops(system)
+    with pytest.raises(TenantStorageUnsupported, match="confirm that the wiki storage .* enforces XFS project quotas"):
+        manager.update()
+    assert checked == [root / "data/instances"]
+    assert stops(system) == stopped and all(item["running"] for item in system.tenant_containers)
+    assert (root / "current").resolve().name == hosting.old
+    assert not list((root / "staging").glob("snapshot-*"))
+    assert not [event for event in history(root) if event["operation"] == "recover"]
+    # Not the revision's failure: the next automatic run tries it again.
+    assert read_json(root / "config/status.json")["outcome"] == "failed"
+    assert not (root / "config/failed-revision.json").exists()
+    assert_in_service(root, wikis)
+    with_project_quotas(hosting, enforced=True)
+    assert manager.update()["outcome"] == "complete" and (root / "current").resolve().name == new
+
+
+def test_backups_and_restarts_under_a_release_with_quotas_check_the_storage_first(hosting):
+    root, system, wikis, manager = hosting.root, hosting.system, hosting.wikis, hosting.manager
+    hosting.upstream.commit("1.6.1", extra=QUOTAS)
+    with_project_quotas(hosting, enforced=True)
+    manager.update()
+    checked = with_project_quotas(hosting, enforced=False)  # e.g. remounted without prjquota
+    for operation in (manager.backup, lambda: lifecycle(manager, argparse.Namespace(command="restart"))):
+        stopped = stops(system)
+        with pytest.raises(TenantStorageUnsupported):
+            operation()
+        assert stops(system) == stopped and all(item["running"] for item in system.tenant_containers)
+        assert_in_service(root, wikis)
+    assert len(checked) == 2
+    # No running wiki: nothing would be kept down, and nothing is checked.
+    lifecycle(manager, argparse.Namespace(command="stop"))
+    original = system._docker
+
+    def running_only(command):  # ``docker ps`` without ``--all``
+        if command[:2] == ["docker", "ps"] and "--all" not in command:
+            return 0, "".join(item["id"] + "\n" for item in system.tenant_containers if item["running"]), ""
+        return original(command)
+
+    system._docker = running_only  # type: ignore[method-assign]
+    assert manager.backup().is_file()
+    assert len(checked) == 2
+
+
+def test_convergence_checks_the_storage_only_when_it_restarts_the_services(hosting):
+    """Started again, the maintenance service restarts every running wiki whose storage quota is not verified."""
+    root, system, manager = hosting.root, hosting.system, hosting.manager
+    hosting.upstream.commit("1.6.1", extra=QUOTAS)
+    with_project_quotas(hosting, enforced=True)
+    manager.update()
+    checked = with_project_quotas(hosting, enforced=False)
+    shutil.rmtree(system.routes_directory(manager.settings()))  # converged but for the agent's routes directory
+    stopped = stops(system)
+    assert manager.update()["outcome"] == "current"
+    assert checked == [] and stops(system) == stopped
+    outdate_units(hosting)
+    before = (system.unit_dir / "bananawiki.service").read_text()
+    with pytest.raises(TenantStorageUnsupported):
+        manager.update()
+    assert checked == [root / "data/instances"] and stops(system) == stopped
+    assert (system.unit_dir / "bananawiki.service").read_text() == before
+    assert_in_service(root, hosting.wikis)
+
+
+def test_start_after_stop_reports_the_wikis_that_did_not_come_back(hosting):
+    """After ``stop`` no wiki serves, so ``start`` waits for none: those that do not serve are reported."""
+    root, wikis, manager = hosting.root, hosting.wikis, hosting.manager
+    lifecycle(manager, argparse.Namespace(command="stop"))
+    hosting.system.on_start.append(lambda names: wikis.failing.add("broken"))
+    result = lifecycle(manager, argparse.Namespace(command="start"))
+    assert result["outcome"] == "complete" and result["unready_tenants"] == ["broken"]
+    assert read_json(root / "config/status.json")["unready_tenants"] == ["broken"]
+    assert_in_service(root, wikis)
+    wikis.failing.clear()
+    hosting.system.on_start.clear()
+    hosting.system.on_start.append(wikis.on_start)
+    assert "unready_tenants" not in lifecycle(manager, argparse.Namespace(command="start"))
+
+
+def test_a_restore_on_a_new_server_reports_the_wikis_that_did_not_come_back(hosting, tmp_path):
+    package = hosting.manager.backup()
+    system = FakeSystem(tmp_path / "new-host")
+    root = tmp_path / "srv/bananawiki"
+    wikis = Wikis(root, system)
+    system.on_start.append(lambda names: wikis.failing.add("broken"))
+    result = Manager(root, system=system).restore(package, new=True)
+    assert result["outcome"] == "complete" and result["unready_tenants"] == ["broken"]
+    assert sorted(Path(item["data_dir"]).name for item in system.tenant_containers) == ["acme", "broken"]
+    assert_in_service(root, wikis)

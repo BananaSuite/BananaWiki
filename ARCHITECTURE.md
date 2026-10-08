@@ -110,8 +110,9 @@ zone). Convert `datetime-local` form input with `templating.from_local_input`.
 
 The schema is versioned (`PRAGMA user_version`). BananaWiki 1.4 databases are
 at version 3; version 4 is the 1.6 takeover migration, version 5 adds the
-durable chat upload usage ledger and version 6 records who imposed a
-suspension. New schema changes need a numbered migration
+durable chat upload usage ledger, version 6 records who imposed a
+suspension and version 7 counts read-aloud claims lost with their worker
+(`tts_generations.attempts`). New schema changes need a numbered migration
 registered in `migrations/__init__.py` so existing installations receive them.
 Feature schema helpers must be idempotent (use `CREATE TABLE IF NOT EXISTS`
 and `core.sqlite.add_columns`). The takeover still calls `upgrade_v4(conn)`;
@@ -209,6 +210,7 @@ a failing handler is logged, never raised.
 | `category.created` / `category.deleted` | `category`, `actor_id` |
 | `user.created` | `user` |
 | `user.renamed` | `user`, `old_username`, `changed_by` |
+| `user.name_released` | `user`, `username` (the former name), `released_by`, `reserved_for` (None: anyone may take the name; else the account that gave it up before, which keeps it) |
 | `user.deleted` | `user`, `deleted_by` |
 | `user.login` | `user` |
 | `user.password_changed` | `user_id` |
@@ -251,7 +253,11 @@ turns "delete" into "schedule deletion"; page protection blocks edits).
 `Feature.interceptors = {"point": handler}`; the owner of the action calls
 `registry.intercept("point", **context)` and uses the first non-`None`
 answer. Unlike events, interceptors run before the action and their errors
-propagate.
+propagate. `registry.prepare("point", **context)` instead runs the
+interceptors of the point of every built-in feature, switched off or not,
+and of enabled external plugins, and ignores their answers: features use it
+to keep their stored data intact. A failing interceptor is logged with its
+feature's id and stops the action.
 
 | Point | Called by | Context | Answer |
 |---|---|---|---|
@@ -260,6 +266,7 @@ propagate.
 | `page.delete` | pages, before deleting | `page`, `user` | a response when the feature handled it (e.g. scheduled deletion), or `None` to delete now |
 | `page.saved` | pages, after a successful save from the editor | `page`, `user` | ignored (use for releasing check-outs, clearing drafts) |
 | `page.create_denied` | pages, when the user may not create in a category | `user`, `category_id` | a response, or `None` for 403 |
+| `user.delete` | `accounts.delete` through `registry.prepare`, inside its transaction, just before the row goes | `user`, `deleted_by` | ignored (hand over rows the database would delete with the account, e.g. kanban tickets) |
 | `page.render` | pages, when rendering a page body | `page` (with content) | `Markup` replacing the Markdown body (page builder pages), or `None` |
 
 ### Background jobs

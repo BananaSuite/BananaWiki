@@ -211,12 +211,14 @@ def fetch_profile(token: str) -> tuple[str, str]:
     return account_id[:200], username[:200]
 
 
-def _portal_link_status(user_id: str) -> dict[str, Any]:
+def _portal_link_status(user_id: str = "", *, account_id: str = "") -> dict[str, Any]:
+    """The portal's link of a wiki account (or, by *account_id*, of a portal account) on this wiki."""
     cfg = config()
     assert cfg is not None
     if not cfg.get("link_status_url"):
         return {}
-    url = f"{cfg['link_status_url']}?{urlencode({'instance_id': instance_id(), 'wiki_user_id': user_id})}"
+    key = {"wiki_user_id": user_id} if user_id else {"account_id": account_id}
+    url = f"{cfg['link_status_url']}?{urlencode({'instance_id': instance_id(), **key})}"
     _status, data = _call("GET", url, client_auth=True)
     return data if isinstance(data, dict) and data.get("linked") else {}
 
@@ -265,6 +267,33 @@ def adopt_portal_link(user: dict[str, Any], account_id: str, portal_username: st
     return True
 
 
+def realign_portal_link(account_id: str, portal_username: str) -> dict[str, Any] | None:
+    """The wiki account the portal links *account_id* to, its local link made to match; None without one.
+
+    Merging two portal accounts moves the source's links to the target on the
+    portal only: the row here still names the source, so the target would be
+    refused or handed a second account. The portal is the authority on which
+    portal account a wiki account belongs to, unless it still links the
+    account named here too (a stale link): then nothing changes. A portal
+    without this lookup answers no link, and nothing changes either.
+    """
+    status = _portal_link_status(account_id=account_id)
+    user_id = str(status.get("wiki_user_id") or "")
+    if not user_id or str(status.get("hosting_account_id") or "") != account_id:
+        return None
+    user = db.one("SELECT * FROM users WHERE id = ?", (user_id,))
+    if user is None:
+        return None
+    current = link_of(user_id)
+    if current is not None and _portal_link_status(account_id=current["account_id"]):
+        return None
+    with db.transaction():
+        db.execute("DELETE FROM platform_oauth_links WHERE user_id = ? OR account_id = ?", (user_id, account_id))
+        _store_link(user, account_id, portal_username)
+    log.info("Platform link of wiki account %s realigned to portal account %s", user_id, account_id)
+    return user
+
+
 def link(user: dict[str, Any], account_id: str, portal_username: str) -> None:
     """Link *user* to a portal account, on the portal and locally."""
     if linked_user(account_id) is not None or link_of(user["id"]) is not None:
@@ -278,5 +307,6 @@ def unlink(user: dict[str, Any]) -> None:
     existing = link_of(user["id"])
     if existing is None:
         return
-    _portal_post("unlink_url", {"account_id": existing["account_id"]})
+    # The wiki account too: after a merge on the portal its link there names another account.
+    _portal_post("unlink_url", {"account_id": existing["account_id"], "wiki_user_id": user["id"]})
     db.execute("DELETE FROM platform_oauth_links WHERE user_id = ?", (user["id"],))

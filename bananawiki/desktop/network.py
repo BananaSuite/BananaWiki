@@ -121,19 +121,33 @@ def is_address_in_use(error: OSError) -> bool:
                            getattr(errno, "WSAEACCES", -1), 10013, 10048}
 
 
-def port_available(host: str, port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        # Probe the way the servers bind: SO_REUSEADDR on POSIX (a port in
-        # TIME_WAIT is free), exclusive use on Windows (where REUSEADDR would
-        # allow stealing a port that is in use).
+def bound_socket(host: str, port: int) -> socket.socket:
+    """A TCP socket bound to *host*:*port*, ready for the server to listen on.
+
+    On Windows the port is taken for exclusive use: with ``SO_REUSEADDR``
+    (what waitress sets) another program could bind the same port and
+    receive the wiki's requests. POSIX keeps ``SO_REUSEADDR``, which there
+    only lets a port in TIME_WAIT be reused.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
         if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         else:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            sock.bind((host, port))
-        except OSError:
-            return False
+        sock.bind((host, port))
+    except BaseException:
+        sock.close()
+        raise
+    return sock
+
+
+def port_available(host: str, port: int) -> bool:
+    """Whether :func:`bound_socket` could take *host*:*port* now."""
+    try:
+        bound_socket(host, port).close()
+    except OSError:
+        return False
     return True
 
 

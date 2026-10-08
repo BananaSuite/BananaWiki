@@ -11,6 +11,10 @@ Two ways to serve, both production WSGI servers:
 The listen address is chosen by the caller: loopback unless ``share_on_lan``
 is set, which the launcher only does after the user agreed to it. The data
 folder stays locked while the server runs.
+
+Every start draws a nonce that the server adds to its ``/health`` answers
+(``X-BananaWiki-Start``), so the launcher never takes another server that
+answers on the same port for its own wiki.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ import contextlib
 import importlib.util
 import logging
 import os
+import secrets
 import subprocess
 import sys
 import threading
@@ -27,6 +32,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from email.message import Message
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -40,6 +46,8 @@ STOP_TIMEOUT = 15.0
 THREADS = 8
 _PACKAGE_PARENT = Path(__file__).resolve().parents[2]
 _INHERITED_BLOCKLIST = ("SECRET_KEY", "GUNICORN_CMD_ARGS", "WSGI_APP")
+START_HEADER = "X-BananaWiki-Start"
+_START_VARIABLE = "BW_DESKTOP_START_NONCE"
 
 
 @dataclass(frozen=True)
@@ -96,18 +104,44 @@ def scoped_environ(values: Mapping[str, str]) -> Iterator[None]:
                 os.environ[key] = value
 
 
-def _get(url: str, timeout: float) -> int:
-    """GET *url* directly (never through a configured HTTP proxy)."""
+def _get(url: str, timeout: float) -> tuple[int, Message]:
+    """GET *url* directly (never through a configured HTTP proxy): status and headers."""
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
         with opener.open(url, timeout=timeout) as response:
-            return response.status
+            return response.status, response.headers
     except urllib.error.HTTPError as error:
-        return error.code
+        return error.code, error.headers
 
 
-def wait_until_ready(port: int, runner: _Runner, timeout: float) -> None:
-    """Poll ``/health`` until the wiki answers, the server dies or time runs out."""
+def tag_health(app: Any, nonce: str) -> Any:
+    """*app* with *nonce* added to its ``/health`` answers (see the module docstring)."""
+
+    def tagged(environ: dict[str, Any], start_response: Any) -> Any:
+        if environ.get("PATH_INFO") != "/health":
+            return app(environ, start_response)
+
+        def start(status: str, headers: list[tuple[str, str]], exc_info: Any = None) -> Any:
+            return start_response(status, [*headers, (START_HEADER, nonce)], exc_info)
+
+        return app(environ, start)
+
+    return tagged
+
+
+def gunicorn_app() -> Any:
+    """The application of the gunicorn child, tagged with the launcher's nonce."""
+    from ..wiki.app import create_app
+
+    return tag_health(create_app(), os.environ.get(_START_VARIABLE, ""))
+
+
+def wait_until_ready(port: int, runner: _Runner, timeout: float, nonce: str) -> None:
+    """Poll ``/health`` until the wiki answers, the server dies or time runs out.
+
+    An answer without *nonce* comes from another server on the same port: it
+    is reported instead of being taken for the wiki.
+    """
     deadline = time.monotonic() + timeout
     health = network.url(network.LOOPBACK_HOST, port, "/health")
     delay = 0.05
@@ -115,10 +149,14 @@ def wait_until_ready(port: int, runner: _Runner, timeout: float) -> None:
         if not runner.alive():
             raise DesktopError("server_exited")
         try:
-            if _get(health, timeout=5) == 200:
-                return
+            status, headers = _get(health, timeout=5)
         except OSError:
             pass
+        else:
+            if headers.get(START_HEADER) != nonce:
+                raise DesktopError("port_taken", str(port))
+            if status == 200:
+                return
         time.sleep(delay)
         delay = min(delay * 2, 1.0)
     raise DesktopError("server_timeout")
@@ -130,20 +168,27 @@ def wait_until_ready(port: int, runner: _Runner, timeout: float) -> None:
 class _WaitressRunner:
     name = "waitress"
 
-    def __init__(self, app: Any, host: str, candidates: list[int]):
+    def __init__(self, app: Any, host: str, candidates: list[int], nonce: str):
         from waitress import create_server
 
         self.app = app
         last_error: OSError | None = None
         for port in candidates:
             try:
-                self.server = create_server(app, host=host, port=port, threads=THREADS, ident="BananaWiki",
-                                            clear_untrusted_proxy_headers=True)
+                # Bound here rather than by waitress, which would set
+                # SO_REUSEADDR (see network.bound_socket).
+                sock = network.bound_socket(host, port)
             except OSError as error:
                 if not network.is_address_in_use(error):
                     raise
                 last_error = error
                 continue
+            try:
+                self.server = create_server(tag_health(app, nonce), sockets=[sock], threads=THREADS,
+                                            ident="BananaWiki", clear_untrusted_proxy_headers=True)
+            except BaseException:
+                sock.close()
+                raise
             self.port = int(self.server.effective_port)
             break
         else:
@@ -185,16 +230,17 @@ class _WaitressRunner:
 class _GunicornRunner:
     name = "gunicorn"
 
-    def __init__(self, folder: DataFolder, environ: dict[str, str], host: str, port: int):
+    def __init__(self, folder: DataFolder, environ: dict[str, str], host: str, port: int, nonce: str):
         env = {key: value for key, value in os.environ.items()
                if not key.startswith("BW_") and key not in _INHERITED_BLOCKLIST}
         env.update(environ)
+        env[_START_VARIABLE] = nonce
         env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(_PACKAGE_PARENT), env.get("PYTHONPATH", "")]))
         command = [
             sys.executable, "-m", "gunicorn",
             "--bind", f"{host}:{port}", "--workers", "1", "--threads", str(THREADS),
             "--graceful-timeout", "10", "--worker-tmp-dir", str(folder.root / "tmp_exports"),
-            "bananawiki.wiki.app:create_app()",
+            "bananawiki.desktop.server:gunicorn_app()",
         ]
         self.port = port
         self._log = (folder.logs / "server.log").open("ab")
@@ -257,9 +303,10 @@ class WikiServer:
                 hold.enter_context(self.folder.lock())
                 backup.recover(self.folder)
                 self.folder.prepare()
-                runner, token = self._launch(backend)
+                nonce = secrets.token_urlsafe(16)
+                runner, token = self._launch(backend, nonce)
                 try:
-                    wait_until_ready(runner.port, runner, timeout)  # type: ignore[attr-defined]
+                    wait_until_ready(runner.port, runner, timeout, nonce)  # type: ignore[attr-defined]
                 except BaseException:
                     runner.stop()
                     raise
@@ -296,7 +343,7 @@ class WikiServer:
         environ = self.folder.environ(host=self._host(), port=port, language=self.language)
         return environ, load_config(environ, secret_key=self.folder.secret_key())
 
-    def _launch(self, backend: str) -> tuple[_Runner, str]:
+    def _launch(self, backend: str, nonce: str) -> tuple[_Runner, str]:
         candidates = network.port_candidates(self.port)
         if backend == "waitress":
             from ..wiki.app import create_app
@@ -308,12 +355,12 @@ class WikiServer:
             except Exception as error:
                 log.exception("The wiki could not start")
                 raise DesktopError("server_failed", str(error)) from error
-            return _WaitressRunner(app, self._host(), candidates), cfg.setup_token
+            return _WaitressRunner(app, self._host(), candidates, nonce), cfg.setup_token
         port = next((p for p in candidates if network.port_available(self._host(), p)), None)
         if port is None:
             raise DesktopError("no_free_port")
         environ, cfg = self._config(port)
-        return _GunicornRunner(self.folder, environ, self._host(), port), cfg.setup_token
+        return _GunicornRunner(self.folder, environ, self._host(), port, nonce), cfg.setup_token
 
     def _describe(self, runner: Any, token: str) -> ServerInfo:
         host, port = self._host(), int(runner.port)

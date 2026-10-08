@@ -28,7 +28,7 @@ WORK_BUDGET = 1_000_000
 # What setting up one comparison costs beyond its items, in the same steps (measured).
 MATCHER_STEPS = 64
 _WORDS = re.compile(r"(\s+)")
-_TAGS = re.compile(r"(<[^>]+>)")
+_TAGS = re.compile(r"(<[^<>]+>)")
 
 Opcode = tuple[str, int, int, int, int]
 Run = tuple[str, list[str], list[str]]

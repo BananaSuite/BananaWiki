@@ -1,7 +1,10 @@
 """Creating, editing, conflicts, details, hiding, deletion and the interceptors."""
 
+import re
+
 from flask import redirect
 
+from bananawiki.wiki import registry
 from bananawiki.wiki.features.pages import service
 
 from .pages_support import add_interceptor, get_page, in_app, make_category, make_page, restrict
@@ -168,6 +171,54 @@ def test_title_move_and_rename(app, admin_client):
     updated = get_page(app, page["id"])
     assert (updated["title"], updated["category_id"], updated["slug"]) == ("New name", cat["id"], "fresh")
     assert get_page(app, linker["id"])["content"] == "see [it](/page/fresh) and /page/old-name-archive"
+
+
+def test_rename_goes_through_when_a_linking_page_cannot_take_the_new_links(app, admin_client):
+    renamed = []
+    app.extensions["bananawiki.registry"].add(registry.Feature(
+        id="rename_probe", name="rename_probe", toggle="always",
+        events={"page.renamed": [lambda page, old_slug: renamed.append((page["slug"], old_slug))]}))
+    make_page(app, "A")
+    filler = "/page/a " * (service.MAX_CONTENT // 8)
+    full = make_page(app, "Full", filler)
+    linker = make_page(app, "Linker", "see /page/a")
+    response = admin_client.post("/page/a/rename", data={"new_slug": "a-longer-address"})
+    assert response.headers["Location"].endswith("/page/a-longer-address")
+    assert get_page(app, full["id"])["content"] == filler
+    assert get_page(app, linker["id"])["content"] == "see /page/a-longer-address"
+    assert renamed == [("a-longer-address", "a")]
+
+
+def _saving_meanwhile(monkeypatch, page_id: int, times: int) -> None:
+    """Have someone else save page *page_id* just before each of the next *times* rewrites of it."""
+    real_update = service.update
+    saves = 0
+
+    def update(page, **values):
+        nonlocal saves
+        if page["id"] == page_id and saves < times:
+            saves += 1
+            real_update(service.get(page_id), author_id=None, content=f"edited meanwhile ({saves}), see /page/a")
+        return real_update(page, **values)
+
+    monkeypatch.setattr(service, "update", update)
+
+
+def test_rename_reads_again_a_linking_page_saved_meanwhile(app, monkeypatch):
+    page = make_page(app, "A")
+    linker = make_page(app, "Linker", "see /page/a")
+    _saving_meanwhile(monkeypatch, linker["id"], times=1)
+    in_app(app, lambda: service.change_slug(service.get(page["id"]), "b"))
+    assert get_page(app, linker["id"])["content"] == "edited meanwhile (1), see /page/b"
+
+
+def test_rename_leaves_a_page_saved_on_every_try(app, monkeypatch):
+    page = make_page(app, "A")
+    linker = make_page(app, "Linker", "see /page/a")
+    _saving_meanwhile(monkeypatch, linker["id"], times=100)
+    renamed = in_app(app, lambda: service.change_slug(service.get(page["id"]), "b"))
+    assert renamed["slug"] == "b"
+    assert re.fullmatch(r"edited meanwhile \(\d+\), see /page/a", get_page(app, linker["id"])["content"])
 
 
 def test_rename_to_taken_slug_refused(app, admin_client):

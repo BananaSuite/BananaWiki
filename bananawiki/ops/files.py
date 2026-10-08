@@ -27,10 +27,17 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 MAINTENANCE_MARKER = ".banana-maintenance"
+# Files a portable package may hold (``BANANA_PACKAGE_MAX_FILES``); 1.4 and 1.6.0 restore at most 100,000.
+DEFAULT_MAX_FILES = 1_000_000
+_JSON_BYTES = 16 * 1024 * 1024
 _ENV_KEY = re.compile(r"[A-Z][A-Z0-9_]*")
 _DATABASE_SUFFIXES = {".db", ".sqlite", ".sqlite3"}
 _DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 _READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+
+
+class Refused(RuntimeError):
+    """An operation refused to begin, before it changed anything: trying again later is safe."""
 
 
 def absolute_path(value: str | os.PathLike[str]) -> Path:
@@ -146,13 +153,18 @@ def write_json(path: str | os.PathLike[str], value: Any) -> None:
     atomic_write(path, json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 
-def read_json(path: str | os.PathLike[str], default: Any = None) -> Any:
+def read_json(path: str | os.PathLike[str], default: Any = None, *, max_bytes: int = _JSON_BYTES) -> Any:
     path = Path(path)
     if not path.exists() and not path.is_symlink():
         return default
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > 16 * 1024 * 1024:
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > max_bytes:
         raise ValueError(f"Invalid configuration file: {path.name}")
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def manifest_limit(files: int) -> int:
+    """The largest manifest of a package of *files* files (16 MiB, as in 1.4, plus 1 KiB a file)."""
+    return _JSON_BYTES + 1024 * files
 
 
 def append_jsonl(path: Path, value: dict[str, Any]) -> None:
@@ -283,7 +295,8 @@ class _HashingReader:
         return chunk
 
 
-def write_package(destination: Path, manifest: dict[str, Any], inputs: Iterable[tuple[Path, str]]) -> Path:
+def write_package(destination: Path, manifest: dict[str, Any], inputs: Iterable[tuple[Path, str]], *,
+                  max_files: int = DEFAULT_MAX_FILES) -> Path:
     """Write a new package (never overwriting) with a hashed manifest.
 
     Each file is read once, by descriptor: the checksum in the manifest is of
@@ -295,8 +308,9 @@ def write_package(destination: Path, manifest: dict[str, Any], inputs: Iterable[
     if destination.exists() or destination.is_symlink():
         raise ValueError("Choose a new backup filename; existing packages are never overwritten.")
     files = list(inputs)
-    if len(files) > 100000:
-        raise ValueError("The installation exceeds the package limit of 100,000 files.")
+    if len(files) > max_files:
+        raise ValueError(f"The installation exceeds the package limit of {max_files:,} files "
+                         "(BANANA_PACKAGE_MAX_FILES).")
     total = sum(path.stat().st_size for path, _ in files)
     if shutil.disk_usage(destination.parent).free < total + 128 * 1024 * 1024:
         raise ValueError("Not enough free space for a complete backup.")
@@ -316,7 +330,7 @@ def write_package(destination: Path, manifest: dict[str, Any], inputs: Iterable[
                     raise ValueError(f"A file changed size while it was packaged: {name}")
                 manifest["files"][name] = {"sha256": reader.digest.hexdigest(), "size": info.size}
             raw = json.dumps(manifest, sort_keys=True).encode()
-            if len(raw) > 16 * 1024 * 1024:
+            if len(raw) > manifest_limit(len(files)):
                 raise ValueError("Package manifest is too large.")
             info = tarfile.TarInfo("manifest.json")
             info.size, info.mode = len(raw), 0o600
@@ -348,7 +362,7 @@ def extract_archive(archive_path: Path, destination: Path, *, max_bytes: int = 1
                 raise ValueError("Unsafe or duplicate archive path.")
             seen.add(member.name)
             if len(seen) > max_files or member.size < 0:
-                raise ValueError("Archive exceeds file limits.")
+                raise ValueError(f"Archive exceeds file limits ({max_files:,} files).")
             total += member.size
             if total > max_bytes:
                 raise ValueError("Archive exceeds the extracted-size limit.")
@@ -397,13 +411,14 @@ def check_database_copy(file: Path, scratch: Path) -> None:
 
 
 @contextmanager
-def read_package(path: Path, product: str, staging_parent: Path) -> Iterator[tuple[Path, dict[str, Any]]]:
-    """Extract and fully verify a package; yield ``(directory, manifest)``."""
+def read_package(path: Path, product: str, staging_parent: Path, *,
+                 max_files: int = DEFAULT_MAX_FILES) -> Iterator[tuple[Path, dict[str, Any]]]:
+    """Extract and fully verify a package of at most *max_files* files; yield ``(directory, manifest)``."""
     staging_parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="restore-", dir=staging_parent) as temporary:
         root = Path(temporary)
-        members = extract_archive(Path(path), root)
-        manifest = read_json(root / "manifest.json")
+        members = extract_archive(Path(path), root, max_files=max_files + 1)  # and the manifest
+        manifest = read_json(root / "manifest.json", max_bytes=manifest_limit(len(members)))
         if not isinstance(manifest, dict) or manifest.get("schema") != 1 or manifest.get("product") != product:
             raise ValueError("This package does not match the application or package format.")
         declared = manifest.get("files", {})

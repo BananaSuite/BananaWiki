@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -9,7 +11,14 @@ import pytest
 from ops_fakes import FakeSystem, Upstream, legacy_install  # type: ignore[import-not-found]
 
 from bananawiki.ops import UNIT_GENERATION
-from bananawiki.ops.files import read_environment, read_json, read_package, write_json
+from bananawiki.ops.files import (
+    Refused,
+    read_environment,
+    read_json,
+    read_package,
+    write_environment,
+    write_json,
+)
 from bananawiki.ops.manager import Manager
 
 
@@ -261,6 +270,147 @@ def test_backup_is_short_downtime_and_restorable(managed_root, fake_system, upst
         assert "data/bananawiki.db-wal" not in manifest["files"]
     with pytest.raises(ValueError):
         manager.backup(managed_root / "data" / "inside.tar.gz")
+
+
+def deep_files(root: Path, count: int) -> None:
+    """*count* one-byte uploads whose paths are about 3,700 characters long."""
+    directory = root / "data/uploads"
+    for level in range(14):
+        directory = directory / (f"{level:02d}" + "d" * 248)
+    directory.mkdir(parents=True)
+    for number in range(count):
+        (directory / (f"{number:05d}" + "f" * 195)).write_bytes(b"x")
+
+
+def test_a_snapshot_index_beyond_16_mib_no_longer_fails_backups_and_updates(managed_root, fake_system, upstream,
+                                                                             legacy):
+    """Earlier controllers read their snapshot index back (indented, about 220 bytes a file) only up to 16 MiB,
+    once the services had stopped: from about 76,000 files every backup and update failed after the downtime
+    (R-25). These few files with long names make an index as large."""
+    deep_files(managed_root, 4800)
+    manager = Manager(managed_root, system=fake_system)
+    package = manager.backup()
+    with read_package(package, "BananaWiki", managed_root / "staging") as (_tree, manifest):
+        assert len(json.dumps(manifest)) > 16 * 1024 * 1024  # its manifest too
+    # A failed update puts the large snapshot back.
+    bad = upstream.commit("broken release")
+    fake_system.unhealthy_revisions.add(bad)
+
+    def damage(names):
+        if (managed_root / "current").resolve().name == bad:
+            shutil.rmtree(managed_root / "data/uploads")
+
+    fake_system.on_start.append(damage)
+    with pytest.raises(RuntimeError, match="readiness"):
+        manager.update()
+    assert (managed_root / "current").resolve().name == legacy
+    assert len(list((managed_root / "data/uploads").rglob("*f"))) == 4800
+    assert not (managed_root / "config/transaction.json").exists()
+
+
+def test_more_files_than_a_package_may_hold_are_refused_before_anything_stops(managed_root, fake_system, upstream,
+                                                                              legacy):
+    environment = managed_root / "config/app.env"
+    write_environment(environment, {**read_environment(environment), "BANANA_PACKAGE_MAX_FILES": "1000"})
+    for number in range(1000):
+        (managed_root / "data/uploads" / f"{number}.png").write_bytes(b"x")
+    manager = Manager(managed_root, system=fake_system)
+    status = manager.status()
+    assert status["package_file_limit"] == 1000 and status["package_files"] > 1000
+    assert "BANANA_PACKAGE_MAX_FILES" in status["warnings"][0]
+    new = upstream.commit("1.6.1")
+    for operation in (manager.backup, manager.update):
+        with pytest.raises(Refused, match="more than a package may hold"):
+            operation()
+        assert not [command for command in fake_system.commands if command[:2] == ["systemctl", "stop"]]
+        assert not list((managed_root / "staging").glob("snapshot-*"))
+        assert not (managed_root / "config/transaction.json").exists()
+    # Not the revision's failure: the next automatic run tries it again.
+    assert read_json(managed_root / "config/status.json")["outcome"] == "failed"
+    assert not (managed_root / "config/failed-revision.json").exists()
+    write_environment(environment, {**read_environment(environment), "BANANA_PACKAGE_MAX_FILES": "5000"})
+    assert "warnings" not in manager.status()
+    assert manager.update()["outcome"] == "complete" and (managed_root / "current").resolve().name == new
+    write_environment(environment, {**read_environment(environment), "BANANA_PACKAGE_MAX_FILES": "many"})
+    assert "BANANA_PACKAGE_MAX_FILES" in manager.status()["warnings"][0]
+    with pytest.raises(ValueError, match="BANANA_PACKAGE_MAX_FILES"):
+        manager.backup()
+
+
+def test_an_invalid_package_limit_refuses_an_update_before_anything_stops(managed_root, fake_system, upstream,
+                                                                          legacy):
+    """It was read once the release was built, and the update was recorded as rolled back: a failed revision."""
+    environment = managed_root / "config/app.env"
+    write_environment(environment, {**read_environment(environment), "BANANA_PACKAGE_MAX_FILES": "2M"})
+    manager = Manager(managed_root, system=fake_system)
+    new = upstream.commit("1.6.1")
+    with pytest.raises(Refused, match="BANANA_PACKAGE_MAX_FILES"):
+        manager.update()
+    assert not [command for command in fake_system.commands if command[:2] == ["systemctl", "stop"]]
+    assert not (managed_root / "releases" / new).exists()
+    status = read_json(managed_root / "config/status.json")
+    assert status["outcome"] == "failed" and "BANANA_PACKAGE_MAX_FILES" in status["reason"]
+    assert not (managed_root / "config/failed-revision.json").exists()
+    write_environment(environment, {**read_environment(environment), "BANANA_PACKAGE_MAX_FILES": "2000000"})
+    assert manager.update()["outcome"] == "complete" and (managed_root / "current").resolve().name == new
+
+
+def test_too_little_space_for_the_snapshot_refuses_an_update_before_anything_stops(managed_root, fake_system,
+                                                                                   upstream, legacy, monkeypatch):
+    real = shutil.disk_usage
+
+    def usage(path):
+        result = real(path)
+        return result._replace(free=0) if Path(path).name.startswith("snapshot-") else result
+
+    monkeypatch.setattr(shutil, "disk_usage", usage)
+    manager = Manager(managed_root, system=fake_system)
+    upstream.commit("1.6.1")
+    with pytest.raises(Refused, match="Not enough free space for a pre-update snapshot"):
+        manager.update()
+    assert not [command for command in fake_system.commands if command[:2] == ["systemctl", "stop"]]
+    assert not list((managed_root / "staging").glob("snapshot-*"))
+    assert read_json(managed_root / "config/status.json")["outcome"] == "failed"
+    assert not (managed_root / "config/failed-revision.json").exists()
+
+
+def test_a_1x_journal_is_recovered_whatever_the_package_limit_says(managed_root, fake_system, upstream, legacy):
+    """Recovery has stopped the platform when it reads the package: the setting must not keep it down."""
+    manager = Manager(managed_root, system=fake_system)
+    for number in range(1000):
+        (managed_root / "data/uploads" / f"{number}.png").write_bytes(b"x")
+    package = manager.backup()
+    settings = read_json(managed_root / "config/installation.json")
+    environment = managed_root / "config/app.env"
+    for value in ("2M", "1000"):  # invalid, then lower than the package written by the 1.4 updater
+        add_page(managed_root, "after the package")
+        write_environment(environment, {**read_environment(environment), "BANANA_PACKAGE_MAX_FILES": value})
+        write_json(managed_root / "config/transaction.json", {
+            "settings": settings, "active": ["bananawiki", "bananawiki-tts"], "containers": [],
+            "backup": str(package), "candidate": "f" * 40, "phase": "backed_up"})
+        assert manager.recover() is True
+        assert titles(managed_root) == ["Home"]
+        assert not (managed_root / "config/transaction.json").exists()
+
+
+def test_a_restore_writes_the_previous_package_under_the_limit_it_was_taken_with(managed_root, fake_system,
+                                                                                 upstream, legacy):
+    """The restored ``app.env`` can set a lower limit than the installation it replaces had."""
+    environment = managed_root / "config/app.env"
+    write_environment(environment, {**read_environment(environment), "BANANA_PACKAGE_MAX_FILES": "1000"})
+    manager = Manager(managed_root, system=fake_system)
+    package = manager.backup()
+    values = read_environment(environment)
+    del values["BANANA_PACKAGE_MAX_FILES"]
+    write_environment(environment, values)
+    for number in range(1000):
+        (managed_root / "data/uploads" / f"{number}.png").write_bytes(b"x")
+    result = manager.restore(package)
+    assert result["outcome"] == "complete" and "backup_warning" not in result
+    assert read_environment(environment)["BANANA_PACKAGE_MAX_FILES"] == "1000"
+    with read_package(Path(result["previous_package"]), "BananaWiki", managed_root / "staging",
+                      max_files=2000) as (_tree, manifest):
+        assert len(manifest["files"]) > 1000
 
 
 def test_pruning_keeps_rollback_target_and_newest(managed_root, fake_system, upstream, legacy):

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from flask import abort, flash, redirect, request, url_for
 
-from ...core.timeutil import to_sql, utcnow
+from ...core.timeutil import MAX_YEAR, MIN_YEAR, parse, to_sql, utcnow
 from ...core.web import is_safe_redirect
 from .. import auth, collaborators, instances
 from ..errors import ServiceError
@@ -86,13 +86,18 @@ def seconds_from_form(prefix: str) -> int:
 
 
 def utc_from_input(value: str) -> str | None:
-    """A ``datetime-local`` value (interpreted as UTC) in storage form."""
+    """A ``datetime-local`` value (interpreted as UTC) in storage form.
+
+    Only the years ``MIN_YEAR`` to ``MAX_YEAR`` are accepted: a later date
+    could not be shown in every time zone, nor extended.
+    """
     if not value:
         return None
-    try:
-        moment = datetime.fromisoformat(value)
-    except ValueError as error:
-        raise ServiceError("hosting.form.invalid_datetime") from error
+    if parse(value) is None:
+        raise ServiceError("hosting.form.invalid_datetime")
+    moment = parse(value, bounded=True)
+    if moment is None:
+        raise ServiceError("hosting.form.datetime_out_of_range", min=MIN_YEAR, max=MAX_YEAR)
     return to_sql(moment)
 
 

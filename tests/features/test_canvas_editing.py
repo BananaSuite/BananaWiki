@@ -174,21 +174,20 @@ def test_page_links_follow_rename_and_delete(app, editor, canvas, db, owner):
     ops(editor, canvas, {"op": "upsert_node", "node": {"id": "w", "type": "wiki_page", "page_id": page["id"]}},
         {"op": "upsert_node", "node": legacy})
     doc = {n["id"]: n for n in stored(db, canvas)["nodes"]}
-    assert doc["w"]["label"] == "Target page" and doc["old"]["page_id"] == page["id"]
-    version = db.scalar("SELECT version FROM canvas__layouts WHERE id = ?", (canvas["id"],))
+    assert doc["w"]["page_id"] == page["id"] and doc["old"]["page_id"] == page["id"]
+    assert not {"label", "page_slug"} & (doc["w"].keys() | doc["old"].keys())
 
+    def shown():
+        return {n["id"]: n for n in editor.get(f"/canvas/{canvas['slug']}/data").get_json()["data"]["nodes"]}
+
+    assert shown()["w"]["label"] == "Target page"
     run(app, lambda: pages.change_slug(pages.get(page["id"]), "moved-page"))
-    doc = {n["id"]: n for n in stored(db, canvas)["nodes"]}
-    assert doc["w"]["page_slug"] == "moved-page" and doc["old"]["page_slug"] == "moved-page"
-    assert db.scalar("SELECT version FROM canvas__layouts WHERE id = ?", (canvas["id"],)) > version
-    events = editor.get(f"/canvas/{canvas['slug']}/sync?since=2").get_json()["events"]
-    assert {e["payload"]["node"]["id"] for e in events} >= {"w", "old"}
+    assert shown()["w"]["page_slug"] == "moved-page" and shown()["old"]["page_slug"] == "moved-page"
 
     run(app, lambda: pages.delete(pages.get(page["id"]), actor_id=None))
-    doc = {n["id"]: n for n in stored(db, canvas)["nodes"]}
-    assert doc["w"]["deleted"] is True and doc["old"]["deleted"] is True
-    shown = editor.get(f"/canvas/{canvas['slug']}/data").get_json()
-    assert {n["id"]: n for n in shown["data"]["nodes"]}["w"]["label"] == ""
+    nodes = shown()
+    assert nodes["w"]["label"] == "" and nodes["w"]["restricted"] is True and "page_id" not in nodes["w"]
+    assert {n["page_id"] for n in stored(db, canvas)["nodes"]} == {page["id"]}
 
 
 def test_page_titles_are_hidden_from_readers_who_cannot_see_the_page(app, canvas, db, owner, make_user, login,

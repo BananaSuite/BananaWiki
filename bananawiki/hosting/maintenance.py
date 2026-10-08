@@ -19,6 +19,11 @@ containers and waits for them to return). Then, every *interval* seconds,
 * prune expired sessions, rate-limit hits, OAuth grants and stale uploads;
 * publish the routing table.
 
+Each wiki or account is handled on its own: one that fails is logged and
+retried on a later pass, and after three failures in a row it waits between
+attempts (15 minutes, doubling up to a day; see
+:func:`.instances.maintenance_due`).
+
 A runtime may also define ``maintenance_tick()``; it is called at the end of
 every pass for runtime-side periodic work (scheduled Google Drive backups,
 pruning 1.4 log files and interrupted imports).
@@ -48,27 +53,34 @@ _stop = threading.Event()
 
 def _delete_account(account_id: str) -> None:
     accounts.check_deletable(account_id)
-    for inst in instances.owned_by(account_id):
-        instances.terminate(inst, actor_id=None, reason="account_deleted")
+    instances.terminate_all(account_id, actor_id=None)
     accounts.delete(account_id)
 
 
-def _per_account(name: str, ids: list[str], action: Callable[[str], Any]) -> int:
+def _per_account(name: str, step: str, ids: list[str], action: Callable[[str], Any]) -> int:
     """Run *action* for every account id on its own; returns how many succeeded.
 
-    A failing account is logged and retried on the next pass: one wiki that
-    cannot be stopped must not hold up every deletion queued after it. A stop
-    request ends the step between two accounts.
+    A failing account is logged and retried on a later pass: one wiki that
+    cannot be stopped must not hold up every deletion queued after it. One
+    that failed several passes in a row waits between attempts (see
+    :func:`instances.maintenance_due`). A stop request ends the step between
+    two accounts.
     """
     done = 0
     for item in ids:
         if _stop.is_set():
             break
+        failures = instances.maintenance_due("account", item, step)
+        if failures is None:
+            continue
         try:
             action(item)
-            done += 1
-        except Exception:  # noqa: BLE001 - one account must not block the others
+        except Exception as error:  # noqa: BLE001 - one account must not block the others
             log.exception("Maintenance step %s failed for %s", name, item)
+            instances.maintenance_result("account", item, step, failures, error)
+            continue
+        done += 1
+        instances.maintenance_result("account", item, step, failures)
     return done
 
 
@@ -99,15 +111,16 @@ def _steps(app: Flask) -> list[tuple[str, Callable[[], Any]]]:
     return [
         ("instance suspensions", instances.lift_expired_suspensions),
         ("account suspensions", lambda: _per_account(
-            "account suspensions", accounts.expired_suspensions(),
+            "account suspensions", "lift_account_suspension", accounts.expired_suspensions(),
             lambda i: accounts.unsuspend(i, actor_id=None, automatic=True))),
         ("expired wikis", instances.terminate_expired),
         ("grace periods", instances.purge_expired_grace_periods),
         ("storage quotas", instances.enforce_storage_quotas),
         ("custom domains", domains.refresh),
-        ("denied accounts", lambda: _per_account("denied accounts", accounts.expired_denials(), _delete_account)),
-        ("scheduled deletions", lambda: _per_account("scheduled deletions", accounts.due_deletions(),
-                                                     _delete_account)),
+        ("denied accounts", lambda: _per_account("denied accounts", "delete_account", accounts.expired_denials(),
+                                                 _delete_account)),
+        ("scheduled deletions", lambda: _per_account("scheduled deletions", "delete_account",
+                                                     accounts.due_deletions(), _delete_account)),
         ("attention emails", notifications.send_attention),
         ("decision emails", notifications.send_decisions),
         ("tombstones", accounts.purge_tombstones),

@@ -20,6 +20,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    send_file,
     url_for,
 )
 
@@ -333,10 +334,8 @@ def export(slug: str):
     _limit("export", 10)
     layout, _level = _layout(slug, "edit")
     doc = present.redacted_document(service.document(layout["id"]), auth.current_user())
-    body, mimetype, filename = transfer.build_export(layout, doc, plain=request.args.get("format") == "json")
-    response = Response(body, mimetype=mimetype)
-    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    return response
+    file, mimetype, filename = transfer.build_export(layout, doc, plain=request.args.get("format") == "json")
+    return send_file(file, mimetype=mimetype, as_attachment=True, download_name=filename, max_age=0)
 
 
 @bp.get("/canvas/<slug>/outline")

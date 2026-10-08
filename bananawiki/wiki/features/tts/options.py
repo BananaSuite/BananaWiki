@@ -31,6 +31,7 @@ OUTPUT_FORMATS = frozenset({"auto", "wav", "mp3"})
 GPU_DEFAULT_TIMEOUT = 120
 GPU_MAX_TIMEOUT = 3600
 MAX_WORKERS = 8
+MAX_JOB_SECONDS = 24 * 3600
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,8 @@ class TtsConfig:
     resume_max_delay: float = 30.0
     rate_limit_cooldown: float = 900.0
     shutdown_grace: float = 20.0
+    max_job_seconds: int = 3600
+    piper_memory_mb: int = 0  # 0: no address-space limit of its own for the Piper process
     piper_auto_download: bool = True
     piper_output_format: str = "auto"
     piper_length_scale: float | None = None
@@ -152,6 +155,8 @@ def load(cfg, environ: Mapping[str, str] | None = None) -> TtsConfig:
         resume_max_delay=env.float("BW_TTS_AUTO_RESUME_MAX_DELAY_SECONDS", 30.0) or 0.0,
         rate_limit_cooldown=env.float("BW_TTS_RATE_LIMIT_COOLDOWN_SECONDS", 900.0) or 0.0,
         shutdown_grace=env.float("BW_TTS_SHUTDOWN_GRACE_SECONDS", 20.0) or 0.0,
+        max_job_seconds=env.int("BW_TTS_MAX_JOB_SECONDS", 3600, 300, MAX_JOB_SECONDS),
+        piper_memory_mb=env.int("BW_TTS_PIPER_MEMORY_MB", 0, 0),
         piper_auto_download=env.bool("BW_TTS_PIPER_AUTO_DOWNLOAD", True),
         piper_output_format=output if output in OUTPUT_FORMATS else "auto",
         piper_length_scale=env.float("BW_TTS_PIPER_LENGTH_SCALE", None, 0.1),

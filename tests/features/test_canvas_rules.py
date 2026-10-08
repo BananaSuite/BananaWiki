@@ -122,14 +122,18 @@ def test_rest_api_paths_emit_the_same_events(app, db, client, owner, events, cre
     assert {event[3] for event in events} == {owner["id"]}
 
 
-def test_page_link_updates_emit_without_a_request_user(app, canvas, owner, events):
+def test_page_link_updates_emit_without_a_request_user(app, canvas, owner, events, db):
     page = run(app, lambda: pages.create("Linked", "text", author_id=None))
-    run(app, lambda: service.apply(canvas, [{"op": "upsert_node", "node": {"id": "w", "type": "wiki_page",
-                                                                           "page_id": page["id"]}}],
-                                   user_id=owner["id"], session_id=""))
+    # Only nodes saved by older versions (with the slug stored) are rewritten by the server.
+    legacy = {"nodes": [{"id": "w", "type": "wiki_page", "page_slug": page["slug"], "label": "Linked"}],
+              "edges": []}
+    db.execute("UPDATE canvas__layouts SET data = ? WHERE id = ?", (json.dumps(legacy), canvas["id"]))
     events.clear()
     run(app, lambda: service.on_page_deleted(page))
     assert events == [("canvas.updated", canvas["id"], canvas["slug"], None)]
+    events.clear()
+    run(app, lambda: service.on_page_deleted(page))
+    assert events == []
 
 
 def test_failing_handlers_never_break_a_save(app, editor, canvas, db):

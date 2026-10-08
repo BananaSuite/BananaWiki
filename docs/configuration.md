@@ -48,7 +48,7 @@ can be moved individually; unset folders follow `BW_INSTANCE_DIR`.
 | `BW_CUSTOM_PAGE_FILES_FOLDER` | `<instance>/custom_page_files` | Files of custom pages. |
 | `BW_TTS_FOLDER` | `<instance>/tts` | Generated read-aloud audio. |
 | `BW_TTS_PIPER_VOICE_DIR` | `<instance>/piper-voices` | Piper voice models. |
-| `BW_SITE_EXPORT_TEMP_DIR` | `<instance>/tmp_exports` | Scratch space for whole-site export and import. |
+| `BW_SITE_EXPORT_TEMP_DIR` | `<instance>/tmp_exports` | Scratch space for whole-site export and import, attachment and bulk Markdown exports, and personal data exports. |
 | `BW_EXTERNAL_PLUGINS_DIR` | `<instance>/plugins` | Third-party plugins. |
 | `BW_LOG_FILE` | `<instance>/logs/bananawiki.log` | Application log, rotated at 10 MB with 5 old files. **1.4 default:** `<source>/logs/bananawiki.log`. |
 
@@ -71,8 +71,8 @@ instance directory (never overwriting anything). See [UPGRADING](../UPGRADING.md
 | `BW_PORT` | `5001` | Listen port (1–65535). |
 | `BW_PROXY_MODE` | `0` | Trust `X-Forwarded-For`, `-Proto` and `-Host` from **one** proxy in front. Turn it on only when the port is reachable through that proxy alone. `X-Forwarded-Prefix` is never trusted. |
 | `BW_PREFERRED_URL_SCHEME` | `https` with proxy mode, else `http` | Scheme of absolute links the wiki generates. |
-| `BW_SESSION_COOKIE_NAME` | `bw_session` | Name of the session cookie (hosted wikis use `bw_session_<slug>`). |
-| `BW_SECURE_COOKIES` | follows the request | `1` always marks cookies `Secure`, `0` never; unset: `Secure` on HTTPS requests. |
+| `BW_SESSION_COOKIE_NAME` | `bw_session` | Name of the session cookie (hosted wikis use `bw_session_<slug>`). A `Secure` cookie gets the `__Host-` prefix: `__Host-bw_session`. |
+| `BW_SECURE_COOKIES` | follows the request | `1` always marks cookies `Secure` (and `__Host-` named), `0` never; unset: `Secure` on HTTPS requests. |
 | `BW_PASSWORD_HASH_METHOD` (alias `HASH_METHOD`) | `auto` | `auto` (scrypt when available, else PBKDF2-SHA256), `scrypt` or `pbkdf2`. Existing hashes of any Werkzeug format keep working. |
 | `BW_SOURCE_URL` | `https://github.com/BananaSuite/BananaWiki` | Where `/source` redirects (AGPL section 13). Must be an http(s) URL without credentials. Point it at the source of the version you run. |
 | `BW_LOGGING_LEVEL` | `medium` | `off`, `minimal` (warnings), `medium` (information), `verbose` (same as `medium`) or `debug`. **1.4 default:** `verbose`. |
@@ -201,6 +201,8 @@ Invalid values log a warning and fall back to the default.
 | `BW_TTS_AUTO_RESUME_MAX_DELAY_SECONDS` | 30.0 | Longest retry delay. |
 | `BW_TTS_RATE_LIMIT_COOLDOWN_SECONDS` | 900 | Pause after the GPU server answers `429`. |
 | `BW_TTS_SHUTDOWN_GRACE_SECONDS` | 20 | Jobs still running this long after a stop request go back to the queue. |
+| `BW_TTS_MAX_JOB_SECONDS` | 3600 (300–86400) | Longest a job may run; then Piper is stopped and the job fails. Keep it above `BW_TTS_REMOTE_GPU_TIMEOUT`. |
+| `BW_TTS_PIPER_MEMORY_MB` | 0 (none) | Address-space limit (`RLIMIT_AS`) of the Piper process on Linux; a page that needs more fails. See [read aloud](tts.md#limits). |
 | `BW_TTS_PERFORMANCE_MODE` | from the admin page | `auto`, `balanced` or `fast`. |
 | `BW_TTS_PIPER_AUTO_DOWNLOAD` | `1` | Download missing Piper voices on first use. |
 | `BW_TTS_PIPER_VOICE_MAP` | built-in voices | Extra or replacement voices: JSON (`{"de": "de_DE-thorsten-high"}`) or `de=de_DE-thorsten-high,pt=pt_BR-faber-medium`. |
@@ -227,7 +229,9 @@ and `BW_RUNTIME_AGENT_SOCKET`. A wiki installation starts with:
 `BW_PREFERRED_URL_SCHEME` (`https` with a domain), `BW_ENV=production`, a
 random `BW_SETUP_TOKEN`, `BW_SOURCE_URL` (the web page of the update source),
 `BW_SYSTEMD_SERVICE` (informational), and every folder variable pointing into
-`<root>/data`.
+`<root>/data`. `BANANA_PACKAGE_MAX_FILES` (default 1000000, 1000–100000000),
+which you add, sets how many files a backup or update package may hold (see
+[operations](operations.md#managed-servers-portable-packages)).
 
 ## Hosting portal
 
@@ -285,7 +289,7 @@ like 1.4; managed installations set them to `<root>/data`.
 | `HOSTING_CONTAINER_IMAGE` | `bananawiki-tenant:latest` | Tenant image; the managed updater sets `bananawiki-tenant:<revision>`. |
 | `HOSTING_CONTAINER_INTERNAL_PORT` | 5001 | Port inside tenant containers. |
 | `HOSTING_TENANT_NETWORK` | `isolated` in subdomain mode, else `outbound` | `isolated`: a Docker internal bridge for each tenant, blocking traffic beyond its subnet. Host gateway listeners still require host firewall INPUT rules; bind host-only services to loopback. Port and onion mode need `outbound`. |
-| `HOSTING_ALLOW_TENANT_PLUGINS` | `0` | Operator opt-in for third-party Python plugins in hosted wikis. Built-in features remain available. Existing plugin files and settings are retained while disabled; set `1` only for tenants whose code you trust, with host filesystem quotas and tested container isolation. Quarantine still overrides this setting. |
+| `HOSTING_ALLOW_TENANT_PLUGINS` | `0` | Operator opt-in for third-party Python plugins in hosted wikis. Built-in features remain available. Existing plugin files and settings are retained while disabled; set `1` only for tenants whose code you trust, with host filesystem quotas and tested container isolation. Quarantine still overrides this setting. Subdomain mode only: refused in port and onion mode, where the portal and the wikis share cookies. |
 | `HOSTING_TENANT_PLUGIN_DENYLIST` | none | Plugin ids tenants may never load. |
 | `HOSTING_TTS_GPU_TENANT_TOKENS` | `1` | Give each wiki its own GPU speech token derived from the master token instead of the master token itself. Needs the GPU server from this release; set `0` only while an older GPU server is still running. |
 | `HOSTING_FEDERATION_INSTANCES` | none | Wiki ids (from the portal) whose tenants get `BW_FEDERATION_ENABLED=1`; `*` for every wiki. |

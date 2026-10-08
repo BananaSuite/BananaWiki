@@ -21,7 +21,10 @@ Apri **Amministrazione** dal menu dell'account.
 * **Utenti**: crea account, approva o rifiuta iscrizioni, cambia i ruoli,
   assegna ruoli personalizzati, imposta permessi individuali e accesso alle
   categorie, sospendi, reimposta password, chiudi sessioni, impersona (per
-  vedere la wiki come un'altra persona; viene registrato).
+  vedere la wiki come un'altra persona; viene registrato). La pagina
+  **Registro** di un account elenca i suoi nomi utente precedenti, che
+  nessun altro può prendere: da lì puoi liberarne uno quando serve a un altro
+  account.
 * **Ruoli personalizzati**: insiemi di permessi e limiti di categoria per
   gruppi di persone.
 * **Codici d'invito**: codici per l'iscrizione, con numero di usi, scadenza

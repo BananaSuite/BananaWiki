@@ -214,7 +214,7 @@ names are at most 100 characters.
 | `DELETE /kanban/boards/<id>` | creator and administrators |
 | `POST /kanban/boards/<id>/archive` / `restore` | creator and administrators |
 | `GET /kanban/boards/<id>/archived-tickets` | archived tickets, most recently archived first (the newest 500), with `column_title`, `archived_at`, `archived_by_username`, and `total` |
-| `POST /kanban/boards/<id>/tickets/archive` / `restore` | `{ids: [ticket ids]}` (all on this board, at most 500) → `archived` / `restored` count |
+| `POST /kanban/boards/<id>/tickets/archive` / `restore` | `{ids: [ticket ids]}` (all on this board; at most 500 ids, repeats included, else 400 `too_many`) → `archived` / `restored` count |
 | `POST /kanban/boards/<id>/columns` | `{title}` |
 | `POST /kanban/boards/<id>/columns/reorder` | `{order: [column ids]}` |
 | `PUT` / `DELETE /kanban/columns/<id>` | `{title?, wip_limit?}` (rename and/or set the work-in-progress limit, `null` or `0` removes it) / delete with its tickets |
@@ -288,6 +288,10 @@ refused as a whole with 400 `locked`; `locked` lists the ids of the locked
 nodes concerned (at most 10) and `locked_count` how many there are. Unlock
 them first: an `upsert_node` that only changes `locked` to `false` is
 allowed, unlocking and editing in the same operation is not.
+A wiki-page node keeps its stored page link while it is locked: a change of
+`page_id` or `page_slug` on a locked node is dropped and the rest of the
+operation applies, and a wiki-page node sent without `page_id` or `page_slug`
+keeps the link it has. To link another page, unlock the node first.
 A `PUT /canvas/<slug>` that changes both the title or description and the
 visibility sends two `canvas.updated` webhook events.
 

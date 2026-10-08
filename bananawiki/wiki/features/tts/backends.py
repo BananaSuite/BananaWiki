@@ -2,7 +2,9 @@
 
 * :class:`PiperBackend` - local Piper neural voices (``piper-tts``, optional).
   Voice models live in ``BW_TTS_PIPER_VOICE_DIR`` and are downloaded on first
-  use unless ``BW_TTS_PIPER_AUTO_DOWNLOAD=0``.
+  use unless ``BW_TTS_PIPER_AUTO_DOWNLOAD=0``. The text is read in pieces
+  (:func:`.text.speech_chunks`); on POSIX systems Piper runs in a child
+  process (:mod:`.piper_child`) bounded in time and, optionally, in memory.
 * :class:`RemoteGpuBackend` - a BananaWiki GPU speech server
   (``contrib/tts-gpu-server``) reached through :mod:`bananawiki.core.http`,
   with a fallback to local Piper when it fails.
@@ -22,9 +24,9 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
-import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -32,7 +34,7 @@ from typing import Any, Protocol
 from flask import current_app
 
 from ....core import http
-from . import options
+from . import options, piper_child, text
 
 log = logging.getLogger("bananawiki.tts")
 
@@ -129,10 +131,23 @@ def ffmpeg_available() -> bool:
 
 def _run_encoder(command: list[str]) -> tuple[int, bytes]:
     """Keep encoder diagnostics and execution time bounded, including failed inputs."""
+    return _run_bounded(command, FFMPEG_TIMEOUT, "The audio encoder")
+
+
+def _run_bounded(command: list[str], timeout: float, name: str, *, data: bytes | None = None,
+                 env: dict[str, str] | None = None, new_session: bool = False) -> tuple[int, bytes]:
+    """Run *command* with its running time and its diagnostics (stderr) bounded.
+
+    *data* goes to its standard input. Returns ``(returncode, stderr)``;
+    raises :class:`subprocess.TimeoutExpired` once a process that ran too
+    long is killed, and a permanent :class:`SynthesisError` when it writes
+    too much to stderr.
+    """
     diagnostics = bytearray()
     too_large = threading.Event()
-    with subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                          stderr=subprocess.PIPE, bufsize=0) as process:
+    with subprocess.Popen(command, stdin=subprocess.DEVNULL if data is None else subprocess.PIPE,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, bufsize=0, env=env,
+                          start_new_session=new_session) as process:
         assert process.stderr is not None
 
         def read_errors() -> None:
@@ -147,18 +162,30 @@ def _run_encoder(command: list[str]) -> tuple[int, bytes]:
                     return
                 diagnostics.extend(chunk)
 
-        reader = threading.Thread(target=read_errors, daemon=True)
-        reader.start()
+        def feed() -> None:
+            assert process.stdin is not None
+            try:
+                process.stdin.write(data or b"")
+                process.stdin.close()
+            except OSError:
+                pass  # the process exited early; its return code tells why
+
+        threads = [threading.Thread(target=read_errors, daemon=True)]
+        if data is not None:
+            threads.append(threading.Thread(target=feed, daemon=True))
+        for thread in threads:
+            thread.start()
         try:
-            process.wait(timeout=FFMPEG_TIMEOUT)
+            process.wait(timeout=timeout)
         except BaseException:
             process.kill()
             process.wait()
             raise
         finally:
-            reader.join(timeout=1)
+            for thread in threads:
+                thread.join(timeout=1)
         if too_large.is_set():
-            raise SynthesisError("The audio encoder exceeded its diagnostic limit.", retryable=False)
+            raise SynthesisError(f"{name} exceeded its diagnostic limit.", retryable=False)
         return process.returncode, bytes(diagnostics)
 
 
@@ -221,8 +248,16 @@ _voice_lock = threading.Lock()
 _download_lock = threading.Lock()
 
 
+PIPER_CHILD = Path(piper_child.__file__)
+
+
 def piper_installed() -> bool:
     return importlib.util.find_spec("piper") is not None
+
+
+def piper_in_child() -> bool:
+    """Whether Piper runs in a child process: on POSIX, unless the app is packaged (no interpreter to start)."""
+    return os.name == "posix" and bool(sys.executable) and not getattr(sys, "frozen", False)
 
 
 def _system_specs() -> tuple[int, int]:
@@ -334,15 +369,19 @@ class PiperBackend:
                 log.info("Loaded Piper voice %s", model.name)
             return _voice_cache[key]
 
+    def _scales(self) -> tuple[float, float, float]:
+        length, noise, noise_w = synthesis_scales(self.performance_mode)
+        return (
+            self.cfg.piper_length_scale or length,
+            self.cfg.piper_noise_scale if self.cfg.piper_noise_scale is not None else noise,
+            self.cfg.piper_noise_w_scale if self.cfg.piper_noise_w_scale is not None else noise_w,
+        )
+
     def _syn_config(self) -> Any:
         from piper import SynthesisConfig  # type: ignore[import-not-found]
 
-        length, noise, noise_w = synthesis_scales(self.performance_mode)
-        return SynthesisConfig(
-            length_scale=self.cfg.piper_length_scale or length,
-            noise_scale=self.cfg.piper_noise_scale if self.cfg.piper_noise_scale is not None else noise,
-            noise_w_scale=self.cfg.piper_noise_w_scale if self.cfg.piper_noise_w_scale is not None else noise_w,
-        )
+        length, noise, noise_w = self._scales()
+        return SynthesisConfig(length_scale=length, noise_scale=noise, noise_w_scale=noise_w)
 
     def output_extension(self) -> str:
         fmt = self.cfg.piper_output_format
@@ -350,12 +389,48 @@ class PiperBackend:
             return "mp3" if ffmpeg_available() else "wav"
         return fmt
 
-    def synthesize(self, spoken: str, language: str, workdir: Path) -> Audio:
+    def _synthesize_here(self, chunks: list[str], language: str, wav_path: Path) -> None:
         voice = self._voice(language)
+        if not piper_child.write_wav(voice, chunks, self._syn_config(), str(wav_path)):
+            raise SynthesisError("Piper produced an empty file.")
+
+    def _synthesize_in_child(self, chunks: list[str], language: str, wav_path: Path) -> None:
+        model, config_path = self._ensure_files(language)
+        request = json.dumps({
+            "model": str(model), "config": str(config_path), "chunks": chunks, "scales": self._scales(),
+            "output": str(wav_path), "memory_mb": self.cfg.piper_memory_mb,
+        }).encode("utf-8")
+        env = dict(os.environ)
+        if self.cfg.piper_memory_mb:
+            env.setdefault("MALLOC_ARENA_MAX", "2")  # glibc reserves address space for each thread's arena
+        seconds = self.cfg.max_job_seconds
+        try:
+            returncode, diagnostics = _run_bounded(
+                [sys.executable, "-P", str(PIPER_CHILD)], seconds, "The speech engine",
+                data=request, env=env, new_session=True,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise SynthesisError(f"Piper took longer than {seconds} seconds (BW_TTS_MAX_JOB_SECONDS).",
+                                 retryable=False) from error
+        except (OSError, subprocess.SubprocessError) as error:
+            raise SynthesisError(f"Piper could not run: {error}") from error
+        if returncode != 0:
+            lines = diagnostics.decode("utf-8", "replace").strip().splitlines()
+            if returncode < 0:
+                message = f"Piper was stopped by signal {-returncode}."
+            else:
+                message = lines[-1][:300] if lines else f"Piper failed with exit code {returncode}."
+            raise SynthesisError(message, retryable=returncode not in (piper_child.NOT_INSTALLED,
+                                                                       piper_child.OUT_OF_MEMORY))
+
+    def synthesize(self, spoken: str, language: str, workdir: Path) -> Audio:
+        chunks = text.speech_chunks(spoken)
         wav_path = _temp_path(workdir, ".wav")
         try:
-            with wave.open(str(wav_path), "wb") as wav_file:
-                voice.synthesize_wav(spoken, wav_file, syn_config=self._syn_config())
+            if piper_in_child():
+                self._synthesize_in_child(chunks, language, wav_path)
+            else:
+                self._synthesize_here(chunks, language, wav_path)
         except SynthesisError:
             wav_path.unlink(missing_ok=True)
             raise

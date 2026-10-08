@@ -233,17 +233,33 @@ def contribution_count(user_id: str) -> int:
 # ── Account changes ──────────────────────────────────────────────────────────
 
 
+def _name_error(error: AccountError, username: str) -> AccountError:
+    """Name the account a refused former name is reserved for: its audit page can release it."""
+    if error.key == "auth.error.username_taken" and accounts.by_username(username) is None:
+        holder = accounts.by_id(accounts.former_holder(username))
+        if holder is not None:
+            return AccountError("admin.users.error.name_reserved", username=username.strip(),
+                                holder=holder["username"])
+    return error
+
+
 def create_user(username: str, password: str, role: str, *, force_password_change: bool) -> dict[str, Any]:
     """Create an account from the admin form (owners are only ever promoted, never created)."""
     if role not in ("user", "editor", "admin"):
         raise AccountError("auth.error.invalid_role")
-    return accounts.create(username, password, role=role, force_password_change=force_password_change)
+    try:
+        return accounts.create(username, password, role=role, force_password_change=force_password_change)
+    except AccountError as error:
+        raise _name_error(error, username) from None
 
 
 def rename(actor: dict[str, Any], target: dict[str, Any], new_username: str) -> dict[str, Any]:
-    with db.transaction():
-        actor, target = _current_accounts(actor, target)
-        return accounts.rename(target, new_username, changed_by=actor["id"])
+    try:
+        with db.transaction():
+            actor, target = _current_accounts(actor, target)
+            return accounts.rename(target, new_username, changed_by=actor["id"])
+    except AccountError as error:
+        raise _name_error(error, new_username) from None
 
 
 def clear_overrides(user_id: str) -> None:
@@ -545,6 +561,14 @@ def delete_role_history(actor: dict[str, Any], target: dict[str, Any], entry_id:
         if not count:
             raise AccountError("admin.attributions.error.entry_not_found")
         return count
+
+
+def release_name(actor: dict[str, Any], target: dict[str, Any],
+                 username: str) -> tuple[str, dict[str, Any] | None]:
+    """Release a former name reserved for *target* (:func:`accounts.release_name`)."""
+    with db.transaction():
+        actor, target = _current_accounts(actor, target)
+        return accounts.release_name(target, username, released_by=actor["id"])
 
 
 # ── Per-user permission overrides ────────────────────────────────────────────
