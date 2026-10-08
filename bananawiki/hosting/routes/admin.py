@@ -280,7 +280,7 @@ def bulk_delete_accounts():
         except ServiceError:
             failed += 1
         except Exception:  # noqa: BLE001 - one account must not abort the others
-            log.exception("Bulk deletion of account %s failed", account_id)
+            log.exception("Bulk deletion of account %r failed", account_id)
             failed += 1
     _done("hosting.admin.accounts_deleted", count=done)
     if failed:
@@ -1000,7 +1000,7 @@ def _admin_bulk(action, allowed: tuple[str, ...], key: str):
         except ServiceError:
             skipped += 1
         except Exception:  # noqa: BLE001 - one wiki must not abort the others
-            log.exception("Bulk action on wiki %s failed", instance_id)
+            log.exception("Bulk action on wiki %r failed", instance_id)
             failed += 1
     flash(t(key, done=done, skipped=skipped), "success")
     if failed:

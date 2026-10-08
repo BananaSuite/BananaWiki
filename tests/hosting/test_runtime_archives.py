@@ -114,9 +114,13 @@ def test_export_waits_for_a_tenant_file_that_is_being_rewritten(setup, tmp_path,
     runtime, _agent, _spec, root = setup
     asset = root / "storage/uploads/rewritten.bin"
     asset.write_bytes(b"original")
-    fd = os.open(asset, os.O_RDONLY)
-    info = os.fstat(fd)
-    asset.write_bytes(b"")  # the tenant truncates the file, then writes it again
+    fd = os.open(asset, os.O_RDONLY)  # write_fd takes it over and closes it
+    try:
+        info = os.fstat(fd)
+        asset.write_bytes(b"")  # the tenant truncates the file, then writes it again
+    except BaseException:
+        os.close(fd)
+        raise
     monkeypatch.setattr(tenantfs, "time", SimpleNamespace(sleep=lambda _seconds: asset.write_bytes(b"replaced")))
     with zipfile.ZipFile(tmp_path / "rewritten.zip", "w") as archive:
         archives.write_fd(archive, fd, info, "uploads/rewritten.bin", runtime._cfg().archives)

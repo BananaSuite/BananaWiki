@@ -133,7 +133,7 @@ def _http_status(url: str, *, deadline: float = 15) -> int:
             try:
                 sock.shutdown(socket.SHUT_RDWR)  # wakes the blocked read
             except OSError:
-                pass
+                pass  # already closed or never connected: nothing is left to wake
 
     timer = threading.Timer(deadline, expire)
     timer.daemon = True
@@ -383,7 +383,7 @@ class System:
                 try:
                     self.run(["docker", "image", "rm", identifier], check=False, timeout=120)
                 except (OSError, subprocess.SubprocessError):
-                    pass
+                    pass  # best effort: an image left behind is removed by a later build or prune
         return warnings
 
     def _tag_previous_bases(self, replaced: dict[str, tuple[str, str]], unused: dict[str, str]) -> bool:

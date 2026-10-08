@@ -322,7 +322,7 @@ def _rmdir_at(dir_fd: int, name: str) -> None:
     try:
         os.rmdir(name, dir_fd=dir_fd)
     except FileNotFoundError:
-        pass
+        pass  # already gone: the removal it was asked for is done
 
 
 def _enter(parent_fd: int, name: str) -> tuple[int, list[str]] | None:

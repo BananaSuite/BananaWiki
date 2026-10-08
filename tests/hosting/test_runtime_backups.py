@@ -276,7 +276,7 @@ def _deep_file(folder: Path) -> str:
             os.close(fd)
             fd = inner
             parts.append(name)
-        os.close(os.open("deep.png", os.O_WRONLY | os.O_CREAT, 0o644, dir_fd=fd))
+        os.close(os.open("deep.png", os.O_WRONLY | os.O_CREAT, 0o600, dir_fd=fd))
     finally:
         os.close(fd)
     return "/".join([*parts, "deep.png"])
@@ -1008,8 +1008,9 @@ class TimedDrive(FakeDrive):
         self.add(name, datetime.now(UTC) + self.skew)
         return name
 
-    def list(self, q, **_kwargs):
-        cutoff = datetime.strptime(q.split("createdTime < '")[1][:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
+    def list(self, **kwargs):
+        cutoff = datetime.strptime(kwargs["q"].split("createdTime < '")[1][:19],
+                                   "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
         hits = [{"id": key, "name": name} for key, (name, created) in self.held.items() if created < cutoff]
         return SimpleNamespace(execute=lambda: {"files": hits})
 
