@@ -621,6 +621,140 @@ def test_import_keeps_its_verdict_when_the_cleanup_fails(setup, tmp_path, monkey
     assert error.value.code == "archive_invalid", "a failed cleanup does not replace the verdict"
 
 
+def test_export_refuses_a_database_copy_grown_once_made(setup, tmp_path, monkeypatch):
+    """The copy lies in the wiki's own directory: a plugin could extend it to a huge sparse file once its task
+    reported it, and the export, in a folder every wiki's exports share, wrote it at that length."""
+    runtime, _agent, spec, root = setup
+    snapshot = runtime._snapshot
+
+    def grown(name, **kwargs):
+        copy = snapshot(name, **kwargs)
+        os.truncate(root / copy.path, 16 * 1024 ** 2)
+        return copy
+
+    monkeypatch.setattr(runtime, "_snapshot", grown)
+    out = tmp_path / "out"
+    out.mkdir()
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.export_archive(spec, out)
+    assert error.value.code == "db_unsafe" and "reported" in error.value.detail
+    assert not list(out.iterdir()), "no archive is left"
+    assert not list((root / ".bw-host").iterdir()), "the copy is removed"
+
+
+def test_export_holds_a_wiki_to_its_storage_limit(setup, tmp_path, monkeypatch):
+    """A sparse file costs the wiki's quota nothing, but the export, in a folder every wiki's exports share,
+    wrote it at its full length: a wiki could fill that disk for all the others."""
+    from bananawiki.hosting.runtime import platform_backup
+
+    monkeypatch.setattr(platform_backup, "BUDGET_SLACK_BYTES", 0)
+    runtime, _agent, spec, root = setup
+    with open(root / "storage" / "uploads" / "sparse.bin", "wb") as handle:
+        handle.truncate(4 * 1024 ** 2)
+    out = tmp_path / "out"
+    out.mkdir()
+    # Its database copy (some 1.2 MiB) fits a 2 MB limit, the sparse file does not.
+    limited = replace(spec, policy=replace(spec.policy, storage_limit_bytes=2 * 1024 ** 2))
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.export_archive(limited, out)
+    assert error.value.code == "too_large"
+    assert "storage limit" in error.value.detail and "sparse.bin" in error.value.detail
+    assert not list(out.iterdir()), "no archive is left"
+    assert not list((root / ".bw-host").iterdir()), "the copy is removed"
+
+    with zipfile.ZipFile(runtime.export_archive(spec, out)) as archive:
+        assert archive.getinfo("uploads/sparse.bin").file_size == 4 * 1024 ** 2, "a wiki without a limit"
+
+
+def test_export_holds_a_database_copy_to_the_wikis_storage_limit(setup, tmp_path, monkeypatch):
+    """Extended before its task measured it, the copy has the size the task reports."""
+    from bananawiki.hosting.runtime import platform_backup
+
+    monkeypatch.setattr(platform_backup, "BUDGET_SLACK_BYTES", 0)
+    runtime, _agent, spec, root = setup
+    snapshot = runtime._snapshot
+
+    def grown(name, **kwargs):
+        copy = snapshot(name, **kwargs)
+        os.truncate(root / copy.path, 16 * 1024 ** 2)
+        return replace(copy, size=16 * 1024 ** 2)
+
+    monkeypatch.setattr(runtime, "_snapshot", grown)
+    out = tmp_path / "out"
+    out.mkdir()
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.export_archive(replace(spec, policy=replace(spec.policy, storage_limit_bytes=2 * 1024 ** 2)), out)
+    assert error.value.code == "too_large" and "database copy" in error.value.detail
+    assert not list(out.iterdir())
+
+
+def test_hard_links_to_one_file_go_into_an_export_once(setup, tmp_path):
+    """Each hard link cost the export a full copy of the file, the wiki's quota only one."""
+    runtime, _agent, spec, root = setup
+    uploads = root / "storage" / "uploads"
+    data = os.urandom(200 * 1024)
+    (uploads / "r.bin").write_bytes(data)
+    for index in range(60):
+        os.link(uploads / "r.bin", uploads / f"r{index:02d}.bin")
+    path = _export(runtime, spec, tmp_path)
+    with zipfile.ZipFile(path) as archive:
+        [copy] = [name for name in archive.namelist() if name.startswith("uploads/r")]
+        assert archive.read(copy) == data and archive.read("uploads/photo.png") == b"\x89PNG data"
+        manifest = json.loads(archive.read("manifest.json"))
+    assert manifest["omitted_file_count"] == 60, "the owner can be told"
+    links = {"storage/uploads/r.bin", *(f"storage/uploads/r{index:02d}.bin" for index in range(60))}
+    assert len(manifest["omitted_files"]) == 50 and set(manifest["omitted_files"]) <= links - {f"storage/{copy}"}
+    runtime.import_archive(make_spec("copy"), path)
+    assert (Path(runtime._cfg().instances_dir) / "copy" / "storage" / copy).read_bytes() == data
+
+
+def test_wiki_downloads_carry_the_wikis_storage_limit(web, runtime, make_account, make_wiki, login, query,
+                                                      monkeypatch):
+    """The export's budget is the wiki's storage limit: the route passes only that, since the full policy would
+    issue OAuth credentials. Over it, the download says why there is no archive."""
+    admin, owner = make_account(admin=True), make_account()
+    limited, own = make_wiki(owner, "limited"), make_wiki(admin, "own")
+    query("UPDATE instances SET storage_limit_mb = 5 WHERE id = ?", (limited["id"],))
+    seen = {}
+    export = runtime.export_archive
+
+    def recording(spec, destination_dir):
+        seen[spec.slug] = spec.policy.storage_limit_bytes
+        return export(spec, destination_dir)
+
+    monkeypatch.setattr(runtime, "export_archive", recording)
+    login(web, admin)
+    for wiki in (limited, own):
+        assert web.get(f"/admin/instances/{wiki['id']}/download").status_code == 200
+    assert seen == {"limited": 5 * 1024 ** 2, "own": 0}, "administrators' wikis have no limit"
+
+    def too_large(_spec, _destination_dir):
+        raise RuntimeFailure("too_large", "its files take more than the 5 MiB its storage limit allows")
+
+    monkeypatch.setattr(runtime, "export_archive", too_large)
+    page = web.get(f"/admin/instances/{limited['id']}/download", follow_redirects=True).get_data(as_text=True)
+    assert "storage limit allows in a download, so no archive was made" in page
+
+
+@pytest.mark.parametrize("answer", [{"size": None}, {"size": -1}, {"sha256": "x" * 64}], ids=["none", "negative",
+                                                                                            "digest"])
+def test_a_database_copy_its_task_does_not_describe_is_not_used(setup, tmp_path, monkeypatch, answer):
+    """Archives check the copy against the size and SHA-256 its task reported: without them, nothing to check."""
+    runtime, agent, spec, root = setup
+    task = agent.tenant_task
+
+    def vague(args):
+        reply = task(args)
+        reply["result"].update(answer)
+        return reply
+
+    monkeypatch.setattr(agent, "tenant_task", vague)
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.export_archive(spec, tmp_path)
+    assert error.value.code == "failed" and "did not report" in error.value.detail
+    assert not list((root / ".bw-host").iterdir()), "the copy is removed"
+
+
 def test_export_of_a_planted_database_link_fails_safely(setup, tmp_path):
     runtime, _agent, spec, root = setup
     (root / "bananawiki.db").unlink()

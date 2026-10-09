@@ -93,6 +93,7 @@ GDRIVE_RETRY_SECONDS = 3600
 BACKUP_STATE = "platform-backup.json"
 LEGACY_LOGS = ("access.log", "error.log", "bananawiki.log")
 _ACCESS_LINE = re.compile(r'^\S+ \S+ \S+ \[[^\]]+\] "')
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 _AGENT_CODES = {
     "unavailable": "unavailable", "protocol": "unavailable", "forbidden": "unavailable",
     "unsupported_protocol": "unavailable", "unknown_operation": "unavailable", "invalid_tenant": "invalid",
@@ -567,21 +568,35 @@ class AgentRuntime:
 
     # ── Copies and archives ──────────────────────────────────────────────
 
-    def _snapshot(self, name: str, *, portable: bool = False) -> str:
-        """A fresh database copy inside the tenant directory; returns its relative path."""
+    def _snapshot(self, name: str, *, portable: bool = False) -> tenant_archives.DatabaseCopy:
+        """A fresh database copy inside the tenant directory, with the size and SHA-256 its task reported.
+
+        The wiki can change the copy before the host reads it: archives
+        check it against what the task reported (see
+        :func:`.archives.open_copy`).
+        """
         file_name = f"snap-{_token()}.db"
-        self._task(name, {"action": "snapshot", "name": file_name, "portable": portable})
-        return f"{tenantfs.EXCHANGE}/{file_name}"
+        relative = f"{tenantfs.EXCHANGE}/{file_name}"
+        result = self._task(name, {"action": "snapshot", "name": file_name, "portable": portable})
+        size, digest = result.get("size"), result.get("sha256")
+        if type(size) is not int or size < 0 or not isinstance(digest, str) or not _SHA256.fullmatch(digest):
+            with contextlib.suppress(RuntimeFailure):
+                tenantfs.unlink(self._root(self._cfg(), name), relative)
+            raise RuntimeFailure("failed", "the tenant task did not report the size and SHA-256 of its database copy")
+        return tenant_archives.DatabaseCopy(relative, size, digest)
 
     def export_archive(self, spec: TenantSpec, destination_dir: Path) -> Path:
+        """The wiki's portable archive; ``spec.policy.storage_limit_bytes`` (0: none) bounds it like a platform
+        backup bounds the wiki (exports of every wiki share one folder)."""
         cfg = self._cfg()
         root = self._existing(cfg, spec.data_dir_name)
+        budget = platform_backup.byte_budget(spec.policy.storage_limit_bytes or None)
         copy = self._snapshot(spec.data_dir_name, portable=True)
         try:
             return tenant_archives.export(root, copy, Path(destination_dir), spec.slug.split("--terminated-")[0],
-                                   cfg.archives)
+                                          cfg.archives, budget=budget)
         finally:
-            tenantfs.unlink(root, copy)
+            tenantfs.unlink(root, copy.path)
 
     def import_archive(self, spec: TenantSpec, archive: Path) -> None:
         cfg = self._cfg()
@@ -621,9 +636,9 @@ class AgentRuntime:
         copy = self._snapshot(source.data_dir_name)
         try:
             tenantfs.create(target_root, prepare=lambda: self._prepare_storage(target))
-            tenantfs.copy_out(source_root, copy, target_root / "bananawiki.db")
+            tenantfs.copy_out(source_root, copy.path, target_root / "bananawiki.db")
         finally:
-            tenantfs.unlink(source_root, copy)
+            tenantfs.unlink(source_root, copy.path)
         for folder in tenantfs.ASSET_FOLDERS:
             for origin in (f"storage/{folder}", folder):
                 tenantfs.copy_tree(source_root, origin, target_root / "storage" / folder)
@@ -652,10 +667,10 @@ class AgentRuntime:
         state.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         incoming = state.root / f".incoming-{_token()}.db"
         try:
-            tenantfs.copy_out(root, copy, incoming)
+            tenantfs.copy_out(root, copy.path, incoming)
             return state.add(incoming, label)
         finally:
-            tenantfs.unlink(root, copy)
+            tenantfs.unlink(root, copy.path)
             incoming.unlink(missing_ok=True)
 
     def quarantine_plugins(self, spec: TenantSpec) -> str:
@@ -738,7 +753,7 @@ class AgentRuntime:
     def backup_key(self) -> bytes:
         return crypto.load_key(os.environ.get("HOSTING_BACKUP_ENCRYPTION_KEY", ""), self._cfg().backup_key_path)
 
-    def _backup_copy(self, tenant: str) -> str | None:
+    def _backup_copy(self, tenant: str) -> tenant_archives.DatabaseCopy | None:
         try:
             return self._snapshot(tenant)
         except RuntimeFailure as error:

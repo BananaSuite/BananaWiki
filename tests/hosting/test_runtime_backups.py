@@ -12,6 +12,7 @@ import shutil
 import sqlite3
 import time
 import zipfile
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -459,7 +460,8 @@ def test_a_sparse_file_cannot_make_the_platform_backup_run_out_of_space(tmp_path
 
     monkeypatch.setattr(platform_backup, "BUDGET_SLACK_BYTES", 0)
     runtime, _agent, base = _two_wikis(tmp_path)
-    _wiki_rows(runtime, ("acme", "hosting", 1, False), ("beta", "hosting", None, False))
+    # Its database copy (some 1.2 MiB) fits a 2 MB limit: the copy is held to the same budget.
+    _wiki_rows(runtime, ("acme", "hosting", 2, False), ("beta", "hosting", None, False))
     for name in ("acme", "beta"):
         with open(base / name / "storage" / "uploads" / "sparse.bin", "wb") as handle:
             handle.truncate(4 * 1024 ** 2)
@@ -470,7 +472,7 @@ def test_a_sparse_file_cannot_make_the_platform_backup_run_out_of_space(tmp_path
         manifest = json.loads(archive.read("backup_manifest.json"))
     assert {"hosting.db", "secret_key", "instances/acme/bananawiki.db",
             "instances/beta/storage/uploads/sparse.bin"} <= names
-    assert "instances/acme/storage/uploads/sparse.bin" not in names, "beyond the wiki's 1 MB limit"
+    assert "instances/acme/storage/uploads/sparse.bin" not in names, "beyond the wiki's 2 MB limit"
     assert manifest["tenants"] == ["beta"]
     [skipped] = manifest["skipped"]
     assert (skipped["tenant"], skipped["code"]) == ("acme", "too_large")
@@ -673,7 +675,7 @@ def _removed_copy(runtime, root: Path, monkeypatch) -> None:
     def removed(tenant):
         copy = backup_copy(tenant)
         if tenant == root.name:
-            (root / copy).unlink()
+            (root / copy.path).unlink()
         return copy
 
     monkeypatch.setattr(runtime, "_backup_copy", removed)
@@ -708,6 +710,97 @@ def test_wikis_whose_own_database_cannot_be_copied_still_leave_a_platform_backup
     status = runtime.platform_backup_status()
     assert status["finished_at"] and status["complete_at"] is None
     assert [item["tenant"] for item in status["skipped"]] == list(wikis)
+
+
+GROWN_COPY_BYTES = 16 * 1024 ** 2
+
+
+def _changed_copy(runtime, monkeypatch, change) -> None:
+    """acme (its plugins) changes the database copy its sandbox made, before the host opens it."""
+    backup_copy = runtime._backup_copy
+    base = Path(runtime._cfg().instances_dir)
+
+    def changed(tenant):
+        copy = backup_copy(tenant)
+        return change(base / tenant / copy.path, copy) if tenant == "acme" else copy
+
+    monkeypatch.setattr(runtime, "_backup_copy", changed)
+
+
+def _grown(path: Path, copy):
+    os.truncate(path, GROWN_COPY_BYTES)
+    return copy
+
+
+@pytest.mark.parametrize("wikis", [("acme",), ("acme", "beta")], ids=["one-wiki", "two-wikis"])
+def test_a_database_copy_grown_once_made_stays_out_of_the_platform_backup(tmp_path, monkeypatch, wikis):
+    """The copy lies in the wiki's own directory: a plugin extended it to a huge sparse file between the task's
+    report and the host opening it, and the backup wrote it at that length (stored, from 64 MiB) until it ran
+    out of space, hosting.db and every other wiki included."""
+    runtime, _agent = make_runtime(tmp_path)
+    _hosting_db(runtime)
+    base = Path(runtime._cfg().instances_dir)
+    for port, name in enumerate(wikis, 6001):
+        provision(runtime, make_spec(name, port=port))
+        (base / name / "storage" / "uploads" / "a.png").write_bytes(name.encode())
+    _changed_copy(runtime, monkeypatch, _grown)
+    path = runtime.export_platform(_work(tmp_path))
+    with _backup(runtime, path) as archive:
+        names = set(archive.namelist())
+        manifest = json.loads(archive.read("backup_manifest.json"))
+        assert archive.read("secret_key").decode() == runtime._cfg().secret_key
+        assert archive.read("instances/acme/storage/uploads/a.png") == b"acme", "its files are still saved"
+        assert not [entry for entry in archive.infolist() if entry.file_size >= GROWN_COPY_BYTES]
+    assert "hosting.db" in names and "instances/acme/bananawiki.db" not in names
+    assert {f"instances/{name}/bananawiki.db" for name in wikis[1:]} <= names
+    assert manifest["tenants"] == list(wikis[1:])
+    [skipped] = manifest["skipped"]
+    assert (skipped["tenant"], skipped["code"]) == ("acme", "db_unsafe") and "reported" in skipped["detail"]
+    status = runtime.platform_backup_status()
+    assert status["finished_at"] and status["complete_at"] is None
+    assert not list((base / "acme" / ".bw-host").iterdir()), "the copy is released"
+
+
+def test_a_database_copy_over_the_wikis_budget_stays_out_of_the_platform_backup(tmp_path, monkeypatch):
+    """Extended before its task measured it, the copy has the size the task reports: a wiki with a storage limit
+    gets no more room for it in the backup than for its files."""
+    from bananawiki.hosting.runtime import platform_backup
+
+    monkeypatch.setattr(platform_backup, "BUDGET_SLACK_BYTES", 0)
+    runtime, _agent, _base = _two_wikis(tmp_path)
+    _wiki_rows(runtime, ("acme", "hosting", 2, False), ("beta", "hosting", 2, False))
+    _changed_copy(runtime, monkeypatch, lambda path, copy: replace(_grown(path, copy), size=GROWN_COPY_BYTES))
+    path = runtime.export_platform(_work(tmp_path))
+    with _backup(runtime, path) as archive:
+        names = set(archive.namelist())
+        manifest = json.loads(archive.read("backup_manifest.json"))
+    assert {"hosting.db", "instances/acme/storage/uploads/a.png", "instances/beta/bananawiki.db"} <= names
+    assert "instances/acme/bananawiki.db" not in names
+    assert manifest["tenants"] == ["beta"]
+    [skipped] = manifest["skipped"]
+    assert (skipped["tenant"], skipped["code"]) == ("acme", "too_large") and "storage limit" in skipped["detail"]
+
+
+def test_a_database_copy_rewritten_once_made_leaves_the_wiki_incomplete(tmp_path, monkeypatch):
+    """Same size, other bytes: the backup held a database its sandbox never checked, and counted as complete."""
+
+    def rewritten(path: Path, copy):
+        with path.open("r+b") as handle:
+            handle.write(b"\xa5" * 4096)
+        return copy
+
+    runtime, _agent, _base = _two_wikis(tmp_path)
+    _changed_copy(runtime, monkeypatch, rewritten)
+    path = runtime.export_platform(_work(tmp_path))
+    with _backup(runtime, path) as archive:
+        assert archive.testzip() is None
+        names = set(archive.namelist())
+        manifest = json.loads(archive.read("backup_manifest.json"))
+    assert {"hosting.db", "instances/acme/storage/uploads/a.png", "instances/beta/bananawiki.db"} <= names
+    assert manifest["tenants"] == ["beta"]
+    [skipped] = manifest["skipped"]
+    assert (skipped["tenant"], skipped["code"]) == ("acme", "db_unsafe") and "content differs" in skipped["detail"]
+    assert runtime.platform_backup_status()["complete_at"] is None
 
 
 def test_an_unreachable_runtime_fails_the_backup_and_drive_retries_within_the_hour(tmp_path, monkeypatch):

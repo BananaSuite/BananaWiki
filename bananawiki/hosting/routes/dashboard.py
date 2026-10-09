@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 from flask import (
@@ -25,7 +26,7 @@ from .. import accounts, collaborators, domains, features, instances, settings, 
 from ..errors import ServiceError
 from ..i18n import t
 from ..limits import rate_limit
-from ..runtime import RuntimeFailure
+from ..runtime import RuntimeFailure, TenantPolicy
 from .common import account, back, detail_url, flash_error, instance_for, owner_locked
 
 bp = Blueprint("dashboard", __name__)
@@ -301,10 +302,15 @@ def export_instance(inst: dict) -> Response:
     os.makedirs(root, mode=0o700, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="bwh-archive-", dir=root))
     try:
-        archive = instances.runtime().export_archive(instances.spec(inst, with_policy=False), work)
+        # Only the storage limit, which bounds the archive: the full policy would issue OAuth credentials.
+        limit = (instances.storage_limit_mb(inst) or 0) * 1024 ** 2
+        spec = replace(instances.spec(inst, with_policy=False), policy=TenantPolicy(storage_limit_bytes=limit))
+        archive = instances.runtime().export_archive(spec, work)
     except (RuntimeFailure, ValueError) as error:
         shutil.rmtree(work, ignore_errors=True)
-        raise ServiceError(f"hosting.runtime.{getattr(error, 'code', 'failed')}") from error
+        code = getattr(error, "code", "failed")
+        raise ServiceError("hosting.instances.download_too_large" if code == "too_large"
+                           else f"hosting.runtime.{code}") from error
     return stream_file(archive, f"{urls.original_slug(inst['subdomain']) or inst['subdomain']}.zip", work)
 
 
