@@ -25,6 +25,7 @@ else in the archive is ignored.
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import hashlib
 import json
@@ -187,7 +188,7 @@ def open_copy(root: Path, copy: DatabaseCopy, *, max_bytes: int | None = None) -
                                               f"bytes, {copy.size} reported")
         if max_bytes is not None and info.st_size > max_bytes:
             raise RuntimeFailure("too_large", f"the database copy takes more than the {max_bytes // 1024 ** 2} MiB "
-                                              f"its storage limit allows in an archive")
+                                              f"its storage limit allows")
         return fd, info
     except BaseException:
         os.close(fd)
@@ -202,6 +203,53 @@ def write_copy(archive: zipfile.ZipFile, fd: int, info: os.stat_result, copy: Da
     write_fd(archive, fd, info, name, settings, digest=digest)
     if digest.hexdigest() != copy.sha256:
         raise RuntimeFailure("db_unsafe", "the database copy changed once its sandbox made it: its content differs")
+
+
+def _copy_failure(error: OSError) -> RuntimeFailure:
+    code = "no_space" if error.errno in (errno.ENOSPC, errno.EDQUOT) else "failed"
+    return RuntimeFailure(code, f"the database copy: {error.strerror or error}")
+
+
+def save_copy(root: Path, copy: DatabaseCopy, destination: Path, *, max_bytes: int | None = None) -> None:
+    """Copy the database copy *copy* in *root* to the host file *destination* (created exclusively) as its tenant
+    task reported it.
+
+    Checked as for an archive (:func:`open_copy`, :func:`write_copy`): a
+    copy the wiki extended (``db_unsafe``) or one larger than *max_bytes*
+    (``too_large``) is refused before anything is written; one the wiki
+    rewrote (``db_unsafe``) once it has been read, or that shrank while it
+    was read (``failed``), leaves no file at *destination*, so that nothing
+    takes a partial or changed copy for the wiki's database. A copy the
+    wiki removed or replaced with a link, and a failed write, raise
+    :class:`RuntimeFailure` too (``failed``, ``no_space``): callers handle
+    no other error.
+    """
+    try:
+        fd, info = open_copy(root, copy, max_bytes=max_bytes)
+    except OSError as error:
+        raise _copy_failure(error) from None
+    digest = hashlib.sha256()
+    with os.fdopen(fd, "rb") as source:
+        try:
+            target = open(destination, "xb")  # noqa: SIM115 - closed below
+        except OSError as error:
+            # Not this call's file, if it exists: never removed.
+            raise _copy_failure(error) from None
+        try:
+            with target:
+                os.fchmod(target.fileno(), 0o600)
+                tenantfs.copy_observed(source, _Hashing(target, digest), info.st_size)  # type: ignore[arg-type]
+                target.flush()
+                os.fsync(target.fileno())
+            if digest.hexdigest() != copy.sha256:
+                raise RuntimeFailure("db_unsafe", "the database copy changed once its sandbox made it: its content "
+                                                  "differs")
+        except BaseException as error:
+            with contextlib.suppress(OSError):  # the cleanup must not replace the verdict
+                destination.unlink(missing_ok=True)
+            if isinstance(error, OSError):
+                raise _copy_failure(error) from None
+            raise
 
 
 def _parents(member: str) -> Iterable[str]:

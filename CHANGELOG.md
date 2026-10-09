@@ -297,9 +297,9 @@
   files, histories are pruned by size and kanban bulk actions refuse oversized
   input up front.
 * Hosting: a wiki's plugins can no longer grow its database copy into a huge
-  sparse file between the snapshot and the host reading it. Platform backups
-  and wiki exports check the copy against the size and SHA-256 its snapshot
-  reported and against the wiki's byte budget.
+  sparse file between the snapshot and the host reading it. Platform backups,
+  wiki exports, plugin snapshots and wiki duplicates check the copy against the
+  size and SHA-256 its snapshot reported and against the wiki's byte budget.
 * Whole-site imports refuse encrypted members and members compressed other than
   stored or deflated before reading anything.
 * A client that stops reading a download no longer holds a server thread for as

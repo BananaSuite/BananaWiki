@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from bananawiki.hosting.runtime import RuntimeFailure, tenantfs
+from bananawiki.hosting.runtime import RuntimeFailure, TenantPolicy, tenantfs
 from bananawiki.hosting.runtime.archives import destination
 
 from .agent_fakes import make_runtime, make_spec, provision
@@ -561,6 +561,66 @@ def test_duplicate_copies_data_and_revokes_credentials(setup):
         runtime.duplicate(make_spec("gone"), replace(make_spec("other"), instance_id="idother"))
     assert error.value.code == "not_found"
     assert not (Path(runtime._cfg().instances_dir) / "other").exists()
+
+
+GROWN_COPY_BYTES = 16 * 1024 ** 2
+
+
+def _grown(path: Path, copy):
+    os.truncate(path, GROWN_COPY_BYTES)
+    return copy
+
+
+def _rewritten(path: Path, copy):
+    with path.open("r+b") as handle:
+        handle.write(b"\xa5" * 4096)
+    return copy
+
+
+def _removed(path: Path, copy):
+    path.unlink()
+    return copy
+
+
+def _linked(path: Path, copy):
+    path.unlink()
+    path.symlink_to("../bananawiki.db")
+    return copy
+
+
+@pytest.mark.parametrize(("change", "code", "detail"), [
+    (_grown, "db_unsafe", "reported"),
+    (_rewritten, "db_unsafe", "content differs"),
+    (lambda path, copy: replace(_grown(path, copy), size=GROWN_COPY_BYTES), "too_large", "storage limit"),
+    (_removed, "failed", "the database copy"),
+    (_linked, "failed", "the database copy"),
+], ids=["grown", "rewritten", "over-budget", "removed", "link"])
+def test_duplicate_refuses_a_database_copy_changed_once_made(setup, monkeypatch, change, code, detail):
+    """The source wiki (its plugins) can change its copy once its task reported it: the new wiki got it at any
+    length, or a database the sandbox never checked, and a copy it removed or replaced with a link failed with an
+    error the portal does not handle. Nothing is left for the migration to take for a database; the portal
+    destroys the new wiki's folder. Extended before its task measured it, the copy gets the new wiki's byte
+    budget."""
+    from bananawiki.hosting.runtime import platform_backup
+
+    monkeypatch.setattr(platform_backup, "BUDGET_SLACK_BYTES", 0)
+    runtime, agent, spec, root = setup
+    snapshot = runtime._snapshot
+    made = []
+
+    def changed(name, **kwargs):
+        made.append(snapshot(name, **kwargs))
+        return change(root / made[-1].path, made[-1])
+
+    monkeypatch.setattr(runtime, "_snapshot", changed)
+    limited = TenantPolicy(storage_limit_bytes=2 * 1024 ** 2)
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.duplicate(spec, replace(make_spec("clone", policy=limited), instance_id="idclone"))
+    assert error.value.code == code and detail in error.value.detail
+    assert made[0].size < limited.storage_limit_bytes, "the copy as its task made it fits the new wiki's limit"
+    assert not (Path(runtime._cfg().instances_dir) / "clone" / "bananawiki.db").exists()
+    assert agent.tasks()[-1] == "snapshot" and "clone" not in agent.containers
+    assert not list((root / ".bw-host").iterdir()), "the copy is removed"
 
 
 def test_import_never_cleans_up_a_directory_it_did_not_create(setup, tmp_path, monkeypatch):

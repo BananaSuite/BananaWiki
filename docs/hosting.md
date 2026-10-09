@@ -398,6 +398,11 @@ every wiki share `HOSTING_EXPORT_TEMP_DIR`, so an export saves each file
 once, whatever number of hard links it has (the further links are listed
 with the files left out), and keeps to the wiki's byte budget, as in a
 platform backup: over it, the export fails and no archive is left.
+Plugin snapshots (saved by an administrator, or kept when plugins are
+quarantined or before a snapshot is restored) and the database of a
+duplicated wiki are checked the same way: a copy the wiki changed, or one
+over the byte budget (for a duplicate, the new wiki's), is refused and
+nothing of it is kept; a quarantine still goes on without its copy.
 Imports and platform restores accept only stored and deflated
 ZIP members (bzip2 and LZMA data cannot be decompressed with a bounded
 amount of memory).
