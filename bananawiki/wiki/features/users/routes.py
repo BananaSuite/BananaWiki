@@ -270,7 +270,8 @@ def api_save_preferences():
     if not isinstance(data, dict):
         return jsonify({"error": t("users.error.invalid_request")}), 400
     user = auth.current_user()
-    allowed = {k: v for k, v in data.items() if k in preferences.DEFAULTS and k != "background_image"}
+    allowed = {k: v for k, v in data.items()
+               if k in preferences.DEFAULTS and k != "background_image" and k not in preferences.OWNED_KEYS}
     prefs = preferences.clean(allowed, preferences.stored(user))
     response = jsonify({"ok": True, "preferences": prefs})
     preferences.save(user, prefs, response)

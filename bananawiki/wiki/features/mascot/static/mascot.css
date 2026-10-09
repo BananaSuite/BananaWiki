@@ -1,0 +1,24 @@
+/* The mascot in place of the top bar logo: idle bob, blink, hover tilt, hop on click, sunglasses drop.
+   The shell's reduce-motion switches already stop every animation. */
+
+.mascot { display: inline-flex; flex-shrink: 0; padding: 0; border: 0; background: none; cursor: pointer;
+  line-height: 0; border-radius: var(--radius-sm); }
+.mascot + .topbar__brand { margin-inline-start: -.25rem; }
+.mascot__body { display: inline-block; animation: mascot-bob 2.4s steps(1, end) infinite; }
+.mascot .mascot-sprite { display: block; width: 32px; height: 32px; transition: transform .15s steps(2, end); }
+.mascot:hover .mascot-sprite, .mascot:focus-visible .mascot-sprite { transform: rotate(-8deg); }
+.mascot--hop .mascot__body { animation: mascot-hop .4s steps(4, end); }
+
+.mascot-sprite .mascot__eyes { animation: mascot-blink 5s steps(1, end) infinite; }
+.mascot-sprite:not(.mascot-sprite--shades) .mascot__shades { visibility: hidden; }
+.mascot--shades-drop .mascot__shades { animation: mascot-shades-drop .6s steps(6, end); }
+
+@keyframes mascot-bob { 0% { transform: translateY(0); } 50% { transform: translateY(2px); } }
+@keyframes mascot-blink { 0%, 100% { opacity: 1; } 94% { opacity: 0; } 97% { opacity: 1; } }
+@keyframes mascot-hop { 0% { transform: translateY(0); } 40% { transform: translateY(-8px); }
+  70% { transform: translateY(-4px); } 100% { transform: translateY(0); } }
+@keyframes mascot-shades-drop { from { transform: translateY(-6px); } to { transform: translateY(0); } }
+
+/* The same sprites as button icons under "Customize" and in Appearance. */
+.mascot-button { display: inline-flex; align-items: center; gap: .55rem; }
+.mascot-button__sprite { width: 28px; height: 28px; flex-shrink: 0; color: var(--muted); }

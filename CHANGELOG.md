@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+* Mascot: a pixel-art banana in place of the top bar logo for signed-in
+  people. It bobs, blinks and hops when clicked; eleven clicks in a row put
+  sunglasses on it, saved on the account until taken off under Customize,
+  where it can also be hidden (the logo comes back). Administrators can show,
+  hide or dress it for every account from Appearance, or switch the feature
+  off under plugins. New template slots: `topbar.brand`,
+  `account.display_sections`, `admin.appearance`.
+
 ### Changed
 
 * Hosting assigns finite XFS project byte and inode quotas before seeding,

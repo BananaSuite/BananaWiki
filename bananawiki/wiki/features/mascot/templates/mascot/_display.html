@@ -1,0 +1,26 @@
+{% import "macros/forms.html" as forms with context %}
+<link rel="stylesheet" href="{{ asset_url('mascot.css', blueprint='mascot') }}">
+<section class="form-section mascot-settings" aria-labelledby="mascot-heading">
+  <h2 id="mascot-heading">{{ t('mascot.settings.title') }}</h2>
+  <p class="hint">{{ t('mascot.settings.hint') }}</p>
+  <div class="cluster">
+    <form class="inline" method="post" action="{{ url_for('mascot.own_choice') }}">
+      {{ forms.csrf() }}
+      <input type="hidden" name="action" value="{{ 'hide' if state.enabled else 'show' }}">
+      <button type="submit" class="btn mascot-button">
+        {{ sprite(current, 'mascot-button__sprite') }}
+        <span>{{ t('mascot.settings.hide' if state.enabled else 'mascot.settings.show') }}</span>
+      </button>
+    </form>
+    {% if state.shades %}
+    <form class="inline" method="post" action="{{ url_for('mascot.own_choice') }}">
+      {{ forms.csrf() }}
+      <input type="hidden" name="action" value="shades_off">
+      <button type="submit" class="btn mascot-button">
+        {{ sprite('normal', 'mascot-button__sprite') }}
+        <span>{{ t('mascot.settings.shades_off') }}</span>
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</section>

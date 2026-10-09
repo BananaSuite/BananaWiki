@@ -27,8 +27,10 @@
     <header class="topbar">
       <button type="button" class="btn btn--ghost btn--icon topbar__menu-toggle" data-sidebar-toggle
               aria-controls="sidebar" aria-expanded="false" aria-label="{{ t('nav.menu') }}"><svg class="icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button>
+      {%- set brand_icon = slot('topbar.brand') %}
+      {{ brand_icon }}
       <a class="topbar__brand" href="/">
-        <img src="{{ url_for('static', filename='favicons/banana_yellow.png') }}" alt="" width="24" height="24"><span>{{ site_name() }}</span>
+        {% if not brand_icon %}<img src="{{ url_for('static', filename='favicons/banana_yellow.png') }}" alt="" width="24" height="24">{% endif %}<span>{{ site_name() }}</span>
       </a>
       <div class="topbar__spacer"></div>
       <div class="topbar__actions">

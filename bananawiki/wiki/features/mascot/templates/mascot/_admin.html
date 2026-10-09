@@ -1,0 +1,19 @@
+{% import "macros/forms.html" as forms with context %}
+<link rel="stylesheet" href="{{ asset_url('mascot.css', blueprint='mascot') }}">
+<section class="card mascot-settings" aria-labelledby="mascot-admin-heading">
+  <h2 id="mascot-admin-heading">{{ t('mascot.admin.title') }}</h2>
+  <p class="hint">{{ t('mascot.admin.hint') }}</p>
+  <div class="cluster">
+    {% for action, variant in (('show', 'normal'), ('hide', 'off'), ('shades_on', 'shades'), ('shades_off', 'normal')) %}
+    <form class="inline" method="post" action="{{ url_for('mascot.everyone') }}"
+          data-confirm="{{ t('mascot.admin.confirm.' ~ action) }}">
+      {{ forms.csrf() }}
+      <input type="hidden" name="action" value="{{ action }}">
+      <button type="submit" class="btn mascot-button">
+        {{ sprite(variant, 'mascot-button__sprite') }}
+        <span>{{ t('mascot.admin.action.' ~ action) }}</span>
+      </button>
+    </form>
+    {% endfor %}
+  </div>
+</section>

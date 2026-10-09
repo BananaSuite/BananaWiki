@@ -55,6 +55,7 @@
 </form>
 
 <div class="section-stack users-settings">
+{{ slot('account.display_sections') }}
 {% if current_user %}
 <details class="disclosure users-display__background"{% if background_url %} open{% endif %}>
   <summary>{{ t('users.display.background') }}</summary>

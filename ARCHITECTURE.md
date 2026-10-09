@@ -231,6 +231,7 @@ Return `Markup` (or a string of already-escaped HTML); render with
 | Slot | Where | Context |
 |---|---|---|
 | `topbar.actions` | top bar | — |
+| `topbar.brand` | top bar, in place of the logo before the site name (the logo is shown when it is empty) | — |
 | `sidebar.top`, `sidebar.navigation`, `sidebar.bottom` | sidebar | — |
 | `page.banners` | above every page | — |
 | `page.scripts` | end of `<body>` | — |
@@ -244,7 +245,9 @@ Return `Markup` (or a string of already-escaped HTML); render with
 | `auth.onboarding.fields` | onboarding form | — |
 | `profile.sections` | user profile | `profile_user` |
 | `account.settings_sections` | account settings | — |
+| `account.display_sections` | display preferences ("Customize") | — |
 | `admin.dashboard` | admin dashboard | — |
+| `admin.appearance` | admin appearance page | — |
 
 ### Interceptors
 
