@@ -404,7 +404,13 @@ amount of memory).
 Tenants are part of every managed update: the updater stops them, and the
 maintenance service starts every wiki whose status is `running` again with
 the new image; the update is rolled back if any of them that was serving
-before does not become healthy. A wiki that was already failing does not
+before does not become healthy. With `HOSTING_ALLOW_TENANT_PLUGINS=1`, a wiki
+whose own plugins keep it from serving under the new release does not roll
+the update back: the updater quarantines its plugins as the **Quarantine
+plugins** button does (`bananawiki hosting-admin instance quarantine-plugins
+WIKI` runs the same), starts it again and keeps the update if it then
+serves, reporting it as `quarantined_tenants`; lift the quarantine once its
+plugins are fixed. A wiki that was already failing does not
 block updates, and one that does not come back from a backup or a recovery
 is reported instead of keeping the platform in maintenance (see
 [operations](operations.md#managed-servers)).

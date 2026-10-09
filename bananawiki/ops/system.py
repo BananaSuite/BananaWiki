@@ -15,6 +15,7 @@ import ipaddress
 import json
 import os
 import pwd
+import re
 import socket
 import sqlite3
 import stat
@@ -37,6 +38,10 @@ from .runtime_agent import ROUTES_FILE, ROUTES_WANTED
 Runner = Callable[..., subprocess.CompletedProcess]
 AUXILIARY_SUFFIXES = ("-tts", "-maintenance", "-agent")
 TENANT_FILTER = "label=org.bananawiki.role=tenant"
+TRUE_VALUES = frozenset({"1", "true", "yes", "on"})  # how the portal reads a boolean setting
+INSTANCE_ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]{0,63}")  # the portal's plugin state names (never an option)
+PLUGIN_FOLDER = "external_plugins"  # BW_EXTERNAL_PLUGINS_DIR inside the tenant's /data
+QUARANTINE_MARKER = "plugin_quarantine"  # under HOSTING_PLATFORM_STATE_DIR/<instance id>/
 
 
 class Readiness(NamedTuple):
@@ -169,9 +174,10 @@ class System:
     # Commands -------------------------------------------------------------
 
     def run(self, command: Sequence[Any], *, check: bool = True, timeout: int = 600,
-            cwd: Path | None = None) -> subprocess.CompletedProcess:
+            cwd: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
         arguments = [str(part) for part in command]
-        result = self.runner(arguments, capture_output=True, text=True, timeout=timeout, cwd=cwd, check=False)
+        result = self.runner(arguments, capture_output=True, text=True, timeout=timeout, cwd=cwd, check=False,
+                             **({"env": env} if env is not None else {}))
         if check and result.returncode:
             detail = ""
             if self.log_dir:
@@ -588,28 +594,113 @@ class System:
 
     def expected_tenant_directories(self, settings: dict[str, Any]) -> set[str]:
         """Running tenants according to the portal database (C10's query)."""
+        return set(self._running_tenants(settings, "subdomain"))
+
+    def _running_tenants(self, settings: dict[str, Any], column: str) -> dict[str, Any]:
+        """Data directory -> *column* (``subdomain`` or ``id``) of each wiki running in the portal database."""
         root = Path(settings["root"])
         environment = read_environment(root / "config/app.env")
         database = Path(environment.get("HOSTING_DATABASE_PATH", root / "data/hosting.db"))
         base = Path(environment.get("INSTANCES_DIR", root / "data/instances")).resolve()
         if not database.is_file():
-            return set()
+            return {}
+        if column not in ("subdomain", "id"):
+            raise ValueError("Unknown instance column.")
         connection = sqlite3.connect(database.absolute().as_uri() + "?mode=ro", uri=True, timeout=2)
         try:
             # Hosting schema 4: the portal never launches a wiki whose creation did not finish.
             columns = {row[1] for row in connection.execute("PRAGMA table_info(instances)")}
             ready = " AND provisioning_state='ready'" if "provisioning_state" in columns else ""
-            rows = connection.execute("SELECT subdomain, domain_mode FROM instances WHERE status='running'"
-                                      + ready).fetchall()
+            rows = connection.execute(f"SELECT subdomain, domain_mode, {column} FROM instances "
+                                      "WHERE status='running'" + ready).fetchall()
         finally:
             connection.close()
-        output = set()
-        for slug, mode in rows:
+        output = {}
+        for slug, mode, value in rows:
             directory = (base / (str(slug) + ("__apex" if mode == "apex" else ""))).resolve()
             if not directory.is_relative_to(base) or directory == base:
                 raise ValueError("Invalid tenant path in the hosting database.")
-            output.add(str(directory))
+            output[str(directory)] = value
         return output
+
+    # Plugin quarantine (R-07) ---------------------------------------------------
+
+    def plugin_quarantine_candidates(self, settings: dict[str, Any], directories: Collection[str]) -> dict[str, str]:
+        """The wikis of *directories* (data directories) whose own plugins may keep them from serving, by instance id.
+
+        Only with ``HOSTING_ALLOW_TENANT_PLUGINS`` on (otherwise no wiki runs
+        third-party code): a wiki still running in the portal database whose
+        plugin quarantine (the portal's marker) is not in force yet and whose
+        plugin folder holds something (:meth:`holds_plugins`). Nothing is
+        written; the tenant's folder is read without following links.
+        """
+        if settings["mode"] != "hosting" or not directories:
+            return {}
+        root = Path(settings["root"])
+        environment = read_environment(root / "config/app.env")
+        if environment.get("HOSTING_ALLOW_TENANT_PLUGINS", "").strip().lower() not in TRUE_VALUES:
+            return {}
+        database = Path(environment.get("HOSTING_DATABASE_PATH", root / "data/hosting.db"))
+        state = Path(environment.get("HOSTING_PLATFORM_STATE_DIR") or database.parent / "platform_state")
+        output = {}
+        for directory, instance_id in self._running_tenants(settings, "id").items():
+            if directory not in directories or not isinstance(instance_id, str) \
+                    or not INSTANCE_ID.fullmatch(instance_id):
+                continue
+            marker = state / instance_id / QUARANTINE_MARKER  # as the portal reads it (plugin_safety.PluginState)
+            if not (marker.is_file() and not marker.is_symlink()) and self.holds_plugins(Path(directory)):
+                output[directory] = instance_id
+        return output
+
+    @staticmethod
+    def holds_plugins(directory: Path) -> bool:
+        """Whether the wiki at *directory* may run third-party plugins: its plugin folder is not missing or empty.
+
+        The tenant controls that folder: it is read without following links,
+        and whatever cannot be listed there (a link into the rest of its
+        storage, for one) counts as plugins, so only a wiki that certainly
+        has none is ruled out.
+        """
+        folder = directory / PLUGIN_FOLDER
+        try:
+            info = os.lstat(folder)
+        except FileNotFoundError:
+            return False
+        except OSError:
+            return True
+        if not stat.S_ISDIR(info.st_mode):
+            return stat.S_ISLNK(info.st_mode)  # a file holds nothing a wiki could load plugins from
+        try:
+            descriptor = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        except OSError:
+            return True  # replaced meanwhile
+        try:
+            return bool(os.listdir(descriptor))
+        except OSError:
+            return True
+        finally:
+            os.close(descriptor)
+
+    def quarantine_plugins(self, settings: dict[str, Any], instance_id: str) -> None:
+        """Quarantine one wiki's third-party plugins as the portal's administrators do, and start it again.
+
+        ``hosting-admin instance quarantine-plugins`` of the current release,
+        as the service account: the portal's runtime sets the wiki's
+        quarantine marker, keeps a copy of its database, switches its
+        external plugins off in it (``tenant.task``) and starts the wiki,
+        marked running, again without them. The marker and the copy thus
+        belong to the portal, whose administrators see the quarantine and
+        can lift it.
+        """
+        if not INSTANCE_ID.fullmatch(instance_id):
+            raise ValueError("Invalid instance id.")
+        root = Path(settings["root"])
+        current = root / "current"
+        environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": str(root / "data"),
+                       **read_environment(root / "config/app.env")}
+        self.run(["runuser", "-u", settings["service"], "--", current / ".venv/bin/python", "-m",
+                  "bananawiki.hosting.admin", "instance", "quarantine-plugins", instance_id],
+                 timeout=900, cwd=current, env=environment)
 
     def stop_containers(self, containers: list[dict[str, Any]]) -> None:
         running = [item["id"] for item in containers if item["running"]]
@@ -654,8 +745,8 @@ class System:
 
     # Readiness ------------------------------------------------------------
 
-    def readiness_timeout(self, settings: dict[str, Any]) -> int:
-        """Time for the portal to bring back every running wiki, a few at a time, before giving up."""
+    def readiness_timeout(self, settings: dict[str, Any], tenants: int | None = None) -> int:
+        """Time for the portal to bring back every running wiki (or *tenants* of them), a few at a time."""
         if settings["mode"] != "hosting":
             return 180
         environment = read_environment(Path(settings["root"]) / "config/app.env")
@@ -665,7 +756,7 @@ class System:
         except ValueError:
             startup, workers = 120, 2
         try:
-            count = len(self.expected_tenant_directories(settings))
+            count = len(self.expected_tenant_directories(settings)) if tenants is None else tenants
         except (OSError, sqlite3.Error, ValueError):
             count = 0
         waves = max(1, (count + workers - 1) // workers)

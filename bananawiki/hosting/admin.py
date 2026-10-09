@@ -418,6 +418,26 @@ def cmd_instance_remove_user(args: argparse.Namespace) -> None:
     _print(args, {"ok": True}, f"Removed {args.username} from {inst['subdomain']}.")
 
 
+def cmd_instance_quarantine_plugins(args: argparse.Namespace) -> None:
+    """The administration page's plugin quarantine; a wiki marked running is started again whatever its state.
+
+    The updater runs it for a wiki whose own plugins keep it from serving
+    under a new release (``bananawiki update``), including one they keep from
+    starting at all, which the quarantine alone would leave stopped.
+    """
+    from . import events
+
+    instances = _instances()
+    inst = _instance(args.instance, args.domain_mode)
+    runtime, spec = instances.runtime(), instances.spec(inst)
+    result = runtime.quarantine_plugins(spec)
+    if inst["status"] == "running":
+        runtime.start(spec)  # nothing to do for a wiki the quarantine started again
+    events.record("instance", inst["id"], "plugins.quarantined", None, str(result or "")[:500])
+    _audit("instance.quarantine_plugins", {"instance_id": inst["id"], "slug": inst["subdomain"]})
+    _print(args, {"ok": True, "instance": inst["id"], "result": result}, f"{inst['subdomain']}: {result}")
+
+
 def cmd_settings_signup_mode(args: argparse.Namespace) -> None:
     from . import settings
 
@@ -581,6 +601,7 @@ def parser() -> argparse.ArgumentParser:
     p = _instance_parser(inst, "remove-user", cmd_instance_remove_user)
     p.add_argument("username")
     p.add_argument("--yes", action="store_true")
+    _instance_parser(inst, "quarantine-plugins", cmd_instance_quarantine_plugins)
 
     settings = groups.add_parser("settings", help="Platform settings").add_subparsers(dest="action", required=True)
     p = settings.add_parser("signup-mode")

@@ -111,7 +111,9 @@ What happens:
    hosting servers also the published wiki routes and every wiki that
    answered its own health check when the update began and is still marked
    running), the snapshot is put back, the old release is switched back in
-   and started. The result is `rolled_back`.
+   and started. The result is `rolled_back`. On hosting servers with
+   third-party plugins allowed, wikis whose own plugins may be why they do
+   not serve first have their plugins quarantined (see below).
 7. After success, a portable package `backups/before-update-<time>.tar.gz` is
    written from the snapshot **after** the site is back up, verified as a
    restore would verify it, and only then recorded as the rollback target
@@ -141,7 +143,37 @@ check never changes the outcome), are listed as
 wiki that was waited for does not serve is recorded in
 `config/last-readiness-failure.json`. Only an update or a restore is rolled
 back, and a `restart` fails, when a wiki that served before does not serve
-again. `start` and `restart` wait only for the wikis that served when they
+again.
+
+A wiki's own code never holds an update back. With
+`HOSTING_ALLOW_TENANT_PLUGINS=1` a wiki's administrators can install Python
+plugins, and one can answer while the update quiesces and fail once the new
+release starts it (or only for its first minutes): rolling back would then
+record the commit as failed and keep every later release, security fixes
+included, off the server. So when the platform itself is ready and every
+wiki that served before and does not serve again has something in its plugin
+folder (`external_plugins/` in its data directory) and no plugin quarantine
+in force yet, the update quarantines their plugins exactly as the portal's
+**Quarantine plugins** button does (`hosting-admin instance
+quarantine-plugins`, as the service account: the quarantine marker, a copy
+of the wiki's database kept with its plugin snapshots, its external plugins
+switched off, the wiki started again without them, and a `plugins.quarantined`
+event in the portal) and waits for those wikis once more. If they now
+serve, the update stands: it is not recorded as failed, the result and
+`status` (`last_operation`) list them as `quarantined_tenants`, and
+`config/history.jsonl` has an `update` event `plugins_quarantined` before the
+`complete` one. A portal administrator lifts the quarantine on the wiki's
+administration page once its plugins are fixed; the plugins it switched off
+stay off until the wiki's administrators switch them on again. If one of
+them still does not serve, or one of the failing wikis has no plugins or is
+already quarantined, the update is rolled back as before (a regression of
+the release itself still rolls back), and the rollback puts the quarantine
+back with the data, unless `HOSTING_PLATFORM_STATE_DIR` or `INSTANCES_DIR`
+were moved out of `data/`. The second wait can take up to another readiness
+timeout. Restores, backups and recoveries never quarantine plugins. With
+third-party plugins off (the default) nothing changes.
+
+`start` and `restart` wait only for the wikis that served when they
 began (after a `stop`, none); the other wikis running in the portal
 database that do not serve once the command is complete are checked once,
 without waiting, and listed as `unready_tenants` too, as after

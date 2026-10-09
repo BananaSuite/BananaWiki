@@ -43,17 +43,21 @@ from bananawiki.ops.system import DockerUnavailable, System, TenantStorageUnsupp
 
 
 class Wikis:
-    """The portal's maintenance service (it brings back each wiki running in its database) and ``/health``."""
+    """The portal's maintenance service (it brings back each wiki running in its database), ``/health`` and the
+    portal's plugin quarantine (``hosting-admin instance quarantine-plugins``; instance ids are ``id<slug>``)."""
 
     def __init__(self, root: Path, system: FakeSystem):
         self.root, self.system = root, system
         self.failing: set[str] = set()  # answer 503
         self.failing_in_maintenance: set[str] = set()  # answer 503 while their maintenance marker exists
         self.failing_under: dict[str, str] = {}  # slug -> the release under which it answers 503
+        self.plugins_failing_under: dict[str, str] = {}  # the same, unless its plugins are quarantined
         self.answered_by: dict[str, str] = {}  # slug -> a real server whose reply it sends instead
+        self.quarantines: list[str] = []  # instance ids, in the order the updater quarantined them
         self.address = 1
         system.probe = self.probe
         system.on_start.append(self.on_start)
+        system.quarantine_plugins = self.quarantine
 
     def directory(self, slug: str) -> Path:
         return (self.root / "data/instances" / slug).resolve()
@@ -85,13 +89,31 @@ class Wikis:
             existing = [item for item in self.system.tenant_containers if item["data_dir"] == str(directory)]
             if any(item["running"] for item in existing):
                 continue  # a gated container among them still looks "starting" to the agent
-            stale = {item["id"] for item in existing}
-            self.system.tenant_containers = [item for item in self.system.tenant_containers
-                                             if item["id"] not in stale]
-            self.address += 1
-            self.system.tenant_containers.append({
-                "id": f"{slug}-{self.address}", "running": True, "addresses": [f"172.18.0.{self.address}"],
-                "internal_port": 5001, "data_dir": str(directory)})
+            self.launch(slug)
+
+    def launch(self, slug: str) -> None:
+        """The wiki in a new container (any other it had is removed), as the runtime agent starts it."""
+        directory = str(self.directory(slug))
+        self.system.tenant_containers = [item for item in self.system.tenant_containers
+                                         if item["data_dir"] != directory]
+        self.address += 1
+        self.system.tenant_containers.append({
+            "id": f"{slug}-{self.address}", "running": True, "addresses": [f"172.18.0.{self.address}"],
+            "internal_port": 5001, "data_dir": directory})
+
+    def marker(self, slug: str) -> Path:
+        return self.root / "data/platform_state" / f"id{slug}" / "plugin_quarantine"
+
+    def quarantined(self, slug: str) -> bool:
+        return self.marker(slug).is_file()
+
+    def quarantine(self, settings: dict, instance_id: str) -> None:
+        """The portal's quarantine: its marker, then the wiki started again (plugins off) in a new container."""
+        self.quarantines.append(instance_id)
+        slug = instance_id.removeprefix("id")
+        self.marker(slug).parent.mkdir(parents=True, exist_ok=True)
+        self.marker(slug).write_text("2026-10-09T00:00:00+00:00\n")
+        self.launch(slug)
 
     def probe(self, url: str) -> int:
         if url.startswith("http://127.0.0.1:"):
@@ -103,7 +125,10 @@ class Wikis:
         slug = Path(item["data_dir"]).name
         if slug in self.answered_by:
             return _http_status(self.answered_by[slug])
-        if slug in self.failing or self.failing_under.get(slug) == (self.root / "current").resolve().name:
+        release = (self.root / "current").resolve().name
+        if slug in self.failing or self.failing_under.get(slug) == release:
+            return 503
+        if self.plugins_failing_under.get(slug) == release and not self.quarantined(slug):
             return 503
         if slug in self.failing_in_maintenance and (Path(item["data_dir"]) / MAINTENANCE_MARKER).exists():
             return 503
@@ -124,8 +149,9 @@ def hosting(tmp_path):
     environment = root / "config/app.env"
     write_environment(environment, {**read_environment(environment), "HOSTING_MODE": "port"})
     database = sqlite3.connect(root / "data/hosting.db")
-    database.execute("CREATE TABLE instances (subdomain TEXT, domain_mode TEXT, status TEXT)")
-    database.executemany("INSERT INTO instances VALUES (?, 'subdomain', 'running')", [("acme",), ("broken",)])
+    database.execute("CREATE TABLE instances (id TEXT, subdomain TEXT, domain_mode TEXT, status TEXT)")
+    database.executemany("INSERT INTO instances VALUES (?, ?, 'subdomain', 'running')",
+                         [("idacme", "acme"), ("idbroken", "broken")])
     database.commit()
     database.close()
     for slug in ("acme", "broken"):
@@ -241,6 +267,199 @@ def test_a_wiki_failing_before_an_update_does_not_hold_it_and_is_listed(hosting)
     assert result["outcome"] == "complete" and (hosting.root / "current").resolve().name == new
     assert result["unready_tenants"] == ["broken"]
     assert_in_service(hosting.root, hosting.wikis)
+
+
+# R-07: a wiki's own plugins never hold platform updates back, a regression of the release still does ------
+
+
+def allow_plugins(hosting, *slugs: str, setting: str = "1") -> None:
+    """``HOSTING_ALLOW_TENANT_PLUGINS`` set to *setting*, and a plugin installed in each wiki of *slugs*."""
+    environment = hosting.root / "config/app.env"
+    write_environment(environment, {**read_environment(environment), "HOSTING_ALLOW_TENANT_PLUGINS": setting})
+    for slug in slugs:
+        plugin = hosting.wikis.directory(slug) / "external_plugins/slow-start"
+        plugin.mkdir(parents=True)
+        (plugin / "plugin.json").write_text('{"id": "slow-start"}')
+
+
+def assert_rolled_back(hosting, new: str) -> None:
+    assert (hosting.root / "current").resolve().name == hosting.old
+    assert read_json(hosting.root / "config/status.json")["outcome"] == "rolled_back"
+    assert read_json(hosting.root / "config/failed-revision.json") == {"revision": new}
+    assert_in_service(hosting.root, hosting.wikis)
+
+
+def test_a_wiki_whose_own_plugins_fail_under_a_new_release_is_quarantined_and_the_update_kept(hosting):
+    """It served when the update began and answers 503 once the new release starts it, until its plugins are off."""
+    root, wikis = hosting.root, hosting.wikis
+    allow_plugins(hosting, "broken")
+    new = hosting.upstream.commit("1.6.1")
+    wikis.plugins_failing_under["broken"] = new
+    result = hosting.manager.update()
+    assert result["outcome"] == "complete" and (root / "current").resolve().name == new
+    assert result["quarantined_tenants"] == ["broken"] and "unready_tenants" not in result
+    assert wikis.quarantines == ["idbroken"] and wikis.quarantined("broken") and not wikis.quarantined("acme")
+    assert not (root / "config/failed-revision.json").exists()  # automatic updates go on
+    events = history(root)
+    assert [(event["operation"], event["outcome"]) for event in events[-2:]] == [
+        ("update", "plugins_quarantined"), ("update", "complete")]
+    assert events[-2]["quarantined_tenants"] == ["broken"] and "lift the quarantine" in events[-2]["reason"]
+    assert read_json(root / "config/status.json")["quarantined_tenants"] == ["broken"]
+    assert_in_service(root, wikis)
+
+
+def test_a_wiki_without_plugins_failing_under_a_new_release_still_rolls_it_back(hosting):
+    allow_plugins(hosting, "acme")  # plugins allowed, but the failing wiki holds none
+    new = hosting.upstream.commit("1.6.1")
+    hosting.wikis.failing_under["broken"] = new
+    with pytest.raises(RuntimeError, match="failed their readiness checks: broken"):
+        hosting.manager.update()
+    assert hosting.wikis.quarantines == []
+    assert_rolled_back(hosting, new)
+
+
+def test_a_wiki_still_failing_with_its_plugins_quarantined_rolls_the_update_back(hosting):
+    """A regression of the release itself: quarantining the plugins does not bring the wiki back."""
+    allow_plugins(hosting, "broken")
+    new = hosting.upstream.commit("1.6.1")
+    hosting.wikis.failing_under["broken"] = new
+    with pytest.raises(RuntimeError, match="also with their plugins quarantined: broken"):
+        hosting.manager.update()
+    assert hosting.wikis.quarantines == ["idbroken"]
+    assert not hosting.wikis.quarantined("broken")  # put back with the data, as before the update
+    assert_rolled_back(hosting, new)
+
+
+def test_without_tenant_plugins_a_wiki_failing_under_a_new_release_rolls_it_back_as_before(hosting):
+    allow_plugins(hosting, "broken", setting="0")
+    new = hosting.upstream.commit("1.6.1")
+    hosting.wikis.plugins_failing_under["broken"] = new
+    with pytest.raises(RuntimeError, match="failed their readiness checks: broken"):
+        hosting.manager.update()
+    assert hosting.wikis.quarantines == []
+    assert_rolled_back(hosting, new)
+
+
+def test_a_wiki_whose_plugins_are_quarantined_already_rolls_the_update_back(hosting):
+    allow_plugins(hosting, "broken")
+    hosting.wikis.marker("broken").parent.mkdir(parents=True)
+    hosting.wikis.marker("broken").write_text("2026-10-01T00:00:00+00:00\n")
+    new = hosting.upstream.commit("1.6.1")
+    hosting.wikis.failing_under["broken"] = new
+    with pytest.raises(RuntimeError, match="failed their readiness checks: broken"):
+        hosting.manager.update()
+    assert hosting.wikis.quarantines == [] and hosting.wikis.quarantined("broken")
+    assert_rolled_back(hosting, new)
+
+
+def test_one_failing_wiki_without_plugins_rolls_the_update_back_without_quarantining_any(hosting):
+    allow_plugins(hosting, "broken")
+    new = hosting.upstream.commit("1.6.1")
+    hosting.wikis.plugins_failing_under["broken"] = new
+    hosting.wikis.failing_under["acme"] = new
+    with pytest.raises(RuntimeError, match="failed their readiness checks: acme, broken"):
+        hosting.manager.update()
+    assert hosting.wikis.quarantines == []
+    assert_rolled_back(hosting, new)
+
+
+def test_a_quarantine_that_cannot_be_applied_rolls_the_update_back(hosting):
+    """An older or divergent release without ``hosting-admin instance quarantine-plugins``, for one."""
+    allow_plugins(hosting, "broken")
+    new = hosting.upstream.commit("1.6.1")
+    hosting.wikis.plugins_failing_under["broken"] = new
+
+    def refused(settings, instance_id):
+        raise RuntimeError("runuser -u failed (exit 2).")
+
+    hosting.system.quarantine_plugins = refused
+    with pytest.raises(RuntimeError, match="plugins of the wiki broken could not be quarantined"):
+        hosting.manager.update()
+    assert_rolled_back(hosting, new)
+
+
+def test_restores_and_backups_never_quarantine_plugins(hosting):
+    """Only an update decides that a wiki's plugins are to blame; a restore is rolled back, a backup reports."""
+    root, wikis = hosting.root, hosting.wikis
+    allow_plugins(hosting, "broken")
+    package = hosting.manager.backup()
+    # From the restart on: it served when the restore began.
+    hosting.system.on_start.append(lambda names: wikis.plugins_failing_under.update(broken=hosting.old))
+    with pytest.raises(RuntimeError, match="failed their readiness checks: broken"):
+        hosting.manager.restore(package)
+    assert hosting.manager.backup().is_file()
+    assert read_json(root / "config/status.json")["unready_tenants"] == ["broken"]
+    assert wikis.quarantines == []
+    assert_in_service(root, wikis)
+
+
+@pytest.mark.parametrize(("setting", "expected"), [("on", True), (" Yes", True), ("0", False), ("", False)])
+def test_plugin_quarantine_candidates_follow_the_portal_setting(hosting, setting, expected):
+    allow_plugins(hosting, "broken", setting=setting)
+    broken = str(hosting.wikis.directory("broken"))
+    settings = hosting.manager.settings()
+    assert hosting.system.plugin_quarantine_candidates(settings, [broken]) == (
+        {broken: "idbroken"} if expected else {})
+
+
+def test_plugin_quarantine_candidates_hold_plugins_run_and_are_not_quarantined(hosting):
+    root, wikis = hosting.root, hosting.wikis
+    allow_plugins(hosting, "acme", "broken")
+    acme, broken = str(wikis.directory("acme")), str(wikis.directory("broken"))
+    settings = hosting.manager.settings()
+    candidates = hosting.system.plugin_quarantine_candidates
+    assert candidates(settings, [acme, broken]) == {acme: "idacme", broken: "idbroken"}
+    assert candidates(settings, [broken]) == {broken: "idbroken"}  # only those asked about
+    wikis.marker("acme").parent.mkdir(parents=True)
+    wikis.marker("acme").write_text("now\n")
+    assert candidates(settings, [acme, broken]) == {broken: "idbroken"}
+    # Where the portal keeps its plugin state when the operator moved it.
+    elsewhere = root / "state"
+    environment = root / "config/app.env"
+    write_environment(environment, {**read_environment(environment), "HOSTING_PLATFORM_STATE_DIR": str(elsewhere)})
+    assert candidates(settings, [acme, broken]) == {acme: "idacme", broken: "idbroken"}
+    (elsewhere / "idbroken").mkdir(parents=True)
+    (elsewhere / "idbroken/plugin_quarantine").symlink_to(wikis.marker("acme"))  # not the portal's marker
+    assert candidates(settings, [acme, broken]) == {acme: "idacme", broken: "idbroken"}
+    wikis.set_status("acme", "stopped")
+    database = sqlite3.connect(root / "data/hosting.db")
+    database.execute("UPDATE instances SET id = '-x' WHERE subdomain = 'broken'")  # would read as an option
+    database.commit()
+    database.close()
+    assert candidates(settings, [acme, broken]) == {}
+
+
+def test_only_a_wiki_with_nothing_in_its_plugin_folder_holds_no_plugins(tmp_path):
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    assert not System.holds_plugins(wiki)  # no folder
+    (wiki / "external_plugins").write_text("")
+    assert not System.holds_plugins(wiki)  # nothing to load plugins from
+    (wiki / "external_plugins").unlink()
+    (wiki / "external_plugins").mkdir()
+    assert not System.holds_plugins(wiki)
+    (wiki / "external_plugins/notes.txt").write_text("")
+    assert System.holds_plugins(wiki)
+    shutil.rmtree(wiki / "external_plugins")
+    (wiki / "elsewhere/plugin").mkdir(parents=True)
+    (wiki / "external_plugins").symlink_to("elsewhere")  # the wiki follows it inside its container
+    assert System.holds_plugins(wiki)
+
+
+def test_the_portal_quarantines_a_wiki_as_the_service_account(tmp_path):
+    root = tmp_path / "opt/bananawiki"
+    (root / "config").mkdir(parents=True)
+    write_environment(root / "config/app.env", {"HOSTING_DATABASE_PATH": "/srv/hosting.db"})
+    seen = []
+    system = System(runner=lambda command, **options: seen.append((command, options))
+                    or subprocess.CompletedProcess(command, 0, "", ""))
+    system.quarantine_plugins({"root": str(root), "service": "svc"}, "abc123")
+    command, options = seen[0]
+    assert command == ["runuser", "-u", "svc", "--", str(root / "current/.venv/bin/python"), "-m",
+                       "bananawiki.hosting.admin", "instance", "quarantine-plugins", "abc123"]
+    assert options["cwd"] == root / "current" and options["env"]["HOSTING_DATABASE_PATH"] == "/srv/hosting.db"
+    with pytest.raises(ValueError):
+        system.quarantine_plugins({"root": str(root), "service": "svc"}, "--help")
 
 
 @pytest.mark.parametrize("location", ["http://[", "http://" + "a" * 64 + ".example.org/"])
