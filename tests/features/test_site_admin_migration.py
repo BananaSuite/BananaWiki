@@ -217,19 +217,21 @@ def _packed(source: bytes, method: int) -> bytes:
     return buffer.getvalue()
 
 
-def _encrypted(source: bytes) -> bytes:
-    """The database member flagged as encrypted (zipfile cannot write such members)."""
+def _flagged(source: bytes, flag: int = 1) -> bytes:
+    """The database member with *flag* set, encrypted by default (zipfile cannot write such members)."""
     raw = bytearray(_packed(source, zipfile.ZIP_STORED))
     for position in (raw.index(b"PK\x03\x04") + 6, raw.rindex(b"PK\x01\x02") + 8):  # local and central headers
-        raw[position:position + 2] = (1).to_bytes(2, "little")
+        raw[position:position + 2] = flag.to_bytes(2, "little")
     return bytes(raw)
 
 
 @pytest.mark.parametrize("build", [
     lambda source: _packed(source, zipfile.ZIP_BZIP2),
     lambda source: _packed(source, zipfile.ZIP_LZMA),
-    _encrypted,
-], ids=["bzip2", "lzma", "encrypted"])
+    _flagged,
+    lambda source: _flagged(source, 0x20),
+    lambda source: _flagged(source, 0x40),
+], ids=["bzip2", "lzma", "encrypted", "patched-data", "strong-encryption"])
 def test_members_zipfile_cannot_read_safely_are_refused(source, target, build):
     """zipfile decompresses bzip2 and LZMA reads without an output limit: a member of a few hundred bytes
     can take gigabytes of memory, whatever size it declares. Nothing is read from such an archive."""

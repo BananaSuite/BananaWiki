@@ -173,9 +173,10 @@ def export(cfg: HostingConfig, destination_dir: Path, key: bytes, snapshot: Snap
     still archived: they are what nothing else could replace. The database
     copy lies in the wiki's own directory, and the wiki can extend it to a
     huge sparse file once its task reported it: it goes in only at the size
-    and with the SHA-256 the task reported (``db_unsafe`` otherwise) and,
-    for a wiki with a storage limit, within the budget below
-    (``too_large``). Besides its database copy, a wiki's files add at most
+    the task reported (``db_unsafe`` otherwise) and, for a wiki with a
+    storage limit, within the budget below (``too_large``). Its SHA-256 is
+    checked as it is written: a copy whose content changed stays in the
+    archive, and the wiki is reported (``db_unsafe``). Besides its database copy, a wiki's files add at most
     its storage limit (from the copy of ``hosting.db``) and some slack to
     the archive, counted at their apparent size, and each file goes in once
     whatever number of hard links it has: a sparse file, or many links to

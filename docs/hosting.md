@@ -356,10 +356,11 @@ reported, with whatever could be saved of it, when:
 * its sandbox refuses the database copy (a damaged database, one replaced
   with a link or a special file), or the wiki removes, replaces or changes
   the copy before it is saved: its other files are still saved. The copy
-  lies in the wiki's own folder, so it goes in only at the size and with
-  the SHA-256 its sandbox reported, and within the wiki's byte budget
-  below: a wiki that extends it to a huge sparse file cannot make the
-  backup run out of space;
+  lies in the wiki's own folder, so it goes in only at the size its sandbox
+  reported and within the wiki's byte budget below: a wiki that extends it
+  to a huge sparse file cannot make the backup run out of space. Its SHA-256
+  is checked while it is saved: a copy whose content changed stays in the
+  archive, and the wiki is reported;
 * its `storage` folder or one of its asset folders is a link or a special
   file, its folder cannot be read, or a file shrinks while it is copied;
 * it holds files a restore would refuse, which are left out: a name that is

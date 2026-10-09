@@ -113,8 +113,11 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   headers and 5 minutes for a request body. A response is abandoned once a
   write to the client has waited `BW_WRITE_TIMEOUT` seconds (300), so clients
   that stop reading downloads cannot tie up the worker threads for longer;
-  readers that keep taking in 256 KiB to 4 MiB per period, depending on their
-  buffers, are not cut off (see [deployment](deployment.md#reverse-proxy)).
+  readers that kept taking in 256 KiB to 4 MiB per period, depending on their
+  buffers, were not cut off in tests (see
+  [deployment](deployment.md#reverse-proxy)). A client that reads slowly on
+  purpose still holds a thread for the whole download: a proxy's minimum
+  rate (Caddy's `write_idle <duration> <min_rate>`) covers that.
 
 ## Response headers
 

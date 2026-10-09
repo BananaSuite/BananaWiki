@@ -374,7 +374,12 @@ minute. Caddy's minute meets the same steps on the client's side; set
 `write_idle` higher there to give slow clients more room. nginx's
 `send_timeout` (60 s by default) is also a stall timeout. Do not add a total
 response timeout such as Caddy's `write`: it cuts off large downloads on slow
-connections, which is why the shipped Caddyfiles have none.
+connections, which is why the shipped Caddyfiles have none. Caddy's
+`write_idle <duration> <min_rate>` also drops a client that keeps reading
+below a minimum rate, which the stall timeout alone does not. The timeout is
+set only on HTTP/1.1 connections, as the shipped configurations use between
+Caddy and Gunicorn: with HTTP/2 (h2c) there, a stream shares its connection,
+so stalled downloads are left to the proxy.
 
 ### Updating a manual installation
 

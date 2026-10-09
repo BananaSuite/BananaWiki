@@ -625,7 +625,7 @@
   "hosting.instances.provisioning_notice": "La creazione non è terminata. Avvio e modifiche non sono disponibili. Se la creazione è stata interrotta, termina questo wiki incompleto e crealo di nuovo; la password iniziale non può essere recuperata.",
   "hosting.instances.changed_state": "Nel frattempo lo stato del wiki è cambiato. Ricarica e riprova.",
   "hosting.instances.compliance_required": "Conferma che rispetterai i termini di servizio.",
-  "hosting.instances.download_too_large": "I file del wiki occupano più spazio di quanto il suo limite di archiviazione consenta in un download, quindi l'archivio non è stato creato. Elimina qualche file di grandi dimensioni e riprova.",
+  "hosting.instances.download_too_large": "I file del wiki occupano più spazio di quanto il suo limite di archiviazione consenta in un download, quindi l'archivio non è stato creato.",
   "hosting.instances.download_unavailable": "Il download non è disponibile per questo wiki.",
   "hosting.instances.expired_no_delete": "Su questa piattaforma i proprietari non possono chiudere i wiki scaduti.",
   "hosting.instances.invalid_upload_size": "Inserisci una dimensione di caricamento valida.",

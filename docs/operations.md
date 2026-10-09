@@ -150,7 +150,7 @@ wiki that was waited for does not serve is recorded in
 back, and a `restart` fails, when a wiki that served before does not serve
 again.
 
-A wiki's own code never holds an update back. With
+Plugins that fail only while a wiki runs no longer hold an update back. With
 `HOSTING_ALLOW_TENANT_PLUGINS=1` a wiki's administrators can install Python
 plugins, and one can answer while the update quiesces and fail once the new
 release starts it (or only for its first minutes): rolling back would then
@@ -172,10 +172,15 @@ administration page once its plugins are fixed; the plugins it switched off
 stay off until the wiki's administrators switch them on again. If one of
 them still does not serve, or one of the failing wikis has no plugins or is
 already quarantined, the update is rolled back as before (a regression of
-the release itself still rolls back), and the rollback puts the quarantine
-back with the data, unless `HOSTING_PLATFORM_STATE_DIR` or `INSTANCES_DIR`
-were moved out of `data/`. The second wait can take up to another readiness
-timeout. Restores, backups and recoveries never quarantine plugins. With
+the release itself still rolls back). The rollback restores `data/` from the
+snapshot, which undoes the quarantine (marker, database copy and plugin
+switches) unless `HOSTING_PLATFORM_STATE_DIR`, `INSTANCES_DIR` or
+`HOSTING_DATABASE_PATH` were moved out of `data/`. Each quarantine is one
+`hosting-admin` call of up to 15 minutes, one wiki after the other, followed
+by up to another readiness timeout, while every wiki stays behind its
+maintenance page; a release that breaks plugins on many wikis therefore
+makes a long update. Code that damages its wiki's database, or stops the
+quarantine itself, still makes the update roll back. Restores, backups and recoveries never quarantine plugins. With
 third-party plugins off (the default) nothing changes.
 
 `start` and `restart` wait only for the wikis that served when they
