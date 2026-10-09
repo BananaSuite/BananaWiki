@@ -52,6 +52,11 @@ there too.
 Error log** shows the end of the log file with passwords, tokens and cookies
 masked.
 
+`Socket error processing request` followed by `TimeoutError: timed out` in
+Gunicorn's output is a client that stopped reading a response, or read it
+too slowly, for `BW_WRITE_TIMEOUT` seconds and was disconnected (see
+[deployment](deployment.md#reverse-proxy)); occasional ones are harmless.
+
 ## Updates
 
 ### Managed servers

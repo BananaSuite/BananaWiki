@@ -5,6 +5,7 @@ the 1.4 updater writes (``gunicorn -c gunicorn.conf.py wsgi:app``) keeps working
 
 Environment: ``BW_HOST`` (default 127.0.0.1), ``BW_PORT`` (5001),
 ``BW_WORKERS`` (2), ``BW_THREADS`` (4), ``BW_WORKER_TIMEOUT`` (120),
+``BW_WRITE_TIMEOUT`` (300 seconds a response write may stall, 0 for no limit),
 ``BW_ACCESS_LOG`` ("-" for stdout, "off" to disable).
 """
 
@@ -12,6 +13,8 @@ from __future__ import annotations
 
 import os
 from typing import Any
+
+from .write_timeout import guard as _guard
 
 
 def _int(name: str, default: int, low: int, high: int) -> int:
@@ -49,6 +52,8 @@ threads = _int("BW_THREADS", 4, 1, 32)
 preload_app = False
 timeout = _int("BW_WORKER_TIMEOUT", 120, 10, 600)
 graceful_timeout = timeout
+# Not a Gunicorn setting (it has none): see post_worker_init.
+_write_timeout = _int("BW_WRITE_TIMEOUT", 300, 0, 3600)
 keepalive = 2
 max_requests = 5000
 max_requests_jitter = 500
@@ -79,3 +84,8 @@ def on_starting(server: Any) -> None:
 
     server.log.info("Preparing the database before starting the workers.")
     prepare_storage(load_config())
+
+
+def post_worker_init(worker: Any) -> None:
+    """Free the thread of a client that stops reading a download (R-27, :mod:`bananawiki.ops.write_timeout`)."""
+    worker.wsgi = _guard(worker.wsgi, _write_timeout)

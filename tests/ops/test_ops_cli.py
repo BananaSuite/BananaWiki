@@ -197,6 +197,22 @@ def test_gunicorn_settings(monkeypatch):
     assert namespace["bind"] == "[::]:6000" and namespace["worker_class"] == "gthread"
 
 
+def test_gunicorn_workers_give_up_on_stalled_downloads(monkeypatch):
+    """Gunicorn has no write timeout of its own: the workers' application sets one (R-27)."""
+    import bananawiki.ops.gunicorn_conf as conf
+
+    monkeypatch.setenv("BW_WRITE_TIMEOUT", "15")
+    conf = importlib.reload(conf)
+    timeouts = []
+    worker = SimpleNamespace(wsgi=lambda _environ, _start: [b"body"])
+    hook = runpy.run_path(str(compat("gunicorn.conf.py")))["post_worker_init"]
+    hook(worker)
+    environ = {"gunicorn.socket": SimpleNamespace(settimeout=timeouts.append)}
+    assert list(worker.wsgi(environ, None)) == [b"body"] and timeouts == [15]
+    monkeypatch.setenv("BW_WRITE_TIMEOUT", "")
+    assert importlib.reload(conf)._write_timeout == 300
+
+
 def test_the_gunicorn_master_upgrades_the_database_before_any_worker_starts(wiki_env, caplog):
     """A worker that upgraded a large database was killed by its timeout, rolling the upgrade back (R-26)."""
     from bananawiki.wiki import migrations

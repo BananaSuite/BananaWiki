@@ -7,6 +7,7 @@ import runpy
 import sys
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 from bananawiki.core.timeutil import parse, sql_in, utcnow
 from bananawiki.hosting import instances, maintenance
@@ -240,6 +241,16 @@ def test_gunicorn_config_does_not_preload(monkeypatch):
     assert config.preload_app is False
     assert config.bind == "[::1]:5123"
     assert config.worker_class == "gthread"
+
+
+def test_gunicorn_config_gives_up_on_stalled_downloads(monkeypatch):
+    monkeypatch.setenv("HOSTING_WRITE_TIMEOUT", "20")
+    config = _load("hosting_gunicorn_conf", ROOT / "hosting" / "gunicorn.conf.py")
+    timeouts = []
+    worker = SimpleNamespace(wsgi=lambda _environ, _start: [b"backup"])
+    config.post_worker_init(worker)
+    assert list(worker.wsgi({"gunicorn.socket": SimpleNamespace(settimeout=timeouts.append)}, None)) == [b"backup"]
+    assert timeouts == [20]
 
 
 def test_maintenance_shim_delegates(monkeypatch):

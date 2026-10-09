@@ -335,6 +335,47 @@ it to HTTPS (an endless loop), or better, use *Full (strict)*.
 Never set `BW_PROXY_MODE=1` when the wiki's port is reachable directly: a
 client could then choose its own address and scheme.
 
+**Stalled downloads.** A client that stops reading a long download (a data
+export, a whole-site export, a large attachment) is disconnected once a write
+to it has waited `BW_WRITE_TIMEOUT` seconds (300 by default; the portal reads
+`HOSTING_WRITE_TIMEOUT`), so it holds a Gunicorn thread no longer than that.
+The limit applies to progress, not to the length of a download, but progress
+is what the receiving kernel lets through, and it comes in steps:
+
+* Gunicorn writes generated responses 64 KiB at a time and, on TCP
+  connections, keeps at most about 128 KiB queued but not yet sent
+  (`TCP_NOTSENT_LOWAT`; without it a file sent with `sendfile` fills megabytes
+  of kernel buffer, a third of which would have to drain within each period).
+  A connection read slowly from the start needs about 256 KiB per period,
+  about 1 KiB/s with the default.
+* The receiving kernel grows its buffer while data arrives fast, up to the
+  `net.ipv4.tcp_rmem` maximum (32 MiB on recent Linux), and once that buffer
+  is full takes more only after about a sixteenth of it is free again. A
+  client that slowed down after a fast start, or the proxy's connection to
+  Gunicorn when it carried fast downloads before, can then need up to 4 MiB
+  per period, about 14 KiB/s with the default.
+
+Gunicorn cannot see reads from a buffer it is waiting on, so the timeout is
+the only lever: the figures scale with it, which is why the default is five
+minutes (with 60 s a reader that slowed down could need some 70 KiB/s).
+Raise it if slower links must be served. The figures were measured on Linux
+6.18 over loopback. Generated responses, such as the data export, are corked
+(`TCP_CORK`, Linux only) until their last piece is written, so they travel in
+full segments: Gunicorn sends every write at once, and the small segments this
+left made a receive buffer at its maximum run out of memory before its window
+was used, drop data and stall the retransmissions too, which cut readers at
+the rates above in tests, also at the default timeout.
+
+Proxies have their own: Caddy 2.11.6 and newer drop a stalled client after
+one minute (`write_idle` in the global `servers { timeouts { … } }` options;
+prefer 2.11.7, which fixed regressions of 2.11.6), and with it the request to
+Gunicorn, so behind a recent Caddy a stalled download frees its thread after a
+minute. Caddy's minute meets the same steps on the client's side; set
+`write_idle` higher there to give slow clients more room. nginx's
+`send_timeout` (60 s by default) is also a stall timeout. Do not add a total
+response timeout such as Caddy's `write`: it cuts off large downloads on slow
+connections, which is why the shipped Caddyfiles have none.
+
 ### Updating a manual installation
 
 ```sh
