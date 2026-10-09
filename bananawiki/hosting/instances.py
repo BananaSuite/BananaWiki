@@ -34,6 +34,7 @@ from filelock import FileLock, Timeout
 from flask import current_app
 
 from ..core.timeutil import MAX_YEAR, is_past, now_sql, parse, sql_in, to_sql, utcnow
+from ..core.web import one_line
 from . import accounts, events, oauth, settings, urls
 from .config import HostingConfig
 from .db import db
@@ -668,7 +669,8 @@ def _settle_data(instance_id: str, moved_to: str) -> None:
     try:
         runtime().relocate(instance_id, moved_to, expected)
     except RuntimeFailure as error:
-        log.error("Data of wiki %r is stuck in %r (expected %r): %s", instance_id, moved_to, expected, error)
+        log.error("Data of wiki %s is stuck in %s (expected %s): %s", one_line(instance_id), one_line(moved_to),
+                  one_line(expected), one_line(error))
 
 
 def _undo_move(inst: dict[str, Any], moved_to: str, was_running: bool) -> None:
