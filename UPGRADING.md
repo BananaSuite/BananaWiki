@@ -74,6 +74,32 @@ Already on 1.6.0? These changes of the latest build need attention (details in
   "complete" only when every wiki was saved in full. Each wiki may add at most
   its storage limit plus a tenth and 64 MiB. Tenant archives with bzip2 or LZMA
   members are refused.
+* A response is abandoned once a write to the client has waited
+  `BW_WRITE_TIMEOUT` seconds (`HOSTING_WRITE_TIMEOUT` for the portal; default
+  300, `0` waits forever). Readers that kept taking in 256 KiB to 4 MiB per
+  period were not cut off in tests; raise the value to serve slower links (see
+  [deployment](docs/deployment.md#reverse-proxy)). Gunicorn logs each such
+  disconnect as `Socket error processing request` with `TimeoutError: timed
+  out`.
+* Hosting with `HOSTING_ALLOW_TENANT_PLUGINS=1`: when an update fails only
+  because wikis with their own plugins do not come back, their plugins are
+  quarantined and the update is kept. The update result and `status` list them
+  as `quarantined_tenants`; a portal administrator lifts the quarantine on the
+  wiki's page, and the plugins it switched off stay off until the wiki's
+  administrators switch them on. Updating to a release without the
+  `hosting-admin instance quarantine-plugins` command rolls back as before.
+* A hosted wiki's export (grace-period and administrator downloads) fails with
+  a message when its files or its database copy exceed the wiki's storage limit
+  plus a tenth and 64 MiB; further hard links to a file are listed in the
+  export's `manifest.json` instead of being stored again.
+* Whole-site imports refuse archives with encrypted members or members
+  compressed other than stored or deflated (BananaWiki exports never contain
+  them).
+* Hosting: account merges done before this release may have left the merged
+  account as a collaborator of its own wikis, which would keep it access after
+  it transfers one. To remove such rows, run once against the portal database
+  (`HOSTING_DATABASE_PATH`):
+  `sqlite3 hosting.db "DELETE FROM instance_collaborators WHERE (instance_id, account_id) IN (SELECT id, account_id FROM instances);"`
 
 * `page.view_all` and `category.view_all` are enforced. The upgrade grants
   them to every saved permission set, so nothing changes until an
