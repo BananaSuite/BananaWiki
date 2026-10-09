@@ -105,5 +105,6 @@
     <div class="btn-row"><button class="btn" type="submit">{{ t('site_admin.favicon.upload_button') }}</button></div>
   </form>
 </section>
+{{ slot('admin.appearance') }}
 {% endblock %}
 {% block admin_scripts %}<script src="{{ asset_url('appearance.js', blueprint='site_admin') }}"></script>{% endblock %}

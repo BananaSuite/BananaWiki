@@ -1,0 +1,6 @@
+<link rel="stylesheet" href="{{ asset_url('mascot.css', blueprint='mascot') }}">
+<button type="button" class="mascot" data-mascot
+        aria-label="{{ t('mascot.label_shades' if shades else 'mascot.label') }}"
+        title="{{ t('mascot.label_shades' if shades else 'mascot.label') }}">
+  <span class="mascot__body">{{ sprite }}</span>
+</button>
