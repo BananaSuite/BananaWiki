@@ -210,6 +210,40 @@ def test_broken_archives_are_refused(target, archive):
     assert not [p for p in exports.iterdir() if p.name.startswith("bw-site-import-")]
 
 
+def _packed(source: bytes, method: int) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("bananawiki.db", raw_db(source), compress_type=method)
+    return buffer.getvalue()
+
+
+def _encrypted(source: bytes) -> bytes:
+    """The database member flagged as encrypted (zipfile cannot write such members)."""
+    raw = bytearray(_packed(source, zipfile.ZIP_STORED))
+    for position in (raw.index(b"PK\x03\x04") + 6, raw.rindex(b"PK\x01\x02") + 8):  # local and central headers
+        raw[position:position + 2] = (1).to_bytes(2, "little")
+    return bytes(raw)
+
+
+@pytest.mark.parametrize("build", [
+    lambda source: _packed(source, zipfile.ZIP_BZIP2),
+    lambda source: _packed(source, zipfile.ZIP_LZMA),
+    _encrypted,
+], ids=["bzip2", "lzma", "encrypted"])
+def test_members_zipfile_cannot_read_safely_are_refused(source, target, build):
+    """zipfile decompresses bzip2 and LZMA reads without an output limit: a member of a few hundred bytes
+    can take gigabytes of memory, whatever size it declares. Nothing is read from such an archive."""
+    other, client = target
+    response = do_import(client, build(source))
+    assert response.status_code == 302
+    assert query(other, "SELECT id FROM users WHERE username = 'target_admin'")
+    assert not query(other, "SELECT id FROM pages WHERE title = 'Exported page'")
+    refused = query(other, "SELECT details FROM audit_log WHERE action = 'site.import_refused'")
+    assert len(refused) == 1 and "unsupported_compression" in refused[0]["details"]
+    exports = Path(other.config["BW"].folders.exports)
+    assert not [p for p in exports.iterdir() if p.name.startswith("bw-site-import-")]
+
+
 def test_legacy_hosting_layout(source, target):
     other, client = target
     archive = zip_bytes({"mywiki/bananawiki.db": raw_db(source), "mywiki/uploads/old.png": b"old",

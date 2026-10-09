@@ -592,6 +592,8 @@ Everything under **Admin** (`/admin/dashboard`), for administrators:
   your password. Imports accept 1.4 archives, never touch code or the secret
   key, check the database first, keep a copy of the current site in
   `<instance>/backups/pre-import-<time>/` and restore it if anything fails.
+  An archive with encrypted files, or with files compressed other than
+  stored or deflated (the only methods exports use), is refused unread.
   Needs `BW_ALLOW_SITE_IMPORT` (on by default except under managed hosting).
 * **Server**: restart and error log.
 * **Plugins** (`/admin/plugins`): switch features, install third-party
