@@ -21,7 +21,7 @@ def test_signed_in_people_see_the_mascot_visitors_do_not(app, client, make_user,
     assert "data-mascot" not in client.get("/login").get_data(as_text=True)
     login(client, make_user("mascot_viewer"))
     html = _home(client)
-    assert "data-mascot" in html and "mascot-config" in html
+    assert "data-mascot" in html and "data-mascot-url" in html
     assert "mascot-sprite--shades" not in html
     # The mascot takes the logo's place.
     assert LOGO not in html

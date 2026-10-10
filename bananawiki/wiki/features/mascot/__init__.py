@@ -7,8 +7,8 @@ Appearance. See :mod:`.service` for where the choices are stored.
 
 Slots filled here
 -----------------
-* ``topbar.brand`` - the mascot in place of the logo, for signed-in people who keep it on.
-* ``page.scripts`` - its stylesheet and script, on the same pages.
+* ``topbar.brand`` - the mascot in place of the logo, with its stylesheet and script, for
+  signed-in people who keep it on.
 * ``account.display_sections`` - the viewer's own switch under "Customize".
 * ``admin.appearance`` - the actions for every account.
 """
@@ -23,22 +23,13 @@ from . import service, sprite
 from .routes import bp
 
 
-def _visible() -> bool:
-    return service.state(auth.current_user())["enabled"]
-
-
 def topbar() -> str:
-    if not _visible():
+    state = service.state(auth.current_user())
+    if not state["enabled"]:
         return ""
-    shades = service.state(auth.current_user())["shades"]
+    shades = state["shades"]
     return render_template("mascot/_topbar.html", sprite=sprite.svg("shades" if shades else "normal"),
-                           shades=shades)
-
-
-def scripts() -> str:
-    if not _visible():
-        return ""
-    return render_template("mascot/_scripts.html", clicks=service.CLICKS_FOR_SHADES)
+                           shades=shades, clicks=service.CLICKS_FOR_SHADES)
 
 
 def display_section() -> str:
@@ -61,7 +52,6 @@ FEATURE = Feature(
     blueprints=[bp],
     slots={
         "topbar.brand": topbar,
-        "page.scripts": scripts,
         "account.display_sections": display_section,
         "admin.appearance": admin_section,
     },
