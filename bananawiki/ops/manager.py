@@ -472,18 +472,20 @@ class Manager:
         self.system.stop_containers(journal["containers"])
 
     def finish(self, journal: dict[str, Any], settings: dict[str, Any], *,
-               required: bool = False) -> tuple[list[str], list[str]]:
+               required: bool = False, quarantine: bool = False) -> tuple[list[str], list[str]]:
         """Start *settings*' services, wait for them and the wikis that served before, end the transaction.
 
         The application must become ready. A wiki that served when the
         transaction began and does not serve again fails the operation when
-        it is *required* (the operation deployed something and is undone);
-        otherwise it is only reported, so one broken wiki never keeps the
-        platform in maintenance. Returns ``(the wikis waited for that do not
-        serve, the data directories of those that were running without
-        serving when the transaction began)``: the caller checks the latter
-        with :meth:`check_tenants` once the operation is complete, since
-        nothing may fail between the end of the transaction and its result.
+        it is *required* (the operation deployed something and is undone),
+        unless *quarantine* (an update) and quarantining its own plugins
+        brings it back (:meth:`quarantine_plugins`); otherwise it is only
+        reported, so one broken wiki never keeps the platform in maintenance.
+        Returns ``(the wikis waited for that do not serve, the data
+        directories of those that were running without serving when the
+        transaction began)``: the caller checks the latter with
+        :meth:`check_tenants` once the operation is complete, since nothing
+        may fail between the end of the transaction and its result.
 
         The tenant containers that quiesce stopped are never started again as
         they are: the runtime agent starts each wiki behind a mount gate that
@@ -501,8 +503,14 @@ class Manager:
             raise RuntimeError("The application failed its readiness checks.")
         unready = tenant_names(readiness.tenants)
         if unready and required:
-            raise RuntimeError("Wikis that were running failed their readiness checks: " + ", ".join(unready[:20])
-                               + (f" and {len(unready) - 20} more" if len(unready) > 20 else "") + ".")
+            failing = self.quarantine_plugins(journal, settings, services, readiness.tenants) if quarantine else None
+            if failing is None or failing:
+                names = failing or unready
+                raise RuntimeError("Wikis that were running failed their readiness checks"
+                                   + (" also with their plugins quarantined" if failing else "") + ": "
+                                   + ", ".join(names[:20])
+                                   + (f" and {len(names) - 20} more" if len(names) > 20 else "") + ".")
+            unready = []
         others = {item["data_dir"] for item in journal["containers"] if item.get("running")} - set(serving)
         known = journal.get("services") or names
         self.system.stop([name for name in names if name in known and name not in journal["active"]])
@@ -510,6 +518,45 @@ class Manager:
         (self.root / "data" / MAINTENANCE_MARKER).unlink(missing_ok=True)
         (self.config_dir / "transaction.json").unlink(missing_ok=True)
         return unready, sorted(others)
+
+    def quarantine_plugins(self, journal: dict[str, Any], settings: dict[str, Any], services: list[Service],
+                           failing: dict[str, str]) -> list[str] | None:
+        """Quarantine the plugins of the wikis *failing* after an update, when their own code may be why (R-07).
+
+        With ``HOSTING_ALLOW_TENANT_PLUGINS`` a wiki's administrators run
+        Python code of their own in it, which can serve while the update
+        quiesces and fail once the new release starts it: a rollback would
+        then keep every later release, security fixes included, off the
+        platform. So when every wiki of *failing* holds plugins whose
+        quarantine is not in force yet, each is quarantined as the portal's
+        administrators would (:meth:`.System.quarantine_plugins`) and
+        waited for again. Returns the wikis that still do not serve (none:
+        the update stands, and the journal's ``quarantined`` lists them), or
+        None when one of them has no plugins to quarantine: whatever keeps it
+        from serving, quarantine cannot change it, and the update is rolled
+        back as before. A rollback puts the plugin state back with the data.
+        """
+        try:
+            candidates = self.system.plugin_quarantine_candidates(settings, failing)
+        except Exception as error:  # noqa: BLE001 - the portal database unreadable: rolled back as before
+            log.warning("The wikis' plugins could not be checked for a quarantine: %s", error)
+            return None
+        if not candidates or candidates.keys() != failing.keys():
+            return None
+        journal["quarantined"] = sorted(candidates)
+        write_json(self.config_dir / "transaction.json", journal)
+        for directory, instance_id in sorted(candidates.items()):
+            name = Path(directory).name
+            log.warning("Wiki %s does not serve under the new release; quarantining its plugins.", name)
+            try:
+                self.system.quarantine_plugins(settings, instance_id)
+            except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
+                raise RuntimeError(f"The plugins of the wiki {name} could not be quarantined: {error}") from error
+        readiness = self.system.readiness(settings, services, list(candidates),
+                                          timeout=self.system.readiness_timeout(settings, len(candidates)))
+        if readiness.platform:
+            raise RuntimeError("The application failed its readiness checks.")
+        return tenant_names(readiness.tenants)
 
     def check_tenants(self, settings: dict[str, Any], directories: Collection[str] | None, *,
                       waited: Collection[str] = ()) -> list[str]:
@@ -698,7 +745,7 @@ class Manager:
             if automatic and not self.policy()["enabled"]:
                 return self.event("update", "cancelled", reason="Automatic updates were disabled while preparing.")
 
-            def apply(journal: dict[str, Any]) -> list[str]:
+            def apply(journal: dict[str, Any]) -> tuple[list[str], list[str]]:
                 self.system.remove_containers(journal["containers"])
                 journal["containers_removed"] = True
                 write_json(self.config_dir / "transaction.json", journal)
@@ -713,14 +760,16 @@ class Manager:
                 details.update(self.refresh_proxy(
                     candidate, journal["proxy"],
                     persist=lambda: write_json(self.config_dir / "transaction.json", journal)))
-                return self.finish(journal, candidate, required=True)[1]  # required: every waited wiki serves
+                # Required: every waited wiki serves, if need be with its own plugins quarantined.
+                others = self.finish(journal, candidate, required=True, quarantine=True)[1]
+                return others, journal.get("quarantined", [])
 
             details: dict[str, Any] = {}
             warnings = (read_json(self.release(sha) / ".release.json", {}) or {}).get("warnings")
             if warnings:
                 details["image_warnings"] = warnings
             try:
-                others, snapshot = self.guarded(settings, apply, candidate=sha)
+                (others, quarantined), snapshot = self.guarded(settings, apply, candidate=sha)
             except Refused as error:
                 # Nothing was stopped: not this revision's failure, so the next automatic run tries it again.
                 self.event("update", "failed", revision=sha, reason=str(error))
@@ -730,6 +779,13 @@ class Manager:
                 self.event("update", "rolled_back", revision=sha, restored_revision=settings["revision"])
                 raise
             (self.config_dir / PROXY_ROLLBACK).unlink(missing_ok=True)
+            if quarantined:
+                details["quarantined_tenants"] = tenant_names(quarantined)
+                self.event("update", "plugins_quarantined", revision=sha,
+                           quarantined_tenants=details["quarantined_tenants"],
+                           reason="These wikis served before the update and served under the new release only "
+                                  "once their third-party plugins were quarantined. The portal's administrators "
+                                  "can lift the quarantine once the plugins are fixed.")
             try:
                 archive = self.package_from(snapshot, settings,
                                             self.backup_name("auto" if automatic else "before-update"))

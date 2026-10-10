@@ -33,6 +33,11 @@ HSTS = '\theader Strict-Transport-Security "max-age=31536000"\n'
 # Above Cloudflare's 900 s reuse of idle origin connections: a shorter idle
 # timeout makes Cloudflare reuse a connection Caddy just closed (HTTP 520).
 IDLE_TIMEOUT = "16m"
+# No ``write`` timeout: Caddy applies it to the whole response, so it would cut
+# off large downloads on slow links. A download the client stopped reading is
+# dropped by Caddy 2.11.6 and newer after a minute without progress
+# (``write_idle``, on by default; older releases refuse the option, so it is
+# not written here) and by the application server (bananawiki.ops.write_timeout).
 
 
 def parse_version(text: str) -> tuple[int, int, int] | None:

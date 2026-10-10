@@ -354,8 +354,13 @@ reported, with whatever could be saved of it, when:
 
 * its database snapshot fails or times out (nothing of the wiki is saved);
 * its sandbox refuses the database copy (a damaged database, one replaced
-  with a link or a special file), or the wiki removes or replaces the copy:
-  its other files are still saved;
+  with a link or a special file), or the wiki removes, replaces or changes
+  the copy before it is saved: its other files are still saved. The copy
+  lies in the wiki's own folder, so it goes in only at the size its sandbox
+  reported and within the wiki's byte budget below: a wiki that extends it
+  to a huge sparse file cannot make the backup run out of space. Its SHA-256
+  is checked while it is saved: a copy whose content changed stays in the
+  archive, and the wiki is reported;
 * its `storage` folder or one of its asset folders is a link or a special
   file, its folder cannot be read, or a file shrinks while it is copied;
 * it holds files a restore would refuse, which are left out: a name that is
@@ -366,9 +371,9 @@ reported, with whatever could be saved of it, when:
 * its files exceed its byte budget, and the rest are left out. The budget is
   the wiki's storage limit (from `hosting.db`; the default limit for a wiki
   without one of its own) plus a tenth of it and 64 MiB, on top of its
-  database copy, counting each file at its apparent size (a sparse file at
-  its full length) with its entry in the archive. Administrators', apex and
-  unlimited wikis have no budget.
+  database copy (which gets the same budget of its own), counting each file
+  at its apparent size (a sparse file at its full length) with its entry in
+  the archive. Administrators', apex and unlimited wikis have no budget.
 
 The whole backup fails, and a scheduled Drive backup is retried an hour
 later, only for faults of the platform: the runtime agent or Docker stops
@@ -387,14 +392,31 @@ clashing with another file or a folder, and files below `assets/`, or below
 go. They are logged and listed in the export's `manifest.json`
 (`omitted_files`, the first 50, and `omitted_file_count`). Where a top-level
 asset folder and `storage/<folder>` hold the same file, the `storage/` copy
-is exported. Imports and platform restores accept only stored and deflated
+is exported. An export fails when the wiki changes its database copy before
+it is saved (a size or SHA-256 other than its sandbox reported). Exports of
+every wiki share `HOSTING_EXPORT_TEMP_DIR`, so an export saves each file
+once, whatever number of hard links it has (the further links are listed
+with the files left out), and keeps to the wiki's byte budget, as in a
+platform backup: over it, the export fails and no archive is left.
+Plugin snapshots (saved by an administrator, or kept when plugins are
+quarantined or before a snapshot is restored) and the database of a
+duplicated wiki are checked the same way: a copy the wiki changed, or one
+over the byte budget (for a duplicate, the new wiki's), is refused and
+nothing of it is kept; a quarantine still goes on without its copy.
+Imports and platform restores accept only stored and deflated
 ZIP members (bzip2 and LZMA data cannot be decompressed with a bounded
 amount of memory).
 
 Tenants are part of every managed update: the updater stops them, and the
 maintenance service starts every wiki whose status is `running` again with
 the new image; the update is rolled back if any of them that was serving
-before does not become healthy. A wiki that was already failing does not
+before does not become healthy. With `HOSTING_ALLOW_TENANT_PLUGINS=1`, a wiki
+whose own plugins keep it from serving under the new release does not roll
+the update back: the updater quarantines its plugins as the **Quarantine
+plugins** button does (`bananawiki hosting-admin instance quarantine-plugins
+WIKI` runs the same), starts it again and keeps the update if it then
+serves, reporting it as `quarantined_tenants`; lift the quarantine once its
+plugins are fixed. A wiki that was already failing does not
 block updates, and one that does not come back from a backup or a recovery
 is reported instead of keeping the platform in maintenance (see
 [operations](operations.md#managed-servers)).

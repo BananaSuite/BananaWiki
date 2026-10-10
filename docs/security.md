@@ -109,6 +109,15 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   [configuration](configuration.md#limits)).
 * **Proxies:** with `BW_PROXY_MODE=1` one hop of `X-Forwarded-For`, `-Proto`
   and `-Host` is trusted; `X-Forwarded-Prefix` never.
+* **Slow clients:** the shipped Caddy configuration allows 10 s for request
+  headers and 5 minutes for a request body. A response is abandoned once a
+  write to the client has waited `BW_WRITE_TIMEOUT` seconds (300), so clients
+  that stop reading downloads cannot tie up the worker threads for longer;
+  readers that kept taking in 256 KiB to 4 MiB per period, depending on their
+  buffers, were not cut off in tests (see
+  [deployment](deployment.md#reverse-proxy)). A client that reads slowly on
+  purpose still holds a thread for the whole download: a proxy's minimum
+  rate (Caddy's `write_idle <duration> <min_rate>`) covers that.
 
 ## Response headers
 

@@ -591,6 +591,7 @@ def test_quarantine_disables_external_plugins_and_survives_restarts(tmp_path):
     _add_plugin(runtime, "core", builtin=1, folder=False)
     summary = runtime.quarantine_plugins(spec)
     assert "2 plugin(s)" in summary and runtime.plugins_quarantined(spec)
+    assert summary.endswith("a copy of the database was kept.")
     with _db(runtime) as conn:
         enabled = {row[0]: row[1] for row in conn.execute("SELECT id, enabled FROM plugins")}
     assert enabled == {"sneaky": 0, "honest": 0, "core": 1}
@@ -620,6 +621,125 @@ def test_plugin_snapshots_restore_only_platform_copies(setup):
     with pytest.raises(RuntimeFailure) as error:
         runtime.restore_plugin_snapshot(spec, name)
     assert error.value.code == "db_unsafe"
+
+
+GROWN_COPY_BYTES = 16 * 1024 ** 2
+
+
+def _changed_copies(runtime: AgentRuntime, monkeypatch, change) -> None:
+    """The wiki (its plugins) changes each database copy its sandbox makes, before the host reads it."""
+    snapshot = runtime._snapshot
+    base = Path(runtime._cfg().instances_dir)
+
+    def changed(name, **kwargs):
+        copy = snapshot(name, **kwargs)
+        return change(base / name / copy.path, copy)
+
+    monkeypatch.setattr(runtime, "_snapshot", changed)
+
+
+def _grown(path: Path, copy):
+    os.truncate(path, GROWN_COPY_BYTES)
+    return copy
+
+
+def _rewritten(path: Path, copy):
+    with path.open("r+b") as handle:
+        handle.write(b"\xa5" * 4096)
+    return copy
+
+
+def _removed(path: Path, copy):
+    path.unlink()
+    return copy
+
+
+def _linked(path: Path, copy):
+    path.unlink()
+    path.symlink_to("../bananawiki.db")
+    return copy
+
+
+@pytest.mark.parametrize(("change", "code", "detail"), [
+    (_grown, "db_unsafe", "reported"),
+    (_rewritten, "db_unsafe", "content differs"),
+    (lambda path, copy: replace(_grown(path, copy), size=GROWN_COPY_BYTES), "too_large", "storage limit"),
+    (_removed, "failed", "the database copy"),
+    (_linked, "failed", "the database copy"),
+], ids=["grown", "rewritten", "over-budget", "removed", "link"])
+def test_a_plugin_snapshot_refuses_a_database_copy_changed_once_made(setup, monkeypatch, change, code, detail):
+    """The copy lies in the wiki's own directory and the wiki may be running: a plugin extended it to a huge sparse
+    file, and the host copied it at that length into the platform state folder, which no quota bounds (or kept a
+    database its sandbox never checked, or failed with an error the portal does not handle). Extended before its
+    task measured it, the copy gets the wiki's byte budget, as in a platform backup."""
+    from bananawiki.hosting.runtime import platform_backup
+
+    monkeypatch.setattr(platform_backup, "BUDGET_SLACK_BYTES", 0)
+    runtime, _agent = setup
+    spec = make_spec()
+    provision(runtime, spec)
+    limited = replace(spec, policy=TenantPolicy(storage_limit_bytes=2 * 1024 ** 2))
+    kept = runtime.capture_plugin_snapshot(limited)  # its database copy (some 1.2 MiB) fits a 2 MiB limit
+    _changed_copies(runtime, monkeypatch, change)
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.capture_plugin_snapshot(limited)
+    assert error.value.code == code and detail in error.value.detail
+    assert [item["name"] for item in runtime.list_plugin_snapshots(spec)] == [kept]
+    files = [path.name for path in runtime._state(runtime._cfg(), spec).root.rglob("*.db")]
+    assert files == [kept], "no other copy is kept"
+    assert not list((Path(runtime._cfg().instances_dir) / "acme" / ".bw-host").iterdir()), "the copy is removed"
+
+
+def _full_disk(monkeypatch) -> None:
+    """The platform state folder runs out of space while the copy is written there."""
+    from bananawiki.hosting.runtime import tenantfs
+
+    copy_observed = tenantfs.copy_observed
+
+    def full(source, target, size):
+        copy_observed(source, target, min(size, 4096))
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+    monkeypatch.setattr(tenantfs, "copy_observed", full)
+
+
+@pytest.mark.parametrize("failure", ["changed", "full-disk"])
+def test_quarantine_goes_on_without_its_forensic_copy(tmp_path, monkeypatch, caplog, failure):
+    """The kill switch must work when its copy fails: a copy the wiki changed, or a full disk, raised once the
+    marker was set, and left the plugins enabled, the wiki stopped and the administrator with an error page."""
+    runtime, agent = make_runtime(tmp_path, HOSTING_ALLOW_TENANT_PLUGINS="1")
+    spec = make_spec()
+    provision(runtime, spec)
+    _add_plugin(runtime, "sneaky", builtin=1, folder=True)
+    if failure == "changed":
+        _changed_copies(runtime, monkeypatch, _grown)
+    else:
+        _full_disk(monkeypatch)
+    with caplog.at_level("WARNING", logger="bananawiki.hosting.runtime.agent"):
+        summary = runtime.quarantine_plugins(spec)
+    assert "1 plugin(s)" in summary and runtime.plugins_quarantined(spec)
+    assert summary.endswith("no copy of the database could be kept.")
+    with _db(runtime) as conn:
+        assert conn.execute("SELECT enabled FROM plugins WHERE id = 'sneaky'").fetchone()[0] == 0
+    assert agent.containers.get("acme", {}).get("running"), "the wiki serves again"
+    assert runtime.list_plugin_snapshots(spec) == []
+    assert not list(runtime._state(runtime._cfg(), spec).root.rglob("*.db")), "no partial copy is left"
+    assert "No forensic snapshot" in caplog.text
+    assert ("db_unsafe" if failure == "changed" else "no_space") in caplog.text
+
+
+def test_a_refused_copy_before_a_restore_leaves_the_wiki_serving(setup, monkeypatch):
+    runtime, agent = setup
+    spec = make_spec()
+    provision(runtime, spec)
+    runtime.capture_plugin_snapshot(spec)
+    _changed_copies(runtime, monkeypatch, _grown)
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.restore_plugin_snapshot(spec)
+    assert error.value.code == "db_unsafe"
+    assert agent.containers.get("acme", {}).get("running"), "nothing was restored: the wiki serves again"
+    assert not runtime.plugins_quarantined(spec)
+    assert [item["label"] for item in runtime.list_plugin_snapshots(spec)] == ["pre-enable"]
 
 
 # ── Routing ───────────────────────────────────────────────────────────────────
@@ -694,3 +814,31 @@ def test_portal_lifecycle_on_the_production_runtime(tmp_path):
         instances.hard_delete(terminated, actor_id=owner["id"])
         assert not any((tmp_path / "instances").iterdir())
     assert username and password
+
+
+def test_the_portal_discards_a_duplicate_whose_copy_the_source_removed(tmp_path, monkeypatch):
+    """A copy the source wiki removed made the duplicate fail with an error the portal did not handle: the new
+    wiki stayed pending with its folder and storage quota, and the administrator got an error page."""
+    from bananawiki.hosting.db import connection_scope, db
+    from bananawiki.hosting.errors import ServiceError
+
+    from .agent_fakes import FakeAgent
+    from .hosting_support import PASSWORD, build_portal
+
+    agent = FakeAgent(tmp_path / "instances")
+    runtime = AgentRuntime(client=agent, probe=lambda _address, _port: True)
+    portal = build_portal(tmp_path, runtime=runtime)  # type: ignore[arg-type]
+    with portal.test_request_context("/"), connection_scope(portal.extensions["bananawiki.hosting.database"]):
+        from bananawiki.hosting import accounts, instances
+
+        owner = accounts.create("owner", PASSWORD)
+        inst, _username, _password = instances.create(owner, "team")
+        _changed_copies(runtime, monkeypatch, _removed)
+        with pytest.raises(ServiceError) as error:
+            instances.duplicate(instances.get(inst["id"]), owner, "clone", "hosting", actor_id=owner["id"])
+        assert error.value.key == "hosting.runtime.failed"
+        clone = db.one("SELECT status, provisioning_state, terminated_reason FROM instances WHERE id != ?",
+                       (inst["id"],))
+    assert clone == {"status": "terminated", "provisioning_state": "failed", "terminated_reason": "provisioning_failed"}
+    assert sorted(path.name for path in (tmp_path / "instances").iterdir()) == ["team"], "its folder is removed"
+    assert "clone" not in agent.containers

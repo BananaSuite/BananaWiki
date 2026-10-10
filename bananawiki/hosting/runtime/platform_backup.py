@@ -51,12 +51,18 @@ MANIFEST_NAME = "backup_manifest.json"
 # blocks, the budget sizes as files report them.
 BUDGET_SLACK_BYTES = 64 * 1024 ** 2
 
-Snapshot = Callable[[str], str | None]
+Snapshot = Callable[[str], archives.DatabaseCopy | None]
 
 
 class WikiFault(RuntimeFailure):
     """What a ``snapshot`` raises when the wiki's own sandbox ran and refused the copy (a damaged database, one
     replaced with a link): the wiki's doing, never taken for a platform fault."""
+
+
+def byte_budget(limit: int | None) -> int | None:
+    """What a wiki's files, and its database copy apart, may add to a backup or an export: its storage *limit*
+    (bytes; None: no limit, and no budget) and some slack."""
+    return None if limit is None else limit + limit // 10 + BUDGET_SLACK_BYTES
 
 
 def tenant_names(instances_dir: str) -> list[str]:
@@ -149,39 +155,46 @@ def export(cfg: HostingConfig, destination_dir: Path, key: bytes, snapshot: Snap
            release: Callable[[str, str], None], available: Callable[[], bool] | None = None) -> Exported:
     """Write the encrypted backup into *destination_dir*.
 
-    ``snapshot(tenant)`` returns the path (inside the tenant directory) of a
-    fresh database copy, or None when the tenant has no database yet, and
-    raises :class:`WikiFault` when the wiki's sandbox refused the copy;
-    ``release(tenant, path)`` removes it again; ``available()`` tells whether
-    the runtime that makes the snapshots still answers.
+    ``snapshot(tenant)`` returns a fresh database copy (inside the tenant
+    directory, with the size and SHA-256 its task reported), or None when
+    the tenant has no database yet, and raises :class:`WikiFault` when the
+    wiki's sandbox refused the copy; ``release(tenant, path)`` removes it
+    again; ``available()`` tells whether the runtime that makes the
+    snapshots still answers.
 
     A wiki that fails (a snapshot that fails or times out, a database the
-    tenant damaged or replaced with a link, a copy it removed, a storage
-    folder replaced with a link or special file, an unreadable folder, a
-    file that shrinks, whose name an archive cannot hold or that stands
-    where the restore needs one of the wiki's folders, any other error) is
-    skipped and reported, and what was already written of it stays in the
-    archive. When the wiki's sandbox refused the database copy, or the wiki
-    removed or replaced it, its other files are still archived: they are
-    what nothing else could replace. Besides its database copy, a wiki's
-    files add at most its storage limit (from the copy of ``hosting.db``)
-    and some slack to the archive, counted at their apparent size, and each
-    file goes in once whatever number of hard links it has: a sparse file,
-    or many links to one file, cost the wiki's quota next to nothing and
-    must not make the whole backup run out of space. A wiki over its budget
-    is saved up to it and reported (``too_large``), further links are left
-    out and reported. The whole backup fails instead when the runtime no
-    longer answers after a wiki failed (``unavailable``), or when the
-    runtime could not make the database copy of any wiki (a timeout, the
-    agent or Docker failing, each time): a platform fault, and a backup
-    without any wiki must not count as one. A wiki that kept itself from
-    being saved does not count there: its sandbox refused the copy, or its
-    own files stood in the way once the copy was made (over its budget
-    too). The
+    tenant damaged or replaced with a link, a copy it removed or changed, a
+    storage folder replaced with a link or special file, an unreadable
+    folder, a file that shrinks, whose name an archive cannot hold or that
+    stands where the restore needs one of the wiki's folders, any other
+    error) is skipped and reported, and what was already written of it
+    stays in the archive. When the wiki's sandbox refused the database
+    copy, or the wiki removed, replaced or changed it, its other files are
+    still archived: they are what nothing else could replace. The database
+    copy lies in the wiki's own directory, and the wiki can extend it to a
+    huge sparse file once its task reported it: it goes in only at the size
+    the task reported (``db_unsafe`` otherwise) and, for a wiki with a
+    storage limit, within the budget below (``too_large``). Its SHA-256 is
+    checked as it is written: a copy whose content changed stays in the
+    archive, and the wiki is reported (``db_unsafe``). Besides its database copy, a wiki's files add at most
+    its storage limit (from the copy of ``hosting.db``) and some slack to
+    the archive, counted at their apparent size, and each file goes in once
+    whatever number of hard links it has: a sparse file, or many links to
+    one file, cost the wiki's quota next to nothing and must not make the
+    whole backup run out of space. A wiki over its budget is saved up to it
+    and reported (``too_large``), further links are left out and reported.
+    The whole backup fails instead when the runtime no longer answers after
+    a wiki failed (``unavailable``), or when the runtime could not make the
+    database copy of any wiki (a timeout, the agent or Docker failing, each
+    time): a platform fault, and a backup without any wiki must not count
+    as one. A wiki that kept itself from being saved does not count there:
+    its sandbox refused the copy, or its own files stood in the way once
+    the copy was made (its copy changed, or over its budget too). The
     backup then holds ``hosting.db`` and whatever could be saved of that
-    wiki, and is reported incomplete. ``hosting.db``, the secret key and the output
-    itself stay all or nothing; their storage and SQLite errors are raised
-    as :class:`RuntimeFailure`, like every other runtime failure.
+    wiki, and is reported incomplete. ``hosting.db``, the secret key and
+    the output itself stay all or nothing; their storage and SQLite errors
+    are raised as :class:`RuntimeFailure`, like every other runtime
+    failure.
     """
     try:
         return _export(cfg, Path(destination_dir), key, snapshot, release, available)
@@ -265,7 +278,7 @@ def _skipped(tenant: str, error: Exception) -> dict[str, str]:
     return {"tenant": tenant, "code": code, "detail": detail.encode("utf-8", "backslashreplace").decode()[:300]}
 
 
-def _database_copy(snapshot: Snapshot, tenant: str) -> tuple[str | None, RuntimeFailure | None]:
+def _database_copy(snapshot: Snapshot, tenant: str) -> tuple[archives.DatabaseCopy | None, RuntimeFailure | None]:
     """The wiki's database copy, or why its sandbox refused to make one (a database the wiki damaged, or replaced
     with a link or special file): the rest of its files, which nothing else could replace, are kept, then the
     wiki is reported as not held in full."""
@@ -275,20 +288,6 @@ def _database_copy(snapshot: Snapshot, tenant: str) -> tuple[str | None, Runtime
         if not isinstance(error, WikiFault) and error.code != "db_unsafe":
             raise
         return None, error
-
-
-def _open_copy(root: Path, copy: str) -> tuple[int, os.stat_result]:
-    parent, _, name = copy.rpartition("/")
-    dir_fd = tenantfs.open_dir(root, parent)
-    try:
-        fd = tenantfs.open_file(dir_fd, name)
-    finally:
-        os.close(dir_fd)
-    try:
-        return fd, os.fstat(fd)
-    except BaseException:
-        os.close(fd)
-        raise
 
 
 def _special(dir_fd: int, name: str) -> bool:
@@ -325,7 +324,7 @@ def _replaced_folders(root: Path) -> list[str]:
         os.close(root_fd)
 
 
-def _add_tenant(archive: zipfile.ZipFile, cfg: HostingConfig, tenant: str, copy: str | None,
+def _add_tenant(archive: zipfile.ZipFile, cfg: HostingConfig, tenant: str, copy: archives.DatabaseCopy | None,
                 fault: RuntimeFailure | None, release: Callable[[str, str], None], *, limit: int | None) -> None:
     """Archive one wiki: its database copy, then its files within its byte budget.
 
@@ -333,24 +332,31 @@ def _add_tenant(archive: zipfile.ZipFile, cfg: HostingConfig, tenant: str, copy:
     sparse file or many hard links to one file cost its storage quota next
     to nothing: besides its database copy, its files may add at most its
     storage *limit* (None: no limit) and some slack to the archive, each
-    file once, whatever number of hard links it has.
+    file once, whatever number of hard links it has. The database copy
+    goes in only as its task reported it, and within the same budget.
     """
     root = tenantfs.tenant_path(cfg.instances_dir, tenant)
     reserved: tuple[str, ...] = ()
-    budget = None if limit is None else limit + limit // 10 + BUDGET_SLACK_BYTES
+    budget = byte_budget(limit)
     links: list[str] = []
     try:
         if copy:
             reserved = (f"instances/{tenant}/bananawiki.db",)
             try:
-                fd, info = _open_copy(root, copy)
+                fd, info = archives.open_copy(root, copy, max_bytes=budget)
             except (RuntimeFailure, OSError) as error:
-                # The wiki removed the copy its sandbox made, or replaced it: its
-                # own doing, and its files are still worth saving.
+                # The wiki removed the copy its sandbox made, replaced it or
+                # extended it (to a sparse file of any length): its own doing,
+                # and its files are still worth saving.
                 fault = error if isinstance(error, RuntimeFailure) else RuntimeFailure(
                     "failed", f"the database copy: {error.strerror or error}")
             else:
-                archives.write_fd(archive, fd, info, reserved[0], cfg.archives)
+                try:
+                    archives.write_copy(archive, fd, info, copy, reserved[0], cfg.archives)
+                except RuntimeFailure as error:
+                    # It shrank or changed while it was copied; the member is closed
+                    # properly. A failed write to the backup is an OSError instead.
+                    fault = error
         # The wiki can turn its database into a folder meanwhile: nothing may
         # then be archived below the copy's name, or no restore would accept it.
         # Nor may a file stand where the restore prepares the wiki's folders.
@@ -364,7 +370,7 @@ def _add_tenant(archive: zipfile.ZipFile, cfg: HostingConfig, tenant: str, copy:
         if copy:
             # Never the wiki's verdict: maintenance removes a copy left behind.
             try:
-                release(tenant, copy)
+                release(tenant, copy.path)
             except (RuntimeFailure, OSError) as error:
                 log.warning("The backup copy of %s's database was not removed: %s", tenant, error)
     if fault is not None:

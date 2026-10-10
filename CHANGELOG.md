@@ -146,6 +146,17 @@
   workers start; `stop`, `converge` and every operation check Docker and
   project-quota storage before anything stops; `start` after `stop` reports
   wikis that did not come back.
+* The wiki's and the portal's Gunicorn workers disconnect a client once a
+  write to it has waited `BW_WRITE_TIMEOUT` / `HOSTING_WRITE_TIMEOUT` seconds
+  (default 300, `0` disables). Generated responses are written in 64 KiB
+  pieces and, on Linux, sent in full segments.
+* Managed hosting servers with `HOSTING_ALLOW_TENANT_PLUGINS=1`: an update that
+  fails only because wikis with their own plugins do not come back quarantines
+  those plugins (new `hosting-admin instance quarantine-plugins`) and is kept
+  when the wikis then serve.
+* A hosted wiki's export (the download during the grace period and the
+  administrator download) keeps to the wiki's storage limit plus a tenth and
+  64 MiB, and stores each hard-linked file once.
 
 ### Fixed
 
@@ -214,6 +225,8 @@
   backs off rows that keep failing; "Extend" no longer fails on far expiries.
 * Desktop: the launcher binds its port exclusively on Windows and verifies its
   own /health answer, so another program on the port is reported.
+* Hosting: merging accounts no longer leaves the target as a collaborator of
+  its own wikis, which kept it access after a later transfer.
 * Far dates (an API token expiring in 9999, for example) no longer make the API
   administration and token pages fail; they are shown in UTC.
 * Hosting: a failed or cancelled create, duplicate or import leaves alone a
@@ -307,6 +320,14 @@
   kanban and canvas imports check sizes before parsing, exports use temporary
   files, histories are pruned by size and kanban bulk actions refuse oversized
   input up front.
+* Hosting: a wiki's plugins can no longer grow its database copy into a huge
+  sparse file between the snapshot and the host reading it. Platform backups,
+  wiki exports, plugin snapshots and wiki duplicates check the copy against the
+  size and SHA-256 its snapshot reported and against the wiki's byte budget.
+* Whole-site imports refuse encrypted members and members compressed other than
+  stored or deflated before reading anything.
+* A client that stops reading a download no longer holds a server thread for as
+  long as it keeps the connection open.
 
 ## 1.6.0
 

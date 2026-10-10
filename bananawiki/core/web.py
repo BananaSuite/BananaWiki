@@ -174,6 +174,11 @@ def safe_next(default: str, *candidates: str | None) -> str:
     return default
 
 
+def one_line(value: object) -> str:
+    """*value* as text without line breaks, so a logged value cannot forge further log lines."""
+    return str(value).replace("\r", " ").replace("\n", " ")
+
+
 def client_ip() -> str:
     """Remote address after ProxyFix (when enabled) has resolved it."""
     return (request.remote_addr or "unknown")[:64]

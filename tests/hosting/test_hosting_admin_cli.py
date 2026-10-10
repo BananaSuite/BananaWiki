@@ -96,6 +96,25 @@ def test_wiki_user_commands_use_the_runtime(cli, make_account, make_wiki, runtim
     assert cli("instance", "remove-user", "erins", "frank", "--yes")[0] == 0
 
 
+def test_plugin_quarantine_is_the_administration_pages_and_starts_a_running_wiki(cli, portal, make_account,
+                                                                                make_wiki, runtime, query):
+    """``bananawiki update`` runs it for a wiki whose plugins keep it from serving, or from starting at all."""
+    wiki = make_wiki(make_account("hana"), "hanas")
+    runtime.tenants["hanas"].running = False  # its plugins made it exit
+    code, out, _err = cli("--json", "instance", "quarantine-plugins", wiki["id"])
+    assert code == 0 and json.loads(out) == {"ok": True, "instance": wiki["id"], "result": "quarantined"}
+    assert runtime.tenants["hanas"].quarantined and runtime.tenants["hanas"].running
+    assert runtime.called("quarantine_plugins") == ["hanas"] and runtime.called("start") == ["hanas"]
+    event = query("SELECT action, actor_id FROM hosting_events WHERE subject_id = ? ORDER BY id DESC LIMIT 1",
+                  (wiki["id"],), one=True)
+    assert event["action"] == "plugins.quarantined" and event["actor_id"] is None
+    assert _audit(portal)[-1]["action"] == "instance.quarantine_plugins"
+    # A wiki that is not marked running is only quarantined.
+    assert cli("instance", "stop", "hanas")[0] == 0
+    assert cli("instance", "quarantine-plugins", "hanas")[0] == 0
+    assert runtime.called("start") == ["hanas"] and not runtime.tenants["hanas"].running
+
+
 def test_invites_and_signup_mode(cli, query):
     code, out, _err = cli("--json", "invite", "create", "--max-uses", "3")
     invite = json.loads(out)

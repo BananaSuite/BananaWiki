@@ -625,6 +625,7 @@
   "hosting.instances.provisioning_notice": "Creation has not completed. Start and editing are unavailable. If creation was interrupted, terminate this incomplete wiki and create it again; the initial password cannot be recovered.",
   "hosting.instances.changed_state": "The wiki changed state meanwhile. Reload and try again.",
   "hosting.instances.compliance_required": "Confirm that you will follow the terms of service.",
+  "hosting.instances.download_too_large": "The wiki's files take more space than its storage limit allows in a download, so no archive was made.",
   "hosting.instances.download_unavailable": "Downloads are not available for this wiki.",
   "hosting.instances.expired_no_delete": "Expired wikis cannot be terminated by their owner on this platform.",
   "hosting.instances.invalid_upload_size": "Enter a valid upload size.",

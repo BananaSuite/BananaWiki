@@ -435,8 +435,10 @@ class Runtime(Protocol):
         format, importable by :meth:`import_archive` and by a self-hosted
         wiki) into *destination_dir* (created by the portal under
         ``HOSTING_EXPORT_TEMP_DIR``) and return its path. Consistent DB
-        snapshot; links and special files skipped. The portal streams and
-        deletes the file."""
+        snapshot; links and special files skipped. Of the policy only
+        ``storage_limit_bytes`` is set: it bounds the archive like a
+        platform backup bounds the wiki (``too_large``). The portal streams
+        and deletes the file."""
 
     def import_archive(self, spec: TenantSpec, archive: Path) -> None:
         """Provision a new tenant whose data comes from *archive* (a ZIP

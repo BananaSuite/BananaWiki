@@ -86,6 +86,14 @@ def test_real_client_addresses_come_from_cloudflare_only():
     assert "trusted_proxies" not in legacy and "{client_ip}" not in legacy
 
 
+def test_downloads_have_no_total_time_limit():
+    """Caddy's `write` timeout covers a whole response, and `write_idle` breaks Caddy before 2.11.6 (R-27):
+    stalled downloads are dropped by the application server and by recent Caddy's default."""
+    for text in (caddy.render(HOSTING), caddy.render(WIKI), *map(caddy.example, ("wiki", "hosting", "compose"))):
+        timeouts = text[text.index("\t\ttimeouts {\n"):]
+        assert "\t\t\twrite" not in timeouts[:timeouts.index("\t\t}\n")]
+
+
 def test_www_redirects_to_the_base_domain():
     sites = blocks(caddy.render(HOSTING))
     www = sites["www.example.org, http://www.example.org"]

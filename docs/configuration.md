@@ -178,6 +178,7 @@ values are clamped.
 | `BW_WORKERS` | 2 (1–16) | Worker processes. SQLite serialises writes, so a few workers with threads work better than many processes. |
 | `BW_THREADS` | 4 (1–32) | Threads per worker. |
 | `BW_WORKER_TIMEOUT` | 120 (10–600) | Seconds before a stuck worker is replaced. |
+| `BW_WRITE_TIMEOUT` | 300 (0–3600) | Whole seconds a response write may wait for the client before the connection is closed, so a client that stops reading a download holds a worker thread no longer than that. Measured, a slow reader was kept while it took in about 256 KiB per period, or up to 4 MiB once its receive buffer had grown after a fast start (about 1 and 14 KiB/s with 300; see [deployment](deployment.md#reverse-proxy)); raise the value to serve slower links. `0` waits forever. |
 | `BW_ACCESS_LOG` | `-` | Access log: `-` for standard output, `off`, or a file path. |
 
 The application is not preloaded in the Gunicorn master: every worker runs its
@@ -258,7 +259,7 @@ like 1.4; managed installations set them to `<root>/data`.
 | `HOSTING_LOG_LEVEL` | `info` | `debug`, `info`, `warning` or `error`. |
 | `BANANA_MAINTENANCE_FILE` (alias `BW_MAINTENANCE_FILE`) | none | 503 for everything but `/health` while it exists. |
 | `BW_SOURCE_URL` | `https://github.com/BananaSuite/BananaWiki` | Source link shown by the portal (managed installs set it to the update source). |
-| `HOSTING_WORKERS`, `HOSTING_THREADS`, `HOSTING_WORKER_TIMEOUT`, `HOSTING_ACCESS_LOG` | 2, 4, 120, `-` | Read by `hosting/gunicorn.conf.py`. |
+| `HOSTING_WORKERS`, `HOSTING_THREADS`, `HOSTING_WORKER_TIMEOUT`, `HOSTING_WRITE_TIMEOUT`, `HOSTING_ACCESS_LOG` | 2, 4, 120, 300, `-` | Read by `hosting/gunicorn.conf.py`; the same meaning as the `BW_` variables of the [web server](#web-server-gunicorn). |
 
 ### Addresses
 

@@ -25,7 +25,9 @@ else in the archive is ignored.
 
 from __future__ import annotations
 
+import contextlib
 import errno
+import hashlib
 import json
 import logging
 import os
@@ -37,6 +39,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
+from typing import Any, BinaryIO
 
 from ... import __version__
 from ...core.json import loads as safe_json_loads
@@ -85,6 +88,16 @@ class Unpacked:
     skipped: int
 
 
+@dataclass(frozen=True)
+class DatabaseCopy:
+    """A database copy the tenant task made inside the tenant directory (*path*), with the size and SHA-256 the
+    task reported for it."""
+
+    path: str
+    size: int
+    sha256: str
+
+
 # ── Member names ──────────────────────────────────────────────────────────────
 
 
@@ -121,8 +134,22 @@ def zip_time(mtime: float) -> tuple[int, int, int, int, int, int]:
     return min(max(stamp, (1980, 1, 1, 0, 0, 0)), (2107, 12, 31, 23, 59, 58))  # type: ignore[return-value]
 
 
-def write_fd(archive: zipfile.ZipFile, fd: int, info: os.stat_result, name: str, settings: ArchiveSettings) -> None:
-    """Stream an opened file into *archive* (takes ownership of *fd*)."""
+class _Hashing:
+    """A member being written, feeding *digest* with every block on the way."""
+
+    def __init__(self, target: BinaryIO, digest: Any):
+        self._target = target
+        self._digest = digest
+
+    def write(self, data: bytes) -> int:
+        self._digest.update(data)
+        return self._target.write(data)
+
+
+def write_fd(archive: zipfile.ZipFile, fd: int, info: os.stat_result, name: str, settings: ArchiveSettings, *,
+             digest: Any = None) -> None:
+    """Stream an opened file into *archive* (takes ownership of *fd*); *digest* (a hashlib object) sees what is
+    written."""
     with os.fdopen(fd, "rb") as source:
         entry = zipfile.ZipInfo(name, date_time=zip_time(info.st_mtime))
         entry.external_attr = (stat.S_IMODE(info.st_mode) | stat.S_IFREG) << 16
@@ -133,9 +160,96 @@ def write_fd(archive: zipfile.ZipFile, fd: int, info: os.stat_result, name: str,
             setattr(entry, _LEVEL_ATTRIBUTE, settings.export_compress_level)
         entry.file_size = info.st_size
         with archive.open(entry, "w", force_zip64=True) as target:
+            output = target if digest is None else _Hashing(target, digest)
             # A tenant can keep appending while its files are exported. Read
             # only the size observed when opening it, so the host finishes.
-            tenantfs.copy_observed(source, target, info.st_size)
+            tenantfs.copy_observed(source, output, info.st_size)  # type: ignore[arg-type]
+
+
+def open_copy(root: Path, copy: DatabaseCopy, *, max_bytes: int | None = None) -> tuple[int, os.stat_result]:
+    """Open the database copy *copy* in *root* as its tenant task reported it.
+
+    The copy lies in the tenant directory, which the wiki (its plugins) can
+    write meanwhile: once the task reported it, the wiki can extend it to a
+    huge sparse file, which an archive would hold at its full length. A copy
+    whose size is not the reported one is refused (``db_unsafe``), and so is
+    one larger than *max_bytes* (``too_large``).
+    """
+    parent, _, name = copy.path.rpartition("/")
+    dir_fd = tenantfs.open_dir(root, parent)
+    try:
+        fd = tenantfs.open_file(dir_fd, name)
+    finally:
+        os.close(dir_fd)
+    try:
+        info = os.fstat(fd)
+        if info.st_size != copy.size:
+            raise RuntimeFailure("db_unsafe", f"the database copy changed once its sandbox made it: {info.st_size} "
+                                              f"bytes, {copy.size} reported")
+        if max_bytes is not None and info.st_size > max_bytes:
+            raise RuntimeFailure("too_large", f"the database copy takes more than the {max_bytes // 1024 ** 2} MiB "
+                                              f"its storage limit allows")
+        return fd, info
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def write_copy(archive: zipfile.ZipFile, fd: int, info: os.stat_result, copy: DatabaseCopy, name: str,
+               settings: ArchiveSettings) -> None:
+    """Stream a copy :func:`open_copy` opened into *archive* (takes ownership of *fd*), then check that what was
+    written has the SHA-256 the task reported (``db_unsafe`` otherwise; the member stays in *archive*)."""
+    digest = hashlib.sha256()
+    write_fd(archive, fd, info, name, settings, digest=digest)
+    if digest.hexdigest() != copy.sha256:
+        raise RuntimeFailure("db_unsafe", "the database copy changed once its sandbox made it: its content differs")
+
+
+def _copy_failure(error: OSError) -> RuntimeFailure:
+    code = "no_space" if error.errno in (errno.ENOSPC, errno.EDQUOT) else "failed"
+    return RuntimeFailure(code, f"the database copy: {error.strerror or error}")
+
+
+def save_copy(root: Path, copy: DatabaseCopy, destination: Path, *, max_bytes: int | None = None) -> None:
+    """Copy the database copy *copy* in *root* to the host file *destination* (created exclusively) as its tenant
+    task reported it.
+
+    Checked as for an archive (:func:`open_copy`, :func:`write_copy`): a
+    copy the wiki extended (``db_unsafe``) or one larger than *max_bytes*
+    (``too_large``) is refused before anything is written; one the wiki
+    rewrote (``db_unsafe``) once it has been read, or that shrank while it
+    was read (``failed``), leaves no file at *destination*, so that nothing
+    takes a partial or changed copy for the wiki's database. A copy the
+    wiki removed or replaced with a link, and a failed write, raise
+    :class:`RuntimeFailure` too (``failed``, ``no_space``): callers handle
+    no other error.
+    """
+    try:
+        fd, info = open_copy(root, copy, max_bytes=max_bytes)
+    except OSError as error:
+        raise _copy_failure(error) from None
+    digest = hashlib.sha256()
+    with os.fdopen(fd, "rb") as source:
+        try:
+            target = open(destination, "xb")  # noqa: SIM115 - closed below
+        except OSError as error:
+            # Not this call's file, if it exists: never removed.
+            raise _copy_failure(error) from None
+        try:
+            with target:
+                os.fchmod(target.fileno(), 0o600)
+                tenantfs.copy_observed(source, _Hashing(target, digest), info.st_size)  # type: ignore[arg-type]
+                target.flush()
+                os.fsync(target.fileno())
+            if digest.hexdigest() != copy.sha256:
+                raise RuntimeFailure("db_unsafe", "the database copy changed once its sandbox made it: its content "
+                                                  "differs")
+        except BaseException as error:
+            with contextlib.suppress(OSError):  # the cleanup must not replace the verdict
+                destination.unlink(missing_ok=True)
+            if isinstance(error, OSError):
+                raise _copy_failure(error) from None
+            raise
 
 
 def _parents(member: str) -> Iterable[str]:
@@ -236,7 +350,7 @@ def add_tenant_tree(archive: zipfile.ZipFile, root: Path, prefix: str, settings:
             if budget is not None and used > budget:
                 os.close(fd)
                 raise RuntimeFailure("too_large", f"its files take more than the {budget // 1024 ** 2} MiB its "
-                                                  f"storage limit allows in a backup (a sparse file at its full "
+                                                  f"storage limit allows in an archive (a sparse file at its full "
                                                   f"size); stopped at {_shown(relative)}"[:300])
             if links is not None:
                 archived.add(identity)
@@ -257,13 +371,23 @@ def refused_detail(refused: list[str]) -> str:
             f"the wiki needs): {', '.join(refused[:5])}")[:300]
 
 
-def export(root: Path, snapshot: str, destination_dir: Path, slug: str, settings: ArchiveSettings) -> Path:
+def export(root: Path, snapshot: DatabaseCopy, destination_dir: Path, slug: str, settings: ArchiveSettings, *,
+           budget: int | None = None) -> Path:
     """Write ``bananawiki-<slug>-<time>.zip``; *snapshot* is the database copy inside *root*.
 
-    Tenant files no import would accept, or would take for the wiki's own,
-    are left out, logged and listed in ``manifest.json`` (``omitted_files``,
-    the first :data:`MAX_LISTED_FILES`, and ``omitted_file_count``): the
-    rest of the wiki still moves.
+    A copy that is no longer the one its task reported fails the export
+    (see :func:`open_copy`). Tenant files no import would accept, or would
+    take for the wiki's own, are left out, logged and listed in
+    ``manifest.json`` (``omitted_files``, the first
+    :data:`MAX_LISTED_FILES`, and ``omitted_file_count``): the rest of the
+    wiki still moves.
+
+    Exports of every wiki share one folder, and a sparse file or many hard
+    links to one file cost the wiki's quota next to nothing: each file goes
+    in once, further links are left out and listed like the files above,
+    and with a *budget* (bytes, see :func:`add_tenant_tree`) the database
+    copy and the files may each add at most that much. Over it, the export
+    fails (``too_large``) and no archive is left.
     """
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     safe = "".join(c for c in slug if c.isalnum() or c in "-_") or "wiki"
@@ -277,22 +401,22 @@ def export(root: Path, snapshot: str, destination_dir: Path, slug: str, settings
                               allowZip64=True)
     try:
         with archive:
-            parent, _, name = snapshot.rpartition("/")
-            dir_fd = tenantfs.open_dir(root, parent)
-            try:
-                fd = tenantfs.open_file(dir_fd, name)
-            finally:
-                os.close(dir_fd)
-            write_fd(archive, fd, os.fstat(fd), RAW_DB, settings)
+            fd, info = open_copy(root, snapshot, max_bytes=budget)
+            write_copy(archive, fd, info, snapshot, RAW_DB, settings)
             # The manifest goes last, so that it can list what was left out:
             # its name is reserved, a tenant file cannot take its place. Nor
             # can a file named like an asset folder take the place of that
             # folder's files.
-            omitted = add_tenant_tree(archive, root, "", settings, portable=True, reserved=(MANIFEST, RAW_DB),
-                                      directories=tenantfs.ASSET_FOLDERS)
-            if omitted:
+            links: list[str] = []
+            refused = add_tenant_tree(archive, root, "", settings, portable=True, reserved=(MANIFEST, RAW_DB),
+                                      directories=tenantfs.ASSET_FOLDERS, budget=budget, links=links)
+            if refused:
                 log.warning("The export of %s left out %d file(s) no import would accept or keep apart from the "
-                            "wiki's own: %s", slug, len(omitted), ", ".join(omitted[:5])[:300])
+                            "wiki's own: %s", slug, len(refused), ", ".join(refused[:5])[:300])
+            if links:
+                log.warning("The export of %s left out %d further hard link(s) to files already in it: %s", slug,
+                            len(links), ", ".join(links[:5])[:300])
+            omitted = refused + links
             manifest.update(omitted_files=[item[:300] for item in omitted[:MAX_LISTED_FILES]],
                             omitted_file_count=len(omitted))
             archive.writestr(MANIFEST, json.dumps(manifest, indent=2, sort_keys=True))

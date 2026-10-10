@@ -93,6 +93,7 @@ GDRIVE_RETRY_SECONDS = 3600
 BACKUP_STATE = "platform-backup.json"
 LEGACY_LOGS = ("access.log", "error.log", "bananawiki.log")
 _ACCESS_LINE = re.compile(r'^\S+ \S+ \S+ \[[^\]]+\] "')
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 _AGENT_CODES = {
     "unavailable": "unavailable", "protocol": "unavailable", "forbidden": "unavailable",
     "unsupported_protocol": "unavailable", "unknown_operation": "unavailable", "invalid_tenant": "invalid",
@@ -567,21 +568,35 @@ class AgentRuntime:
 
     # ── Copies and archives ──────────────────────────────────────────────
 
-    def _snapshot(self, name: str, *, portable: bool = False) -> str:
-        """A fresh database copy inside the tenant directory; returns its relative path."""
+    def _snapshot(self, name: str, *, portable: bool = False) -> tenant_archives.DatabaseCopy:
+        """A fresh database copy inside the tenant directory, with the size and SHA-256 its task reported.
+
+        The wiki can change the copy before the host reads it: archives and
+        host copies check it against what the task reported (see
+        :func:`.archives.open_copy` and :func:`.archives.save_copy`).
+        """
         file_name = f"snap-{_token()}.db"
-        self._task(name, {"action": "snapshot", "name": file_name, "portable": portable})
-        return f"{tenantfs.EXCHANGE}/{file_name}"
+        relative = f"{tenantfs.EXCHANGE}/{file_name}"
+        result = self._task(name, {"action": "snapshot", "name": file_name, "portable": portable})
+        size, digest = result.get("size"), result.get("sha256")
+        if type(size) is not int or size < 0 or not isinstance(digest, str) or not _SHA256.fullmatch(digest):
+            with contextlib.suppress(RuntimeFailure):
+                tenantfs.unlink(self._root(self._cfg(), name), relative)
+            raise RuntimeFailure("failed", "the tenant task did not report the size and SHA-256 of its database copy")
+        return tenant_archives.DatabaseCopy(relative, size, digest)
 
     def export_archive(self, spec: TenantSpec, destination_dir: Path) -> Path:
+        """The wiki's portable archive; ``spec.policy.storage_limit_bytes`` (0: none) bounds it like a platform
+        backup bounds the wiki (exports of every wiki share one folder)."""
         cfg = self._cfg()
         root = self._existing(cfg, spec.data_dir_name)
+        budget = platform_backup.byte_budget(spec.policy.storage_limit_bytes or None)
         copy = self._snapshot(spec.data_dir_name, portable=True)
         try:
             return tenant_archives.export(root, copy, Path(destination_dir), spec.slug.split("--terminated-")[0],
-                                   cfg.archives)
+                                          cfg.archives, budget=budget)
         finally:
-            tenantfs.unlink(root, copy)
+            tenantfs.unlink(root, copy.path)
 
     def import_archive(self, spec: TenantSpec, archive: Path) -> None:
         cfg = self._cfg()
@@ -618,12 +633,16 @@ class AgentRuntime:
         if os.path.lexists(target_root):
             raise RuntimeFailure("data_exists", target.data_dir_name)
         source_root = self._existing(cfg, source.data_dir_name)
+        budget = platform_backup.byte_budget(target.policy.storage_limit_bytes or None)
         copy = self._snapshot(source.data_dir_name)
         try:
             tenantfs.create(target_root, prepare=lambda: self._prepare_storage(target))
-            tenantfs.copy_out(source_root, copy, target_root / "bananawiki.db")
+            # A copy the source wiki changed, or one over the target's byte
+            # budget, is refused and leaves no database behind; the portal
+            # then destroys the target.
+            tenant_archives.save_copy(source_root, copy, target_root / "bananawiki.db", max_bytes=budget)
         finally:
-            tenantfs.unlink(source_root, copy)
+            tenantfs.unlink(source_root, copy.path)
         for folder in tenantfs.ASSET_FOLDERS:
             for origin in (f"storage/{folder}", folder):
                 tenantfs.copy_tree(source_root, origin, target_root / "storage" / folder)
@@ -646,16 +665,20 @@ class AgentRuntime:
         return bool(item and item.get("running"))
 
     def _capture(self, cfg: HostingConfig, spec: TenantSpec, label: str) -> str:
+        """Keep a database copy in the wiki's plugin safety state. No quota bounds that folder and the wiki (its
+        plugins) may be running: the copy goes in only as its task reported it, and within the wiki's byte budget
+        as in a platform backup."""
         root = self._existing(cfg, spec.data_dir_name)
         state = self._state(cfg, spec)
+        budget = platform_backup.byte_budget(spec.policy.storage_limit_bytes or None)
         copy = self._snapshot(spec.data_dir_name)
         state.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         incoming = state.root / f".incoming-{_token()}.db"
         try:
-            tenantfs.copy_out(root, copy, incoming)
+            tenant_archives.save_copy(root, copy, incoming, max_bytes=budget)
             return state.add(incoming, label)
         finally:
-            tenantfs.unlink(root, copy)
+            tenantfs.unlink(root, copy.path)
             incoming.unlink(missing_ok=True)
 
     def quarantine_plugins(self, spec: TenantSpec) -> str:
@@ -667,12 +690,16 @@ class AgentRuntime:
         self._stop(cfg, spec)
         try:
             self._capture(cfg, spec, "operator-quarantine")
-        except RuntimeFailure as error:
+        except (RuntimeFailure, OSError) as error:
+            # The forensic copy never holds up the kill switch.
             log.warning("No forensic snapshot for %s: %s", spec.data_dir_name, error)
+            kept = "no copy of the database could be kept"
+        else:
+            kept = "a copy of the database was kept"
         disabled = int(self._task(spec.data_dir_name, {"action": "quarantine"}).get("disabled") or 0)
         if was_running:
             self._start(cfg, spec)
-        return f"External plugins quarantined; {disabled} plugin(s) disabled; a copy of the database was kept."
+        return f"External plugins quarantined; {disabled} plugin(s) disabled; {kept}."
 
     def lift_plugin_quarantine(self, spec: TenantSpec) -> str:
         cfg = self._cfg()
@@ -699,7 +726,16 @@ class AgentRuntime:
         chosen, path = state.restorable(name)
         was_running = self._running(spec)
         self._stop(cfg, spec)
-        self._capture(cfg, spec, "before-restore")
+        try:
+            self._capture(cfg, spec, "before-restore")
+        except (RuntimeFailure, OSError):
+            # Nothing was restored: a wiki that was serving serves again.
+            if was_running:
+                try:
+                    self._start(cfg, spec)
+                except RuntimeFailure as error:
+                    log.warning("%s stays stopped: %s", spec.data_dir_name, error)
+            raise
         incoming = f"restore-{_token()}.db"
         tenantfs.ensure_exchange(root)
         tenantfs.write_into(root, tenantfs.EXCHANGE, incoming, path)
@@ -738,7 +774,7 @@ class AgentRuntime:
     def backup_key(self) -> bytes:
         return crypto.load_key(os.environ.get("HOSTING_BACKUP_ENCRYPTION_KEY", ""), self._cfg().backup_key_path)
 
-    def _backup_copy(self, tenant: str) -> str | None:
+    def _backup_copy(self, tenant: str) -> tenant_archives.DatabaseCopy | None:
         try:
             return self._snapshot(tenant)
         except RuntimeFailure as error:

@@ -2,7 +2,8 @@
 
 Environment: ``HOSTING_HOST`` (default 127.0.0.1), ``HOSTING_PORT`` (5099),
 ``HOSTING_WORKERS`` (2), ``HOSTING_THREADS`` (4), ``HOSTING_WORKER_TIMEOUT``
-(120) and ``HOSTING_ACCESS_LOG`` ("-" for stdout, "off" to disable).
+(120), ``HOSTING_WRITE_TIMEOUT`` (300 seconds a response write may stall, 0 for
+no limit) and ``HOSTING_ACCESS_LOG`` ("-" for stdout, "off" to disable).
 
 The portal only serves web requests: lifecycle jobs run in the separate
 ``hosting.maintenance`` service and privileged container operations go
@@ -12,6 +13,9 @@ through the root runtime agent, so workers need no Docker access.
 from __future__ import annotations
 
 import os
+from typing import Any
+
+from bananawiki.ops.write_timeout import guard as _guard
 
 
 def _int(name: str, default: int, low: int, high: int) -> int:
@@ -45,6 +49,8 @@ threads = _int("HOSTING_THREADS", 4, 1, 32)
 preload_app = False
 timeout = _int("HOSTING_WORKER_TIMEOUT", 120, 10, 600)
 graceful_timeout = timeout
+# Not a Gunicorn setting (it has none): see post_worker_init.
+_write_timeout = _int("HOSTING_WRITE_TIMEOUT", 300, 0, 3600)
 keepalive = 2
 max_requests = 5000
 max_requests_jitter = 500
@@ -57,3 +63,8 @@ loglevel = "info"
 _tmp = _worker_tmp_dir()
 if _tmp:
     worker_tmp_dir = _tmp
+
+
+def post_worker_init(worker: Any) -> None:
+    """Free the thread of a client that stops reading a download (:mod:`bananawiki.ops.write_timeout`)."""
+    worker.wsgi = _guard(worker.wsgi, _write_timeout)

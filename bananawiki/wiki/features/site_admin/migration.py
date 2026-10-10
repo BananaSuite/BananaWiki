@@ -19,7 +19,9 @@ Safety (1.4 audit C2)
 ---------------------
 An import only ever writes the database and the data folders above. Code
 (``config.py``, plugins), the secret key and anything else in the archive is
-ignored. Nothing changes until the whole archive has been unpacked into a
+ignored. Archives with encrypted members, or members compressed with anything
+but store or deflate, are refused before any member is read. Nothing changes
+until the whole archive has been unpacked into a
 staging folder and the database has passed an integrity check, carries the
 BananaWiki application id and a schema version this release can upgrade,
 upgrades cleanly, and contains a finished setup, an administrator and a home
@@ -85,6 +87,13 @@ STALE_SECONDS = 24 * 3600
 # Tables never carried over: live credentials and regenerable or per-process state.
 VOLATILE_TABLES = ("user_sessions", "job_runs", "tts_generations", "rate_limit_hits", "api_service__idempotency")
 _STORED_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "gif", "webp", "zip", "gz", "mp3", "mp4", "webm", "ogg", "m4a"})
+# zipfile bounds each read of a deflated member; older Python releases hand
+# bzip2 and LZMA data to decompressors without an output limit, so a few
+# hundred bytes expand to gigabytes in memory before any size check sees them.
+# Exports only ever contain stored and deflated members.
+READABLE_COMPRESSION = frozenset({zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED})
+# Encrypted (bit 0), compressed patched data (bit 5) and strong encryption (bit 6).
+_UNREADABLE_FLAGS = 0x61
 
 
 class MigrationError(ValueError):
@@ -209,6 +218,8 @@ def _check_members(archive: zipfile.ZipFile, archive_size: int) -> list[zipfile.
     members = [info for info in archive.infolist() if not info.is_dir()]
     if len(members) > MAX_MEMBERS:
         raise MigrationError("site_admin.migration.error.too_many_files", limit=MAX_MEMBERS)
+    if any(info.compress_type not in READABLE_COMPRESSION or info.flag_bits & _UNREADABLE_FLAGS for info in members):
+        raise MigrationError("site_admin.migration.error.unsupported_compression")
     total = sum(info.file_size for info in members)
     if total > 4 * _cfg().max_import_size:
         raise MigrationError("site_admin.migration.error.too_large_unpacked")
