@@ -17,7 +17,14 @@ te: tema chiaro o scuro, dimensione del testo, interlinea e spaziatura delle
 lettere, larghezza del contenuto e della barra laterale, contrasto, colori
 personali, un'immagine di sfondo, un carattere adatto alla dislessia, meno
 animazioni e quanto risaltano grassetto, collegamenti, titoli e codice.
-**Ripristina tutte le preferenze di visualizzazione** torna a quelle del sito.
+**Ripristina le preferenze di visualizzazione** torna a quelle del sito e
+rimuove l'immagine di sfondo; la lingua e le scelte sulla mascotte restano
+come sono.
+
+Se la tua wiki ha la mascotte, una banana al posto del logo, un clic la fa
+saltare; il nome del sito accanto porta alla pagina iniziale. Da
+**Personalizza** puoi nasconderla (torna il logo) o toglierle gli occhiali da
+sole che indossa dopo un po' di clic.
 
 ## Lingua
 

@@ -100,6 +100,15 @@ Already on 1.6.0? These changes of the latest build need attention (details in
   it transfers one. To remove such rows, run once against the portal database
   (`HOSTING_DATABASE_PATH`):
   `sqlite3 hosting.db "DELETE FROM instance_collaborators WHERE (instance_id, account_id) IN (SELECT id, account_id FROM instances);"`
+* Mascot (feature id `mascot`, a plugin that is on by default): after the
+  update every signed-in account sees a pixel-art banana in place of the top
+  bar logo. A click on it makes it hop instead of opening the home page; the
+  site name next to it still links home. To hide it for everyone, use **Hide
+  for everyone** under **Admin → Appearance** (people can switch it back on
+  under Customize), or switch the plugin off under **Admin → Plugins**, which
+  brings the logo back. Installations that must never show it add `mascot` to
+  `BW_MANAGED_PLUGIN_DENYLIST` (on a hosting platform,
+  `HOSTING_TENANT_PLUGIN_DENYLIST`).
 
 * `page.view_all` and `category.view_all` are enforced. The upgrade grants
   them to every saved permission set, so nothing changes until an
@@ -543,6 +552,10 @@ data from before the upgrade. **Changes made after the upgrade are lost.**
   notification and mail-server settings (`attention_email_*`,
   `decision_email_enabled`, `public_base_url`, `mail_*`). Email stays off
   until an administrator enables it in **Admin → Notifications**.
+* **Mascot:** signed-in people see a pixel-art banana in place of the top bar
+  logo, and a click on it no longer opens the home page (the site name still
+  does). It is the `mascot` plugin, on by default; see
+  [docs/features.md](docs/features.md#mascot) for hiding it.
 
 ### Configuration and operations
 

@@ -5,7 +5,8 @@
 ### Added
 
 * Mascot: a pixel-art banana in place of the top bar logo for signed-in
-  people. It bobs, blinks and hops when clicked; eleven clicks in a row put
+  people. It bobs, blinks and hops when clicked, so a click there no longer
+  opens the home page (the site name still does); eleven clicks in a row put
   sunglasses on it, saved on the account until taken off under Customize,
   where it can also be hidden (the logo comes back). Administrators can show,
   hide or dress it for every account from Appearance, or switch the feature
@@ -160,6 +161,17 @@
 
 ### Fixed
 
+* Mascot: it reads its settings from its own button, so page content cannot
+  change where it sends its request. When the operating system asks for
+  reduced motion, it stands still instead of flickering. Changing it, for one
+  account or for every account at once, saves only its own two choices and
+  leaves the other display preferences as they were (for example a language
+  that is switched off for now); the change for every account is written in
+  one batch, and showing the mascot reads only its two choices. A failed save
+  of the sunglasses says so, quick clicks no longer cut a hop short, and the
+  button is easier to tap on phones. The result of a change for every account
+  uses the singular for one account, and resetting the display preferences
+  says that language and mascot choices are kept.
 * Speech conversion accepts only local MP3/PCM WAV inputs and the required audio
   decoders, discards metadata and limits decoder/filter/encoder threads.
   Oversized diagnostics and execution time stop and reap the encoder, preserving

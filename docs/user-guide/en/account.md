@@ -16,7 +16,13 @@ how the wiki looks for you only: light or dark
 theme, text size, line and letter spacing, content and sidebar width,
 contrast, your own colours, a background picture, a dyslexia-friendly font,
 reduced motion, and how strongly bold text, links, headings and code stand
-out. **Reset** returns to the site's defaults.
+out. **Reset display preferences** returns to the site's defaults and removes
+your background picture; your language and mascot choices stay as they are.
+
+If your wiki has the mascot, a banana in place of the logo, a click makes it
+hop; the site name next to it leads to the home page. **Customize** hides it
+(the logo comes back) or takes off the sunglasses it wears after enough
+clicks.
 
 ## Language
 
