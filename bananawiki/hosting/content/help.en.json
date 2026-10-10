@@ -41,7 +41,7 @@
       },
       {
         "heading": "Administration",
-        "html": "<p>The interface is available in English and Italian, and administrators can add another language. EasyWiki mode, chosen when you create the instance, switches off the advanced features for groups that only need pages. Members can start a guided tour from their settings, and administrators can show it to everyone who joins.</p><p>The <strong>API Service</strong> gives scripts access through tokens limited to chosen areas. <strong>Custom Pages</strong> publishes content at an address you pick. Every member can download their own data from their Settings page, and <a href=\"/help/exports-backups\">Site Migration</a> exports the whole wiki as one archive.</p>"
+        "html": "<p>The interface is available in English, Italian and German, and administrators can add another language. EasyWiki mode, chosen when you create the instance, switches off the advanced features for groups that only need pages. Members can start a guided tour from their settings, and administrators can show it to everyone who joins.</p><p>The <strong>API Service</strong> gives scripts access through tokens limited to chosen areas. <strong>Custom Pages</strong> publishes content at an address you pick. Every member can download their own data from their Settings page, and <a href=\"/help/exports-backups\">Site Migration</a> exports the whole wiki as one archive.</p>"
       },
       {
         "heading": "Switched on from the start",

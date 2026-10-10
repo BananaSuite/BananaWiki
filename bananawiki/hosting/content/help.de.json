@@ -1,0 +1,286 @@
+[
+  {
+    "slug": "getting-started",
+    "title": "Dein erstes Wiki erstellen",
+    "description": "Erstelle ein Hosting-Konto und ein Wiki.",
+    "sections": [
+      {
+        "heading": "Dein Hosting-Konto",
+        "html": "<p>Registriere dich im <a href=\"/signup\">Hosting-Portal</a>. Folge den dort angezeigten Schritten, etwa zur Bestätigung deiner E-Mail-Adresse oder zur Freischaltung deines Kontos. Wenn eine Freischaltung nötig ist, warte die Entscheidung ab, bevor du ein Wiki erstellst.</p>"
+      },
+      {
+        "heading": "Wiki erstellen",
+        "html": "<p>Wähle im Dashboard <strong>Neues Wiki</strong> und fülle das Formular aus. Das Portal zeigt die Adresse, die Zugangsdaten des ersten Administratorkontos, das Ablaufdatum des Dienstes und die Ressourcenlimits an. Speichere die Zugangsdaten und öffne das Wiki, um loszulegen. Wiki-Konten und Hosting-Konten sind voneinander getrennt. Unter <a href=\"/help/features\">Was dein Wiki bietet</a> findest du alles, was es kann.</p>"
+      }
+    ]
+  },
+  {
+    "slug": "features",
+    "title": "Was dein Wiki bietet",
+    "description": "Alles, was ein neues Wiki kann, und was von Anfang an eingeschaltet ist.",
+    "sections": [
+      {
+        "heading": "Seiten und Bearbeitung",
+        "html": "<p>Seiten werden in Markdown geschrieben, mit einer Live-Vorschau neben dem Editor. Du kannst eine <code>.md</code>- oder <code>.txt</code>-Datei in eine Seite importieren, Dateien und Bilder anhängen, Videos einbetten und jede Seite als Markdown oder PDF exportieren oder drucken. Entwürfe werden gespeichert, während du tippst, sodass du nichts verlierst, wenn du den Tab schließt.</p><p>Seiten liegen in Kategorien, die sich verschachteln lassen, und die Suche in der Seitenleiste findet Seiten und Kategorien nach ihrem Namen. Administratoren können viele Seiten auf einmal als Markdown-Dateien importieren oder exportieren. Mit dem visuellen Seitenbaukasten gestaltest du eine Seite, ohne Markdown zu schreiben; bei diesem Dienst muss er zuerst für dein Wiki erlaubt werden.</p>"
+      },
+      {
+        "heading": "Versionsverlauf und Prüfung",
+        "html": "<p>Jede gespeicherte Version bleibt erhalten. Der Versionsverlauf einer Seite zeigt, was sich zwischen zwei Versionen geändert hat, und lässt dich eine frühere Version wiederherstellen.</p><p>Mit <strong>Seitenschutz und Reservierungen</strong> kann ein Redakteur eine Seite während der Bearbeitung reservieren oder sie so schützen, dass nur diese Person sie bearbeiten kann. Änderungen, die Personen ohne Bearbeitungsberechtigung vorschlagen, müssen erst angenommen werden. Ein anderer Administrator kann einen Schutz nach einer Wartezeit von 72 Stunden aufheben. Die <strong>Löschverzögerung</strong> bewahrt eine gelöschte Seite 48 Stunden lang auf, damit ein Administrator sie zurückholen kann.</p>"
+      },
+      {
+        "heading": "Personen und Zugriff",
+        "html": "<p>Jedes Konto hat eine Rolle: Benutzer, Redakteur, Administrator oder Eigentümer. Administratoren können außerdem eigene Rollen aus individuellen Berechtigungen zusammenstellen und das Lesen und Bearbeiten auf bestimmte Kategorien beschränken. Neue Mitglieder kommen mit einem Einladungscode oder über die Registrierung dazu, und Registrierungen können eine Freischaltung erfordern.</p><p>Ein Wiki ist standardmäßig privat. Öffentlicher Lesezugang ist optional und muss bei diesem Dienst erst für dein Wiki erlaubt werden. Die Funktion <strong>Befristete Konten und Seiten</strong> entfernt Konten, Seiten oder höhere Rollen an einem Datum, das du festlegst.</p>"
+      },
+      {
+        "heading": "Zusammenarbeiten",
+        "html": "<ul><li><strong>Kanban</strong>-Boards mit Karten, Kommentaren, Anhängen und einem Verlauf der Änderungen.</li><li><strong>Canvas</strong>-Diagramme mit Text, Bildern, Videos und Links zu Wiki-Seiten.</li><li><strong>Chats und Gruppen</strong> für Direktnachrichten und Gruppenunterhaltungen im Wiki.</li><li><strong>Ankündigungen</strong> für Banner, die auf der ganzen Website erscheinen.</li><li><strong>Benutzerprofile</strong> mit Infotext, Profilbild und einer Übersicht der Beiträge jeder Person.</li></ul>"
+      },
+      {
+        "heading": "Lesen und Lernen",
+        "html": "<ul><li>Die <strong>Vorlesefunktion</strong> liest Seiten auf Englisch und Italienisch vor, mit Piper-Stimmen, die statt bei einem Drittanbieter auf dem Server selbst laufen, sobald sie dort installiert sind.</li><li><strong>Lernkontrollen</strong> fügen einer Seite Umfragen und Quiz hinzu, mit Punkten und einer Begrenzung der Versuche.</li><li><strong>Abzeichen</strong> werden von Hand oder automatisch verliehen, zum Beispiel nach einer bestimmten Zahl von Beiträgen.</li><li><strong>Schwierigkeitsgrade</strong> kennzeichnen Seiten nach ihrem Niveau.</li></ul>"
+      },
+      {
+        "heading": "Verwaltung",
+        "html": "<p>Die Oberfläche gibt es auf Deutsch, Englisch und Italienisch, und Administratoren können eine weitere Sprache hinzufügen. Der einfache Modus, den du beim Erstellen des Wikis auswählen kannst, schaltet die erweiterten Funktionen für Gruppen ab, die nur Seiten brauchen. Mitglieder können in ihren Einstellungen eine geführte Tour starten, und Administratoren können sie allen zeigen, die neu dazukommen.</p><p>Die <strong>REST-API</strong> gibt Skripten Zugriff über Tokens, die auf ausgewählte Bereiche beschränkt sind. Mit der Funktion <strong>Benutzerdefinierte Seiten</strong> veröffentlichst du Inhalte unter einer Adresse deiner Wahl. Jedes Mitglied kann die eigenen Daten in den Einstellungen herunterladen, und der <a href=\"/help/exports-backups\">Website-Umzug</a> exportiert das ganze Wiki als ein einziges Archiv.</p>"
+      },
+      {
+        "heading": "Von Anfang an eingeschaltet",
+        "html": "<p>In einem neuen Wiki sind diese Funktionen eingeschaltet: Anhänge, Audit-Protokoll, Canvas, Chats und Gruppen, Entwürfe, Kanban-Boards, Versionsverlauf, Vorlesefunktion und Export persönlicher Daten. Wenn der erste Administrator bei der Funktionsauswahl <strong>Empfohlen</strong> wählt, sind Anhänge sowie Chats und Gruppen zunächst ausgeschaltet. Alle anderen lassen sich mit einem Klick einschalten; siehe <a href=\"/help/plugins\">Plugins verwalten</a>.</p>"
+      }
+    ]
+  },
+  {
+    "slug": "inviting-users",
+    "title": "Personen einladen und Rollen verwalten",
+    "description": "Lege fest, wer dein Wiki lesen und bearbeiten darf.",
+    "sections": [
+      {
+        "heading": "Konten und Einladungen",
+        "html": "<p>Im Wiki verwaltest du Registrierung, Einladungen und Benutzer auf den Verwaltungsseiten. Gib jeder Person nur die Rolle und die Berechtigungen, die sie braucht. Ein Teammitglied im Hosting-Portal und ein Redakteur im Wiki haben unterschiedliche Aufgaben und Berechtigungen.</p>"
+      },
+      {
+        "heading": "Zugriff auf Seiten",
+        "html": "<p>Prüfe die Berechtigungen von Kategorien und Seiten, bevor du Inhalte teilst. Teste das Ergebnis mit einem Konto, das nur die Rolle „Benutzer“ hat. Wenn du einer Person die Bearbeitungsberechtigung entziehst, werden bereits öffentliche Inhalte dadurch nicht automatisch privat.</p>"
+      }
+    ]
+  },
+  {
+    "slug": "wiki-settings",
+    "title": "Wiki-Einstellungen und Privatsphäre",
+    "description": "Lege Namen, Erscheinungsbild und Zugriffsregeln des Wikis fest.",
+    "sections": [
+      {
+        "heading": "Website-Einstellungen",
+        "html": "<p>Die Administratoren eines Wikis können den Namen der Website, das Erscheinungsbild, die Sprache, die aktivierten Funktionen und die Einstellungen zur Registrierung ändern. Hosting-Limits und Berechtigungen für Domains verwalten die Administratoren der Plattform getrennt davon.</p>"
+      },
+      {
+        "heading": "Private Inhalte",
+        "html": "<p>Lege die gewünschte Sichtbarkeit für Seiten und Kategorien fest und prüfe Links, bevor du sie teilst. Die Administratoren des Hosting-Dienstes können für Betrieb und Support auf die Daten auf dem Server zugreifen; lies dazu die <a href=\"/privacy\">Datenschutzerklärung</a>.</p>"
+      }
+    ]
+  },
+  {
+    "slug": "writing-pages",
+    "title": "Seiten erstellen und bearbeiten",
+    "description": "Schreibe Seiten, ordne Kategorien und füge Dateien hinzu.",
+    "sections": [
+      {
+        "heading": "Seiten und Versionsverlauf",
+        "html": "<p>Erstelle eine Seite in einer Kategorie, die du bearbeiten darfst. Im Editor schreibst du den Inhalt, siehst dir die Vorschau an und speicherst. Im Versionsverlauf kannst du frühere Versionen ansehen und, wenn deine Berechtigungen es erlauben, eine davon wiederherstellen.</p>"
+      },
+      {
+        "heading": "Dateien hochladen",
+        "html": "<p>Lade Bilder und Anhänge über die Upload-Schaltflächen des Editors hoch. Das Wiki zeigt die erlaubten Formate und Größenlimits an. Der Hosting-Dienst begrenzt außerdem den gesamten Speicherplatz. Bewahre die Originaldateien außerhalb des Wikis auf, wenn du eine unabhängige Kopie brauchst.</p>"
+      }
+    ]
+  },
+  {
+    "slug": "plugins",
+    "title": "Plugins verwalten",
+    "description": "Schalte die optionalen Teile deines Wikis ein und aus.",
+    "sections": [
+      {
+        "heading": "Wo du sie findest",
+        "html": "<p>Öffne <strong>Einstellungen</strong> in der oberen Leiste und wähle unter <strong>Verwaltung</strong> den Eintrag <strong>Plugins</strong>. Wenn du ein Plugin deaktivierst, werden seine Seiten und Menüs ausgeblendet und seine Inhalte bleiben erhalten. Dabei werden aber auch die eigenen Einstellungen des Plugins ausgeschaltet, bei Chats und Gruppen zum Beispiel Direktnachrichten, Gruppenchats und Anhänge im Chat. Wenn du das Plugin wieder aktivierst, werden sie nicht automatisch wieder eingeschaltet, prüfe also danach die Einstellungen des Plugins. Wenn du die Vorlesefunktion deaktivierst, wird auch das erzeugte Audio gelöscht.</p>"
+      },
+      {
+        "heading": "Die integrierten Plugins",
+        "html": "<p>Diese Plugins sind in jedem Wiki enthalten. Die mit <em>aktiv</em> markierten sind eingeschaltet, wenn ein Wiki erstellt wird.</p><ul><li><strong>Ankündigungen</strong>: Banner, die auf der ganzen Website erscheinen.</li><li><strong>REST-API</strong>: eine Programmierschnittstelle mit persönlichen Tokens, die jeweils auf ausgewählte Bereiche beschränkt sind, und ein Audit-Protokoll.</li><li><strong>Lernkontrollen</strong>: Umfragen und Quiz auf einer Seite, mit Punkten und einer Begrenzung der Versuche.</li><li><strong>Anhänge</strong> <em>(aktiv)</em>: an Seiten angehängte Dateien.</li><li><strong>Audit-Protokoll</strong> <em>(aktiv)</em>: eine Aufzeichnung von Rollenänderungen, Beiträgen und eigenen Labels für Personen.</li><li><strong>Abzeichen</strong>: von Hand oder automatisch verliehene Anerkennungen.</li><li><strong>Canvas</strong> <em>(aktiv)</em>: Diagramme mit Text, Bildern, Videos und Links zu Seiten.</li><li><strong>Chats und Gruppen</strong> <em>(aktiv)</em>: Direktnachrichten und Gruppenunterhaltungen.</li><li><strong>Benutzerdefinierte Seiten</strong>: Inhalte, die unter einer Adresse deiner Wahl veröffentlicht werden.</li><li><strong>Löschverzögerung</strong>: Gelöschte Seiten werden 48 Stunden lang aufbewahrt, bevor sie endgültig verschwinden.</li><li><strong>Schwierigkeitsgrade</strong>: Labels für das Niveau einer Seite.</li><li><strong>Entwürfe</strong> <em>(aktiv)</em>: Entwürfe, die beim Bearbeiten gespeichert werden.</li><li><strong>Kanban-Boards</strong> <em>(aktiv)</em>: Boards, Karten, Kommentare und Anhänge.</li><li><strong>Seitenschutz und Reservierungen</strong>: Reservierungen, Schutz und das Annehmen von Änderungsvorschlägen.</li><li><strong>Versionsverlauf</strong> <em>(aktiv)</em>: Versionen, Unterschiede und das Wiederherstellen einer früheren Version.</li><li><strong>Befristete Konten &amp; Seiten</strong>: Konten, Seiten und Rollen, die zu einem festgelegten Zeitpunkt ablaufen.</li><li><strong>Vorlesefunktion</strong> <em>(aktiv)</em>: Seiten, die von Stimmen auf dem Server vorgelesen werden.</li><li><strong>Export persönlicher Daten</strong> <em>(aktiv)</em>: Jedes Mitglied kann die eigenen Daten herunterladen.</li><li><strong>Benutzerprofile</strong>: Profilseiten mit Infotext, Profilbild und einer Übersicht der Beiträge.</li></ul>"
+      },
+      {
+        "heading": "Plugins aus anderen Quellen",
+        "html": "<p>Auf der Plugin-Seite kannst du auch eine <code>.bwplugin</code>-Datei importieren, die jemand anderes geschrieben hat. Ein Plugin ist Python-Code und hat denselben Zugriff auf Daten und Netzwerk wie das Wiki selbst, installiere also nur Code, dem du vertraust. Bei diesem Dienst läuft jedes Wiki in einem eigenen Container, und der Betreiber kann alle nachträglich installierten Plugins eines Wikis auf einmal ausschalten, wenn eines davon Probleme macht.</p>"
+      }
+    ]
+  },
+  {
+    "slug": "exports-backups",
+    "title": "Exporte und Backups",
+    "description": "Bewahre Kopien deiner Inhalte auf und erfahre, wie die Wiederherstellung funktioniert.",
+    "sections": [
+      {
+        "heading": "Dein Wiki exportieren",
+        "html": "<p>Öffne <strong>Einstellungen</strong>, dann unter <strong>Verwaltung</strong> den Eintrag <strong>Website-Umzug</strong>, und wähle im Abschnitt <strong>Gesamte Website exportieren</strong> die Schaltfläche <strong>Exportieren</strong>. So erhältst du ein vollständiges Archiv des Wikis: Inhalte, Konten, Dateien und Einstellungen. Diese Kopie solltest du aufbewahren, und du brauchst sie auch, wenn du <a href=\"/help/move-to-your-own-server\">das Wiki auf deinen eigenen Server umziehst</a>. Wenn du nur die Seiten brauchst, exportierst du sie unter <strong>Markdown-Import und -Export</strong> als Markdown-Dateien, und jede einzelne Seite lässt sich über ihr eigenes Menü als Markdown oder PDF exportieren. Mitglieder können ihre persönlichen Daten in ihren Einstellungen herunterladen.</p>"
+      },
+      {
+        "heading": "Backups der Plattform",
+        "html": "<p>Die Backups der Plattform verwaltet der Betreiber des Dienstes. Frag beim Support nach, welche Wiederherstellungspunkte und Aufbewahrungsfristen es für dein Wiki gibt. Bewahre deine eigenen Exporte auf: Ein Backup des Dienstes ersetzt keine Kopie, über die du selbst verfügst.</p>"
+      }
+    ]
+  },
+  {
+    "slug": "move-to-your-own-server",
+    "title": "Dein Wiki auf einen eigenen Server umziehen",
+    "description": "Erstelle eine vollständige Kopie deines Wikis und betreibe es selbst.",
+    "sections": [
+      {
+        "heading": "Bevor du beginnst",
+        "html": "<p>BananaWiki ist freie Software unter der GNU AGPL, und der Quellcode, mit dem dieser Dienst läuft, ist unter <a href=\"{source_url}\">{source_url}</a> veröffentlicht. Ein Wiki zieht mit allen Seiten, Konten, Versionen und Dateien um. Du brauchst ein Administratorkonto in dem Wiki, das du umziehst, und einen Ort, an dem das neue Wiki läuft: einen Linux-Server oder, für eine kleine Gruppe, die Desktop-Anwendung, die du aus dem Quellcode baust, unter Windows, Linux oder auf einem Mac mit Apple Silicon.</p>"
+      },
+      {
+        "heading": "1. Wiki exportieren",
+        "html": "<p>Öffne im Wiki, das du umziehst, <strong>Einstellungen</strong>, dann unter <strong>Verwaltung</strong> den Eintrag <strong>Website-Umzug</strong>, und wähle im Abschnitt <strong>Gesamte Website exportieren</strong> die Schaltfläche <strong>Exportieren</strong>. Die ZIP-Datei enthält alle Tabellen (Konten, Seiten, Kategorien, Einstellungen, Chats, Boards und mehr), hochgeladene Bilder und Anhänge, eigene Symbole und die Konfiguration der Website.</p><p>Behandle die Datei vertraulich, denn sie enthält alles aus dem Wiki, auch die Kontodaten.</p>"
+      },
+      {
+        "heading": "2. BananaWiki installieren",
+        "html": "<p>Wähle den passenden Weg:</p><ul><li><strong>Ein Linux-Server.</strong> In einer Kopie des Quellcodes installiert <code>sudo ./banana install --mode wiki</code> den Dienst, und die <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/deployment.md\">Anleitung zur Bereitstellung</a> (auf Englisch) erklärt HTTPS, Backups und Aktualisierungen.</li><li><strong>Linux oder macOS mit Python 3.11 oder neuer.</strong> Folge dem Schnellstart in der <a href=\"https://github.com/BananaSuite/BananaWiki#quick-start\">README</a> (auf Englisch).</li><li><strong>Ein Desktop-Computer.</strong> Die Desktop-Anwendung wird aus dem Quellcode gebaut; siehe die <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/desktop.md\">Anleitung zur Desktop-Anwendung</a> (auf Englisch).</li></ul><p>Öffne das neue Wiki und schließe die Einrichtung mit einem vorläufigen Administratorkonto ab.</p>"
+      },
+      {
+        "heading": "3. Export importieren",
+        "html": "<p>Öffne mit diesem Administratorkonto <strong>Einstellungen</strong>, dann <strong>Website-Umzug</strong>, und wähle unter <strong>Diese Website durch einen Export ersetzen</strong> die Exportdatei aus. Setze das Häkchen bei <strong>Mir ist klar, dass dadurch alle Daten dieses Wikis ersetzt werden</strong> und starte den Import.</p><p>Das vorläufige Administratorkonto wird durch die Konten aus dem Export ersetzt, melde dich also erneut mit deinem gewohnten Benutzernamen und Passwort an. Alle anderen behalten ihre Zugangsdaten, außer Mitgliedern, die sich immer nur über das Hosting-Portal angemeldet haben: Diese Mitglieder haben kein eigenes Passwort, deshalb legt ein Administrator auf dem neuen Server eines für sie fest.</p>"
+      },
+      {
+        "heading": "Nach dem Umzug",
+        "html": "<ul><li>Lass deine eigene Adresse auf den neuen Server verweisen. Mitglieder müssen sich erneut anmelden, weil Sitzungen vom alten Server nicht übernommen werden.</li><li>Einstellungen, die mit dem Schlüssel des alten Servers verschlüsselt gespeichert wurden, etwa ein Token für eine externe Sprachausgabe, erscheinen leer und müssen erneut eingegeben werden.</li><li>Automatische Aktualisierungen bleiben ausgeschaltet, bis du sie einschaltest, und um Backups kümmerst du dich selbst; die Anleitung zur Bereitstellung erklärt beides.</li><li>Falls etwas nicht übernommen wurde, ist der ursprüngliche Export weiterhin deine vollständige Kopie.</li></ul>"
+      }
+    ]
+  },
+  {
+    "slug": "account-management",
+    "title": "Konto und Wikis verwalten",
+    "description": "Behalte den Zugriff auf dein Konto im Blick und betreibe deine Wikis.",
+    "sections": [
+      {
+        "heading": "Kontosicherheit",
+        "html": "<p>Auf der Kontoseite aktualisierst du dein Profil und dein Passwort, verwaltest die Bestätigung in zwei Schritten und prüfst aktive Sitzungen. Bewahre Wiederherstellungscodes sicher und privat auf. Beende Sitzungen, die du nicht zuordnen kannst.</p>"
+      },
+      {
+        "heading": "Aktionen für Wikis",
+        "html": "<p><strong>Stoppen</strong> hält ein Wiki an, ohne seine Dateien zu entfernen, und mit <strong>Starten</strong> läuft dasselbe Wiki wieder. Wenn du ein Wiki stilllegst, geht es offline, und seine Daten bleiben für die im Portal angezeigte Aufbewahrungsfrist erhalten; endgültiges Löschen oder das Ende dieser Frist entfernt die Daten unwiderruflich.</p>"
+      }
+    ]
+  },
+  {
+    "slug": "security",
+    "title": "Dein Wiki schützen",
+    "description": "Sichere Konten gut ab und nutze nur vertrauenswürdige Erweiterungen.",
+    "sections": [
+      {
+        "heading": "Konten und Inhalte",
+        "html": "<p>Verwende ein Passwort, das du nirgendwo sonst nutzt, und aktiviere die Bestätigung in zwei Schritten für dein Hosting-Konto. Überprüfe regelmäßig die Teammitglieder und die Rollen im Wiki. Prüfe die Sichtbarkeit, bevor du private Inhalte veröffentlichst, und bewahre unabhängige Exporte wichtiger Inhalte auf.</p>"
+      },
+      {
+        "heading": "Problem melden",
+        "html": "<p>Melde den Verdacht, dass ein Konto kompromittiert wurde, oder einen Missbrauch des Dienstes an <a href=\"mailto:{contact_email}\">{contact_email}</a>. Folge bei einer Sicherheitslücke in der Software den Anweisungen zur vertraulichen Meldung in der <a href=\"https://github.com/BananaSuite/BananaWiki/security/policy\">Sicherheitsrichtlinie</a>. Veröffentliche keine Zugangsdaten oder privaten Wiki-Inhalte in öffentlichen Issues.</p>"
+      }
+    ]
+  },
+  {
+    "slug": "troubleshooting",
+    "title": "Häufige Probleme und Lösungen",
+    "description": "Finde den nächsten Schritt, wenn ein Wiki nicht erreichbar ist.",
+    "sections": [
+      {
+        "heading": "Ein Wiki öffnet sich nicht",
+        "html": "<p>Prüfe im Hosting-Dashboard den Status und das Ablaufdatum des Wikis. Ein pausiertes Wiki muss möglicherweise fortgesetzt werden; wenn das Konto gesperrt oder abgelehnt wurde, kläre das zuerst mit den Administratoren der Plattform. Verwende die Adresse, die der Dienst zugewiesen hat, während du ein Problem mit einer eigenen Domain untersuchst.</p>"
+      },
+      {
+        "heading": "Um Hilfe bitten",
+        "html": "<p>Gib die Adresse des Wikis, den ungefähren Zeitpunkt, die versuchte Aktion und die angezeigte Fehlermeldung an. Beschreibe, ob das Problem alle Personen oder nur ein Konto betrifft. Sende niemals Passwörter, Backup-Schlüssel oder Codes aus der Authenticator-App.</p>"
+      }
+    ]
+  },
+  {
+    "slug": "email-verification",
+    "title": "E-Mail-Adresse bestätigen",
+    "description": "Füge eine Kontaktadresse hinzu und bestätige sie, wenn du dazu aufgefordert wirst.",
+    "sections": [
+      {
+        "heading": "Schritte zur Bestätigung",
+        "html": "<p>Wenn das Portal eine Bestätigung deiner E-Mail-Adresse verlangt, nutze den Link, der an deine Kontaktadresse gesendet wurde. Sieh im Spam-Ordner nach und prüfe die Adresse, die in den Kontoeinstellungen eingetragen ist. Das Portal zeigt an, wann du eine weitere Bestätigungs-E-Mail anfordern kannst.</p>"
+      },
+      {
+        "heading": "Kein Zugriff mehr auf die E-Mail-Adresse",
+        "html": "<p>Ändere die Adresse in den Kontoeinstellungen mit deinem aktuellen Passwort. Wenn du dich nicht anmelden kannst, wende dich wegen der Wiederherstellung deines Kontos an den Support. Die Bestätigung allein schaltet ein ausstehendes Konto nicht frei.</p>"
+      }
+    ]
+  },
+  {
+    "slug": "instance-expiry",
+    "title": "Ablauf und Verlängerung von Wikis",
+    "description": "Erfahre mehr über Laufzeiten im Hosting und Fristen für die Wiederherstellung.",
+    "sections": [
+      {
+        "heading": "Ablauf des Dienstes",
+        "html": "<p>Das Dashboard zeigt für jedes Wiki an, wann der Dienst abläuft. Frag vor diesem Datum beim Support nach einer Verlängerung, wenn du das gehostete Wiki weiter nutzen möchtest. Diese Hosting-Limits sind unabhängig von der AGPL-Lizenz der Software, die den Betrieb auf einem eigenen Server für private und kommerzielle Zwecke erlaubt.</p>"
+      },
+      {
+        "heading": "Wiederherstellung",
+        "html": "<p>Nach der Stilllegung können aufbewahrte Daten während der festgelegten Aufbewahrungsfrist wiederhergestellt werden. Wende dich umgehend an den Support und gib die Adresse des Wikis an. Nachdem die aufbewahrten Dateien gelöscht wurden, kann eine Wiederherstellung nicht mehr zugesagt werden. Exportiere wichtige Inhalte, bevor das Wiki abläuft.</p>"
+      }
+    ]
+  },
+  {
+    "slug": "custom-domains",
+    "title": "Eigene Domain verwenden",
+    "description": "Verbinde eine Domain, über die du verfügst, mit einem dafür zugelassenen Wiki.",
+    "sections": [
+      {
+        "heading": "Berechtigung und DNS",
+        "html": "<p>Ein Administrator der Plattform muss eigene Domains für dein Wiki erlauben. Öffne danach die Domain-Einstellungen, füge den Hostnamen hinzu und übernimm den TXT-Eintrag zur Bestätigung und den Eintrag, der auf den Dienst verweist, genau so bei deinem DNS-Anbieter, wie das Portal sie anzeigt. Lass diese Einträge bestehen.</p>"
+      },
+      {
+        "heading": "Bestätigung und HTTPS",
+        "html": "<p>Fordere die Bestätigung an, sobald die DNS-Änderungen sichtbar sind. Ein Hostname, der nicht innerhalb einer Stunde bestätigt wird, läuft ab: Füge ihn erneut hinzu und ersetze den TXT-Wert durch den neuen, den das Portal anzeigt. HTTPS steht nach der Bestätigung und der Ausstellung des Zertifikats zur Verfügung. Wenn die Berechtigung entzogen wird, die Bestätigung abläuft oder das Wiki gesperrt wird, leitet die eigene Domain nicht mehr zum Wiki weiter. Die <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/hosting.md\">technische DNS-Anleitung</a> (auf Englisch) erklärt die Prüfungen.</p>"
+      }
+    ]
+  },
+  {
+    "slug": "api",
+    "title": "Die Hosting-API nutzen",
+    "description": "Erstelle ein Token, damit ein Skript deine Wikis lesen, pausieren und fortsetzen kann.",
+    "sections": [
+      {
+        "heading": "Bevor du beginnst",
+        "html": "<p>Mit der Hosting-API kann ein Skript oder ein anderes Programm dein Konto und deine Wikis lesen und ein Wiki pausieren oder fortsetzen, ohne sich im Portal anzumelden. Der Betreiber dieses Dienstes muss sie zuerst einschalten. Wenn auf deiner Kontoseite der Abschnitt <strong>API-Tokens</strong> fehlt, ist die API für dein Konto nicht verfügbar.</p>"
+      },
+      {
+        "heading": "Token erstellen",
+        "html": "<p>Öffne <a href=\"/account\">Konto</a> und wechsle zu <strong>API-Tokens</strong>. Gib dem Token einen Namen, der dich daran erinnert, wo es verwendet wird, wähle die nötigen Zugriffsbereiche aus, lege fest, wann es abläuft, und bestätige mit deinem aktuellen Passwort. Das Token wird nur einmal angezeigt, direkt nachdem du es erstellt hast, kopiere es also sofort. Wenn du es verlierst, widerrufe es und erstelle ein neues.</p>"
+      },
+      {
+        "heading": "Was ein Token kann",
+        "html": "<ul><li><code>account:read</code> liest deinen Benutzernamen und deine Kontakt-E-Mail-Adresse.</li><li><code>instances:read</code> listet deine Wikis und die mit dir geteilten Wikis mit Status und Speicherplatz auf.</li><li><code>instances:manage</code> pausiert ein Wiki und setzt es fort.</li><li><code>admin:read</code>, nur für Administratoren der Plattform verfügbar, liest die Warteschlange der Freischaltungen und die Gesamtzahlen der Wikis.</li></ul><p>Bei einem Wiki, das jemand mit dir geteilt hat, kann ein Token nur das tun, was deine Berechtigungen als Teammitglied erlauben. Die API kann ein Wiki nicht löschen, zurücksetzen oder herunterladen; das geht weiterhin nur im Portal.</p>"
+      },
+      {
+        "heading": "Verwenden und schützen",
+        "html": "<p>Sende bei jeder Anfrage an <code>/api/v1</code> auf diesem Portal das Token im Header <code>Authorization</code> mit, und zwar als <code>Bearer</code>, gefolgt vom Token. Zum Beispiel listet <code>/api/v1/instances</code> deine Wikis auf. Halte ein Token so geheim wie ein Passwort und widerrufe die Tokens, die du nicht mehr verwendest. Wenn du dein Passwort änderst oder zurücksetzt, werden alle Tokens widerrufen. Das Ausschalten der API widerruft sie nicht: Deine Tokens funktionieren nicht, solange die API ausgeschaltet ist, und funktionieren wieder, sobald sie eingeschaltet ist. Widerrufe also die Tokens, die du nicht mehr brauchst. Die <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/hosting.md#portal-rest-api\">API-Referenz</a> (auf Englisch) listet alle Anfragen auf.</p>"
+      }
+    ]
+  },
+  {
+    "slug": "contact",
+    "title": "Kontakt und Support",
+    "description": "Nimm Kontakt mit dem Hosting-Dienst auf oder trage zur Software bei.",
+    "sections": [
+      {
+        "heading": "Hosting-Dienst",
+        "html": "<p>Schreib an <a href=\"mailto:{contact_email}\">{contact_email}</a>, wenn es um die Wiederherstellung eines Kontos, Verlängerungen im Hosting, Berechtigungen für Domains oder die Meldung von Missbrauch geht. Gib bei Bedarf deinen Benutzernamen im Portal und die Adresse des Wikis an, aber keine Passwörter oder Schlüssel.</p>"
+      },
+      {
+        "heading": "Quellcode und Beiträge",
+        "html": "<p>Der Quellcode wird auf <a href=\"https://github.com/BananaSuite/BananaWiki\">BananaSuite/BananaWiki</a> gepflegt und steht unter der AGPL Version 3. Nutze öffentliche Issues für reproduzierbare Softwarefehler und Funktionsanfragen und entferne dabei private Daten. Lies den Leitfaden für Beiträge, bevor du einen Pull-Request öffnest.</p>"
+      }
+    ]
+  }
+]
