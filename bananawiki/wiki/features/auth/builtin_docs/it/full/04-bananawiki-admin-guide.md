@@ -12,7 +12,7 @@ Usa **Admin -> Utenti** per creare account, reimpostare password, cambiare ruoli
 
 ## Ciclo di vita della documentazione
 
-La documentazione integrata può essere creata come categoria BananaWiki. Puoi scegliere guida completa o semplificata, in inglese o italiano. Il download ZIP produce file Markdown modificabili e reimportabili con Importazione Markdown in blocco.
+La documentazione integrata può essere creata come categoria BananaWiki. Puoi scegliere guida completa o semplificata, in inglese, italiano o tedesco. Il download ZIP produce file Markdown modificabili e reimportabili con Importazione Markdown in blocco.
 
 ## Operazioni sui contenuti
 

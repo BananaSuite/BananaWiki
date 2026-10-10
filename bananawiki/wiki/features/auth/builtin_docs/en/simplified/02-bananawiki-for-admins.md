@@ -16,7 +16,7 @@ Use roles for broad access and category restrictions for where people can work. 
 
 ## Built-in documentation
 
-The **Wiki Documentation** section can spawn this guide into the wiki. Choose full or simplified docs, and English or Italian. You can also download the Markdown ZIP, edit it, and import the customized pages.
+The **Wiki Documentation** section can spawn this guide into the wiki. Choose full or simplified docs, and English, Italian or German. You can also download the Markdown ZIP, edit it, and import the customized pages.
 
 ## Backups
 

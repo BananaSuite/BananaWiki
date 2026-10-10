@@ -25,4 +25,4 @@ BananaWiki è una wiki privata per il tuo team. Gira sul tuo server, tiene le pa
 | **Admin** | gestire wiki, utenti, impostazioni e plugin |
 | **Admin protetto** | accesso admin protetto da modifiche degli admin normali |
 
-Gli admin possono ricreare questa guida da **Admin -> Impostazioni sito -> Documentazione Wiki** e scegliere inglese o italiano, completa o semplificata.
+Gli admin possono ricreare questa guida da **Admin -> Impostazioni sito -> Documentazione Wiki** e scegliere inglese, italiano o tedesco, completa o semplificata.
