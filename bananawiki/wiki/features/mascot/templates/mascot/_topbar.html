@@ -1,5 +1,9 @@
 <link rel="stylesheet" href="{{ asset_url('mascot.css', blueprint='mascot') }}">
+{#- Deferred, so it runs after bananawiki.js at the end of the body; kept before the button so the
+    button stays next to the site name (mascot.css). -#}
+<script src="{{ asset_url('mascot.js', blueprint='mascot') }}" defer></script>
 <button type="button" class="mascot" data-mascot
+        data-mascot-url="{{ url_for('mascot.put_on_shades') }}" data-mascot-clicks="{{ clicks }}"
         aria-label="{{ t('mascot.label_shades' if shades else 'mascot.label') }}"
         title="{{ t('mascot.label_shades' if shades else 'mascot.label') }}">
   <span class="mascot__body">{{ sprite }}</span>

@@ -42,6 +42,7 @@ features entirely.
 | [Badges](#badges) | `badges` | plugin | on | |
 | [Leaderboard](#leaderboard) | `leaderboard` | setting `contributor_leaderboard_enabled` | off | |
 | [Personal data export](#personal-data-export) | `user_data_export` | plugin | on | |
+| [Mascot](#mascot) | `mascot` | plugin | on | |
 | [Custom pages](#custom-pages) | `custom_pages` | plugin | off | yes |
 | [REST API](#rest-api) | `api_service` | plugin + setting `api_service_enabled` | off | |
 | [Federation](#federation) | `federation` | operator `BW_FEDERATION_ENABLED` | off | yes |
@@ -471,7 +472,8 @@ See [read aloud](tts.md) for installation and configuration.
 * **Settings** (`/settings`): profile (real name, bio, birth date, avatar),
   user name, password, language, display preferences (theme, text size,
   line and letter spacing, content and sidebar width, contrast, colours,
-  background picture, dyslexia-friendly font, reduced motion), sessions (list, end one,
+  background picture, dyslexia-friendly font, reduced motion, the
+  [mascot](#mascot)), sessions (list, end one,
   sign out everywhere, clear history), API tokens, personal data export,
   account merges, and deleting the account.
 * **People** (`/users`) lists members; `/users/<username>` shows a profile
@@ -516,6 +518,34 @@ and end times, impersonation records, internal tags, who changed a role), or
 content the account can no longer read: rows of pages, boards, canvases and
 groups it has lost access to keep only their ids and times. Administrators can
 export any account (`/admin/users/<id>/export`).
+
+## Mascot
+
+A pixel-art banana in the top bar, in place of the logo, for signed-in people
+only: visitors who are not signed in see the logo. It bobs, blinks and hops
+when clicked; eleven clicks on the same page put sunglasses on it, and they
+stay on the account until the person takes them off.
+
+* **Customize** (`/settings/display`): hide or show the mascot, and take its
+  sunglasses off. While it is hidden the logo is back.
+* **Admin → Appearance**: show or hide it, or put its sunglasses on or take
+  them off, for every account at once, after a confirmation. Each action is
+  recorded in the audit log as `mascot.bulk_updated` with the number of
+  accounts it changed; people can change their own choice afterwards under
+  Customize.
+* Switching the plugin off (or listing `mascot` in
+  `BW_MANAGED_PLUGIN_DENYLIST`) removes the mascot for everyone and brings the
+  logo back. The saved choices stay for when it is switched on again.
+
+Both choices are keys of the account's display preferences
+(`users.accessibility`: `mascot_enabled` and `mascot_shades`), with no table
+of their own. **Reset display preferences** keeps them, as it keeps the
+language.
+
+Because the mascot takes the logo's place, a click there makes the banana hop
+instead of opening the home page; the site name next to it still links home.
+People who prefer the logo link hide the mascot under Customize, and
+administrators can hide it for everyone or switch the plugin off.
 
 ## Custom pages
 
@@ -582,7 +612,8 @@ Everything under **Admin** (`/admin/dashboard`), for administrators:
   and tour for new members, upload rules and quotas, draft expiry, PDF and
   Markdown export, page builder, profile contribution chart.
 * **Appearance**: dark and light colour themes, default theme, favicon
-  (presets or uploaded), theme export and import.
+  (presets or uploaded), theme export and import, and the
+  [mascot](#mascot) of every account.
 * **Languages**: the interface ships in English, Italian and German, all
   three switched on; upload further languages as JSON files (or one for a
   built-in language, which overrides its strings until removed), switch them
