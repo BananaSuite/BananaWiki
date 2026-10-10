@@ -625,6 +625,7 @@
   "hosting.instances.provisioning_notice": "Die Einrichtung ist nicht abgeschlossen. Starten und Bearbeiten sind nicht möglich. Wenn die Einrichtung unterbrochen wurde, lege dieses unvollständige Wiki still und erstelle es neu; das ursprüngliche Passwort kann nicht wiederhergestellt werden.",
   "hosting.instances.changed_state": "Der Status des Wikis hat sich inzwischen geändert. Lade die Seite neu und versuche es erneut.",
   "hosting.instances.compliance_required": "Bestätige, dass du die Nutzungsbedingungen einhältst.",
+  "hosting.instances.download_too_large": "Die Dateien des Wikis brauchen für einen Download mehr Platz, als sein Speicherlimit erlaubt, deshalb wurde kein Archiv erstellt.",
   "hosting.instances.download_unavailable": "Für dieses Wiki sind keine Downloads verfügbar.",
   "hosting.instances.expired_no_delete": "Auf dieser Plattform können Eigentümer abgelaufene Wikis nicht stilllegen.",
   "hosting.instances.invalid_upload_size": "Gib eine gültige Upload-Größe ein.",
