@@ -175,6 +175,7 @@
   "site_admin.migration.error.too_many_files": "Das Archiv enthält mehr als {limit} Dateien.",
   "site_admin.migration.error.too_new": "Das Archiv stammt aus einer neueren BananaWiki-Version. Aktualisiere zuerst dieses Wiki.",
   "site_admin.migration.error.too_old": "Das Archiv stammt aus einer zu alten BananaWiki-Version. Aktualisiere das alte Wiki zuerst auf die letzte 1.4-Version.",
+  "site_admin.migration.error.unsupported_compression": "Das Archiv enthält verschlüsselte Dateien oder nutzt eine nicht unterstützte Komprimierungsmethode und wurde deshalb abgelehnt. Verwende ein von BananaWiki exportiertes Archiv oder erstelle es erneut als normale ZIP-Datei.",
   "site_admin.migration.error.upgrade": "Die Datenbank im Archiv konnte nicht auf diese Version aktualisiert werden.",
   "site_admin.migration.export": "Gesamte Website exportieren",
   "site_admin.migration.export_button": "Exportieren",
