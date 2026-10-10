@@ -45,6 +45,7 @@
   "site_admin.docs.exists": "La guida si trova attualmente nella categoria \"{name}\".",
   "site_admin.docs.intro": "Una guida pronta all'uso, creata come categoria di normali pagine della wiki che puoi modificare.",
   "site_admin.docs.language": "Lingua",
+  "site_admin.docs.language.de": "Tedesco",
   "site_admin.docs.language.en": "Inglese",
   "site_admin.docs.language.it": "Italiano",
   "site_admin.docs.replace": "Sostituisci la guida",
