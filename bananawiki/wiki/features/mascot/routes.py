@@ -48,5 +48,6 @@ def everyone():
         abort(400)
     changed = service.apply_to_everyone(action)
     record("mascot.bulk_updated", details={"action": action, "accounts": changed})
-    auth.flash_t(f"mascot.admin.done.{action}", "success", count=changed)
+    form = "one" if changed == 1 else "other"
+    auth.flash_t(f"mascot.admin.done.{action}_{form}", "success", count=changed)
     return redirect(url_for("site_admin.appearance"))
