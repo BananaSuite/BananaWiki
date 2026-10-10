@@ -12,6 +12,7 @@ import zipfile
 from flask import redirect, render_template, request, send_file, url_for
 
 from ... import auth, registry, settings
+from ...i18n import BUILTIN_LANGUAGES
 from ..audit import record
 from ..auth import docs
 from ..pages import categories
@@ -30,7 +31,8 @@ def _choice(values) -> tuple[str, str]:
 def docs_page():
     return render_template(
         "site_admin/docs.html", category=categories.get(settings.get("docs_category_id")),
-        variants=docs.VARIANTS, languages=docs.LANGUAGES, default_language=_choice({})[1],
+        variants=docs.VARIANTS, languages=docs.LANGUAGES, language_names=BUILTIN_LANGUAGES,
+        default_language=_choice({})[1],
         slowdown=registry.is_enabled("deletion_slowdown"),
         bypass=bool(settings.get("docs_bypass_deletion_slowdown")),
     )

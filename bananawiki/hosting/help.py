@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 CONTENT_DIR = Path(__file__).resolve().parent / "content"
-LANGUAGES = ("en", "it")
+LANGUAGES = ("de", "en", "it")
 _SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 

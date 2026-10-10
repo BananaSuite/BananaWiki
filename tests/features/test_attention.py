@@ -16,6 +16,7 @@ from bananawiki.wiki.features.contributions import quota as contribution_quota
 from bananawiki.wiki.features.contributions import service as contributions
 from bananawiki.wiki.features.page_governance import quota as reservation_quota
 from bananawiki.wiki.features.pages import service as pages
+from bananawiki.wiki.i18n import BUILTIN_LANGUAGES
 
 from .governance_support import as_user, build_app, set_settings
 
@@ -409,13 +410,14 @@ def test_user_email_is_not_exposed_on_profiles(client, login, people, db):
     assert b"hidden@example.org" not in client.get(f"/users/{people['editor']['username']}").data
 
 
-def test_translations_have_the_same_keys():
+@pytest.mark.parametrize("language", sorted(set(BUILTIN_LANGUAGES) - {"en"}))
+def test_translations_have_the_same_keys(language):
     folder = Path(__file__).resolve().parents[2] / "bananawiki/wiki/features/attention/translations"
     english = json.loads((folder / "en.json").read_text(encoding="utf-8"))
-    italian = json.loads((folder / "it.json").read_text(encoding="utf-8"))
-    assert english.keys() == italian.keys()
+    translated = json.loads((folder / f"{language}.json").read_text(encoding="utf-8"))
+    assert english.keys() == translated.keys()
     for key, text in english.items():
-        assert set(re.findall(r"\{(\w+)\}", text)) == set(re.findall(r"\{(\w+)\}", italian[key])), key
+        assert set(re.findall(r"\{(\w+)\}", text)) == set(re.findall(r"\{(\w+)\}", translated[key])), key
 
 
 def test_unsubscribe_works_signed_out_with_csrf(app, csrf_client, people, db):

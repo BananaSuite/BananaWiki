@@ -17,7 +17,7 @@ from ..pages import categories, service
 DOCS_ROOT = Path(__file__).parent / "builtin_docs"
 CATEGORY_NAME = "BananaWiki"
 VARIANTS = ("full", "simplified")
-LANGUAGES = ("en", "it")
+LANGUAGES = ("de", "en", "it")
 
 
 def pages(variant: str = "full", language: str = "en") -> list[tuple[str, str, str]]:

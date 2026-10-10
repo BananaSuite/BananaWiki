@@ -252,14 +252,13 @@ def test_email_verification_link_marks_the_address(web, make_account, login, que
     assert row["email_verified_at"]
 
 
-@pytest.mark.parametrize("language", ["en", "it"])
-def test_emails_are_rendered_in_the_visitors_language(web, make_account, language):
+@pytest.mark.parametrize(("language", "expected"), [("de", "benutzername"), ("en", "username"), ("it", "nome utente")])
+def test_emails_are_rendered_in_the_visitors_language(web, make_account, language, expected):
     user = make_account(email=f"lang-{language}@example.org", email_verified_at="2026-01-01 00:00:00")
     web.post("/language", data={"language": language})
     with email.capture_outbox() as outbox:
         web.post("/forgot-username", data={"email": f"lang-{language}@example.org"})
     assert outbox[0].detail_value == user["username"]
-    expected = "nome utente" if language == "it" else "username"
     assert expected in outbox[0].subject.lower()
 
 

@@ -1,8 +1,8 @@
-"""Interface language of the portal (English and Italian) and ``t()``.
+"""Interface language of the portal (German, English and Italian) and ``t()``.
 
 Order: the visitor's explicit choice (``session["interface_language"]``, the
-key 1.4 used, so the choice survives the upgrade), then ``Accept-Language``,
-then English.
+key 1.4 used, so the choice survives the upgrade), then ``Accept-Language``
+(a bare ``*`` gets English), then English.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from flask import current_app, g, has_request_context, request, session
 
 from ..core.i18n import FALLBACK, Catalog
 
-LANGUAGES = {"en": "English", "it": "Italiano"}
+LANGUAGES = {"de": "Deutsch", "en": "English", "it": "Italiano"}
 EXTENSION = "bananawiki.hosting.i18n"
 
 
@@ -28,7 +28,8 @@ def current_language() -> str:
     if lang is None:
         chosen = session.get("interface_language")
         if chosen not in LANGUAGES:
-            chosen = request.accept_languages.best_match(list(LANGUAGES)) or FALLBACK
+            offered = sorted(LANGUAGES, key=lambda code: code != FALLBACK)  # ties ("*") go to the first
+            chosen = request.accept_languages.best_match(offered) or FALLBACK
         lang = g.lang = chosen
     return lang
 

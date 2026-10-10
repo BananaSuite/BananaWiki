@@ -121,3 +121,17 @@ def test_encrypted_setting_still_decrypts(legacy):
 
         with connection_scope():
             assert settings.load()["tts_gpu_auth_token"] == "gpu-secret-token"
+
+
+def test_german_is_enabled_after_the_upgrade(legacy):
+    # 1.4 saved a switch for English only; built-in languages without one are on.
+    app, _, creds = legacy
+    from bananawiki.wiki import i18n
+    from bananawiki.wiki.db import connection_scope
+
+    with app.test_request_context(), connection_scope():
+        assert set(i18n.language_switches()) == {"en"} and "de" in i18n.enabled_languages()
+    _db(app).execute("UPDATE users SET onboarding_required = 0")
+    client = app.test_client()
+    client.set_cookie("bw_session", creds["cookie"])
+    assert b'<html lang="de"' in client.get("/page/photosynthesis?lang=de").data

@@ -172,6 +172,20 @@ def test_host_disabled_and_panel_off(app, client, make_user, login, make_page, d
     assert client.post("/page/guide/tts/generate", json={}).status_code == 403
 
 
+def test_german_is_read_aloud_only_once_enabled(client, make_user, login, make_page, db):
+    """The interface language plays no part: German pages need German among the read-aloud languages."""
+    german = "Dies ist eine Seite über Bananen, und sie hat genug Wörter, damit man sie gut vorlesen kann."
+    assert backends.DEFAULT_VOICES["de"] == "de_DE-thorsten-medium"
+    make_page(content=german)
+    login(client, make_user("reader"))
+    client.get("/?lang=de")
+    response = client.post("/page/guide/tts/generate", json={"language": "de"})
+    assert response.status_code == 400 and response.get_json()["error"] == "unsupported_language"
+    db.execute("UPDATE site_settings SET tts_enabled_languages = 'de,en,it'")
+    assert client.post("/page/guide/tts/generate", json={"language": "de"}).status_code == 202
+    assert db.scalar("SELECT language FROM tts_generations") == "de"
+
+
 def test_unsupported_language_is_refused(client, make_user, login, make_page, db):
     make_page()
     login(client, make_user("reader"))

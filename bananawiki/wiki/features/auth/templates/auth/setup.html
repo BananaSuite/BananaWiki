@@ -26,8 +26,10 @@
     <div class="field">
       <label for="language">{{ t('auth.field.language') }}</label>
       <select id="language" name="language">
-        <option value="en" {% if lang == 'en' %}selected{% endif %}>English</option>
-        <option value="it" {% if lang == 'it' %}selected{% endif %}>Italiano</option>
+        {% set chosen = lang if lang in builtin_languages else 'en' %}
+        {% for code, name in builtin_languages.items() %}
+        <option value="{{ code }}" {% if code == chosen %}selected{% endif %}>{{ name }}</option>
+        {% endfor %}
       </select>
     </div>
     <button class="btn btn--primary" type="submit">{{ t('auth.setup.create') }}</button>

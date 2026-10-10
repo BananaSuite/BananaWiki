@@ -18,6 +18,21 @@ def test_setup_token_is_not_accepted_from_the_query_string(app_factory):
     assert response.headers["Location"].endswith("/onboarding")
 
 
+def test_setup_offers_every_builtin_language(app_factory):
+    from bananawiki.wiki.db import connection_scope
+    from bananawiki.wiki.i18n import BUILTIN_LANGUAGES
+
+    application = app_factory(setup_done=False)
+    client = application.test_client()
+    client.post("/setup", data={"setup_token": "test-setup-token"})
+    page = client.get("/setup").get_data(as_text=True)
+    assert all(f'<option value="{code}"' in page for code in BUILTIN_LANGUAGES)
+    client.post("/setup", data={"step": "create", "username": "owner", "password": PASSWORD,
+                                "confirm_password": PASSWORD, "language": "de"})
+    with application.app_context(), connection_scope() as session:
+        assert session.scalar("SELECT interface_language FROM site_settings") == "de"
+
+
 def test_admin_login_accepts_only_administrators(client, make_user, admin):
     make_user("bob")
     response = client.post("/admin", data={"username": "bob", "password": PASSWORD})

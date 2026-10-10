@@ -90,8 +90,10 @@ def test_translations_have_same_keys():
     from pathlib import Path
 
     import bananawiki.wiki.features.admin as feature
+    from bananawiki.wiki.i18n import BUILTIN_LANGUAGES
 
     folder = Path(feature.__file__).parent / "translations"
     en = json.loads((folder / "en.json").read_text(encoding="utf-8"))
-    it = json.loads((folder / "it.json").read_text(encoding="utf-8"))
-    assert en.keys() == it.keys()
+    for language in sorted(set(BUILTIN_LANGUAGES) - {"en"}):
+        translated = json.loads((folder / f"{language}.json").read_text(encoding="utf-8"))
+        assert en.keys() == translated.keys(), language
