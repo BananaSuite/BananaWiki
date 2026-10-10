@@ -20,4 +20,5 @@ switched on. If something described here is missing, ask an administrator.
    area for new administrators.
 
 The same guide is available in [Italian](../it/README.md). Administrators can
-also add a version of it to the wiki itself: **Admin → Documentation**.
+also add a version of it to the wiki itself, in English, Italian or German:
+**Admin → Documentation**.

@@ -106,9 +106,15 @@ One page cannot stop the worker or hold the queue for good:
 * when to generate: when a reader asks, or every time a page is created or
   edited (`tts_auto_generate_enabled`);
 * voice quality (`tts_performance_mode`: `auto`, `balanced`, `fast`);
-* the languages the wiki may speak (`tts_enabled_languages`). A page is read
-  in its detected language only if that language is enabled; otherwise the
-  wiki's language, English or another enabled language is used;
+* the languages the wiki may speak (`tts_enabled_languages`, English and
+  Italian until changed). A page is read in its detected language only if
+  that language is enabled; otherwise English or another enabled language
+  is used. The interface language plays no part: German
+  pages are read with the German voice (`de_DE-thorsten-medium`) once German
+  is ticked here, right away when the reader picks German and through
+  automatic detection only with `langdetect` installed (see language
+  detection above); until then they are read with the English or Italian
+  voice;
 * the remote GPU server (address, token, timeout, on/off) and a **Test**
   button;
 * the queue: retry failed jobs, delete one page's audio, queue audio for

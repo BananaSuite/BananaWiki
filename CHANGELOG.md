@@ -11,9 +11,23 @@
   hide or dress it for every account from Appearance, or switch the feature
   off under plugins. New template slots: `topbar.brand`,
   `account.display_sections`, `admin.appearance`.
+* German interface: the wiki, the hosting portal and its help centre, the
+  desktop launcher and the built-in user guide ship in German beside English
+  and Italian. German is built in and switched on in every wiki, new or
+  upgraded; administrators switch it off under Admin → Languages. Setup, the
+  first-run wizard and Admin → Documentation offer it, the portal picks it
+  from `Accept-Language` and the launcher from a German system locale. A `de`
+  language file uploaded earlier now overrides the bundled German until it is
+  removed. Read aloud does not follow the interface language: German pages
+  are read in German once German is enabled among the read-aloud languages
+  (automatic detection of German pages needs `langdetect`).
 
 ### Changed
 
+* A bare `Accept-Language: *` gets the wiki's default language (on the
+  portal, English) rather than the alphabetically first enabled language,
+  and so does a tie between equally preferred languages that include the
+  default.
 * Hosting assigns finite XFS project byte and inode quotas before seeding,
   imports, copies, restores and launches; quota drift, unsupported storage,
   uncertain container state and insufficient capacity fail closed. Launches

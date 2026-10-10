@@ -72,16 +72,23 @@ The rules at the end of ARCHITECTURE.md are checked in review. In short:
 
 ## Translations
 
-The interface is in English and Italian. Core strings live in
-`bananawiki/wiki/translations/{en,it}.json`, each feature's in
-`bananawiki/wiki/features/<id>/translations/{en,it}.json`, the portal's in
-`bananawiki/hosting/translations/`. Both languages are required and must have
-the same keys; placeholders are `{name}`. Keys under `js.` are sent to the
-browser. No hard-coded user-facing text in code or templates.
+The interface is in English, Italian and German. Core strings live in
+`bananawiki/wiki/translations/{en,it,de}.json`, each feature's in
+`bananawiki/wiki/features/<id>/translations/{en,it,de}.json`, the portal's in
+`bananawiki/hosting/translations/`, the desktop launcher's in
+`bananawiki/desktop/translations/`. Every language is required and must have
+the same keys, with the same placeholders (`{name}`) per key;
+`tests/test_core_translations.py` checks this. Keys under `js.` are sent to
+the browser. No hard-coded user-facing text in code or templates.
 
 To add another interface language to a running wiki, upload a JSON file on
 **Admin → Languages**; to ship it with BananaWiki, add the files next to the
-English ones and open a pull request.
+English ones (strings, `hosting/content/help.<code>.json` and
+`wiki/features/auth/builtin_docs/<code>/`), list the code in the language
+registries (`BUILTIN_LANGUAGES` in `bananawiki/wiki/i18n.py`, `LANGUAGES` in
+`bananawiki/hosting/i18n.py`, `bananawiki/hosting/help.py`,
+`bananawiki/desktop/i18n.py` and `bananawiki/wiki/features/auth/docs.py`) and
+open a pull request.
 
 ## Commits and pull requests
 

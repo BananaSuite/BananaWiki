@@ -38,7 +38,7 @@ bananawiki/
     takeover.py    first start on a 1.4 installation
     templates/     base layout, macros, error page
     static/        wiki content CSS, core JS, bundled favicons
-    translations/  core strings (en, it)
+    translations/  core strings (en, it, de)
     features/      one package per feature (see below)
   hosting/         the hosting portal (multi-tenant wiki provisioning); runtime/ drives
                    tenant containers through the root runtime agent
@@ -161,8 +161,9 @@ FEATURE = Feature(
   and modal dialogs may be narrow. Use the shared form macros and button
   classes, and `section-stack` for settings sections rather than nested
   cards. Feature styles should not introduce arbitrary page width caps.
-* Strings live in `features/<id>/translations/{en,it}.json`; both languages
-  are required and must have the same keys. Keys under `js.` are shipped to
+* Strings live in `features/<id>/translations/{en,it,de}.json`; every
+  built-in language is required and must have the same keys and placeholders
+  (`tests/test_core_translations.py`). Keys under `js.` are shipped to
   the browser (`BW.t('key')` without the `js.` prefix).
 * `registry.is_enabled(id)` is the only feature switch. Disabling a feature
   never deletes data and never rewrites its settings.

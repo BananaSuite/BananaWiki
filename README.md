@@ -35,9 +35,9 @@ creates a separate wiki for each customer.
 * **Integration**: a REST API with scoped tokens and an OpenAPI description,
   federation between wikis, custom pages at any free address, third-party
   plugins (1.4 plugins still load).
-* **Administration**: appearance themes, interface languages (English and
-  Italian included, more uploadable), built-in user guide, whole-site export
-  and import, bulk delete.
+* **Administration**: appearance themes, interface languages (English,
+  Italian and German included, more uploadable), built-in user guide,
+  whole-site export and import, bulk delete.
 * **Operations**: one-command installation with automatic HTTPS
   configuration, updates with backup and automatic rollback, encrypted
   backups to a private Git repository, Docker Compose, a desktop launcher for
