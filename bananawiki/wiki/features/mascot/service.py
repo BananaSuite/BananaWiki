@@ -3,7 +3,8 @@
 Both choices are 0/1 keys in the account's display preferences
 (``users.accessibility``: ``mascot_enabled``, ``mascot_shades``), so they need
 no table of their own and survive "reset display settings". Visitors who are
-not signed in never see the mascot.
+not signed in never see the mascot. Only these two keys are read and written
+here: every other saved preference stays exactly as stored.
 """
 
 from __future__ import annotations
@@ -26,11 +27,22 @@ BULK_ACTIONS: dict[str, dict[str, int]] = {
 }
 
 
+def _flag(saved: dict[str, Any], key: str) -> int:
+    """*key* of the saved preferences as 0/1, with the default :func:`preferences.clean` would use."""
+    default = preferences.DEFAULTS[key]
+    try:
+        value = int(float(saved.get(key, default)))
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return value if value in (0, 1) else default
+
+
 def state(user: dict[str, Any] | None) -> dict[str, bool]:
+    """Whether *user* sees the mascot, and with sunglasses (on every page, so just the two keys are read)."""
     if user is None:
         return {"enabled": False, "shades": False}
-    prefs = preferences.current(user)
-    return {"enabled": bool(prefs["mascot_enabled"]), "shades": bool(prefs["mascot_shades"])}
+    saved = preferences.stored(user)
+    return {"enabled": bool(_flag(saved, "mascot_enabled")), "shades": bool(_flag(saved, "mascot_shades"))}
 
 
 def variant(user: dict[str, Any] | None) -> str:
@@ -43,22 +55,25 @@ def variant(user: dict[str, Any] | None) -> str:
 
 def update(user: dict[str, Any], **values: int) -> None:
     """Set mascot keys on one account, keeping every other preference as saved."""
-    row = db.one("SELECT accessibility FROM users WHERE id = ?", (user["id"],))
-    current = preferences.parse(row["accessibility"] if row else None)
-    prefs = preferences.clean(values, current)
-    db.execute("UPDATE users SET accessibility = ? WHERE id = ?", (json.dumps(prefs), user["id"]))
+    with db.transaction():
+        raw = db.scalar("SELECT accessibility FROM users WHERE id = ?", (user["id"],))
+        db.execute("UPDATE users SET accessibility = ? WHERE id = ?",
+                   (json.dumps({**preferences.parse(raw), **values}), user["id"]))
 
 
 def apply_to_everyone(action: str) -> int:
-    """Run one of :data:`BULK_ACTIONS` on every account; returns how many changed."""
+    """Run one of :data:`BULK_ACTIONS` on every account; returns how many changed.
+
+    Accounts that already have that choice are left alone. The others are
+    written in one batch, so the write lock is held briefly however many
+    accounts there are.
+    """
     values = BULK_ACTIONS[action]
-    changed = 0
     with db.transaction():
+        rows = []
         for row in db.all("SELECT id, accessibility FROM users"):
-            current = preferences.parse(row["accessibility"])
-            prefs = preferences.clean(values, current)
-            if all(preferences.clean({}, current)[key] == value for key, value in values.items()):
-                continue
-            db.execute("UPDATE users SET accessibility = ? WHERE id = ?", (json.dumps(prefs), row["id"]))
-            changed += 1
-    return changed
+            saved = preferences.parse(row["accessibility"])
+            if any(_flag(saved, key) != value for key, value in values.items()):
+                rows.append((json.dumps({**saved, **values}), row["id"]))
+        db.executemany("UPDATE users SET accessibility = ? WHERE id = ?", rows)
+    return len(rows)
