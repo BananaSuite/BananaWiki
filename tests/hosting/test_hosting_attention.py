@@ -322,7 +322,10 @@ def test_translations_have_the_same_keys():
     import json
     from pathlib import Path
 
+    from bananawiki.hosting.i18n import LANGUAGES
+
     folder = Path(__file__).resolve().parents[2] / "bananawiki/hosting/translations"
     english = json.loads((folder / "en.json").read_text(encoding="utf-8"))
-    italian = json.loads((folder / "it.json").read_text(encoding="utf-8"))
-    assert english.keys() == italian.keys()
+    for language in sorted(set(LANGUAGES) - {"en"}):
+        translated = json.loads((folder / f"{language}.json").read_text(encoding="utf-8"))
+        assert english.keys() == translated.keys(), language

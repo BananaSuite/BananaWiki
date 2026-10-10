@@ -69,7 +69,8 @@
                     [('full', t('auth.onboarding.docs_full')), ('simplified', t('auth.onboarding.docs_simplified'))],
                     form.get('docs_variant') or 'full') }}
     {{ forms.select('docs_language', t('auth.onboarding.docs_language'),
-                    [('en', 'English'), ('it', 'Italiano')], form.get('docs_language') or lang) }}
+                    docs_languages.items()|list,
+                    form.get('docs_language') or (lang if lang in docs_languages else 'en')) }}
   </section>
 
   <div class="btn-row">

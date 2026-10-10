@@ -76,7 +76,7 @@ instance directory (never overwriting anything). See [UPGRADING](../UPGRADING.md
 | `BW_PASSWORD_HASH_METHOD` (alias `HASH_METHOD`) | `auto` | `auto` (scrypt when available, else PBKDF2-SHA256), `scrypt` or `pbkdf2`. Existing hashes of any Werkzeug format keep working. |
 | `BW_SOURCE_URL` | `https://github.com/BananaSuite/BananaWiki` | Where `/source` redirects (AGPL section 13). Must be an http(s) URL without credentials. Point it at the source of the version you run. |
 | `BW_LOGGING_LEVEL` | `medium` | `off`, `minimal` (warnings), `medium` (information), `verbose` (same as `medium`) or `debug`. **1.4 default:** `verbose`. |
-| `BW_DEFAULT_INTERFACE_LANGUAGE` | `en` | Interface language used until an administrator chooses one. |
+| `BW_DEFAULT_INTERFACE_LANGUAGE` | `en` | Interface language used until an administrator chooses one: `en`, `it`, `de` or the code of an uploaded language. |
 | `BW_BACKGROUND_JOBS` | `1` | `0` stops the scheduler thread in the web workers; run `bananawiki jobs run` from cron instead. Replaces 1.4's `BANANAWIKI_SKIP_BACKGROUND_SERVICES`. |
 | `BW_MAINTENANCE_FILE` (alias `BANANA_MAINTENANCE_FILE`) | none | While this file exists every request except `/health` and `/healthz` gets a plain 503. The managed updater uses it during updates. (Not the same as the administrator's maintenance mode.) |
 

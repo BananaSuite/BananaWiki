@@ -14,7 +14,7 @@ from flask import current_app, g, has_request_context, request, session
 
 from ..core.i18n import FALLBACK, Catalog, valid_code
 
-BUILTIN_LANGUAGES = {"en": "English", "it": "Italiano"}
+BUILTIN_LANGUAGES = {"de": "Deutsch", "en": "English", "it": "Italiano"}
 
 
 def catalog() -> Catalog:
@@ -88,8 +88,11 @@ def resolve_language() -> str:
                       valid_code(request.cookies.get("bw_lang"))):
         if candidate and candidate in enabled:
             return candidate
-    best = request.accept_languages.best_match(list(enabled)) if not session.get("user_id") else None
-    return best or default_language()
+    default = default_language()
+    if session.get("user_id"):
+        return default
+    # A bare "*" matches every language alike and werkzeug takes the first one offered: the default.
+    return request.accept_languages.best_match(sorted(enabled, key=lambda code: code != default)) or default
 
 
 def current_language() -> str:

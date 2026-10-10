@@ -45,6 +45,7 @@
   "site_admin.docs.exists": "The guide currently lives in the category \"{name}\".",
   "site_admin.docs.intro": "A ready-made user guide, created as a category of ordinary wiki pages you can edit.",
   "site_admin.docs.language": "Language",
+  "site_admin.docs.language.de": "German",
   "site_admin.docs.language.en": "English",
   "site_admin.docs.language.it": "Italian",
   "site_admin.docs.replace": "Replace the guide",

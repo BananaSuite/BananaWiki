@@ -1,4 +1,4 @@
-"""Launcher strings in English and Italian (``translations/<lang>.json``)."""
+"""Launcher strings in German, English and Italian (``translations/<lang>.json``)."""
 
 from __future__ import annotations
 
@@ -9,9 +9,11 @@ from pathlib import Path
 
 from . import DesktopError
 
-LANGUAGES = {"en": "English", "it": "Italiano"}
+LANGUAGES = {"de": "Deutsch", "en": "English", "it": "Italiano"}
 DEFAULT_LANGUAGE = "en"
 _DIRECTORY = Path(__file__).resolve().parent / "translations"
+# Windows names its locales in English ("Italian_Italy", "German_Switzerland").
+_LOCALE_NAMES = {"german": "de", "italian": "it"}
 
 
 @cache
@@ -29,8 +31,7 @@ def system_language() -> str:
     except ValueError:
         code = ""
     code = code.replace("-", "_").split("_")[0].lower()
-    if code == "italian":
-        code = "it"
+    code = _LOCALE_NAMES.get(code, code)
     return code if code in LANGUAGES else DEFAULT_LANGUAGE
 
 

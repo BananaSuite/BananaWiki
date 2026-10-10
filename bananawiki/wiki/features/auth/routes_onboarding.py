@@ -45,7 +45,8 @@ def onboarding_wizard():
         "auth/onboarding.html", first_run=first_run, error=error, form=request.form,
         features=onboarding.feature_options(), languages=i18n.enabled_languages(),
         rows=range(onboarding.INITIAL_USER_ROWS), roles=onboarding.INITIAL_USER_ROLES,
-        docs_languages=docs.LANGUAGES, docs_tracked=bool(settings.get("docs_category_id")),
+        docs_languages={code: i18n.BUILTIN_LANGUAGES.get(code, code) for code in docs.LANGUAGES},
+        docs_tracked=bool(settings.get("docs_category_id")),
     ), 400 if error else 200
 
 

@@ -583,10 +583,13 @@ Everything under **Admin** (`/admin/dashboard`), for administrators:
   Markdown export, page builder, profile contribution chart.
 * **Appearance**: dark and light colour themes, default theme, favicon
   (presets or uploaded), theme export and import.
-* **Languages**: the interface ships in English and Italian; upload further
-  languages as JSON files, switch them on and off, choose the default.
-* **Documentation**: add the built-in user guide (full or simplified, English
-  or Italian) as a category of pages, or download it as Markdown.
+* **Languages**: the interface ships in English, Italian and German, all
+  three switched on; upload further languages as JSON files (or one for a
+  built-in language, which overrides its strings until removed), switch them
+  on and off, choose the default.
+* **Documentation**: add the built-in user guide (full or simplified,
+  English, Italian or German) as a category of pages, or download it as
+  Markdown.
 * **Site migration**: export the whole wiki (database and files) as one ZIP,
   or import one, which **replaces everything**, accounts included. Both ask for
   your password. Imports accept 1.4 archives, never touch code or the secret

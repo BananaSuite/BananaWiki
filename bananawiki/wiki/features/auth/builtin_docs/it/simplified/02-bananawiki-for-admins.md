@@ -16,7 +16,7 @@ Usa i ruoli per l'accesso generale e le restrizioni di categoria per decidere do
 
 ## Documentazione integrata
 
-La sezione **Documentazione Wiki** può creare questa guida dentro la wiki. Scegli guida completa o semplificata, in inglese o italiano. Puoi anche scaricare lo ZIP Markdown, modificarlo e importare le pagine personalizzate.
+La sezione **Documentazione Wiki** può creare questa guida dentro la wiki. Scegli guida completa o semplificata, in inglese, italiano o tedesco. Puoi anche scaricare lo ZIP Markdown, modificarlo e importare le pagine personalizzate.
 
 ## Backup
 

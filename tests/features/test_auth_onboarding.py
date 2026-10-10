@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from conftest import PASSWORD
 
@@ -104,6 +106,19 @@ def test_onboarding_spawns_builtin_docs(client, owner, login, db):
                      "WHERE p.category_id = ?", (category_id,)) == count
 
 
+def test_onboarding_offers_and_spawns_german_docs(client, owner, login, db):
+    login(client, owner)
+    form = client.get("/onboarding").get_data(as_text=True)
+    choices = re.search(r'name="docs_language">(.*?)</select>', form, re.DOTALL).group(1)
+    assert re.findall(r'value="([a-z]+)"', choices) == list(docs.LANGUAGES) and ">Deutsch<" in choices
+    assert _wizard(client, spawn_docs="1", docs_variant="full", docs_language="de").status_code == 302
+    category_id = db.scalar("SELECT docs_category_id FROM site_settings")
+    german = docs.pages("full", "de")
+    assert german and db.scalar("SELECT COUNT(*) FROM pages WHERE category_id = ?", (category_id,)) == len(german)
+    assert db.scalar("SELECT content FROM pages WHERE category_id = ? AND slug = 'bananawiki-welcome'",
+                     (category_id,)).startswith(f"# {german[0][0]}")
+
+
 def test_respawning_docs_replaces_the_previous_set(app, db, admin):
     with app.test_request_context(), connection_scope():
         first = docs.spawn(variant="simplified")
@@ -113,12 +128,13 @@ def test_respawning_docs_replaces_the_previous_set(app, db, admin):
     assert db.scalar("SELECT COUNT(*) FROM pages WHERE slug = 'bananawiki-welcome'") == 1
 
 
-def test_builtin_docs_have_titles_in_both_languages():
+@pytest.mark.parametrize("language", sorted(set(docs.LANGUAGES) - {"en"}))
+def test_builtin_docs_have_titles_in_every_language(language):
     for variant in docs.VARIANTS:
-        english, italian = docs.pages(variant, "en"), docs.pages(variant, "it")
-        assert english and len(english) == len(italian)
-        assert [slug for _t, slug, _c in english] == [slug for _t, slug, _c in italian]
-        assert all(title and content.startswith("# ") for title, _s, content in english + italian)
+        english, translated = docs.pages(variant, "en"), docs.pages(variant, language)
+        assert english and len(english) == len(translated)
+        assert [slug for _t, slug, _c in english] == [slug for _t, slug, _c in translated]
+        assert all(title and content.startswith("# ") for title, _s, content in english + translated)
 
 
 # ── Introduction and tour ─────────────────────────────────────────────────────

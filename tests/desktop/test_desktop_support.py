@@ -65,9 +65,10 @@ def test_port_available(free_port):
 # ── preferences ───────────────────────────────────────────────────────────────
 
 
-def test_preferences_round_trip(tmp_path):
+@pytest.mark.parametrize("language", sorted(i18n.LANGUAGES))
+def test_preferences_round_trip(tmp_path, language):
     path = tmp_path / "cfg" / "desktop.json"
-    prefs = preferences.Preferences(data_dir=str(tmp_path / "wiki"), language="it", share_on_lan=True, port=8080)
+    prefs = preferences.Preferences(data_dir=str(tmp_path / "wiki"), language=language, share_on_lan=True, port=8080)
     preferences.save(prefs, path)
     assert preferences.load(path) == prefs
 
@@ -104,11 +105,22 @@ def test_packaged_app_keeps_data_beside_itself(monkeypatch, tmp_path):
 # ── translations ──────────────────────────────────────────────────────────────
 
 
-def test_catalogues_have_the_same_keys_and_placeholders():
-    english, italian = i18n.catalog("en"), i18n.catalog("it")
-    assert english.keys() == italian.keys()
+@pytest.mark.parametrize("language", sorted(set(i18n.LANGUAGES) - {"en"}))
+def test_catalogues_have_the_same_keys_and_placeholders(language):
+    english, translated = i18n.catalog("en"), i18n.catalog(language)
+    assert english.keys() == translated.keys()
     for key, text in english.items():
-        assert ("{path}" in text) == ("{path}" in italian[key]), key
+        assert ("{path}" in text) == ("{path}" in translated[key]), key
+
+
+@pytest.mark.parametrize("reported, expected", [
+    (("de_DE", "UTF-8"), "de"), (("de_AT", "UTF-8"), "de"), (("de_CH", "UTF-8"), "de"), (("de-LU", None), "de"),
+    (("German_Germany", "1252"), "de"), (("German_Switzerland", "1252"), "de"), (("it_IT", "UTF-8"), "it"),
+    (("Italian_Italy", "1252"), "it"), (("en_GB", "UTF-8"), "en"), (("fr_FR", "UTF-8"), "en"), ((None, None), "en"),
+])
+def test_system_language_follows_the_locale(monkeypatch, reported, expected):
+    monkeypatch.setattr(i18n.locale, "getlocale", lambda: reported)
+    assert i18n.system_language() == expected
 
 
 def test_every_error_key_raised_in_the_code_is_translated():

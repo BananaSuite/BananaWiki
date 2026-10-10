@@ -21,6 +21,15 @@ def test_spawn_docs_creates_the_category(admin_client, db):
     assert db.scalar("SELECT docs_category_id FROM site_settings") != category_id
 
 
+def test_documentation_page_offers_every_builtin_language(admin_client):
+    from bananawiki.wiki.features.auth import docs
+
+    page = admin_client.get("/admin/documentation").get_data(as_text=True)
+    assert all(f'<option value="{code}"' in page for code in docs.LANGUAGES)
+    assert "site_admin.docs.language." not in page  # a language without a label of its own shows its name
+    assert ">German<" in page  # each guide language is named in the interface language
+
+
 def test_download_docs_is_a_zip_of_markdown(admin_client):
     response = admin_client.get("/admin/download-docs?docs_language=en&variant=simplified")
     assert response.status_code == 200

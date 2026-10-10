@@ -22,7 +22,8 @@ in place.
    shows it with a **Copy** button until the administrator account exists.
 6. Click **Stop** (or close the window) when done.
 
-The launcher speaks English and Italian (menu in the top-right corner). It
+The launcher speaks English, Italian and German (menu in the top-right
+corner; the first time it follows the computer's language). It
 remembers the folder, language, sharing choice and port in the user's
 configuration folder (`%APPDATA%\BananaWiki`, `~/Library/Application
 Support/BananaWiki` or `~/.config/bananawiki`).

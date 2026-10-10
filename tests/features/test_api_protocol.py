@@ -484,9 +484,10 @@ def test_openapi_references_resolve_and_endpoints_are_translated(api_app, client
     operation_ids = [op["operationId"] for path in spec["paths"].values() for op in path.values()]
     assert len(operation_ids) == len(set(operation_ids))
     from bananawiki.wiki.features import api_service
+    from bananawiki.wiki.i18n import BUILTIN_LANGUAGES
 
     folder = api_service.__path__[0] + "/translations/"
-    for language in ("en", "it"):
+    for language in BUILTIN_LANGUAGES:
         with open(folder + f"{language}.json", encoding="utf-8") as handle:
             strings = json.load(handle)
         for endpoint in openapi.ENDPOINTS:

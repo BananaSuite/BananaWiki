@@ -1,10 +1,12 @@
-"""Every portal page renders for the roles that may see it, in both languages."""
+"""Every portal page renders for the roles that may see it, in every language."""
 
 from __future__ import annotations
 
 import re
 
 import pytest
+
+from bananawiki.hosting.i18n import LANGUAGES
 
 UNTRANSLATED = re.compile(r"(?<![\w/-])(?:hosting|email)\.[a-z_]+\.[a-z_.]+")
 
@@ -32,6 +34,12 @@ def test_help_article_renders(web):
     assert web.get("/help/does-not-exist").status_code == 404
 
 
+@pytest.mark.parametrize("language", sorted(LANGUAGES))
+def test_help_renders_in_every_language(web, language):
+    index = web.get(f"/help?lang={language}")
+    assert index.status_code == 200 and f"lang={language}" in index.get_data(as_text=True)
+
+
 def test_signup_page_on_empty_platform_needs_bootstrap_token(web):
     assert web.get("/signup").status_code == 404
     assert web.get("/signup?bootstrap_token=bootstrap-token-for-tests").status_code == 200
@@ -49,7 +57,7 @@ def _owner_pages(wiki_id: str) -> list[str]:
             "/account/merge-request", "/account/merge/pending"]
 
 
-@pytest.mark.parametrize("language", ["en", "it"])
+@pytest.mark.parametrize("language", sorted(LANGUAGES))
 def test_owner_pages_render(web, make_account, make_wiki, login, language):
     owner = make_account()
     wiki = make_wiki(owner)
@@ -62,7 +70,7 @@ def test_owner_pages_render(web, make_account, make_wiki, login, language):
         assert not UNTRANSLATED.search(body), (path, UNTRANSLATED.search(body))
 
 
-@pytest.mark.parametrize("language", ["en", "it"])
+@pytest.mark.parametrize("language", sorted(LANGUAGES))
 def test_admin_pages_render(web, make_account, make_wiki, login, language):
     admin = make_account(admin=True)
     user = make_account()
@@ -80,15 +88,26 @@ def test_admin_pages_render(web, make_account, make_wiki, login, language):
         assert not UNTRANSLATED.search(body), (path, UNTRANSLATED.search(body))
 
 
-def test_translation_catalogues_have_the_same_keys():
+@pytest.mark.parametrize("language", sorted(set(LANGUAGES) - {"en"}))
+def test_translation_catalogues_have_the_same_keys(language):
     import json
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2] / "bananawiki" / "hosting" / "translations"
     en = json.loads((root / "en.json").read_text(encoding="utf-8"))
-    it = json.loads((root / "it.json").read_text(encoding="utf-8"))
-    assert set(en) == set(it)
-    assert all(it[key] for key in it)
+    translated = json.loads((root / f"{language}.json").read_text(encoding="utf-8"))
+    assert set(en) == set(translated)
+    assert all(translated[key] for key in translated)
+
+
+def test_accept_language_chooses_among_the_portal_languages(web):
+    def lang(header: str) -> str:
+        page = web.get("/login", headers={"Accept-Language": header}).get_data(as_text=True)
+        return re.search(r'<html lang="([a-z-]+)"', page).group(1)
+
+    assert lang("de") == lang("de-CH, de;q=0.9, en;q=0.5") == lang("fr, de-AT;q=0.8") == "de"
+    assert lang("it-IT, it;q=0.9") == "it"
+    assert lang("*") == lang("fr") == "en"  # a wildcard or an unknown language gets English
 
 
 def test_pages_render_in_less_common_states(portal, make_account, make_wiki, login, query):

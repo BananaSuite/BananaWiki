@@ -21,8 +21,9 @@ animazioni e quanto risaltano grassetto, collegamenti, titoli e codice.
 
 ## Lingua
 
-Scegli la lingua dell'interfaccia dal menu dell'account o nelle Impostazioni.
-Le pagine non vengono tradotte.
+Scegli la lingua dell'interfaccia dal menu dell'account o nelle Impostazioni:
+inglese, italiano, tedesco e le lingue aggiunte dagli amministratori, se non
+le hanno disattivate. Le pagine non vengono tradotte.
 
 ## Password e nome utente
 

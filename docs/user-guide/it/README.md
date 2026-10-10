@@ -21,5 +21,5 @@ wiki. Se manca qualcosa di quanto descritto qui, chiedi a un amministratore.
    amministrazione per i nuovi amministratori.
 
 La stessa guida esiste in [inglese](../en/README.md). Gli amministratori
-possono anche aggiungerne una versione nella wiki stessa:
-**Amministrazione → Documentazione**.
+possono anche aggiungerne una versione nella wiki stessa, in inglese, italiano
+o tedesco: **Amministrazione → Documentazione**.

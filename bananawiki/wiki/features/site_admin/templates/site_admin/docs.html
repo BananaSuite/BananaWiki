@@ -10,7 +10,7 @@
 {% set variant_options = [] %}
 {% for v in variants %}{% set _ = variant_options.append((v, t('site_admin.docs.variant.' ~ v))) %}{% endfor %}
 {% set language_options = [] %}
-{% for code in languages %}{% set _ = language_options.append((code, t('site_admin.docs.language.' ~ code))) %}{% endfor %}
+{% for code in languages %}{% set _ = language_options.append((code, t('site_admin.docs.language.' ~ code, language_names.get(code, code)))) %}{% endfor %}
 
 <section class="card">
   <h2>{{ t('site_admin.docs.create') }}</h2>

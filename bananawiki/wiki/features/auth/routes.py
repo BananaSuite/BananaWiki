@@ -21,7 +21,7 @@ from ....core.timeutil import now_sql, parse
 from ....core.web import safe_next
 from ... import accounts, auth, settings
 from ...db import db
-from ...i18n import t
+from ...i18n import BUILTIN_LANGUAGES, t
 from ...permissions import ADMIN_ROLES
 from ...registry import emit
 from ...templating import nav_items
@@ -67,7 +67,7 @@ def setup():
                         abort(409)
                     user = accounts.create(username, password, role="owner", emit_event=False,
                                            extra={"onboarding_required": 1, "is_superuser": 1})
-                    settings.update({"interface_language": language if language in ("en", "it") else "en"})
+                    settings.update({"interface_language": language if language in BUILTIN_LANGUAGES else "en"})
                     settings.update({"setup_done": 1}, internal=True)
             except accounts.AccountError as exc:
                 error = t(exc.key, **exc.values)
@@ -76,7 +76,8 @@ def setup():
                 emit("user.created", user=user)
                 auth.start_session(user, method="setup")
                 return redirect(url_for("auth.onboarding"))
-    return render_template("auth/setup.html", error=error, form=request.form)
+    return render_template("auth/setup.html", error=error, form=request.form,
+                           builtin_languages=BUILTIN_LANGUAGES)
 
 
 # ── Sign-in ───────────────────────────────────────────────────────────────────

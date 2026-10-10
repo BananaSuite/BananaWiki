@@ -1,10 +1,13 @@
 """Interface languages: which are enabled, the default, and uploaded language files.
 
 Uploaded files are stored through the catalogue (``write_custom``) in the
-instance directory, never in the source tree. A file for ``en`` or ``it``
-overrides bundled strings; deleting it restores them. Every uploaded string
-must use exactly the ``{placeholders}`` of the English text, so a translation
-can neither drop a value nor ask for one that is not supplied.
+instance directory, never in the source tree. A file for a built-in language
+(``de``, ``en``, ``it``) overrides bundled strings; deleting it restores them,
+even for the default language. A ``de`` file uploaded before German was
+bundled therefore became such an override, and its switch keeps applying.
+Every uploaded string must use exactly the ``{placeholders}`` of the English
+text, so a translation can neither drop a value nor ask for one that is not
+supplied.
 """
 
 from __future__ import annotations

@@ -417,9 +417,10 @@ separate; see [API](api.md).
 
 ## Help centre and legal pages
 
-The portal ships a help centre (`/help`, English and Italian, in
-`bananawiki/hosting/content/`). `/terms`, `/privacy` and `/compliance`
-redirect to `/terms/` and `/privacy/` on the base domain's static website,
-which is served from `/opt/bananawiki/site/` and never touched by updates:
+The portal ships a help centre (`/help`, in English, Italian and German like
+the rest of the portal, in `bananawiki/hosting/content/`). `/terms`,
+`/privacy` and `/compliance` redirect to `/terms/` and `/privacy/` on the
+base domain's static website, which is served from `/opt/bananawiki/site/`
+and never touched by updates:
 put your own legal texts there. The contact address shown to customers is
 `HOSTING_CONTACT_EMAIL`.

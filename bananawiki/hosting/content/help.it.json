@@ -41,7 +41,7 @@
       },
       {
         "heading": "Amministrazione",
-        "html": "<p>L’interfaccia è disponibile in italiano e in inglese, e gli amministratori possono aggiungere un’altra lingua. La modalità EasyWiki, che si sceglie quando crei l’istanza, disattiva le funzioni più avanzate per i gruppi a cui servono solo le pagine. Ogni membro può avviare un tour guidato dalle impostazioni, e gli amministratori possono mostrarlo a chiunque entri nella wiki.</p><p>L’<strong>API Service</strong> dà accesso agli script tramite token limitati alle aree scelte. <strong>Custom Pages</strong> pubblica contenuti a un indirizzo a tua scelta. Ogni membro può scaricare i propri dati dalla pagina Impostazioni, e la <a href=\"/help/exports-backups\">migrazione del sito</a> esporta l’intera wiki in un unico archivio.</p>"
+        "html": "<p>L’interfaccia è disponibile in italiano, inglese e tedesco, e gli amministratori possono aggiungere un’altra lingua. La modalità EasyWiki, che si sceglie quando crei l’istanza, disattiva le funzioni più avanzate per i gruppi a cui servono solo le pagine. Ogni membro può avviare un tour guidato dalle impostazioni, e gli amministratori possono mostrarlo a chiunque entri nella wiki.</p><p>L’<strong>API Service</strong> dà accesso agli script tramite token limitati alle aree scelte. <strong>Custom Pages</strong> pubblica contenuti a un indirizzo a tua scelta. Ogni membro può scaricare i propri dati dalla pagina Impostazioni, e la <a href=\"/help/exports-backups\">migrazione del sito</a> esporta l’intera wiki in un unico archivio.</p>"
       },
       {
         "heading": "Attivo fin dall’inizio",

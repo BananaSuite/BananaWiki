@@ -123,6 +123,22 @@ Already on 1.6.0? These changes of the latest build need attention (details in
   and routing errors under `/api/v1` carry `code` and `request_id`.
 * The default source link (`BW_SOURCE_URL`) and the default repository of
   new managed installations are now `https://github.com/BananaSuite/BananaWiki`.
+* German is a built-in interface language and is switched on in every wiki
+  after the update: it appears in the language menus, and signed-out
+  visitors whose browser prefers German get it. To hide it, switch it off under
+  **Admin → Languages** (choose another default language first if German is
+  the default). A `de` file uploaded earlier (or moved from a 1.4
+  `translations/` folder) stays in `<instance>/translations/` and now
+  overrides the bundled German: its strings win, the strings it lacks come
+  from the bundled German instead of English, and the on/off switch saved
+  with it still applies. **Remove changes** on the same page deletes the
+  file and keeps the bundled German, also when German is the default.
+  Read aloud does not follow the interface language: pages are read in their
+  detected language among the read-aloud languages (English and Italian unless
+  changed), so German pages are read with the English or Italian voice until
+  German is ticked under **Admin → Read aloud** (voice
+  `de_DE-thorsten-medium`, downloaded on first use); detecting German pages
+  automatically also needs `langdetect`.
 
 Hosted third-party Python plugins now require `HOSTING_ALLOW_TENANT_PLUGINS=1`
 in the operator's hosting environment. The default is disabled; existing

@@ -12,7 +12,7 @@ Use **Admin -> Users** to create accounts, reset passwords, change roles, suspen
 
 ## Documentation lifecycle
 
-The built-in documentation can be spawned as a BananaWiki category. You can choose full or simplified docs, and English or Italian. Downloading the docs as a ZIP gives you Markdown files that can be edited locally and re-imported with Bulk Markdown Import.
+The built-in documentation can be spawned as a BananaWiki category. You can choose full or simplified docs, and English, Italian or German. Downloading the docs as a ZIP gives you Markdown files that can be edited locally and re-imported with Bulk Markdown Import.
 
 ## Content operations
 

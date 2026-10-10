@@ -30,6 +30,9 @@ from .config import REPO_ROOT, Config
 
 log = logging.getLogger("bananawiki.takeover")
 
+# The languages 1.4 shipped in its translations/ folder. Any other file there was
+# uploaded (a de.json too: 1.4 had no German) and moves to the instance
+# directory; for a language bundled now, it overrides the bundled strings.
 _BUNDLED_LANGUAGES = {"en.json", "it.json"}
 
 

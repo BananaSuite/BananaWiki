@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 from pathlib import Path
 
 from bananawiki.wiki import i18n
@@ -88,7 +89,8 @@ def test_toggle_default_and_delete(app, admin_client, db):
 
 
 def test_the_last_language_stays_enabled(admin_client, db):
-    admin_client.post("/admin/interface-languages/it/toggle", data={"enabled": "0"})
+    for code in sorted(set(i18n.BUILTIN_LANGUAGES) - {"en"}):
+        admin_client.post(f"/admin/interface-languages/{code}/toggle", data={"enabled": "0"})
     admin_client.post("/admin/interface-languages/en/toggle", data={"enabled": "0"})
     assert switches(db).get("en", {"enabled": True})["enabled"] is True
 
@@ -97,7 +99,7 @@ def test_legacy_format_is_understood(app, admin_client, db):
     upload(admin_client, pack())
     db.execute("UPDATE site_settings SET interface_languages_json = ? WHERE id = 1",
                (json.dumps({"fr": {"name": "Français", "enabled": False}}),))
-    assert set(enabled(app)) == {"en", "it"}
+    assert "fr" not in enabled(app) and {"en", "it"} <= set(enabled(app))
 
 
 def test_builtin_override_and_download(app, admin_client):
@@ -108,3 +110,99 @@ def test_builtin_override_and_download(app, admin_client):
     admin_client.post("/admin/interface-languages/it/delete-file")
     assert json.loads(admin_client.get("/admin/interface-languages/it/download").data)["common.save"] != "Salva adesso"
     assert admin_client.get("/admin/interface-languages/xx/download").status_code == 404
+
+
+def test_every_builtin_language_can_be_the_documentation_language(admin_client, db):
+    from bananawiki.wiki.features.api_service import settings_rules
+
+    for code in i18n.BUILTIN_LANGUAGES:
+        admin_client.post("/admin/interface-languages/default",
+                          data={"interface_language": "en", "interface_language_fallback": code})
+        assert db.scalar("SELECT interface_language_fallback FROM site_settings") == code
+        assert settings_rules.RULES["interface_language_fallback"].parse(f" {code.upper()} ") == code
+
+
+# ── German, built in ──────────────────────────────────────────────────────────
+
+GERMAN_PACK = {"_meta": {"code": "de", "name": "Deutsch (Schule)", "author": "Ana"},
+               "common.save": "Jetzt speichern"}
+
+
+def german_uploaded_before_the_upgrade(admin_client, db, *, enabled: bool = True):
+    """What uploading "de" left when German was not bundled: its file and a switch for it."""
+    upload(admin_client, GERMAN_PACK, name="de.json")
+    db.execute("UPDATE site_settings SET interface_languages_json = ? WHERE id = 1",
+               (json.dumps({"de": {"name": "Deutsch (Schule)", "enabled": enabled}}),))
+
+
+def rows(app):
+    from bananawiki.wiki.db import connection_scope
+    from bananawiki.wiki.features.site_admin import languages
+
+    with app.test_request_context(), connection_scope():
+        return {row["code"]: row for row in languages.overview()}
+
+
+def html_lang(client, path, **headers):
+    page = client.get(path, headers=headers).get_data(as_text=True)
+    return re.search(r'<html lang="([a-z-]+)"', page).group(1)
+
+
+def test_german_is_built_in_enabled_by_default_and_can_be_switched_off(app, admin_client, db):
+    visitor = app.test_client()
+    assert "de" in enabled(app) and "de" not in switches(db)
+    assert rows(app)["de"]["builtin"] and not rows(app)["de"]["custom_file"]
+    assert html_lang(app.test_client(), "/login", **{"Accept-Language": "de-CH, de;q=0.9, en;q=0.5"}) == "de"
+    assert html_lang(visitor, "/login?lang=de") == html_lang(visitor, "/login") == "de"  # the choice is kept
+    admin_client.post("/admin/interface-languages/de/toggle", data={"enabled": "0"})
+    assert switches(db)["de"]["enabled"] is False and "de" not in enabled(app)
+    assert html_lang(visitor, "/login?lang=de") == "en"
+    assert html_lang(app.test_client(), "/login", **{"Accept-Language": "de"}) == "en"
+
+
+def test_a_wildcard_accept_language_gets_the_site_default(app, db):
+    assert html_lang(app.test_client(), "/login", **{"Accept-Language": "*"}) == "en"
+    db.execute("UPDATE site_settings SET interface_language = 'it' WHERE id = 1")
+    assert html_lang(app.test_client(), "/login", **{"Accept-Language": "*"}) == "it"
+    assert html_lang(app.test_client(), "/login", **{"Accept-Language": "en, *;q=0.1"}) == "en"
+
+
+def test_german_uploaded_before_the_upgrade_overrides_the_bundled_one(app, admin_client, db):
+    from bananawiki.core.i18n import Catalog
+
+    german_pack_path = Path(app.config["BW"].instance_dir) / "translations" / "de.json"
+    german_uploaded_before_the_upgrade(admin_client, db)
+    with app.test_request_context():
+        bundled = Catalog(i18n.catalog().bundled_dirs).strings("de")
+    assert bundled and german_pack_path.is_file()
+    row = rows(app)["de"]
+    assert row["builtin"] and row["custom_file"] and row["enabled"] and row["name"] == "Deutsch (Schule)"
+    admin_client.post("/admin/interface-languages/default",
+                      data={"interface_language": "de", "interface_language_fallback": "de"})
+    assert db.scalar("SELECT interface_language FROM site_settings") == "de"
+    assert "Jetzt speichern" in admin_client.get("/admin/interface-languages").get_data(as_text=True)
+    with app.test_request_context():
+        merged = i18n.catalog().strings("de")
+    assert merged["common.save"] == "Jetzt speichern"
+    assert all(merged[key] == text for key, text in bundled.items() if key not in GERMAN_PACK)
+    # Removing the upload, even for the default language, leaves the bundled German and its switch.
+    admin_client.post("/admin/interface-languages/de/delete-file")
+    assert not german_pack_path.exists()
+    assert db.scalar("SELECT interface_language FROM site_settings") == "de"
+    assert switches(db)["de"]["enabled"] is True and "de" in enabled(app)
+    assert rows(app)["de"]["name"] == "Deutsch" and not rows(app)["de"]["custom_file"]
+    with app.test_request_context():
+        assert i18n.catalog().strings("de")["common.save"] == bundled["common.save"] != "Jetzt speichern"
+
+
+def test_a_switch_saved_for_an_uploaded_german_still_applies(app, admin_client, db):
+    german_uploaded_before_the_upgrade(admin_client, db, enabled=False)
+    assert "de" not in enabled(app)  # switched off before the upgrade, so it stays off
+    admin_client.post("/admin/interface-languages/de/toggle", data={"enabled": "1"})
+    assert switches(db)["de"] == {"name": "Deutsch (Schule)", "enabled": True} and "de" in enabled(app)
+
+
+def test_uploading_german_now_adds_an_override_without_a_switch(app, admin_client, db):
+    upload(admin_client, GERMAN_PACK, name="de.json")
+    assert "de" not in switches(db) and "de" in enabled(app)
+    assert "Jetzt speichern" in admin_client.get("/admin/interface-languages?lang=de").get_data(as_text=True)

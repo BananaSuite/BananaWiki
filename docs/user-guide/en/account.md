@@ -20,8 +20,9 @@ out. **Reset** returns to the site's defaults.
 
 ## Language
 
-Choose the interface language from the account menu or in Settings. Pages
-themselves are not translated.
+Choose the interface language from the account menu or in Settings: English,
+Italian, German and any language the administrators added, as long as they
+have not switched it off. Pages themselves are not translated.
 
 ## Password and user name
 
