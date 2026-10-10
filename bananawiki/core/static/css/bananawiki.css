@@ -82,7 +82,9 @@
   animation: none !important; transition: none !important; scroll-behavior: auto !important;
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  /* One run, not a loop: an infinite animation shortened to .01ms would flicker on every frame. */
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; }
 }
 
 /* ── Base ───────────────────────────────────────────────────────────────── */
