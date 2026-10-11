@@ -332,6 +332,18 @@ used, so bookmarks and links in page content keep working.
   `data-autosubmit`, `data-toggle-target`, `data-print`).
 * Build user-supplied text into the DOM with `textContent`, never
   `innerHTML`.
+* Content keeps ids on its headings (`## Share dialog` gets
+  `id="share-dialog"`, and a raw `<h2 id="…">` keeps its own), and it often
+  comes before a page's controls, so whatever looks an element up by its id
+  alone finds the heading first. Scripts find their elements by tag
+  (`document.querySelector("dialog#…")`: content makes no dialogs, forms or
+  divs with ids), by a `data-` attribute or inside their own container, and
+  never with `getElementById`; a run-once mark goes on `BW`, not on `window`
+  (where an element's id already answers). A label after content holds its
+  control rather than naming it with `for=`, and a landmark after content is
+  named with `aria-label`. Headings never take the ids the interface links to
+  (`markdown.RESERVED_IDS`). `tests/features/test_content_ids.py` checks the
+  scripts.
 * Use the design-system classes in `bananawiki/core/static/css/bananawiki.css`
   (`btn`, `card`, `field`, `form-section`, `table`, `alert`, `badge`, `tabs`,
   `menu`, …) and its colour and control tokens. Both applications serve this

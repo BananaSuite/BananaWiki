@@ -36,6 +36,11 @@ instead of silently overwriting their work.
 | `| a | b |` rows | table |
 | `@name` | a link to that person's profile |
 
+Each heading can be linked to: the contents list shows its link (the address
+of the page, `#` and the heading's text in lower case with hyphens, such as
+`#first-steps`). A heading called Main, Sidebar or Attachments gets `_1`
+(`#main_1`): those names belong to parts of the page itself.
+
 On a line of their own:
 
 * a YouTube or Vimeo address becomes a video player; `[[video url="…"]]`
@@ -79,4 +84,6 @@ entries, or credit an entry to someone else.
 Some wikis let you build a page from visual blocks (headings, text, images,
 buttons, columns, videos) instead of writing Markdown. If your wiki has it,
 the page offers the builder next to **Edit**. The page keeps a Markdown copy,
-so search and history still work.
+so search and history still work. A **Heading** block called Main, Sidebar or
+Attachments gets `-2` in its link (`#main-2`), for the same reason as a
+Markdown heading gets `_1`.

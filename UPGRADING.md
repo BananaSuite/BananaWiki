@@ -591,6 +591,13 @@ A 1.6 release refuses these newer databases; see
   margins, `vw`/`vh` units, `calc()`, `var()`, `!important`, or lengths above
   4000px, 100% or 250em loses those declarations when rendered. Ordinary
   layout styles are kept.
+* **Heading anchors:** a heading called Main, Sidebar or Attachments now has
+  the anchor `#main_1`, `#sidebar_1` or `#attachments_1` (a page builder
+  **Heading** block: `#main-2` and so on), because those names belong to the
+  skip link, the menu and the attachments panel. A saved link ending in
+  `#attachments` that meant such a heading now reaches the attachments panel;
+  links to `#main` and `#sidebar` never reached the heading. Other anchors
+  are unchanged. Headings in the announcement bar have no anchor.
 * **Kanban:** deleting an account no longer deletes its tickets and comments
   on other people's boards: they go to the board owner (comments start with a
   note naming the former author), its own boards go to an administrator, and
