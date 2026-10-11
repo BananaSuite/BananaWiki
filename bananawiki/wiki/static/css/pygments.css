@@ -6,7 +6,7 @@
 .codehilite .err { color: inherit; background: none; }
 
 /* Dark theme (default) */
-.codehilite :is(.c, .c1, .cm, .ch, .cp, .cpf, .cs, .sd) { color: #7f848e; font-style: italic; }
+.codehilite :is(.c, .c1, .cm, .ch, .cp, .cpf, .cs, .sd) { color: #8a8f99; font-style: italic; }
 .codehilite :is(.k, .kc, .kd, .kn, .kp, .kr, .kt, .ow) { color: #c678dd; }
 .codehilite :is(.nb, .bp) { color: #e5c07b; }
 .codehilite :is(.nf, .fm) { color: #61afef; }

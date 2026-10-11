@@ -2,9 +2,14 @@
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('profiles.admin.profile_title', user=target.username) }}{% endblock %}
 {% block admin_content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('admin.users') }}">{{ t('admin.users.title') }}</a></li>
+  <li><a href="{{ url_for('admin.user_detail', user_id=target.id) }}">{{ target.username }}</a></li>
+  <li aria-current="page">{{ t('profiles.admin.crumb') }}</li>
+</ol></nav>
 <header class="page-header">
   <h1>{{ t('profiles.admin.profile_title', user=target.username) }}</h1>
-  <div class="page-header__actions"><a class="btn" href="{{ url_for('users.profile', username=target.username) }}">{{ t('profiles.admin.view_profile') }}</a></div>
+  <div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('users.profile', username=target.username) }}">{{ t('profiles.admin.view_profile') }}</a></div>
 </header>
 <div class="section-stack">
 <section class="card">
@@ -19,7 +24,8 @@
     {% if not profile.page_disabled_by_admin %}
       {% if profile.page_published %}<button class="btn" name="action" value="unpublish_profile">{{ t('profiles.admin.unpublish') }}</button>
       {% else %}<button class="btn" name="action" value="publish_profile">{{ t('profiles.admin.publish') }}</button>{% endif %}
-      <button class="btn btn--danger" name="action" value="disable_profile" data-confirm="{{ t('profiles.admin.disable_confirm') }}">{{ t('profiles.admin.disable') }}</button>
+      {#- Only deleting is a filled danger button; disabling can be undone. -#}
+      <button class="btn text-danger" name="action" value="disable_profile" data-confirm="{{ t('profiles.admin.disable_confirm') }}">{{ t('profiles.admin.disable') }}</button>
     {% else %}
       <button class="btn" name="action" value="enable_profile">{{ t('profiles.admin.enable') }}</button>
     {% endif %}
@@ -32,7 +38,7 @@
   <form method="post" enctype="multipart/form-data" class="form">
     {{ forms.csrf() }}
     {{ forms.field('real_name', t('users.profile_edit.real_name'), profile.real_name, attrs={'maxlength': 100}) }}
-    {{ forms.textarea('bio', t('users.profile_edit.bio'), profile.bio, rows=4) }}
+    {{ forms.textarea('bio', t('users.profile_edit.bio_admin'), profile.bio, rows=4) }}
     {{ forms.field('birth_date', t('users.profile_edit.birth_date'), profile.birth_date, type='date') }}
     <div class="field">
       <label for="f-avatar">{{ t('users.profile_edit.avatar') }}</label>
@@ -42,9 +48,10 @@
     <div class="btn-row">
       <button class="btn btn--primary" name="action" value="edit_profile">{{ t('common.save') }}</button>
       {% if avatar_url %}<button class="btn" name="action" value="remove_avatar">{{ t('users.profile_edit.remove_avatar') }}</button>{% endif %}
-      <a class="btn" href="{{ url_for('user_profiles.admin_fields', user_id=target.id) }}">{{ t('profiles.edit_fields') }}</a>
     </div>
   </form>
+  {#- A link to another page, not a second action of this form (it would drop unsaved edits). -#}
+  <p class="users-spaced"><a class="text-link" href="{{ url_for('user_profiles.admin_fields', user_id=target.id) }}">{{ t('profiles.edit_fields') }}</a></p>
 </section>
 
 <section class="card">
@@ -72,11 +79,16 @@
   {% endif %}
   <form method="post" action="{{ url_for('user_profiles.admin_tags', user_id=target.id) }}" class="inline-fields users-spaced">
     {{ forms.csrf() }}
-    <label for="new-tag-label">{{ t('profiles.tags.label') }}</label>
-    <input id="new-tag-label" name="tag_label" maxlength="50" required>
-    <label for="new-tag-color">{{ t('profiles.tags.color') }}</label>
-    <input id="new-tag-color" type="color" name="tag_color" value="#9b59b6">
-    <button class="btn btn--primary btn--small" name="action" value="add_tag">{{ t('profiles.tags.add') }}</button>
+    {#- Labels above their controls, like the other forms; the colour picker keeps its own size. -#}
+    <div class="field">
+      <label for="new-tag-label">{{ t('profiles.tags.label') }}</label>
+      <input id="new-tag-label" name="tag_label" maxlength="50" required>
+    </div>
+    <div class="field field--color">
+      <label for="new-tag-color">{{ t('profiles.tags.color') }}</label>
+      <input id="new-tag-color" type="color" name="tag_color" value="#9b59b6">
+    </div>
+    <button class="btn btn--primary" name="action" value="add_tag">{{ t('profiles.tags.add') }}</button>
   </form>
 </section>
 </div>

@@ -29,7 +29,7 @@ dependencies = [
     "itsdangerous>=2.2,<3",
     "Markdown>=3.6,<4",
     "Pygments>=2.18,<3",
-    "nh3>=0.2.18,<0.4",
+    "nh3>=0.3.7,<0.4",
     "Pillow>=12.3,<13",
     "cryptography>=50.0.1,<51",
     "filelock>=3.13,<5",
@@ -69,6 +69,7 @@ version = { attr = "bananawiki.__version__" }
 include = ["bananawiki*", "bananawiki_sdk*"]
 
 [tool.setuptools.package-data]
+"bananawiki.core" = ["data/*"]
 "bananawiki.ops" = ["seccomp/*"]
 "bananawiki.wiki.features.auth" = ["builtin_docs/**/*.md"]
 "bananawiki.wiki.features.plugin_manager" = ["PLUGINS.md", "examples/**/*"]

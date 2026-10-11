@@ -23,7 +23,6 @@ from flask import (
     render_template,
     request,
     send_from_directory,
-    session,
     url_for,
 )
 from flask.sessions import SecureCookieSession, SecureCookieSessionInterface
@@ -33,7 +32,7 @@ from werkzeug.exceptions import BadRequest, HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .. import __version__
-from ..core import web
+from ..core import logformat, web
 from ..core.assets import SharedAssetsFlask
 from ..core.i18n import Catalog
 from ..core.json import SafeJSONProvider
@@ -207,7 +206,7 @@ def _configure_logging(cfg: Config) -> None:
     level = {"off": logging.CRITICAL + 1, "minimal": logging.WARNING, "medium": logging.INFO,
              "verbose": logging.INFO, "debug": logging.DEBUG}[cfg.log_level]
     root.setLevel(level)
-    formatter = logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
+    formatter = logformat.formatter(cfg.log_format)
     stream = logging.StreamHandler()
     stream.setFormatter(formatter)
     root.addHandler(stream)
@@ -272,7 +271,10 @@ def create_app(config: Config | None = None, **overrides: Any) -> Flask:
         SESSION_COOKIE_NAME=cfg.session_cookie_name,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
-        PERMANENT_SESSION_LIFETIME=timedelta(days=cfg.session_days),
+        # Flask checks every session cookie's signature against this age; "remember
+        # me" cookies last remember_me_days, and the server-side row decides when
+        # any session really ends (auth.load_request_user).
+        PERMANENT_SESSION_LIFETIME=timedelta(days=max(cfg.session_days, cfg.remember_me_days)),
         MAX_CONTENT_LENGTH=max(cfg.max_content_length, cfg.max_attachment_size, cfg.max_custom_page_video_size,
                                cfg.max_import_size if not cfg.managed_hosting else 0),
         MAX_FORM_MEMORY_SIZE=2 * 1024 * 1024,
@@ -396,7 +398,7 @@ def _install_request_pipeline(app: Flask, cfg: Config) -> None:
         access = auth.view_access(view)
 
         limiter: MemoryLimiter = app.extensions["bananawiki.limiter"]
-        if not limiter.hit(f"g:{web.client_ip()}", GLOBAL_RATE_LIMIT, 60):
+        if not limiter.hit(f"g:{web.client_network()}", GLOBAL_RATE_LIMIT, 60):
             return _too_many_requests()
 
         if bearer_request():
@@ -454,7 +456,8 @@ def _pending_account_step(user: dict[str, Any]) -> str | None:
         return "auth.force_password_change"
     if user.get("onboarding_required"):
         return "auth.onboarding"
-    return None
+    # Steps features add, such as two-step verification required of administrators.
+    return registry.intercept("account.pending_step", user=user)
 
 
 def _too_many_requests():
@@ -587,10 +590,6 @@ def _install_error_handlers(app: Flask) -> None:
             return render_template("errors/error.html", code=code, description=message), code
         except Exception:  # noqa: BLE001
             return Response(message, status=code, mimetype="text/plain")
-
-
-def session_language() -> str | None:
-    return session.get("interface_language")
 
 
 __all__ = ["create_app", "open_database", "i18n"]

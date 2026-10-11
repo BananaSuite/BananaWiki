@@ -1,0 +1,6 @@
+{#- Slot admin.user_detail: the account is temporary and will be deleted on a date. -#}
+<section class="card" aria-labelledby="temporary-account-heading">
+  <h2 id="temporary-account-heading">{{ t('temporary_accounts.admin_user.title') }}</h2>
+  <p>{{ t('temporary_accounts.admin_user.deleted_on', date=schedule.expires_at|datetime) }}</p>
+  <p><a class="btn" href="{{ url_for('temporary_accounts.overview') }}">{{ t('temporary_accounts.admin_user.manage') }}</a></p>
+</section>

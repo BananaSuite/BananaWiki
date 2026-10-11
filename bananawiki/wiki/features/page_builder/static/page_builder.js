@@ -210,6 +210,35 @@
     return button;
   }
 
+  // Duplicate and copy use drawn icons: their Unicode symbols (⧉, ⎘) are missing from many fonts.
+  var ICONS = {
+    duplicate: ["M5.5 5.5h7v7h-7z", "M3.5 10.5v-7h7"],
+    copy: ["M5 3.5h6v1.5H5z", "M4.5 4.5H3.5v9h9v-9h-1", "M6 8.5h4M6 11h4"]
+  };
+  function iconButton(action, label, name) {
+    var button = smallButton(action, label, "··");
+    button.textContent = "";
+    var ns = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("width", "16");
+    svg.setAttribute("height", "16");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("class", "icon");
+    ICONS[name].forEach(function (d) {
+      var path = document.createElementNS(ns, "path");
+      path.setAttribute("d", d);
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", "currentColor");
+      path.setAttribute("stroke-width", "1.3");
+      path.setAttribute("stroke-linejoin", "round");
+      path.setAttribute("stroke-linecap", "round");
+      svg.appendChild(path);
+    });
+    button.appendChild(svg);
+    return button;
+  }
+
   function imageField(block, path, altPath, label) {
     var box = el("div", "builder-image-upload");
     var url = get(block, path);
@@ -514,8 +543,8 @@
       var toggle = smallButton("collapse", tr(isCollapsed ? "action.expand" : "action.collapse"), isCollapsed ? "▸" : "▾");
       toggle.setAttribute("aria-expanded", String(!isCollapsed));
       actions.appendChild(toggle);
-      actions.appendChild(smallButton("duplicate", tr("action.duplicate"), "⧉"));
-      actions.appendChild(smallButton("copy", tr("action.copy"), "⎘"));
+      actions.appendChild(iconButton("duplicate", tr("action.duplicate"), "duplicate"));
+      actions.appendChild(iconButton("copy", tr("action.copy"), "copy"));
       actions.appendChild(smallButton("up", tr("action.up"), "↑"));
       actions.appendChild(smallButton("down", tr("action.down"), "↓"));
       actions.appendChild(smallButton("remove", tr("action.remove"), "×"));

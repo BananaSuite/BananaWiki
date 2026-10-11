@@ -20,14 +20,16 @@ def list_own_tokens():
 @requires("tokens", write=True)
 @secret_response
 def create_token():
-    """Issue a token that can never exceed the calling token (scopes, flags, expiry)."""
+    """Issue a token that can never exceed the calling token (scopes, flags, expiry) and dies with it."""
     data = json_body()
     user = caller()
     name = text(data.get("name"), "name", maximum=tokens.MAX_NAME)
+    tokens.check_name(name)
     permissions = data.get("permissions", {"read": True, "write": False, "scopes": ["pages"]})
     grant, expires_at = tokens.child_grant(caller_token(), user, permissions, data.get("expires_at"))
     tokens.check_quota(user["id"])
-    raw, token_id = tokens.create(user["id"], name=name, grant=grant, expires_at=expires_at)
+    raw, token_id = tokens.create(user["id"], name=name, grant=grant, expires_at=expires_at,
+                                  parent_id=caller_token()["id"])
     return ok(201, token=raw, id=token_id, permissions=grant.as_dict(), expires_at=serialize.iso(expires_at))
 
 

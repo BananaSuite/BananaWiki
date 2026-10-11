@@ -14,7 +14,10 @@
   var el = K.el;
 
   function showCount() {
-    if (badge) badge.textContent = String(K.state.archived_count || 0);
+    if (badge) {
+      badge.textContent = String(K.state.archived_count || 0);
+      badge.hidden = !K.state.archived_count;  // no "0" chip on a board with nothing archived
+    }
   }
 
   function button(text, label, className) {

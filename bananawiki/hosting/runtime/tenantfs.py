@@ -15,6 +15,7 @@ with the asset folders under ``storage/<name>`` and relative
 from __future__ import annotations
 
 import errno
+import logging
 import os
 import re
 import shutil
@@ -24,7 +25,10 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import BinaryIO
 
+from ...core.logformat import one_line
 from . import RuntimeFailure
+
+log = logging.getLogger("bananawiki.hosting.runtime")
 
 ASSET_FOLDERS = ("uploads", "attachments", "chat_attachments", "kanban_attachments", "custom_page_files")
 DATA_DIR_NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:__apex)?")
@@ -36,6 +40,9 @@ SHORT_READ_DELAYS = (0.05, 0.1, 0.2)
 _NOFOLLOW = os.O_NOFOLLOW | os.O_CLOEXEC
 _FILE_FLAGS = os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | _NOFOLLOW
+# ``os.fwalk`` holds a descriptor per level and a tenant can nest folders
+# past the portal's open-file limit; walks stop this many levels down.
+MAX_DEPTH = 64
 
 
 def _failure(error: OSError, what: str) -> RuntimeFailure:
@@ -96,13 +103,17 @@ def iter_files(dir_fd: int, *, skip_dirs: frozenset[str] = frozenset(), skip_hid
 
     ``os.fwalk`` does not enter linked directories, and files are opened
     relative to their directory's descriptor; links and special files are
-    skipped silently. The top-level folders named in *first* are walked
-    before the others, in that order (otherwise the order is the file
-    system's).
+    skipped silently, folders below :data:`MAX_DEPTH` with a warning. The
+    top-level folders named in *first* are walked before the others, in that
+    order (otherwise the order is the file system's).
     """
     for dirpath, dirnames, filenames, walk_fd in os.fwalk(".", dir_fd=dir_fd, follow_symlinks=False):
         dirnames[:] = [name for name in dirnames
                        if name not in skip_dirs and not (skip_hidden and name.startswith("."))]
+        if dirnames and dirpath.count("/") >= MAX_DEPTH:
+            log.warning("Skipping folders nested more than %d levels deep below %s", MAX_DEPTH,
+                        one_line(dirpath[:200]))
+            dirnames.clear()
         if first and dirpath == ".":
             # os.fwalk enters the folders in the order this list has once the loop body resumes it.
             dirnames.sort(key=lambda name: first.index(name) if name in first else len(first))
@@ -500,9 +511,11 @@ def usage(root: Path, *, deadline_seconds: float = 10.0) -> int:
         return 0
     walk = os.fwalk(".", dir_fd=root_fd, follow_symlinks=False)
     try:
-        for _dirpath, _dirnames, filenames, walk_fd in walk:
+        for dirpath, dirnames, filenames, walk_fd in walk:
             if time.monotonic() >= deadline:
                 break
+            if dirpath.count("/") >= MAX_DEPTH:
+                dirnames.clear()
             for name in filenames:
                 if time.monotonic() >= deadline:
                     return total
@@ -512,6 +525,8 @@ def usage(root: Path, *, deadline_seconds: float = 10.0) -> int:
                     continue
                 if stat.S_ISREG(info.st_mode):
                     total += info.st_size
+    except OSError:
+        pass  # what was counted so far: a hostile tree must not fail the caller
     finally:
         walk.close()
         os.close(root_fd)

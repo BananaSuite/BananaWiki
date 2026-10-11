@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from flask import Blueprint, abort, jsonify, make_response, redirect, render_template, request, url_for
 
+from bananawiki.core.numbers import ascii_int
+
 from ... import auth
 from ...db import db
 from ..pages import categories, service
@@ -63,7 +65,7 @@ def admin():
         try:
             store.pair(request.form.get("wiki_id", "").strip(), request.form.get("name", ""),
                        request.form.get("base_url", "").strip(), request.form.get("secret", "").strip(),
-                       category=int(raw_category) if raw_category.isdigit() else None,
+                       category=ascii_int(raw_category),
                        allow_private=bool(request.form.get("allow_private_network")))
         except ProtocolError as error:
             auth.flash_t(error.key, "error")
@@ -103,8 +105,8 @@ def sharing():
     if request.method == "POST":
         peer_id = request.form.get("peer_id", "")
         if request.form.get("action") == "unshare":
-            page_id = request.form.get("page_id", "")
-            if page_id.isdigit() and store.unshare(peer_id, int(page_id), user):
+            page_id = ascii_int(request.form.get("page_id", ""))
+            if page_id is not None and store.unshare(peer_id, page_id, user):
                 auth.flash_t("federation.flash.unshared", "success")
             else:
                 auth.flash_t("federation.error.share_missing", "error")

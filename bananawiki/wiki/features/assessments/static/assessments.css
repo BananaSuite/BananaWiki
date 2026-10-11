@@ -1,7 +1,14 @@
 /* Assessments: quiz pages and the question editor. */
 .assessment-text { white-space: pre-line; overflow-wrap: anywhere; }
-.assessment-question { display: grid; gap: .45rem; }
-.assessment-question legend { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.assessment-question { display: grid; gap: .45rem; background: var(--surface); }
+/* The legend sits inside the box (floated), so a question that wraps never straddles the border. */
+.assessment-question legend { float: left; width: 100%; padding: 0; margin-bottom: .2rem; display: flex; flex-wrap: wrap;
+  gap: .35rem .5rem; align-items: baseline; font-weight: 600; }
+.assessment-question legend + * { clear: both; }
+.assessment-panel { margin-bottom: 1.5rem; }
+.assessment-attempts { margin-bottom: 1.25rem; }
+.assessment-score { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.5rem; width: fit-content; max-width: 100%; margin-bottom: 1rem; }
+.assessment-score .hint { max-width: 40ch; }
 .assessment-question--missing { border-color: var(--danger); }
 .assessment-answers { list-style: none; padding: 0; margin: 1rem 0; }
 .assessment-answers p { margin: 0 0 .35rem; }

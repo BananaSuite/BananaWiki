@@ -35,7 +35,7 @@ WRITABLE = frozenset({
     "approval_notify_daily_hour", "platform_oauth_enabled", "allow_owner_delete_expired",
     "allow_owner_download_expired", "email_flag_block_reentry", "instance_url_suffix", "instance_suffix_disabled",
     "api_enabled", "gdrive_backup_enabled", "gdrive_credentials_path", "gdrive_folder_id",
-    "gdrive_retention_days", "gdrive_backup_time", "admin_mfa_required",
+    "gdrive_retention_days", "gdrive_backup_time", "admin_mfa_required", "owner_renewal_enabled",
 })
 
 

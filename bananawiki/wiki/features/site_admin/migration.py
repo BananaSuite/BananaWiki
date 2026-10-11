@@ -19,17 +19,25 @@ Safety (1.4 audit C2)
 ---------------------
 An import only ever writes the database and the data folders above. Code
 (``config.py``, plugins), the secret key and anything else in the archive is
-ignored. Archives with encrypted members, or members compressed with anything
-but store or deflate, are refused before any member is read. Nothing changes
+ignored. Archives with encrypted or patched members, or members compressed
+with anything but store or deflate, are refused before any member is read, as
+in every import (:mod:`bananawiki.core.zipcheck`). Nothing changes
 until the whole archive has been unpacked into a
 staging folder and the database has passed an integrity check, carries the
 BananaWiki application id and a schema version this release can upgrade,
 upgrades cleanly, and contains a finished setup, an administrator and a home
-page. The live database is then replaced through SQLite's backup API (safe
-with other workers' open connections) while maintenance mode is on, after a
-copy of the current database and files was put aside in
-``<instance>/backups/pre-import-<time>/``. Any failure restores that copy.
-Login sessions never travel in either direction.
+page. Triggers and views that a new database of this release would not have
+(or has with other definitions) are dropped, and this release's own are put
+back: SQL in an archive never runs here. The live database is then replaced
+through SQLite's backup API (safe with other workers' open connections)
+while maintenance mode is on, after a copy of the current database and files
+was put aside in ``<instance>/backups/pre-import-<time>/``. Any failure
+restores that copy. Login sessions never travel in either direction; the
+live audit log is appended to the archive's (without the entries the archive
+already holds), so an import never erases it. Two-step verification set up
+under another secret key cannot be checked here and is turned off for those
+accounts, with a notice and an audit entry, instead of locking them out.
+Only owners and superusers export or import (see :mod:`.routes_migration`).
 """
 
 from __future__ import annotations
@@ -47,6 +55,7 @@ import zipfile
 from base64 import b64decode
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -66,6 +75,7 @@ from ....core.sqlite import (
     schema_version,
     table_exists,
 )
+from ....core.zipcheck import readable_member
 from ... import migrations, settings, storage
 from ...i18n import catalog
 from . import languages
@@ -87,13 +97,6 @@ STALE_SECONDS = 24 * 3600
 # Tables never carried over: live credentials and regenerable or per-process state.
 VOLATILE_TABLES = ("user_sessions", "job_runs", "tts_generations", "rate_limit_hits", "api_service__idempotency")
 _STORED_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "gif", "webp", "zip", "gz", "mp3", "mp4", "webm", "ogg", "m4a"})
-# zipfile bounds each read of a deflated member; older Python releases hand
-# bzip2 and LZMA data to decompressors without an output limit, so a few
-# hundred bytes expand to gigabytes in memory before any size check sees them.
-# Exports only ever contain stored and deflated members.
-READABLE_COMPRESSION = frozenset({zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED})
-# Encrypted (bit 0), compressed patched data (bit 5) and strong encryption (bit 6).
-_UNREADABLE_FLAGS = 0x61
 
 
 class MigrationError(ValueError):
@@ -209,6 +212,8 @@ class Staged:
     languages: list[Path] = field(default_factory=list)
     skipped_members: int = 0
     skipped_languages: int = 0
+    # Accounts whose two-step verification the import turns off (set up under another secret key).
+    two_step_off: list[str] = field(default_factory=list)
 
     def discard(self) -> None:
         shutil.rmtree(self.workdir, ignore_errors=True)
@@ -218,7 +223,7 @@ def _check_members(archive: zipfile.ZipFile, archive_size: int) -> list[zipfile.
     members = [info for info in archive.infolist() if not info.is_dir()]
     if len(members) > MAX_MEMBERS:
         raise MigrationError("site_admin.migration.error.too_many_files", limit=MAX_MEMBERS)
-    if any(info.compress_type not in READABLE_COMPRESSION or info.flag_bits & _UNREADABLE_FLAGS for info in members):
+    if not all(readable_member(info) for info in members):
         raise MigrationError("site_admin.migration.error.unsupported_compression")
     total = sum(info.file_size for info in members)
     if total > 4 * _cfg().max_import_size:
@@ -300,7 +305,7 @@ def stage(upload: FileStorage | None) -> Staged:
         with archive:
             staged = _unpack(archive, workdir, size)
         archive_path.unlink()
-        _prepare_database(staged.database)
+        staged.two_step_off = _prepare_database(staged.database)
         return staged
     except BaseException:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -419,8 +424,12 @@ def _open(path: Path) -> sqlite3.Connection:
     return conn
 
 
-def _prepare_database(path: Path) -> None:
-    """Validate, upgrade and clean the staged database (raises MigrationError)."""
+def _prepare_database(path: Path) -> list[str]:
+    """Validate, upgrade and clean the staged database (raises MigrationError).
+
+    Returns the accounts whose two-step verification had to be turned off
+    (:func:`_turn_off_unreadable_two_step`).
+    """
     try:
         conn = _open(path)
     except sqlite3.Error:
@@ -433,12 +442,15 @@ def _prepare_database(path: Path) -> None:
             log.warning("Site import: the archive's database could not be upgraded: %s", error)
             raise MigrationError("site_admin.migration.error.upgrade") from None
         _check_content(conn)
+        _replace_foreign_schema(conn)
+        two_step_off = _turn_off_unreadable_two_step(conn)
         _strip_volatile(conn)
         conn.execute("PRAGMA journal_mode=DELETE")
         conn.execute(f"PRAGMA page_size={_live_page_size()}")
         conn.execute("VACUUM")
     finally:
         conn.close()
+    return two_step_off
 
 
 def _check_identity(conn: sqlite3.Connection) -> None:
@@ -467,6 +479,114 @@ def _check_content(conn: sqlite3.Connection) -> None:
         raise MigrationError("site_admin.migration.error.incomplete") from None
     if not setup or not setup["setup_done"] or not admins["n"] or not home["n"]:
         raise MigrationError("site_admin.migration.error.incomplete")
+
+
+_SCHEMA_OBJECTS = "SELECT type, name, sql FROM sqlite_master WHERE type IN ('trigger', 'view') AND sql IS NOT NULL"
+
+
+def _normalized(sql: str | None) -> str:
+    return " ".join((sql or "").split())
+
+
+@lru_cache(maxsize=1)
+def _expected_schema() -> tuple[tuple[str, str, str], ...]:
+    """The triggers and views of a brand-new database of this release: (type, name, sql)."""
+    conn = sqlite3.connect(":memory:", isolation_level=None)
+    conn.row_factory = dict_row
+    try:
+        apply_migrations(conn, migrations.APPLICATION_ID, migrations.MIGRATIONS, baseline=migrations.BASELINE,
+                         bootstrap=migrations.bootstrap)
+        return tuple((row["type"], row["name"], row["sql"]) for row in conn.execute(_SCHEMA_OBJECTS).fetchall())
+    finally:
+        conn.close()
+
+
+def _replace_foreign_schema(conn: sqlite3.Connection) -> None:
+    """Drop every trigger and view this release would not create, and put its own back.
+
+    A trigger runs with the wiki's full rights whenever its table changes, so
+    one hidden in an archive (``AFTER UPDATE ON users … SET role = 'owner'``)
+    would outlive the import. Plugins create theirs again when they start.
+    """
+    expected = {(kind, name): sql for kind, name, sql in _expected_schema()}
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        dropped = []
+        for row in conn.execute(_SCHEMA_OBJECTS).fetchall():
+            if _normalized(expected.get((row["type"], row["name"]))) != _normalized(row["sql"]):
+                conn.execute(f"DROP {'VIEW' if row['type'] == 'view' else 'TRIGGER'} {quote_identifier(row['name'])}")
+                dropped.append(row["name"])
+        present = {(row["type"], row["name"]) for row in conn.execute(_SCHEMA_OBJECTS).fetchall()}
+        for (kind, name), sql in expected.items():
+            if (kind, name) not in present:
+                conn.execute(sql)
+        conn.execute("COMMIT")
+    except sqlite3.Error as error:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        log.warning("Site import: the archive's triggers and views could not be replaced: %s", error)
+        raise MigrationError("site_admin.migration.error.upgrade") from None
+    if dropped:
+        log.warning("Site import: dropped triggers and views this release does not create: %s", ", ".join(dropped))
+
+
+def _turn_off_unreadable_two_step(conn: sqlite3.Connection) -> list[str]:
+    """Turn off two-step verification this wiki cannot check; return the names of those accounts.
+
+    Authenticator secrets and recovery codes are bound to the secret key of
+    the wiki that stored them, which an archive never holds. Imported from
+    another wiki, they can never be checked here, and their accounts (often
+    the owner doing the import) could not sign in at all. They sign in with
+    the password instead and can set it up again. Set-ups this wiki can read
+    (an export of itself, or a wiki sharing its secret key) are kept.
+    """
+    from ..auth import two_step
+
+    if not table_exists(conn, "auth__two_step"):
+        return []
+    rows = conn.execute("SELECT t.user_id, t.secret_encrypted, u.username FROM auth__two_step t "
+                        "LEFT JOIN users u ON u.id = t.user_id").fetchall()
+    unreadable = [row for row in rows if not two_step.decrypt_secret(row["secret_encrypted"])]
+    if not unreadable:
+        return []
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.executemany("DELETE FROM auth__two_step WHERE user_id = ?", [(row["user_id"],) for row in unreadable])
+        conn.execute("COMMIT")
+    except sqlite3.Error as error:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        log.warning("Site import: two-step verification set up elsewhere could not be turned off: %s", error)
+        raise MigrationError("site_admin.migration.error.upgrade") from None
+    names = sorted(str(row["username"] or row["user_id"]) for row in unreadable)
+    log.warning("Site import: two-step verification set up under another secret key turned off for %s",
+                ", ".join(names))
+    return names
+
+
+def _carry_over_audit_log(database: Path, live: Path) -> None:
+    """Append the live site's audit log (from its copy *live*) to the imported database's.
+
+    Entries the archive already holds (the same moment, action, actor,
+    target, address and details: an export of this very wiki) are not added
+    a second time.
+    """
+    conn = sqlite3.connect(str(database), isolation_level=None)
+    try:
+        conn.execute("ATTACH DATABASE ? AS live", (str(live),))
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "INSERT INTO main.audit_log (created_at, actor_id, action, target_type, target_id, ip, details) "
+            "SELECT l.created_at, l.actor_id, l.action, l.target_type, l.target_id, l.ip, l.details "
+            "FROM live.audit_log l WHERE NOT EXISTS (SELECT 1 FROM main.audit_log m "
+            "WHERE m.action = l.action AND m.created_at = l.created_at AND m.actor_id IS l.actor_id "
+            "AND m.target_type IS l.target_type AND m.target_id IS l.target_id AND m.ip IS l.ip "
+            "AND m.details = l.details) ORDER BY l.id"
+        )
+        conn.execute("COMMIT")
+        conn.execute("DETACH DATABASE live")
+    finally:
+        conn.close()
 
 
 def _live_page_size() -> int:
@@ -556,6 +676,7 @@ def apply(staged: Staged) -> Path:
     settings.update({"maintenance_mode": 1})
     _database().backup_to(backup / RAW_DB)
     try:
+        _carry_over_audit_log(staged.database, backup / RAW_DB)
         _swap_files(staged, backup)
         _copy_database(staged.database)
     except BaseException:

@@ -77,6 +77,7 @@ class Config:
     password_hash_method: str
     source_url: str
     log_level: str
+    log_format: str
     log_file: str
     default_language: str
     max_content_length: int
@@ -107,7 +108,9 @@ class Config:
     managed_tts_disabled: bool
     platform_upload_blacklist: tuple[str, ...]
     managed_plugin_denylist: frozenset[str]
-    allow_external_plugins: bool
+    # None when BW_ALLOW_EXTERNAL_PLUGINS is unset: start-up then keeps plugins
+    # on only where some are already installed (see plugins_external.load).
+    allow_external_plugins: bool | None
     federation_enabled: bool
     maintenance_file: str
     # Whole-site import replaces the database; hosts must opt in (BW_ALLOW_SITE_IMPORT).
@@ -205,6 +208,19 @@ def _validate_base_url(url: str) -> str:
     return url.rstrip("/")
 
 
+def _allow_external_plugins(env: Env, managed: bool) -> bool | None:
+    """``BW_ALLOW_EXTERNAL_PLUGINS``: True, False (also when empty), or None when unset.
+
+    Under managed hosting plugins stay off unless each wiki runs in its own
+    container (``BW_PLUGIN_ISOLATION=container``).
+    """
+    if managed and env.str("BW_PLUGIN_ISOLATION").lower() != "container":
+        return False
+    if env.raw("BW_ALLOW_EXTERNAL_PLUGINS") is None:
+        return None
+    return env.bool("BW_ALLOW_EXTERNAL_PLUGINS")
+
+
 def load_config(environ: dict[str, str] | None = None, **overrides: object) -> Config:
     """Build the configuration from the environment (plus test overrides)."""
     env = Env(environ)
@@ -267,6 +283,7 @@ def load_config(environ: dict[str, str] | None = None, **overrides: object) -> C
         log_level=env.choice(
             "BW_LOGGING_LEVEL", "medium", frozenset({"off", "minimal", "medium", "verbose", "debug"})
         ),
+        log_format=env.choice("BW_LOG_FORMAT", "text", frozenset({"text", "json"})),
         log_file=env.path("BW_LOG_FILE", os.path.join(instance_dir, "logs", "bananawiki.log")),
         default_language=env.str("BW_DEFAULT_INTERFACE_LANGUAGE", "en").lower() or "en",
         max_content_length=env.int("BW_MAX_CONTENT_LENGTH_BYTES", default_max_body, minimum=MIB),
@@ -298,9 +315,7 @@ def load_config(environ: dict[str, str] | None = None, **overrides: object) -> C
             item.lower().lstrip(".") for item in env.list("BW_PLATFORM_UPLOAD_BLACKLIST")
         ),
         managed_plugin_denylist=frozenset(env.list("BW_MANAGED_PLUGIN_DENYLIST")),
-        allow_external_plugins=env.bool("BW_ALLOW_EXTERNAL_PLUGINS", True) and (
-            not managed or env.str("BW_PLUGIN_ISOLATION").lower() == "container"
-        ),
+        allow_external_plugins=_allow_external_plugins(env, managed),
         federation_enabled=env.bool("BW_FEDERATION_ENABLED", False),
         maintenance_file=env.str("BW_MAINTENANCE_FILE", "", "BANANA_MAINTENANCE_FILE"),
         allow_site_import=env.bool("BW_ALLOW_SITE_IMPORT", not managed),

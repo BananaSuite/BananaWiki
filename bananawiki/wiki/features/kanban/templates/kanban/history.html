@@ -14,20 +14,27 @@
   </div>
   {% endif %}
 </header>
-<p class="hint">{{ t('kanban.history.revert_explained') }}</p>
+{% if can_revert and entries %}<p class="hint hint--block">{{ t('kanban.history.revert_explained') }}</p>{% endif %}
 {% if entries %}
-<div class="table-wrap"><table class="table">
-  <thead><tr><th>{{ t('kanban.history.date') }}</th><th>{{ t('kanban.history.editor') }}</th><th>{{ t('kanban.history.summary') }}</th><th><span class="visually-hidden">{{ t('common.actions') }}</span></th></tr></thead>
+<div class="table-wrap"><table class="table table--stack">
+  <thead><tr><th>{{ t('kanban.history.date') }}</th><th>{{ t('kanban.history.editor') }}</th><th>{{ t('kanban.history.summary') }}</th><th class="actions"><span class="visually-hidden">{{ t('common.actions') }}</span></th></tr></thead>
   <tbody>
   {% for entry in entries %}
   <tr>
-    <td class="nowrap"><time datetime="{{ entry.created_at }}" title="{{ entry.created_at|datetime }}">{{ entry.created_at|time_ago }}</time></td>
-    <td>{{ entry.username or t('common.unknown_user') }}</td>
-    <td>{{ entry.edit_message or '—' }}{% if entry.is_revert %} <span class="badge badge--warning">{{ t('kanban.history.revert_badge') }}</span>{% endif %}</td>
+    <td class="nowrap"><a href="{{ url_for('kanban.history_entry', board_id=board.id, entry_id=entry.id) }}"><time datetime="{{ entry.created_at }}" title="{{ entry.created_at|datetime }}">{{ entry.created_at|time_ago }}</time></a></td>
+    <td data-label="{{ t('kanban.history.editor') }}">{{ entry.username or t('common.unknown_user') }}</td>
+    <td data-label="{{ t('kanban.history.summary') }}">{{ (kanban_log_message(entry.edit_message) or '—')|capfirst }}{% if entry.is_revert %} <span class="badge badge--warning">{{ t('kanban.history.revert_badge') }}</span>{% endif %}</td>
     <td class="actions">
       <a class="btn btn--small" href="{{ url_for('kanban.history_entry', board_id=board.id, entry_id=entry.id) }}">{{ t('kanban.history.view') }}</a>
-      {% if can_revert %}{{ forms.post_button(url_for('kanban.revert', board_id=board.id, entry_id=entry.id), t('kanban.history.revert'), 'btn btn--small', confirm=t('kanban.history.revert_confirm')) }}{% endif %}
-      {% if is_admin %}{{ forms.post_button(url_for('kanban.delete_history_entry', board_id=board.id, entry_id=entry.id), t('common.delete'), 'btn btn--small btn--danger', confirm=t('kanban.history.delete_confirm')) }}{% endif %}
+      {% if can_revert or is_admin %}
+      <details class="menu">
+        <summary class="btn btn--small btn--ghost" aria-label="{{ t('common.actions') }}">⋯</summary>
+        <div class="menu__panel" role="menu">
+          {% if can_revert %}{{ forms.post_button(url_for('kanban.revert', board_id=board.id, entry_id=entry.id), t('kanban.history.revert'), '', confirm=t('kanban.history.revert_confirm'), attrs={'role': 'menuitem'}) }}{% endif %}
+          {% if is_admin %}{{ forms.post_button(url_for('kanban.delete_history_entry', board_id=board.id, entry_id=entry.id), t('common.delete'), 'text-danger', confirm=t('kanban.history.delete_confirm'), attrs={'role': 'menuitem'}) }}{% endif %}
+        </div>
+      </details>
+      {% endif %}
     </td>
   </tr>
   {% endfor %}

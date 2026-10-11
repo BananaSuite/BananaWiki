@@ -1,14 +1,15 @@
 {#- Chat building blocks. chat.js builds the same markup for messages it fetches. -#}
 
-{% macro message(m, delete_url=None) -%}
+{% macro message(m, delete_url=None, report_url=None) -%}
 <li class="chat-msg{% if m.mine %} chat-msg--mine{% endif %}{% if m.system %} chat-msg--system{% endif %}{% if m.deleted %} chat-msg--deleted{% endif %}" data-id="{{ m.id }}">
   {% if m.system %}
-  <p class="chat-msg__system">{{ m.text }} <time class="chat-msg__time">{{ m.time }}</time></p>
+  <p class="chat-msg__system">{{ m.text }} <time class="chat-msg__time"{% if m.created_at %} datetime="{{ m.created_at }}"{% endif %}>{{ m.time }}</time></p>
   {% else %}
   <div class="chat-msg__meta">
     <strong>{{ m.sender or t('common.unknown_user') }}</strong>
-    <time class="chat-msg__time">{{ m.time }}</time>
-    {% if m.ip %}<span class="mono small muted">{{ m.ip }}</span>{% endif %}
+    <time class="chat-msg__time"{% if m.created_at %} datetime="{{ m.created_at }}"{% endif %}>{{ m.time }}</time>
+    {% if m.ip %}<span class="mono small muted">{{ t('chat.admin.ip', ip=m.ip) }}</span>{% elif m.ip_hidden %}<span class="small muted">{{ t('chat.admin.ip_hidden') }}</span>{% endif %}
+    {% if m.withheld %}<span class="small muted">{{ t('chat.admin.withheld') }}</span>{% endif %}
   </div>
   {% if m.deleted %}
   <p class="chat-msg__body chat-msg__body--deleted">{{ t('chat.message.deleted') }}</p>
@@ -20,6 +21,8 @@
   </ul>
   {% endif %}
   {% endif %}
+  {% if (m.can_delete and delete_url) or (m.can_report and report_url) %}
+  <div class="chat-msg__actions">
   {% if m.can_delete and delete_url %}
   <form class="chat-msg__delete" method="post" action="{{ delete_url }}" data-confirm="{{ t('chat.message.delete_confirm') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -27,25 +30,38 @@
     <button type="submit" class="btn btn--ghost btn--small">{{ t('common.delete') }}</button>
   </form>
   {% endif %}
+  {% if m.can_report and report_url %}
+  <form class="chat-msg__report" method="post" action="{{ report_url }}" data-confirm="{{ t('chat.report.confirm') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="message_id" value="{{ m.id }}">
+    <button type="submit" class="btn btn--ghost btn--small" aria-label="{{ t('chat.report.label', user=m.sender or t('common.unknown_user')) }}">{{ t('chat.report.button') }}</button>
+  </form>
+  {% endif %}
+  </div>
+  {% endif %}
   {% endif %}
 </li>
 {%- endmacro %}
 
-{% macro log(conv, view_url, delete_url=None, live=None) -%}
+{% macro log(conv, view_url, delete_url=None, live=None, report_url=None) -%}
 <div class="chat">
   {% if conv.paged %}<p class="chat__notice"><a href="{{ view_url }}">{{ t('chat.back_to_latest') }}</a></p>{% endif %}
   {% if conv.has_older %}
   <p class="chat__older"><a class="btn btn--small" data-chat-older href="{{ view_url }}?before={{ conv.oldest_id }}">{{ t('chat.load_older') }}</a></p>
   {% endif %}
-  <ol class="chat__log" id="chat-log" role="log" aria-label="{{ t('chat.messages_label') }}" tabindex="0">
-    {% for m in conv.messages %}{{ message(m, delete_url) }}{% endfor %}
-  </ol>
+  {#- The live region wraps the list, so the messages keep their list semantics. -#}
+  <div class="chat__region" role="log" aria-label="{{ t('chat.messages_label') }}">
+    <ol class="chat__log" id="chat-log" tabindex="0">
+      {% for m in conv.messages %}{{ message(m, delete_url, report_url) }}{% endfor %}
+    </ol>
+  </div>
   <p class="chat__empty muted" id="chat-empty"{% if conv.messages %} hidden{% endif %}>{{ t('chat.empty') }}</p>
   <button type="button" class="btn btn--small chat__jump" id="chat-jump" hidden>{{ t('chat.new_messages') }}</button>
 </div>
 {% if live and not conv.paged %}
 <script type="application/json" id="chat-data">{{ {
-  "pollUrl": live.poll, "readUrl": live.read, "deleteUrl": delete_url, "latestId": conv.latest_id,
+  "pollUrl": live.poll, "readUrl": live.read, "deleteUrl": delete_url, "reportUrl": report_url,
+  "latestId": conv.latest_id,
   "oldestId": conv.oldest_id, "hasOlder": conv.has_older, "cursor": conv.cursor, "markRead": live.mark_read
 }|json_script }}</script>
 {% endif %}
@@ -62,13 +78,31 @@
     {% if can_upload %}
     <label class="btn btn--small chat-composer__file">
       <span data-chat-file-label>{{ t('chat.composer.attach') }}</span>
-      <input class="visually-hidden" type="file" name="attachment">
+      <input class="visually-hidden" type="file" name="attachment" aria-describedby="chat-composer-limits">
     </label>
-    <span class="small muted">{{ t('chat.composer.limits', size=max_attachment_bytes|filesize, per_day=per_day) }}</span>
+    <span class="small muted chat-composer__limits" id="chat-composer-limits">{{ t('chat.composer.limits', size=max_attachment_bytes|filesize, per_day=per_day) }}</span>
     {% endif %}
     <button type="submit" class="btn btn--primary">{{ t('chat.composer.send') }}</button>
   </div>
   <p class="small muted chat-composer__hint" id="chat-composer-hint">{{ t('chat.composer.hint') }}</p>
+</form>
+{%- endmacro %}
+
+{% macro block_button(person, next_url, cls='btn btn--small') -%}
+<form class="inline" method="post" action="{{ url_for('chat.block_user') }}" data-confirm="{{ t('chat.blocks.confirm', user=person.username) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="user_id" value="{{ person.user_id or person.id }}">
+  <input type="hidden" name="next" value="{{ next_url }}">
+  <button type="submit" class="{{ cls }}" aria-label="{{ t('chat.blocks.block_label', user=person.username) }}">{{ t('chat.blocks.block') }}</button>
+</form>
+{%- endmacro %}
+
+{% macro unblock_button(person, next_url, cls='btn btn--small') -%}
+<form class="inline" method="post" action="{{ url_for('chat.unblock_user') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="user_id" value="{{ person.user_id or person.id }}">
+  <input type="hidden" name="next" value="{{ next_url }}">
+  <button type="submit" class="{{ cls }}" aria-label="{{ t('chat.blocks.unblock_label', user=person.username) }}">{{ t('chat.blocks.unblock') }}</button>
 </form>
 {%- endmacro %}
 

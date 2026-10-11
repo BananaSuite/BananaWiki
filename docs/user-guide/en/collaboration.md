@@ -12,7 +12,15 @@ These tools appear under **Apps** when your wiki has them switched on.
   the owner can hand the group over.
 * You can attach files (within the size and daily limits), export a
   conversation, and delete your messages. **Deleting a message erases it for
-  everyone**; a small "deleted" marker remains.
+  everyone**; a small "deleted" marker remains. In a direct conversation you
+  can do this for 15 minutes after sending; after that the message is part
+  of the other person's copy too.
+* **Block** someone from your conversation with them, from a group's member
+  list or in **Settings → Blocked people**. What they send you is no longer
+  delivered (also after you unblock them), they cannot start a conversation
+  with you or add you to a group, and their messages in your groups are
+  hidden from you. They are not told. Unblock them in the same settings
+  section.
 * Administrators can read conversations for moderation, and the wiki may
   delete old messages and files automatically after a set time.
 

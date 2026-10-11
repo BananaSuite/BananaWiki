@@ -32,8 +32,14 @@ class UserbotClient(WikiClient):
         """Account, profile and key metadata of the userbot."""
         return self.request("GET", "/userbot/me")
 
-    def update_profile(self, *, real_name: str = "", bio: str = "", page_published: bool | None = None):
-        payload: dict[str, Any] = {"real_name": real_name, "bio": bio}
+    def update_profile(self, *, real_name: str | None = None, bio: str | None = None,
+                       page_published: bool | None = None):
+        """Change the given fields; the ones left out keep their current value."""
+        payload: dict[str, Any] = {}
+        if real_name is not None:
+            payload["real_name"] = real_name
+        if bio is not None:
+            payload["bio"] = bio
         if page_published is not None:
             payload["page_published"] = bool(page_published)
         return self.request("POST", "/userbot/profile", payload)

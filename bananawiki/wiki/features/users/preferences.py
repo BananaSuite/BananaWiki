@@ -88,7 +88,7 @@ def stored(user: dict[str, Any] | None) -> dict[str, Any]:
 def _int(value: Any, allowed: range | tuple[int, ...], default: int = 0) -> int:
     try:
         number = int(float(value))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: 1e999 reads as infinity
         return default
     return number if number in allowed else default
 
@@ -101,7 +101,7 @@ def _color(value: Any) -> str:
 def _pixels(value: Any, low: int, high: int) -> int:
     try:
         number = int(float(value))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0
     return max(low, min(high, number)) if number > 0 else 0
 

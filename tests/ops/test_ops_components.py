@@ -9,6 +9,7 @@ import shutil
 import sqlite3
 import subprocess
 import tarfile
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -109,6 +110,77 @@ def test_snapshot_refuses_symlinks_in_data(tmp_path):
     with pytest.raises(ValueError, match="regular files"):
         Snapshot.create(root)
     assert not list((root / "staging").glob("snapshot-*"))
+
+
+def nest(top: Path, name: str, depth: int) -> str:
+    """Create *depth* nested folders called *name* below *top* (by descriptor: the path can exceed PATH_MAX)."""
+    fd = os.open(top, os.O_RDONLY)
+    try:
+        for _ in range(depth):
+            os.mkdir(name, dir_fd=fd)
+            inner = os.open(name, os.O_RDONLY, dir_fd=fd)
+            os.close(fd)
+            fd = inner
+        os.close(os.open("deep.txt", os.O_WRONLY | os.O_CREAT, 0o600, dir_fd=fd))
+    finally:
+        os.close(fd)
+    return "/".join([name] * depth) + "/deep.txt"
+
+
+def tenant_root(tmp_path: Path) -> tuple[Path, Callable[[Path], bool]]:
+    root = make_root(tmp_path)
+    (root / "data/instances/acme").mkdir(parents=True)
+    (root / "data/instances/acme/page.txt").write_text("kept")
+    data = root / "data"
+    return root, lambda path: profile.inside_tenant(path, data)
+
+
+def test_a_tenant_file_too_deep_to_stage_is_left_out_instead_of_failing_the_snapshot(tmp_path):
+    root, allowed = tenant_root(tmp_path)
+    deep = nest(root / "data/instances/acme", "d" * 250, 20)
+    snapshot = Snapshot.create(root, allowed)
+    index = snapshot.index()
+    assert "data/instances/acme/page.txt" in index
+    assert "data/instances/acme/" + deep not in index
+
+
+def test_a_tenant_tree_nested_past_the_open_file_limit_does_not_fail_the_snapshot(tmp_path, monkeypatch):
+    resource = pytest.importorskip("resource")
+    from bananawiki.ops import files
+
+    root, allowed = tenant_root(tmp_path)
+    nest(root / "data/instances/acme", "a", 200)
+    monkeypatch.setattr(files, "TENANT_DEPTH", 8, raising=False)
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (len(os.listdir("/proc/self/fd")) + 60, hard))
+    try:
+        snapshot = Snapshot.create(root, allowed)
+    finally:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+    index = snapshot.index()
+    assert "data/instances/acme/page.txt" in index
+    assert not any(name.endswith("deep.txt") for name in index)
+
+
+def test_tenant_file_names_never_start_a_log_line_of_their_own(tmp_path, monkeypatch, caplog):
+    """A wiki names its own files and folders: logged with their line breaks by the controller, which runs as
+    root, a name could forge further lines in its log (each line a journal entry of its own)."""
+    import logging
+
+    from bananawiki.ops import files
+
+    root, allowed = tenant_root(tmp_path)
+    forged = "x\n2026-10-10 00:00:00 bananawiki.ops WARNING forged line"
+    nest(root / "data/instances/acme", forged + "d" * 190, 20)  # too long to stage: left out of the snapshot
+    with caplog.at_level(logging.WARNING):
+        Snapshot.create(root, allowed)
+        monkeypatch.setattr(files, "TENANT_DEPTH", 2, raising=False)
+        Snapshot.create(root, allowed)
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("levels deep" in message and "forged line" in message for message in messages)
+    assert any(message.startswith("Leaving ") and "out of the snapshot" in message and "forged line" in message
+               for message in messages)
+    assert not [message for message in messages if "\n" in message or "\r" in message]
 
 
 def test_snapshot_open_rejects_foreign_paths(tmp_path):
@@ -226,6 +298,19 @@ def test_extract_rejects_traversal_and_links(tmp_path):
         target = tmp_path / f"out{kind!r}"
         with pytest.raises(ValueError):
             extract_archive(archive_path, target)
+
+
+def test_an_unbalanced_quote_in_the_environment_file_names_the_file_and_line(tmp_path):
+    """systemd reads `NAME=L'Atelier` literally, but the platform's commands parse app.env like a shell:
+    the error says where the value is and how to write it, instead of a bare "No closing quotation"."""
+    environment = tmp_path / "app.env"
+    environment.write_text("# settings\nHOSTING_MODE=subdomain\nHOSTING_SERVICE_NAME=L'Atelier Wikis\n")
+    with pytest.raises(ValueError) as caught:
+        read_environment(environment)
+    assert str(environment) in str(caught.value) and "line 3" in str(caught.value)
+    assert "HOSTING_SERVICE_NAME" in str(caught.value) and "double quotes" in str(caught.value)
+    environment.write_text("HOSTING_SERVICE_NAME=\"L'Atelier Wikis\"\n")
+    assert read_environment(environment) == {"HOSTING_SERVICE_NAME": "L'Atelier Wikis"}
 
 
 def test_environment_files_and_paths(tmp_path):
@@ -375,9 +460,20 @@ def test_shipped_tenant_image_refreshes_its_packages_on_every_build():
     refresh = lines.index("ARG BW_REFRESH=unset")
     upgrade = next(index for index, line in enumerate(lines)
                    if index > refresh and line.startswith("RUN apt-get update"))
-    install = next(index for index, line in enumerate(lines) if "--requirement requirements.txt" in line)
+    install = next(index for index, line in enumerate(lines)
+                   if "--require-hashes --requirement requirements.lock" in line)
     assert final < refresh < upgrade < install
     assert lines[upgrade + 1].strip() == "&& apt-get upgrade -y \\"
+
+
+@pytest.mark.parametrize("name", ["Dockerfile", "Dockerfile.tenant"])
+def test_shipped_images_install_only_hash_pinned_wheels(name):
+    """The images install the release's locks, as a managed server does: no range is resolved at build time."""
+    text = shipped(name).read_text()
+    assert "COPY requirements.lock requirements-build.lock ./" in text and "requirements.txt" not in text
+    for lock in ("requirements-build.lock", "requirements.lock"):
+        command = next(line for line in text.replace("\\\n", " ").splitlines() if f"--requirement {lock}" in line)
+        assert "--require-hashes" in command and "--only-binary=:all:" in command
 
 
 def test_tenant_image_is_built_on_a_freshly_pulled_base_with_fresh_updates(tmp_path, capsys):
@@ -402,10 +498,12 @@ def test_tenant_image_is_built_on_a_freshly_pulled_base_with_fresh_updates(tmp_p
         return subprocess.CompletedProcess(command, 0, "", "")
 
     def docker() -> list[list[str]]:
-        return [command for command in commands if command[:3] != ["docker", "image", "inspect"]]
+        return [command for command in commands if command[:3] not in (["docker", "image", "inspect"],
+                                                                        ["docker", "buildx", "version"])]
 
     system = System(runner=runner)
     assert system.build_tenant_image(settings_for("hosting"), release) == []
+    assert commands[0] == ["docker", "buildx", "version"], "BuildKit is checked before anything is pulled"
     assert docker()[0] == ["docker", "pull", "--quiet", "python:3.12-slim-trixie"]
     build = docker()[1]
     assert build[:3] == ["docker", "build", "--pull=false"]
@@ -453,7 +551,7 @@ def test_a_build_failing_on_a_newly_pulled_base_falls_back_to_the_previous_one(t
         if command[:2] == ["docker", "pull"]:
             tags[command[-1]] = host["registry"]
         elif command[:3] == ["docker", "image", "inspect"]:
-            identifier = tags.get(command[-1])
+            identifier = tags.get(command[-1]) or ("sha256:tenant" if command[-1] in host.get("built", ()) else None)
             return subprocess.CompletedProcess(command, 0 if identifier else 1, (identifier or "") + "\n", "")
         elif command[:2] == ["docker", "tag"]:
             if host["tag_fails"]:
@@ -465,12 +563,14 @@ def test_a_build_failing_on_a_newly_pulled_base_falls_back_to_the_previous_one(t
                 raise subprocess.TimeoutExpired(command, 1800)
             if tags[base] in host["failing"]:
                 return subprocess.CompletedProcess(command, 100, "", "E: Version '2.4.0-1' for 'libacl1' was not found")
+            host.setdefault("built", set()).add(command[command.index("-t") + 1])
         elif command[:3] == ["docker", "image", "rm"]:  # deleting a tagged image drops its tag too
             host["tags"] = {name: value for name, value in tags.items() if value != command[3]}
         return subprocess.CompletedProcess(command, 0, "", "")
 
     def docker() -> list[list[str]]:
-        return [command for command in commands if command[:3] != ["docker", "image", "inspect"]]
+        return [command for command in commands if command[:3] not in (["docker", "image", "inspect"],
+                                                                        ["docker", "buildx", "version"])]
 
     def attempt() -> list[str]:
         commands.clear()
@@ -488,7 +588,8 @@ def test_a_build_failing_on_a_newly_pulled_base_falls_back_to_the_previous_one(t
         assert host["built_on"] == ["sha256:new", "sha256:old"] and host["tags"] == {base: "sha256:old"}
         assert len(warnings) == 1
         assert warnings[0].startswith(f"The tenant image did not build on the newly pulled {base}: "
-                                      f"docker build failed (exit 100). Details are in the private log {log}.")
+                                      "docker build failed (exit 100): E: Version '2.4.0-1' for 'libacl1' was not "
+                                      f"found. Details are in the private log {log}.")
         assert "built on the previous base image instead" in warnings[0]
         assert "libacl1" in log.read_text()  # the unchecked tag kept the first build's output
         stderr = capsys.readouterr().err
@@ -741,6 +842,34 @@ def test_release_refreshes_inherited_build_tools_before_installing_dependencies(
         assert ownership[-1] == (release, 0, 4242, {"readonly": True})
     else:
         assert all(item[0] != release for item in ownership)
+
+
+def test_a_release_with_locks_installs_only_pinned_hashed_wheels(tmp_path, monkeypatch):
+    """requirements.lock and requirements-build.lock: every file pinned by hash, nothing resolved on the server."""
+    release = tmp_path / "release"
+    release.mkdir()
+    (release / "requirements.txt").write_text("Flask>=3.1\n")
+    for name in ("requirements.lock", "requirements-build.lock"):
+        (release / name).write_text("flask==3.1.3 --hash=sha256:" + "0" * 64 + "\n")
+    commands = []
+
+    def runner(command, **_):
+        commands.append(command)
+        if command[:3] == ["python3", "-m", "venv"]:
+            (release / ".venv").mkdir()
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    system = System(runner=runner)
+    monkeypatch.setattr(system, "identity", lambda _name: (4242, 4242))
+    monkeypatch.setattr("bananawiki.ops.system.set_release_owner", lambda *args, **kwargs: None)
+    system.prepare_release({"service": "wiki", "mode": "wiki", "revision": "a" * 40}, release,
+                           profile.ReleaseFeatures(hardened=True))
+    bootstrap, install = [command for command in commands if "-r" in command]
+    assert bootstrap[bootstrap.index("-r") + 1] == str(release / "requirements-build.lock")
+    assert install[install.index("-r") + 1] == str(release / "requirements.lock")
+    for command in (bootstrap, install):
+        assert {"--require-hashes", "--only-binary=:all:"} <= set(command)
+    assert not any("pip>=26.2.1" in command or str(release / "requirements.txt") in command for command in commands)
 
 
 def test_set_release_owner_refuses_hard_links(tmp_path):

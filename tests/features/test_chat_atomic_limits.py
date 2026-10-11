@@ -91,8 +91,12 @@ def test_deleting_uploaded_messages_does_not_reset_daily_quota(app, client, make
     assert response.status_code == 200
     removed = client.post(prefix + "/" + action, data={"message_id": response.json["message_id"]}, headers=JSON)
     assert removed.status_code == 200
-    assert db.scalar(f"SELECT COUNT(*) FROM {table}") == 0
-    assert not list(chat_folder(app).glob("*.txt"))
+    if kind == "dm" and action == "clear":
+        # Clearing hides a direct conversation from the sender only; the recipient keeps the file.
+        assert db.scalar(f"SELECT COUNT(*) FROM {table}") == 1
+    else:
+        assert db.scalar(f"SELECT COUNT(*) FROM {table}") == 0
+        assert not list(chat_folder(app).glob("*.txt"))
     assert send(client, prefix + "/send", "again", attachment=upload()).status_code == 429
     assert db.scalar("SELECT COUNT(*) FROM chat__upload_usage") == 1
     # A genuine expired allowance is available again and is pruned normally.

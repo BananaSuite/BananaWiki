@@ -111,24 +111,34 @@ def _foreign_keys(conn: sqlite3.Connection, table: str) -> dict[int, list[str]]:
 
 
 def repair_dangling_references(conn: sqlite3.Connection) -> None:
+    """Clear or remove every reference to a missing row, following chains of orphans.
+
+    Foreign keys are off while a migration runs, so removing an orphaned row
+    does not cascade by itself: its own children then dangle in turn. Each
+    pass repairs what ``PRAGMA foreign_key_check`` reports and the next pass
+    picks up what the previous one orphaned, until nothing dangles (or a pass
+    can repair nothing more, which the integrity check before COMMIT then
+    reports). Every pass removes rows or clears references, so it ends.
+    """
     fixed = removed = 0
-    # Deleting a row can orphan its children, so repeat until clean.
-    for _round in range(8):
-        violations = tuples(conn, "PRAGMA foreign_key_check")
+    while True:
+        violations = [row for row in tuples(conn, "PRAGMA foreign_key_check") if row[1] is not None]
         if not violations:
             break
+        changed = 0
         for table, rowid, _parent, fk_id in violations:
-            if rowid is None:
-                continue
             columns = _foreign_keys(conn, table).get(fk_id, [])
             required = {name for name, _type, req in _columns(conn, table) if req}
             if columns and not required.intersection(columns):
                 assignments = ", ".join(f"{quote_identifier(c)} = NULL" for c in columns)
-                conn.execute(f"UPDATE {quote_identifier(table)} SET {assignments} WHERE rowid = ?", (rowid,))
-                fixed += 1
+                cursor = conn.execute(f"UPDATE {quote_identifier(table)} SET {assignments} WHERE rowid = ?", (rowid,))
+                fixed += cursor.rowcount
             else:
-                conn.execute(f"DELETE FROM {quote_identifier(table)} WHERE rowid = ?", (rowid,))
-                removed += 1
+                cursor = conn.execute(f"DELETE FROM {quote_identifier(table)} WHERE rowid = ?", (rowid,))
+                removed += cursor.rowcount
+            changed += cursor.rowcount
+        if not changed:
+            break
     if fixed or removed:
         log.warning("Repaired %d dangling references and removed %d orphaned rows.", fixed, removed)
 

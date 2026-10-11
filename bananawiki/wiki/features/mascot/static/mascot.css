@@ -1,6 +1,6 @@
 /* The mascot in place of the top bar logo: idle bob, blink, hover tilt, hop on click, sunglasses drop.
-   The wiki's "Reduce motion" switch stops every animation; the system preference only shortens them in
-   the shell, so the block at the end keeps the mascot still. */
+   The wiki's "Reduce motion" switch stops every animation in the shell; the system preference only
+   shortens them there, so the block at the end keeps the mascot still. */
 
 .mascot { display: inline-flex; flex-shrink: 0; padding: 0; border: 0; background: none; cursor: pointer;
   line-height: 0; border-radius: var(--radius-sm); touch-action: manipulation; }
@@ -13,6 +13,12 @@
   .mascot:hover .mascot-sprite { transform: rotate(-8deg); }
 }
 .mascot--hop .mascot__body { animation: mascot-hop .4s steps(4, end); }
+/* Narrow screens: the sprite's two empty left columns and one more pixel go under the menu button's gap,
+   so the site name is not cut sooner than beside the logo (left, not inline-start: the pixel art is not
+   mirrored right to left). Less than the gap, so the touch-sized box below never covers the button. */
+@media (max-width: 600px) {
+  .mascot { margin-left: -5px; }
+}
 /* Fingers get the shell's touch size, with the sprite centred and clear of the home link. */
 @media (pointer: coarse) {
   .mascot { min-width: 2.75rem; min-height: 2.75rem; align-items: center; justify-content: center; }
@@ -29,11 +35,14 @@
   70% { transform: translateY(-4px); } 100% { transform: translateY(0); } }
 @keyframes mascot-shades-drop { from { transform: translateY(-6px); } to { transform: translateY(0); } }
 
-/* The same sprites as button icons under "Customize" and in Appearance. */
+/* The same sprites as button icons under "Customise" and in Appearance: twice the grid, as in the top bar,
+   so every art pixel stays square; the stem and the empty bottom row reach into the button's padding. */
 .mascot-button { display: inline-flex; align-items: center; gap: .55rem; }
-.mascot-button__sprite { width: 28px; height: 28px; flex-shrink: 0; color: var(--muted); }
+.mascot-button__sprite { width: 32px; height: 32px; margin-block: -2px; flex-shrink: 0; color: var(--muted); }
 
-/* Less motion asked by the system: everything stands still, the button icons' blink included. */
+/* Less motion asked by the system: the shell runs every animation once at .01ms, which would still flick
+   the banana; it stands still instead, the button icons' blink included (clicks still put the sunglasses
+   on). After the rules it switches off, as it uses the same selectors. */
 @media (prefers-reduced-motion: reduce) {
   .mascot__body, .mascot--hop .mascot__body, .mascot-sprite .mascot__eyes,
   .mascot--shades-drop .mascot__shades { animation: none; }

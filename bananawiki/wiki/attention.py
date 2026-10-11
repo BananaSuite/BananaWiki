@@ -13,7 +13,8 @@ Queues announce new items and decisions with two events (handled by the
   after the transaction that stored a new request commits;
 * ``attention.decided`` (``user_id``, ``source``, ``outcome``, ``object_id``,
   ``endpoint``) - call :func:`decided` when a request was approved or denied,
-  so the person who asked is told.
+  so the person who asked is told, or :func:`warned` (outcome ``warning``)
+  when something about their account needs their eye.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from .registry import AttentionSource, emit, is_enabled, registry
 log = logging.getLogger("bananawiki.attention")
 
 OUTCOMES = ("approved", "denied")
+WARNING = "warning"  # a notice about the person's own account (:func:`warned`), not a decision
 
 
 def sources() -> list[AttentionSource]:
@@ -134,3 +136,10 @@ def decided(user_id: str | None, source_id: str, outcome: str, *, object_id: Any
         return
     emit("attention.decided", user_id=user_id, source=source_id, outcome=outcome,
          object_id="" if object_id is None else str(object_id), endpoint=endpoint)
+
+
+def warned(user_id: str | None, source_id: str, *, endpoint: str = "") -> None:
+    """Leave a person a security notice about their own account (``attention.notice.<source>.warning``)."""
+    if user_id:
+        emit("attention.decided", user_id=user_id, source=source_id, outcome=WARNING, object_id="",
+             endpoint=endpoint)

@@ -38,6 +38,22 @@ def _platform_owned() -> str | None:
     return "site_admin.locked.platform" if _cfg().managed_hosting else None
 
 
+def _two_step_requirement_locked() -> str | None:
+    """It binds every administrator: owners and superusers decide, once they use it themselves.
+
+    An owner without two-step verification would be stopped by the
+    requirement the moment it is saved; as in the hosting portal, they turn it
+    on for their own account first.
+    """
+    from ..auth import two_step
+
+    user = auth.current_user()
+    top = bool(user) and (user.get("role") == "owner" or bool(user.get("is_superuser")))  # type: ignore[union-attr]
+    if not top or auth.is_impersonating():
+        return "site_admin.locked.owners_only"
+    return None if two_step.enabled(user["id"]) else "site_admin.locked.two_step_yours_first"  # type: ignore[index]
+
+
 @lru_cache(maxsize=1)
 def time_zones() -> tuple[str, ...]:
     return tuple(sorted(available_timezones() | {"UTC"}))
@@ -69,6 +85,7 @@ SECTIONS: list[tuple[str, list[Field]]] = [
         Field("session_limit_enabled", "flag"),
         Field("bot_protection_enabled", "flag"),
         Field("suspended_account_deletion_enabled", "flag"),
+        Field("two_step_required_for_admins", "flag", locked=_two_step_requirement_locked),
     ]),
     ("signin", [
         Field("login_app_selector", "flag"),

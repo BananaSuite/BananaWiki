@@ -1,4 +1,9 @@
-"""Rate limits shared by every portal worker (``hosting_rate_limit_hits``)."""
+"""Rate limits shared by every portal worker (``hosting_rate_limit_hits``).
+
+Without an explicit key a limit counts the client's network
+(:func:`~bananawiki.core.web.client_network`): an IPv4 address, or an IPv6
+address's whole /64, which one subscriber usually holds.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +14,7 @@ from typing import Any
 from flask import abort, request
 
 from ..core.ratelimit import SqlLimiter
-from ..core.web import client_ip
+from ..core.web import client_network
 from .db import _session
 
 
@@ -18,20 +23,20 @@ class HostingLimiter(SqlLimiter):
 
 
 def hit(bucket: str, limit: int, window: int, key: str | None = None) -> bool:
-    """Record one hit; False when *key* (default: client IP) is over the limit."""
-    return HostingLimiter(_session()).hit(key or client_ip(), bucket, limit, window)
+    """Record one hit; False when *key* (default: the client's network, see below) is over the limit."""
+    return HostingLimiter(_session()).hit(key or client_network(), bucket, limit, window)
 
 
 def exceeded(bucket: str, limit: int, window: int, key: str | None = None) -> bool:
-    return HostingLimiter(_session()).exceeded(key or client_ip(), bucket, limit, window)
+    return HostingLimiter(_session()).exceeded(key or client_network(), bucket, limit, window)
 
 
 def record(bucket: str, key: str | None = None) -> None:
-    HostingLimiter(_session()).record(key or client_ip(), bucket)
+    HostingLimiter(_session()).record(key or client_network(), bucket)
 
 
 def rate_limit(limit: int, window: int = 60) -> Callable[[Callable], Callable]:
-    """Limit unsafe requests to a view per client IP (GET is never counted)."""
+    """Limit unsafe requests to a view per client network (GET is never counted)."""
 
     def decorate(view: Callable) -> Callable:
         bucket = f"hosting_{view.__module__.rsplit('.', 1)[-1]}_{view.__name__}"
@@ -48,4 +53,4 @@ def rate_limit(limit: int, window: int = 60) -> Callable[[Callable], Callable]:
 
 
 def clear(bucket: str, key: str | None = None) -> None:
-    HostingLimiter(_session()).clear(key or client_ip(), bucket)
+    HostingLimiter(_session()).clear(key or client_network(), bucket)

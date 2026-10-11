@@ -217,14 +217,19 @@ def banned_members(group_id: int) -> list[dict[str, Any]]:
 
 
 def list_for(user_id: str) -> list[dict[str, Any]]:
-    """Groups the user belongs to (never those they are banned from), most recent activity first."""
+    """Groups the user belongs to (never those they are banned from), most recent activity first.
+
+    The last message shown is never one of a person the user blocked.
+    """
     return db.all(
         "SELECT gc.id, gc.name, gc.description, gc.is_global, gc.is_active, gc.created_at, gm.role AS my_role, "
         "gm.unread_count, m.content AS last_message, m.is_deleted AS last_deleted, m.is_system AS last_system, "
         "m.created_at AS last_message_at, "
         "(SELECT COUNT(*) FROM group_members WHERE group_id = gc.id AND banned = 0) AS member_count "
         "FROM group_members gm JOIN group_chats gc ON gc.id = gm.group_id "
-        "LEFT JOIN group_messages m ON m.id = (SELECT MAX(id) FROM group_messages WHERE group_id = gc.id) "
+        "LEFT JOIN group_messages m ON m.id = (SELECT MAX(id) FROM group_messages WHERE group_id = gc.id "
+        "AND (is_system = 1 OR sender_id IS NULL OR sender_id NOT IN "
+        "(SELECT blocked_id FROM chat__blocks WHERE blocker_id = gm.user_id))) "
         "WHERE gm.user_id = ? AND gm.banned = 0 "
         "ORDER BY COALESCE(m.created_at, gc.created_at) DESC, gc.id DESC",
         (user_id,),
@@ -261,10 +266,11 @@ def send(group: dict[str, Any], sender_id: str, content: str, *, ip_address: str
         if current["is_global"] and not current["is_active"]:
             raise SendRefused("chat.groups.error.global_paused")
         message_id = store.insert(GROUP, group["id"], sender_id, content, ip_address=ip_address, stored=stored)
+        # Members who blocked the sender do not see the message, so it is not unread for them.
         db.execute(
             "UPDATE group_members SET unread_count = unread_count + 1 WHERE group_id = ? AND user_id != ? "
-            "AND banned = 0",
-            (group["id"], sender_id),
+            "AND banned = 0 AND user_id NOT IN (SELECT blocker_id FROM chat__blocks WHERE blocked_id = ?)",
+            (group["id"], sender_id, sender_id),
         )
     return message_id
 

@@ -64,6 +64,12 @@
     tick();
   }
 
+  function timeNode(m) {
+    var node = el("time", "chat-msg__time", m.time);
+    if (m.created_at) node.setAttribute("datetime", m.created_at);
+    return node;
+  }
+
   // The conversation -------------------------------------------------------
   function Conversation(data) {
     this.data = data;
@@ -96,14 +102,14 @@
     if (m.system) {
       item.classList.add("chat-msg--system");
       var line = el("p", "chat-msg__system", m.text + " ");
-      line.appendChild(el("time", "chat-msg__time", m.time));
+      line.appendChild(timeNode(m));
       item.appendChild(line);
       return item;
     }
     var meta = el("div", "chat-msg__meta");
     meta.appendChild(el("strong", null, m.sender || BW.t("chat.unknown_user")));
     meta.appendChild(document.createTextNode(" "));
-    meta.appendChild(el("time", "chat-msg__time", m.time));
+    meta.appendChild(timeNode(m));
     item.appendChild(meta);
     if (m.deleted) {
       this.markDeleted(item);
@@ -123,15 +129,21 @@
       });
       item.appendChild(files);
     }
-    if (m.can_delete && this.data.deleteUrl) item.appendChild(this.deleteForm(m.id));
+    var canDelete = m.can_delete && this.data.deleteUrl, canReport = m.can_report && this.data.reportUrl;
+    if (canDelete || canReport) {
+      var actions = el("div", "chat-msg__actions");
+      if (canDelete) actions.appendChild(this.deleteForm(m.id));
+      if (canReport) actions.appendChild(this.reportForm(m));
+      item.appendChild(actions);
+    }
     return item;
   };
 
-  Conversation.prototype.deleteForm = function (id) {
-    var form = el("form", "chat-msg__delete");
+  Conversation.prototype.messageForm = function (className, action, confirm, id, label) {
+    var form = el("form", className);
     form.method = "post";
-    form.action = this.data.deleteUrl;
-    form.setAttribute("data-confirm", BW.t("chat.delete_confirm"));
+    form.action = action;
+    form.setAttribute("data-confirm", confirm);
     [["csrf_token", BW.csrf()], ["message_id", String(id)]].forEach(function (pair) {
       var input = el("input");
       input.type = "hidden";
@@ -139,15 +151,29 @@
       input.value = pair[1];
       form.appendChild(input);
     });
-    var button = el("button", "btn btn--ghost btn--small", BW.t("chat.delete"));
+    var button = el("button", "btn btn--ghost btn--small", label);
     button.type = "submit";
     form.appendChild(button);
     return form;
   };
 
+  Conversation.prototype.deleteForm = function (id) {
+    return this.messageForm("chat-msg__delete", this.data.deleteUrl, BW.t("chat.delete_confirm"), id,
+                            BW.t("chat.delete"));
+  };
+
+  Conversation.prototype.reportForm = function (m) {
+    var form = this.messageForm("chat-msg__report", this.data.reportUrl, BW.t("chat.report_confirm"), m.id,
+                                BW.t("chat.report"));
+    form.querySelector("button").setAttribute("aria-label",
+      BW.t("chat.report_label", { user: m.sender || BW.t("chat.unknown_user") }));
+    return form;
+  };
+
   Conversation.prototype.markDeleted = function (item) {
     item.classList.add("chat-msg--deleted");
-    item.querySelectorAll(".chat-msg__body, .chat-msg__files, .chat-msg__delete").forEach(function (n) { n.remove(); });
+    item.querySelectorAll(".chat-msg__body, .chat-msg__files, .chat-msg__actions")
+      .forEach(function (n) { n.remove(); });
     item.appendChild(el("p", "chat-msg__body chat-msg__body--deleted", BW.t("chat.deleted")));
   };
 
@@ -290,12 +316,25 @@
     var self = this;
     this.log.addEventListener("submit", function (event) {
       var form = event.target;
-      if (!form.classList.contains("chat-msg__delete") || event.defaultPrevented) return;
-      event.preventDefault();
-      BW.fetchJSON(form.action, { method: "POST", body: new FormData(form) }).then(function () {
-        var item = form.closest("li");
-        if (item) self.markDeleted(item);
-      }).catch(function (error) { BW.toast(error.message || BW.t("error"), "error"); });
+      if (event.defaultPrevented) return;
+      if (form.classList.contains("chat-msg__delete")) {
+        event.preventDefault();
+        BW.fetchJSON(form.action, { method: "POST", body: new FormData(form) }).then(function () {
+          var item = form.closest("li");
+          if (item) self.markDeleted(item);
+        }).catch(function (error) { BW.toast(error.message || BW.t("error"), "error"); });
+      } else if (form.classList.contains("chat-msg__report")) {
+        event.preventDefault();
+        BW.fetchJSON(form.action, { method: "POST", body: new FormData(form) }).then(function (payload) {
+          var note = el("p", "chat-msg__reported", BW.t("chat.reported"));
+          note.setAttribute("role", "status");
+          var item = form.closest("li"), actions = form.parentNode;
+          form.remove();
+          if (actions && actions.classList.contains("chat-msg__actions") && !actions.querySelector("form")) actions.remove();
+          if (item) item.appendChild(note);
+          if (payload && payload.message) BW.toast(payload.message, "success");
+        }).catch(function (error) { BW.toast(error.message || BW.t("error"), "error"); });
+      }
     });
     var older = document.querySelector("[data-chat-older]");
     if (older) {

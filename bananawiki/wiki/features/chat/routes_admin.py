@@ -11,9 +11,10 @@ from jinja2 import TemplateNotFound
 
 from ... import accounts, auth, settings
 from ...i18n import t
-from . import dms, groups, retention
+from ..audit import record
+from . import dms, groups, reports, retention, store
 from .policy import DEFAULT_ATTACHMENT_MB, MAX_LENGTH_CEILING, MB
-from .routes_groups import display_name
+from .routes_groups import audit_admin_read, display_name
 from .store import DM, GROUP
 from .web import bp, conversation, page_number, refuse, succeed
 
@@ -72,8 +73,47 @@ def admin_chat_view(chat_id: int):
     if chat is None:
         abort(404)
     log.info("Administrator %s read chat %s", auth.current_user()["id"], chat_id)
+    record("chat.dm_read", target_type="chat", target_id=chat_id)
     return _render("chat/admin_chat_view.html", chat=chat, first=accounts.by_id(chat["user1_id"]),
-                   second=accounts.by_id(chat["user2_id"]), conversation=conversation(DM, chat_id, with_ip=True))
+                   second=accounts.by_id(chat["user2_id"]), conversation=conversation(DM, chat_id, moderation=True))
+
+
+@bp.route("/admin/chats/<int:chat_id>/clear", methods=["POST"])
+@auth.admin_required
+def admin_chat_clear(chat_id: int):
+    """Moderation: erase a conversation for both participants."""
+    chat = dms.get(chat_id)
+    if chat is None:
+        abort(404)
+    messages, attachments = store.count(DM, chat_id)
+    dms.clear(chat)
+    log.info("Administrator %s cleared chat %s", auth.current_user()["id"], chat_id)
+    record("chat.dm_cleared", target_type="chat", target_id=chat_id,
+           details={"messages": messages, "attachments": attachments})
+    return succeed(url_for("chat.admin_chats"), "chat.clear.done",
+                   values={"messages": messages, "attachments": attachments})
+
+
+@bp.route("/admin/chats/reports")
+@auth.admin_required
+def admin_reports():
+    status = "resolved" if request.args.get("status") == "resolved" else "open"
+    page = page_number()
+    rows, total = reports.page(status=status, page=page, per_page=PER_PAGE)
+    return _render("chat/admin_reports.html", reports=rows, status=status, page=page, pages=_pages(total),
+                   open_count=reports.open_count())
+
+
+@bp.route("/admin/chats/reports/<int:report_id>/resolve", methods=["POST"])
+@auth.admin_required
+def admin_report_resolve(report_id: int):
+    report = reports.get(report_id)
+    if report is None:
+        abort(404)
+    if reports.resolve(report_id, auth.current_user()["id"]):
+        record("chat.report_resolved", target_type="chat_report", target_id=report_id,
+               details={"kind": report["kind"], "conversation": report["parent_id"]})
+    return succeed(url_for("chat.admin_reports"), "chat.report.resolved")
 
 
 @bp.route("/admin/groups")
@@ -90,9 +130,10 @@ def admin_group_view(group_id: int):
     group = groups.get(group_id)
     if group is None:
         abort(404)
+    audit_admin_read("chat.group_read", group)
     return _render("chat/admin_group_view.html", group=group, name=display_name(group),
                    members=groups.members(group_id), banned=groups.banned_members(group_id),
-                   conversation=conversation(GROUP, group_id, with_ip=True))
+                   conversation=conversation(GROUP, group_id, moderation=True))
 
 
 @bp.route("/admin/groups/<int:group_id>/delete", methods=["POST"])

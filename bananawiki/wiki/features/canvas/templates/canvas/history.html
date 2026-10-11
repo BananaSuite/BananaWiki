@@ -7,26 +7,33 @@
   <li><a href="{{ url_for('canvas.view', slug=layout.slug) }}">{{ layout.title }}</a></li>
 </ol></nav>
 <header class="page-header">
-  <h1>{{ t('canvas.history.heading') }}</h1>
+  <h1>{{ t('canvas.history.title', title=layout.title) }}</h1>
   {% if is_admin and entries %}
   <div class="page-header__actions">
-    {{ forms.post_button(url_for('canvas.clear_history', slug=layout.slug), t('canvas.history.clear'), cls='btn btn--danger', confirm=t('canvas.history.clear_confirm')) }}
+    {{ forms.post_button(url_for('canvas.clear_history', slug=layout.slug), t('canvas.history.clear'), cls='btn btn--danger btn--small', confirm=t('canvas.history.clear_confirm')) }}
   </div>
   {% endif %}
 </header>
 {% if entries %}
-<div class="table-wrap"><table class="table">
+<div class="table-wrap"><table class="table table--stack">
   <thead><tr><th>{{ t('canvas.history.date') }}</th><th>{{ t('canvas.history.editor') }}</th><th>{{ t('canvas.history.summary') }}</th><th class="actions"><span class="visually-hidden">{{ t('common.actions') }}</span></th></tr></thead>
   <tbody>
   {% for entry in entries %}
   <tr>
-    <td><span title="{{ entry.created_at|datetime }}">{{ entry.created_at|time_ago }}</span></td>
-    <td>{{ entry.username or t('common.unknown_user') }}</td>
-    <td>{{ canvas_history_message(entry.edit_message) }}{% if entry.is_revert %} <span class="badge">{{ t('canvas.history.revert_badge') }}</span>{% endif %}</td>
+    <td class="nowrap"><a href="{{ url_for('canvas.history_entry', slug=layout.slug, entry_id=entry.id) }}"><time datetime="{{ entry.created_at }}" title="{{ entry.created_at|datetime }}">{{ entry.created_at|time_ago }}</time></a></td>
+    <td data-label="{{ t('canvas.history.editor') }}">{{ entry.username or t('common.unknown_user') }}</td>
+    <td data-label="{{ t('canvas.history.summary') }}">{{ canvas_history_message(entry.edit_message) }}{% if entry.is_revert %} <span class="badge">{{ t('canvas.history.revert_badge') }}</span>{% endif %}</td>
     <td class="actions">
       <a class="btn btn--small" href="{{ url_for('canvas.history_entry', slug=layout.slug, entry_id=entry.id) }}">{{ t('canvas.history.view') }}</a>
-      {% if can_revert %}{{ forms.post_button(url_for('canvas.revert', slug=layout.slug, entry_id=entry.id), t('canvas.history.revert'), cls='btn btn--small', confirm=t('canvas.history.revert_confirm')) }}{% endif %}
-      {% if is_admin %}{{ forms.post_button(url_for('canvas.delete_history_entry', slug=layout.slug, entry_id=entry.id), t('common.delete'), cls='btn btn--small', confirm=t('canvas.history.delete_confirm')) }}{% endif %}
+      {% if can_revert or is_admin %}
+      <details class="menu">
+        <summary class="btn btn--small btn--ghost" aria-label="{{ t('common.actions') }}">⋯</summary>
+        <div class="menu__panel" role="menu">
+          {% if can_revert %}{{ forms.post_button(url_for('canvas.revert', slug=layout.slug, entry_id=entry.id), t('canvas.history.revert'), cls='', confirm=t('canvas.history.revert_confirm'), attrs={'role': 'menuitem'}) }}{% endif %}
+          {% if is_admin %}{{ forms.post_button(url_for('canvas.delete_history_entry', slug=layout.slug, entry_id=entry.id), t('common.delete'), cls='text-danger', confirm=t('canvas.history.delete_confirm'), attrs={'role': 'menuitem'}) }}{% endif %}
+        </div>
+      </details>
+      {% endif %}
     </td>
   </tr>
   {% endfor %}

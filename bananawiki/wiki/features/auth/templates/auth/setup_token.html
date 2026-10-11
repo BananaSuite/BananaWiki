@@ -3,8 +3,8 @@
 {% block content %}
 <div class="card card--narrow">
   <h1>{{ t('auth.setup.title') }}</h1>
-  <p>{{ t('auth.setup.token_intro') }}</p>
-  <pre class="small">bananawiki setup-token</pre>
+  <p class="muted">{{ t('auth.setup.token_intro') }}</p>
+  <pre class="code-sample small"><code>bananawiki setup-token</code></pre>
   <form method="post" class="form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="field">

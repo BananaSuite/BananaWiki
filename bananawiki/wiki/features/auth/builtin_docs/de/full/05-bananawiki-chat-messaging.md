@@ -10,6 +10,10 @@ Direktnachrichten eignen sich für kurze Rückfragen, Bitten um eine Prüfung un
 
 Gruppen kannst du für Teams, Klassen, Projekte oder als Support-Kanal nutzen. Administratoren können Mitgliedschaften und Moderationseinstellungen verwalten. Gruppen funktionieren am besten, wenn jede einen klaren Zweck und einen kleinen, überschaubaren Kreis von Teilnehmenden hat.
 
+## Jemanden blockieren
+
+Alle können ein anderes Mitglied blockieren: in der Unterhaltung mit dieser Person, in der Mitgliederliste einer Gruppe oder unter **Einstellungen → Blockierte Personen**. Was ein blockiertes Mitglied dir sendet, wird dir nicht zugestellt (auch nicht, nachdem du die Blockierung aufgehoben hast), es kann keine Unterhaltung mit dir starten und dich keiner Gruppe hinzufügen, und seine Nachrichten in Gruppen, in denen ihr beide seid, werden für dich ausgeblendet. Die Person wird darüber nicht benachrichtigt, und niemand sonst sieht, wen du blockiert hast. Die Blockierung hebst du im selben Abschnitt der Einstellungen wieder auf.
+
 ## Anhänge und Limits
 
 Anhänge im Chat folgen den Upload-Regeln der Website. Administratoren können Größenlimits für Dateien, tägliche Kontingente, die Nachrichtenlänge und Zeitpläne für die automatische Bereinigung festlegen. Wenn der Chat für ein Konto gesperrt ist, sollte die Person den Rest des Wikis trotzdem ganz normal nutzen können.

@@ -14,16 +14,17 @@
   <div class="page-header__actions">
     {% if can_revert %}{{ forms.post_button(url_for('canvas.revert', slug=layout.slug, entry_id=entry.id), t('canvas.history.revert'), cls='btn btn--primary', confirm=t('canvas.history.revert_confirm')) }}{% endif %}
   </div>
-  <p class="page-header__meta">
+  <div class="page-header__meta">
     <span>{{ entry.created_at|datetime }}</span>
     <span>{{ entry.username or t('common.unknown_user') }}</span>
     <span>{{ canvas_history_message(entry.edit_message) }}</span>
-    <span>{{ t('canvas.history.counts', nodes=snapshot.data.nodes|length, edges=snapshot.data.edges|length) }}</span>
-  </p>
+    <span>{{ tn('canvas.history.nodes', snapshot.data.nodes|length) }}, {{ tn('canvas.history.edges', snapshot.data.edges|length) }}</span>
+  </div>
 </header>
 {% if entry.description %}<p>{{ entry.description }}</p>{% endif %}
 <div class="canvas-frame canvas-frame--static" data-canvas-static data-source="canvas-snapshot"
-     aria-label="{{ t('canvas.history.preview') }}"></div>
+     aria-label="{{ t('canvas.history.preview') }}" aria-describedby="canvas-preview-hint"></div>
+<p class="hint" id="canvas-preview-hint">{{ t('canvas.history.preview_hint') }}</p>
 <script type="application/json" id="canvas-snapshot">{{ snapshot|json_script }}</script>
 {% endblock %}
 {% block scripts %}

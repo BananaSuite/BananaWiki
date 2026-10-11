@@ -1,5 +1,6 @@
 {#- Attachments under a wiki page. Context: page, attachments, can_view, can_upload, deletable, max_bytes. -#}
 {% import "macros/forms.html" as forms with context %}
+<link rel="stylesheet" href="{{ asset_url('attachments.css', blueprint='attachments') }}">
 {#- Like 1.4, a page without attachments shows no panel; uploaders get a small "Add files" disclosure. -#}
 {% macro upload_form() -%}
   <form method="post" action="{{ url_for('attachments.upload', slug=page.slug) }}" enctype="multipart/form-data" class="attachments__upload">

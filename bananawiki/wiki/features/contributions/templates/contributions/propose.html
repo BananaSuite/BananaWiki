@@ -1,21 +1,27 @@
 {% extends "base.html" %}
 {% import "macros/forms.html" as forms with context %}
-{% block title %}{{ t('contributions.propose_title', title=page.title) }}{% endblock %}
+{% set heading = t('contributions.edit_title', title=page.title) if contribution else t('contributions.propose_title', title=page.title) %}
+{% block title %}{{ heading }}{% endblock %}
 {% block content %}
 <header class="page-header">
-  <h1>{{ t('contributions.propose_title', title=page.title) }}</h1>
+  <h1>{{ heading }}</h1>
   <div class="page-header__meta"><a href="{{ url_for('pages.view', slug=page.slug) }}">{{ t('common.back') }}</a></div>
 </header>
+{#- Editing an existing proposal (also where "Propose an edit" leads when one is already waiting): say so. -#}
+{% if contribution %}<div class="alert" role="status"><div class="alert__body">{{ t('contributions.notice.own_pending', date=contribution.created_at|datetime|nobreak) }}</div></div>{% endif %}
 <p class="muted">{{ t('contributions.propose_intro') }}</p>
-{% if others %}<div class="alert alert--warning"><div class="alert__body">{{ t('contributions.others_waiting', count=others) }}</div></div>{% endif %}
+{% if others %}<div class="alert alert--warning"><div class="alert__body">{{ tn('contributions.others_waiting', others, count=others) }}</div></div>{% endif %}
 <form method="post" class="form stack">
   {{ forms.csrf() }}
-  {{ forms.field('title', t('contributions.field.title'), value=form.title, required=true, attrs={'maxlength': 200}) }}
+  {{ forms.field('title', t('contributions.field.title'), value=form.title, required=true, error=errors.title, attrs={'maxlength': 200}) }}
   {{ forms.textarea('content', t('contributions.field.content'), value=form.content, rows=20, cls='mono') }}
+  {% if errors.content %}<p class="error field-error" id="f-content-error" role="alert">{{ errors.content }}</p>{% endif %}
   <div class="field">
     <label for="f-reason">{{ t('contributions.field.reason') }}</label>
-    <textarea id="f-reason" name="reason" rows="3" maxlength="{{ max_reason }}" required>{{ form.reason }}</textarea>
-    <p class="hint">{{ t('contributions.field.reason_hint') }}</p>
+    <textarea id="f-reason" class="textarea" name="reason" rows="3" maxlength="{{ max_reason }}" required
+              aria-describedby="f-reason-hint{% if errors.reason %} f-reason-error{% endif %}"{% if errors.reason %} aria-invalid="true" autofocus{% endif %}>{{ form.reason }}</textarea>
+    <p class="hint" id="f-reason-hint">{{ t('contributions.field.reason_hint') }}</p>
+    {% if errors.reason %}<p class="error" id="f-reason-error">{{ errors.reason }}</p>{% endif %}
   </div>
   <div class="btn-row">
     <button class="btn btn--primary" type="submit">{{ t('contributions.update') if contribution else t('contributions.submit') }}</button>

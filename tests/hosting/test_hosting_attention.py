@@ -64,7 +64,8 @@ def test_counts_cover_every_queue(portal, ctx, make_account, make_wiki, query, a
     query("INSERT INTO hosting_account_merge_requests (source_account_id, target_account_id, requested_by, status, "
           "source_approved, target_approved) VALUES (?, ?, ?, 'approved', 1, 1)",
           (source["id"], target["id"], source["id"]))
-    assert attention.counts() == {"accounts.pending": 1, "features.requests": 1, "merges.awaiting": 1}
+    assert attention.counts() == {"accounts.pending": 1, "features.requests": 1, "merges.awaiting": 1,
+                                  "email.recovery_paused": 0}
     assert attention.total(admin) == 3
     assert attention.items(owner) == []
 
@@ -95,7 +96,7 @@ def test_attention_page_and_dashboard_card(portal, make_account, login, admin, q
     query("UPDATE accounts SET created_at = '2020-01-01 00:00:00' WHERE id = ?", (user["id"],))
     client = _client(portal, login, admin)
     page = client.get("/admin/attention").get_data(as_text=True)
-    assert "Accounts waiting for approval" in page and "Oldest waiting since" in page
+    assert "Accounts waiting for approval" in page and "Oldest request arrived" in page
     assert 'href="/admin#pending-accounts"' in page
     dashboard = client.get("/admin").get_data(as_text=True)
     assert 'id="attention-card-title"' in dashboard and 'id="pending-accounts"' in dashboard
@@ -137,7 +138,7 @@ def test_feature_decision_leaves_a_notice(portal, make_account, make_wiki, login
     notice = query("SELECT * FROM hosting_account_notices", one=True)
     assert (notice["account_id"], notice["outcome"], notice["detail"]) == (owner["id"], "denied", "docs")
     html = owner_client.get("/dashboard").get_data(as_text=True)
-    assert "Your request for Public access on docs was denied." in html
+    assert "Your request for “Public access” on the wiki docs was denied." in html
 
 
 def test_notices_are_dismissed_by_their_owner_only(portal, make_account, login, query, ctx):
@@ -240,7 +241,7 @@ def test_admin_email_language(portal, make_account, query, admin, login, outbox)
     client.post("/language", data={"language": "it"})
     make_account(approval_status="pending")
     run(portal)
-    assert "Richieste in attesa della tua revisione" in outbox[0].subject
+    assert "Richieste da esaminare" in outbox[0].subject
 
 
 def test_maintenance_runs_the_email_steps(portal, make_account, query, admin, outbox):

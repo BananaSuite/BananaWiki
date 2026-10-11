@@ -22,6 +22,7 @@
   "announcements.created": "Announcement created.",
   "announcements.created_by": "By {user}, {when}",
   "announcements.custom_colors": "Use custom colours",
+  "announcements.custom_colors_hint": "Used only when “Use custom colours” is on.",
   "announcements.delete_confirm": "Delete this announcement?",
   "announcements.deleted": "Announcement deleted.",
   "announcements.dismiss": "Dismiss announcement",

@@ -8,6 +8,13 @@ functions serves both through a :class:`Store` description.
 Reading is incremental: the chat page shows the latest page of messages and
 then asks only for messages after the newest id it has (and pages backwards
 with "load older"). Attachments for a batch are fetched with one query.
+Readers pass a *floor*: messages up to that id are hidden from them (a
+direct conversation a participant cleared for themselves, see :mod:`.dms`).
+Participants also pass *reader*: direct messages withheld from them (sent
+after they blocked the sender, ``chat_messages.withheld``) are left out; only
+their sender and the administrators see those. Group readers also pass
+*hide_blocked_by*: messages of the people that account blocked are left out
+(system messages stay, see :mod:`.blocks`).
 
 Deleting is real: deleting a message erases its text and attachments (files
 on disk and the legacy ``file_blobs`` copies) and leaves a "deleted" marker so
@@ -52,10 +59,11 @@ class Store:
     parent: str
     download_endpoint: str
     has_system: bool
+    has_withheld: bool
 
 
-DM = Store("dm", "chat_messages", "chat_attachments", "chat_id", "chat.dm_attachment", False)
-GROUP = Store("group", "group_messages", "group_attachments", "group_id", "chat.group_attachment", True)
+DM = Store("dm", "chat_messages", "chat_attachments", "chat_id", "chat.dm_attachment", False, True)
+GROUP = Store("group", "group_messages", "group_attachments", "group_id", "chat.group_attachment", True, False)
 
 
 class AttachmentLimitExceeded(ValueError):
@@ -91,13 +99,36 @@ def system_text(content: str) -> str:
 # ── Reading ──────────────────────────────────────────────────────────────────
 
 
+def _withheld(store: Store, alias: str = "m") -> str:
+    return f"{alias}.withheld" if store.has_withheld else "0"
+
+
 def _select(store: Store) -> str:
     system = "m.is_system" if store.has_system else "0"
     return (
         f"SELECT m.id, m.sender_id, m.content, m.is_deleted, m.created_at, m.ip_address, {system} AS is_system, "
-        f"u.username AS sender_name FROM {store.messages} m LEFT JOIN users u ON u.id = m.sender_id "
+        f"{_withheld(store)} AS withheld, u.username AS sender_name, u.role AS sender_role, "
+        f"u.is_superuser AS sender_superuser FROM {store.messages} m LEFT JOIN users u ON u.id = m.sender_id "
         f"WHERE m.{store.parent} = ?"
     )
+
+
+def _hidden(store: Store, hide_blocked_by: str | None = None, reader: str | None = None) -> tuple[str, tuple[Any, ...]]:
+    """SQL (for alias ``m``) leaving out what a reader does not see, and its parameters.
+
+    *reader*: direct messages withheld from that participant. *hide_blocked_by*:
+    messages of the people that account blocked (system messages stay).
+    """
+    sql, params = "", []
+    if reader and store.has_withheld:
+        sql += " AND (m.withheld = 0 OR m.sender_id = ?)"
+        params.append(reader)
+    if hide_blocked_by:
+        system = "m.is_system = 1 OR " if store.has_system else ""
+        sql += (f" AND ({system}m.sender_id IS NULL OR m.sender_id NOT IN "
+                "(SELECT blocked_id FROM chat__blocks WHERE blocker_id = ?))")
+        params.append(hide_blocked_by)
+    return sql, tuple(params)
 
 
 def _attach(store: Store, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -125,60 +156,76 @@ def clamp_limit(value: Any) -> int:
     return max(1, min(number, MAX_PAGE_SIZE))
 
 
-def after(store: Store, parent_id: int, after_id: int, limit: int = MAX_PAGE_SIZE) -> list[dict[str, Any]]:
-    """Messages newer than *after_id*, oldest first."""
-    rows = db.all(_select(store) + " AND m.id > ? ORDER BY m.id LIMIT ?", (parent_id, after_id, limit))
+def after(store: Store, parent_id: int, after_id: int, limit: int = MAX_PAGE_SIZE, *,
+          floor: int = 0, hide_blocked_by: str | None = None, reader: str | None = None) -> list[dict[str, Any]]:
+    """Messages newer than *after_id* (and *floor*), oldest first."""
+    hidden, hidden_params = _hidden(store, hide_blocked_by, reader)
+    rows = db.all(_select(store) + hidden + " AND m.id > ? ORDER BY m.id LIMIT ?",
+                  (parent_id, *hidden_params, max(after_id, floor), limit))
     return _attach(store, rows)
 
 
-def before(store: Store, parent_id: int, before_id: int | None, limit: int = PAGE_SIZE) -> list[dict[str, Any]]:
-    """The *limit* messages before *before_id* (or the latest ones), oldest first."""
+def before(store: Store, parent_id: int, before_id: int | None, limit: int = PAGE_SIZE, *,
+           floor: int = 0, hide_blocked_by: str | None = None, reader: str | None = None) -> list[dict[str, Any]]:
+    """The *limit* messages before *before_id* (or the latest ones) and after *floor*, oldest first."""
+    hidden, hidden_params = _hidden(store, hide_blocked_by, reader)
     if before_id:
-        rows = db.all(_select(store) + " AND m.id < ? ORDER BY m.id DESC LIMIT ?", (parent_id, before_id, limit))
+        rows = db.all(_select(store) + hidden + " AND m.id < ? AND m.id > ? ORDER BY m.id DESC LIMIT ?",
+                      (parent_id, *hidden_params, before_id, floor, limit))
     else:
-        rows = db.all(_select(store) + " ORDER BY m.id DESC LIMIT ?", (parent_id, limit))
+        rows = db.all(_select(store) + hidden + " AND m.id > ? ORDER BY m.id DESC LIMIT ?",
+                      (parent_id, *hidden_params, floor, limit))
     rows.reverse()
     return _attach(store, rows)
 
 
-def iterate(store: Store, parent_id: int, batch: int = 500) -> Iterator[dict[str, Any]]:
-    """Every message of a conversation, oldest first, in bounded batches (exports)."""
-    last = 0
+def iterate(store: Store, parent_id: int, batch: int = 500, *, floor: int = 0,
+            reader: str | None = None) -> Iterator[dict[str, Any]]:
+    """Every message of a conversation after *floor*, oldest first, in bounded batches (exports)."""
+    last = floor
     while True:
-        rows = after(store, parent_id, last, batch)
+        rows = after(store, parent_id, last, batch, reader=reader)
         if not rows:
             return
         yield from rows
         last = rows[-1]["id"]
 
 
-def first_id(store: Store, parent_id: int) -> int | None:
-    return db.scalar(f"SELECT MIN(id) FROM {store.messages} WHERE {store.parent} = ?", (parent_id,))
+def first_id(store: Store, parent_id: int, *, floor: int = 0, reader: str | None = None) -> int | None:
+    hidden, hidden_params = _hidden(store, reader=reader)
+    return db.scalar(f"SELECT MIN(m.id) FROM {store.messages} m WHERE m.{store.parent} = ? AND m.id > ?{hidden}",
+                     (parent_id, floor, *hidden_params))
 
 
-def has_older(store: Store, parent_id: int, oldest_id: int | None) -> bool:
+def has_older(store: Store, parent_id: int, oldest_id: int | None, *, floor: int = 0,
+              hide_blocked_by: str | None = None, reader: str | None = None) -> bool:
     if not oldest_id:
         return False
+    hidden, hidden_params = _hidden(store, hide_blocked_by, reader)
     return db.scalar(
-        f"SELECT 1 FROM {store.messages} WHERE {store.parent} = ? AND id < ? LIMIT 1", (parent_id, oldest_id)
+        f"SELECT 1 FROM {store.messages} m WHERE m.{store.parent} = ?{hidden} AND m.id < ? AND m.id > ? LIMIT 1",
+        (parent_id, *hidden_params, oldest_id, floor),
     ) is not None
 
 
-def deleted_since(store: Store, parent_id: int, since: str) -> list[int]:
+def deleted_since(store: Store, parent_id: int, since: str, *, reader: str | None = None) -> list[int]:
     """Ids of messages deleted at or after *since* (so open pages can hide them)."""
+    hidden, hidden_params = _hidden(store, reader=reader)
     return db.column(
-        f"SELECT id FROM {store.messages} WHERE {store.parent} = ? AND is_deleted = 1 AND deleted_at >= ?",
-        (parent_id, since),
+        f"SELECT m.id FROM {store.messages} m WHERE m.{store.parent} = ? AND m.is_deleted = 1 "
+        f"AND m.deleted_at >= ?{hidden}",
+        (parent_id, since, *hidden_params),
     )
 
 
-def count(store: Store, parent_id: int) -> tuple[int, int]:
-    """(messages, attachments) in a conversation."""
+def count(store: Store, parent_id: int, *, floor: int = 0, reader: str | None = None) -> tuple[int, int]:
+    """(messages, attachments) in a conversation, after *floor*, that *reader* sees."""
+    hidden, hidden_params = _hidden(store, reader=reader)
     row = db.one(
-        f"SELECT (SELECT COUNT(*) FROM {store.messages} WHERE {store.parent} = ?) AS messages, "
-        f"(SELECT COUNT(*) FROM {store.attachments} a JOIN {store.messages} m ON m.id = a.message_id "
-        f"WHERE m.{store.parent} = ?) AS attachments",
-        (parent_id, parent_id),
+        f"SELECT (SELECT COUNT(*) FROM {store.messages} m WHERE m.{store.parent} = ? AND m.id > ?{hidden}) "
+        f"AS messages, (SELECT COUNT(*) FROM {store.attachments} a JOIN {store.messages} m ON m.id = a.message_id "
+        f"WHERE m.{store.parent} = ? AND m.id > ?{hidden}) AS attachments",
+        (parent_id, floor, *hidden_params, parent_id, floor, *hidden_params),
     ) or {}
     return int(row.get("messages") or 0), int(row.get("attachments") or 0)
 
@@ -186,16 +233,22 @@ def count(store: Store, parent_id: int) -> tuple[int, int]:
 def message(store: Store, message_id: int) -> dict[str, Any] | None:
     system = "is_system" if store.has_system else "0"
     return db.one(
-        f"SELECT id, {store.parent} AS parent_id, sender_id, is_deleted, {system} AS is_system "
-        f"FROM {store.messages} WHERE id = ?",
+        f"SELECT id, {store.parent} AS parent_id, sender_id, is_deleted, created_at, {system} AS is_system, "
+        f"{_withheld(store, store.messages)} AS withheld FROM {store.messages} WHERE id = ?",
         (message_id,),
     )
 
 
+def withheld_from(row: dict[str, Any], reader_id: str) -> bool:
+    """Whether the message in *row* (``withheld``, ``sender_id``) is hidden from participant *reader_id*."""
+    return bool(row.get("withheld")) and row.get("sender_id") != reader_id
+
+
 def attachment(store: Store, attachment_id: int) -> dict[str, Any] | None:
     return db.one(
-        f"SELECT a.id, a.filename, a.original_name, a.file_size, a.blob_id, m.{store.parent} AS parent_id, "
-        f"m.is_deleted FROM {store.attachments} a JOIN {store.messages} m ON m.id = a.message_id WHERE a.id = ?",
+        f"SELECT a.id, a.message_id, a.filename, a.original_name, a.file_size, a.blob_id, "
+        f"m.{store.parent} AS parent_id, m.is_deleted, m.sender_id, {_withheld(store)} AS withheld "
+        f"FROM {store.attachments} a JOIN {store.messages} m ON m.id = a.message_id WHERE a.id = ?",
         (attachment_id,),
     )
 
@@ -218,12 +271,21 @@ def serialize(
     *,
     viewer_id: str | None,
     can_delete_any: bool = False,
-    with_ip: bool = False,
+    own_deletable_since: str | None = None,
+    moderation: bool = False,
+    ip_hidden: bool = False,
 ) -> dict[str, Any]:
-    """A message as the page (template and script) shows it to *viewer_id*."""
+    """A message as the page (template and script) shows it to *viewer_id*.
+
+    The viewer's own messages sent before *own_deletable_since* can no longer
+    be deleted (direct messages, see :func:`.dms.deletable_since`). The
+    administrators' *moderation* view adds the sender's address (unless
+    *ip_hidden*) and whether a direct message was withheld from its recipient.
+    """
     system = bool(row["is_system"])
     deleted = bool(row["is_deleted"]) and not system
     mine = viewer_id is not None and row["sender_id"] == viewer_id
+    own_deletable = mine and (own_deletable_since is None or row["created_at"] >= own_deletable_since)
     if system:
         text = system_text(row["content"])
     else:
@@ -242,10 +304,13 @@ def serialize(
              "url": url_for(store.download_endpoint, attachment_id=a["id"])}
             for a in row.get("attachments", [])
         ] if not deleted else [],
-        "can_delete": not deleted and not system and (mine or can_delete_any),
+        "can_delete": not deleted and not system and (own_deletable or can_delete_any),
+        "can_report": viewer_id is not None and not deleted and not system and not mine,
     }
-    if with_ip:
-        item["ip"] = row["ip_address"] or ""
+    if moderation:
+        item["ip"] = "" if ip_hidden else (row["ip_address"] or "")
+        item["ip_hidden"] = ip_hidden and bool(row["ip_address"])
+        item["withheld"] = bool(row.get("withheld"))
     return item
 
 
@@ -261,8 +326,12 @@ def insert(
     ip_address: str = "",
     stored: storage.StoredFile | None = None,
     system: bool = False,
+    withheld: bool = False,
 ) -> int:
-    """Add a message (and its attachment); call inside the caller's transaction."""
+    """Add a message (and its attachment); call inside the caller's transaction.
+
+    A *withheld* direct message is kept for its sender only (see :mod:`.blocks`).
+    """
     if stored is not None and sender_id is not None:
         from . import policy
 
@@ -277,6 +346,8 @@ def insert(
                               "ip_address": ip_address, "created_at": now}
     if store.has_system:
         values["is_system"] = 1 if system else 0
+    if withheld and store.has_withheld:
+        values["withheld"] = 1
     message_id = db.insert(store.messages, values)
     if stored is not None:
         attachment_id = db.insert(store.attachments, {"message_id": message_id, "filename": stored.filename,
@@ -324,12 +395,13 @@ def wipe(store: Store, message_id: int, *, authorize: Callable[[], None] | None 
     remove_files(files)
 
 
-def clear(store: Store, parent_id: int) -> list[str]:
-    """Delete every message of a conversation; call inside a transaction, then remove the files."""
-    files = _remove_attachments(
-        store, f"message_id IN (SELECT id FROM {store.messages} WHERE {store.parent} = ?)", (parent_id,)
-    )
-    db.execute(f"DELETE FROM {store.messages} WHERE {store.parent} = ?", (parent_id,))
+def clear(store: Store, parent_id: int, *, upto: int | None = None) -> list[str]:
+    """Delete every message of a conversation (up to id *upto*); call inside a transaction, then remove the files."""
+    where, params = f"{store.parent} = ?", [parent_id]
+    if upto is not None:
+        where, params = where + " AND id <= ?", [parent_id, upto]
+    files = _remove_attachments(store, f"message_id IN (SELECT id FROM {store.messages} WHERE {where})", params)
+    db.execute(f"DELETE FROM {store.messages} WHERE {where}", params)
     return files
 
 

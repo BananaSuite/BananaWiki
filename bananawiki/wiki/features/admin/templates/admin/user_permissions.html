@@ -3,10 +3,10 @@
 {% from "admin/_categories.html" import category_list, permission_groups with context %}
 {% block title %}{{ t('admin.permissions.title') }} · {{ target.username }}{% endblock %}
 {% block admin_content %}
-<nav class="breadcrumbs" aria-label="{{ t('common.back') }}"><ol>
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
   <li><a href="{{ url_for('admin.users') }}">{{ t('admin.users.title') }}</a></li>
   <li><a href="{{ url_for('admin.user_detail', user_id=target.id) }}">{{ target.username }}</a></li>
-  <li>{{ t('admin.permissions.title') }}</li>
+  <li aria-current="page">{{ t('admin.permissions.title') }}</li>
 </ol></nav>
 <header class="page-header"><h1>{{ t('admin.permissions.heading', username=target.username) }}</h1></header>
 
@@ -22,6 +22,8 @@
 <form method="post" class="form">
   {{ forms.csrf() }}
   {{ permission_groups(groups, access.keys) }}
+  {#- Category access: drawn like the permission groups above (heading and rule, no box). -#}
+  <div class="perm-groups">
   <fieldset>
     <legend>{{ t('admin.permissions.read_access') }}</legend>
     {{ forms.checkbox('read_restricted', t('admin.permissions.read_restricted'), checked=access.read_restricted) }}
@@ -38,6 +40,7 @@
     </div>
   </fieldset>
   {% endif %}
+  </div>
   <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
 </form>
 {% if access.customized %}

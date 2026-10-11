@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('users.sessions.title') }}{% endblock %}
+{#- "password+totp" → "Password + authenticator app", in the reader's language; unknown parts stay as stored. -#}
+{% macro method_label(code) -%}
+{%- for part in (code or 'password').split('+') -%}{{ t('users.sessions.method_part.' ~ part, part) }}{% if not loop.last %} + {% endif %}{%- endfor -%}
+{%- endmacro %}
 {% macro session_card(item, history=false) -%}
 <li class="users-session{% if item.is_current %} is-current{% endif %}">
   <div class="users-session__main">
@@ -8,12 +12,12 @@
     {% if item.is_current %}<span class="badge badge--success">{{ t('users.sessions.current') }}</span>{% endif %}
     {% if item.remember_me %}<span class="badge">{{ t('users.sessions.remembered') }}</span>{% endif %}
     {% if history %}<span class="badge">{{ t('users.sessions.ended' if item.revoked_at else 'users.sessions.expired') }}</span>{% endif %}
-    <div class="small muted cluster">
+    <div class="small muted cluster users-session__facts">
       <span>{{ t('users.sessions.signed_in', when=item.created_at|datetime) }}</span>
       {% if history %}<span>{{ t('users.sessions.ended_at', when=item.ended_at|datetime) }}</span>
       {% else %}<span>{{ t('users.sessions.last_active', when=item.last_seen_at|time_ago) }}</span>{% endif %}
       {% if item.last_ip %}<span>{{ t('users.sessions.ip', address=item.last_ip) }}</span>{% endif %}
-      <span>{{ t('users.sessions.method', method=item.auth_method) }}</span>
+      <span>{{ t('users.sessions.method', method=method_label(item.auth_method)) }}</span>
     </div>
   </div>
   {% if not history %}

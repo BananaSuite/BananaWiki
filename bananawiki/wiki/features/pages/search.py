@@ -206,7 +206,40 @@ def highlight(text: str, terms: list[str]) -> Markup:
     return Markup("".join(parts))
 
 
-_MARKDOWN_NOISE = re.compile(r"[#*_`>|~]+|!?\[([^\]]*)\]\([^)]*\)")
+# Markdown syntax in a snippet is noise: the reader sees the words, not the markup. The FTS match
+# markers (\x02 … \x03) count as part of a word, so "_\x02word\x03_" loses its underscores while
+# "mia_member" keeps its own.
+_MD_SHORTCODE = re.compile(r"\[\[[^\]\n]*\]\]|\[TOC\]", re.IGNORECASE)
+_MD_LINK = re.compile(r"!?\[([^\]\n]*)\]\([^)\n]*\)|\[([^\]\n]+)\]\[[^\]\n]*\]")
+# What the snippet window cut in half: the tail of a shortcode or of an address at the start; an
+# image, a shortcode or a link address at the end ("![Team (/static/up", "[[kanban", "[docs](https://ex").
+_MD_CUT_START = re.compile(r"^(?:[^\s\[\]]*\]\]|[^\s()]*[/.][^\s()]*\))")
+_MD_CUT_END = re.compile(r"!\[[^\]\n]*\]?(?:\([^)\n]*)?$|\[\[[^\]\n]*\]?$|\[([^\]\n]*)\]\([^)\n]*$")
+_MD_BLOCK_MARK = re.compile(r"^[ \t]*(?:#{1,6}|>+|[-*+])[ \t]+(?:\[[ xX]\][ \t]+)?", re.MULTILINE)
+_MD_RULE = re.compile(r"^[ \t]*(?:[-*_=|:][ \t]*){3,}$", re.MULTILINE)
+_MD_EMPHASIS = re.compile(r"\*+|~~|`+|(?<![\w\x02\x03])_+|_+(?![\w\x02\x03])")
+
+
+def snippet_text(snippet: str) -> str:
+    """The words of a Markdown *snippet*: markup, shortcodes and half-cut links removed, spaces collapsed.
+
+    The FTS snippet starts or ends with "…" where it cuts the page; those stay.
+    """
+    text = snippet.replace("\r", "").strip()
+    lead, trail = text.startswith("…"), text.endswith("…")
+    text = text.removeprefix("…").removesuffix("…")
+    text = _MD_SHORTCODE.sub(" ", text)
+    text = _MD_LINK.sub(lambda m: m.group(1) if m.group(1) is not None else m.group(2), text)
+    if lead:
+        text = _MD_CUT_START.sub("", text.lstrip())
+    text = _MD_CUT_END.sub(lambda m: m.group(1) or "", text.rstrip())
+    text = _MD_BLOCK_MARK.sub("", _MD_RULE.sub(" ", text))
+    text = " ".join(_MD_EMPHASIS.sub("", text.replace("|", " ")).split())
+    if text and lead:
+        text = "… " + text
+    if text and trail:
+        text += " …"
+    return text
 
 
 def snippet_html(snippet: str, terms: list[str], *, marked: bool) -> Markup:
@@ -215,8 +248,7 @@ def snippet_html(snippet: str, terms: list[str], *, marked: bool) -> Markup:
     SQLite marks FTS matches with the control characters \\x02 and \\x03; the
     text is escaped first and only then are the markers turned into ``<mark>``.
     """
-    snippet = _MARKDOWN_NOISE.sub(lambda m: m.group(1) or " ", snippet.replace("\r", ""))
-    snippet = " ".join(snippet.split())
+    snippet = snippet_text(snippet)
     if not marked:
         return highlight(snippet, terms)
     escaped = str(escape(snippet))

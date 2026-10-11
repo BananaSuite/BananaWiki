@@ -26,6 +26,23 @@ def flash_error(exc: ContributionError) -> None:
     flash(t(exc.key, **exc.values), "error")
 
 
+# Errors about one field of the proposal form are shown under that field, not as a toast.
+_FIELD_ERRORS = {
+    "contributions.error.title_too_long": "title",
+    "contributions.error.content_too_long": "content",
+    "contributions.error.reason_required": "reason",
+    "contributions.error.reason_too_long": "reason",
+}
+
+
+def _form_error(exc: ContributionError, errors: dict[str, str]) -> None:
+    field = _FIELD_ERRORS.get(exc.key)
+    if field:
+        errors[field] = t(exc.key, **exc.values)
+    else:
+        flash_error(exc)
+
+
 def _visible_page(slug: str) -> dict[str, Any]:
     page = pages.get_by_slug(slug)
     if page is None or not pages.can_view(page):
@@ -63,16 +80,17 @@ def propose(slug: str):
     if existing:
         return redirect(url_for("contributions.edit", slug=slug, contribution_id=existing["id"]))
     form = {"title": page["title"], "content": page["content"], "reason": ""}
+    errors: dict[str, str] = {}
     if request.method == "POST":
         form = {key: request.form.get(key, "") for key in form}
         try:
             service.propose(page, user, **form)
         except ContributionError as exc:
-            flash_error(exc)
+            _form_error(exc, errors)
         else:
             auth.flash_t("contributions.submitted", "success")
             return _to_page(page)
-    return render_template("contributions/propose.html", page=page, form=form, contribution=None,
+    return render_template("contributions/propose.html", page=page, form=form, contribution=None, errors=errors,
                            others=len(service.pending_on_page(page["id"])), max_reason=service.MAX_REASON)
 
 
@@ -88,17 +106,20 @@ def edit(slug: str, contribution_id: int):
         auth.flash_t("contributions.withdrawn_can_edit", "info")
         return redirect(url_for("pages.edit", slug=slug))
     form = {key: contribution[key] for key in ("title", "content", "reason")}
+    errors: dict[str, str] = {}
     if request.method == "POST":
         form = {key: request.form.get(key, "") for key in form}
         try:
             service.update_own(contribution, user, **form)
         except ContributionError as exc:
-            flash_error(exc)
+            _form_error(exc, errors)
         else:
             auth.flash_t("contributions.updated", "success")
             return _to_page(page)
+    # Other people's proposals for the same page may conflict with this one, as on the propose page.
+    others = sum(1 for other in service.pending_on_page(page["id"]) if other["id"] != contribution["id"])
     return render_template("contributions/propose.html", page=page, form=form, contribution=contribution,
-                           others=0, max_reason=service.MAX_REASON)
+                           errors=errors, others=others, max_reason=service.MAX_REASON)
 
 
 @bp.post("/page/<slug>/contribution/<int:contribution_id>/withdraw")

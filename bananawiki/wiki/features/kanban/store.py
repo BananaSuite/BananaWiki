@@ -188,8 +188,8 @@ def board_state(board: dict[str, Any]) -> dict[str, Any]:
     return {
         "board": {"id": board["id"], "title": board["title"], "description": board["description"] or "",
                   "visibility": board.get("visibility") or "public", "archived_at": board.get("archived_at")},
-        "columns": [{"id": c["id"], "title": c["title"], "wip_limit": c.get("wip_limit"), "tickets": tickets[c["id"]]}
-                    for c in columns],
+        "columns": [{"id": c["id"], "title": c["title"], "wip_limit": c.get("wip_limit"),
+                     "done": bool(c.get("is_done")), "tickets": tickets[c["id"]]} for c in columns],
         "tickets": cards,
         "archived_count": archived_count(board["id"]),
     }

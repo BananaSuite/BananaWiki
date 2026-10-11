@@ -135,6 +135,16 @@ def test_reorder_pages_checks_edit_access(app, make_user, login, db):
     assert client.post("/api/reorder/pages", json={"ids": [1, 1]}).status_code == 400
 
 
+def test_reorder_pages_refuses_a_page_that_cannot_be_edited_right_now(app, admin_client, db):
+    cat = make_category(app, "Frozen")
+    pages = [make_page(app, f"Frozen {n}", category_id=cat["id"]) for n in range(2)]
+    before = db.column("SELECT id FROM pages WHERE category_id = ? ORDER BY sort_order", (cat["id"],))
+    add_interceptor(app, "page.edit_blocked", lambda page, user: "pages.blocked.pending_deletion")
+    response = admin_client.post("/api/reorder/pages", json={"ids": [pages[1]["id"], pages[0]["id"]]})
+    assert response.status_code == 423
+    assert db.column("SELECT id FROM pages WHERE category_id = ? ORDER BY sort_order", (cat["id"],)) == before
+
+
 def test_reorder_categories(app, admin_client, make_user, login, db):
     x, y, z = (make_category(app, name) for name in ("X", "Y", "Z"))
     assert admin_client.post("/api/reorder/categories", json={"ids": [z["id"], x["id"], y["id"]]}).status_code == 200

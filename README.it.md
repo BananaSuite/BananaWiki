@@ -1,4 +1,4 @@
-<img src="bananawiki/wiki/static/favicons/banana_yellow.png" alt="Logo di BananaWiki" width="64">
+<img src="bananawiki/wiki/static/favicons/apple-touch-icon.png" alt="Logo di BananaWiki" width="90" height="90">
 
 # BananaWiki
 
@@ -9,7 +9,7 @@ alta voce). Funziona come wiki singola, come app desktop su un solo computer
 oppure come piattaforma hosting che crea una wiki separata per ogni cliente.
 
 [English](README.md) · [Documentazione (in inglese)](docs/README.md) ·
-[Guida utente](docs/user-guide/it/README.md) · [Aggiornare dalla 1.4](UPGRADING.md)
+[Guida utente](docs/user-guide/it/README.md) · [Aggiornare](UPGRADING.md)
 
 ## Funzionalità
 
@@ -37,6 +37,9 @@ oppure come piattaforma hosting che crea una wiki separata per ogni cliente.
 * **Integrazione**: API REST con token e ambiti, federazione tra wiki, pagine
   personalizzate a qualsiasi indirizzo libero, plugin di terze parti (anche
   quelli scritti per la 1.4).
+* **Amministrazione**: temi grafici, lingue dell'interfaccia (inglese,
+  italiano e tedesco incluse, altre caricabili), guida utente integrata,
+  esportazione e importazione dell'intero sito, eliminazione in blocco.
 * **Operatività**: installazione con un comando e configurazione HTTPS,
   aggiornamenti con backup e ripristino automatico in caso di errore, backup
   cifrati in un repository Git privato, Docker Compose, app desktop per
@@ -60,7 +63,8 @@ bananawiki serve
 Apri <http://127.0.0.1:5001>, esegui `bananawiki setup-token` in un secondo
 terminale e inserisci il codice per creare il primo account.
 
-**Docker Compose** (wiki dietro Caddy con HTTPS automatico):
+**Docker Compose** (wiki dietro Caddy con HTTPS automatico; per costruire
+l'immagine Docker deve avere il componente BuildKit, `docker buildx`):
 
 ```sh
 WIKI_DOMAIN=wiki.example.org ACME_EMAIL=tu@example.org docker compose up -d
@@ -75,34 +79,37 @@ sudo bananawiki proxy --install --email tu@example.org
 sudo bananawiki setup-token
 ```
 
-Con `--mode hosting` si installa la piattaforma hosting. Gli aggiornamenti
-automatici restano disattivati finché non esegui
-`sudo bananawiki updates enable`.
+Con `--mode hosting` si installa la piattaforma hosting (serve Docker con
+BuildKit; va bene qualsiasi filesystem, e su XFS montato con `prjquota` ogni
+wiki ha anche un limite di spazio rigido). Le nuove
+installazioni seguono i tag di rilascio (`vX.Y.Z`); per un server di
+produzione, prima di installare passa anche all'ultimo tag di rilascio
+(`git checkout v1.7.0`). Gli aggiornamenti automatici restano disattivati
+finché non esegui
+`sudo bananawiki updates enable --require-signatures ALLOWED_SIGNERS`.
 
 **Desktop**: [BananaWiki Desktop](docs/desktop.md) fa funzionare una wiki su
 un computer di classe o d'ufficio, senza server.
 
-Per aggiornare un'installazione 1.4 leggi [UPGRADING.md](UPGRADING.md).
+Per aggiornare dalla 1.6, o un'installazione 1.4, leggi [UPGRADING.md](UPGRADING.md) (in inglese).
 
 ## Come è nata
 
 Luca Zani ([OverloadedTech](https://github.com/OverloadedTech)) ha avviato
-BananaWiki in autonomia il 20 febbraio 2026, quando a Canalescuola serviva una
-wiki per il progetto dell'Officina Tecnologica. Lo sviluppo ha accelerato a
-giugno 2026 durante un percorso di FSL (formazione scuola-lavoro), e da allora
-il progetto è mantenuto da Luca e dall'Officina Tecnologica. In quei mesi una
-wiki per un solo gruppo è diventata una piattaforma che crea e gestisce una
-wiki per ogni tenant, con le approvazioni, le quote e i domini personalizzati
-che questo comporta.
+BananaWiki il 20 febbraio 2026 come wiki per un solo gruppo. Nei mesi
+successivi è diventata una piattaforma che crea e gestisce una wiki per ogni
+tenant, con le approvazioni, le quote e i domini personalizzati che questo
+comporta. La pagina [Chi siamo](https://bananawiki.com/about/index.it.html)
+racconta la storia per intero.
 
-Fino a settembre 2026 era un progetto interno. Con la prima pubblicazione la
-versione interna è diventata software libero: lo stesso codice fa girare il
-servizio hosting e chiunque può installarlo sul proprio server. La versione
-1.6 è una riscrittura di quella pubblicazione che ne conserva dati, indirizzi
-e configurazione, così le installazioni esistenti si aggiornano sul posto.
+Fino a settembre 2026 era un progetto privato. Con la prima pubblicazione è
+diventata software libero: lo stesso codice fa girare il servizio hosting e
+chiunque può installarlo sul proprio server. La versione 1.6 è una
+riscrittura di quella pubblicazione che ne conserva dati, indirizzi e
+configurazione, così le installazioni esistenti si aggiornano sul posto.
 
-Il codice è stato sviluppato in privato per circa sette mesi e la cronologia
-interna conta poco più di tremila commit. Non viene pubblicata: contiene
+Il codice è stato sviluppato in privato per circa sette mesi e quella
+cronologia conta poco più di tremila commit. Non viene pubblicata: contiene
 credenziali di deployment e note sull'infrastruttura, e non c'è modo di
 rimuovere con certezza ogni segreto da così tanti commit. Il repository
 pubblico parte quindi da un'esportazione pulita; il file [NOTICE](NOTICE)
@@ -120,6 +127,11 @@ ti chiede di offrire agli utenti il codice sorgente corrispondente. Imposta
 `BW_SOURCE_URL` sul sorgente della versione che usi: la wiki lo collega
 all'indirizzo `/source`. Conserva le note di terze parti.
 
-Copyright © 2026 Luca Zani e tutti i contributori. Ogni contributore conserva
-il copyright dei propri contributi. Sorgente:
+Copyright © 2026 Luca Zani e chi contribuisce. Ogni persona che contribuisce
+conserva il copyright dei propri contributi. Sorgente:
 <https://github.com/BananaSuite/BananaWiki>.
+
+## Manutentori
+
+Avviata da Luca Zani; mantenuta da Luca Zani e da chi contribuisce. Per
+partecipare, parti da [CONTRIBUTING.md](CONTRIBUTING.md) (in inglese).

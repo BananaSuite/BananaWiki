@@ -6,7 +6,7 @@ BananaWiki is a private wiki for your team. It runs on your server, keeps pages 
 
 1. **Read** - open pages from the sidebar and use search when you know a keyword.
 2. **Write** - create a page when useful knowledge is missing.
-3. **Organize** - move related pages into categories so others can find them later.
+3. **Organise** - move related pages into categories so others can find them later.
 
 ## What BananaWiki can include
 
@@ -25,4 +25,4 @@ BananaWiki is a private wiki for your team. It runs on your server, keeps pages 
 | **Admin** | manage the wiki, users, settings, and plugins |
 | **Protected admin** | admin access protected from regular admin changes |
 
-Admins can recreate this guide from **Admin -> Site Settings -> Wiki Documentation** and choose English, Italian or German, full or simplified.
+Admins can recreate this guide from **Administration → Documentation** and choose English, Italian or German, full or simplified.

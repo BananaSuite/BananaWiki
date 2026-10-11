@@ -1,5 +1,5 @@
 {
-  "feature.leaderboard.description": "Classifica i membri in base ai loro contributi al wiki.",
+  "feature.leaderboard.description": "Classifica i membri in base ai loro contributi alla wiki.",
   "feature.leaderboard.name": "Classifica dei contributori",
   "leaderboard.active_days": "Giorni attivi",
   "leaderboard.apply": "Applica",
@@ -8,7 +8,7 @@
   "leaderboard.date_range": "Periodo",
   "leaderboard.edits": "Modifiche",
   "leaderboard.export_csv": "Esporta CSV",
-  "leaderboard.latest": "Ultimo",
+  "leaderboard.latest": "Ultimo contributo",
   "leaderboard.nav": "Classifica",
   "leaderboard.no_data": "Nessun contributo in questo periodo.",
   "leaderboard.options": "Opzioni della classifica",
@@ -16,7 +16,7 @@
   "leaderboard.pages_touched": "Pagine modificate",
   "leaderboard.range.30d": "Ultimi 30 giorni",
   "leaderboard.range.90d": "Ultimi 90 giorni",
-  "leaderboard.range.all": "Sempre",
+  "leaderboard.range.all": "Da sempre",
   "leaderboard.range.year": "Ultimo anno",
   "leaderboard.score": "Punteggio",
   "leaderboard.sort.active": "Giorni attivi",
@@ -26,10 +26,10 @@
   "leaderboard.sort.recent": "Più recenti",
   "leaderboard.sort.score": "Punteggio",
   "leaderboard.sort_by": "Ordina per",
-  "leaderboard.streak": "Serie",
-  "leaderboard.streak_value": "migliore {longest}, attuale {current}",
+  "leaderboard.streak": "Serie (giorni)",
+  "leaderboard.streak_value": "{current} in corso · record {longest}",
   "leaderboard.summary": "Riepilogo",
   "leaderboard.text_changed": "Caratteri aggiunti / rimossi",
   "leaderboard.title": "Classifica dei contributori",
-  "leaderboard.your_rank": "Sei al posto {rank} con {score} punti."
+  "leaderboard.your_rank": "Sei al {rank}° posto con {score} punti."
 }

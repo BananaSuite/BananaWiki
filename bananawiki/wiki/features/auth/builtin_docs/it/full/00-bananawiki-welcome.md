@@ -26,4 +26,4 @@ Le pagine contengono testo Markdown. Le categorie organizzano le pagine nella ba
 
 ## Informazioni su questa guida
 
-Questa documentazione viene generata da BananaWiki. Gli admin possono ricrearla da **Admin -> Impostazioni sito -> Documentazione Wiki**, scaricarla come Markdown, personalizzarla e reimportarla nella wiki.
+Questa documentazione viene generata da BananaWiki. Gli admin possono ricrearla da **Amministrazione → Documentazione**, scaricarla come Markdown, personalizzarla e reimportarla nella wiki.

@@ -5,7 +5,7 @@ from __future__ import annotations
 from flask import redirect, render_template, request, url_for
 
 from ....core.ratelimit import SqlLimiter
-from ....core.web import client_ip
+from ....core.web import client_network
 from ... import accounts, auth, settings
 from ...db import db
 from ...i18n import t
@@ -41,7 +41,7 @@ def signup_page():
 
     form = {"username": (request.form.get("username") or "").strip()[:50],
             "invite_code": invites.normalize(request.form.get("invite_code"))}
-    if not SqlLimiter(db.session).hit(client_ip(), "signup:ip", MAX_PER_IP, WINDOW_SECONDS):
+    if not SqlLimiter(db.session).hit(client_network(), "signup:ip", MAX_PER_IP, WINDOW_SECONDS):
         return _render(429, t("auth.signup.error.too_many"), form)
     if bot_protection.rejection():
         return _render(400, t("auth.signup.error.rejected"), form)

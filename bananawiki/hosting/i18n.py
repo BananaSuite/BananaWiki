@@ -3,6 +3,9 @@
 Order: the visitor's explicit choice (``session["interface_language"]``, the
 key 1.4 used, so the choice survives the upgrade), then ``Accept-Language``
 (a bare ``*`` gets English), then English.
+
+Every string may name the platform with ``{service}``: ``t()`` fills it with
+``HOSTING_SERVICE_NAME`` unless the caller passes its own value.
 """
 
 from __future__ import annotations
@@ -34,12 +37,18 @@ def current_language() -> str:
     return lang
 
 
+def service_name() -> str:
+    """The name the platform goes by (``HOSTING_SERVICE_NAME``)."""
+    return current_app.config["HOSTING"].service_name
+
+
 def t(key: str, default: str | None = None, /, **values: Any) -> str:
-    return catalog().translate(current_language(), key, default, **values)
+    return catalog().translate(current_language(), key, default, **{"service": service_name(), **values})
 
 
 def t_lang(lang: str, key: str, default: str | None = None, /, **values: Any) -> str:
-    return catalog().translate(lang if lang in LANGUAGES else FALLBACK, key, default, **values)
+    return catalog().translate(lang if lang in LANGUAGES else FALLBACK, key, default,
+                               **{"service": service_name(), **values})
 
 
 def js_strings() -> dict[str, str]:

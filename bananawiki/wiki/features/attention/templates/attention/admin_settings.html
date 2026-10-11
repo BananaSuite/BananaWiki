@@ -4,7 +4,7 @@
 {% block admin_content %}
 <header class="page-header">
   <h1>{{ t('attention.admin.title') }}</h1>
-  <p class="muted">{{ t('attention.admin.intro') }}</p>
+  <p class="page-header__meta">{{ t('attention.admin.intro') }}</p>
 </header>
 <div class="section-stack">
   {% include "attention/_dashboard_card.html" %}
@@ -43,14 +43,16 @@
       {{ forms.csrf() }}
       <input type="hidden" name="section" value="mail">
       {{ forms.select('mail_provider', t('attention.admin.provider'), [('', t('attention.admin.provider.none')), ('smtp', 'SMTP'), ('brevo', 'Brevo'), ('resend', 'Resend')], values.mail_provider) }}
-      <div class="form-grid">
+      <div class="form-grid grid--pairs">
         {{ forms.field('mail_from', t('attention.admin.from'), values.mail_from, type='email', hint=t('attention.admin.from_hint'), attrs={'maxlength': 254}) }}
         {{ forms.field('mail_reply_to', t('attention.admin.reply_to'), values.mail_reply_to, type='email', attrs={'maxlength': 254}) }}
+      </div>
+      <div class="form-grid grid--pairs">
         {{ forms.field('mail_smtp_host', t('attention.admin.smtp_host'), values.mail_smtp_host, attrs={'maxlength': 253}) }}
         {{ forms.field('mail_smtp_port', t('attention.admin.smtp_port'), values.mail_smtp_port, type='number', attrs={'min': 1, 'max': 65535}) }}
       </div>
       {{ forms.select('mail_smtp_security', t('attention.admin.smtp_security'), [('starttls', t('attention.admin.security.starttls')), ('ssl', t('attention.admin.security.ssl')), ('none', t('attention.admin.security.none'))], values.mail_smtp_security) }}
-      <div class="form-grid">
+      <div class="form-grid grid--pairs">
         {{ forms.field('mail_smtp_username', t('attention.admin.smtp_username'), values.mail_smtp_username, attrs={'maxlength': 200, 'autocomplete': 'off'}) }}
         {{ forms.field('mail_smtp_password', t('attention.admin.smtp_password'), '', type='password', hint=t('attention.admin.secret_set' if values.mail_smtp_password else 'attention.admin.secret_unset'), attrs={'maxlength': 500, 'autocomplete': 'new-password'}) }}
       </div>
@@ -69,7 +71,7 @@
     <p>{{ t('attention.admin.test_help', address=own_email) }}</p>
     {{ forms.post_button(url_for('attention.send_test'), t('attention.admin.test_send'), 'btn' ~ ('' if mail_ready else ' btn--ghost')) }}
     {% else %}
-    <p>{{ t('attention.admin.test_no_address') }} <a href="{{ url_for('users.settings') }}#notifications">{{ t('attention.settings.title') }}</a></p>
+    <p>{{ t('attention.admin.test_no_address') }} <a class="text-link" href="{{ url_for('users.settings') }}#notifications">{{ t('attention.settings.title') }}</a></p>
     {% endif %}
   </section>
 </div>

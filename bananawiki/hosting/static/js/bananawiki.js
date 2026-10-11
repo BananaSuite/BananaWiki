@@ -232,6 +232,17 @@
       });
     }
 
+    // A code block or table that scrolls sideways must be reachable with the keyboard.
+    var scrollBlocks = document.querySelectorAll("pre, .table-wrap");
+    var focusScrollingBlocks = function () {
+      scrollBlocks.forEach(function (block) {
+        if (block.scrollWidth > block.clientWidth) block.setAttribute("tabindex", "0");
+        else block.removeAttribute("tabindex");
+      });
+    };
+    focusScrollingBlocks();
+    window.addEventListener("resize", focusScrollingBlocks);
+
     // Flash messages fade out on their own.
     document.querySelectorAll(".flash-stack .alert[data-autohide]").forEach(function (alert) {
       setTimeout(function () { alert.remove(); }, 7000);

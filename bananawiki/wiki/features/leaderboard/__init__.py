@@ -14,7 +14,9 @@ FEATURE = Feature(
     setting="contributor_leaderboard_enabled",
     default_enabled=False,
     blueprints=[bp],
-    nav=[NavItem("leaderboard.nav", "leaderboard.index", icon="trophy", area="apps", order=50)],
+    # The leaderboard needs a signed-in visitor: no link that only leads to the sign-in page.
+    nav=[NavItem("leaderboard.nav", "leaderboard.index", icon="trophy", area="apps", order=50,
+                 visible=lambda user: bool(user))],
     jobs=[Job("leaderboard.refresh", 300, service.refresh_all, initial_delay=90)],
     order=40,
 )

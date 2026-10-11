@@ -27,9 +27,9 @@ def _target(user_id: str) -> dict[str, Any]:
     return target
 
 
-def _fields_form(target: dict[str, Any], action: str, back: str):
+def _fields_form(target: dict[str, Any], action: str, back: str, *, admin_view: bool = False):
     return render_template(
-        "user_profiles/fields.html", target=target, action=action, back=back,
+        "user_profiles/fields.html", target=target, action=action, back=back, admin_view=admin_view,
         definitions=service.definitions(), values=service.values(target["id"]),
     )
 
@@ -117,7 +117,7 @@ def admin_fields(user_id: str):
             auth.flash_t("profiles.flash.fields_saved", "success")
         return redirect(url_for("user_profiles.admin_fields", user_id=target["id"]))
     return _fields_form(target, url_for("user_profiles.admin_fields", user_id=target["id"]),
-                        url_for("user_profiles.admin_profile", user_id=target["id"]))
+                        url_for("user_profiles.admin_profile", user_id=target["id"]), admin_view=True)
 
 
 @bp.post("/admin/users/<user_id>/tags")

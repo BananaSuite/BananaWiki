@@ -7,6 +7,9 @@
   <p class="page-header__meta">{{ t('site_admin.migration.intro') }}</p>
 </header>
 
+{% if not may_move_site %}
+<div class="alert alert--info"><div class="alert__body">{{ t('site_admin.migration.owner_only') }}</div></div>
+{% else %}
 <section class="card">
   <h2>{{ t('site_admin.migration.export') }}</h2>
   <p>{{ t('site_admin.migration.export_intro') }}</p>
@@ -41,4 +44,5 @@
   </form>
   {% endif %}
 </section>
+{% endif %}
 {% endblock %}

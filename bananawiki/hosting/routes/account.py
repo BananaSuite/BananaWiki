@@ -23,7 +23,7 @@ from flask import (
 from ...core.crypto import constant_time_equals
 from ...core.timeutil import sql_in
 from ...core.web import safe_next
-from .. import accounts, api_tokens, attention, auth, instances, merges, mfa, notifications, settings
+from .. import accounts, api_tokens, attention, auth, instances, merges, mfa, notifications, oauth, settings
 from ..errors import ServiceError
 from ..i18n import t
 from ..limits import rate_limit
@@ -34,6 +34,9 @@ bp = Blueprint("account", __name__)
 TOKEN_NONCE_KEY = "hosting_api_token_form_nonce"
 ENROLLMENT_KEY = "mfa_enrollment"
 ENROLLMENT_AT_KEY = "mfa_enrollment_at"
+# The account page is open while an account waits for approval, verification, a contact address or new
+# terms; what it offers for the account's own security works then too, so its forms never bounce.
+ACCOUNT_PAGE_GATES = ("verification", "approval", "contact_email", "terms")
 
 
 def _no_impersonation() -> None:
@@ -60,12 +63,13 @@ def _render_account(**extra):
         show_tokens=approved and (api_enabled or bool(tokens)), token_nonce=nonce,
         token_scopes=api_tokens.scopes_for(current), token_limit=api_tokens.MAX_ACTIVE,
         email_required=settings.flag("email_required"), cooldown=accounts.cooldown_remaining(current),
-        email_configured=notifications.configured(), merges=merges.for_account(current["id"]), **extra,
+        email_configured=notifications.configured(), merges=merges.for_account(current["id"]),
+        show_wiki_signins=oauth.enabled(), **extra,
     )
 
 
 @bp.route("/account", methods=["GET", "POST"], endpoint="account")
-@auth.exempt("verification", "approval", "contact_email")
+@auth.exempt(*ACCOUNT_PAGE_GATES)
 @rate_limit(20)
 def account_page():
     if request.method == "GET":
@@ -95,6 +99,7 @@ def account_page():
 
 @bp.post("/account/change-password")
 @bp.post("/settings/change-password")
+@auth.exempt(*ACCOUNT_PAGE_GATES)
 @rate_limit(5)
 def change_password():
     current = account()
@@ -143,6 +148,7 @@ def delete_account():
 
 
 @bp.post("/account/sessions/<session_id>/revoke")
+@auth.exempt(*ACCOUNT_PAGE_GATES)
 @rate_limit(20)
 def revoke_session(session_id: str):
     current = account()
@@ -161,16 +167,17 @@ def revoke_session(session_id: str):
 @auth.exempt(*auth.GATES)
 @rate_limit(10)
 def logout_everywhere():
+    """"Sign out other devices": every other session ends, this one stays signed in."""
     current = account()
     _no_impersonation()
-    auth.revoke_all(current["id"])
-    accounts.bump_session_version(current["id"])
-    auth.end_session()
-    flash(t("hosting.account.sessions.everywhere"), "info")
-    return redirect(url_for("auth.login"))
+    version = accounts.bump_session_version(current["id"])
+    auth.keep_current_session(current["id"], version)
+    flash(t("hosting.account.sessions.everywhere"), "success")
+    return redirect(url_for("account.account") + "#sessions")
 
 
 @bp.post("/account/sessions/history/clear")
+@auth.exempt(*ACCOUNT_PAGE_GATES)
 @rate_limit(10)
 def clear_session_history():
     _no_impersonation()
@@ -239,6 +246,9 @@ def email_flagged():
         return redirect(url_for("dashboard.dashboard"))
     if request.method == "POST":
         try:
+            # As on the account page: a new address (and so a way to reset the password) needs the password.
+            if not accounts.verify_password(current, request.form.get("current_password") or ""):
+                raise ServiceError("hosting.account.wrong_password")
             accounts.replace_flagged_email(current, request.form.get("email") or "")
         except ServiceError as error:
             flash_error(error)
@@ -256,6 +266,7 @@ def email_flagged():
 
 
 @bp.post("/account/export")
+@auth.exempt("terms")
 @rate_limit(3, 300)
 def export_account():
     data = accounts.export_data(account())
@@ -264,11 +275,37 @@ def export_account():
     return response
 
 
+# ── Terms of service ──────────────────────────────────────────────────────────
+
+
+@bp.route("/account/terms", methods=["GET", "POST"], endpoint="terms")
+@auth.exempt("terms")
+@rate_limit(10)
+def accept_terms():
+    """New terms the operator requires every account to accept (``HOSTING_TERMS_REQUIRED_VERSION``).
+
+    Whoever does not accept them can still download their data, delete
+    their account (on the account page) or sign out.
+    """
+    current = account()
+    if not accounts.terms_outdated(current) or auth.impersonating():
+        return redirect(url_for("dashboard.dashboard"))
+    if request.method == "POST":
+        if request.form.get("accept_terms") != "1":
+            flash(t("hosting.signup.terms_required"), "error")
+            return render_template("hosting/account/terms.html", version=accounts.terms_version()), 400
+        accounts.accept_terms(current)
+        auth.refresh()
+        gate = auth.pending_gate(accounts.get(current["id"]) or current, None)
+        return redirect(url_for(gate or "dashboard.dashboard"))
+    return render_template("hosting/account/terms.html", version=accounts.terms_version())
+
+
 # ── Two-step sign-in ──────────────────────────────────────────────────────────
 
 
 @bp.route("/account/mfa", methods=["GET", "POST"], endpoint="mfa")
-@auth.exempt("admin_mfa")
+@auth.exempt("admin_mfa", *ACCOUNT_PAGE_GATES)
 @rate_limit(10)
 def mfa_settings():
     current = account()
@@ -286,9 +323,12 @@ def mfa_settings():
             if mfa.verify_second_factor(current["id"], code):
                 mfa.disable(current["id"])
                 auth.revoke_all(current["id"])
-                auth.start_session(accounts.get(current["id"]), "password")  # type: ignore[arg-type]
+                updated = accounts.get(current["id"])
+                auth.start_session(updated, "password")  # type: ignore[arg-type]
                 flash(t("hosting.mfa.disabled"), "success")
-                return redirect(url_for("account.account"))
+                response = redirect(url_for("account.account"))
+                auth.set_device_cookie(response, updated)  # type: ignore[arg-type]  # the epoch moved on
+                return response
             flash(t("hosting.mfa.invalid_code"), "error")
         else:
             counter = mfa.matching_counter(secret, code)
@@ -300,12 +340,16 @@ def mfa_settings():
                     abort(409)
                 session.pop(ENROLLMENT_KEY, None)
                 auth.revoke_all(current["id"])
-                auth.start_session(accounts.get(current["id"]), "totp")  # type: ignore[arg-type]
+                updated = accounts.get(current["id"])
+                auth.start_session(updated, "totp")  # type: ignore[arg-type]
                 response = make_response(render_template("hosting/account/mfa_recovery.html", codes=codes))
                 response.headers["Cache-Control"] = "no-store"
+                # This browser passed both steps: it stays known for the new epoch.
+                auth.set_device_cookie(response, updated)  # type: ignore[arg-type]
                 return response
     qr = mfa.qr_data_uri(mfa.provisioning_uri(secret, current["username"])) if secret else ""
-    return render_template("hosting/account/mfa.html", enabled=enabled, secret=secret, qr=qr)
+    return render_template("hosting/account/mfa.html", enabled=enabled, secret=secret, qr=qr,
+                           required=auth.admin_mfa_missing(current))
 
 
 
@@ -352,7 +396,7 @@ def create_api_token():
 
 
 @bp.post("/account/api-tokens/<int:token_id>/revoke")
-@auth.exempt("verification")
+@auth.exempt(*auth.GATES)  # revoking only takes access away: never held up by an account state
 @rate_limit(20)
 def revoke_api_token(token_id: int):
     current = account()
@@ -422,7 +466,7 @@ def notification_preferences():
 
 
 @bp.post("/notices/<int:notice_id>/dismiss")
-@auth.exempt("verification", "approval", "contact_email")
+@auth.exempt(*auth.GATES)  # hiding a notice changes nothing else: possible from any page it shows on
 def dismiss_notice(notice_id: int):
     if not attention.dismiss(account()["id"], notice_id):
         abort(404)
@@ -430,7 +474,7 @@ def dismiss_notice(notice_id: int):
 
 
 @bp.post("/notices/dismiss-all")
-@auth.exempt("verification", "approval", "contact_email")
+@auth.exempt(*auth.GATES)
 def dismiss_notices():
     attention.dismiss(account()["id"])
     return redirect(safe_next(url_for("dashboard.dashboard"), request.form.get("next")))

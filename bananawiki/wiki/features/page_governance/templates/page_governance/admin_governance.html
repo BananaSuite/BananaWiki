@@ -15,7 +15,7 @@
     {{ forms.checkbox('page_reservations_enabled', t('page_governance.setting.page_reservations_enabled'), checked=settings_values.page_reservations_enabled, hint=t('page_governance.setting.page_reservations_enabled_hint')) }}
     <div class="form-grid">
     {% for name, minimum, maximum in number_settings %}
-      {{ forms.field(name, t('page_governance.setting.' ~ name), value=settings_values[name], type='number', required=true, attrs={'min': minimum, 'max': maximum}) }}
+      {{ forms.field(name, t('page_governance.setting.' ~ name), value=settings_values[name], type='number', required=true, hint=t('page_governance.setting.' ~ name ~ '_hint', ''), attrs={'min': minimum, 'max': maximum}) }}
     {% endfor %}
     </div>
     <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
@@ -26,25 +26,25 @@
   <h2>{{ t('page_governance.admin.protected_pages') }}</h2>
   <p class="muted">{{ t('page_governance.admin.protected_intro') }}</p>
   {% if protected %}
-  <div class="table-wrap"><table class="table">
-    <thead><tr><th>{{ t('page_governance.col.page') }}</th><th>{{ t('page_governance.col.controller') }}</th><th>{{ t('page_governance.col.unlock') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+  <div class="table-wrap"><table class="table table--stack">
+    <thead><tr><th>{{ t('page_governance.col.page') }}</th><th>{{ t('page_governance.col.controller') }}</th><th>{{ t('page_governance.col.unlock') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>
     <tbody>
     {% for p in protected %}
     <tr>
       <td><a href="{{ url_for('pages.view', slug=p.slug) }}">{{ p.title }}</a></td>
-      <td>{{ p.controller_name or t('common.unknown_user') }}{% if p.lapsed %} <span class="badge">{{ t('page_governance.admin.lapsed') }}</span>{% endif %}</td>
-      <td>
+      <td data-label="{{ t('page_governance.col.controller') }}">{{ p.controller_name or t('common.unknown_user') }}{% if p.lapsed %} <span class="badge">{{ t('page_governance.admin.lapsed') }}</span>{% endif %}</td>
+      <td data-label="{{ t('page_governance.col.unlock') }}">
         {% if p.state and p.state.unlock_requested_at %}
           {% if p.state.unlock_ready %}{{ t('page_governance.admin.unlock_ready') }}{% else %}{{ t('page_governance.admin.unlock_at', ready=p.state.unlock_ready_at|datetime) }}{% endif %}
         {% else %}—{% endif %}
       </td>
-      <td class="cluster">
+      <td class="actions"><div class="cluster">
         {% if p.lapsed or (p.state and (p.state.is_controller or p.state.unlock_ready)) %}
         {{ forms.post_button(url_for('page_governance.force_unlock', page_id=p.id), t('page_governance.admin.unlock'), cls='btn btn--small btn--danger', confirm=t('common.are_you_sure')) }}
         {% elif not p.state.unlock_requested_at %}
         {{ forms.post_button(url_for('page_governance.request_unlock', page_id=p.id), t('page_governance.admin.request_unlock'), cls='btn btn--small', confirm=t('page_governance.admin.request_unlock_confirm')) }}
         {% endif %}
-      </td>
+      </div></td>
     </tr>
     {% endfor %}
     </tbody>

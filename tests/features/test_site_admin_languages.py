@@ -68,6 +68,16 @@ def test_invalid_files_are_refused(app, admin_client):
     assert not list(folder.glob("*.json"))
 
 
+def test_bad_values_are_refused_with_a_message_naming_the_key(admin_client):
+    page = upload(admin_client, pack(**{"common.save": 5}))
+    assert page.status_code == 302
+    assert "Every value must be text (problem at common.save)." in admin_client.get(page.location).get_data(as_text=True)
+    page = upload(admin_client, pack(**{"common.save": "x" * 100_000}))
+    assert page.status_code == 302
+    assert "The text for common.save is longer than 5000 characters." in \
+        admin_client.get(page.location).get_data(as_text=True)
+
+
 def test_toggle_default_and_delete(app, admin_client, db):
     upload(admin_client, pack())
     admin_client.post("/admin/interface-languages/it/toggle", data={"enabled": "0"})
@@ -99,7 +109,7 @@ def test_legacy_format_is_understood(app, admin_client, db):
     upload(admin_client, pack())
     db.execute("UPDATE site_settings SET interface_languages_json = ? WHERE id = 1",
                (json.dumps({"fr": {"name": "Français", "enabled": False}}),))
-    assert "fr" not in enabled(app) and {"en", "it"} <= set(enabled(app))
+    assert set(enabled(app)) == set(i18n.BUILTIN_LANGUAGES), "the built-in languages, and no other"
 
 
 def test_builtin_override_and_download(app, admin_client):

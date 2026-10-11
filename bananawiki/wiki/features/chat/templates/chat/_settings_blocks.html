@@ -1,0 +1,24 @@
+{% import "chat/_macros.html" as ui with context %}
+<section class="card" id="blocked-people" aria-labelledby="blocked-people-heading">
+  <h2 id="blocked-people-heading">{{ t('chat.blocks.settings_heading') }}</h2>
+  <p class="hint">{{ t('chat.blocks.settings_help') }}</p>
+  <form class="inline-fields" method="post" action="{{ url_for('chat.block_user') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ request.path }}#blocked-people">
+    <label class="visually-hidden" for="block-username">{{ t('chat.dm.username') }}</label>
+    <input id="block-username" name="username" required maxlength="50" autocomplete="off" placeholder="{{ t('chat.dm.username') }}">
+    <button class="btn" type="submit">{{ t('chat.blocks.block') }}</button>
+  </form>
+  {% if blocks %}
+  <ul class="stack chat-badge-list">
+    {% for b in blocks %}
+    <li class="split">
+      <span>{{ b.username }} <span class="small muted">{{ t('chat.blocks.since', when=b.created_at|date) }}</span></span>
+      {{ ui.unblock_button(b, request.path ~ '#blocked-people') }}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">{{ t('chat.blocks.none') }}</p>
+  {% endif %}
+</section>

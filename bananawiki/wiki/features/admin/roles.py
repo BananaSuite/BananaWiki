@@ -13,11 +13,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from bananawiki.core.numbers import ascii_int
+
 from ....core.timeutil import now_sql
 from ... import permissions as perms
 from ...accounts import AccountError
 from ...db import db
 from ...registry import emit
+from ..audit.service import record
 from .service import clear_overrides, existing_category_ids, record_role_change
 
 BASE_ROLES = ("user", "editor")
@@ -116,6 +119,14 @@ def _name_taken(name: str, except_id: int | None = None) -> bool:
     return row is not None and row["id"] != except_id
 
 
+def _audit(action: str, role_id: int, data: RoleForm | None, actor_id: str, **details: Any) -> None:
+    if data is not None:
+        details.update(name=data.name, base_role=data.base_role, permissions=" ".join(data.keys),
+                       read_categories=data.read_ids if data.read_restricted else "all",
+                       write_categories=data.write_ids if data.write_restricted else "all")
+    record(action, actor_id=actor_id, target_type="role", target_id=role_id, details=details)
+
+
 def _store_grants(role_id: int, data: RoleForm) -> None:
     db.execute("DELETE FROM custom_role_permissions WHERE role_id = ?", (role_id,))
     db.executemany("INSERT INTO custom_role_permissions (role_id, permission_key) VALUES (?, ?)",
@@ -137,6 +148,7 @@ def create(data: RoleForm, *, actor_id: str) -> int:
             "created_by": actor_id, "created_at": now, "updated_at": now,
         })
         _store_grants(role_id, data)
+    _audit("role.created", role_id, data, actor_id)
     return role_id
 
 
@@ -158,6 +170,7 @@ def update(role: dict[str, Any], data: RoleForm, *, actor_id: str) -> None:
             for user in moved:
                 db.execute("UPDATE users SET role = ? WHERE id = ?", (data.base_role, user["id"]))
                 record_role_change(user["id"], user["role"], data.base_role, actor_id)
+    _audit("role.updated", role["id"], data, actor_id, holders=len(holders(role["id"])))
     for user in moved:
         emit("user.role_changed", user=db.one("SELECT * FROM users WHERE id = ?", (user["id"],)),
              old_role=user["role"], new_role=data.base_role, changed_by=actor_id)
@@ -190,8 +203,8 @@ def delete(role: dict[str, Any], replacement: str, *, actor_id: str) -> dict[str
         target_id = most_similar(role["id"])
     elif replacement == "none":
         target_id = None
-    elif replacement.isdigit() and int(replacement) != role["id"]:
-        target_id = int(replacement)
+    elif ascii_int(replacement) not in (None, role["id"]):
+        target_id = ascii_int(replacement)
     else:
         raise AccountError("admin.roles.error.invalid_replacement")
     target = get(target_id) if target_id else None
@@ -211,6 +224,8 @@ def delete(role: dict[str, Any], replacement: str, *, actor_id: str) -> dict[str
             else:
                 db.execute("UPDATE users SET custom_role_id = NULL WHERE id = ?", (user["id"],))
         db.execute("DELETE FROM custom_roles WHERE id = ?", (role["id"],))
+    _audit("role.deleted", role["id"], None, actor_id, name=role["name"], holders=len(users),
+           moved_to=target["name"] if target else None)
     for user in moved:
         emit("user.role_changed", user=db.one("SELECT * FROM users WHERE id = ?", (user["id"],)),
              old_role=user["role"], new_role=target["base_role"], changed_by=actor_id)  # type: ignore[index]

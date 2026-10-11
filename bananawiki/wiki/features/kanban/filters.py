@@ -12,7 +12,9 @@ here, so a filtered address gives the same tickets everywhere:
 * ``due``: ``overdue`` (before today), ``soon`` (overdue or within
   ``SOON_DAYS``), ``week`` (today to ``WEEK_DAYS`` ahead) or ``none``.
 
-Dates are compared with today's date in the site's time zone.
+Dates are compared with today's date in the site's time zone. A ticket in a
+done column (``kanban_columns.is_done``) is finished work: it is never
+``overdue`` or ``soon``, whatever its date.
 """
 
 from __future__ import annotations
@@ -82,12 +84,12 @@ def _haystack(card: dict[str, Any]) -> str:
     return " ".join(parts).lower()
 
 
-def _matches_due(due: str | None, choice: str, today: date) -> bool:
+def _matches_due(due: str | None, choice: str, today: date, done: bool = False) -> bool:
     if not choice:
         return True
     if choice == "none":
         return not due
-    if not due:
+    if not due or (done and choice in ("overdue", "soon")):
         return False
     if choice == "overdue":
         return due < today.isoformat()
@@ -96,8 +98,9 @@ def _matches_due(due: str | None, choice: str, today: date) -> bool:
     return today.isoformat() <= due <= (today + timedelta(days=WEEK_DAYS)).isoformat()
 
 
-def matches(card: dict[str, Any], flt: TicketFilter, *, user_id: str | None, today: date) -> bool:
-    """Whether a ticket card (``store.card``) passes *flt* for the user *user_id*."""
+def matches(card: dict[str, Any], flt: TicketFilter, *, user_id: str | None, today: date,
+            done: bool = False) -> bool:
+    """Whether a ticket card (``store.card``) passes *flt* for the user *user_id*; *done*: it is in a done column."""
     if flt.priority and card["priority"] != flt.priority:
         return False
     if flt.label and flt.label.lower() not in {label.lower() for label in card["labels"]}:
@@ -109,7 +112,7 @@ def matches(card: dict[str, Any], flt: TicketFilter, *, user_id: str | None, tod
                 return False
         elif (user_id if flt.who == "me" else flt.who) not in people:
             return False
-    if not _matches_due(card.get("due_date"), flt.due, today):
+    if not _matches_due(card.get("due_date"), flt.due, today, done):
         return False
     if flt.q:
         text = _haystack(card)
@@ -122,8 +125,9 @@ def apply_to_state(state: dict[str, Any], flt: TicketFilter, *, user_id: str | N
     """A board state (``store.board_state``) narrowed to the matching tickets, with the counts."""
     today = today or site_today()
     total = len(state["tickets"])
+    finished = {str(tid) for column in state["columns"] if column.get("done") for tid in column["tickets"]}
     kept = {key: card for key, card in state["tickets"].items()
-            if matches(card, flt, user_id=user_id, today=today)}
+            if matches(card, flt, user_id=user_id, today=today, done=key in finished)}
     return {
         **state,
         "columns": [{**column, "tickets": [tid for tid in column["tickets"] if str(tid) in kept]}
@@ -136,7 +140,7 @@ def apply_to_state(state: dict[str, Any], flt: TicketFilter, *, user_id: str | N
 
 
 def sql_conditions(flt: TicketFilter, today: date) -> tuple[list[str], list[Any]]:
-    """SQL for the ``priority`` and ``due`` parts of *flt* (tickets aliased ``t``)."""
+    """SQL for the ``priority`` and ``due`` parts of *flt* (tickets aliased ``t``, their columns ``c``)."""
     conditions: list[str] = []
     params: list[Any] = []
     if flt.priority:
@@ -147,10 +151,10 @@ def sql_conditions(flt: TicketFilter, today: date) -> tuple[list[str], list[Any]
     if flt.due == "none":
         conditions.append(f"NOT {has_due}")
     elif flt.due == "overdue":
-        conditions.append(f"{has_due} AND {due} < ?")
+        conditions.append(f"{has_due} AND {due} < ? AND c.is_done = 0")
         params.append(today.isoformat())
     elif flt.due == "soon":
-        conditions.append(f"{has_due} AND {due} <= ?")
+        conditions.append(f"{has_due} AND {due} <= ? AND c.is_done = 0")
         params.append((today + timedelta(days=SOON_DAYS)).isoformat())
     elif flt.due == "week":
         conditions.append(f"{has_due} AND {due} BETWEEN ? AND ?")

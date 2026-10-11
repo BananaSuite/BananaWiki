@@ -675,16 +675,3 @@ def prune() -> dict[str, int]:
         (sql_in(hours=-EVENTS_MAX_AGE_HOURS),),
     ).rowcount
     return {"events": events, "history": _trim_history("", ())}
-
-
-def referenced_upload_names() -> set[str]:
-    """Upload-folder files that a canvas or one of its saved revisions shows.
-
-    For the upload cleanup, which must keep these even while the canvas
-    feature is switched off.
-    """
-    names: set[str] = set()
-    for table in ("canvas__layouts", "canvas__history"):
-        for raw in db.column(f"SELECT data FROM {table} WHERE instr(data, '/static/uploads/') > 0"):
-            names |= model.upload_names(model.clean_document(raw))
-    return names

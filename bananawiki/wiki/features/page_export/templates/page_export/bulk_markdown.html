@@ -31,7 +31,7 @@
 <section class="card" aria-labelledby="bulk-export-h">
   <h2 id="bulk-export-h">{{ t('page_export.bulk.export_title') }}</h2>
   <p class="hint">{{ t('page_export.bulk.export_intro') }}</p>
-  <form method="post" action="{{ url_for('page_export.bulk_export') }}">
+  <form method="post" action="{{ url_for('page_export.bulk_export') }}" class="btn-row users-spaced">
     {{ forms.csrf() }}
     <button class="btn">{{ t('page_export.bulk.export_button') }}</button>
   </form>

@@ -39,8 +39,12 @@ def configured() -> bool:
 
 
 def send(to: str, kind: str, *, username: str = "", action_url: str = "", detail_value: str = "",
-         lang: str | None = None, **values: Any) -> tuple[bool, str]:
-    """Send one notice built from ``email.<kind>.*`` in *lang* (default: the request's language)."""
+         lang: str | None = None, account_id: str | None = None, **values: Any) -> tuple[bool, str]:
+    """Send one notice built from ``email.<kind>.*`` in *lang* (default: the request's language).
+
+    *account_id* is the account whose own action caused the message: it is
+    charged to that account's daily email budget (see :mod:`.email`).
+    """
     cfg = current_app.config["HOSTING"]
 
     def tr(key: str, default: str | None = None, /, **params: Any) -> str:
@@ -53,14 +57,15 @@ def send(to: str, kind: str, *, username: str = "", action_url: str = "", detail
         subject=tr(f"email.{kind}.subject", **context),
         text=tr(f"email.{kind}.body", **context),
         title=tr(f"email.{kind}.title", tr(f"email.{kind}.subject", **context), **context),
-        eyebrow=tr(f"email.{kind}.eyebrow", tr("email.eyebrow"), **context),
+        eyebrow=tr(f"email.{kind}.eyebrow", "", **context),  # default: the platform's name (email.send)
         action_url=action_url,
         action_label=tr(f"email.{kind}.action", "", **context) if action_url else "",
         detail_label=tr(f"email.{kind}.detail", "", **context) if detail_value else "",
         detail_value=detail_value,
     )
     try:
-        ok, reason = email.send(cfg, message, tr("email.footer", contact=cfg.contact_email))
+        ok, reason = email.send(cfg, message, tr("email.footer", contact=cfg.contact_email), kind=kind,
+                                account_id=account_id)
     except Exception:  # noqa: BLE001 - a notice must never break the action that triggered it
         log.exception("Email %s to %s failed", kind, to)
         return False, "failed"
@@ -69,18 +74,27 @@ def send(to: str, kind: str, *, username: str = "", action_url: str = "", detail
     return ok, reason
 
 
-def notify_account(account: dict[str, Any] | None, kind: str, **values: Any) -> bool:
-    """Send an account notice to the account's contact address, if it has one."""
+def notify_account(account: dict[str, Any] | None, kind: str, *, by_account: bool = False, **values: Any) -> bool:
+    """Send an account notice to the account's contact address, if it has one.
+
+    *by_account*: the account's own action caused it, so it counts toward
+    that account's daily email budget.
+    """
     if not account or not account.get("email") or not configured():
         return False
-    return send(account["email"], kind, username=account.get("username", ""), **values)[0]
+    return send(account["email"], kind, username=account.get("username", ""),
+                account_id=account["id"] if by_account else None, **values)[0]
 
 
 def verification_required() -> bool:
-    """Email verification is enforced only while email can actually be delivered."""
+    """Email verification is enforced whenever it is on and the portal can send email.
+
+    It fails closed: a spent daily email budget no longer switches it off
+    (an account could spend the budget on purpose to skip verification);
+    accounts then wait for the next day's budget to receive their link.
+    """
     cfg = current_app.config["HOSTING"]
-    return (settings.flag("email_verification_required") and email.is_configured(cfg.email)
-            and not email.quota_exhausted(cfg.email))
+    return settings.flag("email_verification_required") and email.is_configured(cfg.email)
 
 
 # ── Administrators: requests waiting for them ────────────────────────────────
@@ -203,9 +217,11 @@ def send_verification(account: dict[str, Any], *, ignore_cooldown: bool = False)
     if not configured():
         return False, "hosting.email.not_configured"
     token = accounts.issue_verification(account)
-    ok, _reason = send(account["email"], "verify", username=account["username"],
-                       action_url=urls.external_url("auth.verify_email", token=token))
+    ok, reason = send(account["email"], "verify", username=account["username"], account_id=account["id"],
+                      action_url=urls.external_url("auth.verify_email", token=token))
     if not ok:
         accounts.clear_verification(account["id"])
+        if reason in ("daily_limit", "recipient_limit", "account_limit"):
+            return False, "hosting.verify.limit_reached"
         return False, "hosting.verify.send_failed"
     return True, "hosting.verify.sent"

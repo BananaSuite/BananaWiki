@@ -2,7 +2,7 @@
 
 Administrators see every code. Editors granted ``invite.view``,
 ``invite.generate`` or ``invite.delete`` reach these pages too, limited to
-their own codes and to non-administrative roles.
+their own codes and to roles within their own rights.
 """
 
 from __future__ import annotations
@@ -40,7 +40,8 @@ def _page(template: str, codes: list[dict[str, Any]]):
         can_generate=auth.has_permission("invite.generate"),
         can_delete=auth.has_permission("invite.delete"),
         assignable_roles=invites.assignable_roles(me),
-        custom_roles=custom_roles.list_roles(),
+        custom_roles=[role for role in custom_roles.list_roles()
+                      if invites.within_authority(me, role["base_role"], role["id"])],
         expiry_presets=invites.EXPIRY_PRESETS,
     )
 

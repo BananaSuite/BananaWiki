@@ -2,9 +2,13 @@
 {% import "hosting/_macros.html" as ui with context %}
 {% block title %}{{ t('hosting.email_flagged.title') }}{% endblock %}
 {% block content %}
-<div class="card card--narrow"><h1>{{ t('hosting.email_flagged.title') }}</h1><p>{{ t('hosting.email_flagged.body') }}</p>
+<div class="card card--narrow"><h1>{{ t('hosting.email_flagged.title') }}</h1>
+<p>{% if current_account.email_flagged_previous %}{{ tm('hosting.email_flagged.body_address', email=strong(current_account.email_flagged_previous)) }}{% else %}{{ t('hosting.email_flagged.body') }}{% endif %}</p>
 {% if reason %}<p><strong>{{ t('hosting.activation.reason') }}</strong> {{ reason }}</p>{% endif %}
+{#- A new address is also a new way to reset the password: as everywhere else, it needs the password. -#}
 <form method="post" class="form">{{ ui.csrf() }}
-  {{ ui.field('email', t('hosting.field.email'), type='email', required=true, attrs={'maxlength': 254}) }}
-  <button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></form></div>
+  {{ ui.field('email', t('hosting.field.email'), type='email', required=true, attrs={'maxlength': 254, 'autocomplete': 'email', 'autofocus': 'autofocus'}) }}
+  {{ ui.field('current_password', t('hosting.field.current_password'), type='password', required=true, attrs={'autocomplete': 'current-password'}) }}
+  <button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></form>
+{% include "hosting/_contact.html" %}</div>
 {% endblock %}

@@ -47,11 +47,11 @@
   </li>
   {% endfor %}
 </ul>
+{#- Announces a board's new place after a move with the arrow buttons or a drop. It sits after the list,
+    so the list stays right under the page header (whose rule is the list's top edge). -#}
+<p class="visually-hidden" aria-live="polite" id="kanban-list-live"></p>
 {% if can_reorder and boards|length > 1 %}
-<details class="kanban-list-order">
-  <summary>{{ t('kanban.list.reorder') }}</summary>
-  <p class="hint">{{ t('kanban.list.reorder_hint') }}</p>
-</details>
+<p class="hint kanban-list-order">{{ t('kanban.list.reorder_hint') }}</p>
 {% endif %}
 {% else %}
 <div class="empty-state">

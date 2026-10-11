@@ -116,6 +116,7 @@ def authorize():
 
 @bp.post("/oauth/token")
 @auth.public
+@auth.exempt(*auth.GATES)  # bearer or client credentials; a portal session plays no part
 @csrf_exempt
 @_enabled
 @rate_limit(20)
@@ -149,6 +150,7 @@ def _bearer() -> tuple[dict[str, Any] | None, Any]:
 @bp.get("/oauth/userinfo")
 @bp.get("/oauth/me")
 @auth.public
+@auth.exempt(*auth.GATES)  # bearer or client credentials; a portal session plays no part
 @_enabled
 @rate_limit(60)
 def userinfo():
@@ -159,13 +161,15 @@ def userinfo():
     if account is None or account["deleted_at"]:
         return jsonify({"error": "account_not_found"}), 404
     if not oauth.account_may_sign_in(account):
-        return jsonify({"error": "account_suspended"}), 403
+        return jsonify({"error": oauth.refusal(account)}), 403
     return jsonify({"sub": account["id"], "username": account["username"], "preferred_username": account["username"],
-                    "is_admin": bool(account["is_admin"]), "created_at": account["created_at"]})
+                    "is_admin": bool(account["is_admin"]) and not auth.admin_mfa_missing(account),
+                    "created_at": account["created_at"]})
 
 
 @bp.get("/oauth/verify")
 @auth.public
+@auth.exempt(*auth.GATES)  # bearer or client credentials; a portal session plays no part
 @_enabled
 @rate_limit(60)
 def verify():
@@ -176,13 +180,14 @@ def verify():
     if account is None or account["deleted_at"]:
         return jsonify({"error": "account_not_found"}), 404
     if not oauth.account_may_sign_in(account):
-        return jsonify({"error": "account_suspended"}), 403
+        return jsonify({"error": oauth.refusal(account)}), 403
     return jsonify({"active": True, "sub": row["account_id"], "client_id": row["client_id"],
                     "exp": row["expires_at"], "scope": row["scope"]})
 
 
 @bp.get("/oauth/link-status")
 @auth.public
+@auth.exempt(*auth.GATES)  # bearer or client credentials; a portal session plays no part
 @_enabled
 @rate_limit(60)
 def link_status():
@@ -207,6 +212,7 @@ def link_status():
 
 @bp.post("/oauth/link")
 @auth.public
+@auth.exempt(*auth.GATES)  # bearer or client credentials; a portal session plays no part
 @csrf_exempt
 @_enabled
 @rate_limit(30)
@@ -244,6 +250,7 @@ def link():
 
 @bp.post("/oauth/unlink")
 @auth.public
+@auth.exempt(*auth.GATES)  # bearer or client credentials; a portal session plays no part
 @csrf_exempt
 @_enabled
 @rate_limit(30)
@@ -264,6 +271,7 @@ def unlink():
 
 
 @bp.post("/oauth/revoke")
+@auth.exempt(*auth.GATES)  # revoking only takes access away: never held up by an account state
 @_enabled
 @rate_limit(10)
 def revoke():

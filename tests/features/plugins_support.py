@@ -43,7 +43,8 @@ def write_plugin(tmp_path: Path, plugin_id: str, init: str, *, schema: str | Non
 
 
 def build(app_factory, tmp_path: Path, **environ: str):
-    env = {"BW_EXTERNAL_PLUGINS_DIR": str(plugins_dir(tmp_path)), **environ}
+    """A wiki with third-party plugins allowed (off by default; see test_plugins_trust)."""
+    env = {"BW_EXTERNAL_PLUGINS_DIR": str(plugins_dir(tmp_path)), "BW_ALLOW_EXTERNAL_PLUGINS": "1", **environ}
     return app_factory(environ=env)
 
 

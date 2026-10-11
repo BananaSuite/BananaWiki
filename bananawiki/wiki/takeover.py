@@ -3,7 +3,12 @@
 Two things happen on the first start of 1.6:
 
 * **Backup.** Before the schema is migrated, an online copy of the database is
-  written to ``<instance>/backups/pre-upgrade-v<old>-<time>.db``.
+  written to ``<instance>/backups/pre-upgrade-v<old>-<time>.db``. A wiki of a
+  hosting platform (``BW_MANAGED_HOSTING``) writes none: its directory is
+  under the hard storage quota of its plan, where a copy would take its
+  owner's room for good and keep a wiki with less room left than its database
+  from starting, and the platform's update keeps a package of every wiki as it
+  was before the update.
 * **Data folders.** 1.4 kept some user files inside the source tree by default
   (``app/static/uploads``, custom favicons in ``app/static/favicons``, uploaded
   languages in ``translations/``). When the matching ``BW_*`` variable is not
@@ -114,13 +119,20 @@ def backup_before_upgrade(cfg: Config, database: Database, conn: sqlite3.Connect
     ``pre-upgrade-*.db`` is always complete. An upgrade that failed or was
     interrupted is tried again at the next start: when the database has not
     changed since the newest copy of the same version was written, that copy
-    is kept instead of writing another one each time.
+    is kept instead of writing another one each time. A hosted wiki writes
+    none (see the module docstring). A copy that cannot be written (a full
+    disk) refuses the upgrade with a message that says where and why.
     """
     try:
         _app_id, version = schema_version(conn)
     except sqlite3.DatabaseError:
         return None
     if version == 0 or version >= database.latest_version:
+        return None
+    if getattr(cfg, "managed_hosting", False):
+        log.warning("Database schema %s will be upgraded to %s. No copy is saved in the wiki's own storage: the "
+                    "hosting platform keeps its package of this wiki from before the update.",
+                    version, database.latest_version)
         return None
     backups = Path(cfg.instance_dir) / "backups"
     backups.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -146,8 +158,16 @@ def backup_before_upgrade(cfg: Config, database: Database, conn: sqlite3.Connect
             os.fsync(copy.fileno())
         os.replace(temporary, target)
         _fsync_directory(backups)
+    except (sqlite3.OperationalError, OSError) as error:
+        size = database.path.stat().st_size if database.path.exists() else 0
+        raise RuntimeError(f"The copy of the database that is saved before upgrading it from schema {version} could "
+                           f"not be saved in {backups} ({error}). Most often there is not enough free space there "
+                           f"(it needs about {max(1, size // (1024 * 1024))} MB): free space, then start again. "
+                           "Nothing was upgraded.") from error
     finally:
         Path(temporary).unlink(missing_ok=True)
+        for journal in backups.glob(Path(temporary).name + "-*"):
+            journal.unlink(missing_ok=True)
     log.warning("Database schema %s will be upgraded to %s; a copy was saved to %s.",
                 version, database.latest_version, target)
     return target

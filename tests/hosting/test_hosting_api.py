@@ -85,6 +85,21 @@ def test_admin_scope_needs_an_admin_account(portal, web, make_account, login, ap
     assert portal.test_client().get("/api/v1/admin/instances", headers=_bearer(token)).status_code == 200
 
 
+def test_admin_scope_needs_two_step_verification_while_administrators_must_use_it(portal, make_account, login,
+                                                                                    query, api_on):
+    admin = make_account(admin=True)
+    admin_client = portal.test_client()
+    login(admin_client, admin)
+    token = _new_token(admin_client, ["admin:read", "account:read"])
+    query("UPDATE hosting_settings SET admin_mfa_required = 1 WHERE id = 1")
+    api = portal.test_client()
+    refused = api.get("/api/v1/admin/instances", headers=_bearer(token))
+    assert refused.status_code == 403 and "two-step" in refused.get_json()["error"]
+    assert api.get("/api/v1/me", headers=_bearer(token)).status_code == 200, "only administrator rights are gated"
+    query("UPDATE accounts SET totp_enabled = 1 WHERE id = ?", (admin["id"],))
+    assert api.get("/api/v1/admin/instances", headers=_bearer(token)).status_code == 200
+
+
 def test_revoked_tokens_and_password_changes_end_access(portal, web, make_account, login, query, api_on):
     user = make_account()
     login(web, user)

@@ -50,8 +50,13 @@ def validate_username(username: str | None, *, allow_reserved: bool = False) -> 
     return name
 
 
-def validate_password(password: str | None) -> str:
-    problem = passwords.validate_password(password)
+def validate_password(password: str | None, *, username: str | None = None, email: str | None = None) -> str:
+    """Check a *new* password against the policy (:func:`..core.passwords.check_new_password`).
+
+    Pass the account's user name and email address: the password may not
+    contain them. Signing in never calls this, so older weak passwords keep working.
+    """
+    problem = passwords.check_new_password(password, username=username, email=email)
     if problem:
         raise AccountError(problem, minimum=passwords.MIN_LENGTH, maximum=passwords.MAX_LENGTH)
     return password  # type: ignore[return-value]
@@ -155,7 +160,8 @@ def create(
     if role not in ("user", "editor", "admin", "owner"):
         raise AccountError("auth.error.invalid_role")
     if password_hash is None:
-        password_hash = hash_password(validate_password(password))
+        password_hash = hash_password(validate_password(password, username=name,
+                                                        email=(extra or {}).get("email")))
     with db.transaction():
         if username_taken(name):
             raise AccountError("auth.error.username_taken")
@@ -181,18 +187,27 @@ def create(
 
 
 def set_password(user_id: str, new_password: str, *, keep_session_id: str | None = None,
-                 require_change: bool = False, expected_password_hash: str | None = None) -> None:
-    """Change a password and sign the account out everywhere else."""
+                 require_change: bool = False, expected_password_hash: str | None = None,
+                 keep_backup: bool = False) -> None:
+    """Change a password and sign the account out everywhere else.
+
+    The password an administrator saved before setting a temporary one
+    (``original_password_backup``) is dropped unless *keep_backup*: once
+    anyone sets another password, restoring the old one would undo it.
+    """
     from .auth import revoke_sessions
 
-    hashed = hash_password(validate_password(new_password))
+    account = by_id(user_id) or {}
+    hashed = hash_password(validate_password(new_password, username=account.get("username"),
+                                             email=account.get("email")))
     with db.transaction():
         if expected_password_hash is not None and db.scalar(
             "SELECT password FROM users WHERE id = ?", (user_id,)
         ) != expected_password_hash:
             raise AccountError("auth.error.current_password_wrong")
         db.execute(
-            "UPDATE users SET password = ?, force_password_change = ? WHERE id = ?",
+            "UPDATE users SET password = ?, force_password_change = ?"
+            + ("" if keep_backup else ", original_password_backup = NULL") + " WHERE id = ?",
             (hashed, 1 if require_change else 0, user_id),
         )
         revoke_sessions(user_id, except_session_id=keep_session_id)
@@ -226,10 +241,26 @@ def owners_count() -> int:
     return int(db.scalar("SELECT COUNT(*) FROM users WHERE role = 'owner'", default=0))
 
 
+def _hand_over_shared_canvases(user_id: str, deleted_by: str | None) -> None:
+    """Keep the shared and public canvases an account created when it goes.
+
+    ``canvas__layouts`` deletes a canvas together with its creator, so these
+    move to the administrator doing the deletion (or the longest-standing
+    active administrator). Private canvases are the account's private data and
+    are deleted with it. Kanban hands over its own work (``user.delete``).
+    """
+    successor = deleted_by if deleted_by and deleted_by != user_id and by_id(deleted_by) else db.scalar(
+        "SELECT id FROM users WHERE id != ? AND role IN ('admin', 'owner') AND suspended = 0 "
+        "ORDER BY role = 'owner' DESC, created_at LIMIT 1", (user_id,))
+    if successor is not None:
+        db.execute("UPDATE canvas__layouts SET creator_id = ? WHERE creator_id = ? AND visibility != 'private'",
+                   (successor, user_id))
+
+
 def delete(user: dict[str, Any], *, deleted_by: str | None = None, protect_last_admin: bool = False,
            protect_superuser: bool = False, expected_password_hash: str | None = None,
            emit_event: bool = True) -> None:
-    """Delete an account and everything it owns (authorship becomes anonymous).
+    """Delete an account and its private data (authorship becomes anonymous).
 
     Just before the row goes, the ``user.delete`` interceptors (:func:`registry.prepare`)
     hand over what others still need, such as kanban tickets on other people's boards.
@@ -251,6 +282,7 @@ def delete(user: dict[str, Any], *, deleted_by: str | None = None, protect_last_
             if active <= 1:
                 raise AccountError("users.error.last_admin")
         prepare("user.delete", user=current, deleted_by=deleted_by)
+        _hand_over_shared_canvases(user["id"], deleted_by)
         db.execute("DELETE FROM users WHERE id = ?", (user["id"],))
     if emit_event:
         emit("user.deleted", user=current, deleted_by=deleted_by)

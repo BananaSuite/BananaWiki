@@ -206,9 +206,17 @@ progress.builder-upload-note { height: .5rem; }
 }
 @media (max-width: 760px) {
   .builder-workspace { grid-template-columns: 1fr; }
-  .builder-palette { position: static; max-height: 20rem; padding: 0 0 1rem;
+  /* On phones the palette flows with the page: a nested scroll box hid most block types. */
+  .builder-palette { position: static; max-height: none; overflow: visible; padding: 0 0 1rem;
     border-right: 0; border-bottom: 1px solid var(--border); }
 }
 @media (prefers-reduced-motion: reduce) {
   .builder-device-frame { transition: none; }
+}
+#builder-paste { justify-content: flex-start; }
+@media (max-width: 600px) {
+  /* The status text takes its own line so Publish stays with the other header buttons. */
+  .builder-status { flex-basis: 100%; }
+  /* Its text lines up with the text of the ghost Undo button under it (the button's inline padding). */
+  .page-header__actions > .builder-status { padding-inline-start: .75rem; }
 }

@@ -1,14 +1,12 @@
 BananaWiki
-Copyright (c) 2026 Luca Zani and all contributors.
+Copyright (c) 2026 Luca Zani and contributors.
 
-Originally started by Luca Zani (OverloadedTech) on 20 February 2026,
-for Canalescuola's Officina Tecnologica project. Contributors retain
-copyright in their respective contributions.
+Originally started by Luca Zani (OverloadedTech) on 20 February 2026.
+Contributors retain copyright in their respective contributions.
 
-Development sped up in June 2026 during an FSL (formazione scuola-lavoro)
-placement. BananaWiki is maintained by Luca Zani and Officina Tecnologica.
-It was an internal project until September 2026, when this source release
-made it free software.
+BananaWiki is maintained by Luca Zani and contributors. It was a private
+project until September 2026, when this source release made it free
+software.
 
 First recorded project commit: 1a7c1e99847a5145429b4033293a497a118d85fc
 Author and committer timestamp: 2026-02-20T01:16:43+01:00
@@ -37,3 +35,9 @@ The container images also update the LGPL 2.1-or-later ACL library using
 authenticated Debian packages, with a compatible GPL 3-or-later GNU tar.
 Their source, license and publisher-verification records, and corresponding
 GNU coreutils source, are included at /usr/local/share/bananawiki/acl.
+
+The list of common passwords that BananaWiki refuses as new passwords
+(bananawiki/core/data/common-passwords.txt) is a subset of the UK NCSC's
+PwnedPasswordsTop100k list (from Have I Been Pwned) as distributed in
+SecLists, Copyright (c) 2018 Daniel Miessler, MIT License. The license is
+included in bananawiki/core/data/common-passwords.LICENSE.

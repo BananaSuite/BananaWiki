@@ -7,11 +7,11 @@
   <div class="page-header__actions"><a class="btn btn--primary" href="{{ url_for('dashboard.create_instance') }}">{{ t('hosting.dashboard.new') }}</a></div></div>
 {% include "hosting/_transfers.html" %}
 <dl class="summary-line">
-  <div><dt>{{ t('hosting.status.running') }}</dt><dd>{{ stats.running }}</dd></div>
-  <div><dt>{{ t('hosting.status.stopped') }}</dt><dd>{{ stats.stopped }}</dd></div>
-  <div><dt>{{ t('hosting.dashboard.shared') }}</dt><dd>{{ stats.shared }}</dd></div>
+  {% for key in ('running', 'stopped', 'shared') %}
+  <div><dt>{{ t('hosting.dashboard.stat.' ~ key ~ ('_one' if stats[key] == 1 else '_other')) }}</dt><dd>{{ stats[key] }}</dd></div>
+  {% endfor %}
 </dl>
-<p class="stats-note">{{ t('hosting.dashboard.limit', max=max_instances) }} · {{ t('hosting.dashboard.storage', mb=stats.storage_mb) }}</p>
+<p class="stats-note">{{ t('hosting.dashboard.limit', max=max_instances) }} · {{ t('hosting.dashboard.storage', mb=stats.storage_mb|mb) }}</p>
 {% if items %}
 {% set bulk = items|selectattr('role', 'equalto', 'owner')|list|length > 1 %}
 {% if bulk %}
@@ -28,26 +28,34 @@
 <ul class="instance-list">
 {% for item in items %}
   <li class="instance-row">
-    {% if bulk %}{% if item.role == 'owner' %}<input class="instance-row__check" type="checkbox" name="instance_ids" value="{{ item.id }}" form="bulk" aria-label="{{ t('hosting.bulk.select') }}: {{ item.original_slug }}">{% else %}<span class="instance-row__check"></span>{% endif %}{% endif %}
+    {#- An expired wiki can only be terminated by its owner where the platform allows it. -#}
+    {% if bulk %}{% if item.role == 'owner' and item.status != 'terminated' and (not item.expired or can_terminate_expired) %}<input class="instance-row__check" type="checkbox" name="instance_ids" value="{{ item.id }}" form="bulk" aria-label="{{ t('hosting.bulk.select') }}: {{ item.original_slug }}">{% else %}<span class="instance-row__check"></span>{% endif %}{% endif %}
     <div class="instance-row__main">
       <div class="instance-row__title">
         <a class="instance-row__name" href="{{ url_for('dashboard.instance_detail', instance_id=item.id) }}">{{ item.original_slug }}</a>
-        {{ ui.status(item.status) }}
+        {{ ui.status(item.status, expired=item.expired) }}
         {% if item.status == 'running' and item.health not in ('running', 'unknown') %}<span class="badge badge--warning">{{ t('hosting.health.' ~ item.health, item.health) }}</span>{% endif %}
         {% if item.role == 'collaborator' %}<span class="small muted">{{ t('hosting.dashboard.shared_by', username=item.owner_username) }}</span>{% endif %}
       </div>
       <div class="instance-row__meta">
         {% if item.url %}<a href="{{ item.url }}" rel="noopener">{{ item.url }}</a>{% endif %}
-        <span>{% if item.seconds_left is none %}{{ t('hosting.instance.expires') }}: {{ t('hosting.instance.never') }}{% elif item.expired %}{{ t('hosting.instance.expires') }}: {{ t('hosting.instance.expired') }}{% else %}{{ t('hosting.dashboard.time_left', time=item.seconds_left|duration) }}{% endif %}</span>
+        <span>{% if item.status == 'terminated' %}{% if item.grace_active and item.data_retained_until %}{{ t('hosting.dashboard.data_kept_until', date=item.data_retained_until|date) }}{% endif %}
+          {%- elif item.seconds_left is never_expiring %}{{ t('hosting.dashboard.never_expires') }}
+          {%- elif item.expired %}{{ t('hosting.dashboard.expired_on', date=item.expires_at|date) }}
+          {%- else %}{{ t('hosting.dashboard.time_left', time=item.seconds_left|duration) }}{% endif %}</span>
+        {% if item.id in outgoing %}<span>{{ t('hosting.dashboard.transfer_pending', username=outgoing[item.id]) }}</span>{% endif %}
       </div>
     </div>
     <div class="instance-row__side">
+      {% if item.status != 'terminated' %}
+      {% set over = item.storage_limit_effective_mb and item.storage_mb > item.storage_limit_effective_mb %}
       <div class="instance-row__storage">
-        {% if item.storage_limit_effective_mb %}<div class="progress" aria-hidden="true"><span style="width: {{ item.storage_pct }}%"></span></div>{% endif %}
-        <span>{{ item.storage_mb }}{% if item.storage_limit_effective_mb %} / {{ item.storage_limit_effective_mb }}{% endif %} MB</span>
+        {% if item.storage_limit_effective_mb %}<div class="progress{% if over %} progress--danger{% endif %}" aria-hidden="true"><span style="width: {{ item.storage_pct }}%"></span></div>{% endif %}
+        <span{% if over %} class="instance-row__flag"{% endif %}>{{ item.storage_mb|mb }}{% if item.storage_limit_effective_mb %} / {{ item.storage_limit_effective_mb|mb }}{% endif %} MB{% if over %}<span class="visually-hidden"> ({{ t('hosting.instance.over_limit') }})</span>{% endif %}</span>
       </div>
+      {% endif %}
       <div class="btn-row">
-        {% if item.url and item.status == 'running' %}<a class="btn btn--small btn--primary" href="{{ item.url }}" rel="noopener">{{ t('hosting.instance.open_wiki') }}</a>{% endif %}
+        {% if item.url and item.status == 'running' and not item.expired %}<a class="btn btn--small btn--primary" href="{{ item.url }}" rel="noopener">{{ t('hosting.instance.open_wiki') }}</a>{% endif %}
         {% if item.role == 'owner' %}
           {% if item.status == 'stopped' %}{{ ui.post(url_for('dashboard.restart', instance_id=item.id), t('hosting.instance.start'), 'btn btn--small btn--primary', hidden={'next': url_for('dashboard.dashboard')}) }}{% endif %}
         {% endif %}

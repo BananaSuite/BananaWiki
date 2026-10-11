@@ -3,6 +3,11 @@
 {% import "users/_macros.html" as m with context %}
 {% block title %}{{ t('users.merge.new') }}{% endblock %}
 {% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('users.settings') }}">{{ t('users.settings.title') }}</a></li>
+  <li><a href="{{ url_for('users.merge_pending') }}">{{ t('users.merge.title') }}</a></li>
+  <li aria-current="page">{{ t('users.merge.new') }}</li>
+</ol></nav>
 <header class="page-header"><h1>{{ t('users.merge.new') }}</h1></header>
 <section class="card">
   <p>{{ t('users.merge.intro') }}</p>
@@ -15,8 +20,7 @@
       <label class="check"><input type="radio" name="direction" value="into_other"> <span>{{ t('users.merge.into_other', user=user.username) }}</span></label>
     </fieldset>
     {{ forms.textarea('reason', t('users.merge.reason'), '', rows=3) }}
-    {{ m.password('merge-password', t('auth.field.current_password')) }}
-    <p class="hint">{{ t('users.merge.steps') }}</p>
+    {{ m.password('merge-password', t('auth.field.current_password'), hint=t('users.merge.steps')) }}
     <div class="btn-row">
       <button class="btn btn--primary" type="submit">{{ t('users.merge.submit') }}</button>
       <a class="btn" href="{{ url_for('users.merge_pending') }}">{{ t('common.cancel') }}</a>

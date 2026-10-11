@@ -31,6 +31,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from bananawiki.core.numbers import ascii_int
+
 from ..core.timeutil import MAX_YEAR, MIN_YEAR, parse, to_sql
 from .errors import ServiceError
 from .runtime import RuntimeFailure
@@ -325,8 +327,8 @@ def cmd_instance_storage_limit(args: argparse.Namespace) -> None:
     inst = _instance(args.instance, args.domain_mode)
     if args.limit == "unlimited":
         limit = 0
-    elif args.limit.isdigit() and int(args.limit) > 0:
-        limit = int(args.limit)
+    elif ascii_int(args.limit):
+        limit = ascii_int(args.limit)
     else:
         raise CliError("The limit is a number of MB or 'unlimited'.")
     _instances().set_storage_limit(inst, limit, actor_id=None)
@@ -380,8 +382,9 @@ def cmd_instance_reset_password(args: argparse.Namespace) -> None:
     inst = _instance(args.instance, args.domain_mode)
     username, password = _instances().reset_admin_password(inst, actor_id=None)
     _audit("instance.reset_password", {"instance_id": inst["id"], "username": username})
-    _print(args, {"username": username, "password": password},
-           f"Administrator {username} of {inst['subdomain']}: temporary password {password}")
+    _print(args, {"username": username, "password": password, "two_step_reset": True},
+           f"Administrator {username} of {inst['subdomain']}: temporary password {password} "
+           "(signed out everywhere; two-step verification turned off)")
 
 
 def cmd_instance_reset_wiki(args: argparse.Namespace) -> None:
@@ -591,7 +594,9 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--domain-mode", choices=("hosting", "apex"), default="hosting")
     p.add_argument("--override", action="store_true", help="Allow an import for a non-administrator account")
     p.set_defaults(handler=cmd_instance_import_archive)
-    _instance_parser(inst, "reset-password", cmd_instance_reset_password)
+    _instance_parser(inst, "reset-password", cmd_instance_reset_password,
+                     help="New temporary password for the wiki's administrator; also ends its sessions and "
+                     "turns off its two-step verification")
     _instance_parser(inst, "reset-wiki", cmd_instance_reset_wiki).add_argument("--yes", action="store_true")
     _instance_parser(inst, "users", cmd_instance_users).add_argument("--limit", type=int, default=200)
     p = _instance_parser(inst, "set-user-password", cmd_instance_set_user_password)

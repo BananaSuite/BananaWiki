@@ -6,7 +6,7 @@
 <header class="page-header">
   <h1>{{ t('site_admin.appearance.title') }}</h1>
   <div class="page-header__actions">
-    <a class="btn" href="{{ url_for('site_admin.theme_export') }}">{{ t('site_admin.appearance.export') }}</a>
+    <a class="btn btn--small" href="{{ url_for('site_admin.theme_export') }}">{{ t('site_admin.appearance.export') }}</a>
   </div>
 </header>
 
@@ -32,7 +32,7 @@
           <div class="theme-preview__sidebar">{{ t('site_admin.appearance.preview.sidebar') }}</div>
           <div class="theme-preview__main">
             <strong class="theme-preview__title">{{ t('site_admin.appearance.preview.title') }}</strong>
-            <p>{{ t('site_admin.appearance.preview.text') }} <a href="#" class="theme-preview__link" tabindex="-1">{{ t('site_admin.appearance.preview.link') }}</a></p>
+            <p>{{ t('site_admin.appearance.preview.text') }} <span class="theme-preview__link">{{ t('site_admin.appearance.preview.link') }}</span></p>
             <span class="theme-preview__card">{{ t('site_admin.appearance.preview.card') }}</span>
             <span class="theme-preview__button">{{ t('site_admin.appearance.preview.button') }}</span>
           </div>
@@ -42,11 +42,13 @@
     </div>
     <div class="btn-row">
       <button class="btn btn--primary" type="submit">{{ t('common.save') }}</button>
+      {#- Submits the separate form below, so the colour form's Save and Restore share one row. -#}
+      <button class="btn" type="submit" form="reset-colors-form">{{ t('site_admin.appearance.reset') }}</button>
     </div>
   </form>
-  <div class="btn-row">
-    {{ forms.post_button(url_for('site_admin.reset_colors'), t('site_admin.appearance.reset'), 'btn btn--ghost', confirm=t('site_admin.appearance.reset_confirm')) }}
-  </div>
+  <form id="reset-colors-form" method="post" action="{{ url_for('site_admin.reset_colors') }}" data-confirm="{{ t('site_admin.appearance.reset_confirm') }}" hidden>
+    {{ forms.csrf() }}
+  </form>
 </section>
 
 <section class="card">
@@ -74,7 +76,7 @@
     {% for preset in presets %}
     {% set chosen = selected_type == preset %}
     <li class="favicon-tile{% if chosen %} favicon-tile--selected{% endif %}">
-      <img src="{{ url_for('static', filename='favicons/banana_' ~ preset ~ '.png') }}" alt="" width="32" height="32">
+      <img class="favicon-tile__preset" src="{{ asset_url('favicons/banana_' ~ preset ~ '.png') }}" alt="" width="32" height="32">
       <span>{{ t('site_admin.favicon.preset.' ~ preset) }}</span>
       {% if chosen %}<span class="badge badge--success">{{ t('site_admin.favicon.in_use') }}</span>
       {% else %}{{ forms.post_button(url_for('site_admin.favicon_select'), t('site_admin.favicon.use'), 'btn btn--small', hidden={'favicon_type': preset}) }}{% endif %}

@@ -25,7 +25,15 @@ def test_quota_failure_never_removes_or_executes_a_tenant(runtime, operation):
 
 
 def test_missing_quota_configuration_has_no_unlimited_fallback(runtime):
+    """Storage that enforces project quotas (or BW_HOSTING_TENANT_QUOTAS=required) means hard quotas or nothing."""
     runtime._injected_quota = None
+    runtime._storage_probe = lambda: None
+    with pytest.raises(AgentError) as error:
+        runtime.call("tenant.start", {"tenant": "acme"})
+    assert error.value.code == "quota_unavailable"
+    assert not runtime.docker_calls.calls
+    runtime._storage_probe = lambda: "not XFS"
+    runtime.config["tenant_quotas"] = "required"
     with pytest.raises(AgentError) as error:
         runtime.call("tenant.start", {"tenant": "acme"})
     assert error.value.code == "quota_unavailable"
@@ -38,7 +46,7 @@ def test_zero_portal_limit_keeps_finite_host_byte_and_inode_limits(runtime):
     assert response["storage_quota"]["inode_limit"] == DEFAULT_STORAGE_INODES
 
 
-@pytest.mark.parametrize("value", [-1, True, "1024", 1.5, DEFAULT_STORAGE_BYTES + 1])
+@pytest.mark.parametrize("value", [-1, True, "1024", 1.5, 2 ** 53 + 1])
 def test_invalid_storage_limits_do_not_touch_the_current_container(runtime, value):
     with pytest.raises(AgentError) as error:
         runtime.call("tenant.start", {"tenant": "acme", "limits": {"storage_bytes": value}})

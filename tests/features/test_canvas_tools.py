@@ -177,7 +177,7 @@ def test_outline_markdown_download(app, editor, canvas, owner):
     build_outline_canvas(app, canvas, owner)
     response = editor.get(f"/canvas/{canvas['slug']}/outline?format=md")
     assert response.status_code == 200 and response.mimetype == "text/markdown"
-    assert 'filename="board.md"' in response.headers["Content-Disposition"]
+    assert "filename=board.md" in response.headers["Content-Disposition"]
     text = response.get_data(as_text=True)
     assert text.startswith("# Board\n\nAbout the board\n")
     assert "- **Note: Kick-off (group 1)**" in text and "  - → Note: Last step (then)" in text

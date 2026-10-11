@@ -6,16 +6,21 @@
 {% block content %}
 <header class="page-header">
   <h1>{{ t('leaderboard.title') }}</h1>
-  <div class="page-header__actions"><a class="btn" href="{{ url_for('leaderboard.export', sort=sort, range=range_key) }}">{{ t('leaderboard.export_csv') }}</a></div>
+  <div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('leaderboard.export', sort=sort, range=range_key) }}">{{ t('leaderboard.export_csv') }}</a></div>
 </header>
-<form method="get" action="{{ url_for('leaderboard.index') }}" class="inline-fields" aria-label="{{ t('leaderboard.options') }}">
-  <label for="lb-sort">{{ t('leaderboard.sort_by') }}</label>
-  <select id="lb-sort" name="sort" data-autosubmit>{% for option in sorts %}<option value="{{ option }}"{% if option == sort %} selected{% endif %}>{{ t('leaderboard.sort.' ~ option) }}</option>{% endfor %}</select>
-  <label for="lb-range">{{ t('leaderboard.date_range') }}</label>
-  <select id="lb-range" name="range" data-autosubmit>{% for option in ranges %}<option value="{{ option }}"{% if option == range_key %} selected{% endif %}>{{ t('leaderboard.range.' ~ option) }}</option>{% endfor %}</select>
-  <noscript><button class="btn btn--small" type="submit">{{ t('leaderboard.apply') }}</button></noscript>
+{#- Each label stays with its select when the row wraps. -#}
+<form method="get" action="{{ url_for('leaderboard.index') }}" class="inline-fields leaderboard-filter" aria-label="{{ t('leaderboard.options') }}">
+  <div class="field">
+    <label for="lb-sort">{{ t('leaderboard.sort_by') }}</label>
+    <select id="lb-sort" name="sort" data-autosubmit>{% for option in sorts %}<option value="{{ option }}"{% if option == sort %} selected{% endif %}>{{ t('leaderboard.sort.' ~ option) }}</option>{% endfor %}</select>
+  </div>
+  <div class="field">
+    <label for="lb-range">{{ t('leaderboard.date_range') }}</label>
+    <select id="lb-range" name="range" data-autosubmit>{% for option in ranges %}<option value="{{ option }}"{% if option == range_key %} selected{% endif %}>{{ t('leaderboard.range.' ~ option) }}</option>{% endfor %}</select>
+  </div>
+  <noscript><button class="btn" type="submit">{{ t('leaderboard.apply') }}</button></noscript>
 </form>
-<section class="grid grid--3 users-spaced" aria-label="{{ t('leaderboard.summary') }}">
+<section class="grid leaderboard-stats users-spaced" aria-label="{{ t('leaderboard.summary') }}">
   <div class="card stat"><span class="stat__value">{{ summary.contributors }}</span><span class="stat__label">{{ t('leaderboard.contributors') }}</span></div>
   <div class="card stat"><span class="stat__value">{{ summary.edits }}</span><span class="stat__label">{{ t('leaderboard.edits') }}</span></div>
   <div class="card stat"><span class="stat__value">{{ summary.pages_touched }}</span><span class="stat__label">{{ t('leaderboard.pages_touched') }}</span></div>
@@ -41,9 +46,9 @@
     <td>{{ entry.pages_touched }}</td>
     <td>{{ entry.pages_created }}</td>
     <td>{{ entry.active_days }}</td>
-    <td>{{ t('leaderboard.streak_value', longest=entry.longest_streak, current=entry.current_streak) }}</td>
+    <td class="nowrap">{{ t('leaderboard.streak_value', longest=entry.longest_streak, current=entry.current_streak) }}</td>
     <td class="nowrap">+{{ entry.added }} / −{{ entry.removed }}</td>
-    <td>{% if entry.last_page_slug %}<a href="{{ url_for('pages.view', slug=entry.last_page_slug) }}">{{ entry.last_page_title }}</a><br>{% endif %}<span class="small muted">{{ entry.last_contribution|time_ago }}</span></td>
+    <td class="leaderboard-latest">{% if entry.last_page_slug %}<a class="leaderboard-latest__title" href="{{ url_for('pages.view', slug=entry.last_page_slug) }}" title="{{ entry.last_page_title }}">{{ entry.last_page_title }}</a><br>{% endif %}<span class="small muted nowrap">{{ entry.last_contribution|time_ago }}</span></td>
   </tr>
   {% endfor %}
   </tbody>

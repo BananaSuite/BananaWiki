@@ -3,15 +3,19 @@
 {% block title %}{{ t('hosting.admin.delete_account') }}{% endblock %}
 {% block content %}
 {% include "hosting/admin/_nav.html" %}
-<nav class="breadcrumbs"><a href="{{ url_for('admin.account_page', account_id=target.id) }}">{{ target.username }}</a></nav>
+<nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('admin.account_page', account_id=target.id) }}">{{ target.username }}</a></nav>
 <h1>{{ t('hosting.admin.delete_account') }}: {{ target.username }}</h1>
 <section class="page-form card--danger">
+<div class="alert alert--error"><div class="alert__body">{{ t('hosting.admin.delete_account_warning') }}</div></div>
 <p>{{ t('hosting.admin.delete_account_body', count=owned|length) }}</p>
 <ul class="plain-list">{% for inst in owned %}<li>{{ inst.subdomain }}</li>{% endfor %}</ul>
 <form method="post" class="form" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ ui.csrf() }}
-  <label class="check"><input type="radio" name="instance_action" value="terminate" checked><span>{{ t('hosting.admin.terminate_wikis') }}</span></label>
-  <label class="check"><input type="radio" name="instance_action" value="transfer"><span>{{ t('hosting.admin.transfer_wikis') }}</span></label>
-  {{ ui.field('transfer_username', t('hosting.transfers.to')) }}
-  {{ ui.check('notify_user', t('hosting.admin.notify_user')) }}
+  <fieldset class="plain"><legend>{{ t('hosting.admin.wikis_action_legend') }}</legend>
+    <label class="check"><input type="radio" name="instance_action" value="terminate" checked><span>{{ t('hosting.admin.terminate_wikis') }}</span></label>
+    <label class="check"><input type="radio" name="instance_action" value="transfer"><span>{{ t('hosting.admin.transfer_wikis') }}</span></label>
+    {#- hosting.js keeps the new owner's field disabled unless "Transfer them" is chosen. -#}
+    <fieldset class="plain indented" data-enabled-by="instance_action=transfer">{{ ui.field('transfer_username', t('hosting.transfers.to'), hint=t('hosting.admin.transfer_only_hint')) }}</fieldset>
+  </fieldset>
+  {{ ui.check('notify_user', t('hosting.admin.notify_user'), checked=true) }}
   <p><button class="btn btn--danger" type="submit">{{ t('hosting.admin.delete_account') }}</button></p></form></section>
 {% endblock %}

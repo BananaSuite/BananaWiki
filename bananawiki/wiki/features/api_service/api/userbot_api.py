@@ -1,4 +1,9 @@
-"""Userbot endpoints (``userbot`` scope). See :mod:`..userbot`."""
+"""Userbot endpoints (``userbot`` scope). See :mod:`..userbot`.
+
+They answer only while the account's automation mode is on: a token that
+carries the scope from before it was reserved for the automation key cannot
+outlive an administrator's lock.
+"""
 
 from __future__ import annotations
 
@@ -8,10 +13,17 @@ from ..errors import ApiError, flag, json_body, text
 from . import bp, caller, ok, requires
 
 
+def _automation_account() -> dict:
+    user = caller()
+    if not user.get("userbot_enabled") or (user.get("userbot_mode_lock") or "unlocked") == "force_disabled":
+        raise ApiError(403, "userbot_disabled")
+    return user
+
+
 @bp.get("/userbot/me")
 @requires("userbot")
 def userbot_me():
-    user = caller()
+    user = _automation_account()
     info = userbot.token_info(user["id"])
     return ok(
         user={
@@ -35,16 +47,16 @@ def userbot_me():
 @requires("userbot", write=True)
 def userbot_profile():
     """Needs write access on the token and, as on the profile page, ``profile.edit_own``."""
-    user = caller()
+    user = _automation_account()
     if not auth.has_permission("profile.edit_own", user):
         raise ApiError(403, "cannot_edit_profile")
     data = json_body()
-    published = data.get("page_published")
+    real_name, bio, published = data.get("real_name"), data.get("bio"), data.get("page_published")
     try:
         profile = userbot.update_profile(
             user["id"],
-            real_name=text(data.get("real_name"), "real_name", maximum=userbot.MAX_REAL_NAME),
-            bio=text(data.get("bio"), "bio", maximum=userbot.MAX_BIO),
+            real_name=None if real_name is None else text(real_name, "real_name", maximum=userbot.MAX_REAL_NAME),
+            bio=None if bio is None else text(bio, "bio", maximum=userbot.MAX_BIO),
             page_published=None if published is None else flag(published, "page_published"),
         )
     except userbot.UserbotError as error:

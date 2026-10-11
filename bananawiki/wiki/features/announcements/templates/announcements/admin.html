@@ -5,7 +5,7 @@
 {% block admin_content %}
 <div class="page-header"><h1>{{ t('announcements.admin_title') }}</h1></div>
 <div class="section-stack">
-<details class="disclosure"{% if errors %} open{% endif %}>
+<details class="disclosure announcements-create"{% if errors %} open{% endif %}>
   <summary>{{ t('announcements.create') }}</summary>
   {{ ann.error_list(errors) }}
   <form method="post" action="{{ url_for('announcements.create') }}" class="form stack">
@@ -15,6 +15,7 @@
   </form>
 </details>
 
+<section class="card">
 <h2>{{ t('announcements.existing') }}</h2>
 {% if not announcements %}
 <div class="empty-state">{{ t('announcements.empty') }}</div>
@@ -49,5 +50,6 @@
   {% endfor %}
 </div>
 {% endif %}
+</section>
 </div>
 {% endblock %}

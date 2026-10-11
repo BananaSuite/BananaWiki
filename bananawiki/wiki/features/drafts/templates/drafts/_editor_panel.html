@@ -26,7 +26,7 @@
       <ul class="drafts-panel__others" data-draft-others-list>
         {% for other in others %}
         <li><strong>{{ other.username }}</strong> <span class="small muted">{{ other.updated_at|time_ago }}</span>
-          {% if can_transfer %}<button type="submit" class="btn btn--small btn--ghost" formaction="{{ url_for('drafts.transfer', page_id=page.id) }}" formnovalidate name="from_user_id" value="{{ other.user_id }}" data-confirm="{{ t('drafts.editor.transfer_confirm', user=other.username) }}">{{ t('drafts.editor.transfer') }}</button>{% endif %}
+          {% if can_transfer %}<button type="submit" class="btn btn--small" formaction="{{ url_for('drafts.transfer', page_id=page.id) }}" formnovalidate name="from_user_id" value="{{ other.user_id }}" data-confirm="{{ t('drafts.editor.transfer_confirm', user=other.username) }}">{{ t('drafts.editor.transfer') }}</button>{% endif %}
         </li>
         {% endfor %}
       </ul>

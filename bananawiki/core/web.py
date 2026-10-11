@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import re
 import secrets
 from collections.abc import Iterable
@@ -20,6 +21,8 @@ from dataclasses import dataclass, field, replace
 from urllib.parse import urljoin, urlsplit
 
 from flask import Flask, Response, abort, g, request, session
+
+from .logformat import one_line  # noqa: F401 - re-exported for the applications' log calls
 
 CSRF_SESSION_KEY = "_csrf"
 CSRF_FORM_FIELD = "csrf_token"
@@ -174,14 +177,36 @@ def safe_next(default: str, *candidates: str | None) -> str:
     return default
 
 
-def one_line(value: object) -> str:
-    """*value* as text without line breaks, so a logged value cannot forge further log lines."""
-    return str(value).replace("\r", " ").replace("\n", " ")
-
-
 def client_ip() -> str:
     """Remote address after ProxyFix (when enabled) has resolved it."""
     return (request.remote_addr or "unknown")[:64]
+
+
+def network_key(address: str) -> str:
+    """*address* as a rate-limit key: an IPv4 address itself, an IPv6 one as its /64.
+
+    One IPv6 subscriber is usually given a whole /64, so a limit keyed on the
+    full address would give them an unlimited budget. IPv4-mapped IPv6
+    addresses count as the IPv4 address; anything unparsable is kept as is.
+    """
+    try:
+        parsed = ipaddress.ip_address(address)
+    except ValueError:
+        return address
+    if isinstance(parsed, ipaddress.IPv6Address):
+        if parsed.ipv4_mapped is not None:
+            return str(parsed.ipv4_mapped)
+        return str(ipaddress.IPv6Network((parsed.packed[:8] + bytes(8), 64)))
+    return str(parsed)
+
+
+def client_network() -> str:
+    """The client as a rate-limit key (:func:`network_key` of :func:`client_ip`).
+
+    Use it for every limit that counts a client's requests; keep
+    :func:`client_ip` for what is shown or stored about the client.
+    """
+    return network_key(client_ip())
 
 
 def install_csrf(app: Flask, *, exempt_prefixes: Iterable[str] = (), exempt_when=None) -> None:

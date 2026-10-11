@@ -1,6 +1,9 @@
 {
   "feature.temporary_accounts.description": "Seiten und Konten löschen, Seiten ausblenden oder Rollen zurücksetzen – automatisch zu einem festgelegten Zeitpunkt.",
   "feature.temporary_accounts.name": "Befristete Konten und Seiten",
+  "temporary_accounts.admin_user.deleted_on": "Dieses Konto wird am {date} automatisch gelöscht.",
+  "temporary_accounts.admin_user.manage": "Befristete Elemente",
+  "temporary_accounts.admin_user.title": "Befristetes Konto",
   "temporary_accounts.col.countdown": "Countdown sichtbar",
   "temporary_accounts.col.expires": "Zeitpunkt",
   "temporary_accounts.col.page": "Seite",

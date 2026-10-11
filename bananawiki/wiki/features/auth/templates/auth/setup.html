@@ -3,7 +3,7 @@
 {% block content %}
 <div class="card card--narrow">
   <h1>{{ t('auth.setup.title') }}</h1>
-  <p>{{ t('auth.setup.intro') }}</p>
+  <p class="muted">{{ t('auth.setup.intro') }}</p>
   {% if error %}<div class="alert alert--error" role="alert"><div class="alert__body">{{ error }}</div></div>{% endif %}
   <form method="post" class="form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

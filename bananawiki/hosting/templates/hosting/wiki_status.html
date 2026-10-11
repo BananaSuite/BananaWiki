@@ -7,7 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <meta name="color-scheme" content="light dark">
-  {% if refresh %}<meta http-equiv="refresh" content="5">{% endif %}
+  {% if refresh %}<noscript><meta http-equiv="refresh" content="10"></noscript>{% endif %}
   <title>{{ t('hosting.wiki_status.' ~ state ~ '.title') }} · {{ host }}</title>
   <style>
     :root { --bg: #f7f8fa; --card: #fff; --text: #252a33; --muted: #666a72; --line: #d9dce1; --accent: #3b5792; }
@@ -26,9 +26,15 @@
     dl { margin: 1rem 0; padding: .75rem 1rem; border-left: 3px solid var(--line); }
     dt { font-size: .8rem; color: var(--muted); }
     dd { margin: 0 0 .5rem; }
+    dd:last-child { margin-bottom: 0; }
     a { color: var(--accent); }
     a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-    footer { margin-top: 1.25rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+    footer { margin-top: 1.25rem; padding-top: .75rem; border-top: 1px solid var(--line); display: grid; gap: .6rem; }
+    footer p { margin: 0; }
+    .brand { font-weight: 600; color: var(--text); }
+    .link { font: inherit; color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline;
+            cursor: pointer; }
+    .link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   </style>
 </head>
 <body>
@@ -38,14 +44,41 @@
   <p>{{ t('hosting.wiki_status.' ~ state ~ '.body') }}</p>
   {% if details %}
   <dl>
-    {% if details.reason %}<dt>{{ t('hosting.wiki_status.reason') }}</dt><dd>{{ details.reason }}</dd>{% endif %}
-    {% if details.until %}<dt>{{ t('hosting.wiki_status.until') }}</dt><dd>{{ details.until|datetime }}</dd>{% endif %}
+    {% if details.reason %}<dt>{{ t('hosting.wiki_status.reason') }}</dt><dd>{{ details.reason|server_text }}</dd>{% endif %}
+    {% if details.until %}<dt>{{ t('hosting.wiki_status.until') }}</dt><dd>{{ details.until|datetime_long }}</dd>{% endif %}
   </dl>
   {% endif %}
-  {% if refresh %}<p class="muted">{{ t('hosting.wiki_status.refreshing') }}</p>{% endif %}
+  {% if refresh %}
+  <p class="muted"><span data-refresh-note data-stopped="{{ t('hosting.wiki_status.reloading_stopped') }}">{{ t('hosting.wiki_status.refreshing') }}</span>
+    <a href="">{{ t('hosting.wiki_status.reload_now') }}</a>
+    <button type="button" class="link" data-stop-refresh hidden>{{ t('hosting.wiki_status.stop_reloading') }}</button></p>
+  <script nonce="{{ nonce }}">
+  (function () {
+    // Reload while the page is in front of the visitor, at most 30 times in a row, until they stop it.
+    var key = "bw-status-reloads:" + location.href, count = 0, timer = null;
+    var note = document.querySelector("[data-refresh-note]"), stop = document.querySelector("[data-stop-refresh]");
+    try { count = Number(sessionStorage.getItem(key)) || 0; } catch (e) { count = 0; }
+    function halt() {
+      if (timer) clearInterval(timer);
+      stop.hidden = true;
+      note.textContent = note.getAttribute("data-stopped");
+      try { sessionStorage.removeItem(key); } catch (e) { /* storage off */ }
+    }
+    if (count >= 30) { halt(); return; }
+    timer = setInterval(function () {
+      if (document.visibilityState !== "visible") return;
+      try { sessionStorage.setItem(key, String(count + 1)); } catch (e) { /* storage off */ }
+      location.reload();
+    }, 10000);
+    stop.hidden = false;
+    stop.addEventListener("click", halt);
+  })();
+  </script>
+  {% endif %}
   <footer class="muted">
-    {% if state == 'suspended' and contact %}{{ t('hosting.wiki_status.contact') }} <a href="mailto:{{ contact }}">{{ contact }}</a><br>{% endif %}
-    <a href="{{ portal_url }}">{{ t('hosting.wiki_status.portal') }}</a>
+    {% if state == 'suspended' and contact %}<p>{{ t('hosting.wiki_status.contact') }} <a href="mailto:{{ contact }}">{{ contact }}</a></p>{% endif %}
+    <p><span class="brand">{{ service_name }}</span><br>
+      <a href="{{ portal_url }}">{{ t('hosting.wiki_status.portal') }}</a></p>
   </footer>
 </main>
 </body>

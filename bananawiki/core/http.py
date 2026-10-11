@@ -12,9 +12,12 @@ against server-side request forgery and resource exhaustion:
   still verifies the certificate against the host name.
 * Private, loopback and shared addresses are refused unless the caller
   explicitly allows them (for example a peer an administrator marked as
-  being on the local network). Link-local (cloud metadata), deprecated IPv6
-  site-local (``fec0::/10``, which :mod:`ipaddress` counts as global),
-  multicast, unspecified and reserved addresses are always refused.
+  being on the local network). Link-local, cloud metadata services (also
+  their IPv6 and shared-space addresses, :data:`_METADATA_NETWORKS`),
+  deprecated IPv6 site-local (``fec0::/10``, which :mod:`ipaddress` counts as
+  global), Teredo, multicast, unspecified and reserved addresses are always
+  refused. IPv4 addresses carried in IPv6 (IPv4-mapped, NAT64 and 6to4) are
+  judged as the IPv4 address.
 * Redirects are not followed unless asked for, and then only to the same
   scheme, host and port.
 * Connect/read timeouts, a total deadline that also stops servers that trickle
@@ -34,11 +37,20 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
+from bananawiki.core.numbers import ascii_int
+
 DEFAULT_MAX_BYTES = 8 * 1024 * 1024
 MAX_URL_LENGTH = 8192
 _REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
 # RFC 6598 shared address space (carrier-grade NAT, Tailscale): neither global nor "private" to ipaddress.
 _SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
+_NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+# Cloud instance metadata and host services that are not link-local, refused
+# even where private networks are allowed: AWS (IPv6 metadata, DNS and time),
+# Google Cloud (IPv6 metadata), Alibaba Cloud and Azure (WireServer).
+_METADATA_NETWORKS = tuple(ipaddress.ip_network(net) for net in (
+    "fd00:ec2::/32", "fd20:ce::254/128", "100.100.100.200/32", "168.63.129.16/32",
+))
 _DROPPED_HEADERS = frozenset({"host", "connection", "proxy-authorization", "content-length", "transfer-encoding"})
 # System DNS APIs cannot be interrupted portably. Bound both the request's
 # wait and the number of outstanding resolver threads if DNS itself stalls.
@@ -76,11 +88,16 @@ def _system_resolver(host: str, port: int) -> list[tuple]:
 
 def address_allowed(address: ipaddress.IPv4Address | ipaddress.IPv6Address, *, allow_private: bool) -> bool:
     """Whether a connection to *address* may be opened."""
-    mapped = getattr(address, "ipv4_mapped", None)
+    if getattr(address, "teredo", None) is not None:
+        return False  # a tunnel to an address nobody checked
+    mapped = getattr(address, "ipv4_mapped", None) or getattr(address, "sixtofour", None)
+    if mapped is None and address in _NAT64_PREFIX:
+        mapped = ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
     if mapped is not None:
         address = mapped
     if (address.is_link_local or address.is_multicast or address.is_unspecified or address.is_reserved
-            or getattr(address, "is_site_local", False)):
+            or getattr(address, "is_site_local", False)
+            or any(address in network for network in _METADATA_NETWORKS)):
         return False
     if address.is_global:
         return True
@@ -214,8 +231,10 @@ def _resolve_before_deadline(host: str, port: int, *, allow_private: bool, resol
 
 def _read_body(response: http.client.HTTPResponse, max_bytes: int, deadline: _Deadline) -> bytes:
     declared = response.getheader("Content-Length")
-    if declared and declared.isdigit() and int(declared) > max_bytes:
-        raise HttpError("The server response is too large.")
+    if declared and declared.isascii() and declared.isdecimal():
+        length = ascii_int(declared)
+        if length is None or length > max_bytes:
+            raise HttpError("The server response is too large.")
     chunks: list[bytes] = []
     total = 0
     while True:

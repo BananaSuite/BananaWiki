@@ -13,6 +13,7 @@ import fcntl
 import hashlib
 import io
 import json
+import logging
 import os
 import re
 import shlex
@@ -26,12 +27,29 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from ..core.logformat import one_line
+
+log = logging.getLogger("bananawiki.ops")
+
 MAINTENANCE_MARKER = ".banana-maintenance"
+# A tenant can nest folders deeper than the open-file limit (each walked
+# level holds a descriptor) and than PATH_MAX; deeper levels of a tenant's
+# tree are left out of backups rather than failing them for every tenant.
+TENANT_DEPTH = 64
 # Files a portable package may hold (``BANANA_PACKAGE_MAX_FILES``); 1.4 and 1.6.0 restore at most 100,000.
 DEFAULT_MAX_FILES = 1_000_000
 _JSON_BYTES = 16 * 1024 * 1024
 _ENV_KEY = re.compile(r"[A-Z][A-Z0-9_]*")
-_DATABASE_SUFFIXES = {".db", ".sqlite", ".sqlite3"}
+# The SQLite databases the platform itself keeps, as package entries, and the
+# settings that can move them. Only these are checked as databases: anything
+# else, such as a user's upload called ``notes.db``, is an opaque file whose
+# checksum the manifest covers. A hosted wiki's own database
+# (``data/instances/<tenant>/bananawiki.db``) is captured as a database but
+# not checked here: its tenant can damage it, and that must not fail the
+# backup of every other wiki.
+APPLICATION_DATABASES = ("data/bananawiki.db", "data/hosting.db")
+_DATABASE_SETTINGS = ("BW_DATABASE_PATH", "HOSTING_DATABASE_PATH")
+TENANT_DATABASE = "bananawiki.db"
 _DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 _READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 
@@ -179,14 +197,19 @@ def read_environment(path: str | os.PathLike[str]) -> dict[str, str]:
     path = Path(path)
     if not path.exists():
         return output
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         key, separator, value = line.partition("=")
         if not separator or not _ENV_KEY.fullmatch(key):
             raise ValueError("Environment files use one NAME=value assignment per line.")
-        output[key] = " ".join(shlex.split(value, comments=False))
+        try:
+            words = shlex.split(value, comments=False)
+        except ValueError as error:  # an apostrophe outside quotes, for example
+            raise ValueError(f"{path}, line {number}: the value of {key} has an unbalanced quote; "
+                             "write it in double quotes.") from error
+        output[key] = " ".join(words)
     return output
 
 
@@ -259,6 +282,10 @@ def regular_files(
         for current, dirs, files, dir_fd in walk:
             base = root / current
             dirs[:] = sorted(name for name in dirs if not omitted((base / name).relative_to(root).as_posix()))
+            if dirs and allowed_link is not None and current.count("/") >= TENANT_DEPTH and allowed_link(base):
+                log.warning("Leaving out folders nested more than %d levels deep in %s", TENANT_DEPTH,
+                            one_line(str(base)[:200]))
+                dirs.clear()
             for name in (*dirs, *sorted(files)):
                 path = base / name
                 relative = path.relative_to(root).as_posix()
@@ -386,6 +413,28 @@ def extract_archive(archive_path: Path, destination: Path, *, max_bytes: int = 1
     return seen
 
 
+def application_databases(tree: Path, old_root: str | None) -> set[str]:
+    """Package entry names of the platform's databases in an installation, snapshot or extracted package *tree*.
+
+    *old_root* is the installation root the tree's ``config/app.env`` refers to.
+    """
+    names = set(APPLICATION_DATABASES)
+    environment = Path(tree) / "config/app.env"
+    values = read_environment(environment) if environment.is_file() and not environment.is_symlink() else {}
+    data = PurePosixPath(old_root or "/") / "data"
+    for key in _DATABASE_SETTINGS:
+        value = PurePosixPath(values.get(key) or "/")
+        if value.is_relative_to(data) and value != data:
+            names.add("data/" + value.relative_to(data).as_posix())
+    return names
+
+
+def tenant_database(name: str) -> bool:
+    """Whether package entry *name* is a hosted wiki's database (``data/instances/<tenant>/bananawiki.db``)."""
+    parts = PurePosixPath(name).parts
+    return len(parts) == 4 and parts[:2] == ("data", "instances") and parts[3] == TENANT_DATABASE
+
+
 def check_database_copy(file: Path, scratch: Path) -> None:
     """``quick_check`` a copy of a packaged SQLite database (a read can still rewrite WAL indexes)."""
     with tempfile.TemporaryDirectory(prefix="database-check-", dir=scratch) as directory:
@@ -429,7 +478,6 @@ def read_package(path: Path, product: str, staging_parent: Path, *,
             file = root / name
             if file.stat().st_size != entry.get("size") or digest_file(file) != entry.get("sha256"):
                 raise ValueError(f"Package integrity verification failed for {name!r}.")
-        for name in declared:
-            if Path(name).suffix in _DATABASE_SUFFIXES:
-                check_database_copy(root / name, staging_parent)
+        for name in sorted(application_databases(root, manifest.get("old_root")) & set(declared)):
+            check_database_copy(root / name, staging_parent)
         yield root, manifest

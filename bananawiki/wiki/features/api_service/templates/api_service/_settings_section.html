@@ -7,5 +7,6 @@
   {% else %}
   <p class="hint">{{ t('api_service.tokens.summary', count=token_count) }}</p>
   {% endif %}
-  <a class="btn" href="{{ url_for('api_service.tokens_page') }}">{{ t('api_service.tokens.manage') }}</a>
+  {#- Without API access the page would only repeat the notice; existing tokens can still be revoked there. -#}
+  {% if (service.enabled and has_access) or token_count %}<a class="btn" href="{{ url_for('api_service.tokens_page') }}">{{ t('api_service.tokens.manage') }}</a>{% endif %}
 </section>

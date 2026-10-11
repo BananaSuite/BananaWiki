@@ -1,7 +1,9 @@
 """Uploaded files on disk.
 
 Every stored file gets a random name (``<32 hex>.<ext>``) inside one of the
-configured folders; the original name is kept only in the database. Files are
+configured folders; the original name is kept only in the database, as the
+user wrote it in any script (see :func:`clean_filename`) and offered back in
+``Content-Disposition`` with an RFC 5987 ``filename*`` (:func:`content_disposition`). Files are
 streamed to a temporary file in the same folder and renamed into place, so a
 failed upload never leaves a partial file behind.
 
@@ -16,21 +18,22 @@ import hashlib
 import io
 import mimetypes
 import os
+import re
 import secrets
-import shutil
 import tempfile
 import threading
 import time
+import unicodedata
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from urllib.parse import quote
 
 from filelock import FileLock, Timeout
 from flask import Response, abort, current_app, g, send_file
 from werkzeug.datastructures import FileStorage
-from werkzeug.utils import secure_filename
+from werkzeug.http import dump_options_header
 
 from ..core.sqlite import DatabaseUnavailable
 from . import settings
@@ -47,6 +50,14 @@ INLINE_SAFE_TYPES = frozenset({
     "text/plain",
 })
 _IMAGE_FORMATS = {"png": "PNG", "jpg": "JPEG", "jpeg": "JPEG", "gif": "GIF", "webp": "WEBP"}
+MAX_NAME_CHARS = 200
+_EXTENSION = re.compile(r"[a-z0-9_-]{1,32}")
+# Direction overrides and isolates can make "gpj.exe" read as "exe.jpg".
+_BIDI_CONTROLS = frozenset("\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
+# Joiners shape Persian, Indic and emoji names; other format characters go.
+_JOINERS = frozenset("\u200c\u200d")
+# Characters no Windows file name may contain.
+_RESERVED_NAME_CHARS = re.compile(r'[<>:"|?*]')
 
 
 class UploadError(ValueError):
@@ -77,8 +88,54 @@ def folder_path(folder: str) -> Path:
 
 
 def extension(name: str | None) -> str:
-    name = name or ""
-    return name.rsplit(".", 1)[1].lower() if "." in name else ""
+    """The lower-cased ASCII extension of the last segment of *name*, or ``""``."""
+    name = (name or "").replace("\\", "/").rsplit("/", 1)[-1]
+    if "." not in name:
+        return ""
+    ext = name.rsplit(".", 1)[1]
+    return ext.lower() if ext.isascii() and _EXTENSION.fullmatch(ext.lower()) else ""
+
+
+def clean_filename(name: str | None, default: str = "file") -> str:
+    """An uploaded file's name as the user sees it, safe to store, show and download as.
+
+    Letters of every script are kept (normalised to NFC). Folders, control,
+    direction and other invisible characters, characters Windows refuses and
+    leading or trailing dots and spaces go; the name is cut to
+    :data:`MAX_NAME_CHARS` with its extension kept.
+    """
+    text = unicodedata.normalize("NFC", str(name or ""))
+    text = text.replace("\\", "/").rsplit("/", 1)[-1]
+    text = re.sub(r"\s+", " ", text)
+    text = "".join(char for char in text if char in _JOINERS or (
+        char not in _BIDI_CONTROLS and not unicodedata.category(char).startswith("C")))
+    text = _RESERVED_NAME_CHARS.sub("_", text).strip(" .")
+    if len(text) > MAX_NAME_CHARS:
+        ext = extension(text)
+        keep = MAX_NAME_CHARS - (len(ext) + 1 if ext else 0)
+        text = text[:keep].rstrip(" .") + (f".{ext}" if ext else "")
+    return text or default
+
+
+def content_disposition(name: str | None, *, inline: bool = False) -> str:
+    """A ``Content-Disposition`` value offering *name*, in any script, as the file name.
+
+    Header values must be Latin-1: names outside ASCII are sent as an RFC 5987
+    ``filename*`` with an ASCII ``filename`` for older clients.
+    """
+    name = clean_filename(name)
+    kind = "inline" if inline else "attachment"
+    if name.isascii():
+        return dump_options_header(kind, {"filename": name})
+    ext = extension(name)
+    stem = name[:-len(ext) - 1] if ext else name
+    stem = unicodedata.normalize("NFKD", stem).encode("ascii", "ignore").decode("ascii")
+    stem = re.sub(r'[^\x20-\x7e]|["\\%]', "", stem).strip(" .")
+    if not any(char.isalnum() for char in stem):
+        stem = "download"
+    fallback = stem + (f".{ext}" if ext else "")
+    return dump_options_header(kind, {"filename": fallback,
+                                      "filename*": "UTF-8''" + quote(name, safe="!#$&+-.^_`|~")})
 
 
 def _csv(value: str | None) -> set[str]:
@@ -239,7 +296,7 @@ def save(
     """
     if upload is None or not upload.filename:
         raise UploadError("upload.error.no_file")
-    original = secure_filename(upload.filename) or "file"
+    original = clean_filename(upload.filename)
     ext = extension(original)
     if images_only and ext not in _IMAGE_FORMATS:
         raise UploadError("upload.error.not_an_image")
@@ -292,18 +349,6 @@ def save(
         raise
     mime = mimetypes.guess_type(original)[0] or "application/octet-stream"
     return StoredFile(folder, name, original, size, mime, digest.hexdigest())
-
-
-def save_bytes(data: bytes, folder: str, ext: str) -> str:
-    """Store generated content (exports, thumbnails, audio); return its name."""
-    target_dir = folder_path(folder)
-    name = _new_name(ext)
-    fd, tmp_name = tempfile.mkstemp(dir=target_dir, prefix=".write-")
-    with os.fdopen(fd, "wb") as out:
-        out.write(data)
-    os.replace(tmp_name, target_dir / name)
-    _note_usage(len(data))
-    return name
 
 
 # ── Reading ───────────────────────────────────────────────────────────────────
@@ -385,15 +430,12 @@ def send(
     except FileNotFoundError:
         # Deletion may commit after resolve() and before send_file opens it.
         abort(404)
+    # send_file's own ASCII fallback for a name without Latin letters is
+    # just its extension.
+    response.headers["Content-Disposition"] = content_disposition(download_name or filename, inline=show_inline)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Content-Security-Policy"] = "default-src 'none'; sandbox"
     response.headers["Cache-Control"] = f"private, max-age={max_age}"
     return response
 
 
-def copy_into(folder: str, source: BinaryIO, ext: str) -> str:
-    target_dir = folder_path(folder)
-    name = _new_name(ext)
-    with open(target_dir / name, "wb") as out:
-        shutil.copyfileobj(source, out, CHUNK)
-    return name

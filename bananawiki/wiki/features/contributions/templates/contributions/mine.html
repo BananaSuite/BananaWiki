@@ -4,25 +4,27 @@
 {% block content %}
 <header class="page-header">
   <h1>{{ t('contributions.mine_title') }}</h1>
-  <div class="page-header__meta">{{ t('contributions.usage', count=pending, quota=(t('contributions.quota.unlimited') if quota == -1 else quota)) }}</div>
+  {#- Only for people whose edits go through review (an editor publishes directly: no quota applies). -#}
+  {% if can_request and quota == -1 and pending %}<div class="page-header__meta">{{ t('contributions.usage_unlimited', count=pending) }}</div>
+  {% elif can_request and quota != -1 %}<div class="page-header__meta">{{ tn('contributions.usage', pending, quota=quota) }}</div>{% endif %}
 </header>
 <div class="section-stack">
 <section class="card">
   {% if contributions %}
-  <div class="table-wrap"><table class="table">
-    <thead><tr><th>{{ t('contributions.col.page') }}</th><th>{{ t('common.status') }}</th><th>{{ t('common.updated') }}</th><th>{{ t('contributions.col.review') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+  <div class="table-wrap"><table class="table table--stack">
+    <thead><tr><th>{{ t('contributions.col.page') }}</th><th>{{ t('common.status') }}</th><th>{{ t('common.updated') }}</th><th>{{ t('contributions.col.review') }}</th><th class="actions"><span class="visually-hidden">{{ t('common.actions') }}</span></th></tr></thead>
     <tbody>
     {% for c in contributions %}
     <tr>
       <td><a href="{{ url_for('pages.view', slug=c.page_slug) }}">{{ c.page_title }}</a></td>
-      <td><span class="badge">{{ t('contributions.status.' ~ c.status) }}</span></td>
-      <td>{{ c.updated_at|datetime }}</td>
-      <td>{% if c.reviewed_by_username %}{{ c.reviewed_by_username }}{% if c.review_reason %}: {{ c.review_reason }}{% endif %}{% endif %}</td>
-      <td class="cluster">
-        {% if c.status == 'pending' %}
+      <td data-label="{{ t('common.status') }}"><span class="badge">{{ t('contributions.status.' ~ c.status) }}</span></td>
+      <td class="nowrap" data-label="{{ t('common.updated') }}">{{ c.updated_at|datetime }}</td>
+      <td data-label="{{ t('contributions.col.review') }}">{% if c.reviewed_by_username %}{{ c.reviewed_by_username }}{% if c.review_reason %}: {{ c.review_reason }}{% endif %}{% endif %}</td>
+      <td class="actions">
+        {% if c.status == 'pending' %}<div class="cluster">
         <a class="btn btn--small" href="{{ url_for('contributions.edit', slug=c.page_slug, contribution_id=c.id) }}">{{ t('common.edit') }}</a>
         {{ forms.post_button(url_for('contributions.withdraw', slug=c.page_slug, contribution_id=c.id), t('contributions.withdraw'), cls='btn btn--small', confirm=t('contributions.withdraw_confirm')) }}
-        {% endif %}
+        </div>{% endif %}
       </td>
     </tr>
     {% endfor %}
@@ -41,8 +43,17 @@
   {% if cooldown_minutes %}<p class="muted">{{ t('contributions.quota.error.cooldown', minutes=cooldown_minutes) }}</p>{% endif %}
   <form method="post" action="{{ url_for('contributions.quota_request') }}" class="form">
     {{ forms.csrf() }}
-    {{ forms.field('requested_quota', t('contributions.quota.requested'), type='number', attrs={'min': 1, 'max': 100000}) }}
-    {{ forms.checkbox('unlimited', t('contributions.quota.request_unlimited')) }}
+    {#- One choice: a number, or no limit (the number is ignored then, so the two are radio options). -#}
+    <fieldset class="stack quota-choice" aria-describedby="quota-current">
+      <legend>{{ t('contributions.quota.requested') }}</legend>
+      <p class="hint" id="quota-current">{{ t('contributions.quota.current', quota=(t('contributions.quota.unlimited') if quota == -1 else quota)) }}</p>
+      <div class="cluster">
+        <label class="check"><input type="radio" name="unlimited" value="0" checked><span>{{ t('contributions.quota.request_number') }}</span></label>
+        <label class="visually-hidden" for="f-requested_quota">{{ t('contributions.quota.requested') }}</label>
+        <input class="input input--short" id="f-requested_quota" name="requested_quota" type="number" min="1" max="100000" inputmode="numeric">
+      </div>
+      <label class="check"><input type="radio" name="unlimited" value="1"><span>{{ t('contributions.quota.request_unlimited') }}</span></label>
+    </fieldset>
     <div class="field">
       <label for="f-quota-reason">{{ t('contributions.field.reason') }}</label>
       <textarea id="f-quota-reason" name="reason" rows="2" maxlength="{{ max_reason }}" required></textarea>

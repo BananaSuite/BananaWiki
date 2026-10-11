@@ -14,7 +14,7 @@ from typing import Any
 
 from flask import abort, current_app, jsonify, redirect, render_template, request, send_file, url_for
 
-from ....core.web import client_ip
+from ....core.web import client_network
 from ... import auth, settings
 from ...i18n import t
 from ...registry import feature_blueprint
@@ -33,7 +33,7 @@ SPEED_LIMIT = (6, 600)  # new speed conversions per client per 10 minutes
 
 def _rate_limited(bucket: str, limit: int, window: int) -> bool:
     user = auth.current_user()
-    key = f"tts:{bucket}:{user['id'] if user else client_ip()}"
+    key = f"tts:{bucket}:{user['id'] if user else client_network()}"
     return not current_app.extensions["bananawiki.limiter"].hit(key, limit, window)
 
 
@@ -182,13 +182,14 @@ def _system_status() -> dict[str, Any]:
         "piper_installed": backends.piper_installed(),
         "ffmpeg": backends.ffmpeg_available(),
         "langdetect": text.langdetect_available(),
-        "voices": [(code, text.LANGUAGE_LABELS.get(code, code), piper.voice_state(code)) for code in languages],
+        "voices": [(code, label, piper.voice_state(code)) for code, label in text.language_choices(languages)],
         "voice_dir": cfg.piper_voice_dir,
         "inline_worker": cfg.inline_worker,
         "worker_count": cfg.worker_count,
         "host_disabled": cfg.host_disabled,
         "gpu_managed": cfg.gpu_managed_by_host,
         "gpu_from_env": bool(cfg.gpu_url and cfg.gpu_token),
+        "gpu_env_token_only": bool(cfg.gpu_token and not cfg.gpu_url),
         "limits": service.manual_limits(),
     }
 
@@ -213,8 +214,8 @@ def admin():
         system=_system_status(),
         values=settings.load(),
         enabled=set(options.enabled_languages()),
-        languages=[(code, text.LANGUAGE_LABELS.get(code, code)) for code in text.SUPPORTED_LANGUAGES],
-        labels=text.LANGUAGE_LABELS,
+        languages=text.language_choices(text.SUPPORTED_LANGUAGES),
+        labels={code: text.language_label(code) for code in {row["language"] for row in rows}},
         performance_modes=options.PERFORMANCE_MODES,
     )
 

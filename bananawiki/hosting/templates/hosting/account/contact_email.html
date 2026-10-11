@@ -6,5 +6,6 @@
 <form method="post" class="form">{{ ui.csrf() }}
   {{ ui.field('email', t('hosting.field.email'), type='email', required=true, attrs={'maxlength': 254, 'autocomplete': 'email'}) }}
   {{ ui.field('current_password', t('hosting.field.current_password'), type='password', required=true, attrs={'autocomplete': 'current-password'}) }}
-  <button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></form></div>
+  <button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></form>
+{% include "hosting/_contact.html" %}</div>
 {% endblock %}

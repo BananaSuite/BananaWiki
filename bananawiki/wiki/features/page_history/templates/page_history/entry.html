@@ -12,7 +12,7 @@
   <div class="page-header__actions">
     {% if can_revert %}
     <form method="post" action="{{ url_for('pages.history_revert', slug=page.slug, entry_id=entry.id) }}" data-confirm="{{ t('page_history.confirm.revert') }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn--small">{{ t('page_history.revert_to_this') }}</button></form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn--primary">{{ t('page_history.revert_to_this') }}</button></form>
     {% endif %}
   </div>
   <p class="page-header__meta">

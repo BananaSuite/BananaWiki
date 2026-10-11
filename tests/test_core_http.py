@@ -70,6 +70,8 @@ def _get(url, **options):
     ("127.0.0.1", False, False), ("127.0.0.1", True, True), ("169.254.169.254", True, False),
     ("0.0.0.0", True, False), ("224.0.0.1", True, False), ("::ffff:127.0.0.1", False, False),
     ("fe80::1", True, False), ("100.64.0.1", False, False), ("fec0::1", False, False), ("fec0::1", True, False),
+    ("64:ff9b::a9fe:a9fe", False, False), ("64:ff9b::a9fe:a9fe", True, False),
+    ("64:ff9b::7f00:1", False, False), ("64:ff9b::7f00:1", True, True), ("64:ff9b::808:808", False, True),
 ])
 def test_address_policy(address, private_ok, allowed):
     assert http.address_allowed(ipaddress.ip_address(address), allow_private=private_ok) is allowed
@@ -243,3 +245,28 @@ def test_total_deadline_also_bounds_dns_resolution():
                 pytest.fail("the HTTP request remained blocked on DNS past its deadline")
         finally:
             release.set()
+
+
+@pytest.mark.parametrize("address", [
+    "fd00:ec2::254",  # AWS instance metadata over IPv6
+    "fd00:ec2::23",  # AWS Time Sync / DNS over IPv6
+    "fd20:ce::254",  # Google Cloud metadata over IPv6
+    "100.100.100.200",  # Alibaba Cloud metadata (shared address space)
+    "168.63.129.16",  # Azure WireServer
+    "2002:a9fe:a9fe::",  # 6to4 encoding of 169.254.169.254
+    "2001:0:4136:e378:8000:63bf:3fff:fdd2",  # Teredo
+])
+@pytest.mark.parametrize("private_ok", [False, True])
+def test_metadata_and_tunnelled_addresses_are_refused_even_on_private_networks(address, private_ok):
+    assert http.address_allowed(ipaddress.ip_address(address), allow_private=private_ok) is False
+
+
+@pytest.mark.parametrize("address, private_ok, allowed", [
+    ("2002:0808:0808::", False, True),  # 6to4 of a public address
+    ("2002:0a00:0001::", False, False), ("2002:0a00:0001::", True, True),  # 6to4 of 10.0.0.1
+    ("2002:7f00:1::", False, False), ("2002:7f00:1::", True, True),  # 6to4 of 127.0.0.1, like NAT64
+    ("fd12:3456::1", True, True),  # other unique local addresses stay a private-network choice
+    ("100.64.0.1", True, True),
+])
+def test_tunnelled_addresses_are_judged_by_the_address_inside(address, private_ok, allowed):
+    assert http.address_allowed(ipaddress.ip_address(address), allow_private=private_ok) is allowed

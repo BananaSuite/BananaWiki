@@ -11,7 +11,7 @@
 </header>
 {% if rows %}
 <div class="table-wrap">
-<table class="table">
+<table class="table table--stack governance-directory">
   <thead><tr>
     <th>{{ t('page_governance.col.page') }}</th><th>{{ t('page_governance.col.category') }}</th>
     <th>{{ t('common.status') }}</th><th>{{ t('common.actions') }}</th>
@@ -21,18 +21,18 @@
   {% set r = row.reservation %}
   <tr>
     <td><a href="{{ url_for('pages.view', slug=row.page.slug) }}">{{ row.page.title }}</a></td>
-    <td>{{ row.category or t('page_governance.directory.uncategorized') }}</td>
+    <td class="nowrap" data-label="{{ t('page_governance.col.category') }}">{{ row.category or t('page_governance.directory.uncategorized') }}</td>
     <td>
       {% if r and r.user_id == current_user.id %}<span class="badge badge--success">{{ t('page_governance.directory.yours', until=r.expires_at|datetime) }}</span>
       {% elif r %}<span class="badge badge--warning">{{ t('page_governance.directory.reserved_by', user=r.username, until=r.expires_at|datetime) }}</span>
       {% elif row.cooldown_until %}<span class="badge">{{ t('page_governance.directory.cooldown', until=row.cooldown_until|datetime) }}</span>
       {% else %}<span class="muted">{{ t('page_governance.directory.free') }}</span>{% endif %}
     </td>
-    <td>
+    <td class="actions">
       {% if r and r.user_id == current_user.id %}
       {{ forms.post_button(url_for('page_governance.release', slug=row.page.slug), t('page_governance.reservation.release'), cls='btn btn--small', hidden={'next': request.full_path}) }}
       {% elif not r and not row.cooldown_until %}
-      {{ forms.post_button(url_for('page_governance.reserve', slug=row.page.slug), t('page_governance.reservation.reserve'), cls='btn btn--small btn--primary', hidden={'next': request.full_path}) }}
+      {{ forms.post_button(url_for('page_governance.reserve', slug=row.page.slug), t('page_governance.reservation.reserve'), cls='btn btn--small', hidden={'next': request.full_path}) }}
       {% endif %}
     </td>
   </tr>

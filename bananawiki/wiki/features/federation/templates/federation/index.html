@@ -10,7 +10,7 @@
 </div>
 <p class="muted">{{ t('federation.index.intro') }}</p>
 {% if not copies %}
-<div class="empty-state">{{ t('federation.index.none') }}</div>
+<div class="card empty-state"><p>{{ t('federation.index.none') }}</p></div>
 {% else %}
 <ul class="stack">
   {% for item in copies %}

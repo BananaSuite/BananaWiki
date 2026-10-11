@@ -25,7 +25,9 @@ from __future__ import annotations
 import http.client
 import logging
 import os
+import secrets
 import threading
+import time
 from collections.abc import Iterable, Iterator
 from typing import Any
 from urllib.parse import quote
@@ -41,9 +43,13 @@ CONNECT_TIMEOUT = 5
 # Below the portal's worker timeout (HOSTING_WORKER_TIMEOUT, 120 s), so a slow
 # wiki gets a clean status page instead of a killed worker.
 READ_TIMEOUT = 100
+# A wiki that trickles its response would otherwise keep its slot for as long
+# as it likes; past this the response is cut off.
+RESPONSE_SECONDS = 300
 CHUNK = 64 * 1024
 # Portal workers have few threads (HOSTING_THREADS, default 4): proxied wiki
-# traffic never takes the last one, and one busy wiki not even that many.
+# traffic never takes the last one, and one busy wiki always leaves one of
+# the others to the remaining wikis.
 PER_WIKI = 3
 QUEUE_SECONDS = 10
 MAX_BUFFERED_BODY = 16 * 1024 * 1024
@@ -101,7 +107,7 @@ class _Slots:
 
     def __init__(self, total: int | None = None) -> None:
         total = total or max(1, _thread_count() - 1)
-        self._per_wiki = min(PER_WIKI, total)
+        self._per_wiki = max(1, min(PER_WIKI, total - 1))
         self._pool = threading.BoundedSemaphore(total)
         self._lock = threading.Lock()
         self._slots: dict[str, threading.BoundedSemaphore] = {}
@@ -122,10 +128,17 @@ class _Body:
         self._response = response
         self._connection = connection
         self._slot: _Slot | None = slot
+        self._deadline = time.monotonic() + RESPONSE_SECONDS
 
     def __iter__(self) -> Iterator[bytes]:
         while True:
+            remaining = self._deadline - time.monotonic()
+            if remaining <= 0:
+                log.warning("Wiki response cut off after %d seconds", RESPONSE_SECONDS)
+                return
             try:
+                if self._connection.sock is not None:
+                    self._connection.sock.settimeout(min(READ_TIMEOUT, remaining))
                 chunk = self._response.read1(CHUNK)
             except (OSError, http.client.HTTPException) as error:
                 log.warning("Wiki response interrupted: %s", error)
@@ -233,14 +246,19 @@ class WikiHosts:
                 details["reason"] = row["suspend_reason"]
             if row.get("suspended_until") and row.get("suspend_time_visible"):
                 details["until"] = row["suspended_until"]
+        refresh = state in ("starting", "busy", "bad_gateway", "timeout")
+        # The page reloads itself through a small script (only while it is in front of the visitor, who can
+        # stop it), with a <noscript> meta refresh for browsers without scripts.
+        nonce = secrets.token_urlsafe(16) if refresh else ""
         body = render_template("hosting/wiki_status.html", state=state, host=host, details=details,
-                               refresh=state in ("starting", "busy", "bad_gateway", "timeout"),
+                               refresh=refresh, nonce=nonce,
                                portal_url=urls.portal_base_url(), contact=cfg.contact_email)
         reasons = {403: "Forbidden", 404: "Not Found", 502: "Bad Gateway", 503: "Service Unavailable",
                    504: "Gateway Timeout"}
         headers = [
             ("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "no-store"),
-            ("Content-Security-Policy", PAGE_CSP), ("X-Content-Type-Options", "nosniff"),
+            ("Content-Security-Policy", PAGE_CSP + (f"; script-src 'nonce-{nonce}'" if nonce else "")),
+            ("X-Content-Type-Options", "nosniff"),
             ("Referrer-Policy", "no-referrer"), ("X-Frame-Options", "DENY"),
         ]
         if status == 503:
@@ -285,6 +303,13 @@ class WikiHosts:
                 connection.endheaders(body or None)
                 connection.sock.settimeout(READ_TIMEOUT)
             response = connection.getresponse()
+        except BodyTooLarge:
+            _close(connection)
+            slot.release()
+            message = b"The request body is too large.\n"
+            start_response("413 Payload Too Large", [("Content-Type", "text/plain; charset=utf-8"),
+                                                     ("Content-Length", str(len(message))), ("Connection", "close")])
+            return [message]
         except TimeoutError:
             _close(connection)
             slot.release()
@@ -345,6 +370,10 @@ def _request_headers(environ: dict[str, Any], host: str) -> list[tuple[str, str]
     return headers
 
 
+class BodyTooLarge(Exception):
+    """A request body without a declared length passed MAX_BUFFERED_BODY."""
+
+
 def _request_body(environ: dict[str, Any]) -> bytes | Iterator[bytes] | None:
     """Stream a body of known length; buffer a chunked one (bounded)."""
     stream = environ.get("wsgi.input")
@@ -367,7 +396,9 @@ def _request_body(environ: dict[str, Any]) -> bytes | Iterator[bytes] | None:
         return chunks() if length > CHUNK else stream.read(length)
     if "chunked" in (environ.get("HTTP_TRANSFER_ENCODING") or "").lower():
         data = stream.read(MAX_BUFFERED_BODY + 1)
-        return data[:MAX_BUFFERED_BODY]
+        if len(data) > MAX_BUFFERED_BODY:
+            raise BodyTooLarge
+        return data
     return None
 
 

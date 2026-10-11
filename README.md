@@ -1,4 +1,4 @@
-<img src="bananawiki/wiki/static/favicons/banana_yellow.png" alt="BananaWiki logo" width="64">
+<img src="bananawiki/wiki/static/favicons/apple-touch-icon.png" alt="BananaWiki logo" width="90" height="90">
 
 # BananaWiki
 
@@ -9,7 +9,7 @@ single wiki, as a desktop app on one computer, or as a hosting platform that
 creates a separate wiki for each customer.
 
 [Italiano](README.it.md) · [Documentation](docs/README.md) ·
-[Getting started](docs/getting-started.md) · [Upgrading from 1.4](UPGRADING.md) ·
+[Getting started](docs/getting-started.md) · [Upgrading](UPGRADING.md) ·
 [User guide](docs/user-guide/en/README.md)
 
 ## Features
@@ -62,7 +62,8 @@ Open <http://127.0.0.1:5001>, run `bananawiki setup-token` in a second
 terminal and enter the token to create the first account. Details:
 [getting started](docs/getting-started.md).
 
-**Docker Compose** (a wiki behind Caddy with automatic HTTPS):
+**Docker Compose** (a wiki behind Caddy with automatic HTTPS; building the
+image needs Docker's BuildKit component, `docker buildx`):
 
 ```sh
 WIKI_DOMAIN=wiki.example.org ACME_EMAIL=you@example.org docker compose up -d
@@ -77,14 +78,29 @@ sudo bananawiki proxy --install --email you@example.org
 sudo bananawiki setup-token
 ```
 
-Use `--mode hosting` for the hosting platform. Automatic updates stay off
-until `sudo bananawiki updates enable`. See [deployment](docs/deployment.md)
-and [operations](docs/operations.md).
+Use `--mode hosting` for the hosting platform (Docker with BuildKit; any
+filesystem works, and on XFS mounted with `prjquota` every wiki also gets a
+hard storage limit). New installations follow
+release tags (`vX.Y.Z`); for a production server, also check out the latest
+release tag before installing (`git checkout v1.7.0`). Automatic updates stay
+off until `sudo bananawiki updates enable --require-signatures ALLOWED_SIGNERS`.
+See [deployment](docs/deployment.md) and [operations](docs/operations.md).
 
 **Desktop**: [BananaWiki Desktop](docs/desktop.md) runs a wiki on a classroom
 or office computer without a server.
 
-Upgrading a 1.4 installation: [UPGRADING.md](UPGRADING.md).
+Upgrading from 1.6, or a 1.4 installation: [UPGRADING.md](UPGRADING.md).
+
+**Run the tests** from the same virtual environment:
+
+```sh
+python -m pip install -e ".[dev]"
+python -m pytest tests -q -n 4
+ruff check .
+```
+
+Use `python -m pytest`, not `pytest`: the tests import each other as a
+package and need the repository root on the path.
 
 ## Documentation
 
@@ -99,21 +115,19 @@ Contributors start with [CONTRIBUTING.md](CONTRIBUTING.md) and
 ## Background
 
 Luca Zani ([OverloadedTech](https://github.com/OverloadedTech)) started
-BananaWiki alone on 20 February 2026, when Canalescuola needed a wiki for the
-Officina Tecnologica project. Work sped up in June 2026 during an FSL
-placement (formazione scuola-lavoro, the Italian school work experience
-scheme), and since then Luca and Officina Tecnologica have maintained it.
-Over those months one wiki for one group turned into a platform that
-provisions and runs a wiki per tenant, with the approvals, quotas and custom
-domain handling that implies.
+BananaWiki on 20 February 2026 as a wiki for a single group. Over the
+following months it turned into a platform that provisions and runs a wiki
+per tenant, with the approvals, quotas and custom domain handling that
+implies. The [about page](https://bananawiki.com/about/) tells the longer
+story.
 
-Until September 2026 it was an internal project. The first public release
-turned that internal version into free software: the same code runs the
-hosted service, and anyone can run it on their own server instead. Version
-1.6 is a rewrite of that release, keeping its data, URLs and configuration
-so existing installations upgrade in place.
+Until September 2026 it was a private project. The first public release
+turned it into free software: the same code runs the hosted service, and
+anyone can run it on their own server instead. Version 1.6 is a rewrite of
+that release, keeping its data, URLs and configuration so existing
+installations upgrade in place.
 
-The code was developed privately for about seven months, and the internal
+The code was developed privately for about seven months, and that
 history runs to a little over three thousand commits. None of it is
 published: it carries deployment credentials and notes about infrastructure,
 and there is no way to remove every secret from that many commits with
@@ -132,5 +146,10 @@ If you modify BananaWiki and let people use it over a network, AGPL section
 to the source of the version you run; the wiki links to it at `/source`.
 Keep third-party notices.
 
-Copyright © 2026 Luca Zani and all contributors. Each contributor retains
+Copyright © 2026 Luca Zani and contributors. Each contributor retains
 copyright in their contributions. Source: <https://github.com/BananaSuite/BananaWiki>.
+
+## Maintainers
+
+Started by Luca Zani; maintained by Luca Zani and contributors. To take
+part, start with [CONTRIBUTING.md](CONTRIBUTING.md).

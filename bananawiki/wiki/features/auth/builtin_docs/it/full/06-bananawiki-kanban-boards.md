@@ -1,14 +1,14 @@
 # Bacheche Kanban
 
-Le bacheche Kanban aiutano a seguire il lavoro senza uscire dalla wiki. Una bacheca contiene colonne e le colonne contengono ticket. I ticket possono rappresentare task, idee, bug, lezioni o revisioni.
+Le bacheche Kanban aiutano a seguire il lavoro senza uscire dalla wiki. Una bacheca contiene colonne e le colonne contengono schede. Le schede possono rappresentare attività, idee, bug, lezioni o revisioni.
 
 ## Creare una bacheca utile
 
-Parti con poche colonne, per esempio **Backlog**, **In corso**, **Revisione** e **Fatto**. Aggiungine altre solo se rispecchiano davvero il workflow. Troppe colonne rendono la bacheca più difficile da leggere.
+Parti con poche colonne, per esempio **Backlog**, **In corso**, **Revisione** e **Fatto**. Aggiungine altre solo se rispecchiano davvero il workflow. Troppe colonne rendono la bacheca più difficile da leggere. Sulla colonna che raccoglie il lavoro finito attiva **Colonna completata** (il pulsante con il segno di spunta tra gli strumenti della colonna): le sue schede mantengono la scadenza ma non risultano più scadute.
 
-## Ticket
+## Schede
 
-Un ticket dovrebbe avere un titolo breve e dettagli sufficienti per agire. Usa i commenti per la discussione e gli allegati per i file di supporto. Collega pagine wiki quando il ticket dipende da conoscenza documentata.
+Una scheda dovrebbe avere un titolo breve e dettagli sufficienti per agire. Usa i commenti per la discussione e gli allegati per i file di supporto. Collega pagine wiki quando la scheda dipende da conoscenza documentata.
 
 ## Accesso e condivisione
 

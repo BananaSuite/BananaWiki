@@ -11,15 +11,15 @@
 </header>
 <div class="section-stack">
 {% if badges %}
-<div class="table-wrap"><table class="table">
+<div class="table-wrap"><table class="table table--stack">
   <thead><tr><th>{{ t('common.name') }}</th><th>{{ t('badges.field.trigger') }}</th><th>{{ t('badges.admin.holders') }}</th><th>{{ t('common.status') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>
   <tbody>
   {% for badge in badges %}
   <tr>
     <td><span aria-hidden="true">{{ badge.icon }}</span> {{ badge.name }}</td>
-    <td>{% if badge.auto_trigger and badge.trigger_type %}{{ t('badges.trigger.' ~ badge.trigger_type) }} ({{ badge.trigger_threshold }}){% else %}{{ t('badges.trigger.manual') }}{% endif %}</td>
-    <td>{{ badge.holder_count }}</td>
-    <td>{{ t('common.enabled') if badge.enabled else t('common.disabled') }}</td>
+    <td data-label="{{ t('badges.field.trigger') }}">{% if badge.auto_trigger and badge.trigger_type %}{{ t('badges.trigger.' ~ badge.trigger_type) }}{% if badge.trigger_threshold %} ({{ badge.trigger_threshold }}){% endif %}{% else %}{{ t('badges.trigger.manual') }}{% endif %}</td>
+    <td data-label="{{ t('badges.admin.holders') }}">{{ badge.holder_count }}</td>
+    <td data-label="{{ t('common.status') }}">{% if badge.enabled %}<span class="badge badge--success">{{ t('common.enabled') }}</span>{% else %}<span class="badge">{{ t('common.disabled') }}</span>{% endif %}</td>
     <td class="actions"><a class="btn btn--small" href="{{ url_for('badges.admin_edit', badge_id=badge.id) }}">{{ t('common.edit') }}</a></td>
   </tr>
   {% endfor %}

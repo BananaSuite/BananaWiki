@@ -81,11 +81,6 @@ def require_admin() -> None:
         raise ApiError(403, "admin_required")
 
 
-def require_editor() -> None:
-    if not auth.has_role("editor", caller()):
-        raise ApiError(403, "editor_required")
-
-
 def _origin_rejected() -> bool:
     """Browsers send Origin; refuse other sites so a page cannot script the API with a stolen token."""
     origin = request.headers.get("Origin")

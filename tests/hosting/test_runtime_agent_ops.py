@@ -445,6 +445,28 @@ def test_routes_follow_container_restarts(agent, tmp_path):
     assert "reverse_proxy" not in (tmp_path / "routes" / "tenants.caddy").read_text()
 
 
+def test_publishing_routes_does_not_recheck_every_running_wikis_storage(agent, tmp_path):
+    """Routes need addresses only: starting one wiki must not re-verify the quota of every other (restart time)."""
+    _run_up(agent, "acme", "172.20.0.2")
+    _run_up(agent, "beta", "172.20.0.3")
+    agent.call("proxy.routes", {"routes": [{"tenant": "acme", "hosts": ["acme-hosting.example.com"]},
+                                           {"tenant": "beta", "hosts": ["beta-hosting.example.com"]}]})
+    checked: list[str] = []
+    original = agent._verify_storage
+
+    def verify_storage(data_dir, args=None):
+        checked.append(Path(data_dir).name)
+        return original(data_dir, args)
+
+    agent._verify_storage = verify_storage
+    agent.call("tenant.start", {"tenant": "acme"})
+    assert checked and set(checked) == {"acme"}
+    assert "reverse_proxy 172.20.0.3:5001" in (tmp_path / "routes" / "tenants.caddy").read_text()
+    # The inventory the portal reads still verifies each wiki.
+    assert all(item["storage_quota_verified"] for item in agent.call("tenant.list", {})["tenants"])
+    assert set(checked) == {"acme", "beta"}
+
+
 def test_failed_route_reload_is_retried_even_after_agent_restart(agent, tmp_path):
     _run_up(agent, "acme", "172.20.0.2")
     original_runner = agent.runner
@@ -657,3 +679,99 @@ def test_tenant_task_module_reports_errors_as_json(tmp_path, monkeypatch):
     (tmp_path / ".bw-host").mkdir(exist_ok=True)
     assert tenant_task.run(json.dumps({"action": "snapshot", "name": "../../x.db"}))["error"] == "invalid"
     assert tenant_task.run(json.dumps({"action": "restore_db", "name": "missing.db"}))["error"] == "not_found"
+
+
+class LegacyNetworkHost:
+    """Docker with a tenant network the 1.6 agent created (Docker's br-<id> bridge) and an optional Caddy.
+
+    Without Caddy (a host behind another reverse proxy) ``systemctl reload caddy`` fails with "not found", so
+    the agent can never see Caddy acknowledge a routing change.
+    """
+
+    def __init__(self, caddy: bool):
+        self.caddy = caddy
+        self.calls: list[list[str]] = []
+        self.network_replaced = False
+
+    def __call__(self, command, **kwargs):
+        self.calls.append(command)
+        if command[0] == "systemctl":
+            if self.caddy:
+                return subprocess.CompletedProcess(command, 0, "", "")
+            code = 4 if command[1] == "is-active" else 5
+            return subprocess.CompletedProcess(command, code, "", "Unit caddy.service not found.")
+        if command[0] == "caddy":
+            raise FileNotFoundError("caddy")
+        verb = command[1]
+        if verb == "inspect":
+            return subprocess.CompletedProcess(command, 1, "[]", "Error: No such container")
+        if verb == "ps":
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[1:3] == ["network", "inspect"]:
+            if "{{.EnableIPv6}}" in command:
+                return subprocess.CompletedProcess(command, 0, "false", "")
+            if self.network_replaced:
+                return subprocess.CompletedProcess(command, 1, "", "No such network")
+            return subprocess.CompletedProcess(command, 0, "true \n", "")
+        if command[1:3] == ["network", "rm"]:
+            self.network_replaced = True
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    def replaced(self) -> bool:
+        return any(command[1:3] == ["network", "rm"] for command in self.calls if len(command) > 2)
+
+    def ran(self) -> bool:
+        return any(command[1] == "run" for command in self.calls if len(command) > 1)
+
+
+def legacy_network_agent(tmp_path, host):
+    instances = tmp_path / "instances"
+    (instances / "acme__apex").mkdir(parents=True)
+    routes = tmp_path / "routes"
+    routes.mkdir()
+    # What the 1.6 portal published and its agent rendered; Caddy never acknowledged a reload.
+    (routes / "routes.json").write_text(json.dumps({"acme__apex": ["acme.example.org"]}))
+    owner = (instances / "acme__apex").stat()
+    config = {"service": "svc", "service_uid": owner.st_uid, "service_gid": owner.st_gid,
+              "instances_dir": str(instances), "image": "bananawiki-tenant:abc", "routes_dir": str(routes),
+              "limits": {"memory_mb": 2048, "cpus": 2.0, "pids": 1024, "nofile": 4096}}
+    private = tmp_path / "private"
+    private.mkdir(mode=0o700)
+    agent = TenantRuntime(config, runner=host, private_dir=private, quota=FakeProjectQuota(instances))
+    agent._verify_started_mount = lambda name, witness, timeout=30: None
+    return agent
+
+
+def test_a_pre_17_network_is_replaced_on_a_host_without_caddy(tmp_path):
+    """No Caddy (another proxy routes the wikis): nothing can still send traffic to the old bridge, so it goes."""
+    host = LegacyNetworkHost(caddy=False)
+    agent = legacy_network_agent(tmp_path, host)
+    agent.call("tenant.start", {"tenant": "acme__apex", "network": "isolated"})
+    assert host.replaced() and host.ran()
+
+
+def test_a_pre_17_network_is_replaced_once_caddy_reloaded(tmp_path):
+    host = LegacyNetworkHost(caddy=True)
+    agent = legacy_network_agent(tmp_path, host)
+    agent.call("tenant.start", {"tenant": "acme__apex", "network": "isolated"})
+    assert host.replaced() and host.ran()
+
+
+def test_a_pre_17_network_is_replaced_in_port_mode_where_no_routes_are_published(tmp_path):
+    """Port and onion mode publish no routes, so Caddy can never acknowledge them, whether it runs or not."""
+    for with_caddy in (True, False):
+        host = LegacyNetworkHost(caddy=with_caddy)
+        agent = legacy_network_agent(tmp_path / str(with_caddy), host)
+        (tmp_path / str(with_caddy) / "routes" / "routes.json").unlink()
+        agent.call("tenant.start", {"tenant": "acme__apex", "network": "outbound", "publish_port": 20001})
+        assert host.replaced() and host.ran()
+
+
+def test_retired_networks_are_released_on_a_host_without_caddy(tmp_path):
+    host = LegacyNetworkHost(caddy=False)
+    agent = legacy_network_agent(tmp_path, host)
+    name = container_name(str((tmp_path / "instances/acme__apex").resolve())) + "-net"
+    agent._retire_network(name)
+    agent.call("proxy.routes", {"routes": [{"tenant": "acme__apex", "hosts": ["acme.example.org"]}]})
+    assert ["docker", "network", "rm", name] in host.calls
+    assert json.loads((tmp_path / "routes/retired-networks.json").read_text()) == []

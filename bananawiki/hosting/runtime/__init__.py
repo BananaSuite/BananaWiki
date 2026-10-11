@@ -330,10 +330,15 @@ class Runtime(Protocol):
         termination. 1.4: ``_stop_process`` / ``container_runtime.stop_container``.
         """
 
-    def restart(self, spec: TenantSpec, *, force: bool = False) -> None:
+    def restart(self, spec: TenantSpec, *, force: bool = False, policy_change: bool = False) -> None:
         """Stop then start. With *force*, also discard every cached health and
         process state first (1.4 ``force_restart_instance``, the fix for a
-        wiki stuck on "Starting up" after a host reboot)."""
+        wiki stuck on "Starting up" after a host reboot).
+
+        *policy_change*: the restart only applies a changed policy, nobody
+        asked for this wiki to run. A wiki an update isolated then stays
+        stopped (and isolated); any other restart is an explicit start and
+        lifts the isolation."""
 
     def recover(self, specs: Sequence[TenantSpec]) -> int:
         """Bring back every tenant the database says is running.
@@ -412,9 +417,10 @@ class Runtime(Protocol):
     def reset_admin_password(self, spec: TenantSpec, admin_username: str, new_password: str) -> str:
         """Set *new_password* (with ``force_password_change=1``) on the user
         named *admin_username*; when it no longer exists, on every admin and
-        owner. Revokes those users' wiki API tokens. Returns the user name the
-        caller should show. Works whether the tenant runs or not.
-        1.4: ``reset_instance_password``."""
+        owner. Ends those users' sessions, revokes their wiki API tokens and
+        turns off their two-step verification (recorded in the wiki's audit
+        log). Returns the user name the caller should show. Works whether the
+        tenant runs or not. 1.4: ``reset_instance_password``."""
 
     def reset_content(self, spec: TenantSpec, *, admin_username: str, admin_password: str) -> None:
         """Factory reset of a *stopped* tenant: delete the database and the
@@ -517,6 +523,15 @@ class Runtime(Protocol):
         "complete_at" (the latest one that held every wiki, or None),
         "skipped": [{"tenant", "code", "detail"}]}``; ``{}`` before the first."""
 
+    def storage_protection(self) -> dict[str, Any]:
+        """Whether wikis get hard per-wiki storage quotas, for the administrators' dashboard:
+        ``{"setting": "auto"|"required"|"off", "hard_quotas", "refused", "lost", "reason"}``,
+        or ``{}`` when unknown. Without hard quotas (``BW_HOSTING_TENANT_QUOTAS``, see
+        :mod:`bananawiki.ops.tenant_quotas`) only the application's checks (uploads,
+        the portal's storage check) hold wikis to their plans; ``lost``: hard quotas
+        were enforced here before and no longer are (the wikis still start);
+        ``refused``: wikis cannot start at all (``required`` only)."""
+
     def restore_platform(self, archives: Sequence[Path]) -> None:
         """Replace the platform with the uploaded backup parts (``.zip`` or
         ``.bwenc``). Stops every tenant first. The portal restarts afterwards.
@@ -570,7 +585,7 @@ class UnavailableRuntime:
             return lambda spec: False
         if name in ("list_plugin_snapshots",):
             return lambda spec: []
-        if name == "platform_backup_status":
+        if name in ("platform_backup_status", "storage_protection"):
             return lambda: {}
         if name == "sync_routes":
             return lambda specs: None

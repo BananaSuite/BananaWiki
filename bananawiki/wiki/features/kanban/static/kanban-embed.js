@@ -37,6 +37,11 @@
     head.appendChild(link);
     box.appendChild(head);
     var body = el("div", "bw-embed-kanban__body");
+    // The columns scroll sideways: the region is focusable so the keyboard can reach them.
+    body.tabIndex = 0;
+    body.setAttribute("role", "region");
+    body.setAttribute("aria-label", BW.t("kanban.embed_columns", { title: state.board.title }));
+    body.setAttribute("data-scroll-cue", "");
     if (box.dataset.height) body.style.maxHeight = box.dataset.height;
     state.columns.forEach(function (column) {
       var section = el("section", "bw-embed-kanban__column");
@@ -62,6 +67,7 @@
     });
     if (!state.columns.length) body.appendChild(el("p", "bw-embed-kanban__message", BW.t("kanban.embed_empty")));
     box.appendChild(body);
+    if (BW.scrollCue) BW.scrollCue(body);  // fades the edge past which more columns are hidden
   }
 
   function load(box) {

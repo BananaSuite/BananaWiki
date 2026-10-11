@@ -1,10 +1,10 @@
 # Badges & Achievements
 
-Badges recognize participation. They can be awarded manually by admins or automatically by rules such as contribution counts, account age, or other activity triggers.
+Badges recognise participation. They can be awarded manually by admins or automatically by rules such as contribution counts, account age, or other activity triggers.
 
 ## Why use badges
 
-Badges work best as light encouragement: welcoming new contributors, recognizing helpful edits, or marking special responsibilities.
+Badges work best as light encouragement: welcoming new contributors, recognising helpful edits, or marking special responsibilities.
 
 ## Manual awards
 

@@ -3,7 +3,7 @@
   "deletion_slowdown.col.category": "Category",
   "deletion_slowdown.col.deleted_by": "Deleted by",
   "deletion_slowdown.col.page": "Page",
-  "deletion_slowdown.col.purge_at": "Removed on",
+  "deletion_slowdown.col.purge_at": "Deleted for good on",
   "deletion_slowdown.docs_bypass": "Delete documentation pages at once",
   "deletion_slowdown.docs_bypass_hint": "Pages in the built-in documentation category skip the waiting period.",
   "deletion_slowdown.empty": "No page is waiting to be deleted.",

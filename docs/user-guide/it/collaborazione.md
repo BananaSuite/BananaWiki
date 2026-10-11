@@ -13,7 +13,15 @@ Questi strumenti compaiono sotto **App** quando la tua wiki li ha attivati.
   può cedere il gruppo.
 * Puoi allegare file (entro i limiti di dimensione e giornalieri), esportare
   una conversazione ed eliminare i tuoi messaggi. **Eliminare un messaggio lo
-  cancella per tutti**; resta un piccolo segno "eliminato".
+  cancella per tutti**; resta un piccolo segno "eliminato". In una
+  conversazione diretta puoi farlo entro 15 minuti dall'invio; dopo, il
+  messaggio fa parte anche della copia dell'altra persona.
+* **Blocca** qualcuno dalla conversazione con lui, dall'elenco dei membri di
+  un gruppo o in **Impostazioni → Persone bloccate**. Ciò che ti invia non ti
+  viene più consegnato (nemmeno dopo che lo sblocchi), non può avviare una
+  conversazione con te né aggiungerti a un gruppo, e i suoi messaggi nei tuoi
+  gruppi ti sono nascosti. Non riceve alcun avviso. Lo sblocchi nella stessa
+  sezione delle impostazioni.
 * Gli amministratori possono leggere le conversazioni per la moderazione, e
   la wiki può cancellare automaticamente messaggi e file vecchi dopo un certo
   tempo.

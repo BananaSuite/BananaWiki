@@ -10,15 +10,14 @@ from __future__ import annotations
 from typing import Any
 
 from flask import abort, current_app, jsonify, make_response, redirect, request
-from werkzeug.utils import secure_filename
 
 from ....core.timeutil import now_sql, parse, sql_in, to_sql
-from ....core.web import client_ip
+from ....core.web import client_network
 from ... import auth, storage
 from ...i18n import t
 from ...registry import feature_blueprint
-from . import policy, store
-from .store import Store
+from . import dms, policy, store
+from .store import DM, Store
 
 bp = feature_blueprint("chat", "chat", __name__, template_folder="templates", static_folder="static",
                        static_url_path="/static/chat")
@@ -42,7 +41,7 @@ class Refused(Exception):
 def throttle(bucket: str, limit: int, window: int = 60) -> bool:
     """Record a hit for the current user; False when *limit* was used up in *window* seconds."""
     user = auth.current_user()
-    key = f"chat:{bucket}:{user['id'] if user else client_ip()}"
+    key = f"chat:{bucket}:{user['id'] if user else client_network()}"
     return current_app.extensions["bananawiki.limiter"].hit(key, limit, window)
 
 
@@ -99,7 +98,7 @@ def read_message_input(user: dict[str, Any]) -> tuple[str, storage.StoredFile | 
         per_day = policy.attachments_per_day()
         if store.attachments_sent_since(user["id"], sql_in(days=-1)) >= per_day:
             raise Refused("chat.error.daily_limit", 429, limit=per_day)
-        ext = storage.extension(secure_filename(upload.filename))
+        ext = storage.extension(storage.clean_filename(upload.filename))
         if ext in policy.BLOCKED_EXTENSIONS:
             raise Refused("upload.error.type_not_allowed", ext=ext)
         try:
@@ -112,16 +111,35 @@ def read_message_input(user: dict[str, Any]) -> tuple[str, storage.StoredFile | 
 
 
 def serialize_all(target: Store, rows: list[dict[str, Any]], *, can_delete_any: bool = False,
-                  with_ip: bool = False) -> list[dict[str, Any]]:
+                  moderation: bool = False) -> list[dict[str, Any]]:
+    """*rows* as the current user sees them; *moderation*: the administrators' view (see :func:`store.serialize`)."""
     user = auth.current_user()
     viewer = user["id"] if user else None
-    return [store.serialize(target, row, viewer_id=viewer, can_delete_any=can_delete_any, with_ip=with_ip)
+    deletable_since = dms.deletable_since() if target.kind == DM.kind else None
+    return [store.serialize(target, row, viewer_id=viewer, can_delete_any=can_delete_any,
+                            own_deletable_since=deletable_since, moderation=moderation,
+                            ip_hidden=moderation and not policy.address_visible(user, row))
             for row in rows]
 
 
+def _readers(hide_blocked: bool, moderation: bool) -> dict[str, str | None]:
+    """What the current user does not see: messages withheld from them, those of people they blocked.
+
+    The administrators' moderation views hide nothing.
+    """
+    user = auth.current_user()
+    if moderation or not user:
+        return {"hide_blocked_by": None, "reader": None}
+    return {"hide_blocked_by": user["id"] if hide_blocked else None, "reader": user["id"]}
+
+
 def messages_payload(target: Store, parent_id: int, *, can_delete_any: bool = False,
-                     with_ip: bool = False) -> dict[str, Any]:
-    """JSON for the incremental fetch.
+                     moderation: bool = False, floor: int = 0, hide_blocked: bool = False) -> dict[str, Any]:
+    """JSON for the incremental fetch (messages after *floor* only).
+
+    Direct messages withheld from the current user are left out, and with
+    *hide_blocked* so are messages of the people they blocked (group chats,
+    see :mod:`.blocks`).
 
     * ``?before=<id>`` - one page of older messages (``has_more`` tells whether
       there are even older ones);
@@ -129,37 +147,40 @@ def messages_payload(target: Store, parent_id: int, *, can_delete_any: bool = Fa
       messages deleted since the previous poll, the oldest remaining id (older
       messages on the page were cleared) and the cursor for the next poll.
     """
+    readers = _readers(hide_blocked, moderation)
     before = request.args.get("before", type=int)
     if before:
-        rows = store.before(target, parent_id, before, store.clamp_limit(request.args.get("limit")))
+        rows = store.before(target, parent_id, before, store.clamp_limit(request.args.get("limit")), floor=floor,
+                            **readers)
         oldest = rows[0]["id"] if rows else None
-        return {"messages": serialize_all(target, rows, can_delete_any=can_delete_any, with_ip=with_ip),
-                "has_more": store.has_older(target, parent_id, oldest)}
+        return {"messages": serialize_all(target, rows, can_delete_any=can_delete_any, moderation=moderation),
+                "has_more": store.has_older(target, parent_id, oldest, floor=floor, **readers)}
     cursor = now_sql()
     after = max(0, request.args.get("after", default=0, type=int) or 0)
-    rows = store.after(target, parent_id, after)
+    rows = store.after(target, parent_id, after, floor=floor, **readers)
     since = parse(request.args.get("since"), bounded=True)
     return {
-        "messages": serialize_all(target, rows, can_delete_any=can_delete_any, with_ip=with_ip),
+        "messages": serialize_all(target, rows, can_delete_any=can_delete_any, moderation=moderation),
         "more": len(rows) >= store.MAX_PAGE_SIZE,
-        "first_id": store.first_id(target, parent_id),
-        "deleted": store.deleted_since(target, parent_id, to_sql(since)) if since else [],
+        "first_id": store.first_id(target, parent_id, floor=floor, reader=readers["reader"]),
+        "deleted": store.deleted_since(target, parent_id, to_sql(since), reader=readers["reader"]) if since else [],
         "cursor": cursor,
     }
 
 
 def conversation(target: Store, parent_id: int, *, can_delete_any: bool = False,
-                 with_ip: bool = False) -> dict[str, Any]:
-    """The server-rendered part of a chat page: one page of messages and paging state."""
+                 moderation: bool = False, floor: int = 0, hide_blocked: bool = False) -> dict[str, Any]:
+    """The server-rendered part of a chat page: one page of messages (after *floor*) and paging state."""
+    readers = _readers(hide_blocked, moderation)
     before = request.args.get("before", type=int)
-    rows = store.before(target, parent_id, before, store.PAGE_SIZE)
-    messages = serialize_all(target, rows, can_delete_any=can_delete_any, with_ip=with_ip)
+    rows = store.before(target, parent_id, before, store.PAGE_SIZE, floor=floor, **readers)
+    messages = serialize_all(target, rows, can_delete_any=can_delete_any, moderation=moderation)
     oldest = rows[0]["id"] if rows else None
     return {
         "messages": messages,
         "oldest_id": oldest or 0,
         "latest_id": rows[-1]["id"] if rows else (before or 0),
-        "has_older": store.has_older(target, parent_id, oldest),
+        "has_older": store.has_older(target, parent_id, oldest, floor=floor, **readers),
         "paged": bool(before),
         "cursor": now_sql(),
     }

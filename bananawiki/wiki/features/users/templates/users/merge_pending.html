@@ -3,6 +3,10 @@
 {% import "users/_macros.html" as m with context %}
 {% block title %}{{ t('users.merge.title') }}{% endblock %}
 {% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('users.settings') }}">{{ t('users.settings.title') }}</a></li>
+  <li aria-current="page">{{ t('users.merge.title') }}</li>
+</ol></nav>
 <header class="page-header">
   <h1>{{ t('users.merge.title') }}</h1>
   <div class="page-header__actions"><a class="btn btn--primary" href="{{ url_for('users.merge_request') }}">{{ t('users.merge.new') }}</a></div>

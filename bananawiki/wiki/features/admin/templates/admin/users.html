@@ -12,7 +12,7 @@
 
 {% if pending %}
 <div class="alert alert--warning"><div class="alert__body">
-  <a href="{{ url_for('admin.users', approval='pending') }}">{{ t('admin.users.pending_notice', count=pending) }}</a>
+  <a href="{{ url_for('admin.users', approval='pending') }}">{{ tn('admin.users.pending_notice', pending) }}</a>
 </div></div>
 {% endif %}
 
@@ -36,10 +36,11 @@
   <button class="btn" type="submit">{{ t('admin.users.filter') }}</button>
 </form>
 
-<p class="muted small">{{ t('admin.users.count', count=total) }}</p>
+<p class="muted small">{{ tn('admin.users.count', total) }}</p>
 {% if users %}
+{#- One card per person wherever the five columns do not fit (phones, the tablet admin column). -#}
 <div class="table-wrap">
-  <table class="table">
+  <table class="table table--stack">
     <thead><tr>
       <th scope="col">{{ t('admin.users.col.username') }}</th>
       <th scope="col">{{ t('admin.users.col.role') }}</th>
@@ -50,19 +51,19 @@
     <tbody>
     {% for user in users %}
       <tr>
-        <td><a href="{{ url_for('admin.user_detail', user_id=user.id) }}">{{ user.username }}</a>
+        <td><a class="text-link" href="{{ url_for('admin.user_detail', user_id=user.id) }}">{{ user.username }}</a>
           {% if user.is_superuser %}<span class="badge badge--primary">{{ t('admin.users.superuser') }}</span>{% endif %}</td>
-        <td><span class="badge">{{ t('admin.role.' ~ user.role) }}</span>
+        <td data-label="{{ t('admin.users.col.role') }}"><span class="badge">{{ t('admin.role.' ~ user.role) }}</span>
           {% if user.custom_role_name %}<span class="badge badge--primary">{{ user.custom_role_name }}</span>{% endif %}</td>
-        <td>
+        <td data-label="{{ t('common.status') }}">
           {% if user.suspended %}<span class="badge badge--danger">{{ t('admin.users.status.suspended') }}{% if user.suspended_until %} · {{ user.suspended_until|datetime }}{% endif %}</span>
           {% elif user.approval_status == 'pending' %}<span class="badge badge--warning">{{ t('admin.approval.pending') }}</span>
           {% elif user.approval_status == 'denied' %}<span class="badge badge--danger">{{ t('admin.approval.denied_state') }}</span>
           {% else %}<span class="badge badge--success">{{ t('admin.users.status.active') }}</span>{% endif %}
           {% if user.chat_disabled %}<span class="badge">{{ t('admin.users.chat_disabled') }}</span>{% endif %}
         </td>
-        <td class="nowrap">{{ user.last_login_at|time_ago if user.last_login_at else t('common.never') }}</td>
-        <td class="nowrap">{{ user.created_at|date }}</td>
+        <td class="nowrap" data-label="{{ t('admin.users.col.last_login') }}">{{ user.last_login_at|time_ago if user.last_login_at else t('common.never') }}</td>
+        <td class="nowrap" data-label="{{ t('common.created') }}">{{ user.created_at|date }}</td>
       </tr>
     {% endfor %}
     </tbody>

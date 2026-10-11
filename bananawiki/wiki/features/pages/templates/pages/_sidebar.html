@@ -25,7 +25,7 @@
   <div class="nav-tree">
     {% for node in nav.categories recursive %}
     <details data-node="c{{ node.id }}"{% if node.id in open_ids %} open data-current{% endif %}>
-      <summary><span class="nav-label">{{ node.name }}</span><span class="nav-count">{{ node.count }}</span></summary>
+      <summary{% if node.id == current_category %} aria-current="page"{% endif %}><span class="nav-label">{{ node.name }}</span><span class="nav-count">{{ node.count }}</span></summary>
       <ul class="nav-list" data-reorder-list data-reorder-url="{{ url_for('pages.api_reorder_pages') }}">
         {% with pages=node.pages, more=node.more, category_id=node.id %}{% include "pages/_nav_pages.html" %}{% endwith %}
       </ul>
@@ -33,8 +33,9 @@
     </details>
     {% endfor %}
     {% if nav.uncategorized.count %}
-    <details data-node="c0"{% if current and current.category_id is none and not current.is_home %} open data-current{% endif %}>
-      <summary><span class="nav-label">{{ t('pages.nav.uncategorized') }}</span><span class="nav-count">{{ nav.uncategorized.count }}</span></summary>
+    {% set uncategorized_here = request.endpoint == 'pages.navigation_pages' and request.args.get('category_id', '0') == '0' %}
+    <details data-node="c0"{% if (current and current.category_id is none and not current.is_home) or uncategorized_here %} open data-current{% endif %}>
+      <summary{% if uncategorized_here %} aria-current="page"{% endif %}><span class="nav-label">{{ t('pages.nav.uncategorized') }}</span><span class="nav-count">{{ nav.uncategorized.count }}</span></summary>
       <ul class="nav-list" data-reorder-list data-reorder-url="{{ url_for('pages.api_reorder_pages') }}">
         {% with pages=nav.uncategorized.pages, more=nav.uncategorized.more, category_id=none %}{% include "pages/_nav_pages.html" %}{% endwith %}
       </ul>

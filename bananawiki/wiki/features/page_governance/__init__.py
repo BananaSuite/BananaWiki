@@ -46,6 +46,7 @@ FEATURE = Feature(
                         oldest=lambda user: oldest_pending(), order=30),
     ],
     jobs=[Job("page_governance.cleanup", 3600, reservations.cleanup)],
+    events={"user.role_changed": [hooks.record_lapsed_protections]},
     interceptors={
         "page.edit_blocked": hooks.edit_blocked,
         "page.delete": hooks.refuse_delete,

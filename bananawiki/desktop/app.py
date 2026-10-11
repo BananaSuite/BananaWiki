@@ -25,9 +25,23 @@ from .datafolder import DataFolder
 from .server import ServerInfo, WikiServer
 
 ICON = Path(__file__).resolve().parent / "static" / "icon.png"
+# The icon is the mascot's 16-pixel art at 16 screen pixels each; window managers get whole multiples of it
+# so they need not scale it themselves, which blurs pixel art.
+WINDOW_ICON_SIZES = (256, 48, 32, 16)
 POLL_MS = 100
 HEALTH_POLL_MS = 1000
 WRAP = 460
+
+
+def window_icons(photo_image: Callable[..., Any], path: Path = ICON) -> list[Any]:
+    """The window icon at each of :data:`WINDOW_ICON_SIZES`, largest first, from the 256px *path*.
+
+    Subsampling keeps every sixteenth pixel from the first, one per art pixel, so the
+    smaller sizes are exact enlargements of the art, as in the .ico and .icns files.
+    """
+    full = photo_image(file=str(path))
+    art = full.subsample(full.width() // 16)
+    return [full, *(art.zoom(size // 16) for size in WINDOW_ICON_SIZES[1:])]
 
 
 def open_in_file_manager(path: Path) -> None:
@@ -61,8 +75,8 @@ class LauncherWindow:
         self.window.minsize(520, 560)
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         if ICON.is_file():
-            self._icon = tk.PhotoImage(file=str(ICON))
-            self.window.iconphoto(True, self._icon)
+            self._icons = window_icons(tk.PhotoImage)
+            self.window.iconphoto(True, *self._icons)
         self.share_var = tk.BooleanVar(value=self.prefs.share_on_lan)
         self.status_var = tk.StringVar()
         self.folder_var = tk.StringVar(value=self.prefs.data_dir)

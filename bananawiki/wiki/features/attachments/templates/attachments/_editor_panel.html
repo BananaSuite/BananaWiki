@@ -14,9 +14,11 @@
     {% endfor %}
   </ul>
   {% if can_upload %}
-  <label class="btn btn--small" for="attachments-editor-input">{{ t('attachments.add') }}</label>
-  <input id="attachments-editor-input" class="visually-hidden" type="file" multiple data-attachments-input>
-  <span class="small muted" data-attachments-status aria-live="polite">{{ t('attachments.hint', size=max_bytes|filesize) }}</span>
+  <div class="cluster cluster--baseline">
+    <label class="btn btn--small" for="attachments-editor-input">{{ t('attachments.add') }}</label>
+    <input id="attachments-editor-input" class="visually-hidden" type="file" multiple data-attachments-input>
+    <span class="small muted cluster__text" data-attachments-status aria-live="polite">{{ t('attachments.hint', size=max_bytes|filesize) }}</span>
+  </div>
   <noscript><p class="hint"><a href="{{ url_for('pages.view', slug=page.slug) }}#attachments">{{ t('attachments.manage_on_page') }}</a></p></noscript>
   {% endif %}
 </fieldset>

@@ -166,3 +166,14 @@ def test_feature_off_hides_routes(app, client, make_user, login):
     set_feature(app, "user_profiles", False)
     login(client, make_user("bob"))
     assert client.get("/settings/profile-fields").status_code == 404
+
+
+def test_admin_profiles_are_moderated_only_by_owners_and_superusers(app, admin_client, make_user, login, db):
+    other_admin = make_user("other_admin", role="admin")
+    assert admin_client.get(f"/admin/users/{other_admin['id']}/profile").status_code == 403
+    admin_client.post(f"/admin/users/{other_admin['id']}/tags", data={"action": "add_tag", "tag_label": "x",
+                                                                      "tag_color": "#112233"})
+    assert db.scalar("SELECT COUNT(*) FROM user_custom_tags") == 0
+    owner = app.test_client()
+    login(owner, make_user("the_owner", role="owner"))
+    assert owner.get(f"/admin/users/{other_admin['id']}/profile").status_code == 200

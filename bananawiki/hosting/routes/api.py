@@ -15,6 +15,7 @@ from typing import Any
 from flask import Blueprint, jsonify, request
 
 from .. import accounts, api_tokens, collaborators, events, instances, notifications
+from ..auth import admin_mfa_missing
 from ..errors import ServiceError
 from ..i18n import t_lang
 from ..limits import hit
@@ -52,6 +53,8 @@ def _refusal(account: dict[str, Any]) -> str | None:
         return "Verify the contact email of this account in the portal first."
     if account["approval_status"] != "approved":
         return "This account has not been approved."
+    if accounts.terms_outdated(account):
+        return "Accept the current terms of service in the portal first."
     return None
 
 
@@ -77,6 +80,8 @@ def token_required(scope: str) -> Callable[[Callable], Callable]:
                 return _error(403, f"This token does not have the {scope} scope.")
             if scope in api_tokens.ADMIN_SCOPES and not account["is_admin"]:
                 return _error(403, "This account is not a platform administrator.")
+            if scope in api_tokens.ADMIN_SCOPES and admin_mfa_missing(account):
+                return _error(403, "Platform administrators must turn on two-step verification in the portal first.")
             api_tokens.touch(token["id"])
             return view(account, token, *args, **kwargs)
 

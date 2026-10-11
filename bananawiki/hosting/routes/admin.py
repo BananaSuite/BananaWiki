@@ -99,11 +99,27 @@ def _done(key: str, **values: Any) -> None:
 @bp.get("/admin")
 @auth.admin_required
 def dashboard():
+    wikis = instances.admin_list()
+    stats = instances.platform_stats()
+    # An expired wiki keeps its container state but is offline: as on the owner's dashboard, it is not
+    # counted as running (or stopped).
+    for status in ("running", "stopped"):
+        stats[status] = sum(1 for inst in wikis if inst["status"] == status and not inst.get("expired"))
     return render_template(
-        "hosting/admin/dashboard.html", stats=instances.platform_stats(), pending=accounts.pending(),
+        "hosting/admin/dashboard.html", stats=stats, pending=accounts.pending(),
         feature_queue=features.pending_queue(), signup_mode=settings.signup_mode(), invites=invites.list_all(),
-        accounts=accounts.all_accounts(), instances=instances.admin_list(),
+        accounts=accounts.all_accounts(), instances=wikis, storage=_storage_protection(),
     )
+
+
+def _storage_protection() -> dict[str, Any]:
+    """Whether wikis get hard per-wiki storage quotas (BW_HOSTING_TENANT_QUOTAS); ``{}`` when the runtime cannot say."""
+    try:
+        value = instances.runtime().storage_protection()
+    except Exception:  # noqa: BLE001 - the dashboard renders whatever the runtime does
+        log.warning("The storage protection could not be read", exc_info=True)
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 @bp.get("/admin/attention", endpoint="attention")
@@ -140,12 +156,14 @@ def moderation():
 @auth.admin_required
 def account_page(account_id: str):
     target = _account_or_404(account_id)
+    remaining = accounts.deletion_remaining(target)
     return render_template("hosting/admin/account.html", target=target,
                            owned=db.all("SELECT * FROM instances WHERE account_id = ? ORDER BY created_at DESC",
                                         (account_id,)),
                            history=accounts.suspension_history(account_id),
                            events=events.recent("account", account_id, 50),
-                           deletion_remaining=accounts.deletion_remaining(target))
+                           deletion_remaining=remaining,
+                           deletion_at=sql_in(seconds=remaining) if remaining is not None else None)
 
 
 @bp.post("/admin/accounts/create")
@@ -382,7 +400,7 @@ def edit_account(account_id: str):
         email_changed = False
         if username != target["username"] or (email and email != (target["email"] or "")):
             email_changed = accounts.update_identity(target, username=username, email=email or target["email"],
-                                                     email_required=False)
+                                                     email_required=False, by_admin=True)
         if password:
             accounts.check_new_password(password, request.form.get("confirm_password") or "")
             accounts.set_password(account_id, password, actor_id=account()["id"], reason="Password set by an administrator")
@@ -714,8 +732,20 @@ def suspend_instance(instance_id: str):
 @auth.admin_required
 @rate_limit(20)
 def unsuspend_instance(instance_id: str):
-    return _instance_action(instance_id, lambda i: instances.unsuspend(i, actor_id=_actor()),
-                            "hosting.admin.instance_unsuspended")
+    inst = _instance_or_404(instance_id)
+    try:
+        instances.unsuspend(inst, actor_id=_actor())
+    except ServiceError as error:
+        flash_error(error)
+        return admin_back(instance_id)
+    _done("hosting.admin.instance_unsuspended")
+    # Maintenance suspends a wiki that is still over its limit again at its next pass: say so now.
+    overrun = instances.storage_overrun(instances.get(instance_id) or inst)
+    if overrun is not None:
+        slug = urls.original_slug(inst["subdomain"]) or inst["subdomain"]
+        flash(t("hosting.admin.unsuspended_over_quota", slug=slug, used=f"{overrun[0]:.1f}", limit=overrun[1]),
+              "warning")
+    return admin_back(instance_id)
 
 
 @bp.post("/admin/instances/<instance_id>/transfer")
@@ -816,7 +846,17 @@ def storage_limit(instance_id: str):
         if not instances.set_storage_limit(inst, limit, actor_id=_actor()):
             raise ServiceError("hosting.instances.restart_failed")
 
-    return _instance_action(instance_id, act, "hosting.admin.limits_saved")
+    response = _instance_action(instance_id, act, "hosting.admin.limits_saved")
+    # A wiki suspended only for storage that fits within the new limit reopens now, not at the next pass.
+    inst = instances.get(instance_id)
+    if inst is not None and inst["status"] == "suspended":
+        try:
+            if instances.lift_storage_suspension(inst, actor_id=_actor()):
+                _done("hosting.admin.storage_reopened")
+        except (ServiceError, RuntimeFailure) as error:
+            log.warning("Storage suspension of %s not lifted: %s", one_line(instance_id),
+                        one_line(getattr(error, "key", error)))
+    return response
 
 
 @bp.post("/admin/instances/<instance_id>/upload-policy")
@@ -1303,6 +1343,7 @@ def _save_settings(action: str) -> str:
     elif action == "save_expired_wiki_permissions":
         settings.update(allow_owner_delete_expired=_checked("allow_owner_delete_expired"),
                         allow_owner_download_expired=_checked("allow_owner_download_expired"),
+                        owner_renewal_enabled=_checked("owner_renewal_enabled"),
                         email_flag_block_reentry=_checked("email_flag_block_reentry"))
     elif action == "save_tts_policy":
         mode = request.form.get("global_tts_mode", "all")
@@ -1354,6 +1395,7 @@ def settings_page():
                            gpu_token_set=bool(settings.get("global_tts_gpu_auth_token")),
                            suffix=urls.instance_suffix(), email_configured=notifications.configured(),
                            notify_interval=settings.NOTIFY_INTERVAL_MINUTES,
+                           renewal_window=instances.RENEWAL_WINDOW_DAYS,
                            backup_status=instances.runtime().platform_backup_status())
 
 

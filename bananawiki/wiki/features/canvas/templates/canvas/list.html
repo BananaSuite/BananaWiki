@@ -25,12 +25,6 @@
     >
   {% for layout in layouts %}
   <li class="canvas-list__item" data-layout-id="{{ layout.id }}">
-    {% if can_reorder and layouts|length > 1 %}
-    <div class="canvas-list__move">
-      <button type="button" class="btn btn--ghost btn--icon btn--small" data-move="up" aria-label="{{ t('canvas.list.move_up', title=layout.title) }}">▲</button>
-      <button type="button" class="btn btn--ghost btn--icon btn--small" data-move="down" aria-label="{{ t('canvas.list.move_down', title=layout.title) }}">▼</button>
-    </div>
-    {% endif %}
     <div class="canvas-list__body">
       <h2 class="canvas-list__title"><a href="{{ url_for('canvas.view', slug=layout.slug) }}">{{ layout.title }}</a>
         {% if layout.visibility != 'public' %}<span class="badge">{{ t('canvas.visibility.' ~ layout.visibility) }}</span>{% endif %}
@@ -39,14 +33,18 @@
       {% if layout.description %}<p class="canvas-list__desc">{{ layout.description|truncate(160) }}</p>{% endif %}
       <p class="small muted">{{ layout.creator_username or t('common.unknown_user') }} · <span title="{{ layout.updated_at|datetime }}">{{ t('canvas.list.updated', when=layout.updated_at|time_ago) }}</span></p>
     </div>
+    {#- After the link in the DOM, so keyboard focus meets the canvas before its move buttons. -#}
+    {% if can_reorder and layouts|length > 1 %}
+    <div class="canvas-list__move">
+      <button type="button" class="btn btn--ghost btn--icon btn--small" data-move="up" aria-label="{{ t('canvas.list.move_up', title=layout.title) }}">▲</button>
+      <button type="button" class="btn btn--ghost btn--icon btn--small" data-move="down" aria-label="{{ t('canvas.list.move_down', title=layout.title) }}">▼</button>
+    </div>
+    {% endif %}
   </li>
   {% endfor %}
 </ul>
 {% if can_reorder and layouts|length > 1 %}
-<details class="canvas-list-order">
-  <summary>{{ t('canvas.list.reorder') }}</summary>
-  <p class="hint">{{ t('canvas.list.reorder_hint') }}</p>
-</details>
+<p class="hint canvas-list-order">{{ t('canvas.list.reorder_hint') }}</p>
 {% endif %}
 {% else %}
 <div class="empty-state">

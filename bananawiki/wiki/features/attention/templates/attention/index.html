@@ -5,7 +5,7 @@
 {% block content %}
 <header class="page-header">
   <h1>{{ t('attention.title') }}</h1>
-  {% if total %}<p class="muted">{{ m.plural('attention.summary', total) }}</p>{% endif %}
+  {% if total %}<p class="page-header__meta">{{ m.plural('attention.summary', total) }}</p>{% endif %}
 </header>
 <div class="section-stack">
   <section class="card" aria-labelledby="queues-title">
@@ -25,7 +25,7 @@
     <ul class="attention-list">
       {% for notice in notices %}
       <li class="attention-list__item">
-        <span><span class="badge {{ 'badge--success' if notice.outcome == 'approved' else 'badge--danger' }}">{{ t('attention.outcome.' ~ notice.outcome) }}</span>
+        <span><span class="badge {{ 'badge--success' if notice.outcome == 'approved' else 'badge--warning' if notice.outcome == 'warning' else 'badge--danger' }}">{{ t('attention.outcome.' ~ notice.outcome) }}</span>
           {{ notice_text(notice) }} <span class="hint">{{ notice.created_at|time_ago }}</span></span>
         {{ forms.post_button(url_for('attention.dismiss_notice', notice_id=notice.id), t('attention.notices.dismiss'), 'btn btn--small btn--ghost', hidden={'next': url_for('attention.index')}) }}
       </li>

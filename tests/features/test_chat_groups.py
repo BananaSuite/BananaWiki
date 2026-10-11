@@ -119,6 +119,24 @@ def test_moderator_limits(client, login, group, people, db):
     assert send(client, f"/groups/{group}/send", "free").status_code == 200
 
 
+def test_a_timed_out_moderator_cannot_lift_a_timeout(client, login, group, people, db):
+    other = people["outsider"]
+    post(client, group, "members/add", username="outsider")
+    post(client, group, "promote", user_id=other["id"])
+    assert post(client, group, "timeout", user_id=people["mod"]["id"], duration="30").status_code == 200
+    assert post(client, group, "timeout", user_id=other["id"], duration="30").status_code == 200
+
+    switch(client, login, people["mod"])
+    assert post(client, group, "untimeout", user_id=people["mod"]["id"]).status_code == 409
+    assert post(client, group, "untimeout", user_id=other["id"]).status_code == 403
+    for user in (people["mod"], other):
+        assert db.scalar("SELECT timed_out_until FROM group_members WHERE group_id = ? AND user_id = ?",
+                         (group, user["id"])) is not None
+
+    switch(client, login, people["owner"])
+    assert post(client, group, "untimeout", user_id=people["mod"]["id"]).status_code == 200
+
+
 def test_audit_10_revoked_chat_access_cannot_moderate(client, login, group, people, db):
     db.execute("UPDATE users SET chat_disabled = 1 WHERE id = ?", (people["mod"]["id"],))
     switch(client, login, people["mod"])

@@ -21,10 +21,10 @@ RESULTS = {
            "show": ("Mascot shown on 1 account.", "Mascot shown on {} accounts."),
            "shades_on": ("Sunglasses put on for 1 account.", "Sunglasses put on for {} accounts."),
            "shades_off": ("Sunglasses taken off on 1 account.", "Sunglasses taken off on {} accounts.")},
-    "it": {"hide": ("Mascotte nascosta su 1 account.", "Mascotte nascosta su {} account."),
-           "show": ("Mascotte mostrata su 1 account.", "Mascotte mostrata su {} account."),
-           "shades_on": ("Occhiali messi su 1 account.", "Occhiali messi su {} account."),
-           "shades_off": ("Occhiali tolti su 1 account.", "Occhiali tolti su {} account.")},
+    "it": {"hide": ("Mascotte nascosta a 1 account.", "Mascotte nascosta a {} account."),
+           "show": ("Mascotte mostrata a 1 account.", "Mascotte mostrata a {} account."),
+           "shades_on": ("Occhiali messi a 1 account.", "Occhiali messi a {} account."),
+           "shades_off": ("Occhiali tolti a 1 account.", "Occhiali tolti a {} account.")},
 }
 # The action that undoes each one.
 OPPOSITE = {"hide": "show", "show": "hide", "shades_on": "shades_off", "shades_off": "shades_on"}
@@ -57,12 +57,13 @@ def test_bulk_result_counts_one_account_or_many(admin_client, make_user, db, lan
 
 
 def test_every_action_has_a_singular_and_a_plural_result():
+    # The wiki's plural convention (i18n.tn): the plain key is the plural, "<key>_one" the singular.
     for lang in BUILTIN_LANGUAGES:
         strings = json.loads((FOLDER / f"{lang}.json").read_text(encoding="utf-8"))
         for action in service.BULK_ACTIONS:
             assert f"mascot.admin.done.{action}_one" in strings
-            assert "{count}" in strings[f"mascot.admin.done.{action}_other"]
-            assert f"mascot.admin.done.{action}" not in strings
+            assert "{count}" in strings[f"mascot.admin.done.{action}"]
+            assert f"mascot.admin.done.{action}_other" not in strings
 
 
 def test_translations_have_the_same_keys():

@@ -15,7 +15,7 @@
     <button type="button" class="btn btn--small" id="kanban-bulk-toggle" aria-pressed="false">{{ t('kanban.bulk.toggle') }}</button>
     {% endif %}
     {% if can_export %}<a class="btn btn--small" href="{{ url_for('kanban.export', board_id=board.id) }}">{{ t('kanban.board.export') }}</a>{% endif %}
-    <button type="button" class="btn btn--small" id="kanban-archive-toggle" aria-expanded="false" aria-controls="kanban-archive">{{ t('kanban.board.archived_tickets') }} <span class="badge" id="kanban-archive-count">{{ data.state.archived_count }}</span></button>
+    <button type="button" class="btn btn--small" id="kanban-archive-toggle" aria-expanded="false" aria-controls="kanban-archive">{{ t('kanban.board.archived_tickets') }} <span class="badge" id="kanban-archive-count"{% if not data.state.archived_count %} hidden{% endif %}>{{ data.state.archived_count }}</span></button>
     <button type="button" class="btn btn--small" id="kanban-activity-toggle" aria-expanded="false" aria-controls="kanban-activity">{{ t('kanban.board.activity') }}</button>
     {#- Less frequent actions live in a menu, like the page view's "More". -#}
     <details class="menu">
@@ -50,9 +50,10 @@
 <div class="alert alert--warning" id="kanban-offline" hidden role="status">{{ t('kanban.board.offline') }}</div>
 <p class="visually-hidden" id="kanban-live" aria-live="polite"></p>
 {% if can_write %}
-<details class="kanban-keys no-print">
+<details class="disclosure kanban-keys no-print">
   <summary>{{ t('kanban.board.keyboard_shortcuts') }}</summary>
   <p class="hint">{{ t('kanban.board.keyboard_hint') }}</p>
+  <p class="hint" id="kanban-quick-add-hint">{{ t('js.kanban.add_ticket_hint') }}</p>
 </details>
 {% endif %}
 
@@ -141,7 +142,8 @@
 </div>
 </details>
 
-<div class="kanban-board" id="kanban-board" aria-label="{{ t('kanban.board.columns_label') }}"></div>
+{#- A region with a name, focusable so the keyboard can scroll to the columns off-screen. -#}
+<div class="kanban-board" id="kanban-board" role="region" tabindex="0" aria-label="{{ t('kanban.board.columns_label') }}" data-scroll-cue></div>
 <noscript>
   <div class="kanban-board">
     {% for column in data.state.columns %}

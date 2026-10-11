@@ -11,15 +11,16 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from flask import abort, jsonify, redirect, render_template, request, url_for
+from flask import abort, current_app, jsonify, redirect, render_template, request, url_for
 
 from ....core.ratelimit import SqlLimiter
 from ....core.timeutil import is_future, sql_in
-from ....core.web import client_ip, safe_next
+from ....core.web import client_ip, client_network, safe_next
 from ... import accounts, auth, storage
 from ...db import db
 from ...i18n import t
-from . import exports, groups, policy, retention, store
+from ..audit import record
+from . import blocks, exports, groups, policy, reports, retention, store
 from .store import GROUP
 from .web import (
     ACTIONS_PER_MINUTE,
@@ -46,6 +47,7 @@ JOIN_MAX_PER_USER = 10
 JOIN_MAX_PER_IP = 30
 TIMEOUT_CHOICES = (5, 30, 60, 1440, 10080)
 TIMEOUT_MAX_MINUTES = 525_600
+ADMIN_READ_WINDOW = 10 * 60
 
 
 @dataclass(frozen=True)
@@ -131,6 +133,26 @@ def _reader(group_id: int) -> Actor:
     halt(refuse(key, url_for("chat.group_list"), 403))
 
 
+def audit_admin_read(action: str, group: dict[str, Any] | None, *, polling: bool = False, **details: Any) -> None:
+    """Record a site administrator reading a group they are not in (the global room is open to all).
+
+    Reading the history (``chat.group_read``) opens a window of
+    :data:`ADMIN_READ_WINDOW` seconds. Opening a page that shows it is always
+    recorded; reading it as JSON (*polling*: the page asking for new
+    messages, or paging through older ones) is recorded once per window, so
+    an open page does not fill the audit log and no read goes unrecorded.
+    """
+    if group is None or group["is_global"]:
+        return
+    if action == "chat.group_read":
+        user = auth.current_user()
+        window = f"chat:admin_read:{user['id'] if user else ''}:{group['id']}"
+        opened = current_app.extensions["bananawiki.limiter"].hit(window, 1, ADMIN_READ_WINDOW)
+        if polling and not opened:
+            return
+    record(action, target_type="group", target_id=group["id"], details=details or None)
+
+
 def _back(group_id: int) -> str:
     return url_for("chat.group_view", group_id=group_id)
 
@@ -198,7 +220,7 @@ def group_join():
     user = auth.current_user()
     limiter = SqlLimiter(db.session)
     if not (limiter.hit(user["id"], "group_join", JOIN_MAX_PER_USER, JOIN_WINDOW)
-            and limiter.hit(client_ip(), "group_join_ip", JOIN_MAX_PER_IP, JOIN_WINDOW)):
+            and limiter.hit(client_network(), "group_join_ip", JOIN_MAX_PER_IP, JOIN_WINDOW)):
         return refuse("chat.groups.error.join_rate_limited", url_for("chat.group_join"), 429)
     code = (request.form.get("invite_code") or "").strip()
     if not code:
@@ -245,11 +267,16 @@ def group_view(group_id: int):
     actor = _reader(group_id)
     if actor.is_member:
         groups.mark_read(group_id, actor.user["id"])
+    else:
+        # A site administrator reading a group they are not in.
+        audit_admin_read("chat.group_read", actor.group)
     group = actor.group
+    members, blocked = groups.members(group_id), blocks.blocked_ids(actor.user["id"])
     return render_template(
         "chat/group_view.html", group=group, name=display_name(group), actor=actor,
-        conversation=conversation(GROUP, group_id, can_delete_any=actor.can_delete_any),
-        members=groups.members(group_id),
+        conversation=conversation(GROUP, group_id, can_delete_any=actor.can_delete_any, hide_blocked=actor.is_member),
+        members=members, blocked=blocked,
+        blocked_members=sum(1 for m in members if m["user_id"] in blocked) if actor.is_member else 0,
         banned=groups.banned_members(group_id) if actor.can_moderate else [],
         timed_out=groups.is_timed_out(actor.membership), indefinite=groups.is_indefinite,
         is_future=is_future, can_upload=policy.can_upload(actor.user),
@@ -265,7 +292,10 @@ def group_messages(group_id: int):
     actor = _reader(group_id)
     if not throttle("poll", POLL_PER_MINUTE):
         return too_many()
-    return jsonify(messages_payload(GROUP, group_id, can_delete_any=actor.can_delete_any))
+    if not actor.is_member:
+        audit_admin_read("chat.group_read", actor.group, polling=True)
+    return jsonify(messages_payload(GROUP, group_id, can_delete_any=actor.can_delete_any,
+                                    hide_blocked=actor.is_member))
 
 
 @bp.route("/groups/<int:group_id>/read", methods=["POST"])
@@ -343,16 +373,34 @@ def group_delete_message(group_id: int):
     return succeed(back, "chat.message.deleted_flash", message_id=message["id"])
 
 
+@bp.route("/groups/<int:group_id>/report", methods=["POST"])
+def group_report(group_id: int):
+    """Report another member's message to the site administrators."""
+    actor = _reader(group_id)
+    back = _back(group_id)
+    if not actor.is_member:
+        return refuse("chat.groups.error.not_member", back, 403)
+    if not throttle("report", ACTIONS_PER_MINUTE):
+        return too_many()
+    try:
+        reports.file(GROUP, group_id, request.form.get("message_id", type=int) or 0, actor.user["id"])
+    except reports.ReportRefused as error:
+        return refuse(error.key, back, error.status)
+    return succeed(back, "chat.report.done")
+
+
 @bp.route("/groups/attachments/<int:attachment_id>/download")
 def group_attachment(attachment_id: int):
-    """Members (not banned) and site administrators may download attachments."""
+    """Members (not banned) and site administrators (audited, outside the global room) may download attachments."""
     user = auth.current_user()
     item = store.attachment(GROUP, attachment_id)
     admin = auth.is_admin(user)
     if item is None or item["is_deleted"] or not (admin or policy.group_allowed(user)):
         abort(404)
-    if not admin and groups.member(item["parent_id"], user["id"]) is None:
-        abort(404)
+    if groups.member(item["parent_id"], user["id"]) is None:
+        if not admin:
+            abort(404)
+        audit_admin_read("chat.group_attachment_read", groups.get(item["parent_id"]), attachment_id=item["id"])
     return storage.send(store.FOLDER, item["filename"], download_name=item["original_name"],
                         blob_id=item["blob_id"], max_age=0)
 
@@ -364,6 +412,8 @@ def group_export(group_id: int):
         return refuse("chat.groups.error.owner_only", _back(group_id), 403)
     if not throttle("export", EXPORTS_PER_MINUTE):
         return too_many()
+    if not actor.is_member:
+        audit_admin_read("chat.group_exported", actor.group)
     name = display_name(actor.group)
     return exports.export(GROUP, group_id, title=f"group_{name}", header=[t("chat.export.group_title", name=name)],
                           include_ip=actor.admin)
@@ -391,6 +441,10 @@ def group_add_member(group_id: int):
             return refuse("chat.groups.error.target_banned", back, 409)
         if row:
             return refuse("chat.groups.error.already_member", back, 409)
+        # Someone who blocked the moderator gets the answer an inactive account gets (blocks are
+        # private); a member who blocked them is answered like any member, after the checks above.
+        if blocks.blocked(target["id"], actor.user["id"]):
+            return refuse("chat.error.user_unavailable", back, 404)
         groups.add_member(group_id, target["id"])
         groups.system(group_id, "chat.system.added", user=target["username"], actor=actor.user["username"])
     return succeed(back, "chat.groups.member_added", values={"user": target["username"]})
@@ -560,6 +614,10 @@ def group_untimeout(group_id: int):
         target = _target(actor)
         if target is None:
             return refuse("chat.groups.error.target_not_member", back, 404)
+        if target["user_id"] == actor.user["id"]:
+            return refuse("chat.groups.error.not_self", back, 409)
+        if not actor.outranks(target):
+            return refuse("chat.groups.error.outranked", back, 403)
         groups.set_timeout(group_id, target["user_id"], None)
         groups.system(group_id, "chat.system.timeout_removed", user=target["username"], actor=actor.user["username"])
     return succeed(back, "chat.groups.timeout_removed", values={"user": target["username"]})
@@ -643,6 +701,7 @@ def group_admin_takeover(group_id: int):
         groups.take_over(group_id, actor.user["id"])
         groups.system(group_id, "chat.system.takeover", actor=actor.user["username"])
     log.info("Group %s taken over by %s", group_id, actor.user["id"])
+    record("chat.group_taken_over", target_type="group", target_id=group_id)
     return succeed(_back(group_id), "chat.groups.taken_over")
 
 

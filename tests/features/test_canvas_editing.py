@@ -12,6 +12,7 @@ from PIL import Image
 from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.canvas import model, service
 from bananawiki.wiki.features.pages import service as pages
+from bananawiki.wiki.features.pages import uploads
 
 
 def run(app, fn):
@@ -241,7 +242,7 @@ def test_upload_export_and_import_roundtrip(editor, canvas, db, app):
                       content_type="multipart/form-data")
     assert bad.status_code == 400
     ops(editor, canvas, {"op": "upsert_node", "node": node("img", type="image", url=url)})
-    assert run(app, service.referenced_upload_names) == {url.rsplit("/", 1)[1]}
+    assert url.rsplit("/", 1)[1] in run(app, uploads.referenced_names)
 
     export = editor.get(f"/canvas/{canvas['slug']}/export")
     assert export.mimetype == "application/zip"

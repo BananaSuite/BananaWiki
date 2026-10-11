@@ -86,17 +86,6 @@ def update(values: dict[str, Any], *, internal: bool = False) -> None:
     invalidate()
 
 
-def bump_counter(name: str) -> int:
-    """Atomically increment an internal integer counter column."""
-    if name not in INTERNAL_COLUMNS:
-        raise KeyError(name)
-    with db.transaction():
-        db.execute(f'UPDATE site_settings SET "{name}" = COALESCE("{name}", 0) + 1 WHERE id = 1')
-        value = int(db.scalar(f'SELECT "{name}" FROM site_settings WHERE id = 1', default=0))
-    invalidate()
-    return value
-
-
 # ── Derived switches used across the application ─────────────────────────────
 
 

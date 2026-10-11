@@ -24,8 +24,10 @@ from flask import (
     url_for,
 )
 
-from ....core.web import client_ip
-from ... import accounts, auth, settings
+from bananawiki.core.numbers import ascii_int
+
+from ....core.web import client_network
+from ... import accounts, auth, settings, storage
 from ...i18n import t
 from ...registry import feature_blueprint
 from ..pages import service as pages
@@ -48,7 +50,7 @@ HISTORY_MESSAGES = {
 
 def _limit(bucket: str, limit: int, window: int = 60) -> None:
     user = auth.current_user()
-    key = f"canvas:{bucket}:{user['id'] if user else client_ip()}"
+    key = f"canvas:{bucket}:{user['id'] if user else client_network()}"
     if not current_app.extensions["bananawiki.limiter"].hit(key, limit, window):
         if auth.wants_json():
             abort(make_response(jsonify({"error": t("canvas.error.rate_limited")}), 429))
@@ -194,8 +196,8 @@ def save_order():
     visible = {layout["id"] for layout in access.visible_layouts(user)}
     ids: list[int] = []
     for item in raw:
-        if isinstance(item, (int, str)) and not isinstance(item, bool) and str(item).isdigit():
-            layout_id = int(item)
+        layout_id = ascii_int(item) if isinstance(item, (int, str)) and not isinstance(item, bool) else None
+        if layout_id is not None:
             if layout_id in visible and layout_id not in ids:
                 ids.append(layout_id)
     owner = _order_owner(user)
@@ -348,7 +350,7 @@ def outline(slug: str):
     if request.args.get("format") == "md":
         body = transfer.outline_markdown(layout, items, outline_label)
         response = Response(body, mimetype="text/markdown")
-        response.headers["Content-Disposition"] = f'attachment; filename="{layout["slug"]}.md"'
+        response.headers["Content-Disposition"] = storage.content_disposition(f'{layout["slug"]}.md')
         return response
     return render_template("canvas/outline.html", layout=layout, items=items,
                            by_id={item["id"]: item for item in items})

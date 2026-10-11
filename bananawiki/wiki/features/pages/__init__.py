@@ -28,6 +28,8 @@ def _sidebar_navigation() -> str:
         return ""
     nav = navigation.tree(user)
     current_slug = (request.view_args or {}).get("slug") if request.blueprint == "pages" else None
+    # On a category page the tree opens that category's branch and marks it as the current place.
+    current_category = (request.view_args or {}).get("category_id") if request.endpoint == "pages.category" else None
     current = None
     if current_slug:
         from . import service
@@ -37,7 +39,9 @@ def _sidebar_navigation() -> str:
             current = None
     return render_template(
         "pages/_sidebar.html", nav=nav, current=current, current_slug=current_slug,
-        open_ids=navigation.branch_ids(nav, current["category_id"]) if current else set(),
+        open_ids=navigation.branch_ids(nav, current["category_id"]) if current
+        else navigation.branch_ids(nav, current_category) if current_category else set(),
+        current_category=current_category,
         current_listed=bool(current) and current["id"] in navigation.page_ids(nav),
         can_create=can_create_somewhere(user),
         can_create_category=bool(user) and auth.has_role("editor", user)

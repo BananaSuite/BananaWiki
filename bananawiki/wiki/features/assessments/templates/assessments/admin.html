@@ -2,6 +2,7 @@
 {% block title %}{{ t('assessments.admin_title') }}{% endblock %}
 {% block admin_content %}
 <div class="page-header"><h1>{{ t('assessments.admin_title') }}</h1></div>
+<section class="card">
 <form method="post" class="form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <label class="check">
@@ -10,12 +11,14 @@
   </label>
   <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('common.save') }}</button></div>
 </form>
+</section>
+<section class="card">
 <h2>{{ t('assessments.all_quizzes') }}</h2>
 {% if not assessments %}
 <div class="empty-state">{{ t('assessments.none_yet') }}</div>
 {% else %}
 <div class="table-wrap">
-  <table class="table">
+  <table class="table table--stack">
     <thead><tr>
       <th scope="col">{{ t('assessments.quiz') }}</th>
       <th scope="col">{{ t('assessments.page') }}</th>
@@ -28,18 +31,19 @@
     {% for a in assessments %}
       <tr>
         <td>{{ a.title }}</td>
-        <td><a href="{{ url_for('pages.view', slug=a.page_slug) }}">{{ a.page_title }}</a></td>
-        <td>{{ a.question_count }}</td>
-        <td>{{ a.taker_count }}</td>
-        <td>{{ a.attempt_count }}</td>
-        <td class="actions">
-          <a class="btn btn--small btn--ghost" href="{{ url_for('assessments.results', slug=a.page_slug) }}">{{ t('assessments.results') }}</a>
-          <a class="btn btn--small btn--ghost" href="{{ url_for('assessments.manage', slug=a.page_slug) }}">{{ t('assessments.manage') }}</a>
-        </td>
+        <td data-label="{{ t('assessments.page') }}"><a href="{{ url_for('pages.view', slug=a.page_slug) }}">{{ a.page_title }}</a></td>
+        <td data-label="{{ t('assessments.questions') }}">{{ a.question_count }}</td>
+        <td data-label="{{ t('assessments.takers') }}">{{ a.taker_count }}</td>
+        <td data-label="{{ t('assessments.attempts') }}">{{ a.attempt_count }}</td>
+        <td class="actions"><div class="cluster">
+          <a class="btn btn--small" href="{{ url_for('assessments.results', slug=a.page_slug) }}">{{ t('assessments.results') }}</a>
+          <a class="btn btn--small" href="{{ url_for('assessments.manage', slug=a.page_slug) }}">{{ t('assessments.manage') }}</a>
+        </div></td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
 {% endif %}
+</section>
 {% endblock %}

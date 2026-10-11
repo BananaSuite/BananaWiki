@@ -2,29 +2,32 @@
 {% block title %}{{ category.name }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ asset_url('pages.css', blueprint='pages') }}">{% endblock %}
 {% block content %}
+{#- The same trail as a page view: Home, the parent categories, then the current place. -#}
 <nav class="breadcrumbs" aria-label="{{ t('pages.breadcrumbs') }}">
   <ol>
-    <li><a href="{{ url_for('pages.navigation_page') }}">{{ t('pages.nav.all_pages') }}</a></li>
+    <li><a href="{{ url_for('pages.home') }}">{{ t('pages.nav.home') }}</a></li>
     {% for crumb in breadcrumbs %}<li><a href="{{ url_for('pages.category', category_id=crumb.id) }}">{{ crumb.name }}</a></li>{% endfor %}
+    <li aria-current="page">{{ category.name }}</li>
   </ol>
 </nav>
 <header class="page-header">
   <h1>{{ category.name }}</h1>
   {% if can_create_page %}<div class="page-header__actions"><a class="btn btn--primary btn--small" href="{{ url_for('pages.create', category_id=category.id) }}">{{ t('pages.nav.new_page') }}</a></div>{% endif %}
 </header>
+{#- Pages first, then subcategories: the order of the sidebar and the All pages tree. -#}
+{% if listing.pages %}
+{% if subcategories %}<h2 class="h3">{{ t('pages.nav.title') }}</h2>{% endif %}
+<ul class="page-list">
+  {% for p in listing.pages %}<li><a href="{{ url_for('pages.view', slug=p.slug) }}">{{ p.title }}</a>{% if p.is_deindexed %} <span class="badge badge--warning">{{ t('pages.badge.hidden') }}</span>{% endif %}</li>{% endfor %}
+</ul>
+{% if listing.more is not none %}<a class="btn btn--small" href="{{ url_for('pages.category', category_id=category.id, after=listing.more) }}">{{ t('pages.nav.more') }}</a>{% endif %}
+{% endif %}
 {% if subcategories %}
 <h2 class="h3">{{ t('pages.category.subcategories') }}</h2>
 <ul class="page-list">
   {% for c in subcategories %}<li><a href="{{ url_for('pages.category', category_id=c.id) }}">{{ c.name }}</a></li>{% endfor %}
 </ul>
-{% if listing.pages %}<h2 class="h3">{{ t('pages.nav.title') }}</h2>{% endif %}
-{% endif %}
-{% if listing.pages %}
-<ul class="page-list">
-  {% for p in listing.pages %}<li><a href="{{ url_for('pages.view', slug=p.slug) }}">{{ p.title }}</a>{% if p.is_deindexed %} <span class="badge badge--warning">{{ t('pages.badge.hidden') }}</span>{% endif %}</li>{% endfor %}
-</ul>
-{% if listing.more is not none %}<a class="btn btn--small" href="{{ url_for('pages.category', category_id=category.id, after=listing.more) }}">{{ t('pages.nav.more') }}</a>{% endif %}
-{% elif not subcategories %}
+{% elif not listing.pages %}
 <p class="muted">{{ t('pages.category.empty') }}</p>
 {% endif %}
 {% include "pages/_category_manage.html" %}

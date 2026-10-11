@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('auth.onboarding.title') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('auth.css', blueprint='auth') }}">{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1>{{ t('auth.onboarding.heading_first_run' if first_run else 'auth.onboarding.heading_replay') }}</h1>
 </div>
 <p>{{ t('auth.onboarding.intro_first_run' if first_run else 'auth.onboarding.intro_replay') }}</p>
 {% if error %}<div class="alert alert--error" role="alert"><div class="alert__body">{{ error }}</div></div>{% endif %}
-<form method="post" class="form stack">
+<form method="post" class="form stack" data-onboarding>
   {{ forms.csrf() }}
   <section class="card">
     <h2>{{ t('auth.onboarding.basics') }}</h2>
@@ -30,11 +31,17 @@
         <span>{{ t('auth.onboarding.mode_advanced') }}<small>{{ t('auth.onboarding.mode_advanced_help') }}</small></span></label>
     </fieldset>
     {% if features %}
-    <fieldset class="stack">
+    {#- Only "Choose the features" uses this list; onboarding.js disables it (and shows the recommended
+        set) while "Recommended" is selected. The hint says so when scripts are off. -#}
+    <fieldset class="stack" data-feature-list>
       <legend>{{ t('auth.onboarding.feature_list') }}</legend>
+      <p class="hint">{{ t('auth.onboarding.feature_list_hint') }}</p>
       {% for feature in features %}
         {% set checked = (feature.id in form.getlist('features')) if form.get('mode') else feature.enabled %}
-        {{ forms.checkbox('features', t(feature.name), checked, t(feature.description) if feature.description else '', value=feature.id) }}
+        <label class="check">
+          <input type="checkbox" name="features" value="{{ feature.id }}"{% if checked %} checked{% endif %} data-default="{{ '1' if feature.default else '0' }}">
+          <span>{{ t(feature.name) }}{% if feature.description %}<small>{{ t(feature.description) }}</small>{% endif %}</span>
+        </label>
       {% endfor %}
     </fieldset>
     {% endif %}
@@ -47,7 +54,8 @@
     <h2>{{ t('auth.onboarding.users') }}</h2>
     <p class="hint">{{ t('auth.onboarding.users_help') }}</p>
     {% for index in rows %}
-    <div class="form-grid">
+    <fieldset class="form-grid onboarding-account">
+      <legend>{{ t('auth.onboarding.account_n', n=loop.index) }}</legend>
       <div class="field"><label for="nu-{{ index }}">{{ t('auth.field.username') }}</label>
         <input id="nu-{{ index }}" name="new_username" maxlength="50" autocomplete="off"></div>
       <div class="field"><label for="np-{{ index }}">{{ t('auth.onboarding.temporary_password') }}</label>
@@ -57,20 +65,25 @@
           {% for role in roles %}<option value="{{ role }}">{{ t('auth.role.' ~ role) }}</option>{% endfor %}
         </select></div>
       {{ forms.checkbox('new_force_password_change', t('auth.onboarding.force_password_change'), true, value=index) }}
-    </div>
+    </fieldset>
     {% endfor %}
   </section>
 
   <section class="card">
     <h2>{{ t('auth.onboarding.docs') }}</h2>
     <p class="hint">{{ t('auth.onboarding.docs_help') }}{% if docs_tracked %} {{ t('auth.onboarding.docs_replace') }}{% endif %}</p>
+    <div class="stack">
     {{ forms.checkbox('spawn_docs', t('auth.onboarding.spawn_docs'), form.get('spawn_docs')) }}
+    <fieldset class="form-grid onboarding-docs" data-docs-options>
+      <legend class="visually-hidden">{{ t('auth.onboarding.docs') }}</legend>
     {{ forms.select('docs_variant', t('auth.onboarding.docs_variant'),
                     [('full', t('auth.onboarding.docs_full')), ('simplified', t('auth.onboarding.docs_simplified'))],
                     form.get('docs_variant') or 'full') }}
     {{ forms.select('docs_language', t('auth.onboarding.docs_language'),
                     docs_languages.items()|list,
                     form.get('docs_language') or (lang if lang in docs_languages else 'en')) }}
+    </fieldset>
+    </div>
   </section>
 
   <div class="btn-row">
@@ -78,3 +91,4 @@
   </div>
 </form>
 {% endblock %}
+{% block scripts %}<script src="{{ asset_url('onboarding.js', blueprint='auth') }}"></script>{% endblock %}

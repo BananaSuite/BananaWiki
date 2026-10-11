@@ -4,6 +4,9 @@
   border-bottom: 1px solid var(--border); color: var(--bw-text); }
 .chat-list__item:hover { text-decoration: none; background: var(--surface-2); }
 .chat-list__name { font-weight: 600; overflow-wrap: anywhere; }
+/* The space before "· 6 members" comes from the markup; no extra margin, so the dot sits evenly. */
+.chat-list__name .small { font-weight: 400; }
+.page-header + .chat-list, .page-header + .chat-panel { border-top: 0; }
 .chat-list__preview { grid-column: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-list__time { grid-column: 2; grid-row: 1; }
 @media (max-width: 480px) {
@@ -16,6 +19,8 @@
 .chat__log { list-style: none; margin: 0; padding: .75rem; display: flex; flex-direction: column; gap: .6rem;
   height: min(62vh, 640px); overflow-y: auto; background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); overscroll-behavior: contain; }
+/* Without a composer (a blocked or read-only conversation) the log is only as tall as its messages. */
+.chat:not(:has(~ .chat-composer)) .chat__log { height: auto; max-height: min(62vh, 640px); min-height: 8rem; }
 .chat__empty { text-align: center; }
 .chat__jump { position: absolute; left: 50%; bottom: 1rem; transform: translateX(-50%); box-shadow: var(--shadow); }
 
@@ -25,27 +30,45 @@
 .chat-msg--system { align-self: center; max-width: 100%; background: none; padding: 0; }
 .chat-msg__system { margin: 0; font-size: .85rem; color: var(--muted); text-align: center; }
 .chat-msg__meta { display: flex; flex-wrap: wrap; gap: .1rem .5rem; align-items: baseline; font-size: .85rem; }
-.chat-msg__time { color: var(--muted); font-size: .78rem; }
+.chat-msg__time { color: var(--muted); font-size: .78rem; white-space: nowrap; }
+.chat-msg a { text-decoration: underline; text-underline-offset: .15em; }
+/* On the tinted own bubble the accent colour is too faint for small links: use the text colour. */
+.chat-msg--mine a { color: var(--heading); }
 .chat-msg__body { margin: .15rem 0 0; white-space: pre-wrap; }
 .chat-msg__body--deleted { font-style: italic; color: var(--muted); }
-.chat-msg__files { margin: .3rem 0 0; padding-left: 1.1rem; font-size: .9rem; }
-.chat-msg__delete { margin-top: .2rem; text-align: right; }
-/* The delete control shows on hover or keyboard focus, so every bubble is not crowded by it. */
+.chat-msg__files { list-style: none; margin: .3rem 0 0; padding: 0; font-size: .9rem; }
+.chat-msg__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .25rem; margin-top: .2rem; }
+.chat-msg__actions > form { margin: 0; }
+.chat-msg__reported { margin: .2rem 0 0; font-size: .8rem; color: var(--muted); text-align: right; }
+/* With a mouse, the delete and report controls float over the bubble's top corner and show on hover or
+   keyboard focus: they take no room, so a bubble ends right after its text. Touch screens keep one row. */
 @media (hover: hover) {
-  .chat-msg__delete { opacity: 0; transition: opacity .12s; }
-  .chat-msg:hover .chat-msg__delete, .chat-msg:focus-within .chat-msg__delete { opacity: 1; }
+  .chat-msg:not(.chat-msg--system) { position: relative; }
+  .chat-msg__actions { position: absolute; top: .2rem; right: .3rem; margin: 0; flex-wrap: nowrap;
+    background: inherit; border-radius: var(--radius-sm); opacity: 0; transition: opacity .12s; }
+  .chat-msg:hover .chat-msg__actions, .chat-msg:focus-within .chat-msg__actions { opacity: 1; }
 }
+.chat-reports { list-style: none; margin: 0; padding: 0; display: grid; }
+.chat-report { padding: 1rem 0; border-bottom: 1px solid var(--border); }
+.chat-report > :last-child { margin-bottom: 0; }
+.chat-report__content { margin: .4rem 0 .75rem; padding: .1rem 0 .1rem .75rem; border-left: 3px solid var(--border-strong);
+  color: var(--bw-text); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .chat-composer { display: grid; gap: .5rem; }
 .chat-composer textarea { width: 100%; resize: vertical; min-height: 3.2rem; }
 .chat-composer__actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
 .chat-composer__actions .btn--primary { margin-left: auto; }
-.chat-composer__file { cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.chat-composer__file { cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; position: relative; }
+/* The hidden file input sits on the button's corner, so its focus ring (drawn on the button) is next to it. */
+.chat-composer__file > input.visually-hidden { top: 0; left: 0; }
+/* The limits line goes under the buttons; Attach and Send share the first row. */
+.chat-composer__limits { order: 3; flex-basis: 100%; }
 .chat-composer__file:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
 .chat-composer__hint { margin: 0; }
+/* Touch keyboards have no Ctrl key: the shortcut hint is noise there. */
+@media (hover: none) and (pointer: coarse) { .chat-composer__hint { display: none; } }
 
 .chat-panel { margin-bottom: 1rem; }
 .chat-panel .inline-fields > :is(input, select) { flex: 1 1 12rem; min-width: 0; }
 .chat-panel td .inline-fields { display: inline-flex; gap: .35rem; }
 .chat-panel td .inline-fields > select { flex-basis: 8rem; width: auto; }
-.chat-badge-list { list-style: none; padding: 0; margin: 0; gap: .5rem; }

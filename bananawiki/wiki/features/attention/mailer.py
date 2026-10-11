@@ -157,9 +157,10 @@ def decision_message(user: dict[str, Any], notice: dict[str, Any], *, links: boo
     lang = language_of(user)
     site = settings.site_name()
     text = service.notice_text(notice, lang)
+    kind = "warning" if notice.get("outcome") == "warning" else "decision"
     return _message(
-        user, lang, subject=i18n.t_lang(lang, "attention.email.decision_subject", site=site),
-        text=i18n.t_lang(lang, "attention.email.decision_intro", username=user["username"], site=site) + "\n\n" + text,
+        user, lang, subject=i18n.t_lang(lang, f"attention.email.{kind}_subject", site=site),
+        text=i18n.t_lang(lang, f"attention.email.{kind}_intro", username=user["username"], site=site) + "\n\n" + text,
         links=links, action_endpoint=service.notice_url_endpoint(notice),
         action_label=i18n.t_lang(lang, "attention.email.decision_action"), kind="decisions",
     )

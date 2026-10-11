@@ -7,7 +7,7 @@ from conftest import PASSWORD
 
 from bananawiki.ops import tenant_task
 from bananawiki.wiki import accounts, plugins_external
-from bananawiki.wiki.features.kanban import extras, service, signals, store
+from bananawiki.wiki.features.kanban import extras, logtext, service, signals, store
 from bananawiki.wiki.features.users import merge
 from bananawiki.wiki.markdown import render
 from bananawiki.wiki.registry import Feature
@@ -137,8 +137,9 @@ def test_an_account_only_assigned_on_a_board_is_logged_as_such(app, db, people):
     board = _board(app, carol)
     _ticket(app, board, carol, assignees=[bob["id"]])
     in_app(app, lambda: accounts.delete(accounts.by_id(bob["id"]), deleted_by=admin["id"]))
-    details = db.scalar("SELECT details FROM kanban_activity_log WHERE board_id = ? AND action = 'account_deleted'",
-                        (board["id"],))
+    stored = db.scalar("SELECT details FROM kanban_activity_log WHERE board_id = ? AND action = 'account_deleted'",
+                       (board["id"],))
+    details = in_app(app, lambda: logtext.render(stored))  # as readers see it
     assert "bob" in details and "assigned" in details and "carol" not in details
 
 

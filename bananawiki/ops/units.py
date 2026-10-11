@@ -16,6 +16,9 @@ from typing import Any
 from . import MANAGED_MARKER, PRODUCT, UNIT_GENERATION
 from .profile import ReleaseFeatures, Service
 
+# The first unit generation whose runtime agent may use XFS project quotas (quotactl_fd, CAP_SYS_PTRACE).
+QUOTA_GENERATION = 3
+
 # Sandbox for the unprivileged application services. The application only
 # writes below data/ (C7); /dev/shm stays writable for Gunicorn heartbeats.
 _APP_SANDBOX = (
@@ -180,10 +183,6 @@ def is_managed(text: str, root: Path) -> bool:
     return MANAGED_MARKER in text and (
         f"WorkingDirectory={root / 'current'}\n" in text or str(root / "current/banana") in text
     )
-
-
-def is_current_generation(text: str) -> bool:
-    return UNIT_GENERATION in text
 
 
 def examples() -> dict[str, str]:

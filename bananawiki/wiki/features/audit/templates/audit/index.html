@@ -8,7 +8,7 @@
 </header>
 
 <section class="card">
-  <form method="get" action="{{ url_for('audit.index') }}" class="toolbar" role="search">
+  <form method="get" action="{{ url_for('audit.index') }}" class="admin-filters" role="search">
     <div class="field">
       <label for="f-action">{{ t('audit.filter.action') }}</label>
       <select id="f-action" name="action">
@@ -22,12 +22,13 @@
       <label for="f-actor">{{ t('audit.filter.actor') }}</label>
       <input id="f-actor" name="actor" value="{{ actor }}" maxlength="100">
     </div>
-    <div class="btn-row"><button class="btn" type="submit">{{ t('audit.filter.apply') }}</button></div>
+    <button class="btn" type="submit">{{ t('audit.filter.apply') }}</button>
   </form>
 
   {% if rows %}
+  {#- One card per entry wherever the six columns do not fit (phones, the tablet admin column). -#}
   <div class="table-wrap">
-    <table class="table">
+    <table class="table table--stack">
       <thead>
         <tr>
           <th scope="col">{{ t('audit.col.time') }}</th>
@@ -43,10 +44,17 @@
         <tr>
           <td class="nowrap" title="{{ row.created_at|datetime }}">{{ row.created_at|time_ago }}</td>
           <td>{{ t('audit.action.' ~ row.action, row.action) }}</td>
-          <td>{% if row.actor_username %}<a href="{{ url_for('audit.index', actor=row.actor_username) }}">{{ row.actor_username }}</a>{% elif row.actor_id %}<span class="mono">{{ row.actor_id }}</span>{% else %}<span class="muted">{{ t('audit.system') }}</span>{% endif %}</td>
-          <td>{% if row.target_type %}{{ t('audit.target.' ~ row.target_type, row.target_type) }} <span class="mono">{{ row.target_id }}</span>{% endif %}</td>
-          <td class="small">{% for key, value in row.details.items() %}<span class="nowrap"><strong>{{ key }}</strong>: {{ value if value is not none else '—' }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
-          <td class="mono small">{{ row.ip or '' }}</td>
+          <td data-label="{{ t('audit.col.actor') }}">{% if row.actor_username %}<a href="{{ url_for('audit.index', actor=row.actor_username) }}">{{ row.actor_username }}</a>{% elif row.actor_id %}<span class="mono">{{ row.actor_id }}</span>{% else %}<span class="muted">{{ t('audit.system') }}</span>{% endif %}</td>
+          <td data-label="{{ t('audit.col.target') }}">{% if row.target_type == 'plugin' and row.target_id %}{{ t('audit.target.plugin') }} <span title="{{ row.target_id }}">{{ t('feature.' ~ row.target_id ~ '.name', row.target_id) }}</span>
+            {%- elif row.target_type %}{{ t('audit.target.' ~ row.target_type, row.target_type) }} <span class="mono">{{ row.target_id }}</span>{% endif %}</td>
+          {#- Detail names and the usual values (roles, "all") in the reader's language; the stored key stays in a tooltip. -#}
+          <td class="small audit-details" data-label="{{ t('audit.col.details') }}">{% for key, value in row.details.items() %}<span><strong title="{{ key }}">{{ t('audit.detail.' ~ key, key) }}</strong>:
+            {% if value is none or value == '' %}—
+            {%- elif key in ('role', 'base_role', 'old_role', 'new_role') %}{{ t('admin.role.' ~ value, value) }}
+            {%- elif value == 'all' %}{{ t('audit.value.all') }}
+            {%- elif key == 'size' %}{{ value|filesize }}
+            {%- else %}{{ value }}{% endif %}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+          <td class="small nowrap" data-label="{{ t('audit.col.ip') }}">{% if row.ip_hidden %}<span class="muted">{{ t('audit.ip_hidden') }}</span>{% elif row.ip %}<span class="mono">{{ row.ip }}</span>{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -60,11 +68,16 @@
 
 <section class="card">
   <h2>{{ t('audit.retention.title') }}</h2>
+  {% if can_change_retention %}
   <form method="post" action="{{ url_for('audit.retention') }}" class="form">
     {{ forms.csrf() }}
     {{ forms.field('audit_log_retention_days', t('audit.retention.days'), retention_days, type='number',
                    hint=t('audit.retention.hint'), attrs={'min': bounds[0], 'max': bounds[1], 'required': 'required'}) }}
     <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
   </form>
+  {% else %}
+  <p>{{ t('audit.retention.current_forever') if retention_days <= 0 else t('audit.retention.current', days=retention_days) }}</p>
+  <p class="hint">{{ t('audit.retention.owner_only') }}</p>
+  {% endif %}
 </section>
 {% endblock %}

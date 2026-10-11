@@ -5,10 +5,19 @@
 {% block content %}
 {% include "hosting/admin/_nav.html" %}
 <h1>{{ t('hosting.admin.title') }}</h1>
+{% if storage and not storage.hard_quotas %}
+{# Refused only under BW_HOSTING_TENANT_QUOTAS=required; lost: hard quotas enforced here before, no longer (a warning);
+   never had them, or off: a calm notice. #}
+{% set storage_off = storage.setting == 'off' and not storage.refused %}
+<div class="alert alert--{{ 'error' if storage.refused else 'warning' if storage.lost else 'info' }}" id="storage-protection" role="status"><div class="alert__body">
+  <p>{{ t('hosting.admin.storage_refused' if storage.refused else 'hosting.admin.storage_lost' if storage.lost else 'hosting.admin.storage_off' if storage_off else 'hosting.admin.storage_unenforced', setting=storage.setting)|wbr_settings }}</p>
+  {% if storage.reason and not storage_off %}<p class="small">{{ t('hosting.admin.storage_detail') }} <span lang="en">{{ storage.reason|wbr_settings }}</span></p>{% endif %}
+</div></div>
+{% endif %}
 {% include "hosting/admin/_attention_card.html" %}
 <dl class="summary-line">
   {% for key in ('accounts', 'running', 'stopped', 'suspended', 'terminated', 'pending_accounts') %}
-  <div><dt>{{ t('hosting.admin.stat.' ~ key) }}</dt><dd>{{ stats[key] }}</dd></div>
+  <div><dt>{{ t('hosting.admin.stat.' ~ key ~ ('_one' if stats[key] == 1 else '_other')) }}</dt><dd>{{ stats[key] }}</dd></div>
   {% endfor %}
 </dl>
 
@@ -37,44 +46,47 @@
 
 <section class="card table-panel"><h2>{{ t('hosting.admin.accounts') }}</h2>
 <details class="bulk-actions table-bulk"><summary>{{ t('hosting.admin.bulk_accounts') }}</summary>
+<p class="hint">{{ t('hosting.admin.bulk_accounts_hint') }}</p>
 <form method="post" id="accounts-bulk" class="bulk-bar" action="{{ url_for('admin.bulk_delete_accounts') }}" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ ui.csrf() }}
   <button class="btn btn--small btn--danger" type="submit">{{ t('hosting.admin.delete_selected') }}</button></form></details>
-<div class="table-wrap"><table class="table"><thead><tr><th></th><th>{{ t('hosting.field.username') }}</th><th>{{ t('hosting.field.email') }}</th><th>{{ t('hosting.instance.status') }}</th><th>{{ t('hosting.instance.created') }}</th></tr></thead><tbody>
+<div class="table-wrap"><table class="table"><thead><tr><th><span class="visually-hidden">{{ t('hosting.bulk.select') }}</span></th><th>{{ t('hosting.field.username') }}</th><th class="col-optional">{{ t('hosting.field.email') }}</th><th>{{ t('hosting.instance.status') }}</th><th class="col-optional">{{ t('hosting.instance.created') }}</th></tr></thead><tbody>
 {% for acct in accounts %}
 <tr><td>{% if acct.id != current_account.id and not acct.deleted_at %}<input type="checkbox" name="account_ids" value="{{ acct.id }}" form="accounts-bulk" aria-label="{{ acct.username }}">{% endif %}</td>
-  <td><a href="{{ url_for('admin.account_page', account_id=acct.id) }}">{{ acct.username }}</a>{% if acct.is_admin %} <span class="badge badge--primary">{{ t('hosting.admin.admin_badge') }}</span>{% endif %}</td>
-  <td class="small">{{ acct.email or '—' }}</td>
-  <td>{% if acct.deleted_at %}<span class="badge">{{ t('hosting.admin.deleted') }}</span>{% elif acct.suspended %}<span class="badge badge--danger">{{ t('hosting.status.suspended') }}</span>{% elif acct.approval_status != 'approved' %}<span class="badge badge--warning">{{ t('hosting.approval.' ~ acct.approval_status) }}</span>{% elif acct.pending_deletion %}<span class="badge badge--warning">{{ t('hosting.admin.deletion_pending') }}</span>{% else %}<span class="badge badge--success">{{ t('hosting.admin.active') }}</span>{% endif %}</td>
-  <td class="small">{{ acct.created_at|date }}</td></tr>
+  <td><a class="text-link" href="{{ url_for('admin.account_page', account_id=acct.id) }}">{{ acct.username }}</a>{% if acct.is_admin %} <span class="badge badge--primary">{{ t('hosting.admin.admin_badge') }}</span>{% endif %}</td>
+  <td class="small col-optional">{{ acct.email or '—' }}</td>
+  <td>{% if acct.deleted_at %}<span class="badge">{{ t('hosting.admin.deleted') }}</span>{% elif acct.suspended %}<span class="badge badge--danger">{{ t('hosting.admin.account_suspended_badge') }}</span>{% elif acct.approval_status != 'approved' %}<span class="badge badge--warning">{{ t('hosting.approval.' ~ acct.approval_status) }}</span>{% elif acct.pending_deletion %}<span class="badge badge--warning">{{ t('hosting.admin.deletion_pending') }}</span>{% else %}<span class="badge badge--success">{{ t('hosting.admin.active') }}</span>{% endif %}</td>
+  <td class="small date col-optional">{{ acct.created_at|date }}</td></tr>
 {% endfor %}</tbody></table></div></section>
 
 <section class="card table-panel"><h2>{{ t('hosting.admin.instances') }}</h2>
 <details class="bulk-actions table-bulk"><summary>{{ t('hosting.bulk.title') }}</summary>
 <p class="hint">{{ t('hosting.bulk.hint') }}</p>
 <form method="post" id="inst-bulk" class="bulk-bar">{{ ui.csrf() }}
-  {% for action, label in [('admin.bulk_stop', 'hosting.bulk.stop'), ('admin.bulk_restart', 'hosting.bulk.start'), ('admin.bulk_suspend', 'hosting.bulk.suspend'), ('admin.bulk_unsuspend', 'hosting.bulk.unsuspend'), ('admin.bulk_terminate', 'hosting.bulk.terminate'), ('admin.bulk_restore', 'hosting.bulk.restore'), ('admin.bulk_purge', 'hosting.bulk.purge')] %}
-  <button class="btn btn--small" formaction="{{ url_for(action) }}" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ t(label) }}</button>{% endfor %}</form></details>
-<div class="table-wrap"><table class="table"><thead><tr><th></th><th>{{ t('hosting.instance.name') }}</th><th>{{ t('hosting.instance.owner') }}</th><th>{{ t('hosting.instance.status') }}</th><th>{{ t('hosting.instance.expires') }}</th><th>{{ t('hosting.instance.storage') }}</th></tr></thead><tbody>
+  {#- Terminating and deleting for good look destructive, as they do on the owner's dashboard. -#}
+  {% for action, label in [('admin.bulk_stop', 'hosting.bulk.stop'), ('admin.bulk_restart', 'hosting.bulk.start'), ('admin.bulk_suspend', 'hosting.bulk.suspend'), ('admin.bulk_unsuspend', 'hosting.bulk.unsuspend'), ('admin.bulk_restore', 'hosting.bulk.restore'), ('admin.bulk_terminate', 'hosting.bulk.terminate'), ('admin.bulk_purge', 'hosting.bulk.purge')] %}
+  <button class="btn btn--small{% if action in ('admin.bulk_terminate', 'admin.bulk_purge') %} btn--danger{% endif %}" formaction="{{ url_for(action) }}" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ t(label) }}</button>{% endfor %}</form></details>
+<div class="table-wrap"><table class="table"><thead><tr><th><span class="visually-hidden">{{ t('hosting.bulk.select') }}</span></th><th>{{ t('hosting.instance.name') }}</th><th class="col-owner">{{ t('hosting.instance.owner') }}</th><th>{{ t('hosting.instance.status') }}</th><th class="col-optional">{{ t('hosting.instance.expires') }}</th><th class="col-optional">{{ t('hosting.instance.storage') }}</th></tr></thead><tbody>
 {% for inst in instances %}
 <tr><td><input type="checkbox" name="instance_ids" value="{{ inst.id }}" form="inst-bulk" aria-label="{{ inst.original_slug }}"></td>
-  <td><a href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ inst.original_slug }}</a>{% if inst.domain_mode == 'apex' %} <span class="badge">apex</span>{% endif %}</td>
-  <td>{{ inst.owner_username }}</td><td>{{ ui.status(inst.status) }}{% if inst.grace_active %} <span class="small muted">{{ t('hosting.admin.retained') }}</span>{% endif %}</td>
-  <td class="small">{% if inst.seconds_left is none %}—{% elif inst.expired %}{{ t('hosting.instance.expired') }}{% else %}{{ inst.seconds_left|duration }}{% endif %}</td>
-  <td class="small">{{ inst.storage_mb }} MB</td></tr>
+  {#- On the narrowest phones the owner moves under the name, so the status badge is not cut off. -#}
+  <td><a class="text-link" href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ inst.original_slug }}</a>{% if inst.domain_mode == 'apex' %} <span class="badge">{{ t('hosting.admin.apex_badge') }}</span>{% endif %}<span class="small muted cell-note owner-note"><span class="visually-hidden">{{ t('hosting.instance.owner') }}: </span>{{ inst.owner_username }}</span></td>
+  <td class="col-owner">{{ inst.owner_username }}</td><td>{{ ui.status(inst.status, expired=inst.expired) }}{% if inst.grace_active %}<span class="small muted cell-note">{{ t('hosting.admin.retained') }}</span>{% endif %}</td>
+  <td class="small nowrap col-optional">{% if inst.status == 'terminated' %}—{% elif inst.seconds_left is never_expiring %}{{ t('hosting.instance.never') }}{% elif inst.expired %}{{ inst.expires_at|date }}{% else %}{{ inst.seconds_left|duration }}{% endif %}</td>
+  <td class="small nowrap col-optional">{{ inst.storage_mb|mb }} MB</td></tr>
 {% endfor %}</tbody></table></div></section>
 <div class="panel-list">
 <details class="card" id="signup-access" data-remember><summary>{{ t('hosting.admin.signup_title') }} · {{ t('hosting.admin.invites') }}</summary>
   <form method="post" action="{{ url_for('admin.signup_mode') }}" class="cluster">{{ ui.csrf() }}
     <label class="visually-hidden" for="f-mode">{{ t('hosting.admin.signup_title') }}</label>
     <select id="f-mode" name="signup_mode">{% for mode in ('open', 'invite', 'approval', 'closed') %}<option value="{{ mode }}"{% if mode == signup_mode %} selected{% endif %}>{{ t('hosting.signup_mode.' ~ mode) }}</option>{% endfor %}</select>
-    <button class="btn btn--small" type="submit">{{ t('common.save') }}</button></form>
+    <button class="btn" type="submit">{{ t('common.save') }}</button></form>
   <h3>{{ t('hosting.admin.invites') }}</h3>
   <form method="post" action="{{ url_for('admin.create_invite') }}" class="form">{{ ui.csrf() }}
     <div class="form-grid">{{ ui.field('custom_code', t('hosting.admin.invite_code'), attrs={'maxlength': 32}) }}
     {{ ui.field('max_uses', t('hosting.admin.invite_uses'), '1', type='number', attrs={'min': 1, 'max': 1000}) }}
     {{ ui.field('expires_at', t('hosting.admin.invite_expires'), type='datetime-local') }}
     {{ ui.field('note', t('hosting.admin.invite_note'), attrs={'maxlength': 200}) }}</div>
-    <p><button class="btn btn--small btn--primary" type="submit">{{ t('hosting.admin.invite_create') }}</button></p></form>
+    <p><button class="btn btn--primary" type="submit">{{ t('hosting.admin.invite_create') }}</button></p></form>
   <ul class="plain-list">{% for code in invites %}<li><span class="mono">{{ code.code }}</span> {{ code.current_uses }}/{{ code.max_uses }} {{ code.note }}
     {{ ui.post(url_for('admin.delete_invite', invite_id=code.id), t('hosting.admin.invite_delete'), confirm=t('hosting.common.are_you_sure')) }}</li>{% endfor %}</ul>
 </details>
@@ -85,7 +97,7 @@
     {{ ui.field('password', t('hosting.field.password'), type='password', required=true, attrs={'autocomplete': 'new-password'}) }}
     {{ ui.field('confirm_password', t('hosting.field.confirm_password'), type='password', required=true, attrs={'autocomplete': 'new-password'}) }}
     {{ ui.check('is_admin', t('hosting.admin.make_admin')) }}
-    <p><button class="btn btn--small btn--primary" type="submit">{{ t('hosting.admin.create_account') }}</button></p></form>
+    <p><button class="btn btn--primary" type="submit">{{ t('hosting.admin.create_account') }}</button></p></form>
 </details>
 </div>
 

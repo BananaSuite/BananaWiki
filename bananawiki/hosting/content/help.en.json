@@ -2,15 +2,15 @@
   {
     "slug": "getting-started",
     "title": "Creating your first wiki",
-    "description": "Create a hosting account and a wiki instance.",
+    "description": "Create a hosting account and your first wiki.",
     "sections": [
       {
         "heading": "Your hosting account",
-        "html": "<p>Register at <a href=\"/signup\">the hosting portal</a>. Follow any email verification or account approval steps shown there. If approval is required, wait for the decision before creating an instance.</p>"
+        "html": "<p>Register at <a href=\"/signup\">the hosting portal</a>. Follow any email verification or account approval steps shown there. If approval is required, wait for the decision before creating a wiki.</p>"
       },
       {
         "heading": "Create the wiki",
-        "html": "<p>Choose <strong>New Instance</strong> in the dashboard and complete the form. The portal shows the address, initial administrator credentials, service expiry, and resource limits. Save the credentials and open the wiki to begin. Wiki accounts and hosting accounts are separate. <a href=\"/help/features\">What your wiki includes</a> lists everything it can do.</p>"
+        "html": "<p>Choose <strong>New wiki</strong> on <strong>Your wikis</strong> and complete the form. The portal shows the address, the initial administrator credentials, the service expiry and the storage limit. Save the credentials and open the wiki to begin. Wiki accounts and hosting accounts are separate. <a href=\"/help/features\">What your wiki includes</a> lists everything it can do.</p>"
       }
     ]
   },
@@ -21,31 +21,31 @@
     "sections": [
       {
         "heading": "Pages and editing",
-        "html": "<p>Pages are written in Markdown, with a live preview beside the editor. You can import a <code>.md</code> or <code>.txt</code> file into a page, attach files and images, embed videos, and export any page as Markdown or PDF or print it. Drafts are saved while you type, so closing the tab does not lose your work.</p><p>Pages live in categories, which can be nested, and the sidebar search finds pages and categories by name. Administrators can import or export many pages at once as Markdown files. The visual page builder lays out a page without writing Markdown; on this service it has to be allowed for your instance first.</p>"
+        "html": "<p>Pages are written in Markdown, with a live preview beside the editor. You can import a <code>.md</code> or <code>.txt</code> file into a page, attach files and images, embed videos, and export any page as Markdown or PDF or print it. Drafts are saved while you type, so closing the tab does not lose your work.</p><p>Pages live in categories, which can be nested, and the sidebar search finds pages and categories by name. Administrators can import or export many pages at once with <strong>Bulk Markdown</strong>. The <strong>Page builder</strong> lays out a page without writing Markdown; on this service it has to be allowed for your wiki first.</p>"
       },
       {
         "heading": "History and review",
-        "html": "<p>Every save is kept. A page’s history shows what changed between two revisions and lets you restore an earlier one.</p><p>With <strong>Page Governance</strong> an editor can reserve a page while working on it, or protect it so that only they can edit it, and changes proposed by people without edit rights wait for approval. Another administrator can lift a protection after a 72-hour wait. <strong>Deletion Slowdown</strong> holds a deleted page for 48 hours so an administrator can bring it back.</p>"
+        "html": "<p>Every save is kept. A page's history shows what changed between two revisions and lets you restore an earlier one.</p><p>With <strong>Page governance</strong> an editor can reserve a page while working on it, or protect it so that only they can edit it, and changes proposed by people without edit rights wait for approval. Another administrator can lift a protection after a 72-hour wait. The <strong>Deletion slowdown</strong> plugin holds a deleted page for 48 hours so an administrator can bring it back.</p>"
       },
       {
         "heading": "People and access",
-        "html": "<p>Every account has a role: user, editor, administrator or owner. Administrators can also build custom roles from individual permissions, and limit reading and editing to particular categories. New members join with an invite code or by signing up, and sign-ups can require approval.</p><p>A wiki is private by default. Public read access is optional and, on this service, has to be allowed for your instance. <strong>Temporary Accounts</strong> removes accounts, pages or elevated roles on a date you choose.</p>"
+        "html": "<p>Every account has a role: user, editor, administrator or owner. Administrators can also build custom roles from individual permissions, and limit reading and editing to particular categories. New members join with an invite code or by signing up, and sign-ups can require approval.</p><p>A wiki is private by default. Public read access is optional and, on this service, has to be allowed for your wiki. The <strong>Temporary accounts and pages</strong> plugin removes accounts, pages or elevated roles on a date you choose.</p>"
       },
       {
         "heading": "Working together",
-        "html": "<ul><li><strong>Kanban</strong> boards with tickets, comments, attachments and a history of changes.</li><li><strong>Canvas</strong> diagrams that mix text, images and video with links to wiki pages.</li><li><strong>Chats and Groups</strong> for direct messages and group conversations inside the wiki.</li><li><strong>Announcements</strong> for banners shown across the site.</li><li><strong>User Profiles</strong> with a bio, an avatar and a map of each person’s contributions.</li></ul>"
+        "html": "<ul><li><strong>Kanban boards</strong> with tickets, comments, attachments and a history of changes.</li><li><strong>Canvas</strong> diagrams that mix text, images and video with links to wiki pages.</li><li><strong>Chats and groups</strong> for direct messages and group conversations inside the wiki.</li><li><strong>Announcements</strong> for banners shown across the site.</li><li><strong>User profiles</strong> with a bio, an avatar and a map of each person's contributions.</li></ul>"
       },
       {
         "heading": "Reading and learning",
-        "html": "<ul><li><strong>Text-to-Speech</strong> reads pages aloud in English and Italian with Piper voices that run on the server rather than a third-party service, once the voices are installed there.</li><li><strong>Assessments</strong> add polls and quizzes to a page, with points and limits on attempts.</li><li><strong>Badges</strong> are awarded by hand or automatically, for example after a number of contributions.</li><li><strong>Difficulty Tags</strong> label pages by level.</li></ul>"
+        "html": "<ul><li><strong>Read aloud</strong> reads pages aloud in English and Italian with Piper voices that run on the server rather than a third-party service, once the voices are installed there.</li><li><strong>Assessments</strong> add polls and quizzes to a page, with points and limits on attempts.</li><li><strong>Badges</strong> are awarded by hand or automatically, for example after a number of contributions.</li><li><strong>Difficulty tags</strong> label pages by level.</li></ul>"
       },
       {
         "heading": "Administration",
-        "html": "<p>The interface is available in English, Italian and German, and administrators can add another language. EasyWiki mode, chosen when you create the instance, switches off the advanced features for groups that only need pages. Members can start a guided tour from their settings, and administrators can show it to everyone who joins.</p><p>The <strong>API Service</strong> gives scripts access through tokens limited to chosen areas. <strong>Custom Pages</strong> publishes content at an address you pick. Every member can download their own data from their Settings page, and <a href=\"/help/exports-backups\">Site Migration</a> exports the whole wiki as one archive.</p>"
+        "html": "<p>The interface is available in English, Italian and German, and administrators can add another language. <strong>Easy mode</strong>, which you can tick when you create the wiki, switches off the advanced features for groups that only need pages. Members can start a guided tour from their settings, and administrators can show it to everyone who joins.</p><p>The <strong>REST API</strong> gives scripts access through tokens limited to chosen areas. The <strong>Custom pages</strong> plugin publishes content at an address you pick. Every member can download their own data from their settings, and <a href=\"/help/exports-backups\">Site migration</a> exports the whole wiki as one archive.</p>"
       },
       {
         "heading": "Switched on from the start",
-        "html": "<p>A new wiki starts with Attachments, Audit, Canvas, Chats and Groups, Drafts, Kanban Board, Page History, Text-to-Speech and User Data Export enabled. If the first administrator picks the <strong>Easy</strong> setup, Attachments and Chats and Groups start switched off. The rest are one click away; see <a href=\"/help/plugins\">Managing plugins</a>.</p>"
+        "html": "<p>A new wiki starts with Announcements, Assessments, Attachments, Audit log, Badges, Canvas, Chats and groups, Difficulty tags, Drafts, Kanban boards, Mascot, Page history, Personal data export, Read aloud and User profiles enabled. The <strong>Recommended</strong> setup, offered when the wiki opens for the first time, keeps exactly these. In <strong>Easy mode</strong>, Assessments, Canvas, Chats and groups, Kanban boards and Read aloud are not available. The other plugins are one click away; see <a href=\"/help/plugins\">Managing plugins</a>.</p>"
       }
     ]
   },
@@ -60,7 +60,7 @@
       },
       {
         "heading": "Page access",
-        "html": "<p>Check category and page permissions before sharing content. Test the result using an ordinary user account. Removing a user’s editing permission does not automatically make previously public content private.</p>"
+        "html": "<p>Check category and page permissions before sharing content. Test the result using an ordinary user account. Removing a user's editing permission does not automatically make previously public content private.</p>"
       }
     ]
   },
@@ -82,7 +82,7 @@
   {
     "slug": "writing-pages",
     "title": "Creating and editing pages",
-    "description": "Write pages, organize categories, and add files.",
+    "description": "Write pages, organise categories and add files.",
     "sections": [
       {
         "heading": "Pages and history",
@@ -90,7 +90,7 @@
       },
       {
         "heading": "Uploads",
-        "html": "<p>Use the editor’s upload controls for images and attachments. The wiki shows the allowed formats and size limits. The hosting service also limits total storage. Keep original files outside the wiki when you need an independent copy.</p>"
+        "html": "<p>Use the editor's upload controls for images and attachments. The wiki shows the allowed formats and size limits. The hosting service also limits total storage. Keep original files outside the wiki when you need an independent copy.</p>"
       }
     ]
   },
@@ -101,15 +101,15 @@
     "sections": [
       {
         "heading": "Where to find them",
-        "html": "<p>Open <strong>Settings</strong> from the top bar and choose <strong>Plugins</strong> under <strong>Admin Operations</strong>. Disabling a plugin hides its pages and menus and keeps its content, but it also switches the plugin’s own settings off, for example direct messages, group chats and chat attachments for Chats and Groups. Enabling it again does not turn those back on, so check the plugin’s settings afterwards. Disabling Text-to-Speech also deletes the audio it generated.</p>"
+        "html": "<p>In the wiki, open the account menu, choose <strong>Administration</strong>, then <strong>Plugins</strong> under <strong>Wiki settings</strong>. Disabling a plugin hides its pages and menus and keeps its content, but it also switches the plugin's own settings off, for example direct messages, group chats and chat attachments for Chats and groups. Enabling it again does not turn those back on, so check the plugin's settings afterwards. Disabling Read aloud also deletes the audio it generated.</p>"
       },
       {
         "heading": "The built-in plugins",
-        "html": "<p>These ship with every wiki. The ones marked <em>on</em> are enabled when a wiki is created.</p><ul><li><strong>Announcements</strong>: banners shown across the site.</li><li><strong>API Service</strong>: a REST API with personal tokens, each limited to chosen areas, and an audit log.</li><li><strong>Assessments</strong>: polls and quizzes on a page, with points and attempt limits.</li><li><strong>Attachments</strong> <em>(on)</em>: files attached to pages.</li><li><strong>Audit</strong> <em>(on)</em>: a record of role changes, custom user tags and contributions.</li><li><strong>Badges</strong>: awards given by hand or automatically.</li><li><strong>Canvas</strong> <em>(on)</em>: diagrams with text, images, video and links to pages.</li><li><strong>Chats and Groups</strong> <em>(on)</em>: direct messages and group conversations.</li><li><strong>Custom Pages</strong>: content published at an address you choose.</li><li><strong>Deletion Slowdown</strong>: deleted pages are held for 48 hours before they go.</li><li><strong>Difficulty Tags</strong>: labels for the level of a page.</li><li><strong>Drafts</strong> <em>(on)</em>: drafts saved while you edit.</li><li><strong>Kanban Board</strong> <em>(on)</em>: boards, tickets, comments and attachments.</li><li><strong>Page Governance</strong>: reservations, protection and approval of proposed changes.</li><li><strong>Page History</strong> <em>(on)</em>: revisions, differences and restoring an earlier version.</li><li><strong>Temporary Accounts &amp; Pages</strong>: accounts, pages and roles that expire on a schedule.</li><li><strong>Text-to-Speech</strong> <em>(on)</em>: pages read aloud by voices running on the server.</li><li><strong>User Data Export</strong> <em>(on)</em>: each member can download their own data.</li><li><strong>User Profiles</strong>: profile pages with a bio, an avatar and a contribution map.</li></ul>"
+        "html": "<p>These ship with every wiki, under the names the Plugins page shows. The ones marked <em>on</em> are enabled when a wiki is created.</p><ul><li><strong>Announcements</strong> <em>(on)</em>: banners shown across the site.</li><li><strong>Assessments</strong> <em>(on)</em>: polls and quizzes on a page, with points and attempt limits.</li><li><strong>Attachments</strong> <em>(on)</em>: files attached to pages.</li><li><strong>Audit log</strong> <em>(on)</em>: a record of role changes, custom user tags and contributions.</li><li><strong>Badges</strong> <em>(on)</em>: awards given by hand or automatically.</li><li><strong>Canvas</strong> <em>(on)</em>: diagrams with text, images, video and links to pages.</li><li><strong>Chats and groups</strong> <em>(on)</em>: direct messages and group conversations.</li><li><strong>Custom pages</strong>: content published at an address you choose.</li><li><strong>Deletion slowdown</strong>: deleted pages are held for 48 hours before they go.</li><li><strong>Difficulty tags</strong> <em>(on)</em>: labels for the level of a page.</li><li><strong>Drafts</strong> <em>(on)</em>: drafts saved while you edit.</li><li><strong>Kanban boards</strong> <em>(on)</em>: boards, tickets, comments and attachments.</li><li><strong>Mascot</strong> <em>(on)</em>: a pixel-art banana in the top bar, with a small surprise for the curious.</li><li><strong>Page governance</strong>: reservations, protection and approval of proposed changes.</li><li><strong>Page history</strong> <em>(on)</em>: revisions, differences and restoring an earlier version.</li><li><strong>Personal data export</strong> <em>(on)</em>: each member can download their own data.</li><li><strong>Read aloud</strong> <em>(on)</em>: pages read aloud by voices running on the server.</li><li><strong>REST API</strong>: personal tokens, each limited to chosen areas, with a log of their use.</li><li><strong>Temporary accounts and pages</strong>: accounts, pages and roles that expire on a schedule.</li><li><strong>User profiles</strong> <em>(on)</em>: profile pages with a bio, an avatar and a contribution map.</li></ul>"
       },
       {
         "heading": "Plugins from elsewhere",
-        "html": "<p>The Plugins page can also import a <code>.bwplugin</code> file written by someone else. A plugin is Python code and runs with the wiki’s own access to its data and network, so install only code you trust. On this service each wiki runs in its own container, and the operator can switch off every custom plugin on a wiki at once if one causes trouble.</p>"
+        "html": "<p>The Plugins page can also import a <code>.bwplugin</code> file written by someone else. A plugin is Python code and runs with the wiki's own access to its data and network, so install only code you trust. On this service each wiki runs in its own container, and the operator can switch off every custom plugin on a wiki at once if one causes trouble.</p>"
       }
     ]
   },
@@ -120,11 +120,11 @@
     "sections": [
       {
         "heading": "Export your wiki",
-        "html": "<p>Open <strong>Settings</strong>, then <strong>Migration</strong> under <strong>Admin Operations</strong>, and in the <strong>Export Site</strong> section choose <strong>Download Site Export</strong> for a complete archive of the wiki: content, accounts, files and settings. It is the copy to keep, and the one to use if you <a href=\"/help/move-to-your-own-server\">move the wiki to your own server</a>. For pages only, <strong>Markdown Import / Export</strong> exports them as Markdown files, and any single page can be exported as Markdown or PDF from its own menu. Members can download their personal data from their Settings page.</p>"
+        "html": "<p>In the wiki, open <strong>Administration</strong>, then <strong>Site migration</strong> under <strong>System</strong>, and in <strong>Export the whole site</strong> choose <strong>Export</strong> for a complete archive of the wiki: content, accounts, files and settings. Only the wiki's owner can do this. It is the copy to keep, and the one to use if you <a href=\"/help/move-to-your-own-server\">move the wiki to your own server</a>. For pages only, <strong>Bulk Markdown</strong> exports them as Markdown files, and any single page can be exported as Markdown or PDF from its own menu. Members can download their personal data from their settings.</p>"
       },
       {
         "heading": "Platform backups",
-        "html": "<p>Platform backups are managed by the service operator. Contact support to check which restore points and retention periods are available for your instance. Keep your own exports; a service backup is not a substitute for a copy you control.</p>"
+        "html": "<p>Platform backups are managed by the service operator. Contact support to check which restore points and retention periods are available for your wiki. Keep your own exports; a service backup is not a substitute for a copy you control.</p>"
       }
     ]
   },
@@ -135,11 +135,11 @@
     "sections": [
       {
         "heading": "Before you start",
-        "html": "<p>BananaWiki is free software under the GNU AGPL, and the source this service runs is published at <a href=\"{source_url}\">{source_url}</a>. A wiki moves across with its pages, accounts, history and files. You need an administrator account on the wiki you are moving, and somewhere to run the new one: a Linux server, or for a small group the desktop launcher, built from the source, on Windows, Linux or a Mac with Apple silicon.</p>"
+        "html": "<p>BananaWiki is free software under the GNU AGPL, and the source this service runs is published in <a href=\"{source_url}\">the BananaWiki source repository</a>. A wiki moves across with its pages, accounts, history and files. You need the wiki's owner account (the one created with the wiki) and somewhere to run the new one: a Linux server, or for a small group the desktop launcher, built from the source, on Windows, Linux or a Mac with Apple silicon.</p>"
       },
       {
         "heading": "1. Export the wiki",
-        "html": "<p>In the wiki you are moving, open <strong>Settings</strong>, then <strong>Migration</strong> under <strong>Admin Operations</strong>, and in the <strong>Export Site</strong> section choose <strong>Download Site Export</strong>. The ZIP holds every table (accounts, pages, categories, settings, chats, boards and more), uploaded images and attachments, custom icons and the site configuration.</p><p>Keep the file private: it contains everything in the wiki, including account records.</p>"
+        "html": "<p>In the wiki you are moving, open <strong>Administration</strong>, then <strong>Site migration</strong> under <strong>System</strong>, and in <strong>Export the whole site</strong> choose <strong>Export</strong>. The ZIP holds every table (accounts, pages, categories, settings, chats, boards and more), uploaded images and attachments, custom icons and the site configuration.</p><p>Keep the file private: it contains everything in the wiki, including account records.</p>"
       },
       {
         "heading": "2. Install BananaWiki",
@@ -147,41 +147,41 @@
       },
       {
         "heading": "3. Import the export",
-        "html": "<p>Signed in as that administrator, open <strong>Settings</strong>, then <strong>Migration</strong>, and under <strong>Import Site</strong> select the export file. Choose <strong>Delete all previous data and restore from file</strong> and start the import.</p><p>The temporary administrator is replaced by the accounts from the export, so sign in again with your usual username and password. Everyone else keeps theirs, except members who only ever signed in through the hosting portal: they have no password of their own, so an administrator sets one for them on the new server.</p>"
+        "html": "<p>Signed in as that administrator, open <strong>Administration</strong>, then <strong>Site migration</strong>. Under <strong>Replace this site with an export</strong>, select the export file, tick <strong>I understand that this replaces all data on this wiki</strong>, enter <strong>Your password</strong> and choose <strong>Import and replace</strong>.</p><p>The temporary administrator is replaced by the accounts from the export, so sign in again with your usual username and password. Everyone else keeps theirs, except members who only ever signed in through the hosting portal: they have no password of their own, so an administrator sets one for them on the new server.</p>"
       },
       {
         "heading": "After the move",
-        "html": "<ul><li>Point your own address at the new server. Members sign in again, because sessions from the old one do not carry over.</li><li>Settings stored encrypted with the old server’s key, such as a remote text-to-speech token, read as empty and need to be entered again.</li><li>Automatic updates are off until you turn them on, and backups are yours to set up; the deployment guide explains both.</li><li>If anything did not come across, the original export is still your complete copy.</li></ul>"
+        "html": "<ul><li>Point your domain at the new server. Members sign in again, because sessions from the old one do not carry over.</li><li>Settings stored encrypted with the old server's key, such as a remote read-aloud token, read as empty and need to be entered again.</li><li>Automatic updates are off until you turn them on, and backups are yours to set up; the deployment guide explains both.</li><li>If anything is missing, the original export is still your complete copy.</li></ul>"
       }
     ]
   },
   {
     "slug": "account-management",
-    "title": "Managing accounts and instances",
-    "description": "Review account access and operate your instances.",
+    "title": "Managing your account and wikis",
+    "description": "Review account access and look after your wikis.",
     "sections": [
       {
         "heading": "Account security",
-        "html": "<p>Use the Account page to update your profile and password, manage two-step verification, and review active sessions. Save recovery codes privately. End sessions you no longer recognize.</p>"
+        "html": "<p>Use the <a href=\"/account\">Account page</a> to update your profile and password, manage two-step verification and review the signed-in devices. Save your recovery codes privately. Sign out the devices you no longer recognise.</p>"
       },
       {
-        "heading": "Instance actions",
-        "html": "<p><strong>Pause</strong> stops an instance and keeps its files, and <strong>Resume</strong> starts the same wiki again. Terminating takes the wiki offline and keeps its data for the retention period shown in the portal; deleting it permanently, or the end of that period, removes the data for good.</p>"
+        "heading": "Wiki actions",
+        "html": "<p>On a wiki's page, under <strong>Wiki controls</strong>, <strong>Stop</strong> takes the wiki offline and keeps its files, and <strong>Start</strong> brings the same wiki back. <strong>Terminate</strong>, under <strong>Reset or terminate wiki</strong>, takes the wiki offline and keeps its data for the retention period shown in the portal; deleting it permanently, or the end of that period, removes the data for good.</p><p><strong>Reset admin password</strong> gives the wiki's administrator a new temporary password, signs that account out everywhere and turns off its two-step verification: use it when you are locked out of your wiki, even after losing your authenticator app and recovery codes. Once you are back in, turn two-step verification on again in the wiki's settings.</p>"
       }
     ]
   },
   {
     "slug": "security",
     "title": "Protecting your wiki",
-    "description": "Use strong account controls and trusted extensions.",
+    "description": "Use strong account controls and choose who can do what.",
     "sections": [
       {
         "heading": "Accounts and content",
-        "html": "<p>Use a unique password and enable two-step verification for your hosting account. Review collaborators and wiki roles periodically. Check visibility before publishing private material and keep independent exports of important content.</p>"
+        "html": "<p>Use a unique password and turn on two-step verification for your hosting account. Review collaborators and wiki roles periodically. Check visibility before publishing private material and keep independent exports of important content. Install only plugins you trust; see <a href=\"/help/plugins\">Managing plugins</a>.</p>"
       },
       {
         "heading": "Report a problem",
-        "html": "<p>Report suspected account compromise or service abuse to <a href=\"mailto:{contact_email}\">{contact_email}</a>. For a vulnerability in the software, follow the private reporting instructions in its <a href=\"https://github.com/BananaSuite/BananaWiki/security/policy\">security policy</a>. Do not post credentials or private wiki content in public issues.</p>"
+        "html": "<p>Report suspected account compromise or service abuse to <a href=\"mailto:{contact_email}\">{contact_email}</a>. For a vulnerability in the software, follow the private reporting instructions in the BananaWiki project's <a href=\"https://github.com/BananaSuite/BananaWiki/security/policy\">security policy</a>. Do not post credentials or private wiki content in public issues.</p>"
       }
     ]
   },
@@ -192,11 +192,11 @@
     "sections": [
       {
         "heading": "A wiki does not open",
-        "html": "<p>Check the instance status and expiry in the hosting dashboard. A paused instance may need to be resumed; if the account is suspended or declined, sort that out with the platform administrators first. Use the address the service assigned while diagnosing a custom-domain problem.</p>"
+        "html": "<p>Check the wiki's status and expiry on <strong>Your wikis</strong>. A stopped wiki starts again with <strong>Start</strong>; if your account is suspended or was not approved, sort that out with the platform administrators first. Use the address the service assigned while diagnosing a custom-domain problem.</p>"
       },
       {
         "heading": "Ask for help",
-        "html": "<p>Include the wiki address, approximate time, action attempted, and visible error. Describe whether the problem affects every user or one account. Never send passwords, backup keys, or authenticator codes.</p>"
+        "html": "<p>Include the wiki address, approximate time, action attempted, and visible error. Describe whether the problem affects every user or one account. Never send passwords, recovery codes, backup keys or authenticator codes.</p>"
       }
     ]
   },
@@ -207,64 +207,64 @@
     "sections": [
       {
         "heading": "Verification steps",
-        "html": "<p>If the portal asks for email verification, use the link sent to your contact address. Check spam folders and the address entered in Account settings. The portal shows when another verification email can be requested.</p>"
+        "html": "<p>If the portal asks for email verification, use the link sent to your contact address. Check spam folders and the address entered on the <a href=\"/account\">Account page</a>. The portal shows when another verification email can be requested.</p>"
       },
       {
         "heading": "An address is no longer available",
-        "html": "<p>Update the address from Account settings using your current password. If you cannot sign in, contact support for account recovery. Verification does not itself approve a pending account.</p>"
+        "html": "<p>Update the address on the Account page using your current password. If you cannot sign in, contact support for account recovery. Verification does not itself approve a pending account.</p>"
       }
     ]
   },
   {
     "slug": "instance-expiry",
-    "title": "Instance expiry and renewal",
-    "description": "Understand hosting time limits and recovery windows.",
+    "title": "Wiki expiry and renewal",
+    "description": "Understand hosting time limits, renewal and recovery windows.",
     "sections": [
       {
         "heading": "Service expiry",
-        "html": "<p>The dashboard shows each instance’s service expiry. Ask support about an extension before that date if you want to keep using the hosted instance. These hosting limits are separate from the AGPL software license, which permits personal and commercial self-hosting.</p>"
+        "html": "<p><strong>Your wikis</strong> shows how long each wiki has left. In the last days before a wiki expires, its page offers <strong>Renew</strong>, which extends it by the period shown on the button. If the button is not offered, ask support for an extension. These hosting limits are separate from the AGPL software licence, which permits personal and commercial self-hosting.</p>"
       },
       {
         "heading": "Recovery",
-        "html": "<p>After termination, retained data may be restored during the configured grace period. Contact support promptly and quote the instance address. Recovery cannot be promised after the retained files have been deleted. Export important content before expiry.</p>"
+        "html": "<p>After termination, retained data may be restored during the configured grace period, and the wiki's page may offer a download until then. Contact support promptly and quote the wiki address. Recovery cannot be promised after the retained files have been deleted. Export important content before expiry.</p>"
       }
     ]
   },
   {
     "slug": "custom-domains",
     "title": "Using a custom domain",
-    "description": "Connect a domain you control to an approved instance.",
+    "description": "Connect a domain you control to an approved wiki.",
     "sections": [
       {
         "heading": "Permission and DNS",
-        "html": "<p>A platform administrator must permit custom domains for your instance. Then open the domain controls, add the hostname, and copy the exact TXT verification record and serving record shown in the portal to your DNS provider. Keep those records in place.</p>"
+        "html": "<p>A platform administrator must permit custom domains for your wiki. Then open <strong>Custom domain</strong> on the wiki's page, add the hostname, and copy the exact TXT verification record and serving record shown in the portal to your DNS provider. Keep those records in place.</p>"
       },
       {
         "heading": "Verification and HTTPS",
-        "html": "<p>Request verification after DNS changes are visible. A hostname that is not verified within an hour expires: add it again and replace the TXT value with the new one the portal shows. HTTPS becomes available after verification and certificate issuance. If permission is revoked, verification expires, or the instance is suspended, the custom domain stops routing. The <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/hosting.md\">technical DNS guide</a> explains the checks.</p>"
+        "html": "<p>Request verification after DNS changes are visible. A hostname that is not verified within an hour expires: add it again and replace the TXT value with the new one the portal shows. HTTPS becomes available after verification and certificate issuance. If permission is revoked, verification lapses, or the wiki is suspended, the custom domain stops routing. The <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/hosting.md\">technical DNS guide</a> explains the checks.</p>"
       }
     ]
   },
   {
     "slug": "api",
     "title": "Using the hosting API",
-    "description": "Create a token so a script can read your wikis and pause or resume them.",
+    "description": "Create a token so a script can read your wikis and stop or start them.",
     "sections": [
       {
         "heading": "Before you start",
-        "html": "<p>The hosting API lets a script or another program read your account and your wikis, and pause or resume a wiki, without signing in to the portal. The operator of this service has to switch it on first. If your Account page has no <strong>API tokens</strong> section, the API is not available to your account.</p>"
+        "html": "<p>The hosting API lets a script or another program read your account and your wikis, and stop (<code>pause</code>) or start (<code>resume</code>) a wiki, without signing in to the portal. The operator of this service has to switch it on first. If your Account page has no <strong>API tokens</strong> section, the API is not available to your account.</p>"
       },
       {
         "heading": "Creating a token",
-        "html": "<p>Open <a href=\"/account\">Account</a> and go to <strong>API tokens</strong>. Give the token a name that reminds you where it is used, tick the scopes it needs, choose when it expires and confirm with your current password. The token is shown once, straight after you create it, so copy it then. If you lose it, revoke it and create another.</p>"
+        "html": "<p>Open <a href=\"/account\">Account</a> and go to <strong>API tokens</strong>. Give the token a name that reminds you where it is used, tick the <strong>Permissions</strong> it needs, choose when it expires and confirm with your current password. The token is shown once, straight after you create it, so copy it then. If you lose it, revoke it and create another.</p>"
       },
       {
         "heading": "What a token can do",
-        "html": "<ul><li><code>account:read</code> reads your username and contact email.</li><li><code>instances:read</code> lists your wikis, and the wikis shared with you, with their status and storage.</li><li><code>instances:manage</code> pauses and resumes a wiki.</li><li><code>admin:read</code>, offered only to platform administrators, reads the approval queue and instance totals.</li></ul><p>On a wiki someone shared with you, a token can do only what your collaborator permissions allow. The API cannot delete, reset or download a wiki; the portal still does those.</p>"
+        "html": "<ul><li><code>account:read</code> reads your username and contact email.</li><li><code>instances:read</code> lists your wikis, and the wikis shared with you, with their status and storage.</li><li><code>instances:manage</code> stops (<code>pause</code>) and starts (<code>resume</code>) a wiki.</li><li><code>admin:read</code>, offered only to platform administrators, reads the approval queue and wiki totals.</li></ul><p>On a wiki someone shared with you, a token can do only what your collaborator permissions allow. The API cannot delete, reset or download a wiki; the portal still does those.</p>"
       },
       {
         "heading": "Using and protecting it",
-        "html": "<p>Send the token in the <code>Authorization</code> header of each request, as <code>Bearer</code> followed by the token, to <code>/api/v1</code> on this portal. For example, <code>/api/v1/instances</code> lists your wikis. Keep a token as private as a password and revoke the ones you no longer use. Changing or resetting your password revokes all of them. Switching the API off does not: your tokens stop working while it is off and work again when it is back on, so revoke the ones you no longer want. The <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/hosting.md#portal-rest-api\">API reference</a> lists every request.</p>"
+        "html": "<p>Send the token in the <code>Authorization</code> header of each request, as <code>Bearer</code> followed by the token, to <code>/api/v1</code> on this portal. For example, <code>/api/v1/instances</code> lists your wikis. Keep a token as private as a password and revoke the ones you no longer use. Changing or resetting your password revokes all of them. Switching the API off does not: your tokens stop working while it is off and work again when it is back on, so revoke the ones you no longer want. BananaWiki's <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/hosting.md#portal-rest-api\">API reference</a> lists every request.</p>"
       }
     ]
   },
@@ -279,7 +279,7 @@
       },
       {
         "heading": "Source and contributions",
-        "html": "<p>The source is maintained at <a href=\"https://github.com/BananaSuite/BananaWiki\">BananaSuite/BananaWiki</a> under AGPL version 3. Use public issues for reproducible software bugs and feature requests, with private data removed. Read the contribution guide before opening a pull request.</p>"
+        "html": "<p>The source this service runs is published in <a href=\"{source_url}\">the BananaWiki source repository</a> under the AGPL, version 3. Use public issues for reproducible software bugs and feature requests, with private data removed. Read the BananaWiki project's <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/CONTRIBUTING.md\">contribution guide</a> before opening a pull request.</p>"
       }
     ]
   }

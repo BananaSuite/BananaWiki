@@ -15,7 +15,10 @@ plugins, so they never get the master token; a single wiki is shut out with
 ``TTS_REVOKED_TENANTS``. Request bodies and text length are capped and
 refused, never silently truncated; at most ``TTS_MAX_CONCURRENT`` syntheses
 run at once and further requests wait up to ``TTS_QUEUE_TIMEOUT`` seconds
-before getting 503. Configuration is read from environment variables, see
+before getting 503. A client that stays silent for ``TTS_SOCKET_TIMEOUT``
+seconds while sending a request (or between keep-alive requests) is
+disconnected, and connections beyond ``TTS_MAX_CONNECTIONS`` are closed at
+once, so slow or idle clients cannot tie up every thread. Configuration is read from environment variables, see
 README.md.
 """
 
@@ -42,7 +45,7 @@ from typing import Any, Protocol
 
 log = logging.getLogger("bananawiki-tts-gpu")
 
-VERSION = "1.6.0"
+VERSION = "1.7.0"  # released with BananaWiki (tests check it matches bananawiki.__version__)
 _LANGUAGE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z]{2})?$")
 _VOICE_NAME = re.compile(r"^[\w.-]{1,120}$")
 
@@ -91,6 +94,13 @@ def _env_float(environ, name: str, default: float) -> float:
         raise ConfigError(f"{name} must be a number.") from None
 
 
+def _env_positive_float(environ, name: str, default: float) -> float:
+    value = _env_float(environ, name, default)
+    if value <= 0:
+        raise ConfigError(f"{name} must be greater than 0.")
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     token: str = field(repr=False)
@@ -104,6 +114,8 @@ class Settings:
     max_body_bytes: int = 256 * 1024
     max_concurrent: int = 1
     queue_timeout: float = 30.0
+    socket_timeout: float = 30.0
+    max_connections: int = 64
     output_format: str = "mp3"
     auto_download: bool = True
     preload: tuple[str, ...] = ("en", "it")
@@ -143,6 +155,8 @@ class Settings:
             max_body_bytes=_env_int(env, "TTS_MAX_BODY_BYTES", 256 * 1024, 1024),
             max_concurrent=_env_int(env, "TTS_MAX_CONCURRENT", 1),
             queue_timeout=_env_float(env, "TTS_QUEUE_TIMEOUT", 30.0),
+            socket_timeout=_env_positive_float(env, "TTS_SOCKET_TIMEOUT", 30.0),
+            max_connections=_env_int(env, "TTS_MAX_CONNECTIONS", 64),
             output_format=output,
             auto_download=env.get("TTS_AUTO_DOWNLOAD", "1").strip().lower() in ("1", "true", "yes", "on"),
             preload=tuple(c.strip() for c in env.get("TTS_PRELOAD", "en,it").split(",") if c.strip()),
@@ -296,6 +310,10 @@ def token_valid(settings: Settings, presented: str) -> bool:
     return hmac.compare_digest(candidate, tenant_token(settings.token, match.group(1)).encode("ascii"))
 
 
+class _ClientTimeout(Exception):
+    """The client stopped sending the request body (timeout or closed connection)."""
+
+
 def make_handler(settings: Settings, engine: Engine) -> type[BaseHTTPRequestHandler]:
     slots = threading.BoundedSemaphore(settings.max_concurrent)
 
@@ -303,6 +321,8 @@ def make_handler(settings: Settings, engine: Engine) -> type[BaseHTTPRequestHand
         server_version = f"BananaWikiTTS/{VERSION}"
         sys_version = ""
         protocol_version = "HTTP/1.1"
+        # Applied to the socket: a client silent this long while sending is disconnected.
+        timeout = settings.socket_timeout
 
         def log_message(self, fmt: str, *args: Any) -> None:
             log.info("%s %s", self.address_string(), fmt % args)
@@ -348,7 +368,13 @@ def make_handler(settings: Settings, engine: Engine) -> type[BaseHTTPRequestHand
             if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
                 raise RequestError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "Send application/json.")
             try:
-                payload = json.loads(self.rfile.read(int(length)).decode("utf-8"))
+                raw = self.rfile.read(int(length))
+            except TimeoutError:
+                raise _ClientTimeout from None
+            if len(raw) != int(length):
+                raise _ClientTimeout
+            try:
+                payload = json.loads(raw.decode("utf-8"))
             except (UnicodeDecodeError, ValueError):
                 raise RequestError(HTTPStatus.BAD_REQUEST, "The body is not valid JSON.") from None
             if not isinstance(payload, dict):
@@ -370,6 +396,10 @@ def make_handler(settings: Settings, engine: Engine) -> type[BaseHTTPRequestHand
                 return
             try:
                 text, language = self._read_request()
+            except _ClientTimeout:
+                self.close_connection = True
+                log.info("%s sent an incomplete request body; connection closed", self.address_string())
+                return
             except RequestError as error:
                 self.close_connection = True
                 self._json(error.status, {"error": str(error)})
@@ -399,10 +429,42 @@ def make_handler(settings: Settings, engine: Engine) -> type[BaseHTTPRequestHand
     return Handler
 
 
+class SpeechServer(ThreadingHTTPServer):
+    """One thread per connection, but never more than ``max_connections`` at once.
+
+    A connection over the cap is closed straight away instead of queueing a
+    thread, so a burst of idle connections cannot exhaust threads or memory;
+    each accepted one is bounded by the handler's socket timeout.
+    """
+
+    daemon_threads = True
+
+    def __init__(self, address: tuple[str, int], handler: type[BaseHTTPRequestHandler], max_connections: int):
+        self._connections = threading.BoundedSemaphore(max_connections)
+        self.max_connections = max_connections
+        super().__init__(address, handler)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        if not self._connections.acquire(blocking=False):
+            log.warning("Refused a connection from %s: %d connections are open", client_address[0],
+                        self.max_connections)
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._connections.release()
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._connections.release()
+
+
 def make_server(settings: Settings, engine: Engine) -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer((settings.host, settings.port), make_handler(settings, engine))
-    server.daemon_threads = True
-    return server
+    return SpeechServer((settings.host, settings.port), make_handler(settings, engine), settings.max_connections)
 
 
 def main() -> int:

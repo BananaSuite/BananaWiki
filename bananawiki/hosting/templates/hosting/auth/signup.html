@@ -1,5 +1,7 @@
 {% extends "hosting/base.html" %}
 {% import "hosting/_macros.html" as ui with context %}
+{#- A refusal about one field is shown under it; the message at the top only points there. -#}
+{% set inline_form_errors = true %}
 {% block title %}{{ t('hosting.signup.title') }}{% endblock %}
 {% block content %}
 <div class="card card--narrow">
@@ -14,16 +16,18 @@
     <input type="hidden" name="_form_time" value="{{ form_time }}">
     <input type="hidden" name="bootstrap_token" value="{{ bootstrap_token }}">
     <div class="visually-hidden" aria-hidden="true"><label>Website <input name="website" tabindex="-1" autocomplete="off"></label></div>
-    {{ ui.field('username', t('hosting.field.username'), form.get('username', ''), required=true, hint=t('hosting.field.username_hint'), attrs={'autocomplete': 'username', 'maxlength': 30, 'pattern': '[A-Za-z0-9_\\-]{3,30}'}) }}
-    {% if ask_email %}{{ ui.field('email', t('hosting.field.email'), form.get('email', ''), type='email', required=email_required, attrs={'autocomplete': 'email', 'maxlength': 254}) }}{% endif %}
-    {{ ui.field('password', t('hosting.field.password'), type='password', required=true, hint=t('hosting.field.password_hint'), attrs={'autocomplete': 'new-password', 'minlength': 8, 'maxlength': 1000}) }}
-    {{ ui.field('confirm_password', t('hosting.field.confirm_password'), type='password', required=true, attrs={'autocomplete': 'new-password', 'maxlength': 1000}) }}
-    {% if mode == 'invite' %}{{ ui.field('invite_code', t('hosting.field.invite_code'), form.get('invite_code', ''), required=true, attrs={'maxlength': 32}) }}{% endif %}
+    {{ ui.field('username', t('hosting.field.username'), form.get('username', ''), required=true, hint=t('hosting.field.username_hint'), attrs={'autocomplete': 'username', 'maxlength': 30, 'pattern': '[A-Za-z0-9_\\-]{3,30}'}, error=field_error('username')) }}
+    {% if ask_email %}{{ ui.field('email', t('hosting.field.email'), form.get('email', ''), type='email', required=email_required, attrs={'autocomplete': 'email', 'maxlength': 254}, error=field_error('email')) }}{% endif %}
+    {#- After "the passwords do not match" both fields are empty again: typing starts at the first one. -#}
+    {% set password_attrs = {'autocomplete': 'new-password', 'minlength': 8, 'maxlength': 1000} %}
+    {{ ui.field('password', t('hosting.field.password'), type='password', required=true, hint=t('hosting.field.password_hint'), attrs=dict(password_attrs, autofocus='autofocus') if field_error('confirm') else password_attrs, error=field_error('password')) }}
+    {{ ui.field('confirm_password', t('hosting.field.confirm_password'), type='password', required=true, attrs={'autocomplete': 'new-password', 'maxlength': 1000}, error=field_error('confirm'), focus=false) }}
+    {% if mode == 'invite' %}{{ ui.field('invite_code', t('hosting.field.invite_code'), form.get('invite_code', ''), required=true, attrs={'maxlength': 32}, error=field_error('invite')) }}{% endif %}
     {% if use_case_required %}
     {{ ui.textarea('signup_use_case', t('hosting.signup.use_case'), form.get('signup_use_case', ''),
-        hint=t('hosting.signup.use_case_hint'), required=true, attrs={'minlength': 20, 'maxlength': 2000}, id='f-use') }}
+        hint=t('hosting.signup.use_case_hint'), required=true, attrs={'minlength': 20, 'maxlength': 2000}, id='f-use', error=field_error('use_case')) }}
     {% endif %}
-    <label class="check"><input type="checkbox" name="accept_terms" value="1" required><span>{{ t('hosting.signup.accept_terms') }} <a href="{{ url_for('public.terms') }}">{{ t('hosting.signup.terms') }}</a> · <a href="{{ url_for('public.privacy') }}">{{ t('hosting.signup.privacy') }}</a></span></label>
+    {% include "hosting/_terms_check.html" %}
     <button class="btn btn--primary" type="submit">{{ t('hosting.signup.submit') }}</button>
   </form>
   {% endif %}

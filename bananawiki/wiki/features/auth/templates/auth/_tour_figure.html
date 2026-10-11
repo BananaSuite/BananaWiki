@@ -1,11 +1,16 @@
 {#- Static, illustrative mock-ups of the wiki for the guided tour. They show no real data. -#}
-{% macro _sidebar(highlight='') -%}
+{% macro _sidebar(highlight='', apps=[]) -%}
 <div class="tour-mock__sidebar">
   <div class="tour-mock__search{% if highlight == 'search' %} tour-mock__hl{% endif %}">{{ t('auth.tour.mock.search') }}</div>
   <div class="tour-mock__item">▸ {{ t('auth.tour.mock.category') }}</div>
   <div class="tour-mock__item tour-mock__item--child">{{ t('auth.tour.mock.page') }}</div>
   <div class="tour-mock__item tour-mock__item--child">{{ t('auth.tour.mock.page') }}</div>
-  {% if highlight == 'editor' %}<div class="tour-mock__item tour-mock__hl">＋ {{ t('auth.tour.mock.new_page') }}</div>{% endif %}
+  {% if highlight == 'editor' %}<div class="tour-mock__item tour-mock__hl">+ {{ t('auth.tour.mock.new_page') }}</div>{% endif %}
+  {#- The apps sit in the lower part of the sidebar, under "Apps", as in the real one. -#}
+  {% if highlight == 'apps' and apps %}<div class="tour-mock__apps tour-mock__hl">
+    <div class="tour-mock__label">{{ t('auth.tour.mock.apps_title') }}</div>
+    {% for name in apps %}<div class="tour-mock__item">{{ name }}</div>{% endfor %}
+  </div>{% endif %}
 </div>
 {%- endmacro %}
 
@@ -14,12 +19,12 @@
   <div class="tour-mock__topbar">
     <span class="{% if kind == 'home' %}tour-mock__hl{% endif %}">{{ site_name() }}</span>
     <span class="tour-mock__spacer"></span>
-    <span class="{% if kind == 'settings' %}tour-mock__hl{% endif %}">◯ {{ t('auth.tour.mock.account') }}</span>
+    <span class="{% if kind == 'settings' %}tour-mock__hl{% endif %}"><span class="tour-mock__avatar" aria-hidden="true"></span>{{ t('auth.tour.mock.account') }}</span>
   </div>
   <div class="tour-mock__body">
-    {% if kind in ('home', 'search', 'settings', 'editor', 'history', 'apps') %}{{ _sidebar(kind) }}{% endif %}
+    {% if kind in ('home', 'search', 'settings', 'editor', 'history', 'apps') %}{{ _sidebar(kind, apps) }}{% endif %}
     <div class="tour-mock__main">
-      {% if kind == 'home' or kind == 'search' %}
+      {% if kind in ('home', 'search', 'apps') %}
         <div class="tour-mock__title">{{ t('auth.tour.mock.home_title') }}</div>
         <div class="tour-mock__line"></div><div class="tour-mock__line tour-mock__line--short"></div>
       {% elif kind == 'settings' %}
@@ -36,9 +41,6 @@
         <div class="tour-mock__row tour-mock__hl">r3 · {{ t('auth.tour.mock.revision') }}</div>
         <div class="tour-mock__row">r2 · {{ t('auth.tour.mock.revision') }}</div>
         <div class="tour-mock__row">r1 · {{ t('auth.tour.mock.revision') }}</div>
-      {% elif kind == 'apps' %}
-        <div class="tour-mock__title">{{ t('auth.tour.mock.apps_title') }}</div>
-        {% for name in apps %}<div class="tour-mock__row tour-mock__hl">{{ name }}</div>{% endfor %}
       {% elif kind == 'admin_settings' %}
         <div class="tour-mock__title">{{ t('auth.tour.mock.admin_settings_title') }}</div>
         <div class="tour-mock__row tour-mock__hl">{{ t('auth.onboarding.site_name') }}</div>
@@ -48,11 +50,11 @@
         <div class="tour-mock__title">{{ t('auth.tour.mock.users_title') }}</div>
         <div class="tour-mock__row">{{ t('auth.tour.mock.person', n=1) }} · {{ t('auth.role.editor') }}</div>
         <div class="tour-mock__row">{{ t('auth.tour.mock.person', n=2) }} · {{ t('auth.role.user') }}</div>
-        <div class="tour-mock__button tour-mock__hl">＋ {{ t('auth.tour.mock.add_user') }}</div>
+        <div class="tour-mock__button tour-mock__hl">+ {{ t('auth.tour.mock.add_user') }}</div>
       {% elif kind == 'admin_features' %}
         <div class="tour-mock__title">{{ t('auth.tour.mock.features_title') }}</div>
-        <div class="tour-mock__row tour-mock__hl">☑ {{ t('auth.tour.mock.feature', n=1) }}</div>
-        <div class="tour-mock__row">☐ {{ t('auth.tour.mock.feature', n=2) }}</div>
+        <div class="tour-mock__row tour-mock__hl">☑ {{ t('feature.page_history.name') }}</div>
+        <div class="tour-mock__row">☐ {{ t('feature.kanban.name') }}</div>
       {% endif %}
     </div>
   </div>

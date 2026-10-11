@@ -4,8 +4,8 @@
   <div class="card__header">
     <h2 id="profile-about-heading">{{ t('profiles.about') }}</h2>
     <div class="btn-row">
-      {% if is_own and has_permission('profile.edit_own') %}<a class="btn btn--small" href="{{ url_for('user_profiles.own_fields') }}">{{ t('profiles.edit_fields') }}</a>{% endif %}
-      {% if can_moderate %}<a class="btn btn--small" href="{{ url_for('user_profiles.admin_profile', user_id=profile_user.id) }}">{{ t('profiles.moderate') }}</a>{% endif %}
+      {% if is_own and has_permission('profile.edit_own') %}<a class="btn btn--small" href="{{ url_for('user_profiles.own_fields') }}">{{ t('profiles.edit_about') }}</a>{% endif %}
+      {% if can_moderate and not is_own %}<a class="btn btn--small" href="{{ url_for('user_profiles.admin_profile', user_id=profile_user.id) }}">{{ t('profiles.moderate') }}</a>{% endif %}
     </div>
   </div>
   {% if tags %}
@@ -24,6 +24,8 @@
   </dl>
   {% elif is_own %}
   <p class="muted">{{ t('profiles.no_fields') }}</p>
+  {% elif not tags %}
+  <p class="muted">{{ t('profiles.no_fields_other', user=profile_user.username) }}</p>
   {% endif %}
 </section>
 {% endif %}

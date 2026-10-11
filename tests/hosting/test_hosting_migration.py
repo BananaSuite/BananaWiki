@@ -86,6 +86,22 @@ def test_upgrade_reaches_latest_version_and_keeps_identity(legacy):
     assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 
 
+@pytest.mark.parametrize(("stored", "expected"), [(0, 86400), (-1, -1), (3600, 3600)])
+def test_upgrade_turns_the_old_immediate_default_for_denied_accounts_into_a_day(tmp_path, stored, expected):
+    # Until 1.7 the approval form showed 0/0/0 whatever was stored, so a stored 0 is the old column default
+    # (delete at once), not a choice; "never" (-1) and any other value are kept.
+    environ = portal_environ(tmp_path)
+    path = Path(environ["HOSTING_DATABASE_PATH"])
+    _legacy_database(path)
+    conn = sqlite3.connect(path)
+    conn.execute("UPDATE hosting_settings SET hosting_activation_denied_timeout_seconds = ?", (stored,))
+    conn.commit()
+    conn.close()
+    app = build_portal(tmp_path, environ=environ)
+    row = _db(app).execute("SELECT hosting_activation_denied_timeout_seconds FROM hosting_settings").fetchone()
+    assert row == (expected,)
+
+
 def test_upgrade_normalizes_timestamps_and_repairs_references(legacy):
     conn = _db(legacy)
     assert conn.execute("SELECT created_at FROM accounts WHERE id = 'a1'").fetchone()[0] == "2025-01-02 03:04:05"
@@ -194,3 +210,27 @@ def test_upgrade_keeps_invitations_and_merges_when_their_author_is_purged(tmp_pa
     conn.execute("DELETE FROM accounts WHERE id = 'a1'")
     assert conn.execute("SELECT account_id, invited_by FROM instance_collaborators").fetchall() == [("a3", None)]
     assert conn.execute("SELECT merged_by FROM hosting_account_merge_logs").fetchall() == [(None,)]
+
+
+def test_upgrade_dates_existing_email_claims_and_keeps_renewal_off(tmp_path):
+    environ = portal_environ(tmp_path)
+    path = Path(environ["HOSTING_DATABASE_PATH"])
+    _legacy_database(path)
+    conn = sqlite3.connect(path)
+    conn.execute("INSERT INTO accounts (id, username, password, created_at, email, email_verification_sent_at) "
+                 "VALUES ('a4', 'dave', 'x', '2025-05-01T00:00:00+00:00', 'dave@example.org', "
+                 "'2025-05-02T00:00:00+00:00')")
+    conn.execute("INSERT INTO accounts (id, username, password, created_at, email) "
+                 "VALUES ('a5', 'erin', 'x', '2025-06-01 00:00:00', 'erin@example.org')")
+    conn.commit()
+    conn.close()
+    conn = _db(build_portal(tmp_path, environ=environ))
+    assert conn.execute("SELECT id, email_claimed_at FROM accounts WHERE email != '' ORDER BY id").fetchall() == [
+        ("a4", "2025-05-02 00:00:00"), ("a5", "2025-06-01 00:00:00")]
+    assert conn.execute("SELECT owner_renewal_enabled FROM hosting_settings").fetchone() == (0,)
+    assert conn.execute("SELECT expiry_warning_for, expiry_warning_days FROM instances").fetchall() == [(None, None)]
+    assert conn.execute("SELECT COUNT(*) FROM hosting_email_log").fetchone() == (0,)
+    assert set(conn.execute("SELECT email_claims_since, email_claims, mfa_epoch FROM accounts").fetchall()) == {
+        (None, 0, 0)}
+    assert conn.execute("SELECT admin_expiry FROM instances").fetchall() == [(None,)]
+    assert conn.execute("SELECT COUNT(*) FROM instance_domain_claims").fetchone() == (0,)

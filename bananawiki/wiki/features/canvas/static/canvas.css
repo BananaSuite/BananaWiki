@@ -5,7 +5,7 @@
 .page-header + .canvas-list { border-top: 0; }
 .canvas-list__item { display: flex; gap: 1rem; align-items: flex-start; padding: 1rem 0; border-bottom: 1px solid var(--border); }
 .canvas-list__item.is-dragging { opacity: .5; }
-.canvas-list__move { display: flex; gap: .15rem; order: 1; flex-shrink: 0; }
+.canvas-list__move { display: flex; gap: .15rem; flex-shrink: 0; }
 .canvas-list__body { min-width: 0; flex: 1; }
 .canvas-list__title { font-size: 1rem; margin: 0 0 .25rem; display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; overflow-wrap: anywhere; }
 .canvas-list__desc { margin: 0 0 .35rem; font-size: .9rem; color: var(--muted); }
@@ -23,6 +23,8 @@
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 .canvas-toolbar__group { display: flex; flex-wrap: wrap; gap: .15rem; align-items: center; }
 .canvas-toolbar__group + .canvas-toolbar__group { padding-left: .65rem; border-left: 1px solid var(--border); }
+/* A group that starts a wrapped row (canvas-editor.js) has no divider before it. */
+.canvas-toolbar__group.is-row-start { padding-left: 0; border-left: 0; }
 .canvas-toolbar .btn { min-width: 2rem; background: transparent; border-color: transparent; }
 .canvas-toolbar .btn:hover { background: var(--surface-3); }
 .canvas-toolbar .btn--primary { background: var(--bw-primary); border-color: var(--bw-primary); }
@@ -49,7 +51,7 @@
 .canvas-menu__item:hover:not(:disabled), .canvas-menu__item:focus-visible { background: var(--surface-2); }
 .canvas-menu__item:disabled { color: var(--muted); cursor: default; opacity: .6; }
 .canvas-minimap { position: absolute; right: .5rem; bottom: .5rem; z-index: 5; width: 200px; height: 140px;
-  background: color-mix(in srgb, var(--surface) 88%, transparent); border: 1px solid var(--border);
+  background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-sm); cursor: crosshair; color: var(--muted); outline-color: var(--bw-primary); }
 .canvas-page-results { list-style: none; margin: 0; padding: 0; max-height: 12rem; overflow-y: auto; }
 .canvas-page-results__item { display: block; width: 100%; text-align: left; padding: .4rem .6rem; border: 0;
@@ -133,6 +135,7 @@
 .cv-edge--dotted { stroke-dasharray: 2 5; stroke-linecap: round; }
 .cv-arrowhead { fill: var(--muted); }
 .cv-edge.is-selected .cv-edge__line, .cv-edge:focus-visible .cv-edge__line { stroke: var(--bw-primary); stroke-width: 3; }
+.cv-edge__label-bg { fill: var(--bw-bg); pointer-events: none; }
 .cv-edge__label { fill: var(--bw-text); text-anchor: middle; dominant-baseline: middle; paint-order: stroke;
   stroke: var(--bw-bg); stroke-width: 4px; stroke-linejoin: round; pointer-events: auto; }
 .cv-edge__preview { stroke: var(--bw-accent); stroke-width: 2; stroke-dasharray: 6 4; pointer-events: none; }
@@ -147,7 +150,7 @@
 .bw-embed-canvas { margin: 1.25rem 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .bw-embed-canvas .canvas-frame { border: 0; border-top: 1px solid var(--border); }
 .bw-embed__header { display: flex; align-items: center; gap: .5rem; padding: .35rem .6rem; font-size: .9rem; }
-.bw-embed__title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bw-embed__title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
 .bw-embed__controls { display: flex; gap: .15rem; }
 
 /* ── Text outline ─────────────────────────────────────────────────────── */
@@ -157,7 +160,10 @@
 .canvas-outline__links { margin: 0; padding-left: 1.2rem; font-size: .92rem; }
 
 @media (max-width: 600px) {
-  .canvas-minimap { display: none; }
+  /* No overview map on phones, so no toggle for it either. */
+  .canvas-minimap, .canvas-toggle[data-action="minimap"] { display: none; }
+  /* The tool groups wrap onto their own rows: no leading dividers. */
+  .canvas-toolbar__group + .canvas-toolbar__group { padding-left: 0; border-left: 0; }
   .canvas-frame { height: calc(100vh - var(--topbar-height) - 14rem); min-height: 300px; }
   .canvas-status { width: 100%; margin-left: 0; }
   .canvas-menu__panel { position: fixed; left: .75rem; right: .75rem; top: auto; bottom: .75rem;
@@ -175,3 +181,10 @@
 .cv-markdown h1 { font-size: 1.45em; }
 .cv-markdown h2 { font-size: 1.25em; }
 .cv-markdown h3, .cv-markdown h4 { font-size: 1.1em; }
+/* Manage page: the share forms keep their distance from the sharing table; headings start them. */
+.canvas-share-forms { margin-top: 1.25rem; row-gap: 2rem; }
+/* The access column does not wrap ("Può modificare"): the person/role column takes the wrapping. */
+.canvas-share-table td:nth-child(2), .canvas-share-table th:nth-child(2) { white-space: nowrap; }
+/* A read-only preview: a vertical swipe scrolls the page; sideways drags and pinches move the canvas. */
+.canvas-frame--static .cv-stage, .canvas-frame--static.cv-stage { touch-action: pan-y; }
+.canvas-share-forms .form > h3 { margin: 0; }

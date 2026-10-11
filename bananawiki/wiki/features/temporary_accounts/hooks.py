@@ -54,3 +54,14 @@ def profile_section(profile_user: dict[str, Any]) -> str:
     viewer = auth.current_user()
     own = bool(viewer) and viewer["id"] == profile_user["id"]
     return _account_notice(profile_user, own=own, only_public=not (own or auth.is_admin(viewer)))
+
+
+def admin_user_detail(target: dict[str, Any] | None = None, **_: Any) -> str:
+    """``admin.user_detail``: an account scheduled for deletion says so, with the date."""
+    viewer = auth.current_user()
+    if target is None or viewer is None or not auth.is_admin(viewer):
+        return ""
+    schedule = service.account_schedule(target["id"])
+    if schedule is None:
+        return ""
+    return render_template("temporary_accounts/_admin_user_detail.html", schedule=schedule)

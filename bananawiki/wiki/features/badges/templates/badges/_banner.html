@@ -1,4 +1,4 @@
 <div class="banner banner--info" role="status">
-  {{ t('badges.banner', count=count) }}
-  <a class="btn btn--small" href="{{ url_for('badges.notifications') }}">{{ t('badges.banner.view') }}</a>
+  {{ tn('badges.banner', count) }}
+  <a class="btn btn--small" href="{{ url_for('badges.notifications') }}">{{ tn('badges.banner.view', count) }}</a>
 </div>

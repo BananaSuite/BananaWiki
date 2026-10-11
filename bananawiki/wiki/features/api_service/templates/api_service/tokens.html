@@ -2,6 +2,10 @@
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('api_service.tokens.title') }}{% endblock %}
 {% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('users.settings') }}">{{ t('users.settings.title') }}</a></li>
+  <li aria-current="page">{{ t('api_service.tokens.title') }}</li>
+</ol></nav>
 <div class="page-header">
   <h1>{{ t('api_service.tokens.title') }}</h1>
   <div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('api_service.docs') }}">{{ t('api_service.docs.link') }}</a></div>
@@ -48,7 +52,8 @@
   {% if not tokens %}
   <div class="empty-state">{{ t('api_service.tokens.none') }}</div>
   {% else %}
-  <div class="table-wrap"><table class="table">
+  <p class="hint">{{ t('api_service.tokens.cascade_hint') }}</p>
+  <div class="table-wrap"><table class="table table--stack">
     <thead><tr>
       <th scope="col">{{ t('common.name') }}</th>
       <th scope="col">{{ t('api_service.tokens.scopes') }}</th>
@@ -60,12 +65,17 @@
     <tbody>
     {% for token in tokens %}
     <tr>
-      <td>{{ token.name or t('api_service.tokens.unnamed') }}</td>
-      <td>{% for scope in token.grant.scopes %}<span class="badge">{{ scope }}</span> {% endfor %}</td>
-      <td>{{ t('api_service.tokens.read_write') if token.grant.write else t('api_service.tokens.read_only_badge') }}</td>
-      <td>{{ token.last_used_at|time_ago if token.last_used_at else t('common.never') }}</td>
-      <td>{{ token.expires_at|datetime if token.expires_at else t('common.never') }}</td>
-      <td>{{ forms.post_button(url_for('api_service.revoke_token', token_id=token.id), t('api_service.tokens.revoke'), cls='btn btn--small btn--danger', confirm=t('api_service.tokens.revoke_confirm')) }}</td>
+      <td>{{ token.name or t('api_service.tokens.unnamed') }}
+        {% if token.parent_id %}<br><span class="small muted">
+          {%- if token.issuer %}{{ t('api_service.tokens.issued_by', name=token.issuer.name or t('api_service.tokens.unnamed')) }}
+          {%- else %}{{ t('api_service.tokens.issued_by_other') }}{% endif %}</span>{% endif %}
+        {% if token.issued %}<br><span class="small muted">{{ t('api_service.tokens.issued_count', count=token.issued) }}</span>{% endif %}</td>
+      <td data-label="{{ t('api_service.tokens.scopes') }}">{% for scope in token.grant.scopes|api_scope_order %}<span class="badge" title="{{ scope }}">{{ t('api_service.scope_short.' ~ scope, scope) }}</span> {% endfor %}</td>
+      <td data-label="{{ t('api_service.tokens.access') }}">{{ t('api_service.tokens.read_write') if token.grant.write else t('api_service.tokens.read_only_badge') }}</td>
+      <td class="nowrap" data-label="{{ t('api_service.tokens.last_used') }}">{{ token.last_used_at|time_ago if token.last_used_at else t('common.never') }}</td>
+      <td class="nowrap" data-label="{{ t('api_service.tokens.expires') }}">{{ token.expires_at|datetime if token.expires_at else t('common.never') }}</td>
+      {% set revoke_confirm = t('api_service.tokens.revoke_confirm_issued', count=token.issued) if token.issued else t('api_service.tokens.revoke_confirm') %}
+      <td class="actions">{{ forms.post_button(url_for('api_service.revoke_token', token_id=token.id), t('api_service.tokens.revoke'), cls='btn btn--small btn--danger', confirm=revoke_confirm) }}</td>
     </tr>
     {% endfor %}
     </tbody>
@@ -86,8 +96,9 @@
   {% set lock = user.userbot_mode_lock or 'unlocked' %}
   {% if lock == 'force_enabled' %}<p class="hint">{{ t('api_service.userbot.locked_on') }}</p>{% endif %}
   {% if lock == 'force_disabled' %}<p class="hint">{{ t('api_service.userbot.locked_off') }}</p>{% endif %}
-  <p>{{ t('api_service.userbot.state_on') if user.userbot_enabled else t('api_service.userbot.state_off') }}
-    {% if userbot_token %}· {{ t('api_service.tokens.last_used') }}: {{ userbot_token.last_used_at|time_ago if userbot_token.last_used_at else t('common.never') }}{% endif %}</p>
+  {#- The state as a badge, like two-step verification; a gap from the hint above. -#}
+  <p class="users-spaced">{% if user.userbot_enabled %}<span class="badge badge--success">{{ t('api_service.userbot.state_on') }}</span>{% else %}<span class="badge">{{ t('api_service.userbot.state_off') }}</span>{% endif %}
+    {% if userbot_token %}<span class="small muted">{{ t('api_service.tokens.last_used') }}: {{ userbot_token.last_used_at|time_ago if userbot_token.last_used_at else t('common.never') }}</span>{% endif %}</p>
   <div class="btn-row">
     {% if lock != 'force_disabled' and service.enabled and has_access %}
     {{ forms.post_button(url_for('api_service.userbot_mode'), t('api_service.userbot.new_key') if user.userbot_enabled else t('api_service.userbot.enable'), cls='btn btn--primary', hidden={'enable': '1'}) }}

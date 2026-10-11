@@ -6,6 +6,8 @@ BananaWiki è progettata per conoscenza privata, quindi protegge account e conte
 
 Le password sono salvate come hash, i tentativi di login sono limitati, i token CSRF proteggono form e mutazioni AJAX, e gli admin possono imporre limiti di sessione. Sospensioni, cambio password obbligatorio, codici invito e modalità manutenzione aggiungono altri controlli.
 
+Chiunque può attivare la **verifica in due passaggi** in **Impostazioni → Verifica in due passaggi**: dopo la password, l'accesso chiede anche un codice generato da un'app di autenticazione sul telefono, oppure uno dei dieci codici di recupero monouso mostrati all'attivazione. Proprietari e superutenti possono richiederla a tutti gli amministratori in **Amministrazione → Impostazioni del sito → Sicurezza** e azzerarla in **Amministrazione → Utenti** per chi ha perso sia il telefono sia i codici di recupero.
+
 ## Protezione contenuti
 
 Il Markdown viene sanificato prima della visualizzazione. Gli upload sono validati e i tipi pericolosi vengono bloccati dove opportuno. Gli allegati sono serviti da route autenticate, non come file pubblici. Restrizioni di categoria e permessi tengono le pagine sensibili lontane dagli utenti non autorizzati.

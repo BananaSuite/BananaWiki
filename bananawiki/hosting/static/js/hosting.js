@@ -27,6 +27,38 @@
       });
     }
 
+    // Fields that only count while a checkbox is ticked (data-enabled-by="<checkbox name>") or while one choice
+    // of a radio group is picked (data-enabled-by="<radio name>=<value>") are disabled until then.
+    document.querySelectorAll("[data-enabled-by]").forEach(function (group) {
+      var form = group.closest("form");
+      var rule = group.getAttribute("data-enabled-by").split("=");
+      if (!form) return;
+      var sync;
+      if (rule.length === 2) {
+        var radios = Array.from(form.querySelectorAll('input[type="radio"][name="' + rule[0] + '"]'));
+        if (!radios.length) return;
+        sync = function () { group.disabled = !radios.some(function (radio) { return radio.checked && radio.value === rule[1]; }); };
+        radios.forEach(function (radio) { radio.addEventListener("change", sync); });
+      } else {
+        var box = form.querySelector('input[type="checkbox"][name="' + rule[0] + '"]');
+        if (!box) return;
+        sync = function () { group.disabled = !box.checked; };
+        box.addEventListener("change", sync);
+      }
+      sync();
+    });
+
+    // Fields that only apply to some choices of a select (data-shown-unless="<select name>=<value>").
+    document.querySelectorAll("[data-shown-unless]").forEach(function (field) {
+      var rule = field.getAttribute("data-shown-unless").split("=");
+      var form = field.closest("form");
+      var select = form && form.querySelector('select[name="' + rule[0] + '"]');
+      if (!select) return;
+      function sync() { field.hidden = select.value === rule[1]; }
+      select.addEventListener("change", sync);
+      sync();
+    });
+
     // Signed-out theme button: bananawiki.js flips the theme, this keeps the label in step.
     var themeButton = document.querySelector("[data-theme-toggle][data-label-light]");
     if (themeButton) {

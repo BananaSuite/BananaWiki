@@ -127,3 +127,22 @@ def test_transfer_and_deattribute(app, make_user, login, admin, admin_client):
     assert _history(app, page["id"])[-1]["edited_by"] is None
     client, _ = _client(app, make_user, login, "thief", "editor")
     assert client.post(f"/page/story/history/{newest}/transfer", data={"username": "thief"}).status_code == 403
+
+
+def test_history_changes_are_refused_while_the_page_cannot_be_edited(app, make_user, admin_client, admin):
+    page = _two_versions(app, admin)
+    newest, oldest = (h["id"] for h in _history(app, page["id"]))
+    target = make_user("credited")
+    add_interceptor(app, "page.edit_blocked", lambda page, user: "pages.blocked.pending_deletion")
+    attempts = [
+        (f"/page/story/history/{newest}/delete", {}),
+        ("/page/story/history/clear", {}),
+        (f"/page/story/history/{newest}/transfer", {"new_user_id": target["id"]}),
+        ("/page/story/history/bulk-transfer", {"from_user_id": admin["id"], "new_user_id": target["id"]}),
+        (f"/page/story/history/{oldest}/deattribute", {}),
+    ]
+    for url, data in attempts:
+        assert admin_client.post(url, data=data).status_code == 302
+        assert admin_client.post(url, data=data, headers={"Accept": "application/json"}).status_code == 423
+    history = _history(app, page["id"])
+    assert len(history) == 2 and {h["edited_by"] for h in history} == {admin["id"]}

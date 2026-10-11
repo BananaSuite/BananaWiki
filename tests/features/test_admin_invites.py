@@ -108,3 +108,75 @@ def test_view_only_editor_cannot_generate(client, make_user, login, db):
     login(client, editor)
     assert client.get("/admin/codes").status_code == 200
     assert generate(client).status_code == 403
+
+
+# ── Delegated invites stay within the inviter's own rights ───────────────────
+
+
+def _custom_role(db, name, base_role, keys, *, write_ids=None):
+    from bananawiki.core.timeutil import now_sql
+
+    role_id = db.insert("custom_roles", {"name": name, "base_role": base_role, "created_at": now_sql(),
+                                         "updated_at": now_sql(), "write_restricted": int(write_ids is not None),
+                                         "read_restricted": int(write_ids is not None)})
+    for key in keys:
+        db.execute("INSERT INTO custom_role_permissions (role_id, permission_key) VALUES (?, ?)", (role_id, key))
+    for category_id in write_ids or ():
+        for access in ("read", "write"):
+            db.execute("INSERT INTO custom_role_categories (role_id, category_id, access_type) VALUES (?, ?, ?)",
+                       (role_id, category_id, access))
+    return role_id
+
+
+def _restricted_inviter(db, make_user, category_id):
+    from bananawiki.wiki import permissions as perms
+
+    editor = make_user("limited_inviter", role="editor")
+    keys = (perms.defaults("editor") - {"category.delete"}) | {"invite.generate", "invite.view"}
+    for key in sorted(keys):
+        db.execute("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, ?)", (editor["id"], key))
+    db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 0)",
+               (editor["id"],))
+    db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'write', 1)",
+               (editor["id"],))
+    db.execute("INSERT INTO user_allowed_categories (user_id, category_id, access_type) VALUES (?, ?, 'write')",
+               (editor["id"], category_id))
+    return editor
+
+
+def _category(db, name):
+    return db.insert("categories", {"name": name})
+
+
+def test_delegated_invites_cannot_grant_more_than_the_inviter_holds(client, make_user, login, db):
+    mine, other = _category(db, "Mine"), _category(db, "Other")
+    editor = _restricted_inviter(db, make_user, mine)
+    destructive = _custom_role(db, "Cleaners", "editor", ["page.view_all", "page.delete", "history.delete"])
+    unrestricted = _custom_role(db, "Writers", "editor", ["page.view_all", "page.edit_all"])
+    wider = _custom_role(db, "Wider", "editor", ["page.view_all", "page.edit_all"], write_ids=[mine, other])
+    narrow = _custom_role(db, "Narrow", "editor", ["page.view_all", "page.edit_all"], write_ids=[mine])
+    login(client, editor)
+    page = client.get("/admin/codes").get_data(as_text=True)
+    assert "Narrow" in page and "Cleaners" not in page and "Writers" not in page and "Wider" not in page
+    assert 'value="editor"' not in page, "a plain editor writes everywhere, unlike this inviter"
+    for role_id in (destructive, unrestricted, wider):
+        generate(client, assigned_custom_role_id=str(role_id))
+    generate(client, assigned_role="editor")
+    assert db.scalar("SELECT COUNT(*) FROM invite_codes") == 0
+    generate(client, assigned_custom_role_id=str(narrow))
+    generate(client, assigned_role="user")
+    assert db.scalar("SELECT COUNT(*) FROM invite_codes") == 2
+
+
+def test_invites_follow_their_creator_rights_at_sign_up(app, admin, make_user, db):
+    from bananawiki.wiki.db import connection_scope
+    from bananawiki.wiki.features.auth import invites
+
+    demoted = make_user("former_admin", role="editor")
+    db.execute("INSERT INTO invite_codes (code, created_by, assigned_role) VALUES ('ADMN-CODE', ?, 'admin')",
+               (demoted["id"],))
+    db.execute("INSERT INTO invite_codes (code, created_by, assigned_role) VALUES ('GOOD-CODE', ?, 'admin')",
+               (admin["id"],))
+    with app.test_request_context(), connection_scope():
+        assert invites.assigned_role(invites.find_valid("ADMN-CODE")) == ("user", None)
+        assert invites.assigned_role(invites.find_valid("GOOD-CODE")) == ("admin", None)

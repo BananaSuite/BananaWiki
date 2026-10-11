@@ -26,9 +26,10 @@ Operator-only settings in `app.env` (ceilings for what the portal may ask for):
 `HOSTING_AGENT_MAX_PIDS` (4096), `HOSTING_AGENT_MAX_NOFILE` (65536),
 `HOSTING_AGENT_MAX_STORAGE_BYTES` (10 GiB), `HOSTING_AGENT_MAX_INODES` (100,000),
 `HOSTING_AGENT_PROJECT_ID_START` (1,000,000), and
-`HOSTING_AGENT_STORAGE_RESERVE_BYTES` (256 MiB). Hosting requires a dedicated
-XFS filesystem with project accounting/enforcement enabled and an unassigned,
-non-inheriting instances parent. Custom instances paths need a matching unit
+`HOSTING_AGENT_STORAGE_RESERVE_BYTES` (256 MiB). Hard per-wiki quotas need a
+dedicated XFS filesystem with project accounting/enforcement enabled and an
+unassigned, non-inheriting instances parent; XFS is optional (see "Storage
+policy" below). Custom instances paths need a matching unit
 write-path override. See [hosting](../../docs/hosting.md) for host prerequisites.
 
 `sudo bananawiki agent status` pings the agent.
@@ -49,11 +50,15 @@ Transition: when `BW_RUNTIME_AGENT_SOCKET` is not set, the release was
 installed by the 1.4 updater and its portal unit still has
 `SupplementaryGroups=docker`. `connect()` then returns an in-process
 `TenantRuntime` with the same `call()` and the same validation, running
-Docker as the portal. This legacy fallback cannot satisfy the private hard-quota
-contract and refuses launches and tasks until convergence. The next `bananawiki update` (also when no new revision
-exists) or `bananawiki restart` converges the units: the agent is installed,
-the portal leaves the `docker` group and the socket variable appears. The
-portal must not call `docker` any other way.
+Docker as the portal. This legacy fallback is not root, so it can never use
+hard quotas: it follows `BW_HOSTING_TENANT_QUOTAS` like the agent, so under
+`auto` (the default for existing platforms) it starts wikis without them, as
+1.6 did, and under `required` it refuses launches and tasks
+(`quota_unavailable`) until convergence. It has no quota registry, so it
+never reports hard quotas as lost. The next `bananawiki update` (also when no new
+revision exists) or `bananawiki restart` converges the units: the agent is
+installed, the portal leaves the `docker` group and the socket variable
+appears. The portal must not call `docker` any other way.
 
 ## Wire protocol
 
@@ -81,11 +86,11 @@ must exist, must not be a symlink, and must be owned by the service account
 
 | op | args | result |
 |---|---|---|
-| `ping` | — | `{protocol, docker, image}` |
+| `ping` | — | `{protocol, docker, image, storage}`; `storage` is `{setting, hard_quotas, refused, lost, reason}` (see "Storage policy" below) |
 | `image.status` | — | `{image, present}` |
 | `tenant.list` | — | `{tenants: [status…]}` (containers labelled as tenants of this `INSTANCES_DIR`) |
-| `tenant.status` | `tenant` | `{tenant, container, running, address, internal_port, data_dir, image, started_at}` or `{tenant, running: false, exists: false}` |
-| `tenant.quota` | `tenant`, `prepare` (boolean, default false), optional `limits.storage_bytes` | `{tenant, storage_quota_verified, storage_quota}`; stopped-only adoption, live verification or bounded limit update |
+| `tenant.status` | `tenant` | `{tenant, container, running, address, internal_port, data_dir, image, started_at, quota_protected, ipv6_disabled, storage_quota_verified, storage_quota, storage_quota_mode}` or `{tenant, running: false, exists: false}` |
+| `tenant.quota` | `tenant`, `prepare` (boolean, default false), optional `limits.storage_bytes` | `{tenant, storage_quota_verified, storage_quota_mode, storage_quota, over_plan, plan}`; stopped-only adoption, live verification or bounded limit update. A stopped wiki already holding more than it asks for is adopted at what it holds plus a small headroom, never refused: `over_plan` is then true and `plan` gives the limits asked for (`over_plan` only with `prepare` or `limits`, `plan` only when it is true). Without hard quotas (`storage_quota_mode: unenforced`): `storage_quota_verified` false, `storage_quota` null, `over_plan` false, and a new (empty) wiki is refused with `no_space` while the volume's free space is below `HOSTING_AGENT_STORAGE_RESERVE_BYTES` plus its plan |
 | `tenant.start` | see below | the tenant's status after `docker run` |
 | `tenant.stop` | `tenant`, `timeout` (1–120 s, default 15) | `{tenant, stopped: true}`: container and its network removed |
 | `tenant.logs` | `tenant`, `lines` (1–1000, default 200) | `{tenant, lines: [...]}` |
@@ -98,7 +103,7 @@ must exist, must not be a symlink, and must be owned by the service account
 |---|---|---|
 | `tenant` | required | as above |
 | `env` | `{}` | at most 200 `BW_*` keys, values ≤ 8 KiB without CR/LF/NUL; `BW_SECRET_KEY` and `BW_SETUP_TOKEN` refused. Give container paths (`/data/...`). |
-| `limits` | `{}` | `memory_mb` 128–ceiling (512), `cpus` 0.1–ceiling (1), `pids` 32–ceiling (256), `nofile` 128–ceiling (1024), `storage_bytes` 0–finite host ceiling (0 uses host ceiling) |
+| `limits` | `{}` | `memory_mb` 128–ceiling (512), `cpus` 0.1–ceiling (1), `pids` 32–ceiling (256), `nofile` 128–ceiling (1024), `storage_bytes` 0 or more (0, or more than the finite host ceiling, uses the host ceiling) |
 | `internal_port` | 5001 | 1024–65535; also set as `BW_PORT` |
 | `network` | `"isolated"` | `"isolated"`: per-tenant `--internal` bridge; `"outbound"`: per-tenant routed bridge |
 | `publish_port` | none | only with `"outbound"`: publishes `127.0.0.1:<port>` → internal port |
@@ -120,6 +125,11 @@ Container names, labels and networks are identical to 1.4
 `org.bananawiki.role=tenant`, `org.bananawiki.data-dir=<realpath>`,
 `org.bananawiki.internal-port=<port>`), so containers created by either
 version are recognised and the updater's readiness check (C10) keeps working.
+Since 1.7 each tenant network's host bridge is named `bwt<sha256(network)[:12]>`
+(`com.docker.network.bridge.name`), so the host firewall
+(`deploy/nftables/bananawiki-tenants.nft`) matches every tenant bridge and
+nothing else; a network created earlier is replaced, like one with an older
+policy, when its tenant next starts.
 
 `tenant.task` runs `python -m bananawiki.ops.tenant_task` inside the tenant's
 sandbox: `docker exec -i` in its container while it runs, otherwise a
@@ -155,7 +165,9 @@ status page. The portal cannot choose upstreams or write Caddy directives. When 
 reload caddy`. A root-owned checksum records the last successfully reloaded
 table; failed reloads are retried on the next sync, including after an agent
 restart. It re-renders after every `tenant.start` and `tenant.stop`,
-so a recreated container is routed at once. The Caddyfile written by
+so a recreated container is routed at once; rendering reads the containers'
+addresses only, without verifying every tenant's storage again (that is
+`tenant.list`'s and each start's job). The Caddyfile written by
 `bananawiki proxy` imports `/var/lib/<service>-routes/*.caddy`; without the
 routes directory (in-process fallback) the operation answers
 `not_configured`.
@@ -181,6 +193,58 @@ before the operation and that the portal publishes, a site block pointing at
 its current container; the maintenance service publishes the table right
 after recovering the wikis.
 
+## Storage policy
+
+`BW_HOSTING_TENANT_QUOTAS` in `config/app.env` (read for every request,
+validated by `load_config`: anything but `auto`, `required` or `off` is
+`not_configured`) decides whether wikis run under hard XFS project quotas
+(`bananawiki/ops/tenant_quotas.py`):
+
+* `auto` (the default, also on new platforms): when `INSTANCES_DIR` enforces
+  project quotas for this agent (`project_quota.check_storage`: XFS,
+  accounting and enforcement on, and an agent unit that allows
+  `quotactl_fd`), everything below applies. Otherwise wikis run without hard
+  quotas (`unenforced`), as before 1.7, and the agent logs a notice at every
+  start. When its quota registry
+  (`/var/lib/<service>-quotas/allocations.sqlite3`) exists, quotas were
+  enforced here before: storage that stopped enforcing them still runs the
+  wikis `unenforced`, but `ping` says `lost: true` and the agent logs a
+  warning ("Hard quotas were enforced on this platform before and are no
+  longer available: <reason>") at its start and whenever it finds them lost
+  while it runs.
+* `required` (the operator's explicit opt-in): hard quotas or nothing
+  (`quota_unavailable`).
+* `off`: never project quotas.
+
+Without hard quotas (`unenforced`), `tenant.quota`, `tenant.start` and
+`tenant.task` use no project quota and pin no quota identity, but
+`tenant.start` and `tenant.task` still pin the tenant directory
+(`O_NOFOLLOW`), refuse live mounts of its inode under another name, and
+release the mount gate only once the started container's
+`/proc/<pid>/root/data` is that inode: a directory replaced between the
+agent's checks and `docker run` (by a symbolic link to another host
+directory, say) is refused with `invalid_tenant`. An agent unit written by an
+updater from before 1.7 has no `CAP_SYS_PTRACE` (nor `quotactl_fd`): such an
+agent cannot compare (`EACCES`), logs that once, and starts the wiki
+unverified, as 1.6 did, so a release installed by such an updater still
+starts every wiki; installing the release's own units (`update` or
+`restart`) restores the check. `tenant.stop` does not look for other
+containers by inode. A wiki's own storage check
+(`BW_STORAGE_LIMIT_BYTES`) gets the limit a hard quota would have had: its
+plan, or `HOSTING_AGENT_MAX_STORAGE_BYTES` for a plan of zero (apex and
+administrators' wikis). The portal keeps measuring every wiki and suspends one
+above 110% of its plan. Container status says `storage_quota_mode:
+unenforced`; the portal then neither requires `storage_quota_verified` nor
+restarts such a container, unless its sandbox is outdated (no
+`quota_protected` seccomp profile or IPv6 sysctls).
+
+Replacing a tenant network (one from before 1.7, or with another policy)
+waits for Caddy to drop the old upstream only when Caddy can hold it: routes
+are published (`routes.json`, subdomain mode) and `caddy.service` is active.
+On a host whose reverse proxy is another one (Traefik sending wikis to the
+portal) or in port and onion mode the network is replaced at once, and
+retired networks are released after each routing change.
+
 ## Storage launch gate
 
 `tenant.quota` allocates a persistent private project ID and finite byte/inode
@@ -188,6 +252,21 @@ limits before the portal creates content. Kernel project accounting,
 enforcement, inheritance, filesystem UUID, inode number/generation and exact
 limits must match the registry. Uncertain Docker state never authorizes repair;
 adoption of restored/legacy trees requires a confirmed stopped container.
+
+A stopped wiki that already holds more than its plan (1.6 suspended wikis only
+above 110% of it and never limited administrators' or apex wikis; a plan can
+also be lowered below what a wiki holds) is not refused: its hard limits
+become what it holds plus a small headroom (64 MiB, 1,024 files), its plan is
+recorded beside them, and later starts never add room. It serves, cannot grow
+past those limits, and returns to its plan once enough data is removed. Data
+a directory held before it had any allocation (a wiki from before 1.7) is
+adopted without capacity admission, as it is already on the volume; it is
+recorded as not admitted (the registry's `admitted` column) until a later
+start finds room for every limit, and the snapshot reserve
+(`ProjectQuota.reserved_bytes`) counts only its adoption headroom meanwhile
+(`overcommitted_bytes` reports the shortfall). A stopped
+repair examines at most twice `HOSTING_AGENT_MAX_INODES` files (at least
+200,000).
 
 Docker mounts the normal tenant path and starts only the fixed stdlib inert
 `tenant_guard`. Before release or a task, the root agent opens the actual
@@ -236,7 +315,10 @@ descriptor, quota device or project ID.
   which is the service account, because the portal reads tenant files for
   backups and exports. Moving to per-tenant UIDs needs those file operations
   to move into the agent first (`tenant.archive` / `tenant.restore`); the
-  protocol version will be bumped then.
+  protocol version will be bumped then. Docker `userns-remap` and rootless
+  Docker are unsupported for the same reason (the remapped user does not own
+  the tenant directories). What this means for operators and how to limit it:
+  `docs/hosting.md`, "One UID for every wiki".
 * Managed tenant networking is IPv4-only: bridge creation requests IPv6 off
   and inspects the actual result, refusing enabled or uninspectable networks.
   The `all` and `default` `disable_ipv6=1` container sysctls also prevent

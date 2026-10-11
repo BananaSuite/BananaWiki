@@ -4,8 +4,8 @@
 {% block admin_content %}
 {% set edit_url = url_for('admin.edit_user', user_id=target.id) %}
 {% set locked = protection is not none %}
-<nav class="breadcrumbs" aria-label="{{ t('common.back') }}"><ol>
-  <li><a href="{{ url_for('admin.users') }}">{{ t('admin.users.title') }}</a></li><li>{{ target.username }}</li>
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('admin.users') }}">{{ t('admin.users.title') }}</a></li><li aria-current="page">{{ target.username }}</li>
 </ol></nav>
 <header class="page-header">
   <h1>{{ target.username }}</h1>
@@ -47,7 +47,7 @@
     <dt>{{ t('admin.users.col.last_login') }}</dt><dd>{{ target.last_login_at|datetime if target.last_login_at else t('common.never') }}</dd>
     {% if target.invite_code %}<dt>{{ t('admin.users.invite_code') }}</dt><dd class="mono">{{ target.invite_code }}</dd>{% endif %}
     <dt>{{ t('admin.users.contributions') }}</dt><dd>{{ contributions }}</dd>
-    <dt>{{ t('admin.users.chat') }}</dt><dd>{{ t('common.disabled') if target.chat_disabled else t('common.enabled') }}</dd>
+    <dt>{{ t('admin.users.chat') }}</dt><dd>{{ t('admin.users.chat_state_off') if target.chat_disabled else t('admin.users.chat_state_on') }}</dd>
   </dl>
 </section>
 
@@ -71,7 +71,7 @@
   <form method="post" action="{{ url_for('admin.assign_role', user_id=target.id) }}" class="form">
     {{ forms.csrf() }}
     <div class="field">
-      <label for="f-identity">{{ t('admin.users.col.role') }}</label>
+      <label for="f-identity">{{ t('admin.users.new_role') }}</label>
       <select id="f-identity" name="identity">
         <optgroup label="{{ t('admin.users.standard_roles') }}">
           {% for role in ('user', 'editor', 'admin', 'owner') %}
@@ -99,7 +99,7 @@
   <h2>{{ t('admin.users.rename') }}</h2>
   <form method="post" action="{{ edit_url }}" class="form">
     {{ forms.csrf() }}<input type="hidden" name="action" value="change_username">
-    {{ forms.field('username', t('auth.field.username'), target.username, required=true, hint=t('auth.hint.username'), attrs={'maxlength': 50}) }}
+    {{ forms.field('username', t('admin.users.new_username'), target.username, required=true, hint=t('auth.hint.username'), attrs={'maxlength': 50}) }}
     <div class="btn-row"><button class="btn" type="submit">{{ t('common.save') }}</button></div>
   </form>
 </section>
@@ -108,7 +108,7 @@
   <h2>{{ t('admin.password.title') }}</h2>
   <form method="post" action="{{ edit_url }}" class="form">
     {{ forms.csrf() }}<input type="hidden" name="action" value="change_password">
-    {{ forms.field('password', t('auth.field.new_password'), type='password', required=true, hint=t('auth.hint.password'), attrs={'autocomplete': 'new-password', 'maxlength': 1024}) }}
+    {{ forms.field('password', t('auth.field.new_password'), type='password', required=true, hint=t('auth.hint.password_admin'), attrs={'autocomplete': 'new-password', 'maxlength': 1024}) }}
     {{ forms.field('confirm_password', t('auth.field.confirm_password'), type='password', required=true, attrs={'autocomplete': 'new-password', 'maxlength': 1024}) }}
     {% if not is_self %}{{ forms.checkbox('force_password_change', t('admin.password.require_change'), checked=true) }}{% endif %}
     {{ forms.checkbox('keep_original', t('admin.password.keep_original'), hint=t('admin.password.keep_original_hint')) }}
@@ -168,6 +168,8 @@
   {{ forms.post_button(edit_url, t('admin.users.superuser_revoke') if target.is_superuser else t('admin.users.superuser_grant'), 'btn', confirm=t('common.are_you_sure'), hidden={'action': 'toggle_superuser'}) }}
 </section>
 {% endif %}
+
+{{ slot('admin.user_detail', target=target) }}
 
 <section class="card">
   <div class="card__header">

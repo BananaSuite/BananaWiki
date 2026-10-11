@@ -269,7 +269,7 @@ def test_fifos_and_links_swapped_in_after_the_walk_neither_block_nor_leak(tmp_pa
     index = snapshot.index()
     assert "data/instances/acme/other.db" not in index
     assert "data/instances/acme/notes.txt" not in index
-    assert index["data/instances/acme/bananawiki.db"]["method"] == "sqlite"
+    assert index["data/instances/acme/bananawiki.db"]["method"] == "copy"  # the tenant's bytes, never opened
     copy = sqlite3.connect(snapshot.path / "data/instances/acme/bananawiki.db")
     try:
         assert copy.execute("SELECT title FROM pages").fetchall() == [("Home",)]

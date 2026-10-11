@@ -7,6 +7,14 @@ lookups themselves are done by the runtime (:meth:`Runtime.check_domain`).
 A verification is valid for 24 hours and renewed by the maintenance loop;
 an expired proof stops routing. Unverified claims expire after an hour so a
 claim cannot reserve a name.
+
+A proof that lapsed more than ``LAPSED_DAYS`` ago (the DNS moved away, the
+domain changed hands) no longer holds the domain against another wiki: that
+wiki may claim it (``instance_domain_claims``, with a token of its own) and
+take it over once it proves the domain with that token. Until then the old
+binding stays, so its owner keeps it if their own proof comes back first
+(the maintenance loop renews it), and nobody can release a domain without
+proving it.
 """
 
 from __future__ import annotations
@@ -28,6 +36,7 @@ from .runtime import RuntimeFailure
 log = logging.getLogger("bananawiki.hosting.domains")
 
 VERIFICATION_HOURS = 24
+LAPSED_DAYS = 7
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
 
@@ -66,14 +75,33 @@ def _external(value: str) -> str:
 
 
 def binding(instance_id: str) -> dict[str, Any] | None:
-    return db.one("SELECT * FROM instance_custom_domains WHERE instance_id = ?", (instance_id,))
+    """The wiki's custom domain, or its claim of a lapsed one (``takeover``: shown like an unverified domain)."""
+    row = db.one("SELECT * FROM instance_custom_domains WHERE instance_id = ?", (instance_id,))
+    if row is not None:
+        return row
+    claim = db.one("SELECT * FROM instance_domain_claims WHERE instance_id = ?", (instance_id,))
+    if claim is None:
+        return None
+    return {**claim, "verified_at": None, "verified_until": None, "takeover": True}
+
+
+def _lapsed(row: dict[str, Any]) -> bool:
+    """A verified binding whose proof ran out more than ``LAPSED_DAYS`` ago."""
+    return bool(row["verified_at"]) and (not row["verified_until"]
+                                         or row["verified_until"] < sql_in(days=-LAPSED_DAYS))
+
+
+def _forget(instance_id: str) -> None:
+    """Drop the wiki's domain and its claim of a lapsed one."""
+    db.execute("DELETE FROM instance_custom_domains WHERE instance_id = ?", (instance_id,))
+    db.execute("DELETE FROM instance_domain_claims WHERE instance_id = ?", (instance_id,))
 
 
 def set_permission(inst: dict[str, Any], allowed: bool, actor_id: str) -> None:
     with db.transaction():
         db.update("instances", {"custom_domain_allowed": 1 if allowed else 0}, "id = ?", (inst["id"],))
         if not allowed:
-            db.execute("DELETE FROM instance_custom_domains WHERE instance_id = ?", (inst["id"],))
+            _forget(inst["id"])
         events.record("instance", inst["id"], "domain.permission." + ("granted" if allowed else "revoked"), actor_id)
 
 
@@ -89,20 +117,26 @@ def claim(inst: dict[str, Any], value: str, actor_id: str) -> dict[str, Any]:
             raise ServiceError("hosting.domains.start_first")
         db.execute("DELETE FROM instance_custom_domains WHERE verified_at IS NULL AND created_at < ?",
                    (sql_in(hours=-1),))
+        db.execute("DELETE FROM instance_domain_claims WHERE created_at < ?", (sql_in(days=-LAPSED_DAYS),))
         existing = db.one("SELECT * FROM instance_custom_domains WHERE domain = ?", (domain,))
-        if existing and existing["instance_id"] != inst["id"]:
-            raise ServiceError("hosting.domains.taken")
-        if existing:
+        if existing and existing["instance_id"] == inst["id"]:
             return existing
-        db.execute("DELETE FROM instance_custom_domains WHERE instance_id = ?", (inst["id"],))
-        db.insert("instance_custom_domains", {"domain": domain, "instance_id": inst["id"],
-                                              "verification_token": secrets.token_hex(32), "created_at": now_sql()})
+        if existing and not _lapsed(existing):
+            raise ServiceError("hosting.domains.taken")
+        mine = binding(inst["id"])
+        if existing and mine and mine["domain"] == domain:
+            return mine  # this wiki's claim of the lapsed domain, token unchanged
+        _forget(inst["id"])
+        record = {"domain": domain, "instance_id": inst["id"], "verification_token": secrets.token_hex(32),
+                  "created_at": now_sql()}
+        # Another wiki's proof lapsed long ago: claim it; that binding goes only once this wiki proves the domain.
+        db.insert("instance_domain_claims" if existing else "instance_custom_domains", record)
         events.record("instance", inst["id"], "domain.claimed", actor_id, domain)
     return binding(inst["id"])  # type: ignore[return-value]
 
 
 def remove(inst: dict[str, Any], actor_id: str) -> None:
-    db.execute("DELETE FROM instance_custom_domains WHERE instance_id = ?", (inst["id"],))
+    _forget(inst["id"])
     events.record("instance", inst["id"], "domain.removed", actor_id)
 
 
@@ -118,13 +152,18 @@ def verify(inst: dict[str, Any], actor_id: str | None) -> dict[str, Any]:
         check = instances.runtime().check_domain(record["domain"], record["verification_token"])
     except RuntimeFailure as error:
         raise ServiceError(f"hosting.runtime.{error.code}") from error
-    db.update("instance_custom_domains", {"last_checked_at": now_sql()}, "instance_id = ?", (inst["id"],))
+    table = "instance_domain_claims" if record.get("takeover") else "instance_custom_domains"
+    db.update(table, {"last_checked_at": now_sql()}, "instance_id = ?", (inst["id"],))
     if check.dns_error:
         raise ServiceError("hosting.domains.dns_pending")
     if not check.ownership:
         raise ServiceError("hosting.domains.txt_mismatch")
     if not check.routing:
         raise ServiceError("hosting.domains.wrong_target")
+    if record.get("takeover"):
+        _take_over(inst, record, actor_id)
+        instances.sync_routes()
+        return {**binding(inst["id"]), "proxied": check.proxied}  # type: ignore[dict-item]
     with db.transaction():
         changed = db.execute(
             "UPDATE instance_custom_domains SET verified_at = COALESCE(verified_at, ?), verified_until = ? "
@@ -140,6 +179,36 @@ def verify(inst: dict[str, Any], actor_id: str | None) -> dict[str, Any]:
     instances.sync_routes()
     # ``proxied``: accepted because the record is proxied by Cloudflare (not stored).
     return {**binding(inst["id"]), "proxied": check.proxied}  # type: ignore[dict-item]
+
+
+def _take_over(inst: dict[str, Any], claim: dict[str, Any], actor_id: str | None) -> None:
+    """The claimant proved a lapsed domain: release the old binding and bind the domain to its wiki."""
+    domain = claim["domain"]
+    try:
+        with db.transaction():
+            current = db.one("SELECT 1 FROM instance_domain_claims WHERE instance_id = ? AND domain = ? "
+                             "AND verification_token = ?", (inst["id"], domain, claim["verification_token"]))
+            if current is None or not db.scalar("SELECT 1 FROM instances WHERE id = ? AND custom_domain_allowed = 1",
+                                                (inst["id"],)):
+                raise ServiceError("hosting.domains.changed")
+            holder = db.one("SELECT * FROM instance_custom_domains WHERE domain = ?", (domain,))
+            if holder is not None and holder["instance_id"] != inst["id"]:
+                if not _lapsed(holder):  # its owner proved it again meanwhile, or another wiki holds it now
+                    raise ServiceError("hosting.domains.taken")
+                db.execute("DELETE FROM instance_custom_domains WHERE domain = ?", (domain,))
+                events.record("instance", holder["instance_id"], "domain.lapsed", None, domain)
+            _forget(inst["id"])
+            db.execute("DELETE FROM instance_domain_claims WHERE domain = ?", (domain,))  # other claims are moot
+            db.insert("instance_custom_domains", {
+                "domain": domain, "instance_id": inst["id"], "verification_token": claim["verification_token"],
+                "created_at": claim["created_at"], "verified_at": now_sql(),
+                "verified_until": sql_in(hours=VERIFICATION_HOURS), "last_checked_at": now_sql(),
+            })
+            events.record("instance", inst["id"], "domain.verified", actor_id, domain)
+    except ServiceError as error:
+        if error.key == "hosting.domains.taken":
+            db.execute("DELETE FROM instance_domain_claims WHERE instance_id = ?", (inst["id"],))
+        raise
 
 
 def refresh(limit: int = 10) -> int:

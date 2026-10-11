@@ -4,7 +4,7 @@ Mit Kanban-Boards behalten Teams ihre Arbeit im Blick, ohne das Wiki zu verlasse
 
 ## Ein nützliches Board erstellen
 
-Beginne mit wenigen Spalten wie **Backlog**, **In Arbeit**, **Prüfung** und **Erledigt**. Füge weitere nur hinzu, wenn sie einen echten Arbeitsablauf abbilden. Zu viele Spalten machen das Board unübersichtlich.
+Beginne mit wenigen Spalten wie **Backlog**, **In Arbeit**, **Prüfung** und **Erledigt**. Füge weitere nur hinzu, wenn sie einen echten Arbeitsablauf abbilden. Zu viele Spalten machen das Board unübersichtlich. Schalte bei der Spalte, in der die fertige Arbeit landet, **Erledigt-Spalte** ein (die Schaltfläche mit dem Häkchen unter den Werkzeugen der Spalte): Die Karten darin behalten ihr Fälligkeitsdatum, werden aber nicht mehr als überfällig angezeigt.
 
 ## Karten
 

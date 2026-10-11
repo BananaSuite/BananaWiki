@@ -66,7 +66,7 @@ def test_search_syntax(app, admin_client):
     assert "<mark>Fruit</mark>" in body
 
 
-def test_search_requires_permission_and_is_rate_limited(app, make_user, login, db):
+def test_search_requires_permission_and_is_rate_limited(app, make_user, login, db, frozen_limiter_clock):
     user = make_user("nosearch")
     restrict(db, user, keys={"page.view_all"})
     client = app.test_client()

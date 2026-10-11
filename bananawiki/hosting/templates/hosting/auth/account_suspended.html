@@ -4,6 +4,6 @@
 <div class="card card--narrow card--danger"><h1>{{ t('hosting.suspended.title') }}</h1>
 <p>{{ t('hosting.suspended.body') }}</p>
 {% if reason %}<p><strong>{{ t('hosting.activation.reason') }}</strong> {{ reason }}</p>{% endif %}
-{% if until %}<p>{{ t('hosting.suspended.until', time=until|datetime) }}</p>{% elif permanent %}<p>{{ t('hosting.suspended.permanent') }}</p>{% endif %}
-<p class="small muted">{{ t('hosting.common.contact', email=contact_email) }}</p></div>
+{% if until %}<p>{{ t('hosting.suspended.until', time=until|datetime_long) }}</p>{% elif permanent %}<p>{{ t('hosting.suspended.permanent') }}</p>{% endif %}
+{% include "hosting/_contact.html" %}</div>
 {% endblock %}

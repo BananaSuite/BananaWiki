@@ -5,9 +5,26 @@
 {% if page.meta_description %}<meta name="description" content="{{ page.meta_description }}">{% endif %}
 <link rel="stylesheet" href="{{ asset_url('custom_pages.css', blueprint='custom_pages') }}">
 {% endblock %}
+{#- Public pages in the bare layout: the brand sits on the content's left edge, with a way to sign in. -#}
+{% block bare_header %}
+<div class="bare-header">
+  <a class="topbar__brand" href="/"><img class="topbar__logo" src="{{ asset_url('favicons/banana_yellow.png') }}" alt="" width="32" height="32"><span>{{ site_name() }}</span></a>
+  {% if not current_user %}<a class="btn btn--small" href="{{ url_for('auth.login', next=request.path) }}">{{ t('nav.sign_in') }}</a>{% endif %}
+</div>
+{% endblock %}
 {% block content %}
 <article class="stack">
-  {% if page.title %}<header class="page-header"><h1>{{ page.title }}</h1></header>{% endif %}
+  {% set can_edit_page = layout == 'base.html' and current_user and is_admin and has_permission('custom_page.manage') %}
+  {% if page.title or can_edit_page %}
+  <header class="page-header">
+    {% if page.title %}<h1>{{ page.title }}</h1>{% endif %}
+    {% if can_edit_page %}
+    <div class="page-header__actions no-print">
+      <a class="btn btn--primary btn--small" href="{{ url_for('custom_pages.admin_edit', page_id=page.id) }}">{{ t('common.edit') }}</a>
+    </div>
+    {% endif %}
+  </header>
+  {% endif %}
   {% if page.meta_description %}<p class="cp-description">{{ page.meta_description }}</p>{% endif %}
   {% block page_body %}{% endblock %}
 </article>

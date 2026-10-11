@@ -7,6 +7,8 @@
 .users-profile__name { margin: 0 0 .5rem; color: var(--muted); font-size: 1.05rem; }
 .users-profile__bio { white-space: pre-line; overflow-wrap: anywhere; }
 .users-profile > section { padding: 1.25rem 0; border-bottom: 1px solid var(--border); }
+/* The footer draws the last rule. */
+.users-profile > section:last-child { border-bottom: 0; padding-bottom: 0; }
 .users-profile > section h2 { font-size: 1.05rem; }
 .users-profile .avatar--large { width: 64px; height: 64px; }
 .users-contributions { list-style: none; margin: 0; padding: 0; display: grid; }
@@ -35,7 +37,7 @@
 :is(.users-settings, .users-display, .users-display__advanced) > section > p { margin: 0; }
 .users-display .form-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
 .users-display > section > .check { margin-top: 0; }
-.users-display > .btn-row { padding-top: 1.25rem; }
+.users-display > .users-display__save { border-bottom: 0; }
 .users-display__advanced { border-top: 0; }
 .users-display__advanced > summary .hint { display: block; margin: .2rem 0 0; font-weight: 400; }
 .users-display__advanced > section:last-child { border-bottom: 0; padding-bottom: .25rem; }
@@ -70,10 +72,12 @@ a.users-member__identity:hover strong, a.users-member__identity:focus-visible st
 .users-sessions { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--border); }
 .users-session-section + .users-session-section { margin-top: 1.5rem; }
 .users-session-section h2 { font-size: 1rem; }
-.users-session { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem; padding: .9rem 0;
-  border-bottom: 1px solid var(--border); }
-.users-session.is-current { border-bottom-color: color-mix(in srgb, var(--success) 40%, var(--border)); }
-.users-session__main { display: grid; justify-items: start; gap: .3rem; min-width: 0; }
+/* "Sign out" sits at the top right of every session, whatever the length of its facts: the facts wrap
+   beside it instead of pushing the button below them on some rows only. */
+.users-session { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem .75rem;
+  padding: .9rem 0; border-bottom: 1px solid var(--border); }
+.users-session__main { flex: 1 1 0; display: grid; justify-items: start; gap: .3rem; min-width: 0; }
+.users-session > :not(.users-session__main) { flex: none; }
 
 .users-background-preview { max-width: 100%; max-height: 180px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
 .users-spaced { margin-top: 1rem; }
@@ -84,3 +88,11 @@ a.users-member__identity:hover strong, a.users-member__identity:focus-visible st
 .profiles-fields dt { font-size: .8rem; color: var(--muted); font-weight: 600; }
 .profiles-fields dd { margin: 0; overflow-wrap: anywhere; }
 .profiles-value { white-space: pre-line; }
+/* Session facts read as a list: "Signed in … · Active … · IP … · Method …". */
+.users-session__facts { gap: .1rem .5rem; }
+.users-session__facts > span + span::before { content: "·"; margin-inline-end: .5rem; color: var(--muted); }
+/* On phones the facts stack one per line: a wrapped line never starts with a separator. */
+@media (max-width: 600px) {
+  .users-session__facts { display: grid; gap: .1rem; }
+  .users-session__facts > span + span::before { content: none; }
+}

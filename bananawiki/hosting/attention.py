@@ -6,7 +6,10 @@ The portal's approval queues (sources):
                          or hosting activation);
 * ``features.requests``  wiki feature requests (public access, page builder);
 * ``merges.awaiting``    account merges both owners confirmed, waiting for an
-                         administrator to run them.
+                         administrator to run them;
+* ``email.recovery_paused`` (1 or 0) the day's share of email for password
+                         resets is spent: nobody can recover an account by
+                         email until it frees up (see :mod:`.email`).
 
 Counts are one indexed ``COUNT`` each, cached for the request. The admin
 menu's red dot, the dashboard list, the banner after signing in and the
@@ -59,7 +62,19 @@ SOURCES = (
     Source("merges.awaiting", "hosting.attention.source.merges.awaiting", "admin.merge_requests",
            lambda: int(db.scalar("SELECT COUNT(*) FROM hosting_account_merge_requests WHERE status = 'approved'") or 0),
            lambda: db.scalar("SELECT MIN(created_at) FROM hosting_account_merge_requests WHERE status = 'approved'")),
+    Source("email.recovery_paused", "hosting.attention.source.email.recovery_paused", "admin.settings_page",
+           lambda: _recovery_paused(), lambda: None, {"open": "notifications", "_anchor": "notifications"}),
 )
+
+
+def _recovery_paused() -> int:
+    """1 while password resets cannot go out to anyone (the day's recovery share is spent), else 0."""
+    from flask import current_app
+
+    from . import email
+
+    settings = current_app.config["HOSTING"].email
+    return int(email.is_configured(settings) and email.recovery_paused(settings, "reset"))
 
 
 def counts() -> dict[str, int]:

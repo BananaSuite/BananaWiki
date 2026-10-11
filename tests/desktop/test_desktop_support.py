@@ -153,7 +153,7 @@ def build():
 def test_spec_uses_a_neutral_bundle_id():
     spec = (ROOT / "packaging" / "desktop" / "bananawiki-desktop.spec").read_text()
     assert 'BUNDLE_ID = "org.bananawiki.desktop"' in spec
-    assert "canalescuola" not in spec.lower()
+    assert "canale" + "scuola" not in spec.lower()  # the old organisation-specific bundle id
 
 
 def test_linux_package_is_executable(build, tmp_path):

@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-API_VERSION = "2.2.0"
+API_VERSION = "2.3.0"
 
 Schema = dict[str, Any]
 
@@ -161,8 +161,8 @@ ENDPOINTS: tuple[Endpoint, ...] = (
     Endpoint("POST", "/kanban/boards/{board_id}/columns/reorder", "Reorder the columns", "kanban", True,
              group="kanban", feature="kanban", body={"order": IDS}, required=("order",),
              responses=(200, 400, 403, 404), result={"order": IDS}),
-    Endpoint("PUT", "/kanban/columns/{column_id}", "Rename a column or set its WIP limit", "kanban", True,
-             group="kanban", feature="kanban", body={"title": STRING, "wip_limit": NULLABLE_ID},
+    Endpoint("PUT", "/kanban/columns/{column_id}", "Rename a column, set its WIP limit or mark it done", "kanban",
+             True, group="kanban", feature="kanban", body={"title": STRING, "wip_limit": NULLABLE_ID, "done": BOOLEAN},
              responses=(200, 400, 403, 404), result={"column": _ref("Column")}),
     Endpoint("DELETE", "/kanban/columns/{column_id}", "Delete a column and its tickets", "kanban", True,
              group="kanban", feature="kanban", responses=(200, 403, 404), result=_DELETED),
@@ -368,7 +368,7 @@ SCHEMAS: dict[str, Schema] = {
         "is_owner": BOOLEAN,
         "columns": _list(_ref("Column"))}},
     "Column": {"type": "object", "properties": {"id": INTEGER, "title": STRING, "wip_limit": NULLABLE_ID,
-                                                "tickets": IDS}},
+                                                "done": BOOLEAN, "tickets": IDS}},
     "ChecklistItem": {"type": "object", "properties": {"id": INTEGER, "text": STRING, "done": BOOLEAN}},
     "ArchivedTicket": {"allOf": [_ref("Ticket"), {"type": "object", "properties": {
         "column_title": STRING, "archived_by_username": STRING}}]},

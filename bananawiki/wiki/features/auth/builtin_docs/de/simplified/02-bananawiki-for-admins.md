@@ -1,6 +1,6 @@
 # Für Administratoren
 
-Administratoren bestimmen, wie sich das Wiki verhält. Die meisten Einstellungen findest du unter **Verwaltung -> Website-Einstellungen**, **Verwaltung -> Benutzer** und **Verwaltung -> Plugins**.
+Administratoren bestimmen, wie sich das Wiki verhält. Die meisten Einstellungen findest du unter **Verwaltung → Website-Einstellungen**, **Verwaltung → Benutzer** und **Verwaltung → Plugins**.
 
 ## Als Erstes prüfen
 
@@ -16,7 +16,7 @@ Nutze Rollen für den allgemeinen Zugriff und Kategorieeinschränkungen, um fest
 
 ## Integrierte Dokumentation
 
-Im Bereich **Dokumentation** kannst du diese Anleitung im Wiki anlegen. Wähle die ausführliche Anleitung oder die Kurzanleitung, auf Deutsch, Englisch oder Italienisch. Du kannst auch das ZIP-Archiv mit den Markdown-Dateien herunterladen, bearbeiten und die angepassten Seiten wieder importieren.
+Auf der Seite **Verwaltung → Dokumentation** kannst du diese Anleitung im Wiki anlegen. Wähle die ausführliche Anleitung oder die Kurzanleitung, auf Deutsch, Englisch oder Italienisch. Du kannst auch das ZIP-Archiv mit den Markdown-Dateien herunterladen, bearbeiten und die angepassten Seiten wieder importieren.
 
 ## Backups
 

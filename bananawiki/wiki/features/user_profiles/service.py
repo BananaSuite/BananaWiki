@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from ....core.timeutil import now_sql
 from ... import auth
 from ...db import db
+from ..admin import service as admin_service
 from ..pages.service import slugify
 from ..users import service as users
 
@@ -32,13 +33,11 @@ class ProfileFieldError(ValueError):
 
 
 def can_moderate(target: dict[str, Any], actor: dict[str, Any] | None = None) -> bool:
-    """Administrators moderate profiles, except protected and owner accounts of others."""
+    """Administrators moderate the profiles of the accounts they may change (the account hierarchy)."""
     actor = auth.current_user() if actor is None else actor
     if not actor or not auth.is_admin(actor):
         return False
-    if actor["id"] == target["id"]:
-        return True
-    return not target.get("is_superuser") and target["role"] != "owner"
+    return admin_service.protection_error(actor, target) is None
 
 
 # ── Field definitions ─────────────────────────────────────────────────────────

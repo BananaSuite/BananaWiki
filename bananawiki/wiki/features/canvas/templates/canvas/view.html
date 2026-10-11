@@ -7,7 +7,7 @@
 <button type="button" class="btn btn--small {{ cls }}" data-action="{{ action }}" title="{{ label }}" aria-label="{{ label }}">{{ icons.icon(action) }}<span class="canvas-tool__label">{{ label }}</span></button>
 {%- endmacro %}
 {% macro toggle(action, label) -%}
-<button type="button" class="btn btn--small canvas-toggle" data-action="{{ action }}" aria-pressed="false" title="{{ label }}" aria-label="{{ label }}">{{ icons.icon(action) }}</button>
+<button type="button" class="btn btn--small canvas-toggle" data-action="{{ action }}" aria-pressed="false" title="{{ label }}" aria-label="{{ label }}">{{ icons.icon(action) }}<span class="canvas-tool__label" aria-hidden="true">{{ label }}</span></button>
 {%- endmacro %}
 {% macro menu_item(action, label, min=1) -%}
 <button type="button" class="canvas-menu__item" data-action="{{ action }}" data-min="{{ min }}">{{ label }}</button>

@@ -22,6 +22,7 @@ review rules. This page is a map of the repository around it.
 | `wsgi.py`, `gunicorn.conf.py` | `gunicorn -c gunicorn.conf.py wsgi:app`, the command every deployment runs. |
 | `hosting/wsgi.py`, `hosting/gunicorn.conf.py`, `hosting/maintenance.py` | The portal's entry points (the names 1.4 systemd units use). |
 | `scripts/tts_worker.py` | The read-aloud worker process. |
+| `scripts/make_icons.py` | Draws every icon (favicon presets, home-screen icons, the portal's and the desktop app's icons) from the mascot's pixel art; the tests run it with `--check`. |
 | `bananawiki_sdk/`, `bananawiki_userbot_sdk/` | 1.4 import names, forwarding to `bananawiki.sdk`. |
 | `Dockerfile`, `compose.yaml` | Single-wiki image and Compose setup. |
 | `Dockerfile.tenant` | Tenant image of the hosting platform. |

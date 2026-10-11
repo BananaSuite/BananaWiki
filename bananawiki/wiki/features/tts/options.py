@@ -218,12 +218,17 @@ def gpu_settings() -> tuple[str, str, int]:
     Environment variables win. On managed hosting only they count: the
     tenant's ``tts_gpu_*`` columns are ignored so a wiki admin cannot send
     the platform's token (or the wiki's requests) to a server of their choice.
+    For the same reason a token from the environment is only ever sent to the
+    URL from the environment: with ``BW_TTS_REMOTE_GPU_AUTH_TOKEN`` set the
+    saved ``tts_gpu_url`` is ignored. A URL from the environment may still use
+    the token an administrator saved.
     """
     cfg = config()
     url, token, timeout = cfg.gpu_url, cfg.gpu_token, cfg.gpu_timeout
     if not cfg.gpu_managed_by_host and not (url and token):
-        url = url or str(settings.get("tts_gpu_url") or "").strip().rstrip("/")
-        token = token or str(settings.get("tts_gpu_auth_token") or "").strip()
+        if not token:
+            url = url or str(settings.get("tts_gpu_url") or "").strip().rstrip("/")
+            token = str(settings.get("tts_gpu_auth_token") or "").strip()
         timeout = timeout or gpu_timeout(settings.get("tts_gpu_timeout"))
     return url, token, timeout or GPU_DEFAULT_TIMEOUT
 
@@ -235,6 +240,6 @@ def backend_name() -> str:
     if cfg.gpu_managed_by_host:
         url, token, _ = gpu_settings()
         return "remote-gpu" if url and token else "piper"
-    if settings.get("tts_gpu_enabled") and str(settings.get("tts_gpu_url") or cfg.gpu_url).strip():
+    if settings.get("tts_gpu_enabled") and gpu_settings()[0]:
         return "remote-gpu"
     return "piper"

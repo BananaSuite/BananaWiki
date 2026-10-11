@@ -87,8 +87,11 @@ English ones (strings, `hosting/content/help.<code>.json` and
 `wiki/features/auth/builtin_docs/<code>/`), list the code in the language
 registries (`BUILTIN_LANGUAGES` in `bananawiki/wiki/i18n.py`, `LANGUAGES` in
 `bananawiki/hosting/i18n.py`, `bananawiki/hosting/help.py`,
-`bananawiki/desktop/i18n.py` and `bananawiki/wiki/features/auth/docs.py`) and
-open a pull request.
+`bananawiki/desktop/i18n.py` and `bananawiki/wiki/features/auth/docs.py`),
+document the portal's legal-page pair the language brings
+(`HOSTING_TERMS_URL_<CODE>` and `HOSTING_PRIVACY_URL_<CODE>`) in
+`docs/configuration.md` and `.env.example` (`tests/test_env_example.py`
+checks it) and open a pull request.
 
 ## Commits and pull requests
 

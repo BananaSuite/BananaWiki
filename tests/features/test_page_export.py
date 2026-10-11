@@ -232,6 +232,22 @@ def test_bulk_import_modes(app, admin_client):
     assert _page(app, "existing-2")["content"] == "copy"
 
 
+def test_bulk_import_update_respects_page_protection(app, admin_client, make_user, db):
+    from bananawiki.wiki import registry
+    from bananawiki.wiki.db import connection_scope
+
+    with app.test_request_context(), connection_scope():
+        registry.set_enabled("page_governance", True)
+    db.execute("UPDATE site_settings SET page_protection_enabled = 1")
+    guardian = make_user("guardian", role="editor")
+    page = make_page(app, "Guarded", "kept text")
+    db.execute("UPDATE pages SET protected_by = ?, protected_at = '2026-01-01 00:00:00' WHERE id = ?",
+               (guardian["id"], page["id"]))
+    response = _bulk_import(admin_client, {"guarded.md": "# Guarded\n\noverwritten"}, mode="update")
+    assert response.status_code == 302
+    assert _page(app, "guarded")["content"] == "kept text"
+
+
 def test_bulk_import_single_markdown_files(app, admin_client):
     data = {"import_file": [(io.BytesIO(b"# One"), "one.md"), (io.BytesIO(b"# Two"), "two.md"),
                             (io.BytesIO(b"x"), "evil.exe")]}

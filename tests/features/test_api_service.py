@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
@@ -28,6 +29,8 @@ def test_status_and_openapi_need_no_token(api_app, client):
     assert status.status_code == 200 and status.json["api_enabled"] is True
     spec = call(client, "GET", "/openapi.json").json
     assert spec["openapi"].startswith("3.") and "/pages/{slug}" in spec["paths"]
+    # 1.7 added fields (kanban columns' done, tokens' parent_id) and error codes: a minor version.
+    assert status.json["version"] == spec["info"]["version"] == "2.3.0"
     assert spec["paths"]["/pages"]["post"]["x-scope"] == "pages"
 
 
@@ -142,10 +145,15 @@ def test_rate_limit_per_account(api_app, client, db, make_user):
     member = make_user("member", api_access_enabled=1)
     db.execute("UPDATE site_settings SET api_service_rate_limit = 2")
     first, second = issue(api_app, member), issue(api_app, member)
+    started = time.monotonic()
     assert call(client, "GET", "/pages", first).status_code == 200
     assert call(client, "GET", "/pages", second).status_code == 200
     limited = call(client, "GET", "/pages", first)
-    assert limited.status_code == 429 and limited.headers["Retry-After"] == "60"
+    elapsed = time.monotonic() - started
+    assert limited.status_code == 429
+    # Retry-After counts down from 60 s from the oldest counted call (stored to the second), so on a
+    # slow host it is a little less than 60 by the time the third call is answered.
+    assert 59 - elapsed <= int(limited.headers["Retry-After"]) <= 60
 
 
 def test_bad_stored_rate_limit_does_not_break_the_api(api_app, client, db, admin):
@@ -163,6 +171,20 @@ def test_audit_log_redacts_secrets_and_content(api_app, client, db, admin):
     everything = json.dumps(rows)
     assert "a very secret password" not in everything and "top secret body" not in everything
     assert '"password":"[redacted]"' in rows[0]["request_body"] and "characters]" in rows[1]["request_body"]
+
+
+def test_api_keeps_password_whitespace_so_the_sign_in_form_accepts_it(api_app, client, admin):
+    token = issue(api_app, admin, ["users"])
+    password = "  a spaced password  "
+    assert call(client, "POST", "/users", token, json={"username": "spacey", "password": password}).status_code == 201
+    response = client.post("/login", data={"username": "spacey", "password": password})
+    assert response.status_code == 302
+
+
+def test_api_refuses_a_blank_password(api_app, client, admin):
+    token = issue(api_app, admin, ["users"])
+    response = call(client, "POST", "/users", token, json={"username": "blank", "password": "     "})
+    assert response.status_code == 400
 
 
 def test_audit_summary_is_bounded():
@@ -218,6 +240,18 @@ def test_token_quota_and_own_revocation(api_app, client, db, admin, make_user):
     foreign_id = db.scalar("SELECT id FROM api_service__tokens WHERE user_id = ?", (other["id"],))
     assert call(client, "DELETE", f"/tokens/{foreign_id}", token).status_code == 404
     assert call(client, "GET", "/pages", foreign).status_code == 200
+
+
+def test_the_userbot_token_name_is_reserved_for_the_automation_key(api_app, client, db, login, make_user):
+    member = make_user("member", api_access_enabled=1)
+    token = issue(api_app, member, ["tokens", "pages"])
+    for name in ("userbot", " UserBot "):
+        refused = call(client, "POST", "/tokens", token, json={"name": name})
+        assert refused.status_code == 400 and refused.json["code"] == "token_name_reserved"
+    login(client, member)
+    page = client.post("/settings/api-tokens/create", data={"name": "USERBOT"}, follow_redirects=True)
+    assert "reserved for the automation key" in page.get_data(as_text=True)
+    assert db.scalar("SELECT COUNT(*) FROM api_service__tokens WHERE user_id = ?", (member["id"],)) == 1
 
 
 def test_admin_token_management(api_app, client, db, admin, make_user):
@@ -427,9 +461,19 @@ def test_userbot_mode_and_profile(api_app, client, db, login, make_user):
     assert call(client, "GET", "/userbot/me", key).status_code == 401
 
 
+def test_userbot_profile_update_keeps_the_fields_it_leaves_out(api_app, client, make_user):
+    member = make_user("botty", api_access_enabled=1, userbot_enabled=1)
+    key = issue(api_app, member, ["userbot"], name="userbot")
+    call(client, "POST", "/userbot/profile", key, json={"real_name": "Bot", "bio": "Beep"})
+    updated = call(client, "POST", "/userbot/profile", key, json={"page_published": True}).json["profile"]
+    assert (updated["real_name"], updated["bio"], updated["page_published"]) == ("Bot", "Beep", True)
+    updated = call(client, "POST", "/userbot/profile", key, json={"bio": ""}).json["profile"]
+    assert (updated["real_name"], updated["bio"]) == ("Bot", "")
+
+
 def test_userbot_profile_needs_write(api_app, client, make_user):
-    member = make_user("botty", api_access_enabled=1)
-    read_only = issue(api_app, member, ["userbot"], write=False)
+    member = make_user("botty", api_access_enabled=1, userbot_enabled=1)
+    read_only = issue(api_app, member, ["userbot"], write=False, name="userbot")
     assert call(client, "GET", "/userbot/me", read_only).status_code == 200
     assert call(client, "POST", "/userbot/profile", read_only, json={}).status_code == 403
 
@@ -476,15 +520,16 @@ def test_userbot_sdk_against_a_running_wiki(api_app, make_user):
 
     from bananawiki.sdk.userbot import ApiError, UserbotClient
 
-    member = make_user("sdk_bot", api_access_enabled=1)
-    key = issue(api_app, member, ["userbot"])
+    member = make_user("sdk_bot", api_access_enabled=1, userbot_enabled=1)
+    key = issue(api_app, member, ["userbot"], name="userbot")
     server = make_server("127.0.0.1", 0, api_app, threaded=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
         client = UserbotClient(f"http://127.0.0.1:{server.server_port}", key)
         assert client.me()["user"]["username"] == "sdk_bot"
-        assert client.update_profile(real_name="SDK")["profile"]["real_name"] == "SDK"
+        assert client.update_profile(real_name="SDK", bio="Automated")["profile"]["real_name"] == "SDK"
+        assert client.update_profile(page_published=False)["profile"]["bio"] == "Automated"
         try:
             client.page("home")
         except ApiError as error:

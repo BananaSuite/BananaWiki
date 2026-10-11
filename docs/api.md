@@ -56,7 +56,7 @@ A token carries its own grant:
 | `users` | accounts (administrators only) |
 | `settings` | site settings (administrators only) |
 | `admin` | all tokens, API access, audit log (administrators only) |
-| `userbot` | `/userbot/*` |
+| `userbot` | `/userbot/*` (the automation key only; see below) |
 
 `GET` endpoints need `read`, everything else needs `write`. The `users`,
 `settings` and `admin` scopes are only given to administrators; the token
@@ -225,6 +225,12 @@ recorded in the role history, `suspended: true` is a permanent suspension
 without a reason, both are recorded and sent to webhooks
 (`user.role_changed`, `user.suspended`). Setting a password signs the account
 out everywhere and revokes its tokens (`api_tokens_revoked` in the answer).
+Setting the caller's own password also needs `current_password`, as on the
+account page (403 `current_password_required` or `current_password_wrong`),
+so a token alone cannot take over its account. Wrong current passwords count
+against the account page's limit (10 in 15 minutes, shared with it): then
+429 `too_many_attempts`. No call creates an owner or a
+superuser.
 
 ## Settings (`settings`, administrators)
 
@@ -244,8 +250,13 @@ offset are read in the site time zone.
 * `POST /tokens {name?, permissions?, expires_at?}`: issue a token that can
   never exceed the calling one — no flag or scope it lacks, no later expiry;
   an omitted expiry inherits the caller's. An expiry is at most 10 years
-  ahead (400 `expiry_too_far`), on the token page too. Each token is
-  independent: revoking the parent does not revoke its children.
+  ahead (400 `expiry_too_far`), on the token page too. The name `userbot`
+  (in any case) is kept for the automation key (400 `token_name_reserved`).
+  The new token remembers the token that issued it: revoking or expiring
+  that token (or anything that revokes it) revokes the tokens it issued. An
+  issued token cannot have the `tokens` scope itself (403
+  `tokens_scope_forbidden`) or the `userbot` scope (403
+  `userbot_scope_reserved`).
 * `GET /admin/tokens`, `POST /admin/tokens/<id>/revoke` (the tokens of a
   superuser, an owner or another administrator only as the hierarchy allows),
   `PUT /admin/users/<id>/api-access {enabled}`,
@@ -258,7 +269,9 @@ An account can turn on **automation mode** on its token page. That issues a
 key (a token named `userbot` with read/write `userbot` scope), marks the
 account as automated (`users.userbot_enabled`) and counts the change.
 Administrators can lock the mode on or off (`users.userbot_mode_lock`); while
-it is locked on, the owner can still issue a new key.
+it is locked on, the owner can still issue a new key. Only the key carries the
+`userbot` scope, and the endpoints answer only while automation mode is on
+(otherwise 403 `userbot_disabled`), so locking it off stops every script.
 
 * `GET /userbot/me` – account, lock and counters, profile, key timestamps.
 * `POST /userbot/profile {real_name?, bio?, page_published?}` – needs write

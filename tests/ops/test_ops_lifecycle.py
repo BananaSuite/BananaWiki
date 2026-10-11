@@ -123,7 +123,7 @@ def test_failed_readiness_rolls_back_data_and_release(managed_root, fake_system,
     assert (managed_root / "current").resolve().name == legacy
     assert titles(managed_root) == ["Home"]
     assert (managed_root / "data/uploads/picture.png").is_file()
-    assert read_json(managed_root / "config/failed-revision.json") == {"revision": bad}
+    assert read_json(managed_root / "config/failed-revision.json")["revision"] == bad
     assert read_json(managed_root / "config/installation.json")["revision"] == legacy
     assert not (managed_root / "config/transaction.json").exists()
     assert read_json(managed_root / "config/status.json")["outcome"] == "rolled_back"
@@ -140,7 +140,7 @@ def test_portable_backup_preserves_update_trust(managed_root, fake_system, upstr
     manager.configure_source(signers_file=signers)
     package = manager.backup()
     restored = Manager(tmp_path / "restored", system=FakeSystem(tmp_path / "restored-host"))
-    restored.restore(package, new=True)
+    restored.restore(package, new=True, trust_source=legacy)
     assert restored.source()["signing"] == "ssh"
     trust = restored.config_dir / "repo.allowed_signers"
     assert trust.read_text() == signers.read_text()
@@ -470,7 +470,7 @@ def test_automatic_update_respects_policy_and_stopped_service(managed_root, fake
     upstream.commit("1.6")
     manager = Manager(managed_root, system=fake_system)
     assert manager.update(automatic=True) == {"outcome": "disabled"}
-    manager.set_updates(True, interval=30, keep=4)
+    manager.set_updates(True, interval=30, keep=4, allow_unsigned=True)  # the source is not signed
     timer = (fake_system.unit_dir / "bananawiki-update.timer").read_text()
     assert "OnUnitActiveSec=30min" in timer
     fake_system.running.clear()

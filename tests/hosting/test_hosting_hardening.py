@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import itertools
+import time
+from types import SimpleNamespace
+
 from bananawiki.hosting import wikihosts
 
 from .hosting_support import PASSWORD
@@ -10,7 +14,7 @@ from .hosting_support import PASSWORD
 def test_https_sessions_use_a_host_only_cookie_that_wikis_cannot_plant(web, make_account):
     account = make_account()
     response = web.post("https://localhost/login", data={"username": account["username"], "password": PASSWORD})
-    cookie = response.headers["Set-Cookie"]
+    cookie = next((value for value in response.headers.getlist("Set-Cookie") if "bwh_session=" in value), "")
     assert cookie.startswith("__Host-bwh_session=") and "Secure" in cookie and "Path=/" in cookie
     assert "Domain" not in cookie
     assert web.get("https://localhost/dashboard").status_code == 200
@@ -61,6 +65,27 @@ def test_proxied_requests_never_take_every_portal_thread():
     first.release()
     assert third.acquire(0.01)
 
+
+
+def test_one_busy_wiki_always_leaves_a_proxy_slot_to_the_others():
+    slots = wikihosts._Slots(total=3)
+    busy = [slots.get("slow") for _ in range(3)]
+    assert busy[0].acquire(0.01) and busy[1].acquire(0.01)
+    assert not busy[2].acquire(0.01)
+    assert slots.get("other").acquire(0.01)
+
+
+def test_a_trickling_wiki_response_is_cut_off_at_the_deadline(monkeypatch):
+    clock = itertools.count(0, 10.0)
+    monkeypatch.setattr(time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(wikihosts, "RESPONSE_SECONDS", 50, raising=False)
+    released = []
+    response = SimpleNamespace(read1=lambda _size: b"x")
+    connection = SimpleNamespace(sock=None, close=lambda: None)
+    body = wikihosts._Body(response, connection, SimpleNamespace(release=lambda: released.append(True)))
+    assert len(list(itertools.islice(body, 100))) < 10
+    body.close()
+    assert released == [True]
 
 def test_hosted_wikis_never_receive_the_gpu_master_token(ctx, make_account, make_wiki):
     from bananawiki.hosting import instances, settings

@@ -14,7 +14,7 @@ import pytest
 
 from bananawiki.wiki import storage
 from bananawiki.wiki.db import connection_scope
-from bananawiki.wiki.features.kanban import history, service, store, transfer
+from bananawiki.wiki.features.kanban import history, logtext, service, store, transfer
 from bananawiki.wiki.features.kanban.fields import KanbanError
 
 from .api_support import call, enable_api, issue
@@ -447,7 +447,7 @@ def test_board_history_is_bounded_by_bytes(admin_client, board, db, monkeypatch)
     assert history.decode(snapshot)["columns"][0]["tickets"][0]["title"] == "Last"
 
 
-def test_moving_a_ticket_back_and_forth_shares_one_entry(admin_client, board, db):
+def test_moving_a_ticket_back_and_forth_shares_one_entry(app, admin_client, board, db):
     todo, doing, done = (column["id"] for column in columns(admin_client, board))
     ticket = new_ticket(admin_client, todo)
     before = len(_entries(db, board))
@@ -456,7 +456,7 @@ def test_moving_a_ticket_back_and_forth_shares_one_entry(admin_client, board, db
     assert len(_entries(db, board)) == before + 1
     activity = db.column("SELECT details FROM kanban_activity_log WHERE board_id = ? AND action = 'ticket_moved' "
                          "ORDER BY id", (board,))
-    assert len(activity) == 4 and activity[-1].endswith("“In progress”")
+    assert len(activity) == 4 and in_app(app, lambda: logtext.render(activity[-1])).endswith("“In progress”")
     other = new_ticket(admin_client, todo, "Other")
     admin_client.post(f"/api/kanban/tickets/{other['id']}/move", json={"column_id": done})
     assert len(_entries(db, board)) == before + 3  # created, then moved: another ticket, another entry

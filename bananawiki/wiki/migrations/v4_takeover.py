@@ -6,7 +6,7 @@ Everything here is idempotent and keeps 1.4 data. In order:
    columns with foreign keys switched off, which makes every later
    migration's integrity check fail. Nullable references become NULL; rows
    whose required parent is gone are removed, as ``ON DELETE CASCADE``
-   would have done.
+   would have done, and so are the rows that removal orphans in turn.
 2. Store every timestamp in one shape (``YYYY-MM-DD HH:MM:SS``, UTC) so text
    comparisons are correct. 1.4 mixed that with ISO ``…T…+00:00``.
 3. Fold the pre-custom-role editor category ACL into the current one.
@@ -106,23 +106,41 @@ def _columns(conn: sqlite3.Connection, table: str) -> list[tuple[str, str, bool]
 
 
 def repair_dangling_references(conn: sqlite3.Connection) -> None:
-    violations = tuples(conn, "PRAGMA foreign_key_check")
-    if not violations:
-        return
-    fixed = removed = 0
-    for table, rowid, _parent, fk_id in violations:
-        if rowid is None:
-            continue
-        columns = _foreign_keys(conn, table).get(fk_id, [])
-        required = {name for name, _type, req in _columns(conn, table) if req}
-        if columns and not required.intersection(columns):
-            assignments = ", ".join(f"{quote_identifier(c)} = NULL" for c in columns)
-            conn.execute(f"UPDATE {quote_identifier(table)} SET {assignments} WHERE rowid = ?", (rowid,))
-            fixed += 1
-        else:
-            conn.execute(f"DELETE FROM {quote_identifier(table)} WHERE rowid = ?", (rowid,))
-            removed += 1
-    log.warning("Repaired %d dangling references and removed %d orphaned rows.", fixed, removed)
+    """Clear or remove every reference to a missing row, following chains of orphans.
+
+    Foreign keys are off while a migration runs, so removing an orphaned row
+    does not cascade by itself: its own children then dangle in turn. Each
+    pass repairs what ``PRAGMA foreign_key_check`` reports and the next pass
+    picks up what the previous one orphaned, until nothing dangles (or a pass
+    can repair nothing more, which the integrity check before COMMIT then
+    reports).
+    """
+    fixed: dict[str, int] = {}
+    removed: dict[str, int] = {}
+    while True:
+        violations = [row for row in tuples(conn, "PRAGMA foreign_key_check") if row[1] is not None]
+        if not violations:
+            break
+        changed = 0
+        for table, rowid, _parent, fk_id in violations:
+            columns = _foreign_keys(conn, table).get(fk_id, [])
+            required = {name for name, _type, req in _columns(conn, table) if req}
+            if columns and not required.intersection(columns):
+                assignments = ", ".join(f"{quote_identifier(c)} = NULL" for c in columns)
+                cursor = conn.execute(f"UPDATE {quote_identifier(table)} SET {assignments} WHERE rowid = ?", (rowid,))
+                fixed[table] = fixed.get(table, 0) + cursor.rowcount
+            else:
+                cursor = conn.execute(f"DELETE FROM {quote_identifier(table)} WHERE rowid = ?", (rowid,))
+                removed[table] = removed.get(table, 0) + cursor.rowcount
+            changed += cursor.rowcount
+        if not changed:
+            break
+    if fixed or removed:
+        log.warning("Repaired %d dangling references and removed %d orphaned rows.",
+                    sum(fixed.values()), sum(removed.values()))
+        for table in sorted(set(fixed) | set(removed)):
+            log.warning("  %s: %d references cleared, %d rows removed", table, fixed.get(table, 0),
+                        removed.get(table, 0))
 
 
 def normalize_timestamps(conn: sqlite3.Connection) -> None:

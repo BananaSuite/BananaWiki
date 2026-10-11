@@ -290,6 +290,23 @@ def test_invalid_preference_values_are_dropped(client, make_user, login, db):
     assert saved["background_image"] == ""
 
 
+def test_numbers_too_large_for_an_integer_are_dropped_not_a_server_error(client, make_user, login, db):
+    # 1e999 reads as infinity and int() cannot hold it: such a saved value (an imported account, or the
+    # cookie of a visitor in public mode) made every page answer 500, and so did a display form field.
+    user = make_user("bob", accessibility='{"contrast": 1e999, "mascot_shades": 1e999}')
+    login(client, user)
+    assert client.get("/settings").status_code == 200
+    response = client.post("/settings/display", data={"line_height": "1e999", "letter_spacing": "1e999",
+                                                      "sidebar_width": "1e999", "content_max_width": "-1e999"})
+    assert response.status_code < 500
+    # The JSON API keeps refusing such numbers outright.
+    assert client.post("/api/accessibility", data='{"line_height": 1e999}', content_type="application/json"
+                       ).status_code == 400
+    saved = json.loads(db.scalar("SELECT accessibility FROM users WHERE id = ?", (user["id"],)))
+    assert [saved[key] for key in ("contrast", "line_height", "letter_spacing", "sidebar_width",
+                                   "content_max_width", "mascot_shades")] == [0, 0, 0, 0, 0, 0]
+
+
 def test_anonymous_preferences_live_in_a_cookie(client, db):
     db.execute("UPDATE site_settings SET public_mode = 1")
     response = client.post("/settings/display", data={"theme_mode": "light", "font_scale": "1.2"})

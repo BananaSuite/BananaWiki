@@ -3,7 +3,7 @@
 {% from "admin/_categories.html" import category_list, permission_groups with context %}
 {% block title %}{{ role.name if role else t('admin.roles.create') }}{% endblock %}
 {% block admin_content %}
-<nav class="breadcrumbs" aria-label="{{ t('common.back') }}"><ol>
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
   <li><a href="{{ url_for('admin.roles') }}">{{ t('admin.roles.title') }}</a></li><li>{{ role.name if role else t('admin.roles.create') }}</li>
 </ol></nav>
 <header class="page-header"><h1>{{ role.name if role else t('admin.roles.create') }}</h1></header>
@@ -23,6 +23,7 @@
   </section>
   <h2>{{ t('admin.roles.permissions') }}</h2>
   {{ permission_groups(groups, values['keys'], editor_only) }}
+  <h2 class="role-limits-heading">{{ t('admin.roles.category_limits') }}</h2>
   <fieldset>
     <legend>{{ t('admin.permissions.read_access') }}</legend>
     {{ forms.checkbox('read_restricted', t('admin.permissions.read_restricted'), checked=values.read_restricted) }}

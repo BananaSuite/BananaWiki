@@ -25,7 +25,7 @@ def put_on_shades():
 
 @bp.post("/settings/mascot")
 def own_choice():
-    """Switch the mascot on or off, or take its sunglasses off, from "Customize"."""
+    """Switch the mascot on or off, or take its sunglasses off, from "Customise"."""
     user = auth.current_user()
     action = request.form.get("action", "")
     if action == "show":
@@ -47,7 +47,7 @@ def everyone():
     if action not in service.BULK_ACTIONS:
         abort(400)
     changed = service.apply_to_everyone(action)
-    record("mascot.bulk_updated", details={"action": action, "accounts": changed})
-    form = "one" if changed == 1 else "other"
-    auth.flash_t(f"mascot.admin.done.{action}_{form}", "success", count=changed)
+    # One action name per button, so the audit log names it in the reader's language.
+    record(f"mascot.everyone.{action}", details={"count": changed})
+    auth.flash_t(f"mascot.admin.done.{action}", "success", count=changed)
     return redirect(url_for("site_admin.appearance"))

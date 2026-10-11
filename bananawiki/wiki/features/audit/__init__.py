@@ -5,6 +5,7 @@ Other features call :func:`record` (see :mod:`.service` for the contract).
 
 from ... import auth
 from ...registry import Feature, Job, NavItem
+from .guard import install, record_switch, refuse_switch
 from .handlers import EVENTS
 from .routes import bp
 from .service import prune, record
@@ -25,6 +26,8 @@ FEATURE = Feature(
     blueprints=[bp],
     nav=[NavItem("audit.nav", "audit.index", icon="list", area="admin", order=45, visible=_is_admin)],
     events=EVENTS,
+    interceptors={"feature.switch": refuse_switch, "feature.switched": record_switch},
     jobs=[Job("audit.prune", 86400, prune, initial_delay=600)],
+    init_app=install,
     order=10,
 )

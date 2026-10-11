@@ -8,7 +8,7 @@ Permissions decide what each person can see and do. BananaWiki starts with simpl
 |---|---|
 | **User** | read pages, search, use allowed collaboration tools |
 | **Editor** | create and edit pages and categories |
-| **Admin** | manage users, settings, plugins, and site-wide behavior |
+| **Admin** | manage users, settings, plugins, and site-wide behaviour |
 | **Protected admin** | admin access that cannot be changed by regular admins |
 
 ## Custom roles

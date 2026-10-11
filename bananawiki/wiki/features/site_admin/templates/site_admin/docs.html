@@ -13,7 +13,7 @@
 {% for code in languages %}{% set _ = language_options.append((code, t('site_admin.docs.language.' ~ code, language_names.get(code, code)))) %}{% endfor %}
 
 <section class="card">
-  <h2>{{ t('site_admin.docs.create') }}</h2>
+  <h2>{{ t('site_admin.docs.replace' if category else 'site_admin.docs.create') }}</h2>
   {% if category %}<p>{{ t('site_admin.docs.exists', name=category.name) }}</p>{% endif %}
   <form method="post" action="{{ url_for('site_admin.spawn_docs') }}" class="form"
         {% if category %}data-confirm="{{ t('site_admin.docs.replace_confirm') }}"{% endif %}>

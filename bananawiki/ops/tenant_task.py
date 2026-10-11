@@ -160,6 +160,39 @@ def _revoke(db: Any, user_ids: list[str]) -> None:
             db.execute("UPDATE api_service__tokens SET active = 0 WHERE user_id = ? AND active = 1", (user_id,))
 
 
+def _audit(db: Any, action: str, user: dict[str, Any], details: dict[str, Any]) -> None:
+    """One entry in the wiki's audit log, as the wiki records it, while the log is switched on."""
+    from bananawiki.core.sqlite import table_exists
+
+    if not table_exists(db.conn, "audit_log"):
+        return
+    if table_exists(db.conn, "plugins") and db.scalar("SELECT enabled FROM plugins WHERE id = 'audit'",
+                                                      default=1) == 0:
+        return
+    db.insert("audit_log", {"created_at": _now(), "actor_id": None, "action": action, "target_type": "user",
+                            "target_id": str(user["id"]), "ip": None,
+                            "details": json.dumps(details, ensure_ascii=False, sort_keys=True)})
+
+
+def _reset_two_step(db: Any, users: list[dict[str, Any]]) -> list[str]:
+    """Turn off two-step verification of *users*; returns the names of those that had it on.
+
+    The portal's password reset is a hosted owner's way back in when the
+    authenticator app and the recovery codes are lost too, as
+    ``bananawiki reset-two-step`` is on a server of one's own.
+    """
+    from bananawiki.core.sqlite import table_exists
+
+    if not table_exists(db.conn, "auth__two_step"):
+        return []
+    reset = []
+    for user in users:
+        if db.execute("DELETE FROM auth__two_step WHERE user_id = ?", (user["id"],)).rowcount:
+            reset.append(user["username"])
+            _audit(db, "user.two_step_reset", user, {"username": user["username"], "via": "hosting portal"})
+    return reset
+
+
 def _exchange_file(cfg: Any, request: dict[str, Any]) -> Path:
     name = _text(request, "name", limit=70)
     if not EXCHANGE_NAME.fullmatch(name):
@@ -325,7 +358,10 @@ def remove_user(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
 
 
 def reset_admin(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
-    """New password (to be changed at next sign-in) for the named admin, else for every admin and owner."""
+    """New password (to be changed at next sign-in) for the named admin, else for every admin and owner.
+
+    Their two-step verification is turned off too, and their sessions and API tokens end.
+    """
     username = _username(request)
     hashed = _hash(cfg, _password(request))
     with _session(cfg) as db, db.transaction():
@@ -343,7 +379,8 @@ def reset_admin(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
         for user in targets:
             db.execute("UPDATE users SET password = ?, force_password_change = 1 WHERE id = ?", (hashed, user["id"]))
         _revoke(db, [user["id"] for user in targets])
-    return {"username": targets[0]["username"]}
+        two_step_reset = _reset_two_step(db, targets)
+    return {"username": targets[0]["username"], "two_step_reset": two_step_reset}
 
 
 def analytics(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:

@@ -11,6 +11,7 @@ import re
 import secrets
 import sqlite3
 import string
+from datetime import timedelta
 from typing import Any
 
 from flask import current_app
@@ -25,7 +26,15 @@ from .errors import ServiceError
 USERNAME = re.compile(r"^[a-zA-Z0-9_-]{3,30}$")
 EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 PASSWORD_MAX_LENGTH = 1000
+# The version (date) of the terms of service and privacy policy that accounts accept when the
+# operator does not name one: HOSTING_TERMS_VERSION overrides it with the version printed on the
+# pages the operator publishes (see terms_version). Existing accounts are asked to accept that
+# version too once HOSTING_TERMS_REQUIRED_VERSION names it (see terms_outdated).
 TERMS_VERSION = "2026-07-22"
+# Addresses an account takes within CLAIM_WINDOW_DAYS (signing up counts) that each hold the new
+# address for a verification link's lifetime; later ones count from the first (see email_claim).
+CLAIM_WINDOW_DAYS = 30
+FRESH_CLAIMS = 3
 REASON_MAX_LENGTH = 500
 DECISION_MAX_LENGTH = 1000
 MAX_SCHEDULE_SECONDS = 10 * 365 * 86400
@@ -96,6 +105,14 @@ def check_username(username: str) -> str:
 
 
 def check_email(address: str, *, required: bool = False, exclude_id: str | None = None) -> str:
+    """Validate *address* for an account; one another account holds is refused.
+
+    While email verification is enforced, an address another account no
+    longer holds unverified (:func:`claim_is_stale`, roughly a verification
+    link's lifetime) is released to the new claimant (see
+    :func:`release_stale_claim`): nobody can reserve someone else's address
+    just by typing it, nor by typing it again and again (:func:`email_claim`).
+    """
     address = (address or "").strip().lower()
     if not address:
         if required:
@@ -104,9 +121,76 @@ def check_email(address: str, *, required: bool = False, exclude_id: str | None 
     if len(address) > 254 or not EMAIL.match(address):
         raise ServiceError("hosting.accounts.invalid_email")
     existing = by_email(address)
-    if existing and existing["id"] != exclude_id:
+    if existing and existing["id"] != exclude_id and not release_stale_claim(existing):
         raise ServiceError("hosting.accounts.email_taken")
     return address
+
+
+def claim_is_stale(account: dict[str, Any]) -> bool:
+    """The account's address is unverified and no longer held for it (see :func:`email_claim`).
+
+    An address is held for a verification link's lifetime from when it was
+    claimed. A link sent later (the first one never arrived, say) keeps it
+    while that link is live, but never past twice that lifetime from the
+    claim: a new link a day cannot hold an address forever.
+    """
+    if account.get("email_verified_at") or not account.get("email"):
+        return False
+    claimed = parse(account.get("email_claimed_at"))
+    if claimed is None:
+        return True
+    ttl = timedelta(seconds=current_app.config["HOSTING"].email.token_ttl_seconds)
+    held_until = claimed + ttl
+    sent, expires = parse(account.get("email_verification_sent_at")), parse(account.get("email_verification_expires_at"))
+    if account.get("email_verification_token_hash") and sent is not None and expires is not None and sent >= claimed:
+        held_until = max(held_until, min(expires, claimed + 2 * ttl))
+    return utcnow() > held_until
+
+
+def email_claim(account: dict[str, Any] | None, *, by_admin: bool = False) -> dict[str, Any]:
+    """Column values for an address *account* takes now (None: a new account signing up).
+
+    The address is held from now (:func:`claim_is_stale`) for the first
+    ``FRESH_CLAIMS`` addresses of a ``CLAIM_WINDOW_DAYS`` series (signing up,
+    correcting a typo at once, moving later in the month); later changes in
+    the series count from its first change, so changing an address away and
+    back again does not hold it any longer. Confirming an address does not
+    end the series: otherwise confirming one of one's own between two
+    changes would hold someone else's address afresh every time. An
+    administrator's change always holds the address from now and leaves the
+    series alone.
+    """
+    now = now_sql()
+    if by_admin:
+        return {"email_claimed_at": now}
+    since = parse(account.get("email_claims_since")) if account else None
+    if since is None or utcnow() - since > timedelta(days=CLAIM_WINDOW_DAYS):
+        return {"email_claimed_at": now, "email_claims_since": now, "email_claims": 1}
+    claims = int(account.get("email_claims") or 0) + 1  # type: ignore[union-attr]
+    return {"email_claimed_at": now if claims <= FRESH_CLAIMS else account["email_claims_since"],  # type: ignore[index]
+            "email_claims": claims}
+
+
+def release_stale_claim(account: dict[str, Any]) -> bool:
+    """Take a stale, unverified address away from *account*; True when it was released.
+
+    Only while verification is enforced: otherwise no address is ever
+    verified and every one would be up for grabs.
+    """
+    from . import notifications
+
+    if not notifications.verification_required() or not claim_is_stale(account):
+        return False
+    released = db.execute(
+        "UPDATE accounts SET email = '', email_claimed_at = NULL, email_verified_at = NULL, "
+        "email_verification_token_hash = '', email_verification_sent_at = NULL, "
+        "email_verification_expires_at = NULL, password_reset_token_hash = '', password_reset_sent_at = NULL, "
+        "password_reset_expires_at = NULL WHERE id = ? AND email = ? AND email_verified_at IS NULL",
+        (account["id"], account["email"]),
+    ).rowcount
+    if released:
+        events.record("account", account["id"], "email.released", None, "unverified address claimed by another account")
+    return bool(released)
 
 
 def check_new_password(password: str, confirm: str | None = None) -> str:
@@ -153,7 +237,8 @@ def create(username: str, password: str, *, is_admin: bool = False, email: str =
     account_id = _new_id()
     try:
         db.insert("accounts", {"id": account_id, "username": username, "password": hash_password(password),
-                               "is_admin": 1 if is_admin else 0, "created_at": now_sql(), "email": email})
+                               "is_admin": 1 if is_admin else 0, "created_at": now_sql(), "email": email,
+                               **(email_claim(None, by_admin=True) if email else {})})
     except sqlite3.IntegrityError as error:
         raise ServiceError("hosting.accounts.username_taken") from error
     return get(account_id)  # type: ignore[return-value]
@@ -187,8 +272,9 @@ def signup(username: str, password: str, *, email: str = "", invite_code: str = 
         try:
             db.insert("accounts", {
                 "id": account_id, "username": username, "password": password_hash, "is_admin": 1 if first else 0,
-                "created_at": now_sql(), "email": email, "terms_accepted_at": now_sql(),
-                "terms_version": TERMS_VERSION, "signup_use_case": use_case[:2000],
+                "created_at": now_sql(), "email": email, **(email_claim(None) if email else {}),
+                "terms_accepted_at": now_sql(),
+                "terms_version": terms_version(), "signup_use_case": use_case[:2000],
                 "approval_status": "pending" if is_pending else "approved",
             })
         except sqlite3.IntegrityError as error:
@@ -200,6 +286,45 @@ def signup(username: str, password: str, *, email: str = "", invite_code: str = 
     return get(account_id)  # type: ignore[return-value]
 
 
+# ── Terms of service ──────────────────────────────────────────────────────────
+
+
+def terms_version() -> str:
+    """The version of the terms the operator publishes, which accepting them records (``HOSTING_TERMS_VERSION``)."""
+    return current_app.config["HOSTING"].terms_version or TERMS_VERSION
+
+
+def required_terms_version() -> str:
+    """The version every account must have accepted (``HOSTING_TERMS_REQUIRED_VERSION``), or "" for none.
+
+    The configuration refuses one later than :func:`terms_version`, which
+    nobody could ever accept.
+    """
+    return current_app.config["HOSTING"].terms_required_version
+
+
+def terms_outdated(account: dict[str, Any]) -> bool:
+    """Whether *account* must accept the current terms before using the portal, the API or wiki sign-in."""
+    required = required_terms_version()
+    return bool(required) and (account.get("terms_version") or "") < required
+
+
+def accept_terms(account: dict[str, Any]) -> None:
+    """Record that *account* accepted the current terms (:func:`terms_version`), in the moderation log too.
+
+    ``terms_accepted_at`` moves to now only for an account that accepted terms
+    on the sign-up form: one an administrator created keeps none, because
+    that column is what marks an account from the sign-up form (see
+    :func:`.instances.on_probation`); the date of its acceptance is the
+    moderation-log entry.
+    """
+    version = terms_version()
+    with db.transaction():
+        db.execute("UPDATE accounts SET terms_version = ?, terms_accepted_at = CASE WHEN terms_accepted_at "
+                   "IS NULL THEN NULL ELSE ? END WHERE id = ?", (version, now_sql(), account["id"]))
+        events.record("account", account["id"], "account.terms_accepted", account["id"], version)
+
+
 # ── Identity and credentials ──────────────────────────────────────────────────
 
 
@@ -207,7 +332,8 @@ def signup(username: str, password: str, *, email: str = "", invite_code: str = 
 _RESET_CLEARED = {"password_reset_token_hash": "", "password_reset_sent_at": None, "password_reset_expires_at": None}
 
 
-def update_identity(account: dict[str, Any], *, username: str, email: str, email_required: bool) -> bool:
+def update_identity(account: dict[str, Any], *, username: str, email: str, email_required: bool,
+                    by_admin: bool = False) -> bool:
     """Change username/email; returns True when the email changed (verification restarts)."""
     username = check_username(username)
     other = by_username(username)
@@ -217,8 +343,9 @@ def update_identity(account: dict[str, Any], *, username: str, email: str, email
     changed_email = email != (account.get("email") or "")
     values: dict[str, Any] = {"username": username, "email": email, "email_prompt_dismissed": 1}
     if changed_email:
-        values.update(email_verified_at=None, email_verification_token_hash="",
-                      email_verification_sent_at=None, email_verification_expires_at=None, **_RESET_CLEARED)
+        values.update(email_verified_at=None, email_verification_token_hash="", email_verification_sent_at=None,
+                      email_verification_expires_at=None, **_RESET_CLEARED,
+                      **(email_claim(account, by_admin=by_admin) if email else {"email_claimed_at": None}))
     try:
         db.update("accounts", values, "id = ?", (account["id"],))
     except sqlite3.IntegrityError as error:
@@ -229,7 +356,8 @@ def update_identity(account: dict[str, Any], *, username: str, email: str, email
 def set_contact_email(account: dict[str, Any], address: str) -> None:
     address = check_email(address, required=True, exclude_id=account["id"])
     db.update("accounts", {"email": address, "email_prompt_dismissed": 1, "email_verified_at": None,
-                           "email_verification_token_hash": "", **_RESET_CLEARED}, "id = ?", (account["id"],))
+                           "email_verification_token_hash": "", **email_claim(account), **_RESET_CLEARED},
+              "id = ?", (account["id"],))
 
 
 def set_password(account_id: str, password: str, *, actor_id: str | None, reason: str) -> int:
@@ -287,6 +415,7 @@ def clear_verification(account_id: str) -> None:
 
 
 def mark_verified(account_id: str) -> None:
+    """The address is confirmed: it is never released again. The series of changes goes on (:func:`email_claim`)."""
     db.update("accounts", {"email_verified_at": now_sql(), "email_verification_token_hash": "",
                            "email_verification_expires_at": None}, "id = ?", (account_id,))
 
@@ -345,6 +474,7 @@ def flag_email(account: dict[str, Any], *, reason: str, reason_visible: bool, re
     if replacement:
         replacement = check_email(replacement, required=True, exclude_id=account["id"])
         db.update("accounts", {"email": replacement, "email_verified_at": None, "email_verification_token_hash": "",
+                               **email_claim(account, by_admin=True),
                                "email_flagged_invalid": 0, "email_flag_reason": "", "email_flagged_previous": "",
                                "email_flag_reason_visible": 0, **_RESET_CLEARED}, "id = ?", (account["id"],))
         events.record("account", account["id"], "email.replaced", actor_id)
@@ -367,8 +497,8 @@ def replace_flagged_email(account: dict[str, Any], address: str) -> None:
     if settings.flag("email_flag_block_reentry") and address == (account.get("email_flagged_previous") or ""):
         raise ServiceError("hosting.email_flagged.same_address")
     with db.transaction():
-        db.update("accounts", {"email": address, "email_verified_at": None, **_RESET_CLEARED}, "id = ?",
-                  (account["id"],))
+        db.update("accounts", {"email": address, "email_verified_at": None, **email_claim(account),
+                               **_RESET_CLEARED}, "id = ?", (account["id"],))
         clear_email_flag(account["id"])
 
 
@@ -531,7 +661,8 @@ def delete(account_id: str) -> None:
                 "totp_recovery_hashes": "[]", "signup_use_case": "", "email_verification_token_hash": "",
                 "password_reset_token_hash": "", "email_flagged_previous": "", "deleted_at": now_sql(),
             }, "id = ?", (account_id,))
-            db.execute("UPDATE accounts SET session_version = session_version + 1 WHERE id = ?", (account_id,))
+            db.execute("UPDATE accounts SET session_version = session_version + 1, mfa_epoch = mfa_epoch + 1 "
+                       "WHERE id = ?", (account_id,))
     except sqlite3.IntegrityError as error:
         raise ServiceError("hosting.accounts.delete_failed") from error
 

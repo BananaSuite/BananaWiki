@@ -1,4 +1,10 @@
-"""Indexes the messaging feature needs on top of the 1.4 tables."""
+"""Indexes and tables the messaging feature needs on top of the 1.4 tables (migrations 4 and 5).
+
+Later versions keep their own frozen DDL: ``chats.cleared_upto_user1`` /
+``cleared_upto_user2`` and ``chat__reports`` are created by
+:mod:`bananawiki.wiki.migrations.v8_tokens_and_chat_safety`, ``chat__blocks``
+by :mod:`bananawiki.wiki.migrations.v10_chat_blocks`.
+"""
 
 from __future__ import annotations
 

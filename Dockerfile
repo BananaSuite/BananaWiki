@@ -1,5 +1,5 @@
-# syntax=docker/dockerfile:1
-# BananaWiki: a single wiki as a container.
+# BananaWiki: a single wiki as a container. Building needs Docker's BuildKit
+# component (RUN --mount below; "docker buildx version" must answer).
 #
 #   docker build -t bananawiki .
 #   docker run -d -p 127.0.0.1:5001:5001 -v bananawiki-data:/data \
@@ -59,11 +59,13 @@ RUN groupadd --system --gid 10001 bananawiki \
     && install -d -o 10001 -g 10001 -m 0700 /data
 
 WORKDIR /app
-COPY requirements.txt ./
+# Hash-pinned wheels only (scripts/lock_requirements.py): the exact files the release was tested with.
+COPY requirements.lock requirements-build.lock ./
 RUN --mount=type=secret,id=proxy_ca \
     if [ -s /run/secrets/proxy_ca ]; then export PIP_CERT=/run/secrets/proxy_ca; fi \
-    && python -m pip install --no-cache-dir --only-binary=:all: --no-deps --upgrade 'pip>=26.2.1' \
-    && python -m pip install --no-cache-dir --only-binary=:all: --requirement requirements.txt \
+    && python -m pip install --no-cache-dir --only-binary=:all: --no-deps --require-hashes --upgrade \
+        --requirement requirements-build.lock \
+    && python -m pip install --no-cache-dir --only-binary=:all: --require-hashes --requirement requirements.lock \
     && python -m pip uninstall -y pip setuptools wheel \
     && rm -rf /usr/local/lib/python3.12/ensurepip
 

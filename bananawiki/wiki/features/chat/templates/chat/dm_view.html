@@ -14,12 +14,22 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn btn--small btn--danger" type="submit">{{ t('chat.clear.button') }}</button>
     </form>
+    {% if other and not blocked_by_me %}{{ ui.block_button(other, request.path) }}{% endif %}
   </div>
 </header>
+{% if blocked_by_me %}
+<div class="alert alert--warning"><div class="alert__body">
+  <p>{{ t('chat.blocks.dm_notice', user=other_name) }}</p>
+  {{ ui.unblock_button(other, request.path) }}
+</div></div>
+{% endif %}
 {{ ui.retention_notice(retention) }}
 {% set view_url = url_for('chat.dm_view', chat_id=chat.id) %}
 {{ ui.log(conversation, view_url, url_for('chat.dm_delete_message', chat_id=chat.id),
-            {"poll": url_for('chat.dm_messages', chat_id=chat.id), "read": url_for('chat.dm_read', chat_id=chat.id), "mark_read": true}) }}
+            {"poll": url_for('chat.dm_messages', chat_id=chat.id), "read": url_for('chat.dm_read', chat_id=chat.id), "mark_read": true},
+            url_for('chat.dm_report', chat_id=chat.id)) }}
+{% if can_message %}
 {{ ui.composer(url_for('chat.dm_send', chat_id=chat.id), can_upload, max_length, max_attachment_bytes, per_day) }}
+{% endif %}
 {% endblock %}
 {% block scripts %}<script src="{{ asset_url('chat.js', blueprint='chat') }}"></script>{% endblock %}

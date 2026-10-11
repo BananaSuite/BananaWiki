@@ -8,7 +8,10 @@ changes and suspensions are recorded (``role_history``, ``suspension_audit``)
 and announced (``user.role_changed``, ``user.suspended``) as in the web
 interface. The last administrator cannot be demoted, suspended or deleted,
 and a password change signs the account out everywhere and revokes its API
-tokens.
+tokens. Changing the caller's own password needs its current password
+(``current_password``), as on the account page and counted against the same
+attempt limit: a token must not become the account's password. No call
+creates an owner or a superuser.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from typing import Any
 from .... import accounts, settings
 from ....db import db
 from ...admin import service as admin_service
+from ...users import service as users_service
 from .. import serialize, tokens
 from ..errors import ApiError, flag, from_service, invalid, items, json_body, page_window, window_fields
 from . import bp, caller, ok, require_admin, requires
@@ -57,10 +61,21 @@ def _service(action: Callable[..., Any], target: dict[str, Any], *args: Any, **k
 
 
 def _password(value: Any) -> str:
-    password = value.strip() if isinstance(value, str) else ""
-    if not password:
+    if not isinstance(value, str) or not value.strip():
         raise invalid("password", "required")
-    return password
+    return value
+
+
+def _check_current_password(value: Any) -> None:
+    """The caller's own password, counted against the same budget as on the account page (429 when used up)."""
+    if not isinstance(value, str) or not value:
+        raise ApiError(403, "current_password_required")
+    try:
+        right = users_service.password_ok(caller(), value)
+    except users_service.ProfileError as error:
+        raise from_service(error, 429) from None
+    if not right:
+        raise ApiError(403, "current_password_wrong")
 
 
 def _create(item: dict[str, Any]) -> dict[str, Any]:
@@ -159,8 +174,10 @@ def update_user(user_id: str):
     new_password = None
     if "password" in data and not (isinstance(data["password"], str) and not data["password"].strip()):
         new_password = _password(data["password"])
+        if own:
+            _check_current_password(data.get("current_password"))
         try:
-            accounts.validate_password(new_password)
+            accounts.validate_password(new_password, username=target["username"], email=target.get("email"))
         except accounts.AccountError as error:
             raise from_service(error) from None
     payload: dict[str, Any] = {}

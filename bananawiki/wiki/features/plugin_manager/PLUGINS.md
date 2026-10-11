@@ -14,9 +14,12 @@ enabled it can read and change every table (accounts, password hashes,
 private messages), read the secret key and therefore sign in as anyone, read
 environment variables and make network requests. The checks described here
 keep honest plugins from making mistakes; none of them contains a plugin
-that means harm. Install only code you have read and trust, and give the
-administrator role only to people you would trust with everything: any
-administrator can install plugins.
+that means harm. Install only code you have read and trust.
+
+Only the **owner** and **superusers** may install or enable a plugin; other
+administrators can switch plugins off and delete them, but never bring code
+in. Third-party plugins are **off by default** (`BW_ALLOW_EXTERNAL_PLUGINS`):
+the server operator allows them first.
 
 For that reason the admin pages
 
@@ -34,7 +37,7 @@ Operators decide whether third-party code may run at all:
 
 | Variable | Effect |
 |---|---|
-| `BW_ALLOW_EXTERNAL_PLUGINS` | `0` turns uploads off and loads no plugin. Default on for self-hosting. |
+| `BW_ALLOW_EXTERNAL_PLUGINS` | `1` allows plugins, `0` turns uploads off and loads no plugin. Unset (the default): off, except that an installation whose plugins folder already holds plugins (one upgraded from 1.6.x or earlier) keeps them allowed and logs a warning at every start until the variable is set. |
 | `BW_MANAGED_HOSTING` | Under managed hosting plugins are off unless `BW_PLUGIN_ISOLATION=container`. |
 | `BW_MANAGED_PLUGIN_DENYLIST` | Comma-separated ids that never load (features and plugins alike). |
 | `BW_EXTERNAL_PLUGINS_DIR` | Where plugins live; default `<instance>/plugins`. |
@@ -50,7 +53,7 @@ Operators decide whether third-party code may run at all:
 ├── schema.py                optional: upgrade(conn) creates the plugin's tables
 ├── templates/hello_plugin/  Jinja templates (extend "base.html")
 ├── static/                  CSS/JS served at /static/<blueprint>/…
-└── translations/en.json, it.json
+└── translations/en.json, it.json, de.json
 ```
 
 A complete example is in `examples/hello_plugin/`; administrators can also
@@ -102,7 +105,8 @@ not it was built with `registry.feature_blueprint`. Views are private by
 default, like every view of the wiki; check roles and permissions yourself
 (`auth.admin_required`, `auth.has_permission`, object-level checks). Views
 must follow the rules in `ARCHITECTURE.md`: POST for changes (CSRF is
-checked for you), no inline scripts, translations in `en` and `it`.
+checked for you), no inline scripts, translations in `en`, `it` and `de`
+(a key missing from a language falls back to English).
 
 `init_app(app)`, when given, runs once at start-up **before** the plugin's
 blueprints are registered.

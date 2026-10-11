@@ -4,11 +4,11 @@ Plugins let BananaWiki grow without forcing every wiki to use every feature. Bui
 
 ## Managing plugins
 
-Open **Admin -> Plugins** to enable, disable, inspect, import, or remove plugin packages. Built-in plugins are shipped with BananaWiki. External `.bwplugin` packages can be imported when your deployment allows it.
+Open **Administration → Plugins** to enable, disable, inspect, import, or remove plugin packages. Built-in plugins are shipped with BananaWiki. External `.bwplugin` packages run with the wiki's full rights, so they are off unless the server operator allows them (`BW_ALLOW_EXTERNAL_PLUGINS=1`), and only the owner or a superuser can import or enable one. Other administrators can still switch plugins off and remove them.
 
 ## What plugins can add
 
-A plugin may add routes, templates, static files, permissions, hooks, database tables, template slots, API behavior, or background jobs. Some plugins are simple UI features; others are substantial subsystems.
+A plugin may add routes, templates, static files, permissions, hooks, database tables, template slots, API behaviour, or background jobs. Some plugins are simple UI features; others are substantial subsystems.
 
 ## Enable with intent
 
@@ -20,4 +20,4 @@ Disabling a plugin normally hides or stops the feature but does not guarantee it
 
 ## Building plugins
 
-Developers can use the BananaWiki SDK to register hooks, permissions, template slots, and database helpers. Keep plugin behavior narrow, documented, and reversible so admins can understand the impact before enabling it.
+Developers can use the BananaWiki SDK to register hooks, permissions, template slots, and database helpers. Keep plugin behaviour narrow, documented, and reversible so admins can understand the impact before enabling it.

@@ -1,13 +1,15 @@
 {#- Full category tree for the navigation and welcome pages. Context: nav, manage_order. -#}
-<div class="nav-tree nav-tree--page" data-nav-tree>
+<div class="nav-tree nav-tree--page{% if manage_order %} nav-tree--reorder{% endif %}" data-nav-tree>
   <ul class="nav-list tree-root" {% if manage_order %}data-reorder-list data-reorder-url="{{ url_for('pages.api_reorder_categories') }}"{% endif %}>
   {% for node in nav.categories recursive %}
     <li data-reorder-item data-id="{{ node.id }}"{% if manage_order %} draggable="true"{% endif %}>
+      <span class="nav-tree__actions">
+        <a class="small" href="{{ url_for('pages.category', category_id=node.id) }}" aria-label="{{ t('pages.nav.open_category_named', name=node.name) }}">{{ t('pages.nav.open_category') }}</a>
+        {% if manage_order %}<span class="reorder-buttons"><button type="button" class="btn btn--ghost btn--small" data-move="up" aria-label="{{ t('pages.order.up', name=node.name) }}">↑</button><button type="button" class="btn btn--ghost btn--small" data-move="down" aria-label="{{ t('pages.order.down', name=node.name) }}">↓</button></span>{% endif %}
+      </span>
       <details data-node="n{{ node.id }}" open>
         <summary id="category-{{ node.id }}">
           <span class="nav-label">{{ node.name }}</span><span class="nav-count">{{ node.count }}</span>
-          <a class="small" href="{{ url_for('pages.category', category_id=node.id) }}">{{ t('pages.nav.open_category') }}</a>
-          {% if manage_order %}<span class="reorder-buttons"><button type="button" class="btn btn--ghost btn--small" data-move="up" aria-label="{{ t('pages.order.up', name=node.name) }}">↑</button><button type="button" class="btn btn--ghost btn--small" data-move="down" aria-label="{{ t('pages.order.down', name=node.name) }}">↓</button></span>{% endif %}
         </summary>
         <ul class="nav-list" data-reorder-list data-reorder-url="{{ url_for('pages.api_reorder_pages') }}">
           {% with pages=node.pages, more=node.more, category_id=node.id, current_slug=none, reorder=manage_order %}{% include "pages/_nav_pages.html" %}{% endwith %}
@@ -18,9 +20,21 @@
   {% endfor %}
   </ul>
   {% if nav.uncategorized.count %}
-  <h2 class="h3">{{ t('pages.nav.uncategorized') }}</h2>
-  <ul class="nav-list" data-reorder-list data-reorder-url="{{ url_for('pages.api_reorder_pages') }}">
-    {% with pages=nav.uncategorized.pages, more=nav.uncategorized.more, category_id=none, current_slug=none, reorder=manage_order %}{% include "pages/_nav_pages.html" %}{% endwith %}
+  {#- Pages outside every category: one more node of the tree, like in the sidebar. -#}
+  <ul class="nav-list tree-root">
+    <li data-uncategorized>
+      <span class="nav-tree__actions">
+        <a class="small" href="{{ url_for('pages.navigation_pages', category_id=0) }}" aria-label="{{ t('pages.nav.open_category_named', name=t('pages.nav.uncategorized')) }}">{{ t('pages.nav.open_category') }}</a>
+        {#- Keeps "Open" in the same column as the rows that can be moved. -#}
+        {% if manage_order %}<span class="reorder-buttons reorder-buttons--placeholder" aria-hidden="true"><span class="btn btn--ghost btn--small">↑</span><span class="btn btn--ghost btn--small">↓</span></span>{% endif %}
+      </span>
+      <details data-node="n0" open>
+        <summary id="category-0"><span class="nav-label">{{ t('pages.nav.uncategorized') }}</span><span class="nav-count">{{ nav.uncategorized.count }}</span></summary>
+        <ul class="nav-list" data-reorder-list data-reorder-url="{{ url_for('pages.api_reorder_pages') }}">
+          {% with pages=nav.uncategorized.pages, more=nav.uncategorized.more, category_id=none, current_slug=none, reorder=manage_order %}{% include "pages/_nav_pages.html" %}{% endwith %}
+        </ul>
+      </details>
+    </li>
   </ul>
   {% endif %}
 </div>

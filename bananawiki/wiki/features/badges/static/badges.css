@@ -1,5 +1,12 @@
 /* Awards and notifications use the same quiet row treatment as other lists. */
 .badge-awards, .badge-notices { list-style: none; padding: 0; margin: 0; }
 .badge-notices { display: grid; border-top: 1px solid var(--border); }
+.page-header + .badge-notices { border-top: 0; }
 .badge-notices > li { padding: 1rem 0; border-bottom: 1px solid var(--border); }
 .badge-notices > li > :last-child { margin-bottom: 0; }
+/* Award / revoke / revoke from everyone: three steps with their own heading and spacing. */
+.badges-step + .badges-step { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.badges-step h3 { margin: 0; font-size: .95rem; }
+.badges-step .input-group--compact > input { flex-basis: 16rem; }
+/* On phones the field shrinks so a longer button ("Assegna") stays on its line. */
+@media (max-width: 600px) { .badges-step .input-group--compact > input { flex: 1 1 10rem; } }

@@ -8,7 +8,7 @@
 <p class="muted">{{ t('admin.roles.intro') }}</p>
 {% if roles %}
 <div class="table-wrap">
-  <table class="table">
+  <table class="table table--stack">
     <thead><tr>
       <th scope="col">{{ t('common.name') }}</th>
       <th scope="col">{{ t('admin.roles.base_role') }}</th>
@@ -19,16 +19,16 @@
     <tbody>
     {% for role in roles %}
       <tr>
-        <td><a href="{{ url_for('admin.edit_role', role_id=role.id) }}">{{ role.name }}</a>
+        <td><a class="text-link" href="{{ url_for('admin.edit_role', role_id=role.id) }}">{{ role.name }}</a>
           {% if role.description %}<br><span class="muted small">{{ role.description }}</span>{% endif %}</td>
-        <td><span class="badge">{{ t('admin.role.' ~ role.base_role) }}</span></td>
-        <td>{{ role.permission_count }}</td>
-        <td>
+        <td data-label="{{ t('admin.roles.base_role') }}"><span class="badge">{{ t('admin.role.' ~ role.base_role) }}</span></td>
+        <td data-label="{{ t('admin.roles.permissions') }}">{{ role.permission_count }}</td>
+        <td data-label="{{ t('admin.roles.restrictions') }}">
           {% if role.read_restricted %}<span class="badge badge--warning">{{ t('admin.roles.read_limited') }}</span>{% endif %}
           {% if role.write_restricted %}<span class="badge badge--warning">{{ t('admin.roles.write_limited') }}</span>{% endif %}
           {% if not role.read_restricted and not role.write_restricted %}<span class="muted">—</span>{% endif %}
         </td>
-        <td><a href="{{ url_for('admin.users', custom_role=role.id) }}">{{ role.user_count }}</a></td>
+        <td data-label="{{ t('admin.roles.holders') }}"><a class="text-link" href="{{ url_for('admin.users', custom_role=role.id) }}">{{ role.user_count }}</a></td>
       </tr>
     {% endfor %}
     </tbody>

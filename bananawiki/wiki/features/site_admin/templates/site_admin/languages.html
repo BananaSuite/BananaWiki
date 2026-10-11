@@ -10,13 +10,13 @@
 <section class="card">
   <h2>{{ t('site_admin.languages.installed') }}</h2>
   <div class="table-wrap">
-    <table class="table">
+    <table class="table table--stack">
       <thead><tr>
         <th scope="col">{{ t('site_admin.languages.col.language') }}</th>
         <th scope="col">{{ t('site_admin.languages.col.source') }}</th>
         <th scope="col">{{ t('site_admin.languages.col.coverage') }}</th>
         <th scope="col">{{ t('common.status') }}</th>
-        <th scope="col">{{ t('common.actions') }}</th>
+        <th scope="col" class="actions"><span class="visually-hidden">{{ t('common.actions') }}</span></th>
       </tr></thead>
       <tbody>
       {% for lang in languages %}
@@ -24,18 +24,19 @@
           <td><strong>{{ lang.name }}</strong> <span class="mono">{{ lang.code }}</span>
             {% if lang.code == default_language %}<span class="badge badge--primary">{{ t('site_admin.languages.default_badge') }}</span>{% endif %}
             {% if lang.author %}<br><span class="small muted">{{ t('site_admin.languages.author', author=lang.author) }}</span>{% endif %}</td>
-          <td>{{ t('site_admin.languages.source.builtin') if lang.builtin else t('site_admin.languages.source.custom') }}{% if lang.builtin and lang.custom_file %} · {{ t('site_admin.languages.source.override') }}{% endif %}</td>
-          <td>{{ lang.coverage }}%</td>
-          <td>{% if lang.enabled %}<span class="badge badge--success">{{ t('common.enabled') }}</span>{% else %}<span class="badge">{{ t('common.disabled') }}</span>{% endif %}</td>
-          <td class="cluster">
-            <a class="btn btn--small" href="{{ url_for('site_admin.download_language', code=lang.code) }}">{{ t('site_admin.languages.download') }}</a>
+          <td class="nowrap" data-label="{{ t('site_admin.languages.col.source') }}">{{ t('site_admin.languages.source.builtin') if lang.builtin else t('site_admin.languages.source.custom') }}{% if lang.builtin and lang.custom_file %} · {{ t('site_admin.languages.source.override') }}{% endif %}</td>
+          <td data-label="{{ t('site_admin.languages.col.coverage') }}">{{ lang.coverage }}%</td>
+          <td data-label="{{ t('common.status') }}">{% if lang.enabled %}<span class="badge badge--success">{{ t('common.enabled') }}</span>{% else %}<span class="badge">{{ t('common.disabled') }}</span>{% endif %}</td>
+          <td class="actions"><div class="cluster">
             {% if lang.code != default_language %}
             {{ forms.post_button(url_for('site_admin.toggle_language', code=lang.code), t('site_admin.languages.disable') if lang.enabled else t('site_admin.languages.enable'), 'btn btn--small', hidden={'enabled': '0' if lang.enabled else '1'}) }}
             {% endif %}
             {% if lang.custom_file %}
             {{ forms.post_button(url_for('site_admin.delete_language', code=lang.code), t('site_admin.languages.remove_override') if lang.builtin else t('common.delete'), 'btn btn--small btn--danger', confirm=t('site_admin.languages.delete_confirm', code=lang.code)) }}
             {% endif %}
-          </td>
+            {#- Last, so the button lines up in every row of the right-aligned column. -#}
+            <a class="btn btn--small" href="{{ url_for('site_admin.download_language', code=lang.code) }}">{{ t('site_admin.languages.download') }}</a>
+          </div></td>
         </tr>
       {% endfor %}
       </tbody>
@@ -79,8 +80,8 @@
   <h3>{{ t('site_admin.languages.howto') }}</h3>
   <ol>
     <li>{{ t('site_admin.languages.howto.1') }}</li>
-    <li>{{ t('site_admin.languages.howto.2') }}</li>
-    <li>{{ t('site_admin.languages.howto.3') }}</li>
+    <li>{{ t_code('site_admin.languages.howto.2', meta='_meta', code='code', fr='fr', name='name', english_name='english_name', author='author', rtl='rtl') }}</li>
+    <li>{{ t_code('site_admin.languages.howto.3', placeholder='{placeholder}') }}</li>
     <li>{{ t('site_admin.languages.howto.4') }}</li>
   </ol>
 </section>

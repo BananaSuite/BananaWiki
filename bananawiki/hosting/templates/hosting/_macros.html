@@ -16,20 +16,30 @@
 {{- field_id -}}
 {%- endmacro %}
 
-{% macro field(name, label, value='', type='text', hint='', required=false, attrs={}, id='') -%}
+{#- error: a message shown under the field, which is then marked invalid (and focused first, unless
+    focus is false: another field the user must fill in first takes the focus instead). -#}
+{% macro _described(field_id, hint, error, attrs, focus=true) -%}
+{%- set ids = ([field_id ~ '-error'] if error else []) + ([field_id ~ '-hint'] if hint else []) -%}
+{%- if ids and 'aria-describedby' not in attrs %} aria-describedby="{{ ids|join(' ') }}"{% endif -%}
+{%- if error %} aria-invalid="true"{% if focus and 'autofocus' not in attrs %} autofocus{% endif %}{% endif -%}
+{%- endmacro %}
+
+{% macro field(name, label, value='', type='text', hint='', required=false, attrs={}, id='', error='', focus=true) -%}
 {% set field_id = _field_id(name, id) %}
 <div class="field">
   <label for="{{ field_id }}">{{ label }}</label>
-  <input id="{{ field_id }}" name="{{ name }}" type="{{ type }}" value="{{ value if value is not none else '' }}"{% if required %} required{% endif %}{% if hint and 'aria-describedby' not in attrs %} aria-describedby="{{ field_id }}-hint"{% endif %}{% for k, v in attrs.items() %} {{ k }}="{{ v }}"{% endfor %}>
+  <input id="{{ field_id }}" name="{{ name }}" type="{{ type }}" value="{{ value if value is not none else '' }}"{% if required %} required{% endif %}{{ _described(field_id, hint, error, attrs, focus) }}{% for k, v in attrs.items() %} {{ k }}="{{ v }}"{% endfor %}>
+  {% if error %}<p class="field-error" id="{{ field_id }}-error">{{ error }}</p>{% endif %}
   {% if hint %}<p class="hint" id="{{ field_id }}-hint">{{ hint }}</p>{% endif %}
 </div>
 {%- endmacro %}
 
-{% macro textarea(name, label, value='', hint='', required=false, attrs={}, id='') -%}
+{% macro textarea(name, label, value='', hint='', required=false, attrs={}, id='', error='') -%}
 {% set field_id = _field_id(name, id) %}
 <div class="field">
   <label for="{{ field_id }}">{{ label }}</label>
-  <textarea id="{{ field_id }}" name="{{ name }}"{% if required %} required{% endif %}{% if hint and 'aria-describedby' not in attrs %} aria-describedby="{{ field_id }}-hint"{% endif %}{% for k, v in attrs.items() %} {{ k }}="{{ v }}"{% endfor %}>{{ value if value is not none else '' }}</textarea>
+  <textarea id="{{ field_id }}" name="{{ name }}"{% if required %} required{% endif %}{{ _described(field_id, hint, error, attrs) }}{% for k, v in attrs.items() %} {{ k }}="{{ v }}"{% endfor %}>{{ value if value is not none else '' }}</textarea>
+  {% if error %}<p class="field-error" id="{{ field_id }}-error">{{ error }}</p>{% endif %}
   {% if hint %}<p class="hint" id="{{ field_id }}-hint">{{ hint }}</p>{% endif %}
 </div>
 {%- endmacro %}
@@ -38,16 +48,62 @@
 <label class="check"><input type="checkbox" name="{{ name }}" value="{{ value }}"{% if checked %} checked{% endif %}><span>{{ label }}{% if hint %}<small>{{ hint }}</small>{% endif %}</span></label>
 {%- endmacro %}
 
-{% macro status(value) -%}
+{#- expired: a wiki past its expiry date shows that instead of its (still running) container state. -#}
+{% macro status(value, expired=false) -%}
+{%- if expired and value in ('running', 'stopped') -%}
+<span class="badge badge--warning">{{ t('hosting.status.expired') }}</span>
+{%- else -%}
 <span class="badge {{ {'running': 'badge--success', 'stopped': '', 'suspended': 'badge--danger', 'terminated': 'badge--warning'}.get(value, '') }}">{{ t('hosting.status.' ~ value) }}</span>
+{%- endif -%}
 {%- endmacro %}
 
-{% macro duration_fields(prefix, units=('days', 'hours', 'minutes')) -%}
+{#- An account's or wiki's history: its moderation log, plus the suspension records it does not mirror
+    (older ones), newest first, with actions and generated reasons in words. -#}
+{% macro history(rows, events, subject) -%}
+{%- set ns = namespace(keys=[], items=[]) -%}
+{%- for ev in events -%}
+  {%- set ns.keys = ns.keys + [ev.action ~ '|' ~ (ev.created_at or '')[:16] ~ '|' ~ (ev.reason or '')] -%}
+  {%- set ns.items = ns.items + [(ev.created_at or '', ev.action|event_label, ev.actor_name or '', ev.reason or '')] -%}
+{%- endfor -%}
+{%- for row in rows -%}
+  {%- set code = subject ~ '.' ~ row.action -%}
+  {%- if (code ~ '|' ~ (row.created_at or '')[:16] ~ '|' ~ (row.reason or '')) not in ns.keys -%}
+  {%- set ns.items = ns.items + [(row.created_at or '', code|event_label, row.performed_by_name or '', row.reason or '')] -%}
+  {%- endif -%}
+{%- endfor -%}
+<ul class="plain-list history-list">
+{% for when, label, actor, reason in ns.items|sort(attribute='0', reverse=true) %}
+  <li><span class="nowrap">{{ when|datetime }}</span> · <strong>{{ label }}</strong>{% if actor %} · {{ actor }}{% endif %}{% if reason %} · {{ reason|server_text }}{% endif %}</li>
+{% else %}<li class="muted">{{ t('hosting.common.none') }}</li>{% endfor %}
+</ul>
+{%- endmacro %}
+
+{#- A merge's state, then each of the two accounts with whether it has approved (a tick, or an empty circle). -#}
+{% macro merge_state(m) -%}
+<span class="cluster merge-state">
+  <span class="badge {{ {'pending': 'badge--warning', 'approved': 'badge--success', 'merged': 'badge--success', 'denied': 'badge--danger'}.get(m.status, '') }}">{{ t('hosting.merges.status.' ~ m.status) }}</span>
+  {% if m.status in ('pending', 'approved') %}
+  {% for username, approved in ((m.source_username, m.source_approved), (m.target_username, m.target_approved)) %}
+  <span class="badge {{ 'badge--success' if approved else '' }}">{% if approved %}<span aria-hidden="true">✓</span>{% else %}<span class="merge-waiting" aria-hidden="true"></span>{% endif %} {{ t('hosting.merges.agreed' if approved else 'hosting.merges.not_agreed', username=username) }}</span>
+  {% endfor %}
+  {% endif %}
+</span>
+{%- endmacro %}
+
+{#- Number fields for a duration. seconds: the stored value they show (split over the units given, the
+    largest unit taking the rest); hint: what an all-zero duration means. -#}
+{% macro duration_fields(prefix, units=('days', 'hours', 'minutes'), legend='', seconds=none, hint='') -%}
+{% set sizes = {'days': 86400, 'hours': 3600, 'minutes': 60, 'seconds': 1} %}
+{% set left = namespace(value=(seconds|int if seconds is not none and seconds|int > 0 else 0)) %}
+{% if legend %}<fieldset class="plain"{% if hint %} aria-describedby="{{ prefix }}-duration-hint"{% endif %}><legend>{{ legend }}</legend>{% endif %}
 <div class="cluster duration-fields">
   {% for unit in units %}
-  <label class="small">{{ t('hosting.time.' ~ unit) }} <input type="number" min="0" name="{{ prefix }}_{{ unit }}" value="0" class="hosting-num"></label>
+  {% set amount = left.value // sizes[unit] %}{% set left.value = left.value - amount * sizes[unit] %}
+  <label class="small">{{ t('hosting.time.' ~ unit) }} <input type="number" min="0" name="{{ prefix }}_{{ unit }}" value="{{ amount }}" class="hosting-num"></label>
   {% endfor %}
 </div>
+{% if hint %}<p class="hint" id="{{ prefix }}-duration-hint">{{ hint }}</p>{% endif %}
+{% if legend %}</fieldset>{% endif %}
 {%- endmacro %}
 
 {% macro suspension_form(action, show_instances=false) -%}
@@ -63,8 +119,8 @@
       <option value="custom_datetime">{{ t('hosting.suspend.until') }}</option>
     </select>
   </div>
-  {{ duration_fields('suspend_rel') }}
-  {{ field('suspend_custom_datetime', t('hosting.suspend.until_utc'), type='datetime-local') }}
+  {{ duration_fields('suspend_rel', legend=t('hosting.suspend.relative')) }}
+  {{ field('suspend_custom_datetime', t('hosting.suspend.until_utc'), type='datetime-local', hint=t('hosting.suspend.custom_hint')) }}
   {{ textarea('suspend_reason', t('hosting.suspend.reason'), attrs={'rows': 2, 'maxlength': 500}, id='sr-' ~ action|replace('/', '-')) }}
   {{ check('suspend_reason_visible', t('hosting.suspend.reason_visible')) }}
   {{ check('suspend_time_visible', t('hosting.suspend.time_visible')) }}

@@ -337,3 +337,14 @@ def test_slots_render(app, people, page):
         assert "reservation/release" in actions and 'value="unprotect"' in actions
         other = pages.create("Free", author_id=None)
         assert "reserve_after_save" in registry.render_slot("editor.below_form", page=other)
+
+
+def test_demoting_a_controller_records_the_protections_that_lapse(ctx, db, people, page):
+    from bananawiki.wiki.features.admin import service as admin_service
+
+    protection.protect(page, people["ed1"])
+    admin_service.change_role(people["admin"], people["ed1"], "user")
+    row = db.one("SELECT * FROM audit_log WHERE action = 'page_governance.protection_lapsed'")
+    assert row is not None and row["actor_id"] == people["admin"]["id"] and row["target_id"] == people["ed1"]["id"]
+    assert "governed" in row["details"]
+    assert protection.state(_page(page["id"]), people["admin"]) is None

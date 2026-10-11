@@ -4,7 +4,7 @@ Kanban boards help teams track work without leaving the wiki. A board contains c
 
 ## Create a useful board
 
-Start with a few columns such as **Backlog**, **Doing**, **Review**, and **Done**. Add more only when they reflect a real workflow. Too many columns make the board harder to scan.
+Start with a few columns such as **Backlog**, **Doing**, **Review**, and **Done**. Add more only when they reflect a real workflow. Too many columns make the board harder to scan. Turn on **Done column** (the check-mark button among the column's tools) on the column that holds finished work: its tickets keep their due dates but no longer show as overdue.
 
 ## Tickets
 

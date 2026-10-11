@@ -1,8 +1,10 @@
 """``banana`` / the installed ``bananawiki`` command: one entry point for server maintenance.
 
 Same subcommands and options as 1.4 (C13). Additions: ``agent serve|status``
-(hosting runtime agent), ``proxy --email``, and pass-through of application
-administration commands (``create-admin``, ``reset-password``, ``db …``,
+(hosting runtime agent), ``proxy --email``, ``preflight`` (what an update asks
+the new release before it stops anything), ``config get|set tenant-quotas``
+(hosting) and pass-through of application administration commands
+(``create-admin``, ``reset-password``, ``reset-two-step``, ``db …``,
 ``jobs …``, ``config check``, ``setup-token``) to the release's own
 ``bananawiki`` command, run as the service account with ``app.env`` loaded.
 """
@@ -19,16 +21,29 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from . import DEFAULT_ROOT, PRODUCT, caddy, caddy_blocks, profile
-from .files import atomic_write, digest_file, maintenance_lock, read_environment, read_json, write_json
-from .manager import PROXY_ROLLBACK, Manager, tenant_names
+from . import DEFAULT_ROOT, PRODUCT, caddy, caddy_blocks, profile, tenant_quotas
+from .files import (
+    atomic_write,
+    digest_file,
+    maintenance_lock,
+    read_environment,
+    read_json,
+    write_environment,
+    write_json,
+)
+from .manager import FAILED_CONVERGENCE, PROXY_ROLLBACK, Manager, tenant_names
+from .system import TenantStorageUnsupported
 
-APP_COMMANDS = ("create-admin", "reset-password", "db", "jobs", "config", "setup-token", "hosting-admin")
+APP_COMMANDS = ("create-admin", "reset-password", "reset-two-step", "db", "jobs", "config", "setup-token",
+                "hosting-admin")
 FAILED_OUTCOMES = {"failed", "paused", "rolled_back"}
 
 
 def source_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--repo", help="HTTPS or SSH source URL, including a private repository or fork")
+    parser.add_argument("--track", choices=("tags", "branch"),
+                        help="Deploy the latest release tag vX.Y.Z (tags, the default for new installations) or the "
+                             "latest commit of --branch (branch)")
     parser.add_argument("--branch")
     parser.add_argument("--fallback-branch", help="Use this branch only if the selected branch disappears")
     parser.add_argument("--clear-fallback", action="store_true")
@@ -42,6 +57,8 @@ def source_options(parser: argparse.ArgumentParser) -> None:
     signatures.add_argument("--require-signatures", type=Path, metavar="ALLOWED_SIGNERS",
                             help="Deploy only revisions SSH-signed by a key in this allowed-signers file")
     signatures.add_argument("--clear-signatures", action="store_true", help="Stop requiring signed revisions")
+    parser.add_argument("--allow-unsigned", action="store_true",
+                        help="Accept automatic updates of revisions without a trusted signature (not recommended)")
 
 
 def source_values(args: argparse.Namespace) -> dict[str, Any]:
@@ -49,7 +66,18 @@ def source_values(args: argparse.Namespace) -> dict[str, Any]:
             "clear_fallback": args.clear_fallback, "token_file": args.token_file, "ssh_key": args.ssh_key,
             "known_hosts": args.known_hosts, "username": args.username,
             "clear_credentials": args.clear_credentials, "signers_file": args.require_signatures,
-            "clear_signatures": args.clear_signatures}
+            "clear_signatures": args.clear_signatures, "track": args.track}
+
+
+UNSIGNED_WARNING = ("Warning: automatic updates install revisions nobody signed (--allow-unsigned): whoever can push "
+                    "to the update source can run code as root on this server. Prefer --require-signatures.")
+
+
+TRUST_SOURCE = ("Deploy the source code bundled in the package, revision REVISION, when it cannot be checked against "
+                "this server's update source (the restore shows the revision). Not accepted while that source "
+                "requires signatures")
+ALLOW_UNPINNED = ("Deploy a release from 1.7 on that lacks its hash-pinned dependency locks, installing its "
+                  "dependencies from the ranges in requirements.txt (never done for automatic updates)")
 
 
 def parser() -> argparse.ArgumentParser:
@@ -66,14 +94,21 @@ def parser() -> argparse.ArgumentParser:
     install.add_argument("--portal-domain", default="")
     install.add_argument("--port", type=int)
     install.add_argument("--restore", type=Path, metavar="PACKAGE")
+    install.add_argument("--trust-source", metavar="REVISION", help="With --restore: " + TRUST_SOURCE)
     install.add_argument("--reuse-data", action="store_true",
                          help="Reuse saved configuration and data after uninstall or an interrupted installation")
+    install.add_argument("--tenant-quotas", choices=tenant_quotas.MODES,
+                         help="Hosting: hard per-wiki storage quotas (XFS project quotas). auto (the default) uses "
+                              "them where the storage enforces them, and the application's own limits elsewhere; "
+                              "required refuses storage without them; off never uses them (see UPGRADING.md, "
+                              "\"Wiki storage and hard quotas\")")
     source_options(install)
     update = commands.add_parser("update", help="Back up, deploy, check readiness, and roll back on failure")
     update.add_argument("--automatic", action="store_true", help=argparse.SUPPRESS)
     update.add_argument("--allow-divergent", action="store_true",
                         help="Explicitly permit a reviewed switch to unrelated or rewritten history")
     update.add_argument("--retry-failed", action="store_true")
+    update.add_argument("--allow-unpinned", action="store_true", help=ALLOW_UNPINNED)
     backup = commands.add_parser("backup", aliases=["migrate"],
                                  help="Create a private portable package (code, data, configuration, credentials)")
     backup.add_argument("--output", type=Path)
@@ -81,10 +116,16 @@ def parser() -> argparse.ArgumentParser:
     restore.add_argument("package", type=Path)
     restore.add_argument("--domain")
     restore.add_argument("--port", type=int)
+    restore.add_argument("--trust-source", metavar="REVISION", help=TRUST_SOURCE)
+    restore.add_argument("--allow-unpinned", action="store_true", help=ALLOW_UNPINNED)
     rollback = commands.add_parser("rollback", help="Restore the package saved before the last successful update")
     rollback.add_argument("--package", type=Path)
+    rollback.add_argument("--trust-source", metavar="REVISION", help=TRUST_SOURCE)
+    rollback.add_argument("--allow-unpinned", action="store_true", help=ALLOW_UNPINNED)
     for name in ("status", "start", "stop", "restart"):
         commands.add_parser(name)
+    commands.add_parser("preflight", help="Check that this release can run on this server, changing nothing (an "
+                                          "update runs the new release's own check before it stops anything)")
     recover = commands.add_parser("recover", help="Finish an interrupted operation: put its recorded state back")
     recover.add_argument("--abandon", action="store_true",
                          help="Drop an interrupted operation that recover cannot finish, putting nothing back; "
@@ -112,6 +153,8 @@ def parser() -> argparse.ArgumentParser:
                        help="Cloudflare API token (Zone:DNS:Edit) for --tls cloudflare-dns; stored root-only for Caddy")
     proxy.add_argument("--origin-cert", type=Path, metavar="PEM", help="Origin CA certificate for --tls origin-cert")
     proxy.add_argument("--origin-key", type=Path, metavar="PEM", help="Its private key")
+    commands.add_parser("firewall", help="Print the host firewall for tenant containers, with this host's DNS "
+                                         "resolvers filled in (sudo bananawiki firewall | sudo nft -f -)")
     uninstall = commands.add_parser("uninstall", help="Remove services and updater; keep files unless --purge")
     uninstall.add_argument("--purge", action="store_true")
     uninstall.add_argument("--confirm", default="", metavar="SERVICE_NAME")
@@ -292,12 +335,68 @@ def lifecycle(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | No
             manager.restore_proxy(undo)
             raise
         (manager.config_dir / PROXY_ROLLBACK).unlink(missing_ok=True)
+        if args.command == "restart":
+            (manager.config_dir / FAILED_CONVERGENCE).unlink(missing_ok=True)  # this release's units serve
         if args.command in {"start", "restart"}:
             # The wikis not waited for: checked once, now that the command is complete, and only reported.
             unready = {*details.get("unready_tenants", ()), *manager.check_tenants(settings, None, waited=serving)}
             if unready:
                 details["unready_tenants"] = sorted(unready)
         return manager.event(args.command, "complete", recovered=recovered, **details)
+
+
+QUOTA_NOTES = {
+    True: ("The runtime agent applies this at once. Within 5 minutes the maintenance service restarts every running "
+           "wiki that is not under quota yet, to put it under quota (every file of a stopped wiki is examined; see "
+           "docs/hosting.md)."),
+    False: "Running wikis keep running.",
+}
+
+
+def config_command(manager: Manager, arguments: list[str]) -> dict[str, Any] | None:
+    """``config get tenant-quotas`` / ``config set tenant-quotas auto|required|off`` (hosting).
+
+    None for every other ``config`` command, which goes to the application.
+    The new setting is checked against the storage first: ``required`` on
+    storage that cannot enforce them would keep every wiki from starting, so
+    it is refused and nothing changes. ``auto`` and ``off`` are never
+    refused; the note says which limits then apply (loudly when quotas
+    enforced here before were lost).
+    """
+    if len(arguments) < 2 or arguments[0] not in ("get", "set") or arguments[1] != "tenant-quotas":
+        return None
+    settings = manager.settings()
+    if settings["mode"] != "hosting":
+        raise ValueError("tenant-quotas applies to hosting installations.")
+    if arguments[0] == "get":
+        if len(arguments) != 2:
+            raise ValueError("Usage: config get tenant-quotas")
+        return {"tenant_quotas": manager.agent_storage(settings).to_dict()}
+    if len(arguments) != 3:
+        raise ValueError("Usage: config set tenant-quotas auto|required|off")
+    mode = tenant_quotas.setting({tenant_quotas.VARIABLE: arguments[2]})
+    with maintenance_lock(manager.root):
+        policy = manager.system.tenant_storage(settings, configured=mode)
+        if policy.refused:
+            raise TenantStorageUnsupported(f"Nothing was changed: {policy.reason}")
+        features = manager.features(settings["revision"])
+        if mode == "required" and manager.system.units_outdated(settings, manager.services(settings), features):
+            # Units an older controller wrote give the agent no quota system calls: every wiki would be refused.
+            raise ValueError("Nothing was changed: the runtime agent still runs under the systemd units an older "
+                             "controller wrote, which do not let it use quotas, so no wiki could start. Run "
+                             "'sudo bananawiki restart' (or 'update') to install this release's units first.")
+        path = manager.config_dir / "app.env"
+        write_environment(path, {**read_environment(path), tenant_quotas.VARIABLE: mode})
+        manager.event("config", "complete", setting=tenant_quotas.VARIABLE, value=mode,
+                      hard_quotas=policy.hard_quotas)
+    warning = policy.warning()
+    note = QUOTA_NOTES[policy.hard_quotas]
+    if mode == "off" and tenant_quotas.registry_exists(manager.system.state_dir / (settings["service"] + "-quotas")):
+        note += (" Wikis were put under quota on this platform: on XFS with prjquota the limits already set on each "
+                 "wiki stay in place (the kernel keeps enforcing them, and later plan changes are not applied to "
+                 "them). To remove them, list the projects with sudo xfs_quota -x -c 'report -p' MOUNTPOINT and "
+                 "clear each with sudo xfs_quota -x -c 'limit -p bhard=0 ihard=0 PROJECT_ID' MOUNTPOINT.")
+    return {"tenant_quotas": policy.to_dict(), "note": note + (f" {warning}" if warning else "")}
 
 
 def run_app_command(manager: Manager, command: str, arguments: list[str]) -> int:
@@ -328,25 +427,34 @@ def backups(manager: Manager, args: argparse.Namespace) -> dict[str, Any]:
     return handle(args, Store(manager.config_dir / "remote-backup", PRODUCT),
                   create_package=lambda: manager.backup(manager.backup_name("remote")),
                   restore_package=lambda package, options: manager.restore(
-                      package, name=options.name, domain=options.domain, port=options.port),
+                      package, name=options.name, domain=options.domain, port=options.port,
+                      trust_source=options.trust_source, allow_unpinned=options.allow_unpinned),
                   schedule=schedule)
 
 
 def dispatch(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | None:
     command = args.command
     if command == "install":
+        if args.restore and args.tenant_quotas:
+            raise ValueError("--tenant-quotas applies to a new installation: a restored platform keeps the "
+                             "BW_HOSTING_TENANT_QUOTAS of its package. Restore first, then run 'config set "
+                             "tenant-quotas auto|required|off'.")
         if args.restore:
-            return manager.restore(args.restore, new=True, name=args.name, domain=args.domain, port=args.port)
+            return manager.restore(args.restore, new=True, name=args.name, domain=args.domain, port=args.port,
+                                   trust_source=args.trust_source)
+        if args.trust_source:
+            raise ValueError("--trust-source confirms the source bundled in a package: use it with --restore.")
         if not args.mode:
             raise ValueError("Choose --mode, or use --restore PACKAGE to recover a saved deployment.")
         result = manager.install(Path(__file__).resolve().parents[2], mode=args.mode, name=args.name,
                                  domain=args.domain or "", portal_domain=args.portal_domain, port=args.port,
-                                 source_options=source_values(args), reuse_data=args.reuse_data)
+                                 source_options=source_values(args), reuse_data=args.reuse_data,
+                                 tenant_quotas_mode=args.tenant_quotas)
         warnings = caddy.layout_warnings(manager.settings())
         return {**result, "warnings": warnings} if warnings and isinstance(result, dict) else result
     if command == "update":
         return manager.update(automatic=args.automatic, allow_divergent=args.allow_divergent,
-                              retry_failed=args.retry_failed)
+                              retry_failed=args.retry_failed, allow_unpinned=args.allow_unpinned)
     if command in {"backup", "migrate"}:
         package = manager.backup(args.output)
         unready = manager.last_event.get("unready_tenants")
@@ -355,37 +463,63 @@ def dispatch(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | Non
     if command == "backups":
         return backups(manager, args)
     if command == "restore":
-        return manager.restore(args.package, domain=args.domain, port=args.port)
+        return manager.restore(args.package, domain=args.domain, port=args.port, trust_source=args.trust_source,
+                               allow_unpinned=args.allow_unpinned)
     if command == "rollback":
         archive = args.package or (read_json(manager.config_dir / "last-update.json", {}) or {}).get("backup")
         if not archive:
             raise ValueError("No previous update package is recorded. Use rollback --package PATH.")
-        return manager.restore(Path(archive))
+        return manager.restore(Path(archive), trust_source=args.trust_source, allow_unpinned=args.allow_unpinned)
     if command == "status":
         return manager.status()
+    if command == "firewall":
+        from . import firewall
+
+        print(firewall.rules(), end="")
+        return None
     if command == "updates":
         if args.action == "status":
             return {"source": manager.source(), "updates": manager.policy()}
+        enable = args.action == "enable"
+        if enable:
+            # Before anything is written: unsigned automatic updates need the operator's explicit waiver.
+            signing = ("ssh" if args.require_signatures else "none" if args.clear_signatures
+                       else manager.source().get("signing", "none"))
+            manager.require_signed_updates(signing, allow_unsigned=args.allow_unsigned)
         changes = source_values(args)
         if any(value for key, value in changes.items() if key != "username"):
             with maintenance_lock(manager.root):
                 manager.configure_source(**changes)
-        result = manager.set_updates(args.action == "enable", interval=args.interval, keep=args.keep_backups)
-        print("Automatic updates are now enabled. Changes on the configured branch can alter or remove features."
-              if args.action == "enable" else
-              "Automatic updates are disabled. An update already applying its changes will finish safely.")
+        result = manager.set_updates(enable, interval=args.interval, keep=args.keep_backups,
+                                     allow_unsigned=args.allow_unsigned)
+        if enable:
+            track = manager.source()["track"]
+            print("Automatic updates are now enabled. Each new " + ("release" if track == "tags" else
+                  "commit on the configured branch") + " is installed and can alter or remove features.")
+            if signing != "ssh":
+                print(UNSIGNED_WARNING, file=sys.stderr)
+        else:
+            print("Automatic updates are disabled. An update already applying its changes will finish safely.")
         return result
     if command == "source":
         if args.action == "set":
             with maintenance_lock(manager.root):
-                return manager.configure_source(**source_values(args))
+                policy = manager.policy()
+                if args.clear_signatures and policy["enabled"]:
+                    manager.require_signed_updates("none", allow_unsigned=args.allow_unsigned)
+                source = manager.configure_source(**source_values(args))
+                if args.clear_signatures and policy["enabled"]:
+                    write_json(manager.config_dir / "updates.json", {**policy, "unsigned": True})
+                    print(UNSIGNED_WARNING, file=sys.stderr)
+                return source
         if args.action == "check":
             from .source import GitSource
 
             with maintenance_lock(manager.root):
-                revision, branch, forward = GitSource(manager.root, manager.source()).resolve(
-                    manager.settings()["revision"])
-            return {"revision": revision, "selected_branch": branch, "fast_forward": forward, "deployed": False}
+                source = manager.source()
+                revision, selected, forward = GitSource(manager.root, source).resolve(manager.settings()["revision"])
+            return {"revision": revision, ("release" if source["track"] == "tags" else "selected_branch"): selected,
+                    "fast_forward": forward, "deployed": False}
         return manager.source()
     if command == "recover" and args.abandon:
         with maintenance_lock(manager.root):
@@ -416,7 +550,16 @@ def main(argv: list[str] | None = None) -> int:
         print("Server maintenance needs root. Run this command with sudo.", file=sys.stderr)
         return 1
     manager = Manager(args.root)
+    if args.command == "preflight":
+        from .preflight import run
+
+        return run(manager)  # one JSON line for the controller that asks; records nothing
     try:
+        if args.command == "config":
+            answer = config_command(manager, args.arguments)
+            if answer is not None:
+                print(json.dumps(answer, indent=2, default=str))
+                return 0
         if args.command in APP_COMMANDS:
             return run_app_command(manager, args.command, args.arguments)
         result = dispatch(manager, args)
@@ -427,7 +570,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Next: review {manager.config_dir / 'app.env'}. Use '{name} proxy' for the HTTPS configuration "
                   f"and '{name} updates enable' only if you want automatic updates.")
         outcome = result.get("outcome") if isinstance(result, dict) else None
-        return 2 if outcome in FAILED_OUTCOMES else 0
+        # An update that isolated wikis completed, but someone must look at them: the timer's unit shows as failed.
+        isolated = isinstance(result, dict) and bool(result.get("isolated_tenants"))
+        return 2 if outcome in FAILED_OUTCOMES or isolated else 0
     except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as error:
         print(f"{PRODUCT}: {error}", file=sys.stderr)
         if manager.config_dir.exists():

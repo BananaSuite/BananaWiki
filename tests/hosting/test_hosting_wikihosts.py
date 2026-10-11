@@ -86,7 +86,7 @@ def test_portal_pages_are_never_served_on_a_wiki_host(web, runtime, make_account
     make_wiki(make_account(), "team")
     response = web.get("/", headers={"Host": _host("team")})
     assert response.status_code == 503
-    assert "The wiki is starting" in response.get_data(as_text=True)
+    assert "This wiki is starting" in response.get_data(as_text=True)
     assert "Location" not in response.headers
 
 

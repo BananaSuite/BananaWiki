@@ -94,9 +94,10 @@ def snapshot(board_id: int) -> dict[str, Any] | None:
         "version": SNAPSHOT_VERSION,
         "title": board["title"],
         "description": board["description"] or "",
+        # "done" only when set, so snapshots of boards without done columns stay as they were.
         "columns": [
             {"id": column["id"], "title": column["title"], "wip_limit": column.get("wip_limit"),
-             "tickets": by_column[column["id"]]}
+             **({"done": True} if column.get("is_done") else {}), "tickets": by_column[column["id"]]}
             for column in columns
         ],
     }
@@ -222,7 +223,7 @@ def changes(old: dict[str, Any], new: dict[str, Any]) -> list[Change]:
 
     Columns and tickets are matched by id (by title in 1.4 snapshots). Covers
     the board's title and description, columns (added, removed, renamed, WIP
-    limit), tickets (added, removed, moved, archived, restored, changed
+    limit, done), tickets (added, removed, moved, archived, restored, changed
     fields) and checklist progress.
     """
     result: list[Change] = []
@@ -244,6 +245,9 @@ def changes(old: dict[str, Any], new: dict[str, Any]) -> list[Change]:
             limit = column.get("wip_limit")
             result.append(("kanban.diff.column_limit" if limit else "kanban.diff.column_limit_removed",
                            {"title": title, "limit": limit or ""}))
+        if bool(before.get("done")) != bool(column.get("done")):
+            result.append(("kanban.diff.column_done" if column.get("done") else "kanban.diff.column_not_done",
+                           {"title": title}))
     for key, column in old_columns.items():
         if key not in new_columns:
             result.append(("kanban.diff.column_removed", {"title": column.get("title") or ""}))
@@ -391,6 +395,7 @@ def revert(board: dict[str, Any], state: dict[str, Any], user_id: str) -> dict[s
         column_values: dict[str, Any] = {"title": _clean_title(item.get("title"), fields.MAX_COLUMN_TITLE, "—")}
         if "wip_limit" in item:
             column_values["wip_limit"] = fields.stored_wip_limit(item["wip_limit"])
+        column_values["is_done"] = fields.stored_done_flag(item.get("done"))  # left out: not done
         if column is None:
             column_id = db.insert("kanban_columns", {**column_values, "board_id": board_id, "sort_order": 0,
                                                      "created_at": now_sql()})

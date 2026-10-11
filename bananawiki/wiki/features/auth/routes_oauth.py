@@ -8,6 +8,7 @@ Every route answers 404 while single sign-on is not configured.
 
 from __future__ import annotations
 
+import hmac
 import secrets
 import time
 from functools import wraps
@@ -16,17 +17,19 @@ from typing import Any
 from flask import abort, redirect, render_template, request, session, url_for
 
 from ....core.ratelimit import SqlLimiter
-from ....core.web import allow_form_action, client_ip, safe_next
+from ....core.web import allow_form_action, client_network, safe_next
 from ... import accounts, auth, settings
 from ...db import db
 from ...i18n import t
-from . import invites, signin, signup
+from . import invites, signin, signup, two_step
 from . import platform_oauth as oauth
 from .blueprint import SIGN_IN_GATES, bp
 
 PENDING_TTL_SECONDS = 900
 WINDOW_SECONDS = 600
 MAX_PER_IP = 30
+# A merge whose password was right waits here for the two-step code (same lifetime as a sign-in's).
+MERGE_CODE_KEY = "_platform_oauth_merge_code"
 
 
 def _configured(view):
@@ -35,7 +38,7 @@ def _configured(view):
         if oauth.config() is None:
             abort(404)
         if request.method == "POST" or request.endpoint.endswith("callback"):
-            if not SqlLimiter(db.session).hit(client_ip(), "platform_oauth:ip", MAX_PER_IP, WINDOW_SECONDS):
+            if not SqlLimiter(db.session).hit(client_network(), "platform_oauth:ip", MAX_PER_IP, WINDOW_SECONDS):
                 abort(429)
         return view(*args, **kwargs)
 
@@ -132,24 +135,78 @@ def platform_oauth_callback():
         return redirect(url_for("auth.platform_oauth_signup"))
 
 
+def _password_passed(pending: dict[str, Any], local: dict[str, Any]) -> bool:
+    """Whether this browser passed the password step of this merge and owes the two-step code.
+
+    It lapses after a few minutes, and when the password or the two-step
+    set-up changed since (the fingerprint of :func:`two_step.fingerprint`).
+    """
+    state = session.get(MERGE_CODE_KEY)
+    if not isinstance(state, dict) or state.get("sub") != pending["sub"] or state.get("user_id") != local["id"]:
+        return False
+    try:
+        started = float(state.get("at", 0))
+    except (TypeError, ValueError):
+        return False
+    return (0 <= time.time() - started <= signin.TWO_STEP_PENDING_SECONDS and two_step.enabled(local["id"])
+            and hmac.compare_digest(str(state.get("fingerprint", "")), two_step.fingerprint(local)))
+
+
+def _merge_code_step(pending: dict[str, Any], local: dict[str, Any]):
+    """The second step of a merge: link only once the account's two-step code is accepted.
+
+    The code is counted like a sign-in's (:func:`signin.check_code`), and the
+    sign-in that follows does not ask for it again.
+    """
+    if request.method == "POST":
+        try:
+            method = signin.check_code(local, request.form.get("code"))
+            oauth.link(local, pending["sub"], pending["username"])
+        except signin.Refused as refusal:
+            auth.flash_t(refusal.key, "error", **refusal.values)
+            return render_template("auth/oauth_merge.html", pending=pending, local=local,
+                                   code_step=True), refusal.status
+        except oauth.OAuthError as error:
+            session.pop(MERGE_CODE_KEY, None)
+            return _fail(error)
+        session.pop(MERGE_CODE_KEY, None)
+        session.pop(oauth.PENDING_KEY, None)
+        response = signin.finish_second_step(local, {"remember": False, "next": pending.get("next") or "",
+                                                     "method": "platform_oauth", "default": "/"}, method)
+        auth.flash_t("auth.oauth.linked", "success")
+        return response
+    return render_template("auth/oauth_merge.html", pending=pending, local=local, code_step=True)
+
+
 @bp.route("/platform-oauth/merge", methods=["GET", "POST"])
 @auth.public
 @auth.exempt(*SIGN_IN_GATES)
 @_configured
 def platform_oauth_merge():
-    """The portal username exists here: prove ownership with the wiki password to link them."""
+    """The portal username exists here: prove ownership with the wiki password to link them.
+
+    An account with two-step verification also answers a code before the
+    link is made: the password alone must not attach a portal account to it.
+    """
     pending = _pending()
     if pending is None:
         return _fail(oauth.OAuthError("auth.oauth.error.expired"))
     local = accounts.by_username(pending["username"])
     if local is None or oauth.link_of(local["id"]) is not None:
         return redirect(url_for("auth.platform_oauth_signup"))
+    if _password_passed(pending, local):
+        return _merge_code_step(pending, local)
+    session.pop(MERGE_CODE_KEY, None)
     if request.method == "POST":
         try:
             user = signin.verify(local["username"], request.form.get("password") or "")
+            if two_step.enabled(user["id"]):
+                session[MERGE_CODE_KEY] = {"sub": pending["sub"], "user_id": user["id"], "at": time.time(),
+                                           "fingerprint": two_step.fingerprint(user)}
+                return redirect(url_for("auth.platform_oauth_merge"))
             oauth.link(user, pending["sub"], pending["username"])
         except signin.Refused as refusal:
-            auth.flash_t(refusal.key, "error")
+            auth.flash_t(refusal.key, "error", **refusal.values)
             return render_template("auth/oauth_merge.html", pending=pending, local=local), refusal.status
         except oauth.OAuthError as error:
             return _fail(error)
@@ -205,7 +262,7 @@ def platform_oauth_link_account():
     try:
         signin.verify(user["username"], request.form.get("password") or "")
     except signin.Refused as refusal:
-        auth.flash_t(refusal.key, "error")
+        auth.flash_t(refusal.key, "error", **refusal.values)
         return render_template("auth/oauth_link.html", link=None), refusal.status
     return redirect(oauth.authorize_url("link", user_id=user["id"]))
 
@@ -240,7 +297,7 @@ def platform_oauth_unlink_account():
         signin.verify(user["username"], request.form.get("password") or "")
         oauth.unlink(user)
     except signin.Refused as refusal:
-        auth.flash_t(refusal.key, "error")
+        auth.flash_t(refusal.key, "error", **refusal.values)
         return redirect(url_for("auth.platform_oauth_link_account"))
     except oauth.OAuthError as error:
         return _fail(error, "auth.platform_oauth_link_account")

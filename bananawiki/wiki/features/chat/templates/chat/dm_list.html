@@ -14,9 +14,10 @@
   {% for c in chats %}
   <li>
     <a class="chat-list__item" href="{{ url_for('chat.dm_view', chat_id=c.id) }}">
-      <span class="chat-list__name">{{ c.other_username }}{% if c.unread_count %} <span class="count-pill" aria-label="{{ t('chat.unread', count=c.unread_count) }}">{{ c.unread_count }}</span>{% endif %}</span>
+      <span class="chat-list__name">{{ c.other_username }}{% if c.other_user_id in blocked %} <span class="badge">{{ t('chat.blocks.badge') }}</span>{% endif %}{% if c.unread_count %} <span class="count-pill"><span aria-hidden="true">{{ c.unread_count }}</span><span class="visually-hidden">{{ tn('chat.unread', c.unread_count) }}</span></span>{% endif %}</span>
       <span class="chat-list__preview muted">
-        {% if c.last_deleted %}{{ t('chat.message.deleted') }}{% elif c.last_message %}{{ c.last_message|truncate(90, true, '…') }}{% else %}{{ t('chat.no_messages_yet') }}{% endif %}
+        {#- A blocked person's messages are not repeated in the list. -#}
+        {% if c.other_user_id in blocked %}{{ t('chat.blocks.preview_hidden') }}{% elif c.last_deleted %}{{ t('chat.message.deleted') }}{% elif c.last_message %}{{ c.last_message|truncate(90, true, '…') }}{% else %}{{ t('chat.no_messages_yet') }}{% endif %}
       </span>
       {% if c.last_message_at %}<span class="chat-list__time small muted">{{ c.last_message_at|time_ago }}</span>{% endif %}
     </a>

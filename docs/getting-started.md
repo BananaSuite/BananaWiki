@@ -98,6 +98,7 @@ your account menu has **Settings**, your profile and **Admin**.
   from the secret key in `instance/.secret_key`.
 * **Forgot your password**: `bananawiki reset-password <name>` (see
   [operations](operations.md#the-bananawiki-command)).
+* **Lost your authenticator app and recovery codes**: `bananawiki reset-two-step <name>`.
 * **Port already in use**: `bananawiki serve --port 5002`.
 * Anything else: the log is `instance/logs/bananawiki.log`, and
   `bananawiki config check` validates the configuration.

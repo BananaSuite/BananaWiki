@@ -33,7 +33,14 @@ wiki or a hosting platform on a Linux server.
   for visitors' real addresses behind Cloudflare; older versions still work
   without that) and a DNS name pointing at the server, proxied by Cloudflare
   or not ([behind Cloudflare](#behind-cloudflare)).
-* For the hosting platform: Docker.
+* For the hosting platform: Docker with its BuildKit component, which the
+  tenant image needs (`apt install docker.io docker-buildx` on Debian and
+  Ubuntu; with Docker CE from Docker's repository, `docker-buildx-plugin`;
+  `docker buildx version` must answer). Any Linux filesystem works: each
+  wiki's size limit is enforced by the application. XFS mounted with
+  `prjquota` is recommended for hard per-wiki limits enforced by the kernel,
+  which are then used automatically (see
+  [hard storage quotas](operations.md#hard-storage-quotas-hosting)).
 * For encrypted Git backups: `age` (`apt install age`).
 * For read aloud with MP3 output: `ffmpeg`.
 
@@ -42,11 +49,13 @@ wiki or a hosting platform on a Linux server.
 ```sh
 git clone https://github.com/BananaSuite/BananaWiki.git
 cd BananaWiki
+git checkout v1.7.0       # the latest release tag
 sudo ./banana install --mode wiki --domain wiki.example.org
 ```
 
 `install` refuses a checkout with uncommitted changes: what it installs is
-exactly the commit you reviewed. It then
+exactly the commit you reviewed. Later updates deploy newer release tags
+(see [operations](operations.md#signed-releases)). It then
 
 1. creates the system user `bananawiki` (without a login shell),
 2. copies the commit into `/opt/bananawiki/releases/<commit>/`, builds its
@@ -71,6 +80,7 @@ Options:
 | `--repo URL`, `--branch NAME`, `--token-file F`, `--ssh-key F --known-hosts F`, `--require-signatures FILE` | The update source; see [updates](operations.md#updates). |
 | `--restore PACKAGE` | Install from a backup package instead (moving to a new server). |
 | `--reuse-data` | Reinstall over the configuration and data left by `uninstall` or an interrupted installation. |
+| `--tenant-quotas auto\|required\|off` | Hosting only: hard per-wiki storage quotas (`BW_HOSTING_TENANT_QUOTAS`). `auto`, the default, uses them where the wiki storage is XFS with `prjquota` and otherwise installs without them (the output says which applies, and how to get them); `required` refuses to install unless the storage enforces them; `off` never uses them. Without them each wiki is held to its plan by its own upload check and the portal's storage check every 5 minutes (see [hard storage quotas](operations.md#hard-storage-quotas-hosting)). |
 
 When the command finishes, it tells you what to do next:
 
@@ -130,7 +140,12 @@ logs) are in [operations](operations.md).
 ## Docker and Docker Compose
 
 The repository has a `Dockerfile` for a single wiki and a `compose.yaml` that
-puts it behind Caddy with automatic HTTPS.
+puts it behind Caddy with automatic HTTPS. Building the image needs Docker's
+BuildKit component, because the Dockerfile uses `RUN --mount`:
+`docker buildx version` must answer (`apt install docker-buildx` with Debian's
+or Ubuntu's `docker.io`, `docker-buildx-plugin` with Docker CE). Without it
+`docker build` falls back to the legacy builder and stops with "the --mount
+option requires BuildKit"; `docker compose build` needs it as well.
 
 ```sh
 git clone https://github.com/BananaSuite/BananaWiki.git
@@ -210,8 +225,14 @@ sudo mkdir -p /srv/bananawiki && sudo chown bananawiki: /srv/bananawiki
 sudo -u bananawiki git clone https://github.com/BananaSuite/BananaWiki.git /srv/bananawiki/app
 cd /srv/bananawiki/app
 sudo -u bananawiki python3 -m venv .venv
-sudo -u bananawiki .venv/bin/python -m pip install --only-binary=:all: -r requirements.txt
+sudo -u bananawiki .venv/bin/python -m pip install --only-binary=:all: --require-hashes --upgrade --no-deps -r requirements-build.lock
+sudo -u bananawiki .venv/bin/python -m pip install --only-binary=:all: --require-hashes -r requirements.lock
 ```
+
+`requirements.lock` pins every package, dependencies included, to the
+version and file hashes the release was tested with (`requirements.txt`
+keeps the ranges, for development). Check out a release tag
+(`git checkout v1.7.0`) rather than `main` for a production server.
 
 Environment file `/srv/bananawiki/app.env` (mode 0600, owned by root):
 
@@ -385,8 +406,8 @@ so stalled downloads are left to the proxy.
 
 ```sh
 cd /srv/bananawiki/app
-sudo -u bananawiki git pull
-sudo -u bananawiki .venv/bin/python -m pip install --only-binary=:all: -r requirements.txt
+sudo -u bananawiki git fetch --tags && sudo -u bananawiki git checkout vX.Y.Z  # the release to install
+sudo -u bananawiki .venv/bin/python -m pip install --only-binary=:all: --require-hashes -r requirements.lock
 sudo systemctl restart bananawiki
 ```
 
@@ -406,8 +427,17 @@ checks do not certify the target installation.
 portal (`bananawiki.service`), its maintenance service
 (`bananawiki-maintenance.service`) and the privileged runtime agent
 (`bananawiki-agent.service`), and builds the tenant image
-`bananawiki-tenant:<commit>` from `Dockerfile.tenant`. Docker must be
-installed first. Every release build (`install`, `update`, `restore`) pulls
+`bananawiki-tenant:<commit>` from `Dockerfile.tenant`. Docker, with its
+BuildKit component (`docker-buildx` or `docker-buildx-plugin`), must be
+installed first. Any filesystem will do; with the installation directory
+(`/opt/bananawiki`, mounted as a whole: the managed restore renames `data/`,
+see UPGRADING.md) on an XFS filesystem mounted with `prjquota`, every wiki
+also gets hard byte and inode limits from the kernel.
+`install` says which applies (`tenant_storage` in its output, and a note
+with how to get hard quotas when the storage has none); only
+`--tenant-quotas required` refuses storage without them (see
+[hard storage quotas](operations.md#hard-storage-quotas-hosting) for the
+trade-off). Every release build (`install`, `update`, `restore`) pulls
 the newest base image and runs the Debian upgrade and the package
 installation again, so updates also bring the wikis the latest distribution
 and Python security fixes; with the registry unreachable, or when the build
@@ -457,6 +487,26 @@ wiki). What the generated Caddy configuration does for it:
 * A wiki whose container is starting or unreachable shows its "starting"
   page (HTTP 503, refreshing by itself) instead of an empty 502 that Cloudflare
   replaces with its own "Bad gateway" page.
+
+**Not behind Cloudflare?** The same configuration serves visitors who connect
+directly. Caddy believes `CF-Connecting-IP`, and spares a plain-HTTP request
+with `CF-Visitor: {"scheme":"https"}` the redirect, only when the connection
+itself comes from one of Cloudflare's published edge ranges
+(`bananawiki/core/cloudflare.py`); from anywhere else those headers are
+ignored and the application sees the connecting address. Cloudflare's proxy
+writes `CF-Connecting-IP` itself, replacing anything the visitor sent, but
+anyone with a Cloudflare account can also open connections from those ranges
+(a Worker's outgoing TCP sockets, for example) and write the header
+themselves, to any server, behind Cloudflare or not. So on every
+installation the limits per address (requests per network, sign-in
+throttles, `HOSTING_SIGNUPS_PER_IP_PER_DAY`, recovery requests) are best
+effort against a determined client, and the addresses in the logs can be
+made up. Nothing is granted to an address: the public listeners answer
+`/internal/*` with 404 whatever the client's address, Caddy asks the
+portal's certificate check over loopback directly, and the plain-HTTP
+exemption only skips a redirect. There is no setting yet that turns this
+trust off on a server that is not behind Cloudflare. Refresh the ranges when
+Cloudflare announces a change; the module notes when they were last checked.
 
 Recommended Cloudflare settings:
 

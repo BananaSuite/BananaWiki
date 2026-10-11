@@ -1,0 +1,17 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.terms_update.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow"><h1>{{ t('hosting.terms_update.title') }}</h1>
+<p>{{ tm('hosting.terms_update.body', version=nowrap(version)) }}</p>
+<ul>
+  <li><a href="{{ url_for('public.terms') }}">{{ t('hosting.terms_update.terms_link') }}</a></li>
+  <li><a href="{{ url_for('public.privacy') }}">{{ t('hosting.terms_update.privacy_link') }}</a></li>
+</ul>
+<form method="post" class="form">{{ ui.csrf() }}
+  {% include "hosting/_terms_check.html" %}
+  <button class="btn btn--primary" type="submit">{{ t('hosting.terms_update.submit') }}</button>
+</form>
+<p class="small muted">{{ tm('hosting.terms_update.decline_sentence', link=link(url_for('account.account') ~ '#more', t('hosting.terms_update.account_link'))) }}</p>
+</div>
+{% endblock %}

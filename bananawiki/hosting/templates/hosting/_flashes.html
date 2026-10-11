@@ -1,9 +1,11 @@
+{#- A page that shows a refusal under the field at fault (inline_form_errors) only points to it up here. -#}
+{% set inline = inline_error() if inline_form_errors|default(false) else '' %}
 {% with messages = get_flashed_messages(with_categories=true) %}
 {% if messages %}
 <div class="flashes" role="status" aria-live="polite">
   {% for category, message in messages|unique(attribute='1') %}
   <div class="alert alert--{{ category if category in ('error', 'warning', 'success') else 'info' }}">
-    <div class="alert__body">{{ message }}</div>
+    <div class="alert__body">{{ t('hosting.form.fix_highlighted') if inline and message == inline else message }}</div>
     <button type="button" class="alert__close" data-dismiss aria-label="{{ t('common.close') }}">×</button>
   </div>
   {% endfor %}

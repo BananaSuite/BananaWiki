@@ -13,7 +13,12 @@ slots and jobs. Whether a feature is switched on is decided in one place,
 
 The operator can additionally hide features with ``BW_EASY_WIKI`` or the
 managed-hosting deny list. Disabling a feature never deletes its data or
-rewrites its settings.
+rewrites its settings. Pages and commands that switch features (the plugin
+manager, the onboarding wizard) go through :func:`set_enabled`, which the
+``feature.switch`` interceptors may refuse and which runs the
+``feature.switched`` interceptors afterwards (the audit log uses both). A
+``toggle="setting"`` feature also follows its column when the site settings
+change it (recorded there as a settings change).
 """
 
 from __future__ import annotations
@@ -28,6 +33,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 from flask import Blueprint, abort, current_app, g, has_request_context, jsonify, request
+
+from .. import __version__
 
 log = logging.getLogger("bananawiki.features")
 
@@ -44,6 +51,9 @@ class NavItem:
     # Returns True when the current user should see the link.
     visible: Callable[[Any], bool] | None = None
     badge: Callable[[Any], int] | None = None
+    # Other endpoints (without URL arguments) whose pages, and the pages below them, also mark
+    # the link as the current page, e.g. a section that spans two URL prefixes.
+    active_endpoints: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -94,7 +104,7 @@ class Feature:
     interceptors: dict[str, Callable[..., Any]] = field(default_factory=dict)
     attention: list[AttentionSource] = field(default_factory=list)
     init_app: Callable[[Any], None] | None = None
-    version: str = "1.6.0"
+    version: str = __version__  # built-in features ship with the application
     order: int = 100
     package_dir: Path | None = None
 
@@ -164,7 +174,34 @@ def is_enabled(feature_id: str) -> bool:
     return _plugin_states().get(feature_id, feature.default_enabled)
 
 
-def set_enabled(feature_id: str, enabled: bool) -> None:
+class SwitchRefused(ValueError):
+    """A ``feature.switch`` interceptor refused to switch a feature; ``key`` is a translation key."""
+
+    def __init__(self, feature_id: str, key: str):
+        super().__init__(key)
+        self.feature_id = feature_id
+        self.key = key
+
+
+def switch_refusal(feature_id: str, enabled: bool) -> str | None:
+    """Why the person at the keyboard may not switch *feature_id* on or off (a translation key), or None.
+
+    Asks the ``feature.switch`` interceptors of the enabled features (the
+    audit log keeps plain administrators from switching it off).
+    """
+    answer = intercept("feature.switch", feature_id=feature_id, enabled=bool(enabled))
+    return None if answer is None else str(answer)
+
+
+def set_enabled(feature_id: str, enabled: bool) -> bool:
+    """Switch a built-in feature on or off; return whether that changed whether it is enabled.
+
+    The plugin manager and the onboarding wizard both switch through here, so
+    the rules hold whichever one does it: :func:`switch_refusal` first (raises
+    :class:`SwitchRefused`), then, in the same transaction as the change, the
+    ``feature.switched`` interceptors of every built-in feature, switched off
+    or not (the audit log records the switch, also its own).
+    """
     from ..core.timeutil import now_sql
     from . import settings
     from .db import db
@@ -172,21 +209,31 @@ def set_enabled(feature_id: str, enabled: bool) -> None:
     feature = registry().features[feature_id]
     if feature.toggle == "always":
         raise ValueError(f"{feature_id} cannot be switched off")
-    if feature.toggle == "setting":
-        settings.update({feature.setting or f"{feature_id}_enabled": 1 if enabled else 0})
-        return
-    now = now_sql()
-    db.execute(
-        "INSERT INTO plugins (id, name, version, builtin, enabled, installed_at, enabled_at, disabled_at) "
-        "VALUES (?, ?, ?, 1, ?, ?, ?, ?) "
-        "ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, "
-        "enabled_at = CASE WHEN excluded.enabled THEN excluded.enabled_at ELSE plugins.enabled_at END, "
-        "disabled_at = CASE WHEN excluded.enabled THEN plugins.disabled_at ELSE excluded.disabled_at END",
-        (feature_id, feature.name, feature.version, 1 if enabled else 0, now,
-         now if enabled else None, None if enabled else now),
-    )
-    if has_request_context():
-        g.pop("_plugin_states", None)
+    enabled = bool(enabled)
+    refusal = switch_refusal(feature_id, enabled)
+    if refusal is not None:
+        raise SwitchRefused(feature_id, refusal)
+    with db.transaction():
+        was = is_enabled(feature_id)
+        if feature.toggle == "setting":
+            settings.update({feature.setting or f"{feature_id}_enabled": 1 if enabled else 0})
+        else:
+            now = now_sql()
+            db.execute(
+                "INSERT INTO plugins (id, name, version, builtin, enabled, installed_at, enabled_at, disabled_at) "
+                "VALUES (?, ?, ?, 1, ?, ?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, "
+                "enabled_at = CASE WHEN excluded.enabled THEN excluded.enabled_at ELSE plugins.enabled_at END, "
+                "disabled_at = CASE WHEN excluded.enabled THEN plugins.disabled_at ELSE excluded.disabled_at END",
+                (feature_id, feature.name, feature.version, 1 if enabled else 0, now,
+                 now if enabled else None, None if enabled else now),
+            )
+        if has_request_context():
+            g.pop("_plugin_states", None)
+        changed = is_enabled(feature_id) != was
+        if changed:
+            prepare("feature.switched", feature_id=feature_id, enabled=enabled)
+    return changed
 
 
 def require_feature(feature_id: str) -> Callable[[], Any]:

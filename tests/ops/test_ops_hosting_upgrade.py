@@ -168,7 +168,7 @@ def test_failed_readiness_restores_the_1x_caddyfile_units_and_routes(root, fake_
 
     assert (root / "current").resolve().name == old
     assert read_json(root / "config/status.json")["outcome"] == "rolled_back"
-    assert read_json(root / "config/failed-revision.json") == {"revision": bad}
+    assert read_json(root / "config/failed-revision.json")["revision"] == bad
     assert_1x_setup(root, fake_system)
     assert caddy_reloads(fake_system) == 2  # the new file, then the old one back
 

@@ -81,16 +81,18 @@ def check_authentication(index, identity, *, allow_unauthenticated=False):
 
     The index binds the product, series, snapshot ID and every encrypted
     part's SHA-256, so the tag covers the whole ciphertext. Snapshots made
-    before authentication existed are refused unless *allow_unauthenticated*.
+    before authentication existed are refused unless *allow_unauthenticated*;
+    a forgery looks the same, so the store also refuses one that cannot be
+    that old.
     """
     tag = index.get("authentication")
     if tag is None:
         if allow_unauthenticated:
             return False
-        raise ValueError("This snapshot is not authenticated (it was made before backups were authenticated), "
-                         "so anyone with write access to the backup repository could have created it. Restore "
-                         "it only if you trust everyone who could push to that repository, with "
-                         "--allow-unauthenticated.")
+        raise ValueError("This snapshot is not authenticated: either a release from before backups were "
+                         "authenticated made it, or someone else with write access to the backup repository did, "
+                         "and nothing tells which. Restore it with --allow-unauthenticated only if you know it is "
+                         "one of your own older backups and trust everyone who could push to that repository.")
     if (not isinstance(tag, dict) or tag.get("scheme") != AUTHENTICATION or not isinstance(tag.get("mac"), str)
             or not hmac.compare_digest(tag["mac"].encode(), _mac(identity, index).encode())):
         raise ValueError("Backup authentication failed: this snapshot was not made with this recovery key, or was "
@@ -124,7 +126,11 @@ def encrypt(package, destination, identity, context):
 
 
 def decrypt(ciphertext, destination, identity, context, maximum):
-    """Verify age authentication and the whole payload before publishing it."""
+    """Decrypt and check the whole payload before publishing it.
+
+    age only proves the ciphertext was encrypted to our public recipient:
+    callers check the snapshot index with :func:`check_authentication` first.
+    """
     recipient(identity)
     destination = Path(destination).absolute()
     if destination.exists() or destination.is_symlink():

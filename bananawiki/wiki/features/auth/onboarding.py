@@ -10,7 +10,7 @@ from flask import current_app
 from ....core.timeutil import now_sql
 from ... import accounts, i18n, settings
 from ...db import db
-from ...registry import Feature, emit, is_enabled, registry, set_enabled
+from ...registry import Feature, emit, is_enabled, registry, set_enabled, switch_refusal
 from . import docs
 
 MAX_SITE_NAME = 100
@@ -32,18 +32,21 @@ class Choices:
 
 
 def switchable_features() -> list[Feature]:
-    """Features the wizard may switch: not core, and not hidden by the operator."""
+    """Features the wizard may switch: not core, not hidden by the operator, and not refused to the
+    person at the keyboard (only owners and superusers may switch the audit log off)."""
     cfg = current_app.config["BW"]
     return [
         feature for feature in registry().ordered()
         if feature.toggle != "always"
         and not (cfg.easy_wiki and not feature.easy_wiki)
         and feature.id not in cfg.managed_plugin_denylist
+        and switch_refusal(feature.id, not is_enabled(feature.id)) is None
     ]
 
 
 def feature_options() -> list[dict[str, Any]]:
-    return [{"id": f.id, "name": f.name, "description": f.description, "enabled": is_enabled(f.id)}
+    return [{"id": f.id, "name": f.name, "description": f.description, "enabled": is_enabled(f.id),
+             "default": f.default_enabled}
             for f in switchable_features()]
 
 
@@ -92,7 +95,8 @@ def parse(form: Any) -> Choices:
 def apply(choices: Choices, admin: dict[str, Any]) -> list[dict[str, Any]]:
     """Save the wizard's choices; return the accounts it created."""
     prepared = [
-        dict(row, password_hash=accounts.hash_password(accounts.validate_password(row["password"])))
+        dict(row, password_hash=accounts.hash_password(accounts.validate_password(row["password"],
+                                                                                  username=row["username"])))
         for row in choices.users
     ]
     created = []

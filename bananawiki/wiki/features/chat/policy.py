@@ -88,6 +88,25 @@ def can_join_groups(target: dict[str, Any]) -> bool:
     return auth.has_permission("chat.group", target)
 
 
+def address_visible(viewer: dict[str, Any] | None, row: dict[str, Any]) -> bool:
+    """Whether administrator *viewer* may see the address a message (*row*) was sent from.
+
+    As on the sessions pages and in the audit log, the addresses of accounts
+    the viewer may not manage (other administrators for a plain
+    administrator, owners, superusers) stay hidden: the hierarchy covers what
+    the messages reveal too. *row* has ``sender_id``, ``sender_role`` and
+    ``sender_superuser``; a deleted sender protects nothing.
+    """
+    from ..admin import service as admin_service
+
+    if viewer is None:
+        return False
+    if row.get("sender_id") is None or row.get("sender_role") is None:
+        return True
+    sender = {"id": row["sender_id"], "role": row["sender_role"], "is_superuser": row.get("sender_superuser")}
+    return admin_service.protection_error(viewer, sender) is None
+
+
 def _positive_int(name: str, default: int, ceiling: int) -> int:
     try:
         value = int(settings.get(name) or default)

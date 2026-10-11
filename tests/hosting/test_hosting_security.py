@@ -94,6 +94,12 @@ def test_concurrent_password_guesses_cannot_bypass_portal_signin_limits(portal, 
     from bananawiki.hosting.routes.auth import LOGIN_MAX_PER_ACCOUNT
 
     account = make_account()
+    # The twelve sign-ins queue for SQLite's write lock, one commit each. On a host whose disk is
+    # saturated a commit (an fsync) can take a second, so the last ones would wait longer than the
+    # default 5 s busy timeout and get 503. This test is about the limits, not the disk: give the
+    # queue room (HOSTING_DB_BUSY_TIMEOUT_MS goes up to 30 s in production too) and generous waits.
+    monkeypatch.setattr(portal.extensions["bananawiki.hosting.database"], "busy_timeout_ms", 30000)
+    patience = 60
     all_hashes_started = threading.Event()
     release_hashes = threading.Event()
     lock = threading.Lock()
@@ -104,7 +110,7 @@ def test_concurrent_password_guesses_cannot_bypass_portal_signin_limits(portal, 
             attempts.append(1)
             if len(attempts) == LOGIN_MAX_PER_ACCOUNT:
                 all_hashes_started.set()
-        assert release_hashes.wait(10)
+        assert release_hashes.wait(patience)
         return False
 
     monkeypatch.setattr(accounts, "verify_password", slow_verify)
@@ -116,13 +122,13 @@ def test_concurrent_password_guesses_cannot_bypass_portal_signin_limits(portal, 
     with ThreadPoolExecutor(max_workers=12) as pool:
         futures = [pool.submit(guess) for _ in range(12)]
         try:
-            assert all_hashes_started.wait(5)
-            completed = as_completed(futures, timeout=5)
+            assert all_hashes_started.wait(patience)
+            completed = as_completed(futures, timeout=patience)
             assert [next(completed).result() for _ in range(4)] == [429] * 4
             assert len(attempts) == LOGIN_MAX_PER_ACCOUNT
         finally:
             release_hashes.set()
-        statuses = [future.result(timeout=5) for future in futures]
+        statuses = [future.result(timeout=patience) for future in futures]
     assert statuses.count(401) == LOGIN_MAX_PER_ACCOUNT and statuses.count(429) == 4
 
 
@@ -133,6 +139,30 @@ def test_portal_signin_failures_from_one_source_do_not_lock_the_account_for_ever
                         environ_base={"REMOTE_ADDR": "203.0.113.11"}).status_code == 401
     assert web.post("/login", data={"username": account["username"], "password": PASSWORD},
                     environ_base={"REMOTE_ADDR": "203.0.113.12"}).status_code == 302
+
+
+def test_strangers_cannot_lock_an_account_out_of_a_browser_that_signed_in_to_it_before(portal, web, make_account,
+                                                                                      monkeypatch):
+    from bananawiki.hosting.routes import auth as auth_routes
+
+    monkeypatch.setattr(auth_routes, "LOGIN_MAX_PER_ACCOUNT_TOTAL", 4)
+    account = make_account()
+    owner = {"REMOTE_ADDR": "203.0.113.50"}
+    assert web.post("/login", data={"username": account["username"], "password": PASSWORD},
+                    environ_base=owner).status_code == 302
+    first_device = web.get_cookie("bwh_device").value
+    web.post("/logout", environ_base=owner)
+    for address in range(1, 6):
+        stranger = portal.test_client()
+        stranger.post("/login", data={"username": account["username"], "password": "wrong"},
+                      environ_base={"REMOTE_ADDR": f"198.51.100.{address}"})
+    assert portal.test_client().post("/login", data={"username": account["username"], "password": PASSWORD},
+                                     environ_base={"REMOTE_ADDR": "198.51.100.99"}).status_code == 429
+    assert web.post("/login", data={"username": account["username"], "password": "wrong"},
+                    environ_base=owner).status_code == 401, "the owner's own mistakes have their own budget"
+    assert web.post("/login", data={"username": account["username"], "password": PASSWORD},
+                    environ_base=owner).status_code == 302
+    assert web.get_cookie("bwh_device").value != first_device, "every sign-in issues a fresh device cookie"
 
 
 def test_successful_portal_signin_refunds_its_attempt_without_erasing_other_failures(portal, web, make_account):

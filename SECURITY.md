@@ -20,10 +20,11 @@ a fix, and credit you in the release notes unless you prefer otherwise.
 
 | Version | Supported |
 |---|---|
-| 1.6.x | Yes |
-| 1.4 and earlier | No: upgrade to 1.6 ([UPGRADING.md](UPGRADING.md)) |
+| 1.7.x | Yes |
+| 1.6 and earlier | No: upgrade to 1.7 ([UPGRADING.md](UPGRADING.md)) |
 
-Security fixes are released for the latest 1.6 release. Keep the operating
+Security fixes are released for the latest 1.7 release, as a signed release
+tag (`vX.Y.Z`); managed servers follow release tags by default. Keep the operating
 system, Python dependencies and Caddy/Docker up to date, and test your backups
 before upgrades.
 
@@ -35,14 +36,20 @@ In scope: the wiki (`bananawiki/wiki`), the hosting portal
 (`contrib/tts-gpu-server`), the container images and the configurations
 shipped in `deploy/`.
 
-**Administrators are fully trusted.** An administrator can install a plugin
-(code that runs with the wiki's rights) or import a whole-site archive (which
-replaces every account). An administrator gaining owner or superuser rights,
-or reading data, through a plugin or an import is expected behaviour, not a
-vulnerability. These are vulnerabilities:
+**The owner and superusers are fully trusted; administrators are trusted
+with the wiki's content and accounts, not with the server.** Third-party
+plugins (code that runs with the wiki's rights) are off unless the server
+operator sets `BW_ALLOW_EXTERNAL_PLUGINS=1`, and only the owner or a superuser
+can install or enable one, or export or import a whole-site archive (which
+holds every password hash and replaces every account). An owner or superuser
+doing anything through a plugin they enabled or an archive they imported, or
+an administrator reading the data their role shows, is expected behaviour,
+not a vulnerability. These are vulnerabilities:
 
-* anyone without the administrator role reaching administrator powers, or
-  running plugin code no administrator enabled;
+* anyone without the administrator role reaching administrator powers;
+* an administrator who is not the owner or a superuser, or an API token,
+  getting plugin code installed, enabled or run, running a whole-site export
+  or import, or gaining owner or superuser rights;
 * reading or changing pages, categories, files, chats, boards or canvases you
   may not see or change;
 * a hosted wiki (or its administrator) affecting the hosting platform, the host

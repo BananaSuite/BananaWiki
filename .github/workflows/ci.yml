@@ -26,7 +26,7 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install ruff==0.16.9
       - name: Ruff (pyproject.toml rules)
-        run: python -m ruff check bananawiki tests banana wsgi.py gunicorn.conf.py scripts/tts_worker.py
+        run: python -m ruff check bananawiki tests banana wsgi.py gunicorn.conf.py scripts/tts_worker.py scripts/lock_requirements.py
       - name: ShellCheck
         run: |
           files=$(git ls-files '*.sh')
@@ -38,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.11", "3.12", "3.13"]
+        python: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -51,15 +51,16 @@ jobs:
         timeout-minutes: 10
         run: |
           sudo apt-get -o Acquire::Retries=3 update
-          sudo apt-get -o Acquire::Retries=3 install -y age openssh-client
-      - name: Install (wheels only, as on a managed server)
+          sudo apt-get -o Acquire::Retries=3 install -y age openssh-client nftables
+      - name: Install (hash-pinned wheels only, as on a managed server)
         run: |
-          python -m pip install --only-binary=:all: --no-deps --upgrade 'pip>=26.2.1' 'setuptools>=83'
-          python -m pip install --only-binary=:all: -r requirements.txt pytest pytest-xdist
+          python -m pip install --only-binary=:all: --no-deps --require-hashes --upgrade -r requirements-build.lock
+          python -m pip install --only-binary=:all: --require-hashes -r requirements.lock
+          python -m pip install --only-binary=:all: pytest pytest-xdist
       - name: Tests
         run: python -m pytest tests -q -n 2 -p no:cacheprovider -o addopts=""
       - name: Root filesystem boundary tests
-        run: sudo "$(command -v python)" -m pytest tests/ops/test_ops_tenant_files.py -q -p no:cacheprovider -o addopts=""
+        run: sudo "$(command -v python)" -m pytest tests/ops/test_ops_tenant_files.py tests/ops/test_ops_firewall.py -q -p no:cacheprovider -o addopts=""
       - name: Build and exercise the installed distribution
         if: matrix.python == '3.12'
         run: |
@@ -104,9 +105,9 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/runtime-audit"
           runtime_python="$RUNNER_TEMP/runtime-audit/bin/python"
-          "$runtime_python" -m pip install --only-binary=:all: --no-deps --upgrade 'pip>=26.2.1' 'setuptools>=83'
+          "$runtime_python" -m pip install --only-binary=:all: --no-deps --require-hashes --upgrade -r requirements-build.lock
           if [ "$INSTALL_METHOD" = requirements ]; then
-            "$runtime_python" -m pip install --only-binary=:all: -r requirements.txt
+            "$runtime_python" -m pip install --only-binary=:all: --require-hashes -r requirements.lock
           else
             "$runtime_python" -m pip install --only-binary=:all: '.[hosting,tts]'
           fi
@@ -154,3 +155,64 @@ jobs:
           done
           docker logs probe
           exit 1
+      # The runtime agent's own command lines (seccomp profile, IPv6 sysctls, bwt… bridges, the mount gate and its
+      # release, the mount comparison, one-shot task containers) against a real Docker, as root like the agent.
+      - name: Start wikis through the runtime agent, run tasks, stop them
+        if: matrix.dockerfile == 'Dockerfile.tenant'
+        env:
+          IMAGE: bananawiki-ci:${{ strategy.job-index }}
+        run: |
+          AGENT="$RUNNER_TEMP/agent"
+          sudo install -d -m 0755 "$AGENT" "$AGENT/instances"
+          sudo install -d -m 0700 "$AGENT/private"
+          sudo install -d -m 0700 -o 4242 -g 4242 "$AGENT/instances/published" "$AGENT/instances/isolated"
+          sudo env REPO="$GITHUB_WORKSPACE" AGENT="$AGENT" IMAGE="$IMAGE" python3 -I - <<'EOF'
+          import json, os, subprocess, sys, time, urllib.request
+          from pathlib import Path
+          sys.path.insert(0, os.environ["REPO"])
+          from bananawiki.ops.runtime_agent import TenantRuntime, container_name
+
+          agent = Path(os.environ["AGENT"])
+          runtime = TenantRuntime({
+              "service": "probe", "service_uid": 4242, "service_gid": 4242, "image": os.environ["IMAGE"],
+              "instances_dir": str(agent / "instances"), "tenant_quotas": "off",
+              "limits": {"memory_mb": 1024, "cpus": 1.0, "pids": 512, "nofile": 4096},
+          }, private_dir=agent / "private")
+          limits = {"memory_mb": 768, "cpus": 1.0, "pids": 256, "nofile": 1024, "storage_bytes": 0}
+
+          def healthy(url):
+              for _attempt in range(60):
+                  try:
+                      with urllib.request.urlopen(url, timeout=5) as response:
+                          if response.status == 200:
+                              return
+                  except OSError:
+                      pass
+                  time.sleep(3)
+              raise SystemExit(f"{url} did not answer")
+
+          try:
+              print(json.dumps(runtime.call("ping", {})))
+              published = runtime.call("tenant.start", {"tenant": "published", "network": "outbound",
+                                                        "publish_port": 20001, "limits": limits})
+              isolated = runtime.call("tenant.start", {"tenant": "isolated", "network": "isolated", "limits": limits})
+              for status in (published, isolated):
+                  print(json.dumps(status))
+                  assert status["running"] and status["quota_protected"] and status["ipv6_disabled"], status
+              healthy("http://127.0.0.1:20001/health")
+              healthy(f"http://{isolated['address']}:5001/health")  # what Caddy reaches in subdomain mode
+              print(json.dumps(runtime.call("tenant.task", {"tenant": "published",
+                                                            "request": {"action": "list_users"}})))
+              runtime.call("tenant.stop", {"tenant": "published"})
+              # A stopped wiki's task: a one-shot container without network, behind the mount gate.
+              print(json.dumps(runtime.call("tenant.task", {"tenant": "published",
+                                                            "request": {"action": "list_users"}})))
+              runtime.call("tenant.stop", {"tenant": "isolated"})
+              left = subprocess.run(["docker", "ps", "--all", "--quiet", "--filter", "label=org.bananawiki.role"],
+                                    capture_output=True, text=True, check=True).stdout.split()
+              assert not left, left
+          except BaseException:
+              for name in ("published", "isolated"):
+                  subprocess.run(["docker", "logs", container_name(str(agent / "instances" / name))], check=False)
+              raise
+          EOF

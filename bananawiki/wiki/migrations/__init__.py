@@ -10,6 +10,16 @@ Version history
      index for former user names. See :mod:`.v6_account_history`.
 7    Read-aloud claims that ended without an answer from their worker
      (``tts_generations.attempts``). See :mod:`.v7_tts_attempts`.
+8    Tokens issued by tokens (``api_service__tokens.parent_id``), direct
+     conversations cleared per participant and reported chat messages. See
+     :mod:`.v8_tokens_and_chat_safety`.
+9    Two-step verification for accounts (``auth__two_step``) and the
+     setting that requires it of administrators. See :mod:`.v9_two_step`.
+10   Members block other members in chats (``chat__blocks``), and direct
+     messages withheld from someone who blocked their sender
+     (``chat_messages.withheld``). See :mod:`.v10_chat_blocks`.
+11   Kanban columns that count as done (``kanban_columns.is_done``): their
+     tickets are never overdue. See :mod:`.v11_kanban_done_columns`.
 
 A 1.4 database at version 3 upgrades in place. New databases are created from
 ``baseline_v3.sql`` followed by every later migration, so fresh and upgraded
@@ -23,7 +33,16 @@ import uuid
 from pathlib import Path
 
 from ...core.sqlite import execute_script
-from . import v4_takeover, v5_chat_upload_usage, v6_account_history, v7_tts_attempts
+from . import (
+    v4_takeover,
+    v5_chat_upload_usage,
+    v6_account_history,
+    v7_tts_attempts,
+    v8_tokens_and_chat_safety,
+    v9_two_step,
+    v10_chat_blocks,
+    v11_kanban_done_columns,
+)
 
 APPLICATION_ID = 0x42574B49  # "BWKI", unchanged from 1.4
 BASELINE = 3
@@ -32,6 +51,10 @@ MIGRATIONS = (
     v5_chat_upload_usage.upgrade,  # 4 -> 5
     v6_account_history.upgrade,  # 5 -> 6
     v7_tts_attempts.upgrade,  # 6 -> 7
+    v8_tokens_and_chat_safety.upgrade,  # 7 -> 8
+    v9_two_step.upgrade,  # 8 -> 9
+    v10_chat_blocks.upgrade,  # 9 -> 10
+    v11_kanban_done_columns.upgrade,  # 10 -> 11
 )
 LATEST = BASELINE + len(MIGRATIONS)
 

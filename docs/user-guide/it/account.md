@@ -21,10 +21,10 @@ animazioni e quanto risaltano grassetto, collegamenti, titoli e codice.
 rimuove l'immagine di sfondo; la lingua e le scelte sulla mascotte restano
 come sono.
 
-Se la tua wiki ha la mascotte, una banana al posto del logo, un clic la fa
-saltare; il nome del sito accanto porta alla pagina iniziale. Da
-**Personalizza** puoi nasconderla (torna il logo) o toglierle gli occhiali da
-sole che indossa dopo un po' di clic.
+Se la tua wiki ha la mascotte, una banana al posto del logo nella barra
+superiore, un clic la fa saltare; il nome del sito accanto porta alla pagina
+iniziale. Qui in **Personalizza** puoi nasconderla (torna il logo), o
+toglierle gli occhiali da sole se hai scoperto come metterglieli.
 
 ## Lingua
 
@@ -35,7 +35,10 @@ le hanno disattivate. Le pagine non vengono tradotte.
 ## Password e nome utente
 
 Cambia la password nelle Impostazioni. Così facendo le altre sessioni vengono
-chiuse (quella attuale resta) e i tuoi token API smettono di funzionare.
+chiuse (quella attuale resta) e i tuoi token API smettono di funzionare. Una
+nuova password deve avere almeno 8 caratteri, non può contenere il tuo nome
+utente né la parte del tuo indirizzo email prima della @ e non può essere una
+delle password più comuni.
 Cambiando il nome utente le pagine restano come sono: le `@menzioni` del
 vecchio nome portano ancora al tuo profilo e nessun altro può prendere quel
 nome, a meno che un amministratore non lo liberi. Puoi cambiarlo tre volte

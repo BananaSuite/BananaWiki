@@ -38,6 +38,9 @@ class FakeAgent:
         self.log_lines: list[str] = []
         self.started = 0
         self.quota = FakeProjectQuota(self.instances_dir)
+        # "unenforced": storage without hard quotas (BW_HOSTING_TENANT_QUOTAS=auto on ext4, or off).
+        self.storage_mode = "enforced"
+        self.storage = {"setting": "auto", "hard_quotas": True, "refused": False, "reason": ""}
 
     def call(self, op: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         args = args or {}
@@ -63,10 +66,11 @@ class FakeAgent:
         if item is None:
             return {"tenant": tenant, "running": False, "exists": False}
         return {key: item.get(key) for key in ("tenant", "running", "address", "internal_port", "image", "started_at",
-                                             "quota_protected", "ipv6_disabled", "storage_quota_verified", "storage_quota")}
+                                             "quota_protected", "ipv6_disabled", "storage_quota_verified", "storage_quota",
+                                             "storage_quota_mode")}
 
     def ping(self, args: dict[str, Any]) -> dict[str, Any]:
-        return {"protocol": 1, "docker": True, "image": IMAGE}
+        return {"protocol": 1, "docker": True, "image": IMAGE, "storage": dict(self.storage)}
 
     def tenant_list(self, args: dict[str, Any]) -> dict[str, Any]:
         return {"tenants": [self._status(name) for name in self.containers]}
@@ -78,6 +82,9 @@ class FakeAgent:
     def tenant_quota(self, args: dict[str, Any]) -> dict[str, Any]:
         self._dir(args["tenant"])
         limits = args.get("limits", {})
+        if self.storage_mode == "unenforced":
+            return {"tenant": args["tenant"], "storage_quota_verified": False, "storage_quota": None,
+                    "storage_quota_mode": "unenforced", "over_plan": False}
         if args.get("prepare"):
             witness = self.quota.prepare(args["tenant"], byte_limit=limits.get("storage_bytes", 0) or 10 * 1024 ** 3,
                                          inode_limit=100_000, repair=True)
@@ -92,8 +99,9 @@ class FakeAgent:
             "tenant": args["tenant"], "running": True, "address": f"172.30.0.{self.started}",
             "internal_port": args.get("internal_port", 5001), "image": IMAGE,
             "started_at": f"2026-01-01T00:00:{self.started:02d}.000000000Z", "args": args,
-            "quota_protected": True, "ipv6_disabled": True, "storage_quota_verified": True,
-            "storage_quota": self.quota.verify(args["tenant"]).to_dict(),
+            "quota_protected": True, "ipv6_disabled": True, "storage_quota_mode": self.storage_mode,
+            "storage_quota_verified": self.storage_mode == "enforced",
+            "storage_quota": self.quota.verify(args["tenant"]).to_dict() if self.storage_mode == "enforced" else None,
         }
         return self._status(args["tenant"])
 
@@ -146,3 +154,12 @@ def make_spec(name: str = "acme", *, port: int | None = 6001, policy: TenantPoli
 
 def provision(runtime: AgentRuntime, spec: TenantSpec, username: str = "owner1") -> None:
     runtime.provision(spec, admin_username=username, admin_password=WIKI_PASSWORD, force_password_change=True)
+
+
+def hold_above_plan(runtime: AgentRuntime, instance_id: str, plan_bytes: int, byte_limit: int) -> None:
+    """What the portal records once the runtime agent adopted a wiki above its plan (UP-1): ``over-plan.json`` in
+    the wiki's platform state, with the plan and the hard limit it was adopted at."""
+    state = Path(runtime._cfg().platform_state_dir) / instance_id
+    state.mkdir(mode=0o700, parents=True, exist_ok=True)
+    (state / "over-plan.json").write_text(json.dumps({"plan_bytes": plan_bytes, "byte_limit": byte_limit}),
+                                          encoding="utf-8")

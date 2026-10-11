@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any
 
-from flask import abort, flash, redirect, request, url_for
+from flask import abort, flash, g, redirect, request, url_for
 
 from ...core.timeutil import MAX_YEAR, MIN_YEAR, parse, to_sql, utcnow
 from ...core.web import is_safe_redirect
@@ -24,7 +24,10 @@ def account() -> dict[str, Any]:
 
 
 def flash_error(error: ServiceError) -> None:
-    flash(t(error.key, **error.values), "error")
+    message = t(error.key, **error.values)
+    flash(message, "error")
+    # A form shown again in this response marks the field at fault (templating.field_error).
+    g.form_error = (error.key, message)
 
 
 def back(default: str) -> Any:

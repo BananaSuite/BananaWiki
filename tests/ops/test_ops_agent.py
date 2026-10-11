@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pwd
@@ -19,6 +20,7 @@ from bananawiki.ops.runtime_agent import (
     AgentError,
     AgentServer,
     TenantRuntime,
+    bridge_name,
     container_name,
     handle_line,
 )
@@ -93,7 +95,10 @@ def test_start_builds_a_locked_down_container(runtime, tmp_path):
     env = docker.env_files[0]
     assert "BW_SITE_NAME=Acme\n" in env and "BW_HOST=0.0.0.0\n" in env and "BW_MANAGED_HOSTING=1\n" in env
     assert not list(Path(runtime.private_dir).iterdir()), "the env file is removed after docker run"
-    assert ["docker", "network", "create", "--driver", "bridge", "--ipv6=false", "--internal", "--label",
+    bridge = "bwt" + hashlib.sha256((container_name(real) + "-net").encode()).hexdigest()[:12]
+    assert bridge_name(container_name(real) + "-net") == bridge and len(bridge) <= 15  # Linux IFNAMSIZ
+    assert ["docker", "network", "create", "--driver", "bridge", "--ipv6=false", "--internal",
+            "--opt", "com.docker.network.bridge.name=" + bridge, "--label",
             "org.bananawiki.role=tenant", container_name(real) + "-net"] in docker.calls
 
 
@@ -154,6 +159,33 @@ def test_ipv6_network_defaults_are_refused_for_existing_and_new_bridges(runtime,
     assert any(call[1:3] == ["network", "create"] for call in runtime.docker_calls.calls) is not existing
 
 
+@pytest.mark.parametrize(("listed", "replaced"), [
+    ("true", True),  # created before 1.7: Docker named its bridge br-<id>
+    ("true br-0123456789ab", True),
+    ("false {bridge}", True),  # a more permissive policy than the one asked for
+    ("true {bridge}", False),
+])
+def test_tenant_bridges_carry_the_name_the_host_firewall_matches(runtime, tmp_path, listed, replaced):
+    """deploy/nftables/bananawiki-tenants.nft matches tenant bridges by their bwt* interface names."""
+    name = container_name(str((tmp_path / "instances/acme").resolve())) + "-net"
+    original, exists = runtime.runner, [True]
+
+    def runner(command, **kwargs):
+        if command[1:3] == ["network", "inspect"] and "{{.EnableIPv6}}" not in command:
+            if exists:
+                return subprocess.CompletedProcess(command, 0, listed.format(bridge=bridge_name(name)) + "\n", "")
+            return subprocess.CompletedProcess(command, 1, "", "No such network")
+        if command[1:3] == ["network", "rm"]:
+            exists.clear()
+        return original(command, **kwargs)
+
+    runtime.runner = runner
+    runtime.call("tenant.start", {"tenant": "acme"})
+    calls = runtime.docker_calls.calls
+    assert (["docker", "network", "rm", name] in calls) is replaced
+    assert any(call[1:3] == ["network", "create"] for call in calls) is replaced
+
+
 @pytest.mark.parametrize("contents", [None, '{"defaultAction":"SCMP_ACT_ALLOW"}'])
 def test_unavailable_or_changed_seccomp_keeps_the_running_tenant(runtime, tmp_path, monkeypatch, contents):
     from bananawiki.ops import runtime_agent
@@ -169,8 +201,6 @@ def test_unavailable_or_changed_seccomp_keeps_the_running_tenant(runtime, tmp_pa
 
 
 def test_quota_seccomp_retains_the_complete_upstream_allowlist():
-    import hashlib
-
     baseline = SECCOMP_PROFILE.with_name("default-docker-29.8.2.json")
     assert hashlib.sha256(baseline.read_bytes()).hexdigest() == \
         "536529b665dd0972c37bfb569f5d4ac8a53592e7b00752bc39ff063ca9864c74"
@@ -265,6 +295,20 @@ def test_socket_round_trip(tmp_path):
 def test_connect_falls_back_to_in_process_runtime(tmp_path):
     runtime = connect({"INSTANCES_DIR": str(tmp_path), "HOSTING_CONTAINER_IMAGE": "img:1"})
     assert isinstance(runtime, TenantRuntime) and runtime.config["image"] == "img:1"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="the fallback runs as the portal's account, never as root")
+@pytest.mark.parametrize(("setting", "refused"), [(None, False), ("auto", False), ("off", False),
+                                                  ("required", True), ("bogus", True)])
+def test_the_in_process_fallback_follows_the_quota_setting(tmp_path, setting, refused):
+    """A portal without the agent (a release the 1.4 updater installed) can never use hard quotas: under auto it
+    starts wikis without them, as 1.6 did, until its units converge; under required it refuses (RUNTIME_AGENT.md).
+    It has no quota registry, so it never reports them as lost."""
+    environment = {"INSTANCES_DIR": str(tmp_path), **({"BW_HOSTING_TENANT_QUOTAS": setting} if setting else {})}
+    policy = connect(environment).storage_policy()
+    assert policy.refused is refused and policy.hard_quotas is False and policy.lost is False
+    if not refused:
+        assert policy.setting == (setting or "auto")
 
 
 def test_unexpected_errors_still_get_an_answer(runtime):

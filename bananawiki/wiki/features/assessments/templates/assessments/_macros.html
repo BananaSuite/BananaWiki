@@ -21,7 +21,7 @@
 
 {% macro attempts_table(page, attempts, show_user=false) -%}
 <div class="table-wrap">
-  <table class="table">
+  <table class="table table--stack">
     <thead><tr>
       {% if show_user %}<th scope="col">{{ t('assessments.user') }}</th>{% endif %}
       <th scope="col">{{ t('assessments.attempt') }}</th>
@@ -33,10 +33,10 @@
     {% for a in attempts %}
       <tr>
         {% if show_user %}<td>{{ a.username }}</td>{% endif %}
-        <td>{{ a.attempt_number }}</td>
-        <td><strong>{{ a.total_points }}/{{ a.max_points }}</strong></td>
-        <td class="nowrap">{{ a.submitted_at|datetime }}</td>
-        <td class="actions"><a href="{{ url_for('assessments.attempt', slug=page.slug, attempt_id=a.id) }}">{{ t('assessments.details') }}</a></td>
+        <td data-label="{{ t('assessments.attempt') }}">{{ a.attempt_number }}</td>
+        <td data-label="{{ t('assessments.score') }}"><strong>{{ a.total_points }}/{{ a.max_points }}</strong></td>
+        <td class="nowrap" data-label="{{ t('assessments.submitted_at') }}">{{ a.submitted_at|datetime }}</td>
+        <td class="actions"><a class="btn btn--small" href="{{ url_for('assessments.attempt', slug=page.slug, attempt_id=a.id) }}">{{ t('assessments.details') }}</a></td>
       </tr>
     {% endfor %}
     </tbody>

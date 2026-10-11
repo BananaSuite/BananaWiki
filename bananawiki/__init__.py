@@ -2,4 +2,4 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """BananaWiki: a self-hosted wiki and multi-tenant wiki hosting platform."""
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"

@@ -6,6 +6,8 @@ BananaWiki ist für internes Wissen gebaut. Deshalb schützt es Konten und Inhal
 
 Passwörter werden als Hashes gespeichert, die Zahl der Anmeldeversuche pro Zeitraum ist begrenzt, CSRF-Tokens schützen Formulare und AJAX-Änderungen, und Administratoren können Sitzungslimits festlegen. Sperren, erzwungene Passwortänderungen, Einladungscodes und der Wartungsmodus bieten weitere Steuerungsmöglichkeiten.
 
+Alle können unter **Einstellungen → Bestätigung in zwei Schritten** die **Bestätigung in zwei Schritten** einschalten: Nach dem Passwort fragt die Anmeldung dann zusätzlich nach einem Code aus einer Authenticator-App auf dem Handy oder nach einem von zehn einmalig nutzbaren Wiederherstellungscodes, die beim Einschalten angezeigt werden. Eigentümer und Superuser können sie unter **Verwaltung → Website-Einstellungen → Sicherheit** für alle Administratoren verlangen und sie unter **Verwaltung → Benutzer** für Personen zurücksetzen, die sowohl ihr Handy als auch ihre Wiederherstellungscodes verloren haben.
+
 ## Schutz der Inhalte
 
 Markdown wird vor der Anzeige bereinigt. Uploads werden geprüft, und gefährliche Dateitypen werden, wo sinnvoll, blockiert. Anhänge werden über authentifizierte Routen ausgeliefert, nicht als öffentliche Dateien. Kategoriebeschränkungen und Berechtigungen halten vertrauliche Seiten von Personen fern, die sie nicht sehen sollen.

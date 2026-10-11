@@ -4,8 +4,10 @@
 {% block title %}{{ t('plugin_manager.title') }}{% endblock %}
 {% block admin_head %}<link rel="stylesheet" href="{{ asset_url('plugins.css', blueprint='plugin_manager') }}">{% endblock %}
 {% block admin_content %}
-<header class="page-header"><h1>{{ t('plugin_manager.title') }}</h1></header>
-<p class="muted">{{ t('plugin_manager.intro') }}</p>
+<header class="page-header">
+  <h1>{{ t('plugin_manager.title') }}</h1>
+  <p class="page-header__meta">{{ t('plugin_manager.intro') }}</p>
+</header>
 <nav class="pm-section-links" aria-label="{{ t('plugin_manager.sections') }}">
   <a href="#features">{{ t('plugin_manager.features.title') }}</a>
   <a href="#external-title">{{ t('plugin_manager.external.title') }}</a>
@@ -59,7 +61,7 @@
 <section class="pm-section" aria-labelledby="external-title">
   <h2 id="external-title">{{ t('plugin_manager.external.title') }}</h2>
   <p class="small muted">{{ t('plugin_manager.external.intro') }}</p>
-  {% if external_allowed %}
+  {% if external_allowed and can_install %}
   <details class="disclosure pm-install">
   <summary>{{ t('plugin_manager.action.import') }}</summary>
   {{ pm.full_privileges_warning() }}
@@ -76,6 +78,8 @@
     <button type="submit" class="btn btn--primary">{{ t('plugin_manager.action.import') }}</button>
   </form>
   </details>
+  {% elif external_allowed %}
+  <div class="alert" role="note"><div class="alert__body">{{ t('plugin_manager.lock.owner_only') }}</div></div>
   {% else %}
   <div class="alert" role="note"><div class="alert__body">{{ t('plugin_manager.lock.external_off_managed' if managed else 'plugin_manager.lock.external_off') }}</div></div>
   {% endif %}
@@ -137,7 +141,7 @@
       <li class="pm-order__item" draggable="true" data-id="{{ app.id }}">
         <input type="hidden" name="order" value="{{ app.id }}">
         <span class="pm-order__handle" aria-hidden="true">⋮⋮</span>
-        <span class="pm-order__label">{{ app.label }}{% if not app.enabled %} <span class="badge">{{ t('common.disabled') }}</span>{% endif %}</span>
+        <span class="pm-order__label">{{ app.label }}{% if not app.enabled %} <span class="badge">{{ t('common.disabled') }}</span>{% elif app.hidden %} <span class="badge" title="{{ t('plugin_manager.order.hidden_hint') }}">{{ t('plugin_manager.order.hidden') }}<span class="visually-hidden">: {{ t('plugin_manager.order.hidden_hint') }}</span></span>{% endif %}</span>
         <button type="submit" class="btn btn--small btn--ghost" name="move" value="{{ app.id }}:up" data-move="up"
                 aria-label="{{ t('plugin_manager.order.up', name=app.label) }}"{% if loop.first %} disabled{% endif %}>↑</button>
         <button type="submit" class="btn btn--small btn--ghost" name="move" value="{{ app.id }}:down" data-move="down"

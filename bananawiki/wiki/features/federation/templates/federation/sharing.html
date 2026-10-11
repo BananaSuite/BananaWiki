@@ -11,7 +11,8 @@
 </div>
 <p class="muted">{{ t('federation.sharing.intro') }}</p>
 {% if not peer_options %}
-<div class="empty-state">{{ t('federation.sharing.no_peers') }}</div>
+<div class="card empty-state"><p>{{ t('federation.sharing.no_peers') }}</p>
+  {% if is_admin %}<p><a class="btn btn--small" href="{{ url_for('federation.admin') }}">{{ t('federation.admin.pair') }}</a></p>{% endif %}</div>
 {% else %}
 <section class="card">
   <form method="post" class="form">
@@ -24,7 +25,7 @@
 {% endif %}
 <section class="card">
   <h2>{{ t('federation.sharing.grants') }}</h2>
-  {% if not grants %}<div class="empty-state">{{ t('federation.sharing.none') }}</div>{% else %}
+  {% if not grants %}<p class="empty-state">{{ t('federation.sharing.none') }}</p>{% else %}
   <ul class="stack">
     {% for grant in grants %}
     <li class="split">

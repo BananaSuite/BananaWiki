@@ -27,6 +27,7 @@ FEATURE = Feature(
         "page.above_content": hooks.page_countdown,
         "account.settings_sections": hooks.account_settings_section,
         "profile.sections": hooks.profile_section,
+        "admin.user_detail": hooks.admin_user_detail,
     },
     order=45,
 )

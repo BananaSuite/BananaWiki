@@ -5,11 +5,12 @@
 {% block content %}
 {% include "hosting/admin/_nav.html" %}
 <h1>{{ t('hosting.admin.nav.settings') }}</h1>
-{% macro section(action, title, hint='') %}
+{#- extra: more forms in the same section, after its own (Google Drive: credentials and run now). -#}
+{% macro section(action, title, hint='', extra=none) %}
 <details class="card" id="{{ action }}" data-remember{% if request.args.get('open') == action %} open{% endif %}><summary>{{ title }}</summary>{% if hint %}<p class="muted small">{{ hint }}</p>{% endif %}
 <form method="post" action="{{ url_for('admin.settings_page') }}" class="form" enctype="multipart/form-data">{{ ui.csrf() }}<input type="hidden" name="action" value="{{ action }}">
 {{ caller() }}
-<p><button class="btn btn--primary btn--small" type="submit">{{ t('common.save') }}</button></p></form></details>
+<p><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></p></form>{% if extra %}{{ extra() }}{% endif %}</details>
 {% endmacro %}
 <div class="panel-list">
 {% call section('save_limits', t('hosting.settings.limits')) %}
@@ -39,7 +40,7 @@
   {{ ui.field('approval_notify_interval_minutes', t('hosting.settings.notify_interval'), s.approval_notify_interval_minutes, type='number', hint=t('hosting.settings.notify_interval_hint'), attrs={'min': notify_interval[0], 'max': notify_interval[1]}) }}
   {{ ui.field('approval_notify_daily_hour', t('hosting.settings.notify_daily_hour'), s.approval_notify_daily_hour, type='number', hint=t('hosting.settings.notify_daily_hour_hint'), attrs={'min': 0, 'max': 23}) }}
   </div>
-  <p><button class="btn btn--primary btn--small" type="submit">{{ t('common.save') }}</button></p></form>
+  <p><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></p></form>
 <form method="post" action="{{ url_for('admin.send_test_email') }}" class="cluster">{{ ui.csrf() }}
   <button class="btn btn--small" type="submit"{% if not current_account.email %} disabled{% endif %}>{{ t('hosting.attention.test_send') }}</button>
   <span class="small muted">{{ t('hosting.attention.test_help', address=current_account.email) if current_account.email else t('hosting.attention.test_no_address') }}</span>
@@ -49,7 +50,11 @@
   {{ ui.check('hosting_activation_required', t('hosting.settings.activation_required'), s.hosting_activation_required) }}
   {{ ui.check('signup_use_case_required', t('hosting.settings.use_case_required'), s.signup_use_case_required) }}
   {{ ui.check('hosting_activation_denied_deletion_enabled', t('hosting.settings.delete_denied'), (s.hosting_activation_denied_timeout_seconds or 0) >= 0) }}
-  {{ ui.duration_fields('act_timeout', ('hours', 'minutes', 'seconds')) }}
+  {#- The stored timeout fills the fields, so saving this section for another reason keeps it (turned off,
+      the fields show the usual day). -#}
+  {% set denied_after = s.hosting_activation_denied_timeout_seconds if s.hosting_activation_denied_timeout_seconds is not none else 86400 %}
+  {{ ui.duration_fields('act_timeout', legend=t('hosting.settings.delete_denied_after'), hint=t('hosting.settings.delete_denied_hint'),
+      seconds=denied_after if denied_after|int >= 0 else 86400) }}
 {% endcall %}
 {% call section('save_admin_mfa', t('hosting.settings.admin_mfa'), t('hosting.settings.admin_mfa_hint')) %}
   {{ ui.check('admin_mfa_required', t('hosting.settings.admin_mfa_required'), s.admin_mfa_required) }}
@@ -67,6 +72,7 @@
 {% call section('save_expired_wiki_permissions', t('hosting.settings.owner_permissions')) %}
   {{ ui.check('allow_owner_delete_expired', t('hosting.settings.owner_delete_expired'), s.allow_owner_delete_expired) }}
   {{ ui.check('allow_owner_download_expired', t('hosting.settings.owner_download_expired'), s.allow_owner_download_expired) }}
+  {{ ui.check('owner_renewal_enabled', t('hosting.settings.owner_renewal'), s.owner_renewal_enabled, hint=t('hosting.settings.owner_renewal_hint', days=renewal_window)) }}
   {{ ui.check('email_flag_block_reentry', t('hosting.settings.flag_block_reentry'), s.email_flag_block_reentry) }}
 {% endcall %}
 {% call section('save_instance_url_suffix', t('hosting.settings.suffix'), t('hosting.settings.suffix_hint', suffix=suffix)) %}
@@ -88,31 +94,38 @@
   {{ ui.check('clear_token', t('hosting.settings.token_clear')) }}
   {{ ui.field('global_tts_gpu_timeout', t('hosting.settings.tts_gpu_timeout'), s.global_tts_gpu_timeout, type='number', attrs={'min': 5, 'max': 3600}) }}
 {% endcall %}
-{% call section('gdrive_save', t('hosting.settings.gdrive')) %}
+{#- Everything about Google Drive in one place: its settings, then the credentials it needs, then running it. -#}
+{% macro gdrive_tools() %}
+  <form method="post" action="{{ url_for('admin.settings_page') }}" enctype="multipart/form-data" class="form">{{ ui.csrf() }}<input type="hidden" name="action" value="gdrive_upload_credentials">
+    <div class="field"><label for="f-cred">{{ t('hosting.settings.gdrive_credentials') }}</label><input id="f-cred" type="file" name="gdrive_credentials_file" accept=".json"></div>
+    <p><button class="btn" type="submit">{{ t('hosting.settings.upload') }}</button></p></form>
+  <div class="btn-row gdrive-run">
+    {{ ui.post(url_for('admin.settings_page'), t('hosting.settings.gdrive_test'), 'btn', hidden={'action': 'gdrive_test'}) }}
+    {{ ui.post(url_for('admin.settings_page'), t('hosting.settings.gdrive_now'), 'btn', hidden={'action': 'gdrive_backup_now'}) }}
+  </div>
+{% endmacro %}
+{% call section('gdrive_save', t('hosting.settings.gdrive'), extra=gdrive_tools) %}
   {{ ui.check('gdrive_backup_enabled', t('hosting.settings.gdrive_enabled'), s.gdrive_backup_enabled) }}
   {{ ui.field('gdrive_folder_id', t('hosting.settings.gdrive_folder'), s.gdrive_folder_id) }}
   {{ ui.field('gdrive_retention_days', t('hosting.settings.gdrive_retention'), s.gdrive_retention_days, type='number', attrs={'min': 1, 'max': 365}) }}
   {{ ui.field('gdrive_backup_time', t('hosting.settings.gdrive_time'), s.gdrive_backup_time, type='time') }}
 {% endcall %}
-<section class="card"><h2>{{ t('hosting.settings.backups') }}</h2>
+<section class="card backups-card"><h2>{{ t('hosting.settings.backups') }}</h2>
   {% set backup = backup_status or {} %}
-  <p class="small muted">{% if backup.complete_at %}{{ t('hosting.settings.backup_complete_at', when=backup.complete_at|datetime) }}{% else %}{{ t('hosting.settings.backup_complete_never') }}{% endif %}</p>
-  {% if backup.skipped %}<div class="alert alert--warning"><div class="alert__body">{{ t('hosting.settings.backup_skipped', when=backup.finished_at|datetime) }}
-    <ul>{% for item in backup.skipped %}<li><code>{{ item.tenant }}</code>: {{ t('hosting.runtime.' ~ item.code) }}{% if item.detail %} <span class="small">({{ item.detail }})</span>{% endif %}</li>{% endfor %}</ul></div></div>{% endif %}
+  <p class="small muted">{% if backup.complete_at %}{{ tm('hosting.settings.backup_complete_at', when=nowrap(backup.complete_at|datetime)) }}{% else %}{{ t('hosting.settings.backup_complete_never') }}{% endif %}</p>
+  {% if backup.skipped %}<div class="alert alert--warning"><div class="alert__body">{{ tm('hosting.settings.backup_skipped', when=nowrap(backup.finished_at|datetime)) }}
+    <ul>{% for item in backup.skipped %}<li><code>{{ item.tenant }}</code>: {{ t('hosting.runtime.' ~ item.code, t('hosting.runtime.failed')) }}{% if item.detail %}<br><span class="small">{{ item.detail|server_text }}</span>{% endif %}</li>{% endfor %}</ul></div></div>{% endif %}
   <div class="btn-row">
-    {{ ui.post(url_for('admin.settings_page'), t('hosting.settings.gdrive_test'), hidden={'action': 'gdrive_test'}) }}
-    {{ ui.post(url_for('admin.settings_page'), t('hosting.settings.gdrive_now'), hidden={'action': 'gdrive_backup_now'}) }}
-    {{ ui.post(url_for('admin.export_platform'), t('hosting.settings.export_platform'), 'btn btn--small btn--primary') }}
+    {{ ui.post(url_for('admin.export_platform'), t('hosting.settings.export_platform'), 'btn btn--primary') }}
   </div>
-  <form method="post" action="{{ url_for('admin.settings_page') }}" enctype="multipart/form-data" class="form">{{ ui.csrf() }}<input type="hidden" name="action" value="gdrive_upload_credentials">
-    <div class="field"><label for="f-cred">{{ t('hosting.settings.gdrive_credentials') }}</label><input id="f-cred" type="file" name="gdrive_credentials_file" accept=".json"></div>
-    <p><button class="btn btn--small" type="submit">{{ t('hosting.settings.upload') }}</button></p></form>
+  <h3>{{ t('hosting.settings.backup_key_title') }}</h3>
   <form method="post" action="{{ url_for('admin.export_backup_key') }}" class="form">{{ ui.csrf() }}
-    {{ ui.field('current_password', t('hosting.field.current_password'), type='password', required=true) }}
-    <p><button class="btn btn--small" type="submit">{{ t('hosting.settings.backup_key') }}</button></p></form>
+    {{ ui.field('current_password', t('hosting.field.current_password'), type='password', required=true, attrs={'autocomplete': 'current-password'}) }}
+    <p><button class="btn" type="submit">{{ t('hosting.settings.backup_key') }}</button></p></form>
+  <h3>{{ t('hosting.settings.restore_platform') }}</h3>
   <form method="post" action="{{ url_for('admin.restore_platform') }}" enctype="multipart/form-data" class="form" data-confirm="{{ t('hosting.settings.restore_confirm') }}" data-chunked-upload="{{ url_for('admin.restore_platform') }}/chunk">{{ ui.csrf() }}
-    <div class="field"><label for="f-restore">{{ t('hosting.settings.restore_platform') }}</label><input id="f-restore" type="file" name="backup_files" accept=".zip,.bwenc"></div>
-    <p><button class="btn btn--small btn--danger" type="submit">{{ t('hosting.settings.restore_platform') }}</button> <span class="small" data-upload-status role="status"></span></p></form>
+    <div class="field"><label for="f-restore">{{ t('hosting.settings.backup_file') }}</label><input id="f-restore" type="file" name="backup_files" accept=".zip,.bwenc"></div>
+    <p><button class="btn btn--danger" type="submit">{{ t('hosting.settings.restore_platform') }}</button> <span class="small" data-upload-status role="status"></span></p></form>
 </section>
 </div>
 {% endblock %}

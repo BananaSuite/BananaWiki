@@ -1,11 +1,27 @@
 {% extends "base.html" %}
 {% block title %}{{ category.name if category else t('pages.nav.uncategorized') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('pages.css', blueprint='pages') }}">{% endblock %}
 {% block content %}
-<h1>{{ category.name if category else t('pages.nav.uncategorized') }}</h1>
-<ul>
-  {% for p in listing.pages %}<li><a href="{{ url_for('pages.view', slug=p.slug) }}">{{ p.title }}</a></li>{% endfor %}
+{#- The pages of one category (or of none), without the tree: the sidebar's "more" link without JavaScript. -#}
+<nav class="breadcrumbs" aria-label="{{ t('pages.breadcrumbs') }}">
+  <ol>
+    <li><a href="{{ url_for('pages.home') }}">{{ t('pages.nav.home') }}</a></li>
+    <li><a href="{{ url_for('pages.navigation_page') }}">{{ t('pages.nav.all_pages') }}</a></li>
+    <li aria-current="page">{{ category.name if category else t('pages.nav.uncategorized') }}</li>
+  </ol>
+</nav>
+<header class="page-header">
+  <h1>{{ category.name if category else t('pages.nav.uncategorized') }}</h1>
+  {% if can_create_page %}<div class="page-header__actions"><a class="btn btn--primary btn--small" href="{{ url_for('pages.create', category_id=category.id) if category else url_for('pages.create') }}">{{ t('pages.nav.new_page') }}</a></div>{% endif %}
+</header>
+{% if listing.pages %}
+<ul class="page-list">
+  {% for p in listing.pages %}<li><a href="{{ url_for('pages.view', slug=p.slug) }}">{{ p.title }}</a>{% if p.is_deindexed %} <span class="badge badge--warning">{{ t('pages.badge.hidden') }}</span>{% endif %}</li>{% endfor %}
 </ul>
 {% if listing.more is not none %}
-<a class="btn" href="{{ url_for('pages.navigation_pages', category_id=category_id or 0, after=listing.more) }}">{{ t('pages.nav.more') }}</a>
+<a class="btn btn--small" href="{{ url_for('pages.navigation_pages', category_id=category_id or 0, after=listing.more) }}">{{ t('pages.nav.more') }}</a>
+{% endif %}
+{% else %}
+<p class="muted">{{ t('pages.category.empty') }}</p>
 {% endif %}
 {% endblock %}

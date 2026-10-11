@@ -23,4 +23,4 @@ Admins can limit category visibility and editing. Read restrictions hide categor
 
 ## Deleting a category
 
-When deleting a category, choose what should happen to its pages: move them elsewhere, uncategorize them, or delete them too. For important content, move first and delete only after checking the result.
+When deleting a category, choose what should happen to its pages: move them elsewhere, uncategorise them, or delete them too. For important content, move first and delete only after checking the result.

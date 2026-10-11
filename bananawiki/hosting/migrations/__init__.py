@@ -8,6 +8,12 @@ Version history
 4    Pending tenant initialization. See :mod:`.v4_provisioning`.
 5    Purging an account keeps the collaborators it invited and the merges
      it carried out. See :mod:`.v5_account_references`.
+6    Email budgets shared by every worker, expiry warnings, owner renewal,
+     the age of each email claim, device cookies tied to two-step changes,
+     end dates set by administrators and proven take-overs of lapsed
+     custom domains. See :mod:`.v6_account_safety`.
+7    A denied account waits one day before it is deleted (the old column
+     default deleted it at once). See :mod:`.v7_denied_default`.
 
 A 1.4 database at version 2 upgrades in place. A new database is created from
 the baseline followed by every later migration, so fresh and upgraded
@@ -23,7 +29,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ...core.sqlite import execute_script
-from . import v3_takeover, v4_provisioning, v5_account_references
+from . import v3_takeover, v4_provisioning, v5_account_references, v6_account_safety, v7_denied_default
 
 APPLICATION_ID = 0x42574850  # "BWHP", unchanged from 1.4
 BASELINE = 2
@@ -31,6 +37,8 @@ MIGRATIONS = (
     v3_takeover.upgrade,  # 2 -> 3
     v4_provisioning.upgrade,  # 3 -> 4
     v5_account_references.upgrade,  # 4 -> 5
+    v6_account_safety.upgrade,  # 5 -> 6
+    v7_denied_default.upgrade,  # 6 -> 7
 )
 LATEST = BASELINE + len(MIGRATIONS)
 SIGNUP_MODES = ("open", "invite", "approval", "closed")

@@ -5,29 +5,31 @@
 <header class="page-header"><h1>{{ t('profiles.admin.fields_title') }}</h1></header>
 <div class="section-stack">
 <section class="card">
-  <p class="hint">{{ t('profiles.admin.fields_help') }}</p>
+  <p class="hint hint--block">{{ t('profiles.admin.fields_help') }}</p>
   {% if definitions %}
-  <div class="table-wrap"><table class="table">
-    <thead><tr><th>{{ t('profiles.admin.label') }}</th><th>{{ t('profiles.admin.type') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>
+  <div class="table-wrap"><table class="table table--stack">
+    <thead><tr><th scope="col">{{ t('profiles.admin.label') }}</th><th scope="col">{{ t('profiles.admin.type') }}</th><th scope="col" class="actions"><span class="visually-hidden">{{ t('common.actions') }}</span></th></tr></thead>
     <tbody>
     {% for field in definitions %}
+    {#- One form per row; its controls sit in their own cells (form="…") so they line up with the headers. -#}
     <tr>
-      <td colspan="3">
-        <form method="post" class="inline-fields">
-          {{ forms.csrf() }}
-          <input type="hidden" name="field_id" value="{{ field.id }}">
-          <label class="visually-hidden" for="label-{{ field.id }}">{{ t('profiles.admin.label') }}</label>
-          <input id="label-{{ field.id }}" name="label" value="{{ field.label }}" maxlength="80" required>
-          <label class="visually-hidden" for="type-{{ field.id }}">{{ t('profiles.admin.type') }}</label>
-          <select id="type-{{ field.id }}" name="field_type">
-            {% for type in types %}<option value="{{ type }}"{% if type == field.field_type %} selected{% endif %}>{{ t('profiles.type.' ~ type) }}</option>{% endfor %}
-          </select>
-          <button class="btn btn--small" name="action" value="update">{{ t('common.save') }}</button>
-          {% if not loop.first %}<button class="btn btn--small" name="action" value="move_up" aria-label="{{ t('profiles.move_up') }}">↑</button>{% endif %}
-          {% if not loop.last %}<button class="btn btn--small" name="action" value="move_down" aria-label="{{ t('profiles.move_down') }}">↓</button>{% endif %}
-          <button class="btn btn--small btn--danger" name="action" value="delete" data-confirm="{{ t('profiles.admin.delete_field_confirm') }}">{{ t('common.delete') }}</button>
-        </form>
+      <td data-label="{{ t('profiles.admin.label') }}">
+        <form method="post" id="pf-{{ field.id }}">{{ forms.csrf() }}<input type="hidden" name="field_id" value="{{ field.id }}"></form>
+        <label class="visually-hidden" for="label-{{ field.id }}">{{ t('profiles.admin.label') }}</label>
+        <input id="label-{{ field.id }}" name="label" form="pf-{{ field.id }}" value="{{ field.label }}" maxlength="80" required>
       </td>
+      <td data-label="{{ t('profiles.admin.type') }}">
+        <label class="visually-hidden" for="type-{{ field.id }}">{{ t('profiles.admin.type') }}</label>
+        <select id="type-{{ field.id }}" name="field_type" form="pf-{{ field.id }}">
+          {% for type in types %}<option value="{{ type }}"{% if type == field.field_type %} selected{% endif %}>{{ t('profiles.type.' ~ type) }}</option>{% endfor %}
+        </select>
+      </td>
+      <td class="actions"><div class="cluster">
+        <button class="btn btn--small" form="pf-{{ field.id }}" name="action" value="update">{{ t('common.save') }}</button>
+        {% if not loop.first %}<button class="btn btn--small" form="pf-{{ field.id }}" name="action" value="move_up" aria-label="{{ t('profiles.move_up') }}">↑</button>{% endif %}
+        {% if not loop.last %}<button class="btn btn--small" form="pf-{{ field.id }}" name="action" value="move_down" aria-label="{{ t('profiles.move_down') }}">↓</button>{% endif %}
+        <button class="btn btn--small btn--danger" form="pf-{{ field.id }}" name="action" value="delete" data-confirm="{{ t('profiles.admin.delete_field_confirm') }}">{{ t('common.delete') }}</button>
+      </div></td>
     </tr>
     {% endfor %}
     </tbody>

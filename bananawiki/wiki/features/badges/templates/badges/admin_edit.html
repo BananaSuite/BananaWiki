@@ -1,10 +1,11 @@
 {% extends "admin/_layout.html" %}
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ badge.name }}{% endblock %}
+{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('badges.css', blueprint='badges') }}">{% endblock %}
 {% block admin_content %}
 <header class="page-header">
   <h1><span aria-hidden="true">{{ badge.icon }}</span> {{ badge.name }}</h1>
-  <div class="page-header__actions"><a class="btn" href="{{ url_for('badges.admin_list') }}">{{ t('common.back') }}</a></div>
+  <div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('badges.admin_list') }}">{{ t('common.back') }}</a></div>
 </header>
 <div class="section-stack">
 <section class="card">
@@ -19,23 +20,31 @@
 </section>
 <section class="card">
   <h2>{{ t('badges.admin.award_title') }}</h2>
-  <form method="post" action="{{ url_for('badges.admin_award', badge_id=badge.id) }}" class="inline-fields">
+  {#- Three labelled steps, so the two username fields and the two checkboxes cannot be confused. -#}
+  <form method="post" action="{{ url_for('badges.admin_award', badge_id=badge.id) }}" class="form badges-step">
     {{ forms.csrf() }}
-    <label for="award-username">{{ t('auth.field.username') }}</label>
-    <input id="award-username" name="username" maxlength="50" required>
-    <button class="btn btn--primary btn--small" type="submit">{{ t('badges.admin.award') }}</button>
+    <h3>{{ t('badges.admin.award_one') }}</h3>
+    <div class="input-group input-group--compact">
+      <label class="visually-hidden" for="award-username">{{ t('badges.admin.award_username') }}</label>
+      <input id="award-username" name="username" maxlength="50" required placeholder="{{ t('auth.field.username') }}">
+      <button class="btn btn--primary" type="submit">{{ t('badges.admin.award') }}</button>
+    </div>
   </form>
-  <form method="post" action="{{ url_for('badges.admin_revoke', badge_id=badge.id) }}" class="inline-fields users-spaced">
+  <form method="post" action="{{ url_for('badges.admin_revoke', badge_id=badge.id) }}" class="form badges-step">
     {{ forms.csrf() }}
-    <label for="revoke-username">{{ t('auth.field.username') }}</label>
-    <input id="revoke-username" name="username" maxlength="50" required>
+    <h3>{{ t('badges.admin.revoke_one') }}</h3>
+    <div class="input-group input-group--compact">
+      <label class="visually-hidden" for="revoke-username">{{ t('badges.admin.revoke_username') }}</label>
+      <input id="revoke-username" name="username" maxlength="50" required placeholder="{{ t('auth.field.username') }}">
+      <button class="btn" type="submit">{{ t('badges.admin.revoke') }}</button>
+    </div>
     <label class="check"><input type="checkbox" name="permanent" value="1"> <span>{{ t('badges.admin.permanent') }}</span></label>
-    <button class="btn btn--small" type="submit">{{ t('badges.admin.revoke') }}</button>
   </form>
-  <form method="post" action="{{ url_for('badges.admin_revoke_all', badge_id=badge.id) }}" class="inline-fields users-spaced" data-confirm="{{ t('badges.admin.revoke_all_confirm') }}">
+  <form method="post" action="{{ url_for('badges.admin_revoke_all', badge_id=badge.id) }}" class="form badges-step" data-confirm="{{ t('badges.admin.revoke_all_confirm') }}">
     {{ forms.csrf() }}
+    <h3>{{ t('badges.admin.revoke_all') }}</h3>
     <label class="check"><input type="checkbox" name="permanent" value="1"> <span>{{ t('badges.admin.permanent') }}</span></label>
-    <button class="btn btn--small btn--danger" type="submit">{{ t('badges.admin.revoke_all') }}</button>
+    <div class="btn-row"><button class="btn btn--danger" type="submit">{{ t('badges.admin.revoke_all') }}</button></div>
   </form>
 </section>
 <section class="card">
@@ -44,7 +53,7 @@
   <div class="table-wrap"><table class="table">
     <thead><tr><th>{{ t('auth.field.username') }}</th><th>{{ t('badges.admin.earned') }}</th><th>{{ t('badges.admin.awarded_by') }}</th><th>{{ t('common.status') }}</th></tr></thead>
     <tbody>{% for holder in holders %}
-      <tr><td>{{ holder.username }}</td><td>{{ holder.earned_at|datetime }}</td>
+      <tr><td>{{ holder.username }}</td><td class="nowrap">{{ holder.earned_at|datetime }}</td>
         <td>{{ holder.awarded_by_username or t('badges.admin.automatic') }}</td>
         <td>{% if holder.revoked %}<span class="badge badge--danger">{{ t('badges.admin.revoked') }}</span>{% else %}<span class="badge badge--success">{{ t('badges.admin.active') }}</span>{% endif %}</td></tr>
     {% endfor %}</tbody>

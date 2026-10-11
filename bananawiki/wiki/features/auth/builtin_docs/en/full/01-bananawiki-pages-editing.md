@@ -6,7 +6,7 @@ Pages are the basic unit of BananaWiki. A good page has a clear title, a stable 
 
 1. Click **+ New Page** in the sidebar or the page menu.
 2. Enter a short title. BananaWiki suggests a URL slug automatically.
-3. Choose a category, or leave the page uncategorized while drafting.
+3. Choose a category, or leave the page uncategorised while drafting.
 4. Write in Markdown on the left and check the preview on the right.
 5. Save when the page is ready to share.
 

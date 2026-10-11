@@ -3,6 +3,8 @@
 {% block content %}
 <div class="card card--narrow">
   <h1>{{ t('auth.login.title') }}</h1>
+  {#- Sent here from a page that needs an account: say why, so it does not look like a plain sign-in. -#}
+  {% if next_url and next_url != '/' and request.method == 'GET' %}<div class="alert" role="status"><div class="alert__body">{{ t('auth.error.login_required') }}</div></div>{% endif %}
   {% if site().maintenance_mode %}<div class="alert alert--warning"><div class="alert__body">{{ t('auth.login.maintenance_notice') }}</div></div>{% endif %}
   {% with action=url_for('auth.login'), submit_label=t('auth.login.submit'), show_remember=true %}
     {% include "auth/_login_form.html" %}

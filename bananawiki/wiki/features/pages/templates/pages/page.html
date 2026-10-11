@@ -25,7 +25,7 @@
             {{ t('pages.edit_info.by_system') }}
           {% endif %}
           <time datetime="{{ last_edit.at }}" title="{{ last_edit.at|datetime }}">{{ last_edit.at|time_ago }}</time>
-          {% if can_view_history and feature_enabled('page_history') %} · <a href="{{ url_for('pages.history', slug=page.slug) }}">{{ t('pages.actions.history') }}</a>{% endif %}
+          {% if can_view_history and feature_enabled('page_history') %} <span class="nowrap">· <a href="{{ url_for('pages.history', slug=page.slug) }}">{{ t('pages.actions.history') }}</a></span>{% endif %}
         </p>
         {% endif %}
       </div>
@@ -76,7 +76,9 @@
     <div class="alert alert--info" data-page-updated hidden>
       <div class="alert__body">{{ t('pages.sync.updated') }} <a href="{{ request.path }}">{{ t('pages.sync.reload') }}</a></div>
     </div>
-    {% if toc|length > 1 %}
+    {#- A page that places its own table of contents ([TOC]) does not get a second one. -#}
+    {% set inline_toc = 'class="toc"' in body %}
+    {% if toc|length > 1 and not inline_toc %}
     <details class="disclosure wiki-page__contents no-print">
       <summary>{{ t('pages.toc.title') }}</summary>
       <nav aria-label="{{ t('pages.toc.title') }}">{% include "pages/_contents.html" %}</nav>
@@ -93,9 +95,9 @@
     {% endif %}
   </div>
   {% set panel = slot('page.sidebar_panel', page=page) %}
-  {% if toc|length > 1 or panel %}
+  {% if (toc|length > 1 and not inline_toc) or panel %}
   <aside class="wiki-page__aside no-print{% if not panel %} wiki-page__aside--contents-only{% endif %}">
-    {% if toc|length > 1 %}
+    {% if toc|length > 1 and not inline_toc %}
     <nav class="toc-card" aria-labelledby="toc-title">
       <p class="sidebar__section-title" id="toc-title">{{ t('pages.toc.title') }}</p>
       {% include "pages/_contents.html" %}

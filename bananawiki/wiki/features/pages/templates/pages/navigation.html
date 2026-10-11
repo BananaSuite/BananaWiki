@@ -26,7 +26,9 @@
       <label for="new-parent">{{ t('pages.category.parent') }}</label>
       <select id="new-parent" name="parent_id">
         <option value="">{{ t('pages.category.top_level') }}</option>
-        {% for c in nav.categories recursive %}<option value="{{ c.id }}">{{ c.name }}</option>{{ loop(c.children) }}{% endfor %}
+        {#- The full path, as in the other category pickers ("Handbook / Engineering"). -#}
+        {% macro parent_options(nodes, prefix='') %}{% for c in nodes %}<option value="{{ c.id }}">{{ prefix ~ c.name }}</option>{{ parent_options(c.children, prefix ~ c.name ~ ' / ') }}{% endfor %}{% endmacro %}
+        {{ parent_options(nav.categories) }}
       </select>
     </div>
     <div class="btn-row"><button class="btn btn--primary">{{ t('common.create') }}</button></div>

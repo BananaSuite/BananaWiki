@@ -10,9 +10,11 @@
 </header>
 <div class="alert alert--warning"><div class="alert__body">{{ t('custom_pages.admin.public_notice') if public_allowed else t('custom_pages.admin.members_notice') }}</div></div>
 
+<div class="section-stack">
+<section class="card" aria-label="{{ t('custom_pages.admin.title') }}">
 {% if pages %}
 <div class="table-wrap">
-  <table class="table">
+  <table class="table table--stack">
     <thead><tr>
       <th>{{ t('custom_pages.field.path') }}</th>
       <th>{{ t('custom_pages.field.title') }}</th>
@@ -25,16 +27,16 @@
     {% for p in pages %}
     <tr>
       <td class="mono"><a href="{{ p.path }}" target="_blank" rel="noopener">{{ p.path }}</a></td>
-      <td>{{ p.title or '—' }}</td>
+      <td data-label="{{ t('custom_pages.field.title') }}">{{ p.title or '—' }}</td>
       {% set builder_page = p.builder_json and p.content_type == 'wiki_page' %}
-      <td>{{ t('custom_pages.type.' ~ ('builder' if builder_page else p.content_type)) }}</td>
-      <td>{% if p.is_published %}<span class="badge badge--success">{{ t('common.yes') }}</span>{% else %}<span class="badge">{{ t('common.no') }}</span>{% endif %}</td>
-      <td class="nowrap">{{ p.updated_at|time_ago }}</td>
-      <td class="actions">
+      <td data-label="{{ t('custom_pages.field.content_type') }}">{{ t('custom_pages.type.' ~ ('builder' if builder_page else p.content_type)) }}</td>
+      <td data-label="{{ t('custom_pages.field.published') }}">{% if p.is_published %}<span class="badge badge--success">{{ t('common.yes') }}</span>{% else %}<span class="badge">{{ t('common.no') }}</span>{% endif %}</td>
+      <td class="nowrap" data-label="{{ t('common.updated') }}">{{ p.updated_at|time_ago }}</td>
+      <td class="actions"><div class="cluster">
         <a class="btn btn--small" href="{{ url_for('custom_pages.admin_edit', page_id=p.id) }}">{{ t('common.edit') }}</a>
         {% if builder_page and builder_available %}<a class="btn btn--small" href="{{ url_for('page_builder.custom_editor', page_id=p.id) }}">{{ t('custom_pages.admin.open_builder') }}</a>{% endif %}
         {{ forms.post_button(url_for('custom_pages.admin_delete', page_id=p.id), t('common.delete'), cls='btn btn--small btn--danger', confirm=t('custom_pages.admin.delete_confirm')) }}
-      </td>
+      </div></td>
     </tr>
     {% endfor %}
     </tbody>
@@ -43,13 +45,13 @@
 {% else %}
 <div class="empty-state"><p>{{ t('custom_pages.admin.empty') }}</p></div>
 {% endif %}
+</section>
 
-<div class="section-stack">
 <section class="card" aria-labelledby="cp-settings">
   <div class="card__header"><h2 id="cp-settings">{{ t('custom_pages.admin.settings') }}</h2></div>
   <form method="post" action="{{ url_for('custom_pages.admin_settings') }}" class="form">
     {{ forms.csrf() }}
-    {{ forms.field('custom_pages_max_video_size_mb', t('custom_pages.field.max_video_mb'), max_video_mb, type='number', attrs={'min': 1, 'max': 10240}) }}
+    {{ forms.field('custom_pages_max_video_size_mb', t('custom_pages.field.max_video_mb'), max_video_mb, type='number', attrs={'min': 1, 'max': 10240, 'class': 'input--short', 'inputmode': 'numeric'}) }}
     <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
   </form>
 </section>
@@ -66,6 +68,7 @@
   </dl>
   {% endfor %}
 </section>
+</div>
 {% endblock %}
-{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('custom_pages.css', blueprint='custom_pages') }}"></div>
+{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('custom_pages.css', blueprint='custom_pages') }}">
 {% endblock %}

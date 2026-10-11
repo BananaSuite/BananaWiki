@@ -100,8 +100,11 @@ def test_onboarding_spawns_builtin_docs(client, owner, login, db):
     assert db.scalar("SELECT name FROM categories WHERE id = ?", (category_id,)) == "BananaWiki"
     count = db.scalar("SELECT COUNT(*) FROM pages WHERE category_id = ?", (category_id,))
     assert count == 3 == len(docs.pages("simplified", "it"))
-    assert db.scalar("SELECT content FROM pages WHERE category_id = ? AND slug = 'bananawiki-welcome'",
-                     (category_id,)).startswith("# Benvenuto in BananaWiki")
+    # The file's "# Title" line became the page title (shown as the page's <h1>), not a second heading.
+    assert db.scalar("SELECT title FROM pages WHERE category_id = ? AND slug = 'bananawiki-welcome'",
+                     (category_id,)) == "Benvenuto in BananaWiki"
+    assert not db.scalar("SELECT content FROM pages WHERE category_id = ? AND slug = 'bananawiki-welcome'",
+                         (category_id,)).startswith("#")
     assert db.scalar("SELECT COUNT(*) FROM page_history ph JOIN pages p ON p.id = ph.page_id "
                      "WHERE p.category_id = ?", (category_id,)) == count
 
@@ -115,8 +118,11 @@ def test_onboarding_offers_and_spawns_german_docs(client, owner, login, db):
     category_id = db.scalar("SELECT docs_category_id FROM site_settings")
     german = docs.pages("full", "de")
     assert german and db.scalar("SELECT COUNT(*) FROM pages WHERE category_id = ?", (category_id,)) == len(german)
-    assert db.scalar("SELECT content FROM pages WHERE category_id = ? AND slug = 'bananawiki-welcome'",
-                     (category_id,)).startswith(f"# {german[0][0]}")
+    # As in every language, the file's "# Title" line became the page title, not a second heading.
+    assert db.scalar("SELECT title FROM pages WHERE category_id = ? AND slug = 'bananawiki-welcome'",
+                     (category_id,)) == german[0][0]
+    assert not db.scalar("SELECT content FROM pages WHERE category_id = ? AND slug = 'bananawiki-welcome'",
+                         (category_id,)).startswith("#")
 
 
 def test_respawning_docs_replaces_the_previous_set(app, db, admin):
@@ -134,7 +140,44 @@ def test_builtin_docs_have_titles_in_every_language(language):
         english, translated = docs.pages(variant, "en"), docs.pages(variant, language)
         assert english and len(english) == len(translated)
         assert [slug for _t, slug, _c in english] == [slug for _t, slug, _c in translated]
-        assert all(title and content.startswith("# ") for title, _s, content in english + translated)
+        assert all(title and not title.startswith("#") for title, _s, _c in english + translated)
+        # The leading "# Title" line is the page title, not part of the content (no duplicate <h1>).
+        assert not any(content.lstrip().startswith("# ") for _t, _s, content in english + translated)
+
+
+def _shape(content: str) -> dict[str, int]:
+    """What a faithful translation keeps: sections, menu paths, code, table rows and list items."""
+    lines = content.splitlines()
+    return {"sections": sum(line.startswith("## ") for line in lines), "menu steps": content.count("→"),
+            "old arrows": content.count("->"), "code marks": content.count("`"),
+            "table rows": sum(line.startswith("|") for line in lines),
+            "list items": sum(bool(re.match(r"(- |\d+\. )", line)) for line in lines)}
+
+
+@pytest.mark.parametrize(("language", "restricted"), [
+    ("en", "only owners and superusers can do either"),
+    ("it", "solo proprietari e superutenti possono farlo"),
+    ("de", "Deshalb können das nur Eigentümer und Superuser."),
+])
+def test_the_admin_guide_says_who_can_import_a_site_or_install_a_plugin(language, restricted):
+    # Since 1.7 only owners and superusers can run a full-site import or install a third-party plugin (the
+    # migration tools and plugin_manager's lock): "Owners and trust" still said owner status did not stop an
+    # admin who did either, against the paragraph above it.
+    [guide] = [content for _title, slug, content in docs.pages("full", language) if slug.endswith("admin-guide")]
+    [trust] = [section for section in guide.split("\n## ")
+               if section.split("\n", 1)[0] in ("Owners and trust", "Proprietari e fiducia", "Eigentümer und Vertrauen")]
+    assert restricted in trust
+    for outdated in ("does not stop an admin", "Non ferma però un admin", "schützt aber nicht vor einem"):
+        assert outdated not in guide
+
+
+@pytest.mark.parametrize("language", sorted(set(docs.LANGUAGES) - {"en"}))
+@pytest.mark.parametrize("variant", docs.VARIANTS)
+def test_builtin_docs_keep_the_english_structure_in_every_language(variant, language):
+    # A section, menu path or setting added to the English guide reaches every translation.
+    english, translated = docs.pages(variant, "en"), docs.pages(variant, language)
+    assert {slug: _shape(content) for _t, slug, content in translated} == \
+        {slug: _shape(content) for _t, slug, content in english}
 
 
 # ── Introduction and tour ─────────────────────────────────────────────────────

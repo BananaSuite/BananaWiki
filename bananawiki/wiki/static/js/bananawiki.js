@@ -19,6 +19,7 @@
   "use strict";
 
   var BW = window.BW = window.BW || {};
+  var SCROLL_BLOCKS = "pre, .table-wrap, .prose table, .prose .table-wrapper";
   var strings = {};
   try {
     var node = document.querySelector("script#bw-strings");
@@ -33,6 +34,15 @@
       });
     }
     return text;
+  };
+
+  // Count-dependent string: "<key>_one" when count is 1 (if the catalogue has it), else "<key>".
+  BW.tn = function (key, count, vars) {
+    vars = vars || {};
+    if (vars.count === undefined) vars.count = count;
+    var one = key + "_one";
+    var useOne = Number(count) === 1 && Object.prototype.hasOwnProperty.call(strings, one);
+    return BW.t(useOne ? one : key, vars);
   };
 
   BW.csrf = function () {
@@ -68,6 +78,84 @@
         }
         return data;
       });
+    });
+  };
+
+  // Move-up/down buttons: the first item's "up" and the last item's "down" cannot move and say so
+  // (aria-disabled keeps them focusable, so focus is not lost after a move to either end).
+  // Buttons carry data-move="up"/"-1" or "down"/"1"; items are the children of *list* matching *itemSelector*.
+  BW.markMoveEnds = function (list, itemSelector) {
+    if (!list) return;
+    var items = Array.prototype.filter.call(list.children, function (child) { return child.matches(itemSelector); });
+    items.forEach(function (item, index) {
+      item.querySelectorAll("[data-move]").forEach(function (button) {
+        if (button.closest(itemSelector) !== item) return;
+        var move = button.getAttribute("data-move");
+        var end = (move === "up" || move === "-1") ? index === 0 : (move === "down" || move === "1") ? index === items.length - 1 : false;
+        if (end) button.setAttribute("aria-disabled", "true"); else button.removeAttribute("aria-disabled");
+      });
+    });
+  };
+
+  // A scroller whose children are opaque (board columns, palette groups) cannot show CSS scroll shadows:
+  // data-more on it names the edges ("left right top bottom") past which content is hidden, and the CSS
+  // fades those edges. data-scroll-cue="y" watches the vertical axis, anything else the horizontal one.
+  BW.scrollCue = function (el) {
+    if (!el || el.__bwScrollCue) return;
+    el.__bwScrollCue = true;
+    var vertical = el.getAttribute("data-scroll-cue") === "y";
+    var pending = false;
+    function update() {
+      pending = false;
+      var more = [];
+      // A couple of pixels (sub-pixel padding, a snap point just inside the edge) are not hidden content.
+      if (vertical) {
+        if (el.scrollTop > 2) more.push("top");
+        if (el.scrollTop + el.clientHeight < el.scrollHeight - 2) more.push("bottom");
+      } else {
+        var hidden = el.scrollWidth - el.clientWidth;
+        var x = el.scrollLeft;  // 0 at the start; negative towards the left in right-to-left pages
+        var left = x < 0 ? hidden + x : x;
+        if (left > 2) more.push("left");
+        if (hidden - left > 2) more.push("right");
+      }
+      var value = more.join(" ");
+      if (el.getAttribute("data-more") !== value) el.setAttribute("data-more", value);
+    }
+    function later() { if (!pending) { pending = true; window.requestAnimationFrame(update); } }
+    el.addEventListener("scroll", later, { passive: true });
+    window.addEventListener("resize", later);
+    if (window.ResizeObserver) new ResizeObserver(later).observe(el);
+    if (window.MutationObserver) new MutationObserver(later).observe(el, { childList: true, subtree: true });
+    update();
+  };
+
+  // A .table--stack table turns into one card per row (.table--stacked) whenever its columns do not fit
+  // the room it has. Phones get the cards from the stylesheet alone; on a tablet or a narrow window the
+  // admin menu or the sidebar can leave less room than a phone, and the row actions would sit past the
+  // right edge. Each table is measured as a table again whenever its wrapper changes width.
+  BW.fitTables = function (root) {
+    (root || document).querySelectorAll("table.table--stack").forEach(function (table) {
+      if (table.__bwFit) return;
+      table.__bwFit = true;
+      var wrap = table.closest(".table-wrap") || table.parentElement;
+      var width = -1;
+      var pending = false;
+      function update() {
+        pending = false;
+        if (wrap.clientWidth === width) return;
+        width = wrap.clientWidth;
+        var was = table.classList.contains("table--stacked");
+        table.classList.remove("table--stacked");
+        var stack = width > 0 && wrap.scrollWidth > width + 1;
+        if (stack) table.classList.add("table--stacked");
+        // The wrapper takes keyboard focus only while it scrolls.
+        if (stack !== was && BW.focusScrollingBlocks) BW.focusScrollingBlocks(wrap.parentElement);
+      }
+      function later() { if (!pending) { pending = true; window.requestAnimationFrame(update); } }
+      if (window.ResizeObserver) new ResizeObserver(later).observe(wrap);
+      else window.addEventListener("resize", later);
+      update();
     });
   };
 
@@ -175,6 +263,12 @@
     var print = closest(target, "[data-print]");
     if (print) { event.preventDefault(); window.print(); return; }
 
+    // A tap outside the open phone drawer (on the dimmed page) closes it.
+    if (document.body.classList.contains("sidebar-open") && !closest(target, ".sidebar")
+        && !closest(target, "[data-sidebar-toggle]")) {
+      BW.closeSidebar(false);
+    }
+
     // Close open <details class="menu"> when clicking elsewhere.
     document.querySelectorAll("details.menu[open]").forEach(function (menu) {
       if (!menu.contains(target)) menu.removeAttribute("open");
@@ -193,23 +287,45 @@
       var sidebarOpen = document.body.classList.contains("sidebar-open");
       var sidebar = document.querySelector(".sidebar");
       var sidebarHadFocus = sidebar && sidebar.contains(document.activeElement);
-      document.body.classList.remove("sidebar-open");
       document.querySelectorAll("details.menu[open]").forEach(function (menu) {
         var restoreFocus = menu.contains(document.activeElement);
         menu.removeAttribute("open");
         var summary = menu.querySelector("summary");
         if (restoreFocus && summary) summary.focus();
       });
-      var sidebarToggle = document.querySelector("[data-sidebar-toggle]");
-      if (sidebarOpen && sidebarToggle) {
-        sidebarToggle.setAttribute("aria-expanded", "false");
-        if (sidebarHadFocus) sidebarToggle.focus();
-      }
+      if (sidebarOpen) BW.closeSidebar(sidebarHadFocus);
     }
   });
 
   // Sidebar (mobile drawer) and theme ---------------------------------------
+  // The phone drawer starts at the topbar's real bottom edge: announcement and other
+  // banners above the topbar push it down until the page scrolls.
+  var placeDrawer = function () {
+    var topbar = document.querySelector(".topbar");
+    if (!topbar) return;
+    var bottom = Math.max(0, Math.round(topbar.getBoundingClientRect().bottom));
+    document.documentElement.style.setProperty("--drawer-top", bottom + "px");
+  };
+  // Kept current while scrolling (the sidebar's height follows it too), at most once per frame.
+  var placing = false;
+  var schedulePlace = function () {
+    if (placing) return;
+    placing = true;
+    window.requestAnimationFrame(function () { placing = false; placeDrawer(); });
+  };
+  window.addEventListener("scroll", schedulePlace, { passive: true });
+  window.addEventListener("resize", schedulePlace);
+  BW.closeSidebar = function (restoreFocus) {
+    document.body.classList.remove("sidebar-open");
+    var toggle = document.querySelector("[data-sidebar-toggle]");
+    if (toggle) {
+      toggle.setAttribute("aria-expanded", "false");
+      if (restoreFocus) toggle.focus();
+    }
+  };
+
   BW.onReady(function () {
+    placeDrawer();
     // Feature actions can include a dialog. Keep modal forms outside dropdown
     // panels so menu styling and a closed menu cannot hide their contents.
     document.querySelectorAll("details.menu dialog").forEach(function (dialog) {
@@ -232,6 +348,7 @@
       if (narrow.addEventListener) narrow.addEventListener("change", sync);
       toggle.addEventListener("click", function () {
         if (narrow.matches) {
+          placeDrawer();
           document.body.classList.toggle("sidebar-open");
         } else {
           var now = document.body.classList.toggle("sidebar-collapsed");
@@ -267,6 +384,21 @@
         });
       });
     }
+
+    BW.fitTables();
+
+    // A code block or table that scrolls sideways must be reachable with the keyboard.
+    // Scripts that render content later (the editor preview) call BW.focusScrollingBlocks(root).
+    BW.focusScrollingBlocks = function (root) {
+      (root || document).querySelectorAll(SCROLL_BLOCKS).forEach(function (block) {
+        if (block.scrollWidth > block.clientWidth + 1) block.setAttribute("tabindex", "0");
+        else if (!block.hasAttribute("data-keep-tabindex")) block.removeAttribute("tabindex");
+      });
+    };
+    BW.focusScrollingBlocks();
+    window.addEventListener("resize", function () { BW.focusScrollingBlocks(); });
+
+    document.querySelectorAll("[data-scroll-cue]").forEach(BW.scrollCue);
 
     // Flash messages fade out on their own.
     document.querySelectorAll(".flash-stack .alert[data-autohide]").forEach(function (alert) {

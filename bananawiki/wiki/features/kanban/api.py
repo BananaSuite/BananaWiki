@@ -9,7 +9,7 @@ from flask import abort, jsonify, request, url_for
 from ... import auth, settings, storage
 from ...i18n import t
 from ...markdown import render
-from . import access, events, extras, filters, guard, service, store
+from . import access, events, extras, filters, guard, logtext, service, store
 from .fields import KanbanError
 from .views import bp
 
@@ -112,7 +112,8 @@ def embed_sync(board_ref: str):
 @auth.public_read
 def activity(board_id: int):
     guard.board(board_id, "view")
-    return jsonify({"entries": events.recent_activity(board_id)})
+    entries = [{**entry, "details": logtext.render(entry["details"])} for entry in events.recent_activity(board_id)]
+    return jsonify({"entries": entries})
 
 
 # ── Board settings ────────────────────────────────────────────────────────────
@@ -371,7 +372,7 @@ def ticket_history_entry(entry_id: int):
 def list_comments(ticket_id: int):
     guard.ticket(ticket_id, "view")
     user = auth.current_user()
-    return jsonify([extras.comment_payload(row, user) for row in extras.comments(ticket_id)])
+    return jsonify(extras.comment_payloads(extras.comments(ticket_id), user))
 
 
 @bp.post("/api/kanban/tickets/<int:ticket_id>/comments")

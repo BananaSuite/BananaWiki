@@ -1,28 +1,30 @@
 {% extends layout %}
 {% import "macros/forms.html" as forms with context %}
-{% block title %}{{ t('chat.admin.title') }}{% endblock %}
+{% block title %}{{ t('chat.admin.tab_groups') }} · {{ t('chat.admin.title') }}{% endblock %}
 {% block admin_content %}
 <header class="page-header"><h1>{{ t('chat.admin.title') }}</h1></header>
 {% with tab='groups' %}{% include "chat/_admin_tabs.html" %}{% endwith %}
 {% if groups %}
 <div class="table-wrap">
-<table class="table">
+<table class="table table--stack">
   <thead><tr><th>{{ t('common.name') }}</th><th>{{ t('chat.admin.creator') }}</th><th>{{ t('chat.admin.members') }}</th><th>{{ t('chat.admin.messages') }}</th><th>{{ t('chat.admin.last_activity') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>
   <tbody>
   {% for g in groups %}
   <tr>
-    <td>{{ display_name(g) }}{% if g.is_global and not g.is_active %} <span class="badge badge--warning">{{ t('chat.admin.paused') }}</span>{% endif %}</td>
-    <td>{{ g.creator_name or '—' }}</td>
-    <td>{{ g.member_count }}</td>
-    <td>{{ g.message_count }}</td>
-    <td>{{ g.last_message_at|time_ago if g.last_message_at else '—' }}</td>
-    <td class="actions">
+    <td><a href="{{ url_for('chat.admin_group_view', group_id=g.id) }}">{{ display_name(g) }}</a>{% if g.is_global and not g.is_active %} <span class="badge badge--warning">{{ t('chat.admin.paused') }}</span>{% endif %}</td>
+    <td data-label="{{ t('chat.admin.creator') }}">{{ g.creator_name or '—' }}</td>
+    <td data-label="{{ t('chat.admin.members') }}">{{ g.member_count }}</td>
+    <td data-label="{{ t('chat.admin.messages') }}">{{ g.message_count }}</td>
+    <td class="nowrap" data-label="{{ t('chat.admin.last_activity') }}">{{ g.last_message_at|time_ago if g.last_message_at else '—' }}</td>
+    <td class="actions"><div class="cluster">
       <a class="btn btn--small" href="{{ url_for('chat.admin_group_view', group_id=g.id) }}">{{ t('chat.admin.read') }}</a>
       <a class="btn btn--small" href="{{ url_for('chat.group_view', group_id=g.id) }}">{{ t('chat.admin.moderate') }}</a>
       {% if not g.is_global %}
       {{ forms.post_button(url_for('chat.admin_group_delete', group_id=g.id), t('common.delete'), 'btn btn--small btn--danger', t('chat.groups.delete_confirm', name=g.name)) }}
+      {% else %}{# keeps Read and Moderate in line with the rows that can be deleted #}
+      <span class="btn btn--small btn-placeholder" aria-hidden="true">{{ t('common.delete') }}</span>
       {% endif %}
-    </td>
+    </div></td>
   </tr>
   {% endfor %}
   </tbody>

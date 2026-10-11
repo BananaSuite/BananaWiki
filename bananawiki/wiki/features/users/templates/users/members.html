@@ -32,6 +32,7 @@
 </ul>
 {{ forms.pagination(page, pages, 'users.members', {'q': query} if query else {}) }}
 {% else %}
-<div class="card empty-state"><p>{{ t('users.members.none_matching', query=query) if query else t('users.members.none') }}</p></div>
+<div class="card empty-state"><p>{{ t('users.members.none_matching', query=query) if query else t('users.members.none') }}</p>
+  {% if not query and current_user and has_permission('profile.edit_own') %}<p class="hint"><a href="{{ url_for('users.settings') }}">{{ t('users.members.publish_own') }}</a></p>{% endif %}</div>
 {% endif %}
 {% endblock %}

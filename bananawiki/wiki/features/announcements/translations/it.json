@@ -22,6 +22,7 @@
   "announcements.created": "Annuncio creato.",
   "announcements.created_by": "Di {user}, {when}",
   "announcements.custom_colors": "Usa colori personalizzati",
+  "announcements.custom_colors_hint": "Usati solo con «Usa colori personalizzati» attivo.",
   "announcements.delete_confirm": "Eliminare questo annuncio?",
   "announcements.deleted": "Annuncio eliminato.",
   "announcements.dismiss": "Chiudi annuncio",

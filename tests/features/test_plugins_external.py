@@ -31,8 +31,9 @@ def _tables(app) -> set[str]:
 
 
 def _admin_client(app, make_user, login, name="root_admin"):
+    """The owner: only the owner and superusers install and enable plugins."""
     client = app.test_client()
-    login(client, make_user(name, role="admin"))
+    login(client, make_user(name, role="owner"))
     return client
 
 

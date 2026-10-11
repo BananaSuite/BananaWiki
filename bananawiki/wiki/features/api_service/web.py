@@ -22,18 +22,51 @@ DELIVERY_PAGE_SIZE = 100
 FEATURE_SCOPES = {"kanban": "kanban", "canvas": "canvas"}
 
 
+def _display_order() -> list[str]:
+    """Everyday scopes first (in their usual order), administrators' ones last."""
+    return sorted(tokens.SCOPES, key=lambda scope: scope in tokens.ADMIN_ONLY_SCOPES or scope == "admin")
+
+
+@bp.app_template_filter("api_scope_order")
+def _scope_order_filter(scopes: Any) -> list[str]:
+    """A token's scopes in the order of the form's checkboxes (unknown ones last, as stored)."""
+    rank = {scope: index for index, scope in enumerate(_display_order())}
+    return sorted(scopes or [], key=lambda scope: rank.get(scope, len(rank)))
+
+
 def _offered_scopes(user: dict[str, Any]) -> list[str]:
-    return [scope for scope in tokens.scopes_for_role(user, list(tokens.SCOPES))
-            if scope not in FEATURE_SCOPES or is_enabled(FEATURE_SCOPES[scope])]
+    """The scopes the form offers: everyday ones first (in their usual order), administrators' ones last."""
+    allowed = set(tokens.scopes_for_role(user, list(tokens.SCOPES)))
+    ordered = _display_order()
+    return [scope for scope in ordered if scope in allowed
+            and (scope not in FEATURE_SCOPES or is_enabled(FEATURE_SCOPES[scope]))]
 
 
 # ── Personal tokens ───────────────────────────────────────────────────────────
 
 
+def _with_issuers(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add ``issuer`` (the token that issued it, if listed) and ``issued`` (active tokens revoked with it)."""
+    by_id = {row["id"]: row for row in rows}
+    children: dict[int, list[int]] = {}
+    for row in rows:
+        if row.get("parent_id"):
+            children.setdefault(row["parent_id"], []).append(row["id"])
+
+    def issued(token_id: int, seen: set[int]) -> int:
+        found = [child for child in children.get(token_id, []) if child not in seen]
+        seen.update(found)
+        return len(found) + sum(issued(child, seen) for child in found)
+
+    return [{**row, "issuer": by_id.get(row.get("parent_id")), "issued": issued(row["id"], {row["id"]})}
+            for row in rows]
+
+
 def _tokens_page(user: dict[str, Any], *, new_token: str | None = None, new_userbot_key: str | None = None,
                  status: int = 200):
-    grant_rows = [{**row, "grant": tokens.parse_grant(row["permissions"])}
-                  for row in tokens.list_for_user(user["id"]) if row["name"] != tokens.USERBOT_TOKEN_NAME]
+    grant_rows = _with_issuers([{**row, "grant": tokens.parse_grant(row["permissions"])}
+                                for row in tokens.list_for_user(user["id"])
+                                if row["name"] != tokens.USERBOT_TOKEN_NAME])
     return render_template(
         "api_service/tokens.html",
         tokens=grant_rows,
@@ -90,9 +123,10 @@ def create_token():
                 auth.flash_t(f"api_service.flash.{error.code}", "error", **error.values)
                 return redirect(url_for("api_service.tokens_page"))
         try:
+            tokens.check_name(request.form.get("name", ""))
             tokens.check_quota(user["id"])
         except ApiError as error:
-            auth.flash_t("api_service.error.token_limit", "error", **error.values)
+            auth.flash_t(error.message_key, "error", **error.values)
             return redirect(url_for("api_service.tokens_page"))
         grant = tokens.web_grant(user, request.form.getlist("scopes"), read_only=bool(request.form.get("read_only")))
         raw, _token_id = tokens.create(user["id"], name=request.form.get("name", ""), grant=grant,
@@ -108,8 +142,12 @@ def revoke_token(token_id: int):
     if token is None or token["user_id"] != user["id"]:
         auth.flash_t("api_service.flash.token_not_found", "error")
     else:
+        issued = tokens.issued_count(token_id)
         tokens.revoke(token_id)
-        auth.flash_t("api_service.flash.token_revoked", "success")
+        if issued:
+            auth.flash_t("api_service.flash.token_revoked_with_issued", "success", count=issued)
+        else:
+            auth.flash_t("api_service.flash.token_revoked", "success")
     return redirect(url_for("api_service.tokens_page"))
 
 

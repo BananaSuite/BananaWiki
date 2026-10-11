@@ -1,8 +1,15 @@
-/* Sign-in feature: app selector and guided-tour illustrations. */
+/* Sign-in feature: app selector, guided-tour illustrations and two-step verification. */
 .auth-apps { list-style: none; margin: 0; padding: 0; display: grid; gap: .75rem;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); }
-.auth-apps__item { display: flex; flex-direction: column; gap: .25rem; padding: 1rem; border-radius: .5rem;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); grid-auto-rows: 1fr; }
+.auth-apps > li { display: flex; }
+.auth-apps__item { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: .25rem; padding: 1rem; border-radius: .5rem;
   border: 1px solid color-mix(in srgb, var(--bw-text) 18%, transparent); text-decoration: none; color: inherit; }
+.auth-apps__name { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.auth-apps__icon { display: inline-flex; color: var(--muted); }
+/* The app list card keeps the spacing of the other cards of the bare layout, a little wider. */
+.auth-apps-card { max-width: 56rem; margin: 8vh auto 0; }
+.bare-brand + .auth-apps-card { margin-top: calc(8vh - 1.5rem); }
+.auth-apps-card h1 { font-size: 1.5rem; }
 .auth-apps__item:hover, .auth-apps__item:focus-visible { border-color: var(--bw-accent); }
 
 .tour-figure { margin: 0; }
@@ -13,9 +20,16 @@
 .tour-mock__body { display: flex; min-height: 11rem; }
 .tour-mock__sidebar { width: 34%; min-width: 7rem; padding: .5rem; background: var(--bw-sidebar);
   display: flex; flex-direction: column; gap: .35rem; }
+/* On a phone the mock's main column has room to spare: the sidebar takes half, so its labels fit. */
+@media (max-width: 30rem) { .tour-mock__sidebar { width: 50%; } }
 .tour-mock__search, .tour-mock__row, .tour-mock__button, .tour-mock__box { padding: .3rem .5rem; border-radius: .3rem;
   border: 1px solid color-mix(in srgb, var(--bw-text) 15%, transparent); }
-.tour-mock__item--child { padding-left: 1rem; }
+/* Sidebar rows: padded like the other mock rows (a highlight never touches the text). A label that does
+   not fit wraps instead of being cut: the highlighted row is the very thing a step points at. */
+.tour-mock__item { padding: .15rem .5rem; border-radius: .3rem; overflow-wrap: break-word; }
+.tour-mock__item--child { padding-left: 1.5rem; }
+.tour-mock__apps { margin-top: auto; display: flex; flex-direction: column; gap: .15rem; padding: .25rem 0; border-radius: .3rem; }
+.tour-mock__label { padding: 0 .5rem; font-size: .8em; color: var(--muted); }
 .tour-mock__main { flex: 1; padding: .75rem; display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
 .tour-mock__title { font-weight: 600; }
 .tour-mock__line { height: .5rem; border-radius: .25rem; background: color-mix(in srgb, var(--bw-text) 15%, transparent); }
@@ -23,3 +37,31 @@
 .tour-mock__box { min-height: 3rem; font-family: monospace; }
 .tour-mock__button { align-self: flex-start; }
 .tour-mock__hl { outline: 2px solid var(--bw-accent); outline-offset: 1px; }
+.tour-mock__topbar > span { padding: .05rem .35rem; border-radius: .25rem; display: inline-flex; align-items: center; gap: .35rem; }
+.tour-mock__avatar { width: .9rem; height: .9rem; border-radius: 50%; background: var(--bw-primary); }
+.tour-figure figcaption { margin-top: .5rem; }
+.tour .progress { margin: 0; }
+.tour__perspective { display: grid; gap: .4rem; }
+.tour__perspective > p { margin: 0; }
+.tour-intro__steps { margin: 0; padding-left: 1.25rem; }
+.card.stack > section > h2 { margin-bottom: .5rem; }
+
+/* Two-step verification: set-up steps, QR code (white quiet zone included), key and recovery codes. */
+.two-step-steps { margin: 0; padding-left: 1.25rem; display: grid; gap: 1rem; }
+.two-step-qr { display: block; width: 13rem; max-width: 100%; height: auto; image-rendering: pixelated;
+  border-radius: .25rem; margin-bottom: .75rem; }
+.two-step-code { max-width: 14rem; }
+/* The way back from the code step is a ghost button whose text lines up with the field label above it. */
+.two-step-cancel .btn { margin-inline-start: calc(-.625rem - 1px); }
+.form-section > .hint + .form { margin-top: .75rem; }
+.two-step-key { font-size: 1.05rem; letter-spacing: .05em; word-spacing: .2em; }
+.two-step-codes { list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem 1.5rem; font-size: 1.1rem;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); }
+
+/* Onboarding wizard: one box per first account; the guide options follow their checkbox. */
+.onboarding-account legend { font-size: .9rem; }
+/* A section's intro hint keeps the same gap from what follows as the other blocks of the wizard. */
+[data-onboarding] .card > h2 + p.hint { margin-bottom: 1.1rem; }
+.onboarding-docs { border: 0; padding: 0; margin: 0; min-width: 0; }
+.onboarding-docs:disabled { opacity: .6; }
+fieldset[data-feature-list]:disabled { opacity: .7; }

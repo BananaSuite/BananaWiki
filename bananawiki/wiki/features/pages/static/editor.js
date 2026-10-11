@@ -123,6 +123,8 @@
         var holder = document.createElement("template");
         holder.innerHTML = data.html;  // sanitised by the server
         preview.replaceChildren(holder.content);
+        // Code blocks and tables that scroll sideways get a tab stop, as on the page itself.
+        if (BW.focusScrollingBlocks) window.requestAnimationFrame(function () { BW.focusScrollingBlocks(preview); });
       }).catch(function (error) {
         if (version === previewVersion && error.name !== "AbortError") preview.textContent = error.message || BW.t("error");
       });
@@ -142,6 +144,7 @@
   function selectTab(tab) {
     var showPreview = tab.getAttribute("data-editor-tab") === "preview";
     editor.classList.toggle("show-preview", showPreview);
+    if (showPreview && BW.focusScrollingBlocks) window.requestAnimationFrame(function () { BW.focusScrollingBlocks(preview); });
     tabs.forEach(function (other) {
       var active = other === tab;
       other.setAttribute("aria-selected", active ? "true" : "false");

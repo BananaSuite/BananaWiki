@@ -7,8 +7,14 @@
   <p>{{ t('hosting.mfa.login_hint') }}</p>
   <form method="post" class="form">
     {{ ui.csrf() }}
-    {{ ui.field('code', t('hosting.mfa.code'), required=true, attrs={'autocomplete': 'one-time-code', 'maxlength': 32, 'autofocus': 'autofocus', 'inputmode': 'numeric'}) }}
+    {#- A recovery code has letters and dashes: no numeric keypad on phones. -#}
+    {{ ui.field('code', t('hosting.mfa.code'), required=true, attrs={'autocomplete': 'one-time-code', 'maxlength': 32, 'autofocus': 'autofocus', 'autocapitalize': 'characters', 'autocorrect': 'off', 'spellcheck': 'false'}) }}
     <button class="btn btn--primary" type="submit">{{ t('hosting.mfa.verify') }}</button>
+  </form>
+  {#- A form, not a link: going back also forgets the half-finished sign-in (auth.cancel_login_mfa). -#}
+  <form method="post" action="{{ url_for('auth.cancel_login_mfa') }}" class="mfa-cancel">
+    {{ ui.csrf() }}
+    <button class="btn btn--ghost btn--small" type="submit">{{ t('hosting.common.back_to_login') }}</button>
   </form>
 </div>
 {% endblock %}

@@ -31,6 +31,29 @@ def test_create_shows_credentials_once_and_never_stores_them(web, make_account, 
     assert password not in web.get(f"/instances/{row['id']}").get_data(as_text=True)
 
 
+@pytest.mark.parametrize("filled", [{"admin_username": "chief"}, {"admin_password": "a long secret phrase 42"},
+                                    {"admin_confirm_password": "a long secret phrase 42"}])
+def test_an_administrator_login_typed_without_the_tick_box_is_refused(web, make_account, login, runtime, query,
+                                                                      filled):
+    # Without JavaScript the fields stay usable while the box is unticked: refuse instead of silently
+    # generating a login the owner did not expect.
+    owner = make_account()
+    login(web, owner)
+    response = _create(web, "unticked", **filled)
+    assert response.status_code == 400
+    page = response.get_data(as_text=True)
+    assert "Choose the administrator login myself" in page and "clear the fields" in page
+    assert "<details open><summary>Administrator login (optional)</summary>" in page
+    assert query("SELECT COUNT(*) AS n FROM instances", one=True)["n"] == 0
+    assert runtime.called("provision") == []
+    # The box ticked, the chosen login is used; blank fields without the box still get a generated one.
+    response = _create(web, "ticked", set_admin_credentials="1", admin_username="chief",
+                       admin_password="a long secret phrase 42", admin_confirm_password="a long secret phrase 42")
+    assert response.status_code == 200 and runtime.tenants["ticked"].passwords == {"chief": "a long secret phrase 42"}
+    response = _create(web, "generated", admin_username=" ", admin_password="", admin_confirm_password="")
+    assert response.status_code == 200 and "chief" not in runtime.tenants["generated"].passwords
+
+
 @pytest.mark.parametrize("extra", [
     {"subdomain": "ab"}, {"subdomain": "Bad_Name"}, {"subdomain": "double--dash"}, {"subdomain": "admin"},
     {"declared_use_case": "short"}, {"compliance_declared": ""}, {"domain_mode": "apex"},
@@ -122,6 +145,28 @@ def test_suspended_wiki_is_locked_for_its_owner(web, make_account, make_wiki, lo
     assert runtime.called("start") == []
 
 
+
+def test_a_suspension_during_the_owners_start_leaves_the_wiki_stopped(web, make_account, make_wiki, login, query,
+                                                                       runtime, monkeypatch):
+    owner = make_account()
+    wiki = make_wiki(owner, "racing")
+    query("UPDATE instances SET status = 'stopped' WHERE id = ?", (wiki["id"],))
+    runtime.tenants["racing"].running = False
+    started = runtime.start
+
+    def suspended_meanwhile(spec):
+        # An administrator suspends (row updated, container stopped) before the owner's start finishes.
+        query("UPDATE instances SET status = 'suspended', suspended_at = '2026-01-01 00:00:00' WHERE id = ?",
+              (wiki["id"],))
+        runtime.stop(spec)
+        started(spec)
+
+    monkeypatch.setattr(runtime, "start", suspended_meanwhile)
+    login(web, owner)
+    web.post(f"/instances/{wiki['id']}/restart")
+    assert query("SELECT status FROM instances", one=True)["status"] == "suspended"
+    assert runtime.tenants["racing"].running is False
+
 # ── Collaborators ─────────────────────────────────────────────────────────────
 
 
@@ -192,9 +237,9 @@ def test_transfer_needs_the_recipients_acceptance(portal, make_account, make_wik
     assert query("SELECT account_id FROM instances", one=True)["account_id"] == owner["id"]
     recipient_client.post(f"/transfers/{transfer['id']}/accept")
     assert query("SELECT account_id FROM instances", one=True)["account_id"] == recipient["id"]
-    # As in 1.4, the previous owner stays on as a full-access collaborator.
-    row = query("SELECT role FROM instance_collaborators WHERE account_id = ?", (owner["id"],), one=True)
-    assert row == {"role": "full_access"}
+    # Unlike 1.4, the previous owner keeps no access unless the recipient chooses so
+    # (see test_hosting_access.py).
+    assert query("SELECT role FROM instance_collaborators WHERE account_id = ?", (owner["id"],), one=True) is None
     assert stranger_client.get(f"/instances/{wiki['id']}").status_code == 404
 
 

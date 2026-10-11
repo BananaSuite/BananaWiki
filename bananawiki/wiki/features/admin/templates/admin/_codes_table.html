@@ -2,7 +2,7 @@
 {% import "macros/forms.html" as forms with context %}
 {% if codes %}
 <div class="table-wrap">
-  <table class="table">
+  <table class="table table--stack">
     <thead><tr>
       <th scope="col">{{ t('admin.codes.code') }}</th>
       <th scope="col">{{ t('admin.codes.uses') }}</th>
@@ -18,14 +18,14 @@
           {% if code.deleted %}<span class="badge badge--danger">{{ t('admin.codes.deactivated_state') }}</span>{% endif %}
           {% if code.used_by %}<details class="disclosure small"><summary>{{ t('admin.codes.used_by') }}</summary>
             <ul>{% for use in code.used_by %}<li>{{ use.username or t('common.unknown_user') }} · {{ use.used_at|datetime }}</li>{% endfor %}</ul></details>{% endif %}</td>
-        <td class="nowrap">{{ code.use_count }} / {{ code.max_uses if code.max_uses else '∞' }}</td>
-        <td class="nowrap">{{ code.expires_at|datetime if code.expires_at else t('common.never') }}</td>
-        <td>{% if code.custom_role_name %}{{ code.custom_role_name }}{% elif code.assigned_role %}{{ t('admin.role.' ~ code.assigned_role) }}{% else %}{{ t('admin.role.user') }}{% endif %}</td>
-        {% if manages_all %}<td>{{ code.creator_name or t('common.unknown_user') }}</td>{% endif %}
-        <td class="actions">
-          <button type="button" class="btn btn--small btn--ghost" data-copy="{{ code.code }}">{{ t('admin.codes.copy') }}</button>
+        <td class="nowrap" data-label="{{ t('admin.codes.uses') }}">{{ code.use_count }} / {{ code.max_uses if code.max_uses else '∞' }}</td>
+        <td class="nowrap" data-label="{{ t('admin.codes.expires') }}">{{ code.expires_at|datetime if code.expires_at else t('common.never') }}</td>
+        <td data-label="{{ t('admin.codes.role') }}">{% if code.custom_role_name %}{{ code.custom_role_name }}{% elif code.assigned_role %}{{ t('admin.role.' ~ code.assigned_role) }}{% else %}{{ t('admin.role.user') }}{% endif %}</td>
+        {% if manages_all %}<td data-label="{{ t('admin.codes.creator') }}">{{ code.creator_name or t('common.unknown_user') }}</td>{% endif %}
+        <td class="actions"><div class="cluster">
+          <button type="button" class="btn btn--small" data-copy="{{ code.code }}">{{ t('admin.codes.copy') }}</button>
           {% if can_delete %}{{ forms.post_button(url_for(delete_endpoint, code_id=code.id), t('common.delete'), 'btn btn--small', confirm=t('common.are_you_sure')) }}{% endif %}
-        </td>
+        </div></td>
       </tr>
     {% endfor %}
     </tbody>

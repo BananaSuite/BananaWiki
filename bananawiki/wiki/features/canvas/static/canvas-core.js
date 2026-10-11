@@ -17,6 +17,8 @@
 
   var SVG_NS = "http://www.w3.org/2000/svg";
   var MIN_ZOOM = 0.15;
+  var READABLE_ZOOM = 0.55;  // the first view on a phone starts no smaller than this…
+  var OVERVIEW_ZOOM = 0.4;   // …unless the board's full width fits at this zoom (then the whole width is shown)
   var MAX_ZOOM = 3;
   var DEFAULT_SIZES = {
     text: [240, 120], code: [320, 200], image: [320, 240], video: [360, 280],
@@ -96,6 +98,7 @@
     this.selectedEdge = null;
     this.connectFrom = null;
     this.viewport = { x: 0, y: 0, zoom: 1 };
+    this.readableStart = true;  // the first fit() on a phone keeps text readable
     this.elements = {};
     this.edgeEls = {};
     this.previewEl = null;
@@ -165,6 +168,10 @@
   Scene.prototype.render = function () {
     var seen = {};
     var ordered = this.nodes.slice().sort(byLayer);
+    // Locked frames on the bottom layer (template columns) are backgrounds: connections between the
+    // notes placed on them are drawn above them, while every other element stays above the connections.
+    var count = ordered.length;
+    this.edgeLayer.style.zIndex = String(count + 1);
     ordered.forEach(function (node, index) {
       seen[node.id] = true;
       var element = this.elements[node.id];
@@ -181,10 +188,11 @@
         this.signatures[node.id] = signature;
       }
       this.placeNode(element, node);
-      element.style.zIndex = String(index + 1);
+      element.style.zIndex = String(node.locked && (node.layer || 0) <= 0 ? index + 1 : count + 2 + index);
       element.classList.toggle("is-selected", !!this.selected[node.id]);
       element.classList.toggle("is-connect-source", this.connectFrom === node.id);
-      element.setAttribute("aria-selected", this.selected[node.id] ? "true" : "false");
+      if (this.selected[node.id]) element.setAttribute("aria-current", "true");
+      else element.removeAttribute("aria-current");
       if (element.parentNode !== this.nodeLayer || this.nodeLayer.children[index] !== element) {
         this.nodeLayer.insertBefore(element, this.nodeLayer.children[index] || null);
       }
@@ -220,9 +228,18 @@
       var page = node.page_id && this.pages[node.page_id];
       return page ? page.title : "";
     }
-    if (node.type === "text" || node.type === "code") return "";
+    if (node.type === "text" || node.type === "code") return firstLine(node.content);
     return node.label || "";
   };
+
+  // A short name for an untitled note: its first line without Markdown marks, at most 40 characters
+  // (so "Connection from Ship smaller releases to …" says which notes are linked).
+  function firstLine(text) {
+    var line = String(text || "").split("\n").map(function (part) {
+      return part.replace(/^[\s#>*+\-]+/, "").replace(/[*_`~]/g, "").trim();
+    }).filter(Boolean)[0] || "";
+    return line.length > 40 ? line.slice(0, 39).trim() + "…" : line;
+  }
 
   Scene.prototype.fillNode = function (element, node, rendering) {
     var t = BW.t;
@@ -312,8 +329,7 @@
       frame.src = rendering.embed;
       frame.title = node.display_text || BW.t("node.video");
       frame.loading = "lazy";
-      frame.setAttribute("allow", "fullscreen; picture-in-picture");
-      frame.setAttribute("allowfullscreen", "");
+      frame.setAttribute("allow", "fullscreen; picture-in-picture");  // (allowfullscreen is implied)
       frame.referrerPolicy = "strict-origin-when-cross-origin";
       body.appendChild(frame);
     } else {
@@ -469,7 +485,20 @@
     if (parts.label) {
       parts.label.setAttribute("x", String(geometry.lx));
       parts.label.setAttribute("y", String(geometry.ly));
+      this.placeLabelBackground(parts);
     }
+  };
+
+  /* A plate behind an edge label, so the line never shows between its words. */
+  Scene.prototype.placeLabelBackground = function (parts) {
+    if (!parts.label || !parts.labelBg || !parts.label.isConnected) return;
+    var box;
+    try { box = parts.label.getBBox(); } catch (e) { return; }
+    if (!box || !box.width) return;
+    parts.labelBg.setAttribute("x", String(box.x - 4));
+    parts.labelBg.setAttribute("y", String(box.y - 2));
+    parts.labelBg.setAttribute("width", String(box.width + 8));
+    parts.labelBg.setAttribute("height", String(box.height + 4));
   };
 
   Scene.prototype.drawEdge = function (edge, from, to) {
@@ -489,7 +518,9 @@
     else line.removeAttribute("marker-start");
     if (edge.label) {
       if (!parts.label) {
+        parts.labelBg = svg("rect", { "class": "cv-edge__label-bg", rx: "3", ry: "3" });
         parts.label = svg("text", { "class": "cv-edge__label" });
+        parts.g.appendChild(parts.labelBg);
         parts.g.appendChild(parts.label);
       }
       parts.label.setAttribute("font-size", String(Number(edge.text_size) || 14));
@@ -497,9 +528,13 @@
     } else if (parts.label) {
       parts.label.remove();
       parts.label = null;
+      if (parts.labelBg) { parts.labelBg.remove(); parts.labelBg = null; }
     }
     this.placeEdge(parts, edge, from, to);
-    if (parts.g.parentNode !== this.edgeGroup) this.edgeGroup.appendChild(parts.g);
+    if (parts.g.parentNode !== this.edgeGroup) {
+      this.edgeGroup.appendChild(parts.g);
+      this.placeLabelBackground(parts);
+    }
   };
 
   /* Draw every edge, or with *movedIds* ({id: true}) only move the edges of those nodes (while dragging). */
@@ -599,10 +634,69 @@
     var box = bounds(nodes);
     var minX = box.minX, minY = box.minY, maxX = box.maxX, maxY = box.maxY;
     var pad = 32;
-    var zoom = clamp(Math.min((rect.width - pad * 2) / (maxX - minX), (rect.height - pad * 2) / (maxY - minY)),
-                     MIN_ZOOM, 1.25);
+    // Keep fitted content out from under the overview map in the bottom-right corner.
+    var map = this.stage.querySelector(".canvas-minimap");
+    var reserve = map && !map.hidden && map.offsetParent ? map.offsetHeight + 8 : 0;
+    var height = rect.height - pad * 2 - reserve;
+    var zoom = clamp(Math.min((rect.width - pad * 2) / (maxX - minX), height / (maxY - minY)), MIN_ZOOM, 1.25);
     this.viewport = { zoom: zoom, x: (rect.width - (maxX - minX) * zoom) / 2 - minX * zoom,
-                      y: (rect.height - (maxY - minY) * zoom) / 2 - minY * zoom };
+                      y: pad + (height - (maxY - minY) * zoom) / 2 - minY * zoom };
+    // On a phone a whole board would often shrink to unreadable text. When its full width still
+    // fits at a legible zoom, show the whole width from the top (cropping the sides cut a mindmap's
+    // hub in half); otherwise start readable at the content's top-left corner. Panning and
+    // "Fit to screen" still show everything.
+    if (this.readableStart && rect.width < 600 && zoom < READABLE_ZOOM) {
+      var across = (rect.width - pad * 2) / (maxX - minX);
+      if (across >= OVERVIEW_ZOOM) {
+        zoom = Math.min(across, 1);
+        this.viewport = { zoom: zoom, x: (rect.width - (maxX - minX) * zoom) / 2 - minX * zoom, y: pad / 2 - minY * zoom };
+      } else {
+        zoom = READABLE_ZOOM;
+        this.viewport = { zoom: zoom, x: pad / 2 - minX * zoom, y: pad / 2 - minY * zoom };
+        // A mindmap starts on its hub (the node with three or more connections), not on a corner.
+        var hub = this.hubNode();
+        if (hub) {
+          var size = sizeOf(hub);
+          var tall = (maxY - minY) * zoom;
+          this.viewport.x = rect.width / 2 - (hub.x + size.w / 2) * zoom;
+          this.viewport.y = tall < rect.height ? (rect.height - tall) / 2 - minY * zoom
+            : Math.min(pad / 2 - minY * zoom, rect.height / 2 - (hub.y + size.h / 2) * zoom);
+        }
+      }
+    }
+    this.readableStart = false;
+    this.applyViewport();
+  };
+
+  /* The most connected node when it links three or more others (a mindmap's centre), else null. */
+  Scene.prototype.hubNode = function () {
+    var degree = {};
+    this.edges.forEach(function (edge) {
+      degree[edge.from] = (degree[edge.from] || 0) + 1;
+      degree[edge.to] = (degree[edge.to] || 0) + 1;
+    });
+    var best = null, most = 2;
+    this.nodes.forEach(function (node) {
+      if ((degree[node.id] || 0) > most) { best = node; most = degree[node.id]; }
+    });
+    return best;
+  };
+
+  /* A read-only frame taller than its content after fit() shrinks to it, so no empty dotted band is
+     left under the board (history previews and page embeds). It never grows. */
+  Scene.prototype.trimHeight = function (minHeight) {
+    var box = bounds(this.nodes);
+    var rect = this.stage.getBoundingClientRect();
+    if (!box || !rect.height) return;
+    var pad = 32;
+    var map = this.stage.querySelector(".canvas-minimap");
+    var reserve = map && !map.hidden && map.offsetParent ? map.offsetHeight + 8 : 0;
+    var needed = Math.ceil((box.maxY - box.minY) * this.viewport.zoom + pad * 2 + reserve);
+    var target = Math.max(minHeight || 240, needed);
+    if (target >= rect.height - 8) return;
+    this.stage.style.minHeight = "0";
+    this.stage.style.height = target + "px";
+    this.viewport.y = pad - box.minY * this.viewport.zoom;
     this.applyViewport();
   };
 

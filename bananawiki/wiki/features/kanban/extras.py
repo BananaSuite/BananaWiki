@@ -13,9 +13,10 @@ from ....core.timeutil import now_sql
 from ... import storage
 from ...db import db
 from ...i18n import t
-from ...markdown import render
+from ...markdown import plain_html, render, shared_highlighting
 from ..pages import diff
-from . import access, events, fields, signals, store
+from . import access, events, fields, logtext, signals, store
+from .fields import KanbanError
 
 # The 1.4 list of attachment types (the site's upload policy applies on top).
 ATTACHMENT_EXTENSIONS = frozenset({
@@ -38,11 +39,17 @@ _COMMENT_SELECT = (
 )
 
 
-def comment_payload(row: dict[str, Any], user: dict[str, Any] | None) -> dict[str, Any]:
+def comment_payload(row: dict[str, Any], user: dict[str, Any] | None, *, rendered: bool = True) -> dict[str, Any]:
+    """A comment for *user*; its HTML is rendered Markdown, or with *rendered* off its text as typed.
+
+    The rendering is kept however short the comment is: the ticket's listing
+    renders every comment each time the ticket is opened.
+    """
     allowed = access.can_moderate_comment(user, row)
     return {
         "id": row["id"], "user_id": row["user_id"], "author_name": row["author_name"] or "",
-        "content": row["content"], "content_html": render(row["content"]),
+        "content": row["content"],
+        "content_html": render(row["content"], keep=True) if rendered else plain_html(row["content"]),
         "created_at": row["created_at"], "updated_at": row["updated_at"],
         "edited": row["updated_at"] != row["created_at"], "can_edit": allowed, "can_delete": allowed,
     }
@@ -52,6 +59,31 @@ def comments(ticket_id: int) -> list[dict[str, Any]]:
     return db.all(f"{_COMMENT_SELECT} WHERE c.ticket_id = ? ORDER BY c.created_at, c.id", (ticket_id,))
 
 
+def comment_payloads(rows: list[dict[str, Any]], user: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """A ticket's comments (*rows*, oldest first) for one listing, at a bounded cost.
+
+    They are rendered newest first and share one highlighting allowance, like
+    the blocks of a page: past it code stays plain, and later listings
+    highlight it once these renderings are kept (all of them are, so opening
+    the ticket again renders nothing new). At most
+    :data:`fields.MAX_COMMENTS_PER_TICKET` of them are rendered (tickets of
+    earlier versions may hold more), and only until their HTML reaches
+    :data:`fields.MAX_LISTING_HTML_CHARS` (a short comment can expand a
+    hundredfold, with reference links). Older comments are listed as typed.
+    """
+    payloads = []
+    html_left = fields.MAX_LISTING_HTML_CHARS
+    with shared_highlighting():
+        for index, row in enumerate(reversed(rows)):
+            rendered = index < fields.MAX_COMMENTS_PER_TICKET and html_left > 0
+            payload = comment_payload(row, user, rendered=rendered)
+            if rendered:
+                html_left -= len(payload["content_html"])
+            payloads.append(payload)
+    payloads.reverse()
+    return payloads
+
+
 def get_comment(comment_id: int) -> dict[str, Any] | None:
     return db.one(f"{_COMMENT_SELECT} WHERE c.id = ?", (comment_id,))
 
@@ -59,11 +91,15 @@ def get_comment(comment_id: int) -> dict[str, Any] | None:
 def add_comment(ticket: dict[str, Any], user: dict[str, Any], content: Any) -> dict[str, Any]:
     text = fields.comment(content)
     with db.transaction():
+        count = int(db.scalar("SELECT COUNT(*) FROM kanban_ticket_comments WHERE ticket_id = ?", (ticket["id"],),
+                              default=0) or 0)
+        if count >= fields.MAX_COMMENTS_PER_TICKET:
+            raise KanbanError("kanban.error.too_many_comments", 409, maximum=fields.MAX_COMMENTS_PER_TICKET)
         now = now_sql()
         comment_id = db.insert("kanban_ticket_comments", {"ticket_id": ticket["id"], "user_id": user["id"],
                                                           "content": text, "created_at": now, "updated_at": now})
         events.log_activity(ticket["board_id"], user["id"], "comment_added",
-                            t("kanban.log.comment_added", title=ticket["title"]))
+                            logtext.message("kanban.log.comment_added", title=ticket["title"]))
         _touch_card(ticket["board_id"], ticket["id"], user["id"])
     row = get_comment(comment_id)
     assert row is not None
@@ -114,7 +150,7 @@ def add_attachment(ticket: dict[str, Any], user: dict[str, Any], upload: FileSto
                 "file_size": stored.size, "uploaded_by": user["id"], "uploaded_at": now_sql(),
             })
             events.log_activity(ticket["board_id"], user["id"], "attachment_added",
-                                t("kanban.log.attachment_added", name=stored.original_name, title=ticket["title"]))
+                                logtext.message("kanban.log.attachment_added", name=stored.original_name, title=ticket["title"]))
             _touch_card(ticket["board_id"], ticket["id"], user["id"])
     except BaseException:
         storage.delete(store.FOLDER, stored.filename)
@@ -128,7 +164,7 @@ def delete_attachment(attachment: dict[str, Any], user: dict[str, Any]) -> None:
         db.execute("DELETE FROM kanban_ticket_attachments WHERE id = ?", (attachment["id"],))
         store.delete_blobs([attachment])
         events.log_activity(attachment["board_id"], user["id"], "attachment_deleted",
-                            t("kanban.log.attachment_deleted", name=attachment["original_name"]))
+                            logtext.message("kanban.log.attachment_deleted", name=attachment["original_name"]))
         _touch_card(attachment["board_id"], attachment["ticket_id"], user["id"])
     store.delete_files([attachment])
     signals.tickets_changed("updated", [attachment["ticket_id"]], attachment["board_id"], user)

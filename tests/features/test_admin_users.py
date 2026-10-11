@@ -285,6 +285,28 @@ def test_temporary_password_and_restore(app, admin_client, make_user, login, db)
     login(app.test_client(), bob)
 
 
+def test_a_password_the_user_chose_later_is_never_rolled_back(app, admin_client, make_user, login, db):
+    bob = make_user("bob")
+    edit(admin_client, bob, action="set_temp_password", password=NEW_PASSWORD, confirm_password=NEW_PASSWORD,
+         force_password_change="1")
+    bob_client = app.test_client()
+    login(bob_client, bob, password=NEW_PASSWORD)
+    chosen = "my own new password"
+    bob_client.post("/force-change-password", data={"current_password": NEW_PASSWORD, "new_password": chosen,
+                                                    "confirm_password": chosen})
+    assert fetch(db, bob)["original_password_backup"] is None
+    edit(admin_client, bob, action="revert_password")
+    login(app.test_client(), bob, password=chosen)
+
+
+def test_a_later_permanent_reset_drops_the_saved_original(admin_client, make_user, db):
+    bob = make_user("bob")
+    edit(admin_client, bob, action="set_temp_password", password=NEW_PASSWORD, confirm_password=NEW_PASSWORD)
+    edit(admin_client, bob, action="change_password", password="a permanent password",
+         confirm_password="a permanent password")
+    assert fetch(db, bob)["original_password_backup"] is None
+
+
 def test_password_mismatch_is_refused(admin_client, make_user, db):
     bob = make_user("bob")
     edit(admin_client, bob, action="change_password", password=NEW_PASSWORD, confirm_password="nope nope nope")
@@ -431,6 +453,55 @@ def test_mass_logout_keeps_admin_session(app, admin_client, make_user, login):
     assert admin_client.get("/admin/users").status_code == 200
 
 
+def test_mass_logout_by_a_plain_admin_spares_accounts_it_may_not_manage(app, admin_client, make_user, login, owner):
+    clients = {}
+    for name, role in (("bob", "user"), ("other_admin", "admin")):
+        clients[name] = app.test_client()
+        login(clients[name], make_user(name, role=role))
+    clients["owner"] = app.test_client()
+    login(clients["owner"], owner)
+    assert admin_client.post("/admin/mass-logout").status_code == 302
+    assert "/login" in clients["bob"].get("/_probe/private").headers["Location"]
+    assert clients["other_admin"].get("/_probe/private").data == b"private"
+    assert clients["owner"].get("/_probe/private").data == b"private"
+    # The owner's mass sign-out reaches the administrators too.
+    assert clients["owner"].post("/admin/mass-logout").status_code == 302
+    assert "/login" in clients["other_admin"].get("/_probe/private").headers["Location"]
+    assert "/login" in admin_client.get("/_probe/private").headers["Location"]
+
+
+def test_sessions_page_hides_addresses_and_revocation_of_protected_accounts(app, admin_client, make_user,
+                                                                             login, owner, db):
+    owner_client = app.test_client()
+    owner_client.post("/login", data={"username": owner["username"], "password": PASSWORD},
+                      environ_base={"REMOTE_ADDR": "198.51.100.77"})
+    bob_client = app.test_client()
+    bob_client.post("/login", data={"username": make_user("bob")["username"], "password": PASSWORD},
+                    environ_base={"REMOTE_ADDR": "203.0.113.88"})
+    page = admin_client.get("/admin/sessions").get_data(as_text=True)
+    assert "203.0.113.88" in page and "198.51.100.77" not in page
+    assert "198.51.100.77" not in admin_client.get(f"/admin/users/{owner['id']}").get_data(as_text=True)
+    owner_session = db.scalar("SELECT id FROM user_sessions WHERE user_id = ?", (owner["id"],))
+    assert f"/admin/sessions/{owner_session}/revoke" not in page
+    admin_client.post(f"/admin/sessions/{owner_session}/revoke")
+    assert owner_client.get("/_probe/private").data == b"private"
+
+
+def test_revoking_one_session_finds_it_beyond_the_listed_ones(app, admin_client, make_user, login, db,
+                                                              monkeypatch):
+    from bananawiki.wiki.features.admin import service
+
+    original = service.active_sessions
+    monkeypatch.setattr(service, "active_sessions", lambda user_id=None, *, limit=200: original(user_id, limit=1))
+    bob_client = app.test_client()
+    login(bob_client, make_user("bob"))
+    bob_session = db.scalar("SELECT id FROM user_sessions WHERE user_id = (SELECT id FROM users WHERE username = 'bob')")
+    db.execute("UPDATE user_sessions SET last_seen_at = '2000-01-01 00:00:00' WHERE id = ?", (bob_session,))
+    admin_client.get("/admin/users")  # the administrator's session is the most recently active one
+    admin_client.post(f"/admin/sessions/{bob_session}/revoke")
+    assert bob_client.get("/_probe/private").status_code == 302, "signed out"
+
+
 def test_auto_logout_job(app, admin_client, make_user, login, db):
     from bananawiki.wiki.db import connection_scope
     from bananawiki.wiki.features.admin import jobs
@@ -447,3 +518,38 @@ def test_auto_logout_job(app, admin_client, make_user, login, db):
     with app.app_context(), connection_scope():
         jobs.auto_logout()
     assert "/login" in bob_client.get("/_probe/private").headers["Location"]
+
+
+# ── Expired sign-ups ─────────────────────────────────────────────────────────
+
+
+def test_expired_signup_cleanup_spares_an_account_approved_meanwhile(app, db, make_user):
+    """An approval that commits after the candidates were listed must keep the account."""
+    from contextlib import contextmanager
+
+    from bananawiki.wiki.db import db as wiki_db
+    from bananawiki.wiki.features.admin import service
+    from tests.features.pages_support import in_app
+
+    pending = make_user("slow_reviewer_pick", approval_status="pending", created_at=sql_in(days=-3))
+
+    def cleanup():
+        original = wiki_db.session.transaction
+        approved = []
+
+        @contextmanager
+        def transaction():
+            if not approved and not wiki_db.session.conn.in_transaction:
+                approved.append(True)
+                db.execute("UPDATE users SET approval_status = 'approved' WHERE id = ?", (pending["id"],))
+            with original():
+                yield
+
+        wiki_db.session.transaction = transaction
+        try:
+            return service.delete_expired_signups(24, 24)
+        finally:
+            wiki_db.session.transaction = original
+
+    assert in_app(app, cleanup) == 0
+    assert fetch(db, pending)["approval_status"] == "approved"

@@ -146,6 +146,7 @@
   "pages.nav.new_category": "New category",
   "pages.nav.new_page": "New page",
   "pages.nav.open_category": "Open",
+  "pages.nav.open_category_named": "Open {name}",
   "pages.nav.page": "Page",
   "pages.nav.search_content": "Include page text",
   "pages.nav.search_label": "Search pages and categories",

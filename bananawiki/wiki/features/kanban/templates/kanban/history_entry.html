@@ -17,7 +17,7 @@
   <div class="page-header__meta">
     <span>{{ entry.created_at|datetime }}</span>
     <span>{{ entry.username or t('common.unknown_user') }}</span>
-    <span>{{ entry.edit_message or '—' }}</span>
+    <span>{{ (kanban_log_message(entry.edit_message) or '—')|capfirst }}</span>
     {% if entry.is_revert %}<span class="badge badge--warning">{{ t('kanban.history.revert_badge') }}</span>{% endif %}
   </div>
 </header>
@@ -42,15 +42,20 @@
       <h2 class="kanban-column__title" id="kanban-snapshot-column-{{ loop.index }}">{{ column.title or '—' }}</h2>
       {% set active = column.tickets|rejectattr('archived')|list %}
       <span class="kanban-column__count">{% if column.wip_limit %}{{ t('kanban.history.wip', count=active|length, limit=column.wip_limit) }}{% else %}{{ active|length }}{% endif %}</span>
+      {% if column.done %}<span class="badge kanban-column__done-mark">{{ t('kanban.history.done_column') }}</span>{% endif %}
     </div>
     <ol class="kanban-snapshot">
       {% for ticket in column.tickets %}
       <li class="kanban-card kanban-card--static{% if ticket.archived %} kanban-card--archived{% endif %}">
         <strong>{{ ticket.title or '—' }}</strong>
-        {% if ticket.archived %}<span class="badge badge--warning">{{ t('kanban.history.archived') }}</span>{% endif %}
-        {% if ticket.priority %}<span class="badge kanban-priority--{{ ticket.priority }}">{{ t('kanban.priority.' ~ ticket.priority, ticket.priority) }}</span>{% endif %}
-        {% if ticket.due_date %}<span class="badge">{{ t('kanban.mine.due', date=(ticket.due_date|string)[:10]) }}</span>{% endif %}
-        {% for label in ticket.labels or [] %}<span class="badge badge--primary">+{{ label }}</span>{% endfor %}
+        {% if ticket.archived or ticket.priority or ticket.due_date or ticket.labels %}
+        <div class="kanban-card__meta">
+          {% if ticket.archived %}<span class="badge badge--warning">{{ t('kanban.history.archived') }}</span>{% endif %}
+          {% if ticket.priority %}<span class="badge kanban-priority--{{ ticket.priority }}">{{ t('kanban.priority.' ~ ticket.priority, ticket.priority) }}</span>{% endif %}
+          {% if ticket.due_date %}<span class="badge">{{ t('kanban.mine.due', date=(ticket.due_date|string)[:10]) }}</span>{% endif %}
+          {% for label in ticket.labels or [] %}<span class="badge badge--primary">+{{ label }}</span>{% endfor %}
+        </div>
+        {% endif %}
         {% if ticket.assignee_usernames %}<p class="small muted">{{ t('kanban.history.assigned', names=ticket.assignee_usernames|join(', ')) }}</p>{% endif %}
         {% if ticket.checklist %}
         {% set done = ticket.checklist|selectattr('done')|list|length %}
@@ -59,7 +64,7 @@
           <ul>{% for item in ticket.checklist %}<li>{{ '☑' if item.done else '☐' }} {{ item.text }}</li>{% endfor %}</ul>
         </details>
         {% endif %}
-        {% if ticket.description %}<pre class="kanban-snapshot__description">{{ ticket.description }}</pre>{% endif %}
+        {% if ticket.description %}<div class="prose small kanban-snapshot__description">{{ ticket.description|markdown }}</div>{% endif %}
       </li>
       {% else %}
       <li class="muted">{{ t('kanban.history.no_tickets') }}</li>

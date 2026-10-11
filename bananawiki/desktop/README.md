@@ -77,7 +77,7 @@ The same program (or `python -m bananawiki.desktop` from a source install)
 has headless commands:
 
 ```
-BananaWiki serve   --data-dir DIR [--port N] [--lan] [--language it] [--backend waitress|gunicorn]
+BananaWiki serve   --data-dir DIR [--port N] [--lan] [--language en|it|de] [--backend waitress|gunicorn]
 BananaWiki backup  --data-dir DIR --output FILE.zip
 BananaWiki restore --data-dir DIR FILE.zip
 ```
@@ -105,7 +105,8 @@ addresses (and the setup code while setup is pending) and stops on Ctrl+C.
   same port and receive the wiki's requests; on Linux and macOS with
   `SO_REUSEADDR`, as waitress does.
 * `app.py` is the tkinter window; slow work runs on a worker thread.
-* Strings live in `translations/en.json` and `translations/it.json`.
+* Strings live in `translations/en.json`, `translations/it.json` and
+  `translations/de.json`.
 
 ## Building
 
@@ -118,9 +119,11 @@ python packaging/desktop/smoke_test.py packaging/desktop/dist/BananaWiki-Desktop
 ```
 
 `packaging/desktop/` holds the PyInstaller spec (bundle id
-`org.bananawiki.desktop`), the icons, the build script (which wraps the output
-in an archive that keeps executable bits) and the smoke test (runs `serve`,
-checks `/health` and `/setup`, then `backup`). The GitHub workflow
+`org.bananawiki.desktop`), the icons (drawn by `scripts/make_icons.py` from
+the mascot's pixel art, like the window icon in `bananawiki/desktop/static/`),
+the build script (which wraps the output in an archive that keeps executable
+bits) and the smoke test (runs `serve`, checks `/health` and `/setup`, then
+`backup`). The GitHub workflow
 `.github/workflows/desktop-app.yml` runs the tests, the build and the smoke
 test on Windows, Linux and macOS for changes to the launcher.
 

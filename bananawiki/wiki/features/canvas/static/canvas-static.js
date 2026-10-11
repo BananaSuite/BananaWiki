@@ -8,10 +8,12 @@
       var source = document.getElementById(stage.getAttribute("data-source"));
       var snapshot = {};
       try { snapshot = JSON.parse(source ? source.textContent : "{}"); } catch (e) { snapshot = {}; }
-      var scene = new BW.Canvas.Scene(stage, { editable: false });
+      // Like page embeds: the wheel scrolls the page, Ctrl/Cmd + wheel zooms the preview.
+      var scene = new BW.Canvas.Scene(stage, { editable: false, wheelNeedsModifier: true });
       stage.tabIndex = 0;
       scene.load(snapshot.data || {}, snapshot);
       scene.fit();
+      scene.trimHeight();
     });
   });
 })();

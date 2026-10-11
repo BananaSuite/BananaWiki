@@ -4,6 +4,7 @@
 <div class="card card--narrow">
   <h1>{{ t('auth.admin_login.title') }}</h1>
   <p class="muted">{{ t('auth.admin_login.intro') }}</p>
+  {% if current_user and not is_admin %}<div class="alert" role="status"><div class="alert__body">{{ t('auth.admin_login.signed_in_as', user=current_user.username) }}</div></div>{% endif %}
   {% with action=url_for('auth.admin_login'), submit_label=t('auth.login.submit'), show_remember=true %}
     {% include "auth/_login_form.html" %}
   {% endwith %}

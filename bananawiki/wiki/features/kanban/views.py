@@ -8,13 +8,13 @@ from typing import Any
 
 from flask import Response, abort, redirect, render_template, request, send_file, url_for
 
-from ... import auth, settings
+from ... import auth, settings, storage
 from ...db import db
 from ...i18n import t
 from ...markdown import excerpt
 from ...registry import feature_blueprint
 from ..pages.service import slugify
-from . import access, events, filters, guard, history, service, store, transfer
+from . import access, events, filters, guard, history, logtext, service, store, transfer
 from .fields import KanbanError
 from .filters import site_today
 
@@ -64,10 +64,12 @@ def index():
     )
 
 
-DUE_GROUPS = ("overdue", "today", "week", "later", "none")
+DUE_GROUPS = ("overdue", "today", "week", "later", "none", "done")
 
 
-def _due_group(due: str | None, today: date) -> str:
+def _due_group(due: str | None, today: date, done: bool = False) -> str:
+    if done:  # finished work in a done column: its date no longer makes it urgent
+        return "done"
     if not due:
         return "none"
     day = date.fromisoformat(due)
@@ -95,7 +97,7 @@ def mine():
     groups: dict[str, list[dict[str, Any]]] = {name: [] for name in DUE_GROUPS}
     tickets = service.assigned_tickets(user, flt=flt)
     for ticket in tickets:
-        groups[_due_group(ticket["due_date"], today)].append(ticket)
+        groups[_due_group(ticket["due_date"], today, ticket.get("column_done", False))].append(ticket)
     return render_template("kanban/mine.html", groups=[(name, groups[name]) for name in DUE_GROUPS if groups[name]],
                            total=len(tickets), limited=len(tickets) >= service.MY_TICKETS_LIMIT, filter=flt)
 
@@ -260,7 +262,7 @@ def export(board_id: int):
     if request.args.get("format") == "json" or not bundle:
         body = json.dumps(document, indent=2, ensure_ascii=False)
         return Response(body, mimetype="application/json",
-                        headers={"Content-Disposition": f'attachment; filename="{name}.kanban.json"'})
+                        headers={"Content-Disposition": storage.content_disposition(f"{name}.kanban.json")})
     try:
         archive = transfer.export_zip(document, bundle)
     except KanbanError as error:
@@ -270,6 +272,12 @@ def export(board_id: int):
 
 
 # ── History ───────────────────────────────────────────────────────────────────
+
+
+@bp.app_template_global("kanban_log_message")
+def _log_message_global(stored: str | None) -> str:
+    """A history or activity message in the reader's language (see :mod:`.logtext`)."""
+    return logtext.render(stored)
 
 
 @bp.get("/kanban/<int:board_id>/history")

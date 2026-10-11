@@ -6,7 +6,7 @@
   <h1>{{ t('hosting.forgot_username.title') }}</h1>
   <p>{{ t('hosting.forgot_username.intro') }}</p>
   <form method="post" class="form">{{ ui.csrf() }}
-    {{ ui.field('email', t('hosting.field.email'), type='email', required=true, attrs={'autocomplete': 'email', 'maxlength': 254}) }}
+    {{ ui.field('email', t('hosting.field.email'), type='email', required=true, attrs={'autocomplete': 'email', 'maxlength': 254, 'autofocus': 'autofocus'}) }}
     <button class="btn btn--primary" type="submit">{{ t('hosting.forgot_username.submit') }}</button>
   </form>
   <p class="small"><a href="{{ url_for('auth.login') }}">{{ t('hosting.common.back_to_login') }}</a></p>

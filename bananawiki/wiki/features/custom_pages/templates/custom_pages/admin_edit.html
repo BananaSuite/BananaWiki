@@ -7,9 +7,9 @@
 <header class="page-header">
   <h1>{{ title }}</h1>
   <div class="page-header__actions">
-    {% if is_builder and builder_available %}<a class="btn btn--primary" href="{{ url_for('page_builder.custom_editor', page_id=page.id) }}">{{ t('custom_pages.admin.open_builder') }}</a>{% endif %}
-    {% if page %}<a class="btn" href="{{ page.path }}" target="_blank" rel="noopener">{{ t('custom_pages.admin.open') }}</a>{% endif %}
-    <a class="btn btn--ghost" href="{{ url_for('custom_pages.admin_list') }}">{{ t('common.back') }}</a>
+    {% if is_builder and builder_available %}<a class="btn btn--primary btn--small" href="{{ url_for('page_builder.custom_editor', page_id=page.id) }}">{{ t('custom_pages.admin.open_builder') }}</a>{% endif %}
+    {% if page %}<a class="btn btn--small" href="{{ page.path }}" target="_blank" rel="noopener">{{ t('custom_pages.admin.open') }}</a>{% endif %}
+    <a class="btn btn--small" href="{{ url_for('custom_pages.admin_list') }}">{{ t('common.back') }}</a>
   </div>
 </header>
 

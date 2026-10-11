@@ -33,6 +33,8 @@ import math
 import re
 from typing import Any
 
+from bananawiki.core.numbers import ascii_int
+
 MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
 MAX_NODES = 2000
 MAX_EDGES = 5000
@@ -188,8 +190,9 @@ def clean_node(raw: Any) -> dict[str, Any] | None:
         if value:
             node[key] = value
     page_id = raw.get("page_id")
-    if isinstance(page_id, (int, str)) and not isinstance(page_id, bool) and str(page_id).isdigit():
-        node["page_id"] = int(page_id)
+    linked_page = ascii_int(page_id) if isinstance(page_id, (int, str)) and not isinstance(page_id, bool) else None
+    if linked_page is not None:
+        node["page_id"] = linked_page
     page_slug = _text(raw.get("page_slug"), 200)
     if page_slug:
         node["page_slug"] = page_slug

@@ -33,12 +33,14 @@ from typing import Any
 from filelock import FileLock, Timeout
 from flask import current_app
 
+from ..core.i18n import FALLBACK
 from ..core.timeutil import MAX_YEAR, is_past, now_sql, parse, sql_in, to_sql, utcnow
 from ..core.web import one_line
 from . import accounts, events, oauth, settings, urls
 from .config import HostingConfig
 from .db import db
 from .errors import ServiceError
+from .i18n import t_lang
 from .runtime import Runtime, RuntimeFailure, TenantPolicy, TenantSpec, TtsGpu
 
 log = logging.getLogger("bananawiki.hosting.instances")
@@ -46,6 +48,7 @@ log = logging.getLogger("bananawiki.hosting.instances")
 STATUSES = ("running", "stopped", "suspended", "terminated")
 FEATURES = {"public_access": "public_wiki_allowed", "page_builder": "page_builder_allowed"}
 ADMIN_EXPIRY_DAYS = 365 * 100
+RENEWAL_WINDOW_DAYS = 7
 MAX_EXTENSION_SECONDS = 10 * 365 * 86400
 LOG_NAMES = ("error.log", "access.log")
 _ID_ALPHABET = string.ascii_lowercase + string.digits
@@ -494,19 +497,76 @@ def usage_bytes(inst: dict[str, Any]) -> int:
         return 0
 
 
+def on_probation(account: dict[str, Any]) -> bool:
+    """Whether *account* is a new self-service account, held to the smaller limits for new accounts.
+
+    That is an account created on the public sign-up form (it accepted the
+    terms there), never approved by an administrator, and younger than
+    ``HOSTING_NEW_ACCOUNT_DAYS``. Administrators, accounts an administrator
+    created or approved, and older accounts use the normal limits.
+    """
+    days = cfg().limits.new_account_days
+    if account["is_admin"] or days <= 0 or account.get("approved_by") or not account.get("terms_accepted_at"):
+        return False
+    created = parse(account.get("created_at"))
+    return created is None or utcnow() - created < timedelta(days=days)
+
+
+def account_limit(account: dict[str, Any]) -> int:
+    """How many live wikis *account* may own (``MAX_INSTANCES_PER_ACCOUNT``, less while on probation)."""
+    limits = cfg().limits
+    if on_probation(account):
+        return min(limits.max_per_account, limits.new_account_max_instances)
+    return limits.max_per_account
+
+
+def check_account_capacity(account: dict[str, Any]) -> None:
+    """Refuse one more wiki for *account* (created or received) once it holds its limit.
+
+    Suspended wikis count: suspending a wiki must not free a place for
+    another one. Run it inside the transaction that adds the wiki.
+    """
+    if account["is_admin"]:
+        return
+    held = db.scalar("SELECT COUNT(*) FROM instances WHERE account_id = ? "
+                     "AND status IN ('running', 'stopped', 'suspended')", (account["id"],), default=0)
+    limit = account_limit(account)
+    if held >= limit:
+        if limit < cfg().limits.max_per_account:
+            raise ServiceError("hosting.instances.new_account_limit", max=limit,
+                               days=cfg().limits.new_account_days)
+        raise ServiceError("hosting.instances.account_limit", max=limit)
+
+
 def _check_capacity(account: dict[str, Any]) -> None:
-    """Check count limits while holding the transaction that reserves a new row."""
+    """Check count limits while holding the transaction that reserves a new row.
+
+    With the platform limit on, accounts on probation (see
+    :func:`on_probation`) share at most ``HOSTING_NEW_ACCOUNT_SHARE_PERCENT``
+    of it: a burst of throwaway sign-ups can never fill the whole platform.
+    """
     if account["is_admin"]:
         return
     settings.load(fresh=True)  # preflight may have cached policy before this write lock
-    active = db.scalar("SELECT COUNT(*) FROM instances WHERE account_id = ? AND status IN ('running', 'stopped')",
-                       (account["id"],), default=0)
-    if active >= cfg().limits.max_per_account:
-        raise ServiceError("hosting.instances.account_limit", max=cfg().limits.max_per_account)
+    check_account_capacity(account)
     if settings.flag("global_limit_enabled", True):
+        maximum = int(settings.get("global_limit_max_instances", 50))
         total = db.scalar("SELECT COUNT(*) FROM instances WHERE status IN ('running', 'stopped')", default=0)
-        if total >= int(settings.get("global_limit_max_instances", 50)):
+        if total >= maximum:
+            log.warning("The platform's wiki limit (%d) is reached; refusing a new wiki", maximum)
             raise ServiceError("hosting.instances.platform_full")
+        limits = cfg().limits
+        if on_probation(account) and limits.new_account_days > 0:
+            share = maximum * limits.new_account_share_percent // 100
+            newcomers = db.scalar(
+                "SELECT COUNT(*) FROM instances i JOIN accounts a ON a.id = i.account_id "
+                "WHERE i.status IN ('running', 'stopped') AND a.is_admin = 0 AND a.approved_by IS NULL "
+                "AND a.terms_accepted_at IS NOT NULL AND a.created_at > ?",
+                (sql_in(days=-limits.new_account_days),), default=0)
+            if newcomers >= share:
+                log.warning("New accounts hold %d of the %d wikis they may share; refusing another", newcomers,
+                            share)
+                raise ServiceError("hosting.instances.new_accounts_full")
 
 
 def _check_storage_capacity(account: dict[str, Any]) -> None:
@@ -514,6 +574,12 @@ def _check_storage_capacity(account: dict[str, Any]) -> None:
     if (not account["is_admin"] and settings.flag("global_limit_enabled", True)
             and platform_usage_mb() >= int(settings.get("global_limit_max_storage_mb", 5000))):
         raise ServiceError("hosting.instances.platform_storage_full")
+
+
+def default_expiry() -> str | None:
+    """The expiry of a customer's wiki from now: ``INSTANCE_DURATION_DAYS``, or None when that is 0 (never)."""
+    days = cfg().limits.duration_days
+    return sql_in(days=days) if days > 0 else None
 
 
 def _insert(account: dict[str, Any], slug: str, domain_mode: str, *, admin_username: str, custom_credentials: bool,
@@ -524,7 +590,7 @@ def _insert(account: dict[str, Any], slug: str, domain_mode: str, *, admin_usern
     if admin_owner:
         expires = sql_in(days=ADMIN_EXPIRY_DAYS) if domain_mode != "apex" else None
     else:
-        expires = sql_in(days=cfg().limits.duration_days)
+        expires = default_expiry()
     instance_id = _new_id()
     try:
         with db.transaction():
@@ -723,6 +789,16 @@ def start(inst: dict[str, Any], *, actor_id: str | None, allow_suspended: bool =
     except RuntimeFailure as error:
         _cas(inst["id"], ("running",), {"status": "stopped", "stopped_at": now_sql()})
         raise _fail(error) from error
+    # A suspension (or stop) that landed while the container was starting
+    # already stopped it, before this start finished: stop it again.
+    current = get(inst["id"])
+    if current is None or current["status"] != "running":
+        try:
+            runtime().stop(spec(current or inst, with_policy=False))
+        except RuntimeFailure as error:
+            log.error("Wiki %s changed state while starting and could not be stopped: %s", inst["id"], error)
+        sync_routes()
+        raise ServiceError("hosting.instances.changed_state")
     events.record("instance", inst["id"], "instance.started", actor_id)
     sync_routes()
 
@@ -753,7 +829,8 @@ def apply_policy(inst: dict[str, Any], *, actor_id: str | None) -> bool:
     try:
         runtime().apply_limits(spec(inst))
         if inst["status"] == "running":
-            runtime().restart(spec(inst), force=True)
+            # Not an explicit start: a wiki an update isolated stays stopped.
+            runtime().restart(spec(inst), force=True, policy_change=True)
     except RuntimeFailure as error:
         log.warning("Policy for %s not applied: %s", inst["id"], error)
         if inst["status"] == "running":
@@ -815,21 +892,17 @@ def unsuspend(inst: dict[str, Any], *, actor_id: str | None) -> None:
         expires = parse(inst.get("expires_at"))
         # An expiry at the end of datetime's range keeps its date.
         credited = _shifted(expires, delta) if expires else None
+        expires_at = to_sql(credited) if credited else inst.get("expires_at")
         db.update("instances", {
             "suspended_at": None, "suspended_until": None, "suspend_reason": "", "suspend_reason_visible": 0,
             "suspend_time_visible": 0, "status": "stopped",
             "suspended_accumulated_seconds": int(inst.get("suspended_accumulated_seconds") or 0) + delta,
-            "expires_at": to_sql(credited) if credited else inst.get("expires_at"),
+            "expires_at": expires_at,
+            # An end date an administrator brought forward moves with the credit and stays theirs.
+            "admin_expiry": expires_at if renewal_locked(inst) else inst.get("admin_expiry"),
         }, "id = ?", (inst["id"],))
         _audit(inst["id"], "unsuspend", actor_id, None, False, False, None, None)
     start(get(inst["id"]), actor_id=actor_id)  # type: ignore[arg-type]
-
-
-def suspension_active(inst: dict[str, Any]) -> bool:
-    if inst.get("status") != "suspended":
-        return False
-    until = inst.get("suspended_until")
-    return not (until and is_past(until))
 
 
 def suspension_history(instance_id: str) -> list[dict[str, Any]]:
@@ -909,6 +982,7 @@ def terminate(inst: dict[str, Any], *, actor_id: str | None, reason: str = "manu
             if not changed:
                 raise ServiceError("hosting.instances.changed_state")
             db.execute("DELETE FROM instance_custom_domains WHERE instance_id = ?", (inst["id"],))
+            db.execute("DELETE FROM instance_domain_claims WHERE instance_id = ?", (inst["id"],))
             db.execute("UPDATE instance_ownership_transfers SET status = 'cancelled', resolved_at = ? "
                        "WHERE instance_id = ? AND status = 'pending'", (now_sql(), inst["id"]))
             events.record("instance", inst["id"], f"instance.terminated.{reason}", actor_id)
@@ -967,7 +1041,7 @@ def restore(inst: dict[str, Any], *, actor_id: str, extend_days: int | None = No
         target = f"{original[:30]}-r{secrets.token_hex(2)}"
     else:
         raise ServiceError("hosting.instances.name_taken")
-    days = extend_days if extend_days and extend_days > 0 else cfg().limits.duration_days
+    expires = sql_in(days=extend_days) if extend_days and extend_days > 0 else default_expiry()
     old_dir = urls.data_dir_name(inst["subdomain"], mode)
     new_dir = urls.data_dir_name(target, mode)
     try:
@@ -978,7 +1052,7 @@ def restore(inst: dict[str, Any], *, actor_id: str, extend_days: int | None = No
         with db.transaction():
             db.update("instances", {
                 "status": "stopped", "subdomain": target, "port": _allocate_port(), "stopped_at": now_sql(),
-                "expires_at": None if mode == "apex" else sql_in(days=days), "terminated_at": None,
+                "expires_at": None if mode == "apex" else expires, "terminated_at": None,
                 "data_retained_until": None, "terminated_reason": None, "grace_period_suspended": 0,
             }, "id = ?", (inst["id"],))
             events.record("instance", inst["id"], "instance.restored", actor_id, target)
@@ -1087,13 +1161,22 @@ def grace_active(inst: dict[str, Any]) -> bool:
 
 
 def set_expiry(inst: dict[str, Any], expires_at: str | None, *, actor_id: str) -> None:
-    """Set (or with None remove) the expiry; a date already past terminates now."""
+    """Set (or with None remove) the expiry; a date already past terminates now.
+
+    An administrator's decision (the portal and the command line come here).
+    An end date brought forward, or set on a wiki that had none, is kept in
+    ``admin_expiry``: while the wiki still ends then, its owner cannot renew
+    it (:func:`renewal_locked`). A later date, or none, gives renewal back.
+    """
     require_ready(inst)
     if inst["status"] == "terminated":
         raise ServiceError("hosting.instances.terminated")
     if (inst.get("domain_mode") or "hosting") == "apex" and expires_at is not None:
         raise ServiceError("hosting.instances.apex_perpetual")
-    db.update("instances", {"expires_at": expires_at}, "id = ?", (inst["id"],))
+    previous, moved = parse(inst.get("expires_at")), parse(expires_at)
+    brought_forward = moved is not None and (previous is None or moved < previous)
+    db.update("instances", {"expires_at": expires_at, "admin_expiry": expires_at if brought_forward else None},
+              "id = ?", (inst["id"],))
     events.record("instance", inst["id"], "instance.expiry_changed", actor_id, expires_at or "")
     if expires_at and is_past(expires_at):
         terminate(get(inst["id"]), actor_id=actor_id, reason="expired")  # type: ignore[arg-type]
@@ -1129,8 +1212,141 @@ def shift_expiry(inst: dict[str, Any], seconds: int, *, actor_id: str) -> None:
 def terminate_expired() -> int:
     rows = db.all("SELECT * FROM instances WHERE status IN ('running', 'stopped') AND expires_at IS NOT NULL "
                   "AND expires_at <= ? ORDER BY expires_at, id", (now_sql(),))
-    return _each(rows, lambda inst: terminate(inst, actor_id=None, reason="expired"),
-                 "Expired wiki %s not terminated: %s", "terminate_expired")
+
+    def expire(inst: dict[str, Any]) -> None:
+        terminate(inst, actor_id=None, reason="expired")
+        _notify_expired(get(inst["id"]) or inst)
+
+    return _each(rows, expire, "Expired wiki %s not terminated: %s", "terminate_expired")
+
+
+def _notify_owner(inst: dict[str, Any], kind: str, texts: Callable[[str], dict[str, str]] | None = None,
+                  **values: Any) -> bool | None:
+    """Email the wiki's owner in their own language (best effort; maintenance).
+
+    *texts* returns the values that are sentences in that language. Returns
+    whether the message went out, or None when there is nobody to email.
+    """
+    from . import notifications
+
+    owner = accounts.get(inst["account_id"])
+    if not owner or not owner.get("email") or owner.get("deleted_at") or not notifications.configured():
+        return None
+    lang = owner.get("language") or FALLBACK
+    slug = urls.original_slug(inst["subdomain"]) or inst["subdomain"]
+    return notifications.send(owner["email"], kind, username=owner["username"], lang=lang, slug=slug,
+                              **(texts(lang) if texts else {}), **values)[0]
+
+
+def _notify_expired(inst: dict[str, Any]) -> None:
+    retained = inst.get("data_retained_until")
+
+    def texts(lang: str) -> dict[str, str]:
+        if retained:
+            return {"retention": t_lang(lang, "email.instance_expired.retained", date=f"{retained[:16]} UTC",
+                                        contact=cfg().contact_email)}
+        return {"retention": t_lang(lang, "email.instance_expired.deleted")}
+
+    _notify_owner(inst, "instance_expired", texts)
+
+
+def warn_expiring() -> int:
+    """Email owners ``HOSTING_EXPIRY_WARNING_DAYS`` days before their wiki expires (maintenance).
+
+    Each threshold is announced once per expiry date: the date warned about
+    and the smallest number of days announced are stored on the row, claimed
+    before sending and given back when the message could not be sent (the
+    next pass tries again). A new expiry date, after an extension or a
+    renewal, starts over.
+    """
+    thresholds = cfg().limits.expiry_warning_days
+    if not thresholds:
+        return 0
+    rows = db.all("SELECT * FROM instances WHERE status IN ('running', 'stopped') AND provisioning_state = 'ready' "
+                  "AND expires_at IS NOT NULL AND expires_at > ? AND expires_at <= ? ORDER BY expires_at, id",
+                  (now_sql(), sql_in(days=max(thresholds))))
+
+    def warn(inst: dict[str, Any]) -> bool:
+        expires = parse(inst["expires_at"])
+        if expires is None:
+            return False
+        left = expires - utcnow()
+        due = min(days for days in thresholds if left <= timedelta(days=days))
+        warned = inst.get("expiry_warning_days") if inst.get("expiry_warning_for") == inst["expires_at"] else None
+        if warned is not None and warned <= due:
+            return False
+        claimed = db.execute("UPDATE instances SET expiry_warning_for = ?, expiry_warning_days = ? "
+                             "WHERE id = ? AND expires_at = ?", (inst["expires_at"], due, inst["id"],
+                                                                 inst["expires_at"])).rowcount
+        if not claimed:
+            return False
+        renewal = renewal_offered() and not renewal_locked(inst)
+
+        def texts(lang: str) -> dict[str, str]:
+            if renewal:
+                return {"keep": t_lang(lang, "email.expiry_warning.renew", days=cfg().limits.duration_days)}
+            return {"keep": t_lang(lang, "email.expiry_warning.ask", contact=cfg().contact_email)}
+
+        date = f"{inst['expires_at'][:16]} UTC"
+        sent = _notify_owner(inst, "expiry_warning", texts, date=date, detail_value=date,
+                             action_url=urls.external_url("dashboard.instance_detail", instance_id=inst["id"]))
+        if sent is False:
+            db.execute("UPDATE instances SET expiry_warning_for = ?, expiry_warning_days = ? WHERE id = ? "
+                       "AND expiry_warning_for = ? AND expiry_warning_days = ?",
+                       (inst.get("expiry_warning_for"), inst.get("expiry_warning_days"), inst["id"],
+                        inst["expires_at"], due))
+        return bool(sent)
+
+    return _each(rows, warn, "Expiry warning for wiki %s not sent: %s")
+
+
+def renewal_offered() -> bool:
+    """Owners may renew their wikis themselves (platform setting, and wikis expire at all)."""
+    return settings.flag("owner_renewal_enabled") and cfg().limits.duration_days > 0
+
+
+def renewal_locked(inst: dict[str, Any]) -> bool:
+    """An administrator brought the wiki's end date forward and it still ends then (see :func:`set_expiry`)."""
+    return bool(inst.get("admin_expiry")) and inst.get("admin_expiry") == inst.get("expires_at")
+
+
+def renewable(inst: dict[str, Any]) -> bool:
+    """The wiki may be renewed by its owner now: it expires within ``RENEWAL_WINDOW_DAYS``."""
+    expires = parse(inst.get("expires_at"))
+    return (renewal_offered() and expires is not None and provisioning_ready(inst)
+            and inst["status"] in ("running", "stopped") and not renewal_locked(inst)
+            and expires - utcnow() <= timedelta(days=RENEWAL_WINDOW_DAYS))
+
+
+def may_renew(inst: dict[str, Any], account: dict[str, Any]) -> bool:
+    """Renewing is the owner's decision (administrators set any date anyway), not a collaborator's."""
+    from .collaborators import acts_as_admin
+
+    return inst["account_id"] == account["id"] or acts_as_admin(account)
+
+
+def renew(inst: dict[str, Any], *, actor_id: str) -> None:
+    """Give the wiki a fresh ``INSTANCE_DURATION_DAYS`` from now (owners, when the platform allows it).
+
+    Only in the last ``RENEWAL_WINDOW_DAYS`` before expiry: a wiki stays
+    alive while someone looks after it, and an abandoned one still expires.
+    Never an end date an administrator brought forward (:func:`renewal_locked`).
+    """
+    require_ready(inst)
+    if not renewal_offered() or not inst.get("expires_at"):
+        raise ServiceError("hosting.instances.renewal_disabled")
+    if inst["status"] not in ("running", "stopped"):
+        raise ServiceError("hosting.instances.changed_state")
+    if renewal_locked(inst):
+        raise ServiceError("hosting.instances.renewal_admin_set")
+    if not renewable(inst):
+        raise ServiceError("hosting.instances.renewal_not_due", days=RENEWAL_WINDOW_DAYS)
+    expires = default_expiry()
+    changed = db.execute("UPDATE instances SET expires_at = ? WHERE id = ? AND expires_at = ? "
+                         "AND status IN ('running', 'stopped')", (expires, inst["id"], inst["expires_at"])).rowcount
+    if not changed:
+        raise ServiceError("hosting.instances.changed_state")
+    events.record("instance", inst["id"], "instance.renewed", actor_id, expires or "")
 
 
 def lift_expired_suspensions() -> int:
@@ -1140,24 +1356,93 @@ def lift_expired_suspensions() -> int:
                  "lift_suspension")
 
 
-def enforce_storage_quotas(overrun_ratio: float = 1.10) -> int:
-    """Suspend non-admin wikis that materially exceed their storage cap."""
+# The automatic storage protection: the reason it gives (1.4 wrote the same words) and its duration label.
+STORAGE_REASON = "Automatic storage protection:"
+STORAGE_LABEL = "storage"
+STORAGE_OVERRUN_RATIO = 1.10
+_MB = 1024 * 1024
+
+
+def storage_overrun(inst: dict[str, Any], overrun_ratio: float = STORAGE_OVERRUN_RATIO) -> tuple[float, int] | None:
+    """``(MB used, MB allowed)`` while the wiki uses more than *overrun_ratio* times its limit, else None."""
+    limit = storage_limit_mb(inst)
+    if limit is None:
+        return None
+    used = usage_bytes(inst)
+    if used <= limit * _MB * overrun_ratio:
+        return None
+    return used / _MB, limit
+
+
+def enforce_storage_quotas(overrun_ratio: float = STORAGE_OVERRUN_RATIO) -> int:
+    """Suspend non-admin wikis that materially exceed their storage cap, and tell their owners."""
 
     def check(inst: dict[str, Any]) -> bool:
-        limit = storage_limit_mb(inst)
-        if limit is None:
+        overrun = storage_overrun(inst, overrun_ratio)
+        if overrun is None:
             return False
-        used = usage_bytes(inst)
-        if used <= limit * 1024 * 1024 * overrun_ratio:
-            return False
-        suspend(inst, actor_id=None, reason=f"Automatic storage protection: {used / 1048576:.1f} MB used, "
-                f"{limit} MB allowed.", reason_visible=True, duration_label="storage")
+        used, limit = overrun
+        suspend(inst, actor_id=None, reason=f"{STORAGE_REASON} {used:.1f} MB used, {limit} MB allowed.",
+                reason_visible=True, duration_label=STORAGE_LABEL)
+        _notify_owner(inst, "instance_storage_suspended", used=f"{used:.1f}", limit=str(limit))
         return True
 
     # An unfinished creation cannot be suspended; it is cancelled, never enforced.
     rows = db.all("SELECT * FROM instances WHERE status IN ('running', 'stopped') AND provisioning_state = 'ready' "
                   "ORDER BY created_at, id")
     return _each(rows, check, "Storage quota of %s not enforced: %s")
+
+
+def storage_suspended(inst: dict[str, Any]) -> bool:
+    """Whether the wiki's suspension is the automatic storage protection and nothing else.
+
+    That is its latest suspension record: made by no one, labelled
+    ``storage`` (or, from 1.4, giving the storage reason), with no end date.
+    Any later suspension (by an administrator, of the owner's account) takes
+    its place, and is never lifted automatically.
+    """
+    if inst["status"] != "suspended" or inst.get("suspended_until"):
+        return False
+    latest = db.one("SELECT action, duration, reason, performed_by FROM instance_suspension_audit "
+                    "WHERE instance_id = ? ORDER BY id DESC LIMIT 1", (inst["id"],))
+    return (latest is not None and latest["action"] == "suspend" and not latest["performed_by"]
+            and (latest["duration"] == STORAGE_LABEL or (latest["reason"] or "").startswith(STORAGE_REASON)))
+
+
+def lift_storage_suspension(inst: dict[str, Any], *, actor_id: str | None = None) -> bool:
+    """Reopen a wiki suspended only for storage once it fits within its limit, and tell its owner.
+
+    Within the limit itself, not the 10% margin, so that a wiki at the margin
+    does not flap; a raised or removed limit counts. Nothing reopens while the
+    owner's account is suspended, and a wiki whose usage cannot be measured
+    stays suspended (the error is raised).
+    """
+    if not storage_suspended(inst):
+        return False
+    owner = accounts.get(inst["account_id"])
+    if owner is None or owner.get("deleted_at") or accounts.is_suspended(owner):
+        return False
+    limit = storage_limit_mb(inst)
+    used = int(runtime().usage(spec(inst, with_policy=False)))
+    if limit is not None and used > limit * _MB:
+        return False
+    unsuspend(inst, actor_id=actor_id)
+
+    def texts(lang: str) -> dict[str, str]:
+        if limit is None:
+            return {"usage": t_lang(lang, "email.instance_storage_reopened.unlimited", used=f"{used / _MB:.1f}")}
+        return {"usage": t_lang(lang, "email.instance_storage_reopened.usage", used=f"{used / _MB:.1f}",
+                                limit=str(limit))}
+
+    _notify_owner(inst, "instance_storage_reopened", texts)
+    return True
+
+
+def lift_storage_suspensions() -> int:
+    """Maintenance: reopen the wikis suspended for storage that fit within their limits again."""
+    rows = db.all("SELECT * FROM instances WHERE status = 'suspended' AND provisioning_state = 'ready' "
+                  "AND suspended_until IS NULL ORDER BY suspended_at, id")
+    return _each(rows, lift_storage_suspension, "Storage suspension of %s not lifted: %s", "lift_storage_suspension")
 
 
 # ── Names, owners and quotas ──────────────────────────────────────────────────
@@ -1195,7 +1480,7 @@ def rename(inst: dict[str, Any], slug: str, domain_mode: str, *, actor_id: str, 
     if domain_mode == "apex":
         values.update(expires_at=None, storage_limit_mb=0)
     elif old_mode == "apex":
-        values["expires_at"] = sql_in(days=ADMIN_EXPIRY_DAYS if admin_owner else cfg().limits.duration_days)
+        values["expires_at"] = sql_in(days=ADMIN_EXPIRY_DAYS) if admin_owner else default_expiry()
     try:
         db.update("instances", values, "id = ?", (inst["id"],))
     except sqlite3.Error as error:
@@ -1204,6 +1489,7 @@ def rename(inst: dict[str, Any], slug: str, domain_mode: str, *, actor_id: str, 
             raise ServiceError("hosting.instances.name_taken") from error
         raise
     db.execute("DELETE FROM instance_custom_domains WHERE instance_id = ? AND verified_at IS NULL", (inst["id"],))
+    db.execute("DELETE FROM instance_domain_claims WHERE instance_id = ?", (inst["id"],))
     events.record("instance", inst["id"], "instance.renamed", actor_id,
                   f"{inst['subdomain']} ({old_mode}) -> {slug} ({domain_mode})")
     renamed = get(inst["id"])
@@ -1228,18 +1514,25 @@ def apply_owner_quota(inst: dict[str, Any], admin_owner: bool) -> None:
         return
     limit = inst.get("storage_limit_mb")
     db.update("instances", {
-        "expires_at": sql_in(days=cfg().limits.duration_days),
+        "expires_at": default_expiry(),
         "storage_limit_mb": limit if limit and int(limit) > 0 else None,
     }, "id = ?", (inst["id"],))
 
 
-def move_to_owner(inst: dict[str, Any], target: dict[str, Any], *, actor_id: str) -> list[str]:
+def move_to_owner(inst: dict[str, Any], target: dict[str, Any], *, actor_id: str,
+                  check_capacity: bool = False) -> list[str]:
     """Give a wiki to another account, applying that account's privileges.
+
+    With *check_capacity* (an owner's transfer, not an administrator's move)
+    the new owner's wiki limit applies, checked again in the transaction
+    that changes the owner.
 
     Returns notes for the caller: ``"renamed"`` when an apex wiki had to move
     to hosting mode because the new owner is not an administrator.
     """
     require_ready(inst)
+    if check_capacity:
+        check_account_capacity(target)
     notes = []
     target_admin = bool(target["is_admin"])
     previous_admin = owner_is_admin(inst)
@@ -1247,6 +1540,8 @@ def move_to_owner(inst: dict[str, Any], target: dict[str, Any], *, actor_id: str
         inst = rename_for_non_admin(inst, actor_id=actor_id)
         notes.append("renamed")
     with db.transaction():
+        if check_capacity:
+            check_account_capacity(target)
         db.update("instances", {"account_id": target["id"]}, "id = ?", (inst["id"],))
         db.execute("DELETE FROM instance_collaborators WHERE instance_id = ? AND account_id = ?",
                    (inst["id"], target["id"]))
@@ -1275,7 +1570,7 @@ def rename_for_non_admin(inst: dict[str, Any], *, actor_id: str) -> dict[str, An
         raise _fail(error) from error
     try:
         db.update("instances", {"subdomain": slug, "domain_mode": "hosting",
-                                "expires_at": sql_in(days=cfg().limits.duration_days)}, "id = ?", (inst["id"],))
+                                "expires_at": default_expiry()}, "id = ?", (inst["id"],))
     except sqlite3.Error as error:
         _undo_move(inst, new_dir, inst["status"] == "running")
         if isinstance(error, sqlite3.IntegrityError):
@@ -1339,7 +1634,12 @@ def _live(inst: dict[str, Any]) -> None:
 
 
 def reset_admin_password(inst: dict[str, Any], *, actor_id: str) -> tuple[str, str]:
-    """Return ``(username, password)`` to show once; nothing is stored."""
+    """Return ``(username, password)`` to show once; nothing is stored.
+
+    The wiki also turns off that account's two-step verification and ends its
+    sessions (see ``reset_admin`` in :mod:`bananawiki.ops.tenant_task`): this
+    is the owner's way back in when the authenticator app is lost as well.
+    """
     _live(inst)
     password = generate_password()
     try:
@@ -1347,7 +1647,8 @@ def reset_admin_password(inst: dict[str, Any], *, actor_id: str) -> tuple[str, s
                                                   password)
     except RuntimeFailure as error:
         raise _fail(error) from error
-    events.record("instance", inst["id"], "instance.admin_password_reset", actor_id)
+    events.record("instance", inst["id"], "instance.admin_password_reset", actor_id,
+                  f"{username}: new password; two-step verification turned off; signed out everywhere")
     return username, password
 
 
@@ -1424,6 +1725,7 @@ def describe(inst: dict[str, Any], *, admin_owner: bool | None = None, with_stat
     item["days_left"] = max(0, item["seconds_left"] // 86400) if item["seconds_left"] is not None else None
     item["expired"] = item["seconds_left"] is not None and item["seconds_left"] <= 0
     item["grace_active"] = grace_active(inst)
+    item["storage_suspended"] = inst["status"] == "suspended" and storage_suspended(inst)
     item["original_slug"] = urls.original_slug(inst["subdomain"]) or inst["subdomain"]
     limit = storage_limit_mb(inst, admin_owner)
     item["storage_limit_effective_mb"] = limit

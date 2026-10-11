@@ -14,9 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ... import settings
-from ...i18n import t
 from ...permissions import ROLE_RANK
-from ...registry import is_enabled, registry
 
 ROLES = ("user", "editor", "admin")
 DEFAULT_SWITCHING_ROLES = "user,editor,admin"
@@ -65,12 +63,10 @@ def normalize_role(value: str | None, user: dict[str, Any]) -> str:
 
 
 def enabled_apps() -> list[str]:
-    """Names of the enabled features that add an app to the sidebar (labels only, no data)."""
-    names = []
-    for feature in registry().ordered():
-        if any(item.area == "apps" for item in feature.nav) and is_enabled(feature.id):
-            names.append(t(feature.name))
-    return names
+    """The apps of the sidebar, with the labels and in the order the sidebar shows them (labels only)."""
+    from ...templating import nav_items  # the sidebar's own list: visibility rules included
+
+    return [item["label"] for item in nav_items("apps")]
 
 
 def steps_for(role: str) -> list[Step]:

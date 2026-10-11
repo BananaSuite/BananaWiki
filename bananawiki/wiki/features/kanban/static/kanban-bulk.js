@@ -103,7 +103,7 @@
 
   function send(path, body) {
     return K.api("/" + K.boardId + path, "POST", body).then(function (result) {
-      BW.toast(BW.t("kanban.bulk_done", { count: result.updated }), "success");
+      BW.toast(BW.tn("kanban.bulk_done", result.updated, { count: result.updated }), "success");
       tickets.clear();
       columns.clear();
       return K.reload();
@@ -119,7 +119,7 @@
     var action = button.dataset.bulk;
     if (action === "delete_columns") {
       if (!columns.size) { BW.toast(BW.t("kanban.bulk_none"), "warning"); return; }
-      if (!window.confirm(BW.t("kanban.confirm_bulk_columns", { count: columns.size }))) return;
+      if (!window.confirm(BW.tn("kanban.confirm_bulk_columns", columns.size, { count: columns.size }))) return;
       send("/columns/bulk", { action: "delete", column_ids: Array.from(columns) });
       return;
     }
@@ -131,7 +131,7 @@
     if (action === "due_date") body.due_date = $("kanban-bulk-due").value;
     if (action === "color") body.color = $("kanban-bulk-color").value;
     if (action === "clear_color") { body.action = "color"; body.color = ""; }
-    if (action === "delete" && !window.confirm(BW.t("kanban.confirm_bulk_tickets", { count: tickets.size }))) return;
+    if (action === "delete" && !window.confirm(BW.tn("kanban.confirm_bulk_tickets", tickets.size, { count: tickets.size }))) return;
     send("/tickets/bulk", body);
   });
 })();

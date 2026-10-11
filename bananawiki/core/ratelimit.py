@@ -68,6 +68,10 @@ class SqlLimiter:
             default=0,
         ))
 
+    def latest(self, key: str, bucket: str) -> str | None:
+        """When *key* last hit *bucket* (a SQL timestamp), or None."""
+        return self.db.scalar(f"SELECT MAX(hit_at) FROM {self.TABLE} WHERE ip = ? AND bucket = ?", (key, bucket))
+
     def exceeded(self, key: str, bucket: str, limit: int, window_seconds: int) -> bool:
         return self.count(key, bucket, window_seconds) >= limit
 

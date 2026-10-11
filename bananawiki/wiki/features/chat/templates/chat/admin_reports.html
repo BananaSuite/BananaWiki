@@ -1,0 +1,43 @@
+{% extends layout %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('chat.admin.reports_title') }}{% endblock %}
+{% block admin_head %}<link rel="stylesheet" href="{{ asset_url('chat.css', blueprint='chat') }}">{% endblock %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('chat.admin.title') }}</h1></header>
+{% with tab='reports' %}{% include "chat/_admin_tabs.html" %}{% endwith %}
+<p class="muted small">{{ t('chat.admin.reports_intro') }}</p>
+<nav class="cluster" aria-label="{{ t('chat.admin.reports_title') }}">
+  <a class="btn btn--small{% if status != 'open' %} btn--ghost{% endif %}" href="{{ url_for('chat.admin_reports') }}"{% if status == 'open' %} aria-current="page"{% endif %}>{{ t('chat.admin.reports_open', count=open_count) }}</a>
+  <a class="btn btn--small{% if status != 'resolved' %} btn--ghost{% endif %}" href="{{ url_for('chat.admin_reports', status='resolved') }}"{% if status == 'resolved' %} aria-current="page"{% endif %}>{{ t('chat.admin.reports_resolved') }}</a>
+</nav>
+{% if reports %}
+<ul class="chat-reports">
+  {% for r in reports %}
+  <li class="chat-report">
+    <p class="small muted">
+      {{ t('chat.admin.report_line', reporter=r.reporter_name or t('common.unknown_user'), reported=r.reported_name or t('common.unknown_user')) }}
+      · <time>{{ r.created_at|time_ago }}</time>
+      · {{ t('chat.admin.report_kind_' ~ r.kind) }}
+    </p>
+    <blockquote class="chat-report__content">{{ r.content or t('chat.admin.report_no_text') }}</blockquote>
+    {% if r.attachments %}<p class="small">{{ t('chat.admin.report_attachments') }} {{ r.attachments|join(', ') }}</p>{% endif %}
+    <div class="cluster">
+      {% if r.kind == 'dm' %}
+      <a class="btn btn--small" href="{{ url_for('chat.admin_chat_view', chat_id=r.parent_id) }}">{{ t('chat.admin.read') }}</a>
+      {% else %}
+      <a class="btn btn--small" href="{{ url_for('chat.admin_group_view', group_id=r.parent_id) }}">{{ t('chat.admin.read') }}</a>
+      {% endif %}
+      {% if r.status == 'open' %}
+      {{ forms.post_button(url_for('chat.admin_report_resolve', report_id=r.id), t('chat.admin.report_resolve'), 'btn btn--small btn--primary') }}
+      {% else %}
+      <span class="small muted">{{ t('chat.admin.report_resolved_by', user=r.resolver_name or t('common.unknown_user')) }}</span>
+      {% endif %}
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{{ forms.pagination(page, pages, 'chat.admin_reports', {'status': status} if status == 'resolved' else {}) }}
+{% else %}
+<div class="empty-state"><p>{{ t('chat.admin.no_reports') }}</p></div>
+{% endif %}
+{% endblock %}

@@ -4,7 +4,8 @@
 {% block admin_content %}
 <header class="page-header">
   <h1>{{ t('site_admin.server.title') }}</h1>
-  <div class="page-header__actions"><a class="btn" href="{{ url_for('site_admin.error_log') }}">{{ t('site_admin.log.title') }}</a></div>
+  <p class="page-header__meta">{{ t('site_admin.server.intro') }}</p>
+  <div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('site_admin.error_log') }}">{{ t('site_admin.log.title') }}</a></div>
 </header>
 <section class="card">
   <h2>{{ t('site_admin.server.restart') }}</h2>

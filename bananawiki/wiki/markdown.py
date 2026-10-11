@@ -12,21 +12,35 @@ The dialect is the one BananaWiki has always stored: Python-Markdown with
 
 Output is sanitised with nh3 (the ammonia HTML sanitiser) against a strict
 allow-list: only known classes, ids only on headings, ``style`` limited to a
-few spacing properties, links forced to ``rel="noopener noreferrer"``. Embeds
-are generated *after* sanitising from validated parameters only.
+few spacing properties with bounded, non-negative values (nothing that could
+size a box to the viewport or pull it over the page around it), links forced
+to ``rel="noopener noreferrer"``. Embeds, mentions and task lists are written
+*after* sanitising, from validated parameters only, and never inside an
+attribute value (see :func:`_escape_attribute_brackets`).
 
 Rendering work is bounded by the source size: only the first ``[TOC]`` marker
 becomes a table of contents, a document embeds at most :data:`MAX_EMBEDS`
-players and boards, and a document whose HTML would exceed
-:data:`MAX_HTML_CHARS` is shown as escaped source like any other over-budget
-input.
+players and boards, highlights at most :data:`MAX_HIGHLIGHT_DOCUMENT_CHARS`
+of code (later blocks stay plain code), and a document whose HTML would
+exceed :data:`MAX_HTML_CHARS` is shown as escaped source like any other
+over-budget input. A page made of several blocks (the page builder) shares
+one such allowance across them (:func:`shared_highlighting`). Renderings of
+larger sources, and of any source or snippet that needed highlighting, are
+kept per process by the hash of the source (:data:`RENDER_CACHE_LIMIT`), so a
+page read again is not rendered again.
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
+import sys
+import threading
 from bisect import bisect_right
-from collections.abc import Callable, Iterable
+from collections import OrderedDict
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from html import escape
 from urllib.parse import quote
 from xml.etree.ElementTree import Element
@@ -35,6 +49,7 @@ import markdown as _markdown
 import nh3
 from markdown.extensions import Extension
 from markdown.extensions.attr_list import get_attrs_and_remainder
+from markdown.extensions.codehilite import CodeHilite, CodeHiliteExtension, HiliteTreeprocessor
 from markdown.extensions.fenced_code import FencedBlockPreprocessor, FencedCodeExtension
 from markdown.extensions.toc import TocExtension, TocTreeprocessor
 from markdown.inlinepatterns import SimpleTagInlineProcessor
@@ -45,6 +60,8 @@ from pygments.lexers import TextLexer, get_lexer_by_name, guess_lexer
 from pygments.token import STANDARD_TYPES
 from pygments.util import ClassNotFound
 
+from bananawiki.core.numbers import ascii_int
+
 MAX_SOURCE_CHARS = 1_000_000
 MAX_PARSE_WORK = 32_000_000
 MAX_MARKUP_DEPTH = 64
@@ -52,6 +69,12 @@ MAX_HEADINGS = 1000
 MAX_HIGHLIGHT_LINES = 256
 MAX_LEXER_SAMPLE_CHARS = 4096
 MAX_HIGHLIGHT_CODE_CHARS = 64 * 1024
+# Pygments needs up to about 14 µs per character of token-dense code: one
+# document highlights at most this much (about a second of work at worst),
+# each block also paying for its lexer and formatter. Later blocks stay
+# plain code.
+MAX_HIGHLIGHT_DOCUMENT_CHARS = 64 * 1024
+HIGHLIGHT_BLOCK_COST = 256
 # Python-Markdown handles blank-line separated blocks one at a time, at a cost
 # that grows faster than their number; a highlighted code block costs about
 # ten paragraphs, a table four. Ordinary megabyte articles stay near 12,000.
@@ -74,6 +97,10 @@ MAX_EXCERPT_BLOCK_COST = 400
 # The toc extension's search for a free heading id grows with every repeated
 # title, so heading counts are weighed too.
 MAX_EXCERPT_HEADINGS = 200
+#: Bytes of rendered HTML kept per process (as Python holds them: up to 4 per character).
+RENDER_CACHE_LIMIT = 32 * 1024 * 1024
+#: Shorter sources render faster than their cache entry is worth keeping.
+RENDER_CACHE_MIN_CHARS = 2048
 
 _TAGS = {
     "a", "abbr", "acronym", "b", "blockquote", "br", "code", "dd", "del", "details", "div", "dl", "dt",
@@ -120,6 +147,24 @@ _ALLOWED_CLASSES = {
     "table": {"table-wrapper"},
     "p": _CONTENT_CLASSES,
 }
+# Values of those properties: non-negative lengths that cannot size a box to
+# the viewport or move it over the page around it (no vw/vh, calc() or var()).
+_LENGTH = r"(?:0|\d{1,4}(?:\.\d{1,3})?(?:px|%|em|rem))"
+_STYLE_VALUES = {
+    "length": re.compile(rf"{_LENGTH}|auto"),
+    "lengths": re.compile(rf"{_LENGTH}(?: {_LENGTH}){{0,3}}"),
+    "max": re.compile(rf"{_LENGTH}|none"),
+    "ratio": re.compile(r"\d{1,4}(?:\.\d{1,3})?(?: ?/ ?\d{1,4}(?:\.\d{1,3})?)?|auto"),
+}
+_STYLE_VALUE_KIND = {
+    "margin-top": "length", "margin-bottom": "length", "margin-left": "length", "margin-right": "length",
+    "padding": "lengths", "width": "length", "max-width": "max", "height": "length",
+    "--media-margin-top": "length", "--media-margin-bottom": "length", "--media-padding": "lengths",
+    "--media-max-width": "max", "--media-aspect-ratio": "ratio",
+}
+# Pixel lengths above this would only push content over the page around it.
+_MAX_STYLE_PX = 4000
+_MAX_STYLE_PERCENT = 100
 _URL_SCHEMES = {"http", "https", "mailto", "ftp"}
 _HEADING_ID = re.compile(r"^[A-Za-z0-9_\-.:]{1,120}$")
 
@@ -296,7 +341,9 @@ def _normalise_list_block(block: list[str]) -> list[str]:
                 indents.append(spaces)
     if not indents or min(indents) >= 4:
         return block
-    factor = max(1, 4 // min(indents))
+    # Scale the smallest indent to Python-Markdown's 4 spaces and the others in proportion
+    # (rounding up), so a sub-list indented under "1. " by 3 spaces (CommonMark, GitHub) nests too.
+    unit = min(indents)
     result = []
     for line in block:
         if not line.strip():
@@ -304,7 +351,7 @@ def _normalise_list_block(block: list[str]) -> list[str]:
             continue
         expanded = line.expandtabs(4)
         spaces = len(expanded) - len(expanded.lstrip(" "))
-        result.append(" " * (spaces * factor) + expanded[spaces:])
+        result.append(" " * -(-spaces * 4 // unit) + expanded[spaces:])
     return result
 
 
@@ -472,9 +519,41 @@ def _plain_source(text: str) -> str:
     return "<pre>" + escape(text) + "</pre>"
 
 
+def plain_html(text: str | None) -> str:
+    """*text* shown as it was typed, escaped, without rendering it (what :func:`render` falls back to)."""
+    return _plain_source(text or "")
+
+
+def _style_value_allowed(kind: str, value: str) -> bool:
+    if not _STYLE_VALUES[kind].fullmatch(value):
+        return False
+    for number, unit in re.findall(r"(\d+(?:\.\d+)?)(px|%|em|rem)?", value):
+        if kind == "ratio" or not unit:
+            continue
+        ceiling = _MAX_STYLE_PX if unit == "px" else _MAX_STYLE_PERCENT if unit == "%" else _MAX_STYLE_PX / 16
+        if float(number) > ceiling:
+            return False
+    return True
+
+
+def filter_style(value: str) -> str | None:
+    """The declarations of a ``style`` attribute with an allowed property and value, normalised."""
+    kept = []
+    for declaration in value.split(";")[:32]:
+        name, colon, raw = declaration.partition(":")
+        name = name.strip().lower()
+        raw = " ".join(raw.split()).lower()
+        kind = _STYLE_VALUE_KIND.get(name)
+        if colon and kind and _style_value_allowed(kind, raw):
+            kept.append(f"{name}:{raw}")
+    return ";".join(kept) or None
+
+
 def _attribute_filter(tag: str, attribute: str, value: str) -> str | None:
     if attribute == "id":
         return value if _HEADING_ID.match(value) else None
+    if attribute == "style":
+        return filter_style(value)
     if tag == "img" and attribute in {"width", "height"}:
         return value if re.fullmatch(r"\d{1,4}%?", value) else None
     return value
@@ -498,6 +577,23 @@ def sanitize(html: str) -> str:
 
 
 # ── Post-sanitisation embeds ──────────────────────────────────────────────────
+
+# The sanitiser writes every attribute value in double quotes with ``"`` and
+# ``&`` escaped, and ``<`` and ``>`` escaped in text, but only nh3 0.3.7 and
+# later also escape ``<`` and ``>`` in attribute values. The rewrites below
+# find tags with patterns, so the brackets are escaped here as well: a
+# pattern then can never match, and write markup into, an attribute value.
+_SERIALISED_TAG = re.compile(r'<[^<>"]*(?:"[^"]*"[^<>"]*)*>')
+_QUOTED_VALUE = re.compile(r'"[^"]*"')
+
+
+def _escape_attribute_brackets(html: str) -> str:
+    def tag(match: re.Match[str]) -> str:
+        return _QUOTED_VALUE.sub(lambda value: value.group(0).replace("<", "&lt;").replace(">", "&gt;"),
+                                 match.group(0))
+
+    return _SERIALISED_TAG.sub(tag, html) if '"' in html else html
+
 
 # Attributes stay inside their own paragraph (inline tags allowed) and are
 # bounded, so an unclosed ``[[video`` cannot rescan the rest of the document.
@@ -545,7 +641,7 @@ def video_iframe(source_url: str, **options: str | None) -> str | None:
     ratio = options.get("ratio") or "16:9"
     ratio = ratio if ratio in _RATIOS else "16:9"
     margin = options.get("margin") or ""
-    margin = margin if margin.isdigit() and int(margin) <= 200 else ""
+    margin = margin if ascii_int(margin, 3) is not None and int(margin) <= 200 else ""
     params = []
     if _flag(options.get("autoplay"), False):
         params.append("autoplay=1")
@@ -567,7 +663,7 @@ def video_iframe(source_url: str, **options: str | None) -> str | None:
     return (
         f'<div class="bw-video bw-video-{align} {_RATIOS[ratio]}" {" ".join(data)}>'
         f'<iframe src="{escape(src, quote=True)}" title="Video" loading="lazy" '
-        'allow="fullscreen; picture-in-picture" allowfullscreen '
+        'allow="fullscreen; picture-in-picture" '
         'referrerpolicy="strict-origin-when-cross-origin"></iframe></div>'
     )
 
@@ -670,8 +766,47 @@ class _Strikethrough(Extension):
         md.inlinePatterns.register(SimpleTagInlineProcessor(r"(~~)(.+?)~~", "del"), "bw_del", 175)
 
 
+class _HighlightBudget:
+    """Characters of code one document may still highlight (see :data:`MAX_HIGHLIGHT_DOCUMENT_CHARS`)."""
+
+    def __init__(self, allowance: int = MAX_HIGHLIGHT_DOCUMENT_CHARS) -> None:
+        self.left = allowance
+        self.refused = 0  # blocks left plain
+
+    def take(self, code: str) -> bool:
+        """Whether *code* may be highlighted; once a block does not fit, no later one is."""
+        cost = len(code) + HIGHLIGHT_BLOCK_COST
+        if cost > self.left:
+            self.left = 0
+            self.refused += 1
+            return False
+        self.left -= cost
+        return True
+
+
+# The allowance of the page being rendered when it is made of several blocks.
+_shared_budget: ContextVar[_HighlightBudget | None] = ContextVar("bananawiki_highlight_budget", default=None)
+
+
+@contextmanager
+def shared_highlighting() -> Iterator[None]:
+    """Let every :func:`render` and :func:`highlight_code` inside share one highlighting allowance.
+
+    For a page made of many blocks (the page builder), which would otherwise
+    get a whole allowance for each block. Results cut short by the shared
+    allowance are not kept in the cache.
+    """
+    token = _shared_budget.set(_HighlightBudget())
+    try:
+        yield
+    finally:
+        _shared_budget.reset(token)
+
+
 class _SafeFencedBlocks(FencedBlockPreprocessor):
     """Keep author display options from becoming arbitrary Pygments kwargs."""
+
+    budget: _HighlightBudget
 
     @staticmethod
     def _highlight_lines(value: str) -> list[int]:
@@ -691,9 +826,11 @@ class _SafeFencedBlocks(FencedBlockPreprocessor):
                 end -= match.start()
                 result = (result[:start] + " ".join(map(str, self._highlight_lines(value)))
                           + result[end:])
-            if len(match.group("code")) > MAX_HIGHLIGHT_CODE_CHARS:
-                # Large snippets remain literal code. Highlighting can expand
-                # a short source into millions of span nodes and HTML bytes.
+            code = match.group("code")
+            if len(code) > MAX_HIGHLIGHT_CODE_CHARS or not self.budget.take(code):
+                # Large snippets, and every block past the document's budget,
+                # remain literal code. Highlighting can expand a short source
+                # into millions of span nodes and HTML bytes.
                 attrs = match.group("attrs")
                 if attrs is None:
                     language = match.group("lang")
@@ -740,9 +877,50 @@ class _SafeFencedBlocks(FencedBlockPreprocessor):
 
 
 class _SafeFencedCode(FencedCodeExtension):
+    def __init__(self, budget: _HighlightBudget, **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        self.budget = budget
+
     def extendMarkdown(self, md):  # noqa: N802 - Python-Markdown API name
         md.registerExtension(self)
-        md.preprocessors.register(_SafeFencedBlocks(md, self.getConfigs()), "fenced_code_block", 25)
+        blocks = _SafeFencedBlocks(md, self.getConfigs())
+        blocks.budget = self.budget
+        md.preprocessors.register(blocks, "fenced_code_block", 25)
+
+
+class _BudgetedHilite(HiliteTreeprocessor):
+    """Highlight indented code blocks (``#!lang`` picks a lexer) within the document's budget."""
+
+    budget: _HighlightBudget
+
+    def run(self, root: Element) -> None:
+        # Upstream's loop, with the budget checked before each block.
+        for block in list(root.iter("pre")):
+            if len(block) != 1 or block[0].tag != "code" or block[0].text is None:
+                continue
+            code = self.code_unescape(block[0].text)
+            if len(code) > MAX_HIGHLIGHT_CODE_CHARS or not self.budget.take(code):
+                continue  # stays literal code
+            config = self.config.copy()
+            highlighter = CodeHilite(code, tab_length=self.md.tab_length,
+                                     style=config.pop("pygments_style", "default"), **config)
+            placeholder = self.md.htmlStash.store(highlighter.hilite())
+            block.clear()
+            block.tag = "p"  # removed again when the stashed HTML is inserted
+            block.text = placeholder
+
+
+class _BudgetedCodeHilite(CodeHiliteExtension):
+    def __init__(self, budget: _HighlightBudget, **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        self.budget = budget
+
+    def extendMarkdown(self, md):  # noqa: N802 - Python-Markdown API name
+        hiliter = _BudgetedHilite(md)
+        hiliter.config = self.getConfigs()
+        hiliter.budget = self.budget
+        md.treeprocessors.register(hiliter, "hilite", 30)
+        md.registerExtension(self)
 
 
 class _FirstTocMarker(TocTreeprocessor):
@@ -811,16 +989,83 @@ _TASK_ITEM = re.compile(r"<li>(\s*<p>)?\s*\[( |x|X)\]\s+")
 
 
 def _task_lists(html: str) -> str:
-    """``- [ ] item`` / ``- [x] item`` become read-only check marks."""
+    """``- [ ] item`` / ``- [x] item`` become read-only check marks.
+
+    The mark is real text (not aria-hidden): screen readers announce "ballot box" / "ballot box with
+    check" in the reader's own language, so the done state is not conveyed by colour alone. The box
+    has a fixed width (content.css), so no space follows it and wrapped lines line up with the text.
+    """
 
     def replace(match: re.Match[str]) -> str:
         done = match.group(2) in "xX"
         mark = "☑" if done else "☐"
         state = "done" if done else "open"
         return (f'<li class="task-item task-{state}">{match.group(1) or ""}'
-                f'<span class="task-box" aria-hidden="true">{mark}</span> ')
+                f'<span class="task-box">{mark}</span>')
 
     return _TASK_ITEM.sub(replace, html)
+
+
+_TABLE_DATE = re.compile(r"(<td(?: [^>]*)?>)\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)\s*(</td>)")
+
+
+def _nowrap_table_dates(html: str) -> str:
+    """A table cell holding only an ISO date keeps it on one line (never "2026-09-" / "01")."""
+    return _TABLE_DATE.sub(r'\1<span class="nowrap">\2</span>\3', html)
+
+
+_CacheKey = tuple[object, ...]
+
+
+class _RenderCache:
+    """Renderings by kind, options and source hash, least recently used dropped first."""
+
+    def __init__(self) -> None:
+        self._items: OrderedDict[_CacheKey, str] = OrderedDict()
+        self.size = 0
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _footprint(value: str) -> int:
+        return sys.getsizeof(value) + 256
+
+    def get(self, key: _CacheKey) -> str | None:
+        with self._lock:
+            value = self._items.get(key)
+            if value is not None:
+                self._items.move_to_end(key)
+            return value
+
+    def put(self, key: _CacheKey, value: str) -> None:
+        footprint = self._footprint(value)
+        with self._lock:
+            if footprint > RENDER_CACHE_LIMIT // 4:
+                return
+            old = self._items.pop(key, None)
+            if old is not None:
+                self.size -= self._footprint(old)
+            self._items[key] = value
+            self.size += footprint
+            while self.size > RENDER_CACHE_LIMIT and self._items:
+                _key, dropped = self._items.popitem(last=False)
+                self.size -= self._footprint(dropped)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._items.clear()
+            self.size = 0
+
+
+_render_cache = _RenderCache()
+
+
+def clear_render_cache() -> None:
+    """Forget every kept rendering (tests; nothing else needs to: keys are source hashes)."""
+    _render_cache.clear()
+
+
+def _source_hash(text: str) -> bytes:
+    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).digest()
 
 
 def render(
@@ -830,12 +1075,43 @@ def render(
     fix_lists: bool = True,
     mentions: bool = True,
     profile_url: Callable[[str], str] = _default_profile_url,
+    highlight: bool = True,
+    keep: bool = False,
 ) -> str:
-    """Render stored Markdown to sanitised HTML."""
+    """Render stored Markdown to sanitised HTML.
+
+    The result depends only on the source and the options, so renderings of
+    sources of :data:`RENDER_CACHE_MIN_CHARS` or more, or that highlighted
+    code, are kept by their hash (a custom *profile_url* is not part of the
+    key: those are never kept). With *keep*, shorter ones are kept too: for
+    lists that render many short documents on every request (the comments of
+    a ticket). A rendering that a :func:`shared_highlighting` allowance cut
+    short is not kept either. Without *highlight*, code stays plain and uses
+    no allowance (for text that loses its markup anyway).
+    """
     if not text:
         return ""
     if len(text) > MAX_SOURCE_CHARS:
         text = text[:MAX_SOURCE_CHARS]
+    shared = _shared_budget.get() if highlight else None
+    allowance = MAX_HIGHLIGHT_DOCUMENT_CHARS if highlight else 0
+    if profile_url is not _default_profile_url:
+        return _render(text, embed_videos, fix_lists, mentions, profile_url, shared or _HighlightBudget(allowance))
+    key = ("markdown", _source_hash(text), embed_videos, fix_lists, mentions, highlight)
+    html = _render_cache.get(key)
+    if html is not None:
+        return html
+    budget = shared or _HighlightBudget(allowance)
+    left, refused = budget.left, budget.refused
+    html = _render(text, embed_videos, fix_lists, mentions, profile_url, budget)
+    costly = keep or len(text) >= RENDER_CACHE_MIN_CHARS or budget.left != left
+    if costly and (shared is None or budget.refused == refused):
+        _render_cache.put(key, html)
+    return html
+
+
+def _render(text: str, embed_videos: bool, fix_lists: bool, mentions: bool,
+            profile_url: Callable[[str], str], budget: _HighlightBudget | None = None) -> str:
     if _parser_work_exceeded(text):
         return _plain_source(text)
     prepared = _preprocess(text, fix_lists)
@@ -843,12 +1119,15 @@ def render(
     # input too, so generated inline markup cannot bypass the source check.
     if prepared != text and _parser_work_exceeded(prepared):
         return _plain_source(text)
+    # Fenced and indented code share one highlighting allowance.
+    if budget is None:
+        budget = _HighlightBudget()
     try:
         html = _markdown.markdown(
             prepared,
-            extensions=["tables", _SafeFencedCode(), "codehilite", _TableOfContents(), "nl2br", _Strikethrough(),
-                        _OutputLimit()],
-            extension_configs={"codehilite": {"css_class": "codehilite", "guess_lang": False}},
+            extensions=["tables", _SafeFencedCode(budget),
+                        _BudgetedCodeHilite(budget, css_class="codehilite", guess_lang=False),
+                        _TableOfContents(), "nl2br", _Strikethrough(), _OutputLimit()],
             output_format="html",
         )
     except (RecursionError, _OutputTooLarge):
@@ -856,7 +1135,7 @@ def render(
         # an additional recursive construct not covered by the preflight, or
         # the document expands beyond the output limit.
         return _plain_source(text)
-    html = _task_lists(sanitize(html))
+    html = _nowrap_table_dates(_task_lists(_escape_attribute_brackets(sanitize(html))))
     embeds = _EmbedBudget()
     html = _embed_videos(html, embed_videos, embeds)
     html = _embed_boards(html, embeds)
@@ -867,11 +1146,23 @@ def render(
 
 
 def highlight_code(code: str | None, language: str | None = None) -> str:
-    """Syntax-highlight a code snippet (used by code custom pages and the editor)."""
+    """Syntax-highlight a code snippet (code custom pages, builder code blocks, the editor).
+
+    Results are cached like :func:`render`'s; inside :func:`shared_highlighting`
+    a snippet past the shared allowance stays plain code.
+    """
     code = "" if code is None else str(code)[:MAX_SOURCE_CHARS]
+    plain = "<pre><code>" + escape(code) + "</code></pre>"
     if len(code) > MAX_HIGHLIGHT_CODE_CHARS:
-        return "<pre><code>" + escape(code) + "</code></pre>"
+        return plain
     language = (language or "").strip()
+    key = ("code", _source_hash(code), language)
+    cached = _render_cache.get(key)
+    if cached is not None:
+        return cached
+    shared = _shared_budget.get()
+    if shared is not None and not shared.take(code):
+        return plain
     try:
         if language:
             lexer = get_lexer_by_name(language, stripall=False)
@@ -881,18 +1172,33 @@ def highlight_code(code: str | None, language: str | None = None) -> str:
             lexer = TextLexer()
     except ClassNotFound:
         lexer = TextLexer()
-    return sanitize(highlight(code, lexer, HtmlFormatter(cssclass="codehilite")))
+    html = sanitize(highlight(code, lexer, HtmlFormatter(cssclass="codehilite")))
+    _render_cache.put(key, html)
+    return html
 
 
 _STRIP_TAGS = re.compile(r"<[^>]+>")
+# Tags that end a block of text: they become a space. Inline tags (<strong>, <a>, <code>…) vanish,
+# so "before **v1.7.0**." stays "before v1.7.0." instead of gaining a space before the period.
+_BLOCK_TAGS = re.compile(
+    r"</?(?:p|div|br|hr|li|ul|ol|dl|dt|dd|h[1-6]|blockquote|pre|table|thead|tbody|tfoot|tr|td|th|caption"
+    r"|figure|figcaption|details|summary|section|article|aside|header|footer|nav|img|iframe|video|audio)\b[^>]*>",
+    re.IGNORECASE,
+)
 
 
 def to_plain_text(text: str | None) -> str:
-    """Rendered text without markup (search snippets, TTS, previews)."""
+    """Rendered text without markup (search snippets, previews, outlines).
+
+    Code is not highlighted: its markup would be stripped right away, and
+    inside :func:`shared_highlighting` it would use up the allowance of the
+    page that shows the text (a page list of a page-builder page).
+    """
     from html import unescape
 
-    html = render(text, embed_videos=False, mentions=False)
-    return re.sub(r"\s+", " ", unescape(_STRIP_TAGS.sub(" ", html))).strip()
+    html = render(text, embed_videos=False, mentions=False, highlight=False)
+    text = _STRIP_TAGS.sub("", _BLOCK_TAGS.sub(" ", html))
+    return re.sub(r"\s+", " ", unescape(text)).strip()
 
 
 def _source_head(text: str, limit: int) -> str:

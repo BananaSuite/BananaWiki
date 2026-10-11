@@ -16,8 +16,8 @@
   <li>
     <a class="chat-list__item" href="{{ url_for('chat.group_view', group_id=g.id) }}">
       <span class="chat-list__name">{{ display_name(g) }}
-        <span class="small muted">{{ t('chat.groups.member_count', count=g.member_count) }}</span>
-        {% if g.unread_count %}<span class="count-pill" aria-label="{{ t('chat.unread', count=g.unread_count) }}">{{ g.unread_count }}</span>{% endif %}
+        <span class="small muted">· {{ tn('chat.groups.member_count', g.member_count) }}</span>
+        {% if g.unread_count %}<span class="count-pill"><span aria-hidden="true">{{ g.unread_count }}</span><span class="visually-hidden">{{ tn('chat.unread', g.unread_count) }}</span></span>{% endif %}
       </span>
       <span class="chat-list__preview muted">
         {% if g.last_deleted %}{{ t('chat.message.deleted') }}{% elif g.last_system %}{{ t('chat.groups.activity') }}{% elif g.last_message %}{{ g.last_message|truncate(90, true, '…') }}{% else %}{{ t('chat.no_messages_yet') }}{% endif %}

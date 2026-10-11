@@ -34,9 +34,12 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 from ... import __version__
+from ...core import zipcheck
 from ...core.json import loads as safe_json_loads
+from ...core.logformat import one_line
 from ..config import HostingConfig
 from . import FAILURE_CODES, RuntimeFailure, archives, crypto, tenantfs
+from .plugin_safety import INSTANCE_ID
 
 log = logging.getLogger("bananawiki.hosting.runtime.platform")
 
@@ -50,6 +53,9 @@ MANIFEST_NAME = "backup_manifest.json"
 # backup, plus a tenth of it and this much: the quota counts allocated
 # blocks, the budget sizes as files report them.
 BUDGET_SLACK_BYTES = 64 * 1024 ** 2
+# What the portal keeps in a wiki's platform state while the runtime agent
+# holds it above its plan (UP-1): the plan and the hard limit it was adopted at.
+OVER_PLAN_NAME = "over-plan.json"
 
 Snapshot = Callable[[str], archives.DatabaseCopy | None]
 
@@ -63,6 +69,26 @@ def byte_budget(limit: int | None) -> int | None:
     """What a wiki's files, and its database copy apart, may add to a backup or an export: its storage *limit*
     (bytes; None: no limit, and no budget) and some slack."""
     return None if limit is None else limit + limit // 10 + BUDGET_SLACK_BYTES
+
+
+def held_limit(state_dir: str, instance_id: str, limit: int | None) -> int | None:
+    """The storage limit a wiki's archives are held to: its plan *limit* (bytes; None: no limit), or the larger
+    hard limit the runtime agent adopted it at above that plan (UP-1), as the portal recorded it in the wiki's
+    platform state.
+
+    Such a wiki serves holding more than its plan, and its quota bounds what
+    it can allocate at the adopted limit, as the plan bounds the others': a
+    budget from the plan alone would leave its genuine database out of every
+    platform backup and refuse its owner's download.
+    """
+    if limit is None or not isinstance(instance_id, str) or not INSTANCE_ID.fullmatch(instance_id):
+        return limit
+    try:
+        recorded = json.loads((Path(state_dir) / instance_id / OVER_PLAN_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return limit
+    held = recorded.get("byte_limit") if isinstance(recorded, dict) else None
+    return max(limit, held) if type(held) is int else limit
 
 
 def tenant_names(instances_dir: str) -> list[str]:
@@ -91,7 +117,8 @@ def _storage_limits(cfg: HostingConfig, database: Path) -> dict[str, int | None]
     None stands for no limit: an administrator's wiki, an apex wiki or a
     limit of 0, which only the runtime's own ceiling bounds. A wiki without
     a limit of its own has the default one, like a wiki the copy does not
-    name.
+    name. A wiki the runtime agent holds above its plan has the hard limit
+    it was adopted at (:func:`held_limit`).
     """
     try:
         # The backup's own copy: a read-only connection could not remove the
@@ -100,24 +127,24 @@ def _storage_limits(cfg: HostingConfig, database: Path) -> dict[str, int | None]
         try:
             conn.execute("PRAGMA query_only=ON")
             conn.execute("PRAGMA trusted_schema=OFF")
-            rows = conn.execute("SELECT i.subdomain, i.domain_mode, i.storage_limit_mb, a.is_admin FROM instances i "
-                                "LEFT JOIN accounts a ON a.id = i.account_id").fetchall()
+            rows = conn.execute("SELECT i.id, i.subdomain, i.domain_mode, i.storage_limit_mb, a.is_admin "
+                                "FROM instances i LEFT JOIN accounts a ON a.id = i.account_id").fetchall()
         finally:
             conn.close()
     except sqlite3.Error as error:
         log.warning("The platform backup applies the default storage limit to every wiki: %s", error)
         return {}
     limits: dict[str, int | None] = {}
-    for slug, mode, limit, admin in rows:
+    for instance_id, slug, mode, limit, admin in rows:
         if not isinstance(slug, str) or mode not in ("hosting", "apex"):
             continue
         name = slug + ("__apex" if mode == "apex" else "")
         if mode == "apex" or admin or limit == 0:
             limits[name] = None
         elif limit is None:
-            limits[name] = cfg.limits.storage_limit_mb * 1024 ** 2
+            limits[name] = held_limit(cfg.platform_state_dir, instance_id, cfg.limits.storage_limit_mb * 1024 ** 2)
         elif type(limit) is int and limit > 0:
-            limits[name] = limit * 1024 ** 2
+            limits[name] = held_limit(cfg.platform_state_dir, instance_id, limit * 1024 ** 2)
     return limits
 
 
@@ -239,7 +266,7 @@ def _export(cfg: HostingConfig, destination_dir: Path, key: bytes, snapshot: Sna
                         # Not this wiki's fault, and the next ones would fail alike: retry the whole backup.
                         raise RuntimeFailure("unavailable", f"platform backup stopped at {tenant}: the runtime "
                                                             "does not answer") from error
-                    log.error("The platform backup does not hold %s in full: %s", tenant, error,
+                    log.error("The platform backup does not hold %s in full: %s", tenant, one_line(error),
                               exc_info=not isinstance(error, (RuntimeFailure, OSError)))
                     skipped.append(_skipped(tenant, error))
                     # A wiki whose sandbox refused the copy (a damaged database), or whose own files stood in
@@ -481,7 +508,7 @@ def _stage(parts: Sequence[Path], stage: Path, cfg: HostingConfig, key: Callable
                     raise RuntimeFailure("too_large", "the backup exceeds the configured extraction limits")
                 if stat.S_IFMT(entry.external_attr >> 16) not in (0, stat.S_IFREG, stat.S_IFDIR):
                     raise RuntimeFailure("archive_invalid", "the backup contains links or special files")
-                if not archives.readable_member(entry):
+                if not zipcheck.readable_member(entry):
                     raise RuntimeFailure("archive_invalid", "the backup contains encrypted or unsupported members")
                 if entry.filename == MANIFEST_NAME:
                     incomplete += _incomplete(archive, entry)

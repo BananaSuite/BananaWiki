@@ -7,6 +7,8 @@ from typing import Any
 
 from flask import abort, redirect, render_template, request, url_for
 
+from bananawiki.core.numbers import ascii_int
+
 from .... import accounts, auth
 from .... import permissions as perms
 from ....accounts import AccountError
@@ -72,7 +74,7 @@ def user_detail(user_id: str):
         actor_superuser=service.is_superuser(me),
         custom_role=custom_roles.get(target["custom_role_id"]) if target.get("custom_role_id") else None,
         custom_roles=custom_roles.list_roles(),
-        sessions=service.active_sessions(target["id"]),
+        sessions=service.sessions_for(me, service.active_sessions(target["id"])),
         current_session_id=auth.current_session_id(),
         contributions=service.contribution_count(target["id"]),
         profile_url=endpoint_url("users.profile", username=target["username"]),
@@ -202,8 +204,8 @@ def assign_role(user_id: str):
             service.change_role(me, target, value)
         elif kind == "custom" and value in ("", "none"):
             service.remove_custom_role(me, target)
-        elif kind == "custom" and value.isdigit():
-            role = custom_roles.get(int(value))
+        elif kind == "custom" and ascii_int(value) is not None:
+            role = custom_roles.get(ascii_int(value))
             if role is None:
                 raise AccountError("admin.roles.error.not_found")
             service.assign_custom_role(me, target, role)
@@ -369,9 +371,10 @@ def attributions(user_id: str):
             auth.flash_t("admin.attributions.moved", "success", count=count, username=recipient["username"])
         elif action == "delete_role_history_entry":
             entry = request.form.get("entry_id", "")
-            if not entry.isdigit():
+            entry_id = ascii_int(entry)
+            if entry_id is None:
                 raise AccountError("admin.attributions.error.entry_not_found")
-            service.delete_role_history(me, target, int(entry))
+            service.delete_role_history(me, target, entry_id)
             auth.flash_t("admin.attributions.history_deleted", "success", count=1)
         elif action == "delete_all_role_history":
             count = service.delete_role_history(me, target)

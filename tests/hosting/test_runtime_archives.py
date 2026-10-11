@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import io
 import json
+import logging
 import os
 import sqlite3
 import stat
@@ -19,7 +20,7 @@ import pytest
 from bananawiki.hosting.runtime import RuntimeFailure, TenantPolicy, tenantfs
 from bananawiki.hosting.runtime.archives import destination
 
-from .agent_fakes import make_runtime, make_spec, provision
+from .agent_fakes import hold_above_plan, make_runtime, make_spec, provision
 
 
 @pytest.fixture
@@ -476,6 +477,30 @@ def test_import_refuses_members_whose_decompression_cannot_be_bounded(setup, tmp
     assert not (Path(runtime._cfg().instances_dir) / "packed").exists()
 
 
+def _flagged_zip(tmp_path, flag: int) -> Path:
+    """The database member with general purpose *flag* set in both headers (zipfile cannot write such members)."""
+    path = _zip(tmp_path, [("bananawiki.db", b"database"), ("uploads/a.png", b"a")], name=f"flag-{flag}.zip")
+    raw = bytearray(path.read_bytes())
+    for position in (raw.index(b"PK\x03\x04") + 6, raw.index(b"PK\x01\x02") + 8):
+        raw[position:position + 2] = flag.to_bytes(2, "little")
+    path.write_bytes(raw)
+    return path
+
+
+@pytest.mark.parametrize("flag", [0x01, 0x20, 0x40], ids=["encrypted", "patched-data", "strong-encryption"])
+def test_import_refuses_members_zipfile_cannot_unpack_like_a_site_import(setup, tmp_path, flag):
+    """The same members a whole-site import refuses (bananawiki.core.zipcheck): zipfile raises
+    NotImplementedError on patched data and strong encryption, which no caller of an import expects."""
+    runtime, _agent, _spec, _root = setup
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.import_archive(make_spec("flagged"), _flagged_zip(tmp_path, flag))
+    assert error.value.code == "archive_invalid"
+    assert "encrypted or unsupported" in error.value.detail, "refused before any member is read"
+    base = Path(runtime._cfg().instances_dir)
+    assert not (base / "flagged").exists()
+    assert not [p for p in base.iterdir() if p.name.startswith(".import-")], "staging is removed"
+
+
 @pytest.mark.parametrize("failure", [errno.ENOSPC, errno.EDQUOT])
 def test_import_storage_failures_are_reported_and_remove_staging(setup, tmp_path, monkeypatch, failure):
     from bananawiki.hosting.runtime import archives
@@ -748,6 +773,31 @@ def test_export_holds_a_database_copy_to_the_wikis_storage_limit(setup, tmp_path
     assert not list(out.iterdir())
 
 
+def test_a_wiki_held_above_its_plan_can_still_be_downloaded(setup, tmp_path, monkeypatch):
+    """A wiki the runtime agent adopted above its plan (UP-1) serves, and its quota holds it to the hard limit it
+    was adopted at: its export's budget is that limit. From its plan alone, the owner's download of its genuine
+    database was refused. A sparse file beyond the adopted limit still fails the export."""
+    from bananawiki.hosting.runtime import platform_backup
+
+    monkeypatch.setattr(platform_backup, "BUDGET_SLACK_BYTES", 0)
+    runtime, _agent, spec, root = setup
+    # A 1 MB plan below what it holds (a database copy of some 1.2 MiB), adopted at 3 MiB.
+    limited = replace(spec, policy=replace(spec.policy, storage_limit_bytes=1024 ** 2))
+    hold_above_plan(runtime, spec.instance_id, 1024 ** 2, 3 * 1024 ** 2)
+    with zipfile.ZipFile(_export(runtime, limited, tmp_path)) as archive:
+        assert archive.getinfo("bananawiki.db").file_size > 1024 ** 2 + 1024 ** 2 // 10
+        assert archive.read("uploads/photo.png") == b"\x89PNG data"
+
+    with open(root / "storage" / "uploads" / "sparse.bin", "wb") as handle:
+        handle.truncate(4 * 1024 ** 2)
+    out = tmp_path / "sparse"
+    out.mkdir()
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.export_archive(limited, out)
+    assert error.value.code == "too_large" and "sparse.bin" in error.value.detail
+    assert not list(out.iterdir()), "no archive is left"
+
+
 def test_hard_links_to_one_file_go_into_an_export_once(setup, tmp_path):
     """Each hard link cost the export a full copy of the file, the wiki's quota only one."""
     runtime, _agent, spec, root = setup
@@ -822,3 +872,78 @@ def test_export_of_a_planted_database_link_fails_safely(setup, tmp_path):
     with pytest.raises(RuntimeFailure) as error:
         _export(runtime, spec, tmp_path)
     assert error.value.code == "db_unsafe"
+
+
+def _nest(top: Path, depth: int) -> None:
+    fd = os.open(top, os.O_RDONLY)
+    try:
+        for _ in range(depth):
+            os.mkdir("a", dir_fd=fd)
+            inner = os.open("a", os.O_RDONLY, dir_fd=fd)
+            os.close(fd)
+            fd = inner
+        os.close(os.open("deep.txt", os.O_WRONLY | os.O_CREAT, 0o600, dir_fd=fd))
+    finally:
+        os.close(fd)
+
+
+def test_a_tenant_tree_nested_past_the_open_file_limit_is_cut_short_not_fatal(setup, tmp_path, monkeypatch):
+    resource = pytest.importorskip("resource")
+    from bananawiki.hosting.runtime import archives, tenantfs
+
+    runtime, _agent, _spec, root = setup
+    _nest(root / "storage/uploads", 200)
+    monkeypatch.setattr(tenantfs, "MAX_DEPTH", 8, raising=False)
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (len(os.listdir("/proc/self/fd")) + 60, hard))
+    try:
+        with zipfile.ZipFile(tmp_path / "deep.zip", "w") as archive:
+            archives.add_tenant_tree(archive, root, "", runtime._cfg().archives, portable=True)
+        used = tenantfs.usage(root)
+    finally:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+    with zipfile.ZipFile(tmp_path / "deep.zip") as archive:
+        names = archive.namelist()
+    assert "uploads/photo.png" in names and not any(name.endswith("deep.txt") for name in names)
+    assert used > 0
+
+
+FORGED = "x\n2026-10-10 00:00:00 bananawiki.agent WARNING forged line"
+
+
+def test_tenant_file_names_never_start_a_log_line_of_their_own(setup, tmp_path, monkeypatch, caplog):
+    """A wiki names its own files and folders: logged with their line breaks, a name could forge further lines in
+    the portal's log, where each line is an entry of its own. Names reach it from a tree nested too deep and from
+    the files an export leaves out (such names among them)."""
+    from bananawiki.hosting.runtime import tenantfs
+
+    runtime, _agent, spec, root = setup
+    monkeypatch.setattr(tenantfs, "MAX_DEPTH", 3, raising=False)
+    uploads = root / "storage" / "uploads"
+    (uploads / FORGED / "b" / "c").mkdir(parents=True)
+    (uploads / FORGED / "b" / "c" / "deep.txt").write_text("deep")
+    (uploads / f"colon:{FORGED}.txt").write_text("refused")
+    with caplog.at_level(logging.WARNING):
+        _export(runtime, spec, tmp_path)
+    messages = [record.getMessage() for record in caplog.records]
+    assert {"levels deep", "no import would accept"} == {
+        what for what in ("levels deep", "no import would accept")
+        for message in messages if what in message and "forged line" in message}
+    assert not [message for message in messages if "\n" in message or "\r" in message]
+
+
+def test_usage_reports_what_it_counted_when_the_walk_fails(setup, monkeypatch):
+    from bananawiki.hosting.runtime import tenantfs
+
+    _runtime, _agent, _spec, root = setup
+    root_fd = tenantfs.open_dir(root)
+
+    def failing(*_args, **_kwargs):
+        yield ".", [], ["bananawiki.db"], root_fd
+        raise OSError(errno.EMFILE, "Too many open files")
+
+    monkeypatch.setattr(tenantfs.os, "fwalk", failing)
+    try:
+        assert tenantfs.usage(root) == (root / "bananawiki.db").stat().st_size
+    finally:
+        os.close(root_fd)

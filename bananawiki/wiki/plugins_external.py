@@ -9,7 +9,10 @@ adapter in :mod:`bananawiki.sdk.compat`.
 
 Plugins are loaded once, when the application starts, and only when their
 row in ``plugins`` (``builtin = 0``) is enabled and external plugins are
-allowed (``BW_ALLOW_EXTERNAL_PLUGINS``). Code cannot be unloaded from a
+allowed (``BW_ALLOW_EXTERNAL_PLUGINS``). That variable is off for new
+installations; when it is unset, an installation whose plugins folder
+already holds plugins (one upgraded from an earlier version) keeps them
+allowed and says so in the log at every start. Code cannot be unloaded from a
 running process, so there is no hot loading: switching a plugin on takes
 effect at the next restart. Switching one off takes effect at once for
 everything the registry controls (routes, navigation, slots, events, jobs)
@@ -18,7 +21,8 @@ restart.
 
 A plugin runs inside the wiki process with the wiki's own privileges. Every
 check here keeps honest plugins from making mistakes; none of them contains
-a plugin that means harm.
+a plugin that means harm. That is why only the owner and superusers may
+install or enable one (``plugin_manager.service.can_trust_code``).
 """
 
 from __future__ import annotations
@@ -302,10 +306,21 @@ class Runtime:
         self.invalid: dict[str, PluginState] = {}
         # Which process built the app: under Gunicorn with preload_app it is the master.
         self.loaded_pid = os.getpid()
+        # BW_ALLOW_EXTERNAL_PLUGINS; when unset (None), load() decides from what is installed.
+        self.setting: bool | None = cfg.allow_external_plugins
+        self.allowed = bool(self.setting)
 
-    @property
-    def allowed(self) -> bool:
-        return bool(self.cfg.allow_external_plugins)
+    def keep_installed(self) -> None:
+        """With the variable unset, keep plugins allowed where some are installed (an upgrade)."""
+        if self.setting is not None or not (self.plugins or self.invalid):
+            return
+        self.allowed = True
+        log.warning(
+            "BW_ALLOW_EXTERNAL_PLUGINS is not set and %d plugin folder(s) are installed in %s: third-party "
+            "plugins stay allowed on this installation, as before. New installations have them off. Set "
+            "BW_ALLOW_EXTERNAL_PLUGINS=1 to keep them (and silence this message) or 0 to turn them off.",
+            len(self.plugins) + len(self.invalid), self.directory,
+        )
 
     def loaded_ids(self) -> list[str]:
         return [pid for pid, state in self.plugins.items() if state.loaded]
@@ -523,6 +538,7 @@ def load(app: Any, reg: Any, catalog: Any) -> Runtime:
     rt.discover(reg.features)
     if not rt.plugins and not rt.invalid:
         return rt
+    rt.keep_installed()
     with app.app_context(), connection_scope(app.extensions["bananawiki.database"]) as session:
         rows = rt.sync_rows(session)
         if not rt.allowed:

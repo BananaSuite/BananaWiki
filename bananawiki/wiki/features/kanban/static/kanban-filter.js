@@ -47,8 +47,8 @@
   function matchesDue(ticket) {
     var due = ticket.due_date;
     switch (filter.due) {
-      case "overdue": return K.dueState(due) === "overdue";
-      case "soon": return !!due && K.dueState(due) !== "";
+      case "overdue": return K.dueStateIn(ticket) === "overdue";
+      case "soon": return !!due && K.dueStateIn(ticket) !== "";
       case "week": return !!due && due >= K.isoDate(new Date()) && due <= weekEnd();
       case "none": return !due;
       default: return true;

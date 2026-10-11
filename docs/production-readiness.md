@@ -5,6 +5,11 @@ managed wiki and Linux x86_64 hosting with Docker, IPv4 tenant bridges, the pinn
 quota-safe seccomp policy, a dedicated XFS volume with project accounting and
 enforcement, and the documented host INPUT allowlist.
 
+Since 1.7.0 XFS is optional: on other storage the wikis run without hard
+per-wiki quotas, held to their plans by the application's own checks (see
+[hard storage quotas](operations.md#hard-storage-quotas-hosting) for that
+trade-off). What this report validated is the profile with hard quotas.
+
 **Automatic creation by ordinary public accounts now has a built-in pre-seed
 storage gate.** The root runtime agent assigns finite byte and inode quotas
 before any seed, import, copy, restore or launch. Unsupported filesystems,
@@ -366,9 +371,9 @@ Running tasks inherit the verified container policy; outdated settings are
 refused and replaced during start/recovery even when image/application settings
 match.
 
-Each hosting deployment must provide dedicated XFS project accounting and
-enforcement, trusted finite quota ceilings, portal/backup capacity and the INPUT
-allowlist before opening access. The runtime provisions and verifies each
+Each hosting deployment must provide trusted finite quota ceilings,
+portal/backup capacity and the INPUT allowlist before opening access, and,
+for hard per-wiki limits, dedicated XFS project accounting and enforcement. The runtime provisions and verifies each
 tenant's limits before its first task, including ordinary public creation.
 Its aggregate admission budget and free-space checks retain a positive
 configured reserve; project quotas do not create a hierarchical filesystem-wide

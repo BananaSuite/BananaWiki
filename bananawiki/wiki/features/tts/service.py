@@ -121,7 +121,7 @@ def serialize(row: dict[str, Any] | None, *, usable: bool = False) -> dict[str, 
     return {
         "id": row["id"],
         "language": row["language"],
-        "language_label": text.LANGUAGE_LABELS.get(row["language"], row["language"]),
+        "language_label": text.language_label(row["language"]),
         "status": row["status"],
         "file_size": row["file_size"] or 0,
         "retry_count": row["retry_count"] or 0,

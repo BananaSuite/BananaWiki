@@ -1,26 +1,53 @@
 {% extends "admin/_layout.html" %}
 {% import "macros/forms.html" as forms with context %}
-{% block title %}{{ t('federation.admin.title') }}{% endblock %}
+{% block title %}{{ t('federation.nav.admin') }}{% endblock %}
 {% block admin_content %}
 <div class="page-header">
-  <h1>{{ t('federation.admin.title') }}</h1>
+  <h1>{{ t('federation.nav.admin') }}</h1>
   <div class="page-header__actions">
     <a class="btn btn--small" href="{{ url_for('federation.index') }}">{{ t('federation.nav.received') }}</a>
     <a class="btn btn--small" href="{{ url_for('federation.sharing') }}">{{ t('federation.sharing.title') }}</a>
   </div>
 </div>
-<p>{{ t('federation.admin.identity') }} <code class="mono">{{ wiki_id }}</code>
-  <button type="button" class="btn btn--small" data-copy="{{ wiki_id }}">{{ t('federation.copy_id') }}</button></p>
-<p class="muted">{{ t('federation.admin.intro') }}</p>
+<div class="section-stack">
 
+<section class="card" aria-labelledby="federation-peers">
+  <h2 id="federation-peers">{{ t('federation.admin.title') }}</h2>
+  {% if not peers %}<div class="empty-state"><p>{{ t('federation.admin.no_peers') }}</p></div>{% endif %}
+  <div class="stack federation-peers">
+{% for peer in peers %}
+<article class="federation-peer">
+  <h3>{{ peer.name }}</h3>
+  <p><code class="mono">{{ peer.wiki_id }}</code> · {{ peer.base_url }}{% if peer.allow_private_network and private_network_offered %} · <span class="badge">{{ t('federation.admin.private_badge') }}</span>{% endif %}</p>
+  <p>{{ t('federation.admin.sequence', sequence=peer.last_sequence) }}
+    {% if peer.last_success %}{{ t('federation.admin.last_success', when=peer.last_success|datetime) }}{% else %}{{ t('federation.admin.never_synced') }}{% endif %}</p>
+  {% if peer.last_error %}<p class="text-danger" role="status">{{ t(peer.last_error) }} {{ t('federation.admin.retry', when=peer.next_attempt|datetime) }}</p>{% endif %}
+  <div class="btn-row">
+    {{ forms.post_button(url_for('federation.sync_now', remote_id=peer.wiki_id), t('federation.admin.sync')) }}
+    {{ forms.post_button(url_for('federation.disconnect', remote_id=peer.wiki_id), t('federation.admin.disconnect'), cls='btn btn--danger', confirm=t('federation.admin.disconnect_confirm')) }}
+  </div>
+</article>
+{% endfor %}
+  </div>
+</section>
 <section class="card">
   <h2>{{ t('federation.admin.pair') }}</h2>
+  <p class="cluster">{{ t('federation.admin.identity') }} <code class="mono">{{ wiki_id }}</code>
+    <button type="button" class="btn btn--small" data-copy="{{ wiki_id }}">{{ t('federation.copy_id') }}</button></p>
+  <p class="hint hint--block">{{ t('federation.admin.intro') }}</p>
   <form method="post" class="form">
     {{ forms.csrf() }}
     {{ forms.field('name', t('federation.admin.peer_name'), required=true, attrs={'maxlength': 100}) }}
     {{ forms.field('wiki_id', t('federation.admin.peer_id'), required=true, attrs={'maxlength': 36, 'spellcheck': 'false'}) }}
     {{ forms.field('base_url', t('federation.admin.peer_url'), type='url', required=true, hint=t('federation.admin.peer_url_hint'), attrs={'maxlength': 512, 'placeholder': 'https://wiki.example.org'}) }}
-    {{ forms.field('secret', t('federation.admin.secret'), value=new_secret, required=true, hint=t('federation.admin.secret_hint'), attrs={'minlength': 64, 'maxlength': 64, 'autocomplete': 'off', 'spellcheck': 'false'}) }}
+    {#- A textarea, so the 64-character key wraps and can be checked by eye on a phone. -#}
+    <div class="field">
+      <label for="f-secret">{{ t('federation.admin.secret') }}</label>
+      <textarea class="textarea mono textarea--key" id="f-secret" name="secret" rows="2" required minlength="64" maxlength="64"
+        autocomplete="off" spellcheck="false" aria-describedby="f-secret-hint">{{ new_secret or '' }}</textarea>
+      <p class="hint" id="f-secret-hint">{{ t('federation.admin.secret_hint') }}</p>
+    </div>
+    {% if new_secret %}<p><button type="button" class="btn btn--small" data-copy="{{ new_secret }}">{{ t('federation.admin.copy_secret') }}</button></p>{% endif %}
     <div class="field">
       <label for="f-category">{{ t('federation.admin.audience') }}</label>
       <select id="f-category" name="category">
@@ -33,20 +60,7 @@
     {% endif %}
     <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('federation.admin.pair_button') }}</button></div>
   </form>
+  <p class="hint users-spaced">{{ t('federation.admin.rotate') }}</p>
 </section>
-
-{% for peer in peers %}
-<section class="card">
-  <h2>{{ peer.name }}</h2>
-  <p><code class="mono">{{ peer.wiki_id }}</code> · {{ peer.base_url }}{% if peer.allow_private_network and private_network_offered %} · <span class="badge">{{ t('federation.admin.private_badge') }}</span>{% endif %}</p>
-  <p>{{ t('federation.admin.sequence', sequence=peer.last_sequence) }}
-    {% if peer.last_success %}{{ t('federation.admin.last_success', when=peer.last_success|datetime) }}{% else %}{{ t('federation.admin.never_synced') }}{% endif %}</p>
-  {% if peer.last_error %}<p class="text-danger" role="status">{{ t(peer.last_error) }} {{ t('federation.admin.retry', when=peer.next_attempt|datetime) }}</p>{% endif %}
-  <div class="btn-row">
-    {{ forms.post_button(url_for('federation.sync_now', remote_id=peer.wiki_id), t('federation.admin.sync')) }}
-    {{ forms.post_button(url_for('federation.disconnect', remote_id=peer.wiki_id), t('federation.admin.disconnect'), cls='btn btn--danger', confirm=t('federation.admin.disconnect_confirm')) }}
-  </div>
-</section>
-{% endfor %}
-<p class="muted">{{ t('federation.admin.rotate') }}</p>
+</div>
 {% endblock %}

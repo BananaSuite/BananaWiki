@@ -130,6 +130,23 @@ def login():
 
 
 @pytest.fixture
+def frozen_limiter_clock(monkeypatch):
+    """Stop the clock of the in-memory rate limiter (``MemoryLimiter``).
+
+    A test that sends N+1 requests to see the last one refused relies on all
+    of them landing in one window. On a loaded host N requests can take longer
+    than the window itself, the oldest hits slide out and the last request is
+    allowed. With the clock stopped the window never moves, so the test checks
+    the limit, not the host's speed.
+    """
+    from types import SimpleNamespace
+
+    from bananawiki.core import ratelimit
+
+    monkeypatch.setattr(ratelimit, "time", SimpleNamespace(monotonic=lambda: 1_000.0))
+
+
+@pytest.fixture
 def admin(make_user):
     return make_user("admin_user", role="admin")
 

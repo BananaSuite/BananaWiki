@@ -6,6 +6,8 @@ from typing import Any
 
 from flask import abort, jsonify, render_template, request
 
+from bananawiki.core.numbers import ascii_int
+
 from ... import auth, markdown, storage
 from ...i18n import t
 from . import access, categories, navigation, presence, rendering, search, service, uploads
@@ -45,8 +47,12 @@ def _readable_paths() -> dict[int, str]:
 
 
 @bp.post("/api/preview")
-@rate_limited("preview", 120)
+@rate_limited("preview", 60)
 def api_preview():
+    # Only the page editor previews; rendering is the costliest thing a
+    # request can ask for, so accounts that cannot edit may not.
+    if not auth.has_role("editor"):
+        return _error("error.forbidden", 403)
     content = _json_body().get("content", "")
     if not isinstance(content, str):
         abort(400)
@@ -58,6 +64,9 @@ def api_preview():
 @bp.post("/api/code/highlight")
 @rate_limited("highlight", 60)
 def api_highlight():
+    # An editor helper too, and as costly as a preview.
+    if not auth.has_role("editor"):
+        return _error("error.forbidden", 403)
     data = _json_body()
     content, language = data.get("content", ""), data.get("language") or ""
     if not isinstance(content, str) or not isinstance(language, str):
@@ -162,10 +171,10 @@ def may_reorder_pages() -> bool:
 def api_page_sync(slug: str):
     """Has the page changed since the reader loaded it? ``?since=<revision>``."""
     page = _visible_page(slug)
-    since = request.args.get("since", "")
-    if not since.isdigit():
+    since = ascii_int(request.args.get("since", ""))
+    if since is None:
         return jsonify({"changed": True, "reload": True, "revision": page["revision"]})
-    changed = int(page["revision"] or 0) > int(since)
+    changed = int(page["revision"] or 0) > since
     payload: dict[str, Any] = {"changed": changed, "revision": page["revision"]}
     if changed:
         editor = rendering.last_edit(page) or {}
@@ -270,6 +279,9 @@ def api_reorder_pages():
             continue
         if not service.can_edit(page):
             return _error("error.forbidden", 403)
+        blocked = access.edit_blocked(page)
+        if blocked:
+            return _error(blocked, 423)
         groups.setdefault(page["category_id"], []).append(page_id)
     for category_id, members in groups.items():
         categories.reorder_pages(members, category_id)

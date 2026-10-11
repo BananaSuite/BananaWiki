@@ -24,6 +24,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from . import tenant_quotas
 from .runtime_agent import PROTOCOL, AgentError, TenantRuntime, new_request_id
 
 __all__ = ["AgentClient", "AgentError", "connect"]
@@ -58,9 +59,13 @@ class AgentClient:
 def local_runtime(environ: Mapping[str, str]) -> TenantRuntime:
     """The in-process fallback: same validation, run with the portal's own Docker access."""
     entry = pwd.getpwuid(os.geteuid())
+    try:
+        quotas = tenant_quotas.setting(environ)
+    except tenant_quotas.InvalidSetting:
+        quotas = "required"  # never guess a weaker policy than the one asked for
     return TenantRuntime({
         "service": entry.pw_name, "service_uid": entry.pw_uid, "service_gid": entry.pw_gid,
-        "instances_dir": environ.get("INSTANCES_DIR", ""),
+        "instances_dir": environ.get("INSTANCES_DIR", ""), "tenant_quotas": quotas,
         "image": environ.get("HOSTING_CONTAINER_IMAGE", "bananawiki-tenant:latest"),
         "limits": {"memory_mb": 4096, "cpus": 4.0, "pids": 4096, "nofile": 65536},
     })

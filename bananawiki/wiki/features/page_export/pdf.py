@@ -10,13 +10,22 @@ wiki's ``uploads`` folder; nothing is ever fetched from the network.
 Unicode needs a TrueType font: DejaVu Sans is used when the host has it
 (``fonts-dejavu-core`` on Debian/Ubuntu). Without it the built-in Latin-1
 fonts are used and other characters are replaced by ``?``.
+
+Laying out a long page takes seconds, so finished PDFs are kept per process
+by the hash of everything they are made from, up to :data:`CACHE_LIMIT`
+bytes: exporting an unchanged page again costs nothing. The embedded upload
+files are part of that (name, size and modification time of each): a PDF
+kept from before an image was deleted or replaced is not served again.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
+import threading
+from collections import OrderedDict
 from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
@@ -24,6 +33,8 @@ from urllib.parse import urljoin, urlsplit
 
 from fpdf import FPDF
 from fpdf.fonts import TextStyle
+
+from bananawiki.core.numbers import ascii_int
 
 from ... import markdown, storage
 
@@ -42,6 +53,12 @@ FONT_DIRS = (
     "/Library/Fonts",
 )
 MAX_IMAGES = 50
+CACHE_LIMIT = 32 * 1024 * 1024
+# A4, in millimetres, and the margins of every page.
+PAGE_WIDTH = 210
+MARGIN = 18
+# The widest image (points): the text width.
+_IMAGE_WIDTH = (PAGE_WIDTH - 2 * MARGIN) * 72 / 25.4
 IMAGE_TYPES = frozenset({"png", "jpg", "jpeg", "gif", "webp"})
 _UPLOAD_PATH = re.compile(r"^/static/uploads/([0-9A-Za-z_.-]+)$")
 _ACCENT = (74, 116, 190)
@@ -57,9 +74,19 @@ def _find_font(name: str) -> str | None:
     return None
 
 
+def _unicode_font() -> str | None:
+    return _find_font("DejaVuSans.ttf")
+
+
+def _clean(text: str, unicode: bool) -> str:
+    """*text* as the fonts can show it: without a Unicode font, characters outside Latin-1 become ``?``."""
+    text = (text or "").replace("\r", "")
+    return text if unicode else text.encode("latin-1", "replace").decode("latin-1")
+
+
 def _register_fonts(pdf: FPDF) -> tuple[str, str, bool]:
     """Register DejaVu when available; return ``(sans, mono, unicode)`` family names."""
-    regular = _find_font("DejaVuSans.ttf")
+    regular = _unicode_font()
     if not regular:
         return "helvetica", "courier", False
     bold = _find_font("DejaVuSans-Bold.ttf") or regular
@@ -96,6 +123,7 @@ class _Simplifier(HTMLParser):
         self.in_cell = False
         self.dropped = 0
         self.images = 0
+        self.files: list[str] = []  # what each embedded upload was when it was read
 
     # Helpers ------------------------------------------------------------------
 
@@ -115,6 +143,7 @@ class _Simplifier(HTMLParser):
         if not size:
             return f"<i>[{escape(alt or 'image')}]</i>" if alt else ""
         self.images += 1
+        self.files.append(_file_state(path))
         width = min(self.image_width, size[0] * 0.75)
         return f'<img src="{escape(str(path))}" width="{width:.0f}">'
 
@@ -140,8 +169,8 @@ class _Simplifier(HTMLParser):
             self.in_pre += 1
             self.out.append("<pre>")
         elif tag in self.BLOCKS:
-            start = attrs.get("start") if tag == "ol" else None
-            self.out.append(f'<ol start="{int(start)}">' if start and start.isdigit() else f"<{tag}>")
+            start = ascii_int(attrs.get("start"), 6) if tag == "ol" else None
+            self.out.append(f'<ol start="{start}">' if start is not None else f"<{tag}>")
         elif tag in ("hr", "br"):
             self.out.append(f"<{tag}>")
         elif tag in self.AS_PARAGRAPH:
@@ -199,6 +228,14 @@ class _Simplifier(HTMLParser):
         return "".join(self.out)
 
 
+def _file_state(path: Path) -> str:
+    try:
+        status = path.stat()
+    except OSError:
+        return f"{path.name}:gone"
+    return f"{path.name}:{status.st_size}:{status.st_mtime_ns}"
+
+
 def _pixel_size(path: Path) -> tuple[int, int] | None:
     from PIL import Image, UnidentifiedImageError
 
@@ -217,14 +254,13 @@ class _Document(FPDF):
         self.doc_title = title
         self.site_name = site_name
         self.sans, self.mono, self.unicode = _register_fonts(self)
-        self.set_auto_page_break(auto=True, margin=18)
-        self.set_margins(18, 18, 18)
+        self.set_auto_page_break(auto=True, margin=MARGIN)
+        self.set_margins(MARGIN, MARGIN, MARGIN)
         self.set_title(self.clean(title))
         self.set_creator("BananaWiki")
 
     def clean(self, text: str) -> str:
-        text = (text or "").replace("\r", "")
-        return text if self.unicode else text.encode("latin-1", "replace").decode("latin-1")
+        return _clean(text, self.unicode)
 
     def header(self) -> None:
         if self.page_no() == 1:
@@ -299,16 +335,61 @@ def _write_plain(pdf: _Document, source: str) -> None:
             pdf.ln(2)
 
 
-def render(*, title: str, content: str, site_name: str, base_url: str, meta: list[str]) -> bytes:
-    """The PDF for one page (or history entry) as bytes."""
-    pdf = _Document(title=title, site_name=site_name)
-    _cover(pdf, meta)
-    simplifier = _Simplifier(base_url=base_url, clean_text=pdf.clean,
-                             image_width=(pdf.w - pdf.l_margin - pdf.r_margin) * pdf.k)
+_cache: OrderedDict[bytes, bytes] = OrderedDict()
+_cache_size = 0
+_cache_lock = threading.Lock()
+
+
+def _cache_key(*parts: str) -> bytes:
+    digest = hashlib.sha256()
+    for part in parts:
+        encoded = part.encode("utf-8", "surrogatepass")
+        digest.update(len(encoded).to_bytes(8, "big") + encoded)
+    return digest.digest()
+
+
+def _simplify(content: str, *, base_url: str, unicode: bool) -> tuple[str, list[str]]:
+    """The page HTML fpdf2 lays out, and the state of the upload files it embeds."""
+    simplifier = _Simplifier(base_url=base_url, clean_text=lambda text: _clean(text, unicode),
+                             image_width=_IMAGE_WIDTH)
     simplifier.feed(markdown.render(content, embed_videos=False))
     simplifier.close()
+    return simplifier.result(), simplifier.files
+
+
+def render(*, title: str, content: str, site_name: str, base_url: str, meta: list[str]) -> bytes:
+    """The PDF for one page (or history entry) as bytes, from the cache when it was made before.
+
+    The key covers the embedded upload files as they are now, so the
+    (cheap) simplification runs every time and the layout only when needed.
+    """
+    global _cache_size
+    unicode = _unicode_font() is not None
+    body, files = _simplify(content, base_url=base_url, unicode=unicode)
+    key = _cache_key(title, content, site_name, base_url, str(unicode), str(len(meta)), *meta, *files)
+    with _cache_lock:
+        cached = _cache.get(key)
+        if cached is not None:
+            _cache.move_to_end(key)
+            return cached
+    data = _render(title=title, content=content, body=body, site_name=site_name, meta=meta)
+    if len(data) <= CACHE_LIMIT // 4:
+        with _cache_lock:
+            if key not in _cache:
+                _cache[key] = data
+                _cache_size += len(data)
+            while _cache_size > CACHE_LIMIT and _cache:
+                _key, dropped = _cache.popitem(last=False)
+                _cache_size -= len(dropped)
+    return data
+
+
+def _render(*, title: str, content: str, body: str, site_name: str, meta: list[str]) -> bytes:
+    """Lay out *body* (from :func:`_simplify`); *content* is the fallback when fpdf2 rejects it."""
+    pdf = _Document(title=title, site_name=site_name)
+    _cover(pdf, meta)
     try:
-        _write_body(pdf, simplifier.result())
+        _write_body(pdf, body)
     except Exception:  # noqa: BLE001 - fpdf2 rejects some nestings; fall back to plain text
         log.warning("PDF layout failed for %r; exporting plain text", title, exc_info=True)
         pdf = _Document(title=title, site_name=site_name)

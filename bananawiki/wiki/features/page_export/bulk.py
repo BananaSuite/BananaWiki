@@ -9,7 +9,8 @@ Import accepts ``.md`` files and ZIP archives of them. Folders become
 categories (found case-insensitively or created), the title comes from the
 front matter, the first ``# heading`` or the file name. Pages are written
 through the pages service, attributed to the system (``author_id=None``)
-unless the administrator chooses otherwise. Archives are checked before
+unless the administrator chooses otherwise. Existing pages that are
+protected or reserved by someone else are skipped, as in the editor. Archives are checked before
 anything is read: entry count, sizes, compression ratio, unsafe paths.
 Assets in an archive are not imported.
 """
@@ -30,8 +31,9 @@ from flask import current_app
 from werkzeug.datastructures import FileStorage
 
 from ....core.timeutil import now_sql
-from ... import storage
+from ... import accounts, storage
 from ...db import db
+from ..pages import access as page_access
 from ..pages import categories
 from ..pages import service as pages
 from . import markdown_files as mdf
@@ -348,7 +350,7 @@ def import_files(files: list[tuple[list[str], str]], *, author_id: str | None, a
             slug = pages.slugify(parsed.meta.get("slug") or title)
             existing = pages.get_by_slug(slug)
             if existing is not None and mode != "copy":
-                _update_existing(existing, title, body, label, author_id, mode, result)
+                _update_existing(existing, title, body, label, author_id, actor_id, mode, result)
                 continue
             page = pages.create(title, body, category_id=category_id, author_id=author_id,
                                 edit_message="Imported from Markdown", slug=slug)
@@ -360,11 +362,14 @@ def import_files(files: list[tuple[list[str], str]], *, author_id: str | None, a
 
 
 def _update_existing(page: dict[str, Any], title: str, body: str, label: str, author_id: str | None,
-                     mode: str, result: ImportResult) -> None:
+                     actor_id: str | None, mode: str, result: ImportResult) -> None:
     if mode == "skip":
         result.skipped.append((label, "page_export.import.skip.exists"))
     elif page.get("pending_deletion"):
         result.skipped.append((label, "page_export.import.skip.pending_deletion"))
+    elif page_access.edit_blocked(page, accounts.by_id(actor_id) if actor_id else None):
+        # Protected or reserved by someone else: administrators wait for the unlock delay here too.
+        result.skipped.append((label, "page_export.import.skip.blocked"))
     else:
         before = page["revision"]
         updated = pages.update(page, author_id=author_id, title=title, content=body,

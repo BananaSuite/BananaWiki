@@ -7,19 +7,24 @@
   <form method="post" action="{{ action }}" class="stack" data-confirm="{{ t('bulk_manage.confirm') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="table-wrap"><table class="table">
-      <thead><tr><th scope="col"><span class="visually-hidden">{{ t('bulk_manage.select') }}</span></th><th scope="col">{{ t('common.name') }}</th></tr></thead>
+      <thead><tr><th scope="col" class="col-check"><span class="visually-hidden">{{ t('bulk_manage.select') }}</span></th><th scope="col">{{ t('common.name') }}</th></tr></thead>
       <tbody>
       {% for item in items %}
-        <tr><td><input type="checkbox" name="ids" value="{{ item.id }}" id="{{ id }}-{{ item.id }}"{% if item.is_home %} disabled{% endif %}></td>
+        <tr><td class="col-check"><input type="checkbox" name="ids" value="{{ item.id }}" id="{{ id }}-{{ item.id }}"{% if item.is_home %} disabled aria-describedby="{{ id }}-home-hint"{% endif %}></td>
           <td><label for="{{ id }}-{{ item.id }}">{{ item[label_attr] }}</label>
-            {% if item.is_home %}<span class="badge">{{ t('bulk_manage.home') }}</span>{% endif %}
+            {% if item.is_home %}<span class="badge">{{ t('bulk_manage.home') }}</span> <span class="small muted" id="{{ id }}-home-hint">{{ t('bulk_manage.home_locked') }}</span>{% endif %}
             {% if item.pending_deletion %}<span class="badge badge--warning">{{ t('bulk_manage.pending') }}</span>{% endif %}
-            {% if item.pages is defined %}<span class="muted small">{{ t('bulk_manage.page_count', count=item.pages) }}</span>{% endif %}
+            {% if item.pages is defined %}<span class="muted small">{{ tn('bulk_manage.page_count', item.pages) }}</span>{% endif %}
           </td></tr>
       {% endfor %}
       </tbody>
     </table></div>
     {{ extra }}
+    <div class="field">
+      <label for="{{ id }}-confirm">{{ t('bulk_manage.confirm_label', word=t('bulk_manage.confirm_word')) }}</label>
+      <input id="{{ id }}-confirm" name="confirm_text" required autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="{{ id }}-confirm-hint">
+      <p class="hint" id="{{ id }}-confirm-hint">{{ t('bulk_manage.confirm_hint') }}</p>
+    </div>
     <div class="btn-row"><button class="btn btn--danger" type="submit">{{ t('bulk_manage.delete_selected') }}</button></div>
   </form>
   {% else %}<p class="muted">{{ t('bulk_manage.empty') }}</p>{% endif %}

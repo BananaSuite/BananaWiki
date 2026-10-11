@@ -27,8 +27,12 @@ def pages(variant: str = "full", language: str = "en") -> list[tuple[str, str, s
     result = []
     for path in sorted((DOCS_ROOT / language / variant).glob("*.md")):
         content = path.read_text(encoding="utf-8")
-        first_line = content.split("\n", 1)[0]
-        title = first_line[2:].strip() if first_line.startswith("# ") else path.stem
+        first_line, _, rest = content.partition("\n")
+        if first_line.startswith("# "):
+            # The heading becomes the page title, which the page already shows as its <h1>.
+            title, content = first_line[2:].strip(), rest.lstrip("\n")
+        else:
+            title = path.stem
         slug = path.stem.split("-", 1)[1] if "-" in path.stem else path.stem
         result.append((title, slug, content))
     return result

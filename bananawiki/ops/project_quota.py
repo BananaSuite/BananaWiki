@@ -42,6 +42,10 @@ _BULKSTAT = 0x8040587F
 _OPEN = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
 _MAX_ENTRIES = 200_000
 _MAX_DEPTH = 128
+# Room a wiki adopted above its plan gets beyond what it already holds (UP-1): enough for its database
+# journal and logs, not for new content. It is granted once: later starts never add to it.
+ADOPTION_HEADROOM_BYTES = 64 * 1024 * 1024
+ADOPTION_HEADROOM_INODES = 1024
 
 
 class QuotaError(RuntimeError):
@@ -290,10 +294,49 @@ class ProjectQuota:
         return value
 
     def _limits(self, byte_limit: int, inode_limit: int) -> None:
+        """Limits a caller asks for: within the operator's ceilings."""
         self._positive(byte_limit, "Tenant byte limit", self.max_bytes)
         self._positive(inode_limit, "Tenant inode limit", self.max_inodes)
         if byte_limit % 512:
             raise QuotaError("Tenant byte limit must be a multiple of 512")
+
+    def _hard_limits(self, byte_limit: int, inode_limit: int) -> None:
+        """Limits a trusted allocation holds: a wiki adopted above its plan may hold more than the ceilings."""
+        self._positive(byte_limit, "Tenant byte limit")
+        self._positive(inode_limit, "Tenant inode limit")
+        if byte_limit % 512:
+            raise QuotaError("Tenant byte limit must be a multiple of 512")
+
+    @staticmethod
+    def over_plan(witness: QuotaWitness, *, byte_limit: int, inode_limit: int) -> bool:
+        """Whether *witness* was adopted above the limits its wiki asks for (see :meth:`prepare`)."""
+        return witness.byte_limit > byte_limit or witness.inode_limit > inode_limit
+
+    @staticmethod
+    def _matches(row, byte_limit: int | None, inode_limit: int | None) -> bool:
+        """Whether *row* answers a request for these limits: its own, or the plan it was adopted above."""
+        held = (row["bytes"], row["inodes"])
+        options = [held, (row["plan_bytes"], row["plan_inodes"])] if row["plan_bytes"] else [held]
+        return any((byte_limit is None or byte_limit == option[0]) and (inode_limit is None or inode_limit == option[1])
+                   for option in options)
+
+    @staticmethod
+    def _adopted(requested: int, used: int, previous: int | None, headroom: int, unit: int = 1) -> int:
+        """The hard limit of a stopped wiki holding *used* that asks for *requested* (UP-1).
+
+        Within its plan: the plan. Above it (1.6 let wikis grow past their
+        plan, a plan can be lowered below what a wiki holds): what it holds
+        plus *headroom* the first time, and never more than the limit it
+        already had (*previous*) afterwards, so restarting a wiki never gives
+        it room to grow. Freed space is given back as the limit follows usage
+        down to the plan.
+        """
+        if used <= requested:
+            return requested
+        grown = used + headroom
+        if previous is not None:
+            grown = min(grown, previous) if previous >= used else used
+        return max(requested, -(-grown // unit) * unit)
 
     @contextlib.contextmanager
     def _root(self, tenant: str, *, expected_descriptor: int | None = None):
@@ -416,6 +459,14 @@ class ProjectQuota:
                                    "PRIMARY KEY(filesystem,inode,generation), UNIQUE(filesystem,project))")
                 connection.execute("CREATE TABLE IF NOT EXISTS counters (filesystem TEXT PRIMARY KEY, "
                                    "next_project INTEGER NOT NULL)")
+                # The limits the portal asked for when a wiki was adopted above them (0: the hard limits),
+                # and whether its limits passed capacity admission (0: data from before 1.7 adopted
+                # without it, see prepare).
+                columns = {row[1] for row in connection.execute("PRAGMA table_info(allocations)")}
+                for column, default in (("plan_bytes", 0), ("plan_inodes", 0), ("admitted", 1)):
+                    if column not in columns:
+                        connection.execute(f"ALTER TABLE allocations ADD COLUMN {column} INTEGER NOT NULL "
+                                           f"DEFAULT {default}")
                 connection.commit()
                 if fresh:
                     os.fsync(directory)
@@ -431,7 +482,8 @@ class ProjectQuota:
         return connection.execute("SELECT * FROM allocations WHERE filesystem=? AND inode=? AND generation=?",
                                   (filesystem, inode, generation)).fetchone()
 
-    def _allocate(self, connection, fd, filesystem, inode, generation, tenant, byte_limit, inode_limit):
+    def _allocate(self, connection, fd, filesystem, inode, generation, tenant, byte_limit, inode_limit, *,
+                  admit: bool = True):
         result = connection.execute("SELECT next_project FROM counters WHERE filesystem=?",
                                     (filesystem,)).fetchone()
         candidate = self.project_start if result is None else max(self.project_start, result[0])
@@ -448,10 +500,12 @@ class ProjectQuota:
             raise QuotaError("XFS project ID collision search exceeded its safe bound")
         # Capacity refusal must not create a durable, unusable reservation that
         # could deny service to already admitted tenants.
-        self._capacity(connection, fd, filesystem, desired=(candidate, byte_limit, inode_limit))
+        if admit:
+            self._capacity(connection, fd, filesystem, desired=(candidate, byte_limit, inode_limit))
         connection.execute("INSERT OR REPLACE INTO counters VALUES (?,?)", (filesystem, candidate + 1))
-        connection.execute("INSERT INTO allocations VALUES (?,?,?,?,?,?,?,0)",
-                           (filesystem, inode, generation, candidate, tenant, byte_limit, inode_limit))
+        connection.execute("INSERT INTO allocations (filesystem,inode,generation,project,tenant,bytes,inodes,ready,"
+                           "admitted) VALUES (?,?,?,?,?,?,?,0,?)",
+                           (filesystem, inode, generation, candidate, tenant, byte_limit, inode_limit, int(admit)))
         # Persist reservation BEFORE any quota/inode mutation. Failure never frees an ID.
         connection.commit()
         return self._row(connection, filesystem, inode, generation)
@@ -464,13 +518,33 @@ class ProjectQuota:
         The dedicated-volume profile also budgets 4KiB per hard inode limit
         for inode/metadata growth. The free/unused check detects untracked
         operator usage; neither check provides a hierarchical portal quota.
+
+        Only *admission* runs this: a new allocation or a raised limit. An
+        already admitted tenant is verified and restarted without it, so data
+        that is not a tenant's (an update snapshot, a backup package, an
+        export staged on the same volume) never stops admitted wikis.
+        """
+        outstanding, total_budget = self._reservations(connection, fd, filesystem, desired=desired)
+        free_bytes, total_bytes = self._physical(filesystem)
+        if total_bytes < self.storage_reserve_bytes + total_budget:
+            raise QuotaError("XFS total capacity cannot cover tenant hard-limit budgets and the host reserve")
+        if free_bytes < self.storage_reserve_bytes + outstanding:
+            raise QuotaError("XFS capacity cannot cover tenant hard-limit reservations and the host reserve")
+
+    def _reservations(self, connection, fd, filesystem, *, desired=None, staging=False) -> tuple[int, int]:
+        """``(unused part of every hard limit, sum of every hard limit)``, both with inode headroom.
+
+        With *staging*, an allocation adopted without admission (``admitted``
+        0) counts only its adoption headroom as unused: its plan was never
+        checked against the volume, and counting all of it could leave no
+        room for any snapshot at all (see :meth:`reserved_bytes`).
         """
         outstanding = 0
         total_budget = 0
         found = False
         for row in connection.execute("SELECT * FROM allocations WHERE filesystem=?", (filesystem,)):
             byte_limit, inode_limit = row["bytes"], row["inodes"]
-            self._limits(byte_limit, inode_limit)
+            self._hard_limits(byte_limit, inode_limit)
             try:
                 actual = self._kernel.limits(fd, row["project"])
                 used_bytes, used_inodes = actual.bcount * 512, actual.icount
@@ -497,14 +571,22 @@ class ProjectQuota:
                 # cap. Keep its unused budget reserved until stopped recovery.
                 byte_limit = max(byte_limit, actual.bhard * 512)
                 inode_limit = max(inode_limit, actual.ihard)
-            outstanding += max(byte_limit - used_bytes, 0) + max(inode_limit - used_inodes, 0) * 4096
+            unused_bytes, unused_inodes = max(byte_limit - used_bytes, 0), max(inode_limit - used_inodes, 0)
+            if staging and not row["admitted"]:
+                unused_bytes = min(unused_bytes, ADOPTION_HEADROOM_BYTES)
+                unused_inodes = min(unused_inodes, ADOPTION_HEADROOM_INODES)
+            outstanding += unused_bytes + unused_inodes * 4096
             total_budget += byte_limit + inode_limit * 4096
         if desired is not None and not found:
             outstanding += desired[1] + desired[2] * 4096
             total_budget += desired[1] + desired[2] * 4096
+        return outstanding, total_budget
+
+    def _physical(self, filesystem) -> tuple[int, int]:
+        """``(free, total)`` bytes of the instances parent's filesystem."""
         # Free space and project usage are separate kernel snapshots. Deletion
         # between them can overstate remaining capacity, so admission must also
-        # satisfy the usage-independent total hard-limit ceiling below.
+        # satisfy the usage-independent total hard-limit ceiling.
         base = os.open(self.instances_dir, _OPEN | os.O_DIRECTORY)
         try:
             if self._kernel.filesystem(base) != filesystem:
@@ -519,18 +601,71 @@ class ProjectQuota:
             total_bytes = available.f_blocks * available.f_frsize
         finally:
             os.close(base)
-        if total_bytes < self.storage_reserve_bytes + total_budget:
-            raise QuotaError("XFS total capacity cannot cover tenant hard-limit budgets and the host reserve")
-        if free_bytes < self.storage_reserve_bytes + outstanding:
-            raise QuotaError("XFS capacity cannot cover tenant hard-limit reservations and the host reserve")
+        return free_bytes, total_bytes
+
+    def reserved_bytes(self) -> tuple[str | None, int]:
+        """``(filesystem, bytes)`` other writers on the tenant volume must leave free.
+
+        The unused part of every admitted hard limit (with inode headroom)
+        plus the host reserve; the filesystem is None before any tenant was
+        admitted. The lifecycle controller checks it before staging a
+        snapshot on the same volume, so its copy never eats into space the
+        wikis were promised. A wiki adopted without admission (from before
+        1.7, whose plans 1.6 never checked against the volume) counts only
+        its adoption headroom: :meth:`overcommitted_bytes` reports the rest.
+        Only reported: nothing is refused here.
+        """
+        filesystem, outstanding, _over = self._reserved()
+        return filesystem, self.storage_reserve_bytes + outstanding
+
+    def overcommitted_bytes(self) -> int:
+        """How far the limits of wikis adopted without admission exceed the volume's free space (0: they fit).
+
+        Such wikis can run out of space before they reach their limits.
+        Lowering their plans (or ``HOSTING_AGENT_MAX_INODES``) or freeing
+        space ends it: their next start admits them.
+        """
+        return self._reserved()[2]
+
+    def _reserved(self) -> tuple[str | None, int, int]:
+        """``(filesystem, outstanding for staging, over-commitment)`` (see :meth:`reserved_bytes`)."""
+        try:
+            if not (self.state_dir / "allocations.sqlite3").exists():
+                return None, 0, 0
+            fd = os.open(self.instances_dir, _OPEN | os.O_DIRECTORY)
+            try:
+                filesystem = self._kernel.filesystem(fd)
+                with self._registry() as connection:
+                    outstanding, _budget = self._reservations(connection, fd, filesystem, staging=True)
+                    over = 0
+                    if connection.execute("SELECT 1 FROM allocations WHERE filesystem=? AND admitted=0 LIMIT 1",
+                                          (filesystem,)).fetchone():
+                        full, _budget = self._reservations(connection, fd, filesystem)
+                        over = max(0, self.storage_reserve_bytes + full - self._physical(filesystem)[0])
+            finally:
+                os.close(fd)
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            raise QuotaError(f"Tenant storage reservations could not be read: {exc}") from exc
+        return filesystem, outstanding, over
+
+    def _admit_adopted(self, connection, fd, filesystem, row) -> None:
+        """Admit an allocation adopted without admission once the volume can hold every limit (best effort)."""
+        if row is None or row["admitted"]:
+            return
+        try:
+            self._capacity(connection, fd, filesystem)
+        except QuotaError:
+            return
+        connection.execute("UPDATE allocations SET admitted=1 WHERE filesystem=? AND project=?",
+                           (filesystem, row["project"]))
+        connection.commit()
 
     def _verify(self, fd, filesystem, info, identity, row, byte_limit=None, inode_limit=None):
         if row is None or row["ready"] != 1:
             raise QuotaError("Tenant project quota has not been prepared and verified")
         stored_bytes, stored_inodes = row["bytes"], row["inodes"]
-        self._limits(stored_bytes, stored_inodes)
-        if (byte_limit is not None and byte_limit != stored_bytes
-                or inode_limit is not None and inode_limit != stored_inodes):
+        self._hard_limits(stored_bytes, stored_inodes)
+        if not self._matches(row, byte_limit, inode_limit):
             raise QuotaError("Requested tenant limits differ from the trusted allocation")
         project = self._positive(row["project"], "Stored project ID", _MAX_ID)
         flags, actual_project = self._kernel.attrs(fd)
@@ -558,9 +693,8 @@ class ProjectQuota:
         try:
             with self._root(tenant) as (fd, filesystem, info, identity), self._registry() as connection:
                 row = self._row(connection, filesystem, info.st_ino, identity.generation)
-                witness = self._verify(fd, filesystem, info, identity, row, byte_limit, inode_limit)
-                self._capacity(connection, fd, filesystem)
-                return witness
+                # Identity and limits only: admission was checked when the limits were reserved.
+                return self._verify(fd, filesystem, info, identity, row, byte_limit, inode_limit)
         except (OSError, sqlite3.Error, ValueError) as exc:
             raise QuotaError(f"Tenant quota verification failed: {exc}") from exc
 
@@ -578,7 +712,7 @@ class ProjectQuota:
                 witness = QuotaWitness(**witness)
             if not isinstance(witness, QuotaWitness) or type(fd) is not int or fd < 0:
                 raise QuotaError("Invalid root-agent quota descriptor witness")
-            self._limits(witness.byte_limit, witness.inode_limit)
+            self._hard_limits(witness.byte_limit, witness.inode_limit)
             self._positive(witness.project_id, "Witness project ID", _MAX_ID)
             if (type(witness.root_inode) is not int or witness.root_inode <= 0
                     or type(witness.root_generation) is not int
@@ -614,6 +748,18 @@ class ProjectQuota:
         actual-mounted container inventory. It must never come from IPC. Its
         pinned inode/device identity prevents pathname replacement from moving
         stopped-only repair onto a different directory after that inventory.
+
+        A stopped wiki that already holds more than *byte_limit* or
+        *inode_limit* (one 1.6 left above its plan, or whose plan was lowered)
+        is not refused: its hard limits become what it holds plus a small
+        headroom (:meth:`_adopted`), the requested limits are recorded as its
+        plan, and :meth:`verify` accepts either. :meth:`over_plan` tells the
+        caller. Data that existed before this directory had any allocation
+        (a wiki from before 1.7) is adopted without capacity admission: it is
+        already on the volume. Such an allocation is recorded as not admitted
+        until a later start finds that the volume can hold every limit
+        (:meth:`overcommitted_bytes` meanwhile), and snapshots staged on the
+        volume leave it only its adoption headroom (:meth:`reserved_bytes`).
         """
         self._limits(byte_limit, inode_limit)
         if type(repair) is not bool:
@@ -622,16 +768,20 @@ class ProjectQuota:
             with self._root(tenant, expected_descriptor=expected_descriptor) as (
                     fd, filesystem, info, identity), self._registry() as connection:
                 row = self._row(connection, filesystem, info.st_ino, identity.generation)
+                # Admission (the global capacity check) only for a new allocation or a raised
+                # limit: an admitted tenant restarts whatever else uses the volume meanwhile.
+                raising = row is None or byte_limit > row["bytes"] or inode_limit > row["inodes"]
                 if row is not None and row["ready"] == 1 and not repair:
                     witness = self._verify(fd, filesystem, info, identity, row)
-                    if (byte_limit, inode_limit) != (row["bytes"], row["inodes"]):
+                    if not self._matches(row, byte_limit, inode_limit):
                         actual = self._kernel.limits(fd, row["project"])
                         if actual.bcount * 512 > byte_limit or actual.icount > inode_limit:
                             raise QuotaError("Requested hard limits are below current tenant usage")
-                        self._capacity(connection, fd, filesystem,
-                                       desired=(row["project"], byte_limit, inode_limit))
-                        connection.execute("UPDATE allocations SET bytes=?,inodes=?,ready=0 WHERE "
-                                           "filesystem=? AND project=?",
+                        if raising:
+                            self._capacity(connection, fd, filesystem,
+                                           desired=(row["project"], byte_limit, inode_limit))
+                        connection.execute("UPDATE allocations SET bytes=?,inodes=?,plan_bytes=0,plan_inodes=0,"
+                                           "ready=0 WHERE filesystem=? AND project=?",
                                            (byte_limit, inode_limit, filesystem, row["project"]))
                         connection.commit()
                         self._kernel.set_limits(fd, row["project"], byte_limit, inode_limit)
@@ -642,22 +792,29 @@ class ProjectQuota:
                         candidate = dict(row)
                         candidate["ready"] = 1
                         witness = self._verify(fd, filesystem, info, identity, candidate, byte_limit, inode_limit)
-                        self._capacity(connection, fd, filesystem)
-                        connection.execute("UPDATE allocations SET ready=1 WHERE filesystem=? AND project=?",
-                                           (filesystem, row["project"]))
+                        if raising:
+                            self._capacity(connection, fd, filesystem)
+                        connection.execute(f"UPDATE allocations SET ready=1{',admitted=1' if raising else ''} "
+                                           "WHERE filesystem=? AND project=?", (filesystem, row["project"]))
                         connection.commit()
-                    self._capacity(connection, fd, filesystem)
+                    self._admit_adopted(connection, fd, filesystem,
+                                        self._row(connection, filesystem, info.st_ino, identity.generation))
                     return witness
                 entries = self._scan(fd, info)
                 if not repair and (entries or identity.project):
                     raise QuotaError("Existing tenant storage requires explicit stopped-only quota repair")
+                # Data this directory held before it had any allocation is already on the volume.
+                admit = row is not None or not entries
+                previous = (row["bytes"], row["inodes"]) if row is not None and row["ready"] == 1 else (None, None)
                 if row is None:
                     row = self._allocate(connection, fd, filesystem, info.st_ino, identity.generation,
-                                         tenant, byte_limit, inode_limit)
+                                         tenant, byte_limit, inode_limit, admit=admit)
                 project = self._positive(row["project"], "Stored project ID", _MAX_ID)
-                self._capacity(connection, fd, filesystem, desired=(project, byte_limit, inode_limit))
-                connection.execute("UPDATE allocations SET bytes=?,inodes=?,ready=0,tenant=? "
-                                   "WHERE filesystem=? AND project=?",
+                raising = raising and admit
+                if raising:
+                    self._capacity(connection, fd, filesystem, desired=(project, byte_limit, inode_limit))
+                connection.execute("UPDATE allocations SET bytes=?,inodes=?,plan_bytes=0,plan_inodes=0,ready=0,"
+                                   "tenant=? WHERE filesystem=? AND project=?",
                                    (byte_limit, inode_limit, tenant, filesystem, project))
                 connection.commit()
                 self._kernel.set_limits(fd, project, byte_limit, inode_limit)
@@ -669,14 +826,26 @@ class ProjectQuota:
                                                     and not inode.xflags & _PROJINHERIT):
                         raise QuotaError("Existing tenant inode project readback failed")
                 identity = self._kernel.inode(fd, info.st_ino)
+                used = self._kernel.limits(fd, project)
+                held = (self._adopted(byte_limit, used.bcount * 512, previous[0], ADOPTION_HEADROOM_BYTES, 512),
+                        self._adopted(inode_limit, used.icount, previous[1], ADOPTION_HEADROOM_INODES))
+                if held != (byte_limit, inode_limit):
+                    connection.execute("UPDATE allocations SET bytes=?,inodes=?,plan_bytes=?,plan_inodes=? "
+                                       "WHERE filesystem=? AND project=?",
+                                       (*held, byte_limit, inode_limit, filesystem, project))
+                    connection.commit()
+                    self._kernel.set_limits(fd, project, *held)
                 row = self._row(connection, filesystem, info.st_ino, identity.generation)
                 candidate = dict(row)
                 candidate["ready"] = 1
                 witness = self._verify(fd, filesystem, info, identity, candidate, byte_limit, inode_limit)
-                self._capacity(connection, fd, filesystem)
-                connection.execute("UPDATE allocations SET ready=1 WHERE filesystem=? AND project=?",
-                                   (filesystem, project))
+                if raising:
+                    self._capacity(connection, fd, filesystem)
+                connection.execute(f"UPDATE allocations SET ready=1{',admitted=1' if raising else ''} "
+                                   "WHERE filesystem=? AND project=?", (filesystem, project))
                 connection.commit()
+                self._admit_adopted(connection, fd, filesystem,
+                                    self._row(connection, filesystem, info.st_ino, identity.generation))
                 return witness
         except (OSError, sqlite3.Error, ValueError) as exc:
             raise QuotaError(f"Tenant quota preparation failed: {exc}") from exc
@@ -717,8 +886,10 @@ class ProjectQuota:
                     if stat.S_ISLNK(value.st_mode) and value.st_nlink != 1:
                         raise QuotaError("Multi-linked tenant symlinks require explicit operator migration")
                     entries.append((path, value))
-                    if len(entries) > _MAX_ENTRIES:
-                        raise QuotaError("Tenant storage exceeds the safe repair entry bound")
+                    if len(entries) > max(_MAX_ENTRIES, 2 * self.max_inodes):
+                        raise QuotaError("Tenant storage holds more files than a stopped-only repair examines "
+                                         "(twice HOSTING_AGENT_MAX_INODES, at least 200,000): raise "
+                                         "HOSTING_AGENT_MAX_INODES in config/app.env")
                     if stat.S_ISDIR(value.st_mode):
                         pending.append(path)
                     else:

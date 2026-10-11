@@ -1,0 +1,15 @@
+{#- Admin > Users > account: two-step verification. Context: target, state, required, can_reset. -#}
+{% import "macros/forms.html" as forms with context %}
+<section class="card" aria-labelledby="two-step-admin-heading">
+  <h2 id="two-step-admin-heading">{{ t('auth.two_step.title') }}</h2>
+  {% if state %}
+  <p><span class="badge badge--success">{{ t('auth.two_step.on') }}</span>
+    {{ t('auth.two_step.admin_on', when=state.enabled_at|date, count=state.codes_left) }}</p>
+  {% else %}
+  <p><span class="badge">{{ t('auth.two_step.off') }}</span>{% if required %} {{ t('auth.two_step.admin_required') }}{% endif %}</p>
+  {% endif %}
+  {% if can_reset %}
+  <p class="muted">{{ t('auth.two_step.admin_reset_help') }}</p>
+  <div class="btn-row">{{ forms.post_button(url_for('auth.two_step_reset', user_id=target.id), t('auth.two_step.admin_reset'), 'btn btn--danger', confirm=t('auth.two_step.admin_reset_confirm', username=target.username)) }}</div>
+  {% endif %}
+</section>

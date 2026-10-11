@@ -58,6 +58,7 @@
         version = data.version;
         scene.load(data.data, data);
         scene.fit();
+        if (!(height >= 120 && height <= 2000)) scene.trimHeight();  // an author-set height is kept
       }).catch(function (error) {
         title.textContent = error.status === 404 || error.status === 403 || error.status === 401
           ? BW.t("canvas.embed_unavailable") : BW.t("canvas.embed_failed");

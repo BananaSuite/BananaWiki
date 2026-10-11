@@ -4,25 +4,25 @@ Admins manage site settings, users, the built-in documentation, content operatio
 
 ## Site basics
 
-In **Admin -> Site Settings** you can change the site name, theme colors, default theme, favicon, timezone, interface language, signup behavior, maintenance mode, and many feature defaults. Most changes apply immediately.
+In **Administration → Site settings** you can change the site name, theme colours, default theme, favicon, timezone, interface language, signup behaviour, maintenance mode, and many feature defaults. Most changes apply immediately.
 
 ## Users and access
 
-Use **Admin -> Users** to create accounts, reset passwords, change roles, suspend users, assign custom roles, and tune per-user permissions. Invite codes can limit who signs up. Session limits can prevent one account from being used in multiple places at the same time.
+Use **Administration → Users** to create accounts, reset passwords, change roles, suspend users, assign custom roles, and tune per-user permissions. Invite codes can limit who signs up. Session limits can prevent one account from being used in multiple places at the same time. Owners and superusers can require two-step verification for administrators and reset it for an account that lost its authenticator app and recovery codes.
 
 ## Documentation lifecycle
 
-The built-in documentation can be spawned as a BananaWiki category. You can choose full or simplified docs, and English, Italian or German. Downloading the docs as a ZIP gives you Markdown files that can be edited locally and re-imported with Bulk Markdown Import.
+The built-in documentation can be created as a BananaWiki category from **Administration → Documentation**. You can choose full or simplified docs, and English, Italian or German. Downloading the docs as a ZIP gives you Markdown files that you can edit locally and bring back with the bulk Markdown import.
 
 ## Content operations
 
 Admins can manage categories, restore or permanently remove slowed deletions, run bulk Markdown imports, export pages, generate PDFs, and use migration tools for full-site backup and restore.
 
-A full-site export contains every account's password hash, and a full-site import replaces every account. Both ask for your password again and are recorded in the log.
+A full-site export contains every account's password hash, and a full-site import replaces every account. That is why only owners and superusers can run them; both ask for your password again and are recorded in the log. Bulk deletions ask you to type DELETE to confirm.
 
 ## Owners and trust
 
-Owner status stops other admins from demoting or deleting an account through the normal admin pages. It does not stop an admin who imports a full-site backup or installs a plugin: either one gives complete control of the wiki, including every account. Give the admin role only to people you trust with everything.
+Owner status stops other admins from demoting or deleting an account through the normal admin pages. Importing a full-site backup or installing a third-party plugin gives complete control of the wiki, including every account, so only owners and superusers can do either. Other admins still manage every other account and all content: give the admin role only to people you trust with that, and make someone an owner or a superuser only if you trust them with everything.
 
 ## Plugins
 

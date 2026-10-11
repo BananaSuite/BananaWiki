@@ -24,6 +24,10 @@ MAX_COLUMN_TITLE = 100
 MAX_TICKET_TITLE = 300
 MAX_DESCRIPTION = 10_000
 MAX_COMMENT = 2_000
+# Comments one ticket holds: listing them renders each one (see extras.comment_payloads).
+MAX_COMMENTS_PER_TICKET = 300
+# Rendered HTML one listing of a ticket's comments carries; past it, older comments are listed as typed.
+MAX_LISTING_HTML_CHARS = 4 * 1024 * 1024
 MAX_LABELS = 20
 MAX_LABEL_LENGTH = 40
 MAX_CHECKLIST_ITEMS = 100
@@ -120,6 +124,18 @@ def stored_wip_limit(value: Any) -> int | None:
         return wip_limit(value)
     except KanbanError:
         return None
+
+
+def done_flag(value: Any) -> int:
+    """Whether a column counts as done (its tickets are never overdue): JSON ``true`` or ``false`` only."""
+    if not isinstance(value, bool):
+        raise KanbanError("kanban.error.invalid_done")
+    return int(value)
+
+
+def stored_done_flag(value: Any) -> int:
+    """The flag from a snapshot or an import: anything but ``true`` means not done."""
+    return 1 if value is True else 0
 
 
 def checklist_text(value: Any) -> str:

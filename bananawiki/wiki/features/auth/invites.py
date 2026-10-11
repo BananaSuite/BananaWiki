@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ....core.timeutil import is_past, now_sql
+from ... import accounts
 from ...db import db
 
 ASSIGNABLE_ROLES = ("user", "editor", "admin")
@@ -54,14 +55,24 @@ def find_valid(code: str | None) -> dict[str, Any] | None:
 
 
 def assigned_role(invite: dict[str, Any]) -> tuple[str, int | None]:
-    """The (role, custom role id) an invite grants; a custom role wins over a base role."""
+    """The (role, custom role id) an invite grants; a custom role wins over a base role.
+
+    The invite's creator must still be allowed to hand that out (an
+    administrator since demoted, an editor since restricted); otherwise the
+    new account is a plain member.
+    """
+    from ..admin.invites import within_authority
+
     role = invite["assigned_role"] if invite.get("assigned_role") in ASSIGNABLE_ROLES else "user"
-    custom_id = invite.get("assigned_custom_role_id")
-    if custom_id:
-        custom = db.one("SELECT id, base_role FROM custom_roles WHERE id = ?", (custom_id,))
+    custom_id = None
+    if invite.get("assigned_custom_role_id"):
+        custom = db.one("SELECT id, base_role FROM custom_roles WHERE id = ?", (invite["assigned_custom_role_id"],))
         if custom:
-            return custom["base_role"], custom["id"]
-    return role, None
+            role, custom_id = custom["base_role"], custom["id"]
+    creator = accounts.by_id(invite.get("created_by")) if invite.get("created_by") else None
+    if (role, custom_id) != ("user", None) and (creator is None or not within_authority(creator, role, custom_id)):
+        return "user", None
+    return role, custom_id
 
 
 def consume(invite: dict[str, Any], user_id: str) -> bool:

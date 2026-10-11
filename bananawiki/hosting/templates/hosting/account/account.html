@@ -3,6 +3,19 @@
 {% block title %}{{ t('hosting.account.title') }}{% endblock %}
 {% block content %}
 <h1>{{ t('hosting.account.title') }}</h1>
+{% set blocked = gate_pending() %}
+{% if blocked in ('account.terms', 'auth.activation_pending', 'auth.activation_denied') %}
+<div class="alert alert--warning"><div class="alert__body">
+  {% if blocked == 'account.terms' %}{{ tm('hosting.account.blocked_terms', link=link(url_for('account.terms'), t('hosting.account.blocked_terms_link'))) }}
+  {% elif blocked == 'auth.activation_denied' %}{{ t('hosting.account.blocked_denied') }} <a href="{{ url_for('auth.activation_denied') }}">{{ t('hosting.account.blocked_denied_link') }}</a>
+  {% else %}{{ t('hosting.account.blocked_approval') }}{% endif %}
+</div></div>
+{% endif %}
+{#- While a gate holds the account, only what that state lets through is offered (the rest would bounce). -#}
+{% set can_merge = gate_allows('account.merge_request') %}
+{% set can_export = gate_allows('account.export_account') %}
+{% set can_create_token = gate_allows('account.create_api_token') %}
+{% set show_notifications = current_account.is_admin and not impersonating and gate_allows('account.notification_preferences') %}
 <div class="account-layout">
 <nav class="account-index" aria-label="{{ t('hosting.account.title') }}">
   <a href="#profile">{{ t('hosting.account.details') }}</a>
@@ -10,10 +23,10 @@
   <a href="#security">{{ t('hosting.mfa.title') }}</a>
   <a href="#sessions">{{ t('hosting.account.sessions.title') }}</a>
   {% if show_tokens %}
-  {% if current_account.is_admin and not impersonating %}<a href="#notifications">{{ t('hosting.account.notifications.title') }}</a>{% endif %}
+  {% if show_notifications %}<a href="#notifications">{{ t('hosting.account.notifications.title') }}</a>{% endif %}
   <a href="#api-tokens">{{ t('hosting.api_tokens.title') }}</a>
   {% endif %}
-  <a href="#more">{{ t('hosting.account.more') }}</a>
+  {% if can_merge or can_export or show_wiki_signins %}<a href="#more">{{ t('hosting.account.more') }}</a>{% endif %}
   <a href="#delete-account">{{ t('hosting.account.delete_title') }}</a>
 </nav>
 <div class="stack account-sections">
@@ -21,8 +34,8 @@
   <h2>{{ t('hosting.account.details') }}</h2>
   <form method="post" action="{{ url_for('account.account') }}" class="form">{{ ui.csrf() }}
     {{ ui.field('username', t('hosting.field.username'), current_account.username, required=true, attrs={'maxlength': 30}) }}
-    {{ ui.field('email', t('hosting.field.email'), current_account.email, type='email', required=email_required, attrs={'maxlength': 254}) }}
-    {% if current_account.email %}<p class="hint">{% if current_account.email_verified_at %}{{ t('hosting.account.email_verified') }}{% else %}{{ t('hosting.account.email_unverified') }}{% endif %}</p>{% endif %}
+    {{ ui.field('email', t('hosting.field.email'), current_account.email, type='email', required=email_required, attrs={'maxlength': 254},
+        hint=(t('hosting.account.email_verified') if current_account.email_verified_at else t('hosting.account.email_unverified')) if current_account.email else '') }}
     {{ ui.field('current_password', t('hosting.field.current_password'), type='password', hint=t('hosting.account.password_for_identity'), attrs={'autocomplete': 'current-password'}, id='profile-password') }}
     <p><button class="btn btn--primary" type="submit">{{ t('hosting.account.save_details') }}</button></p>
   </form>
@@ -46,29 +59,30 @@
 
 <details class="card" id="sessions" data-remember>
   <summary>{{ t('hosting.account.sessions.title') }} <span class="badge">{{ sessions|length }}</span></summary>
-  <div class="table-wrap"><table class="table">
-    <thead><tr><th>{{ t('hosting.account.sessions.device') }}</th><th>{{ t('hosting.account.sessions.ip') }}</th><th>{{ t('hosting.account.sessions.last_seen') }}</th><th></th></tr></thead>
+  <div class="table-wrap"><table class="table table--stack">
+    <thead><tr><th>{{ t('hosting.account.sessions.device') }}</th><th>{{ t('hosting.account.sessions.ip') }}</th><th>{{ t('hosting.account.sessions.last_seen') }}</th><th><span class="visually-hidden">{{ t('hosting.admin.actions') }}</span></th></tr></thead>
     <tbody>
     {% for row in sessions %}
     <tr><td title="{{ row.user_agent or '' }}">{{ row.user_agent|device }}{% if row.id == current_session_id %} <span class="badge badge--primary">{{ t('hosting.account.sessions.current') }}</span>{% endif %}</td>
-      <td class="mono">{{ row.last_ip }}</td><td class="nowrap">{{ row.last_seen_at|time_ago }}</td>
+      <td class="mono" data-label="{{ t('hosting.account.sessions.ip') }}">{{ row.last_ip }}</td><td class="nowrap" data-label="{{ t('hosting.account.sessions.last_seen') }}">{{ row.last_seen_at|time_ago }}</td>
       <td class="actions">{{ ui.post(url_for('account.revoke_session', session_id=row.id), t('hosting.account.sessions.end')) }}</td></tr>
     {% else %}<tr><td colspan="4" class="muted">{{ t('hosting.common.none') }}</td></tr>{% endfor %}
     </tbody></table></div>
-  <div class="btn-row">
-    {{ ui.post(url_for('account.logout_everywhere'), t('hosting.account.sessions.everywhere_button'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}
+  {#- "Sign out other devices" only when there are other devices. -#}
+  {% if sessions|length > 1 or history %}<div class="btn-row">
+    {% if sessions|length > 1 %}{{ ui.post(url_for('account.logout_everywhere'), t('hosting.account.sessions.everywhere_button'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}{% endif %}
     {% if history %}{{ ui.post(url_for('account.clear_session_history'), t('hosting.account.sessions.clear_history')) }}{% endif %}
-  </div>
+  </div>{% endif %}
 </details>
 
 {% if show_tokens %}
-{% if current_account.is_admin and not impersonating %}
+{% if show_notifications %}
 <section class="card" id="notifications">
   <h2>{{ t('hosting.account.notifications.title') }}</h2>
   <p class="hint">{{ t('hosting.account.notifications.hint') }}</p>
   <form method="post" action="{{ url_for('account.notification_preferences') }}" class="form">{{ ui.csrf() }}
     {{ ui.check('attention_emails', t('hosting.account.notifications.attention'), current_account.attention_emails) }}
-    <p><button class="btn btn--primary btn--small" type="submit">{{ t('common.save') }}</button></p>
+    <p><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></p>
   </form>
 </section>
 {% endif %}
@@ -77,39 +91,43 @@
   <summary>{{ t('hosting.api_tokens.title') }}</summary>
   {% if new_token %}
   <div class="alert alert--success"><div class="alert__body"><p>{{ t('hosting.api_tokens.shown_once') }}</p>
-    <p class="secret-box">{{ new_token }}</p><button type="button" class="btn btn--small" data-copy="{{ new_token }}">{{ t('common.copy') }}</button></div></div>
+    <p class="secret-box">{{ new_token }}</p><p class="btn-row"><button type="button" class="btn btn--small" data-copy="{{ new_token }}">{{ t('common.copy') }}</button></p></div></div>
   {% endif %}
-  <div class="table-wrap"><table class="table"><thead><tr><th>{{ t('hosting.api_tokens.name') }}</th><th>{{ t('hosting.api_tokens.scopes') }}</th><th>{{ t('hosting.api_tokens.expires') }}</th><th></th></tr></thead><tbody>
+  <div class="table-wrap"><table class="table table--stack"><thead><tr><th>{{ t('hosting.api_tokens.name') }}</th><th>{{ t('hosting.api_tokens.scopes') }}</th><th>{{ t('hosting.api_tokens.expires') }}</th><th><span class="visually-hidden">{{ t('hosting.admin.actions') }}</span></th></tr></thead><tbody>
   {% for token in tokens %}
-    <tr><td>{{ token.name }} <span class="mono small muted">{{ token.prefix }}…</span>{% if token.expired %} <span class="badge badge--warning">{{ t('hosting.api_tokens.expired') }}</span>{% endif %}</td>
-      <td class="small">{{ token.scopes|join(', ') }}</td><td>{{ token.expires_at|date if token.expires_at else t('hosting.api_tokens.never') }}</td>
+    <tr><td>{{ token.name }}{% if token.expired %} <span class="badge badge--warning">{{ t('hosting.api_tokens.expired') }}</span>{% endif %} <span class="mono small muted token-prefix">{{ token.prefix }}…</span></td>
+      <td class="small" data-label="{{ t('hosting.api_tokens.scopes') }}">{% for scope in token.scopes %}<span class="token-scope" title="{{ scope }}">{{ t('hosting.api_tokens.scope.' ~ scope|replace(':', '_'), scope) }}</span>{% endfor %}</td><td class="nowrap" data-label="{{ t('hosting.api_tokens.expires') }}">{{ token.expires_at|date if token.expires_at else t('hosting.api_tokens.never') }}</td>
       <td class="actions">{{ ui.post(url_for('account.revoke_api_token', token_id=token.id), t('hosting.api_tokens.revoke'), 'btn btn--small btn--danger') }}</td></tr>
   {% else %}<tr><td colspan="4" class="muted">{{ t('hosting.common.none') }}</td></tr>{% endfor %}
   </tbody></table></div>
-  {% if token_nonce %}
+  {% if token_nonce and can_create_token %}
+  <h3>{{ t('hosting.api_tokens.new_title') }}</h3>
+  <p class="hint hint--block">{{ t('hosting.api_tokens.limit', max=token_limit) }}</p>
   <form method="post" action="{{ url_for('account.create_api_token') }}" class="form">{{ ui.csrf() }}
     <input type="hidden" name="form_nonce" value="{{ token_nonce }}">
     {{ ui.field('name', t('hosting.api_tokens.name'), required=true, attrs={'maxlength': 60}) }}
-    <fieldset><legend>{{ t('hosting.api_tokens.scopes') }}</legend>
-      {% for scope in token_scopes %}{{ ui.check('scopes', scope, value=scope) }}{% endfor %}</fieldset>
+    <fieldset class="plain"><legend>{{ t('hosting.api_tokens.scopes') }}</legend>
+      <div class="check-grid">{% for scope in token_scopes %}<label class="check"><input type="checkbox" name="scopes" value="{{ scope }}"><span>{{ t('hosting.api_tokens.scope.' ~ scope|replace(':', '_'), scope) }} <code>{{ scope }}</code></span></label>{% endfor %}</div></fieldset>
     <div class="field"><label for="f-exp">{{ t('hosting.api_tokens.expires') }}</label><select id="f-exp" name="expires_in">
-      <option value="30">30</option><option value="90" selected>90</option><option value="365">365</option><option value="never">{{ t('hosting.api_tokens.never') }}</option></select></div>
+      <option value="30">{{ t('hosting.api_tokens.days', count=30) }}</option><option value="90" selected>{{ t('hosting.api_tokens.days', count=90) }}</option><option value="365">{{ t('hosting.api_tokens.one_year') }}</option><option value="never">{{ t('hosting.api_tokens.never') }}</option></select></div>
     {{ ui.field('current_password', t('hosting.field.current_password'), type='password', required=true, attrs={'autocomplete': 'current-password'}, id='token-password') }}
-    <p><button class="btn btn--primary" type="submit">{{ t('hosting.api_tokens.create') }}</button> <span class="small muted">{{ t('hosting.api_tokens.limit', max=token_limit) }}</span></p>
+    <p><button class="btn btn--primary" type="submit">{{ t('hosting.api_tokens.create') }}</button></p>
   </form>
   {% endif %}
 </details>
 {% endif %}
 
+{% if can_merge or can_export or show_wiki_signins %}
 <details class="card" id="more" data-remember>
   <summary>{{ t('hosting.account.more') }}</summary>
   <div class="btn-row">
-    <a class="btn" href="{{ url_for('account.merge_request') }}">{{ t('hosting.merges.request_title') }}</a>
-    {% if merges %}<a class="btn" href="{{ url_for('account.merge_pending') }}">{{ t('hosting.merges.pending_title') }}</a>{% endif %}
-    {{ ui.post(url_for('account.export_account'), t('hosting.account.export'), 'btn') }}
-    {{ ui.post(url_for('oauth.revoke'), t('hosting.oauth.revoke_all'), 'btn') }}
+    {% if can_merge %}<a class="btn" href="{{ url_for('account.merge_request') }}">{{ t('hosting.merges.request_title') }}</a>
+    {% if merges %}<a class="btn" href="{{ url_for('account.merge_pending') }}">{{ t('hosting.merges.pending_title') }}</a>{% endif %}{% endif %}
+    {% if can_export %}{{ ui.post(url_for('account.export_account'), t('hosting.account.export'), 'btn') }}{% endif %}
+    {% if show_wiki_signins %}{{ ui.post(url_for('oauth.revoke'), t('hosting.oauth.revoke_all'), 'btn') }}{% endif %}
   </div>
 </details>
+{% endif %}
 
 <details class="card card--danger" id="delete-account">
   <summary>{{ t('hosting.account.delete_title') }}</summary>

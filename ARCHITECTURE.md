@@ -37,7 +37,7 @@ bananawiki/
     migrations/    schema versions (baseline_v3.sql + numbered Python upgrades)
     takeover.py    first start on a 1.4 installation
     templates/     base layout, macros, error page
-    static/        wiki content CSS, core JS, bundled favicons
+    static/        wiki content CSS, core JS, bundled favicons (scripts/make_icons.py)
     translations/  core strings (en, it, de)
     features/      one package per feature (see below)
   hosting/         the hosting portal (multi-tenant wiki provisioning); runtime/ drives
@@ -246,9 +246,10 @@ Return `Markup` (or a string of already-escaped HTML); render with
 | `auth.onboarding.fields` | onboarding form | — |
 | `profile.sections` | user profile | `profile_user` |
 | `account.settings_sections` | account settings | — |
-| `account.display_sections` | display preferences ("Customize") | — |
+| `account.display_sections` | display preferences (**Customise**), below the preferences form | — |
 | `admin.dashboard` | admin dashboard | — |
-| `admin.appearance` | admin appearance page | — |
+| `admin.appearance` | **Admin → Appearance**, after the site icon | — |
+| `admin.user_detail` | Admin > Users > one account | `target` |
 
 ### Interceptors
 
@@ -272,6 +273,9 @@ feature's id and stops the action.
 | `page.create_denied` | pages, when the user may not create in a category | `user`, `category_id` | a response, or `None` for 403 |
 | `user.delete` | `accounts.delete` through `registry.prepare`, inside its transaction, just before the row goes | `user`, `deleted_by` | ignored (hand over rows the database would delete with the account, e.g. kanban tickets) |
 | `page.render` | pages, when rendering a page body | `page` (with content) | `Markup` replacing the Markdown body (page builder pages), or `None` |
+| `account.pending_step` | the request pipeline (`app.py`), for signed-in accounts outside impersonation, after the password-change and onboarding steps | `user` | endpoint the account must complete first (two-step set-up required of administrators), or `None` |
+| `feature.switch` | `registry.set_enabled` (and `registry.switch_refusal`, which the onboarding wizard asks to leave out what it may not switch), before switching a built-in feature | `feature_id`, `enabled` | translation key refusing the switch (`registry.SwitchRefused`; the audit log refuses to be switched off by plain administrators), or `None` |
+| `feature.switched` | `registry.set_enabled` through `registry.prepare`, inside its transaction, when the switch changed whether the feature is enabled | `feature_id`, `enabled` | ignored (the audit log records `plugin.enabled` or `plugin.disabled`, also while it is off) |
 
 ### Background jobs
 

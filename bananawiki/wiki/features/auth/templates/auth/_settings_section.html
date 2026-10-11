@@ -1,3 +1,12 @@
+<section class="card" id="two-step">
+  <h2>{{ t('auth.two_step.title') }}</h2>
+  <p class="hint">{% if two_step_state %}<span class="badge badge--success">{{ t('auth.two_step.on') }}</span>
+    {{ t('auth.two_step.settings_help_on') }}{% else %}<span class="badge">{{ t('auth.two_step.off') }}</span>
+    {{ t('auth.two_step.settings_help_off') }}{% endif %}</p>
+  {% if not impersonating %}
+  <p><a class="btn" href="{{ url_for('auth.two_step_settings') }}">{{ t('auth.two_step.manage') if two_step_state else t('auth.two_step.set_up') }}</a></p>
+  {% endif %}
+</section>
 <section class="card" id="guided-tour">
   <h2>{{ t('auth.settings.tour_title') }}</h2>
   <p class="hint">{{ t('auth.settings.tour_help') }}</p>

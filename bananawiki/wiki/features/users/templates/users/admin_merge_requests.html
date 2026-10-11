@@ -8,7 +8,7 @@
 </header>
 <nav class="tabs">
   <a href="{{ url_for('users.admin_merge_requests') }}"{% if status == 'pending' %} aria-current="page"{% endif %}>{{ t('users.admin.open') }}</a>
-  <a href="{{ url_for('users.admin_merge_requests', status='all') }}"{% if status == 'all' %} aria-current="page"{% endif %}>{{ t('common.all') }}</a>
+  <a href="{{ url_for('users.admin_merge_requests', status='all') }}"{% if status == 'all' %} aria-current="page"{% endif %}>{{ t('users.admin.all_requests') }}</a>
 </nav>
 {% if requests %}
 <div class="table-wrap"><table class="table">

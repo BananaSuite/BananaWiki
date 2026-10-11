@@ -514,8 +514,16 @@ def layout_classes(block: dict[str, Any]) -> str:
 def render(document: dict[str, Any], *, page_id: int | None = None) -> Markup:
     """Sanitised HTML of a validated document for the current reader.
 
-    *page_id* is the page being shown, left out of page lists.
+    *page_id* is the page being shown, left out of page lists. Its Markdown
+    and code blocks share one highlighting allowance, like a Markdown page
+    (:func:`markdown.shared_highlighting`).
     """
+    with markdown.shared_highlighting():
+        items = _items(document, page_id)
+    return Markup(render_template("page_builder/render.html", items=items, lines=_lines))
+
+
+def _items(document: dict[str, Any], page_id: int | None) -> list[dict[str, Any]]:
     items = []
     anchors: set[str] = set()
     room = MAX_LISTED_PAGES
@@ -547,7 +555,7 @@ def render(document: dict[str, Any], *, page_id: int | None = None) -> Markup:
             extra["enabled"] = registry.is_enabled(block["kind"])
             extra["label"] = t(f"page_builder.embed_label.{block['kind']}", ref=block["ref"])
         items.append({"block": block, "classes": layout_classes(block), **extra})
-    return Markup(render_template("page_builder/render.html", items=items, lines=_lines))
+    return items
 
 
 def audit(document: dict[str, Any]) -> list[dict[str, Any]]:

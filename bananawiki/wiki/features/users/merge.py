@@ -40,6 +40,8 @@ KEEP_WITH_SOURCE = frozenset({
     "account_merge_requests", "account_merge_logs", "username_history", "role_history", "suspension_audit",
     "impersonation_logs", "temp_users", "temp_roles", "user_permissions", "user_category_access",
     "user_allowed_categories", "editor_category_access", "editor_allowed_categories", "users",
+    # Sign-in secrets: the target must never inherit the source's authenticator app or recovery codes.
+    "auth__two_step",
 })
 
 

@@ -11,7 +11,7 @@
 {% if assessment.description %}<p class="assessment-text">{{ assessment.description }}</p>{% endif %}
 
 {% if attempts %}
-<section class="card">
+<section class="card assessment-attempts">
   <h2>{{ t('assessments.your_attempts') }}</h2>
   {{ quiz.attempts_table(page, attempts) }}
 </section>

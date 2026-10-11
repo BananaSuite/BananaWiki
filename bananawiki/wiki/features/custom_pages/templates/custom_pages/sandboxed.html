@@ -7,6 +7,7 @@
   <title>{{ page.title or site_name() }}</title>
   {% if page.meta_description %}<meta name="description" content="{{ page.meta_description }}">{% endif %}
   <link rel="icon" href="{{ favicon_url() }}">
+  <link rel="apple-touch-icon" href="{{ asset_url('favicons/apple-touch-icon.png') }}">
   <link rel="stylesheet" href="{{ asset_url('custom_pages.css', blueprint='custom_pages') }}">
 </head>
 <body>

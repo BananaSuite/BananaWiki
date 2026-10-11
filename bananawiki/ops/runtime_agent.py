@@ -39,9 +39,10 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
 
+from . import tenant_quotas
 from .caddy_blocks import HSTS, addresses, https_policy, parse_version, proxy, supports_client_ip
 from .files import read_environment, read_json
-from .project_quota import ProjectQuota, QuotaError
+from .project_quota import ProjectQuota, QuotaError, check_storage
 
 PROTOCOL = 1
 MAX_REQUEST = 256 * 1024
@@ -77,10 +78,17 @@ HOSTNAME = re.compile(r"(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+
 MAX_ROUTES = 10_000
 MAX_HOSTS_PER_TENANT = 16
 ROUTES_FILE = "tenants.caddy"
+# Wikis an update stopped because they did not serve under its release (``{"tenants": {name: why}}``), in the
+# portal's platform state directory: its recovery leaves them stopped until they are started explicitly.
+ISOLATED_WIKIS = "isolated-wikis.json"
 ROUTES_WANTED = "routes.json"
 ROUTES_RELOADED = "routes.reloaded.sha256"
 RETIRED_NETWORKS = "retired-networks.json"
 NETWORK_NAME = re.compile(r"bananawiki-[a-z0-9-]{1,28}-[a-f0-9]{12}-net")
+# Tenant bridge interfaces are named bwt<12 hex>, so a host firewall can match every tenant bridge, including
+# those created later, and nothing else (deploy/nftables/bananawiki-tenants.nft matches "bwt*").
+BRIDGE_PREFIX = "bwt"
+BRIDGE_OPTION = "com.docker.network.bridge.name"
 SECCOMP_PROFILE = Path(__file__).with_name("seccomp") / "tenant.json"
 SECCOMP_SHA256 = "c8e22680a0b52e62c96b342ac9e0605f98375a93ada11ad39e3ed2afe664a06e"
 SECCOMP_CANONICAL_SHA256 = "66bc2d57c34a9d5ee26d6ce93a9b7f8caebfdea3233559f82e59c531c4a4dc31"
@@ -88,6 +96,7 @@ IPV6_SYSCTLS = {"net.ipv6.conf.all.disable_ipv6": "1", "net.ipv6.conf.default.di
 DEFAULT_STORAGE_BYTES = 10 * 1024 ** 3
 DEFAULT_STORAGE_INODES = 100_000
 DEFAULT_STORAGE_RESERVE = 256 * 1024 ** 2
+MIB = 1024 ** 2
 
 log = logging.getLogger("bananawiki.agent")
 Runner = Callable[..., subprocess.CompletedProcess]
@@ -100,6 +109,11 @@ class AgentError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+class MountUninspectable(AgentError):
+    """This agent may not look into a tenant's ``/proc/<pid>/root``: its systemd unit has no ``CAP_SYS_PTRACE``
+    (one an updater from before 1.7 wrote). Under hard quotas that fails the operation like any other error."""
 
 
 def seccomp_profile() -> Path:
@@ -195,6 +209,11 @@ def container_name(data_dir: str) -> str:
     return f"bananawiki-{_safe_slug(os.path.basename(real))}-{digest}"
 
 
+def bridge_name(network: str) -> str:
+    """The host interface of tenant network *network*: at most 15 characters (Linux ``IFNAMSIZ``)."""
+    return BRIDGE_PREFIX + hashlib.sha256(network.encode("utf-8")).hexdigest()[:12]
+
+
 def _bounded_int(args: dict[str, Any], key: str, default: int, low: int, high: int) -> int:
     value = args.get(key, default)
     if type(value) is not int or not low <= value <= high:
@@ -211,11 +230,15 @@ class TenantRuntime:
     """
 
     def __init__(self, config: dict[str, Any], *, runner: Runner | None = None,
-                 private_dir: Path | None = None, quota: Any = None):
+                 private_dir: Path | None = None, quota: Any = None,
+                 storage_probe: Callable[[], str | None] | None = None):
         self.config = config
         self.runner = runner or subprocess.run
         self.private_dir = private_dir
         self._injected_quota = quota
+        self._storage_probe = storage_probe  # tests: why the storage lacks enforced quotas (None: it has them)
+        self._quotas_lost = False  # what the last storage_policy() found: lost quotas are logged when they go
+        self._quotas_lost_lock = threading.Lock()  # not self.lock, which Docker operations hold for long
         self.lock = threading.RLock()
         self._tenant_locks_lock = threading.Lock()
         self._tenant_locks: dict[str, threading.Lock] = {}
@@ -253,6 +276,9 @@ class TenantRuntime:
                 return info.st_dev, info.st_ino
             finally:
                 os.close(descriptor)
+        except PermissionError as error:
+            raise MountUninspectable("quota_unavailable",
+                                     f"A live tenant mount could not be inspected: {error}") from None
         except OSError as error:
             raise AgentError("quota_unavailable", f"A live tenant mount could not be inspected: {error}") from None
 
@@ -316,6 +342,107 @@ class TenantRuntime:
                     or any(value in remaining for value in tasks)):
                 raise AgentError("docker_failed", "The aliased tenant tasks could not be confirmed removed.")
 
+    # Storage policy (BW_HOSTING_TENANT_QUOTAS, see tenant_quotas) ----------------------------------------------
+
+    def _storage_problem(self) -> str | None:
+        """Why the instances directory does not enforce XFS project quotas for this agent (None: it does).
+
+        Also when the agent's own unit cannot use them: one written by an
+        updater from before 1.7 (generation 2) allows no ``quotactl_fd``.
+        """
+        if self._storage_probe is not None:
+            return self._storage_probe()
+        if self._injected_quota is not None:
+            return None
+        try:
+            check_storage(Path(self.config["instances_dir"]))
+        except (QuotaError, OSError) as error:
+            return str(error)
+        return None
+
+    def _quota_state_exists(self) -> bool:
+        """Whether this platform put a wiki under quota before (its private registry exists).
+
+        The in-process fallback has no registry: it never had hard quotas, so it never lost them.
+        """
+        quota = self.config.get("quota")
+        if not isinstance(quota, dict) or not quota.get("state_dir"):
+            return False
+        return tenant_quotas.registry_exists(quota["state_dir"])  # cannot tell: True
+
+    def storage_policy(self) -> tenant_quotas.Policy:
+        """Whether wikis run under hard XFS project quotas now (read for every request, like the configuration).
+
+        Quotas lost while the agent runs (the storage remounted without
+        ``prjquota``) are logged as a warning when it happens, once, as at
+        the agent's start (:func:`log_storage_policy`).
+        """
+        configured = self.config.get("tenant_quotas", tenant_quotas.DEFAULT)
+        if configured not in tenant_quotas.MODES:
+            raise AgentError("not_configured", f"{tenant_quotas.VARIABLE} must be auto, required or off.")
+        policy = tenant_quotas.decide(configured, problem=self._storage_problem,
+                                      enforced_before=self._quota_state_exists)
+        with self._quotas_lost_lock:
+            changed, self._quotas_lost = policy.lost != self._quotas_lost, policy.lost
+        if changed and policy.lost:
+            log.warning("%s", policy.warning())
+        elif changed and policy.hard_quotas:
+            log.info("Hard per-wiki storage quotas are enforced again (XFS project quotas, %s=%s).",
+                     tenant_quotas.VARIABLE, policy.setting)
+        return policy
+
+    def _enforced(self, policy: tenant_quotas.Policy | None = None) -> bool:
+        """Whether wikis run under hard quotas; raises when they must and the storage cannot (fail closed)."""
+        policy = policy or self.storage_policy()
+        if policy.refused:
+            raise AgentError("quota_unavailable", policy.reason)
+        return policy.enforced
+
+    def _ceilings(self) -> dict[str, Any]:
+        """The operator's per-wiki ceilings; the defaults for an in-process runtime that has none configured."""
+        value = self.config.get("quota")
+        if isinstance(value, dict):
+            return value
+        return {"max_bytes": DEFAULT_STORAGE_BYTES, "max_inodes": DEFAULT_STORAGE_INODES,
+                "storage_reserve_bytes": DEFAULT_STORAGE_RESERVE}
+
+    @staticmethod
+    def _free_bytes(path: Path) -> int:
+        stats = os.statvfs(path)
+        return stats.f_bavail * stats.f_frsize
+
+    def _admit_unenforced(self, data_dir: Path, args: dict[str, Any]) -> None:
+        """Without hard quotas, admit a new (empty) wiki only while the volume keeps its plan and the reserve free.
+
+        A wiki already holding data is never refused: it is on the volume
+        already, and refusing it would only keep it down.
+        """
+        try:
+            with os.scandir(data_dir) as entries:
+                if next(entries, None) is not None:
+                    return
+        except OSError as error:
+            raise AgentError("unavailable", f"The tenant directory could not be read: {error}") from None
+        ceilings = self._ceilings()
+        limits = args.get("limits", {})
+        requested = _bounded_int(limits, "storage_bytes", 0, 0, 2 ** 53) if isinstance(limits, dict) else 0
+        plan = min(requested, ceilings["max_bytes"])
+        reserve = int(ceilings.get("storage_reserve_bytes", DEFAULT_STORAGE_RESERVE))
+        try:
+            free = self._free_bytes(Path(self.config["instances_dir"]))
+        except OSError as error:
+            raise AgentError("unavailable", f"The free space of the wiki storage is unknown: {error}") from None
+        if free < reserve + plan:
+            raise AgentError("no_space", f"The wiki storage has {free // MIB:,} MiB free. Without hard storage quotas "
+                                         f"a new wiki needs its plan ({plan // MIB:,} MiB) plus "
+                                         f"HOSTING_AGENT_STORAGE_RESERVE_BYTES ({reserve // MIB:,} MiB) free.")
+
+    @staticmethod
+    def _unenforced(data_dir: Path, args: dict[str, Any] | None) -> dict[str, Any]:
+        """``tenant.quota``'s answer when wikis run without hard quotas (no adoption, so never over its plan)."""
+        return {"tenant": data_dir.name, "storage_quota_verified": False, "storage_quota": None,
+                "storage_quota_mode": "unenforced", **({"over_plan": False} if args is not None else {})}
+
     def _quota_config(self) -> dict[str, Any]:
         value = self.config.get("quota")
         if not isinstance(value, dict):
@@ -336,15 +463,17 @@ class TenantRuntime:
         except (QuotaError, OSError) as error:
             raise AgentError("quota_unavailable", str(error)) from None
 
-    def _storage_limits(self, args: dict[str, Any]) -> tuple[int, int]:
+    def _storage_limits(self, args: dict[str, Any], *, enforced: bool = True) -> tuple[int, int]:
         limits = args.get("limits", {})
         if not isinstance(limits, dict):
             raise AgentError("invalid_request", "limits must be an object.")
-        config = self._quota_config()
+        config = self._quota_config() if enforced else self._ceilings()
         # A portal policy of zero means its application estimate is unlimited;
-        # it never disables the finite, operator-owned host ceiling.
-        requested = _bounded_int(limits, "storage_bytes", 0, 0, config["max_bytes"])
-        return requested or config["max_bytes"], config["max_inodes"]
+        # it never disables the finite, operator-owned host ceiling. Nor does a
+        # plan above that ceiling (one an administrator set before 1.7): it is
+        # held to the ceiling rather than keeping its wiki from starting.
+        requested = _bounded_int(limits, "storage_bytes", 0, 0, 2 ** 53)
+        return min(requested, config["max_bytes"]) or config["max_bytes"], config["max_inodes"]
 
     def _verify_storage(self, data_dir: Path, args: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
@@ -389,6 +518,54 @@ class TenantRuntime:
         finally:
             os.close(descriptor)
 
+    @contextmanager
+    def _pinned_directory(self, data_dir: Path, *, allowed_main: str | None = None):
+        """Without hard quotas: pin the tenant directory until Docker's actual mount is compared with it.
+
+        There is no quota identity to verify, but the directory can still be
+        replaced (by a symbolic link to another host directory, say: the
+        portal owns ``data/instances``) between the agent's checks and
+        Docker resolving the bind source. The mount gate is released only
+        once the container's ``/data`` is this inode
+        (:meth:`_verify_started_identity`), and live mounts of the inode under
+        another name are refused as under hard quotas. An agent whose unit
+        cannot look into other processes (:class:`MountUninspectable`)
+        cannot compare: it logs that once and starts the wiki as 1.6 did.
+        """
+        descriptor = os.open(data_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            info = os.fstat(descriptor)
+            try:
+                self._quiesce_mount(descriptor, allowed_main=allowed_main)
+            except MountUninspectable as error:
+                self._mounts_uninspectable(error)
+            yield str(data_dir), {"identity": [info.st_dev, info.st_ino]}
+        finally:
+            os.close(descriptor)
+
+    def _mounts_uninspectable(self, error: AgentError) -> None:
+        if not getattr(self, "_uninspectable_logged", False):
+            self._uninspectable_logged = True
+            log.warning("Tenant mounts cannot be compared with their directories (%s): this agent's systemd unit, "
+                        "written by an older controller, may not inspect other processes. Run 'bananawiki update' "
+                        "(or 'restart') to install this release's units.", error.message)
+
+    def _verify_started_identity(self, name: str, witness: dict[str, Any], *, timeout: float = 30) -> None:
+        """Without hard quotas: the started container's ``/data`` must be the pinned directory (see above)."""
+        inspected = self.docker("inspect", "--type", "container", "--format", "{{.State.Pid}}", name,
+                                timeout=timeout, check=False)
+        value = inspected.stdout.strip()
+        if inspected.returncode or not value.isascii() or not value.isdigit() or len(value) > 10:
+            raise AgentError("unavailable", "The actual tenant mount process could not be inspected.")
+        try:
+            mounted = self._mounted_identity(int(value))
+        except MountUninspectable as error:
+            self._mounts_uninspectable(error)
+            return
+        if list(mounted) != witness["identity"]:
+            raise AgentError("invalid_tenant", "The tenant directory changed while its container started, so it was "
+                                               "not started.")
+
     def _verify_mount_descriptor(self, pid: int, witness: dict[str, Any]) -> None:
         if type(pid) is not int or not 0 < pid <= 2 ** 31 - 1:
             raise AgentError("quota_unavailable", "The tenant mount process is unavailable.")
@@ -422,17 +599,44 @@ class TenantRuntime:
         prepare = args.get("prepare", False)
         if type(prepare) is not bool:
             raise AgentError("invalid_request", "prepare must be a boolean.")
+        policy = self.storage_policy()
+        enforced = self._enforced(policy)
         if prepare:
-            self._storage_limits(args)
+            self._storage_limits(args, enforced=enforced)
+        if not enforced:
+            if prepare:
+                with self._tenant_lock(data_dir), self.lock:
+                    self._admit_unenforced(data_dir, args)
+            return self._unenforced(data_dir, args if prepare or "limits" in args else None)
         with self._tenant_lock(data_dir), self.lock:
             if prepare:
-                found = self._inspect([container_name(str(data_dir))], strict=True)
+                found = self._inspect([container_name(str(data_dir))], strict=True, policy=policy)
                 if not found or not found[0]["running"]:
                     self._stop_task_containers(data_dir)
                 witness = self._prepare_storage(data_dir, args, running=bool(found and found[0]["running"]))
             else:
                 witness = self._verify_storage(data_dir, args if "limits" in args else None)
-        return {"tenant": data_dir.name, "storage_quota_verified": True, "storage_quota": witness}
+        return {"tenant": data_dir.name, "storage_quota_verified": True, "storage_quota_mode": "enforced",
+                "storage_quota": witness,
+                **self._plan_report(data_dir, args if prepare or "limits" in args else None, witness)}
+
+    def _plan_report(self, data_dir: Path, args: dict[str, Any] | None, witness: dict[str, Any]) -> dict[str, Any]:
+        """``over_plan`` (and the plan) when the wiki's hard limits exceed the limits asked for (UP-1).
+
+        A wiki that already held more than its plan when it was put under
+        hard quotas is adopted at what it holds plus a small headroom instead
+        of being refused (:meth:`ProjectQuota.prepare`): it serves, but cannot
+        grow until data is removed or its plan is raised.
+        """
+        if args is None:
+            return {}
+        byte_limit, inode_limit = self._storage_limits(args)
+        if witness["byte_limit"] <= byte_limit and witness["inode_limit"] <= inode_limit:
+            return {"over_plan": False}
+        log.warning("Tenant %s holds more than its plan (%d bytes, %d files): adopted with hard limits of %d "
+                    "bytes and %d files; it cannot grow until data is removed or its plan is raised.",
+                    data_dir.name, byte_limit, inode_limit, witness["byte_limit"], witness["inode_limit"])
+        return {"over_plan": True, "plan": {"storage_bytes": byte_limit, "inodes": inode_limit}}
 
     # Plumbing -------------------------------------------------------------
 
@@ -467,15 +671,38 @@ class TenantRuntime:
 
     def ping(self, args: dict[str, Any]) -> dict[str, Any]:
         available = self.docker("version", "--format", "{{.Server.Version}}", timeout=10, check=False)
-        return {"protocol": PROTOCOL, "docker": available.returncode == 0, "image": self.config["image"]}
+        try:
+            storage = self.storage_policy().to_dict()
+        except AgentError as error:
+            storage = {"setting": str(self.config.get("tenant_quotas")), "hard_quotas": False, "refused": True,
+                       "reason": error.message}
+        return {"protocol": PROTOCOL, "docker": available.returncode == 0, "image": self.config["image"],
+                "storage": storage}
 
     def image_status(self, args: dict[str, Any]) -> dict[str, Any]:
         present = self.docker("image", "inspect", self.config["image"], timeout=20, check=False).returncode == 0
         return {"image": self.config["image"], "present": present}
 
-    def _inspect(self, names: list[str], *, timeout: float = 30, strict: bool = False) -> list[dict[str, Any]]:
+    def _inspect(self, names: list[str], *, timeout: float = 30, strict: bool = False,
+                 storage: bool = True, policy: tenant_quotas.Policy | None = None) -> list[dict[str, Any]]:
+        """Docker's view of the named tenant containers; *storage* also verifies each one's quota and mount.
+
+        Routing needs addresses only: :meth:`_publish_routes_locked`, which runs
+        after every start and stop, passes ``storage=False`` so restarting N
+        wikis does not cost N quota checks of every running wiki. With
+        *storage*, each item says whether hard quotas apply at all
+        (``storage_quota_mode``): without them nothing is verified, and the
+        portal does not restart a wiki for it.
+        """
         if not names:
             return []
+        mode = None
+        if storage:
+            try:
+                policy = policy or self.storage_policy()
+                mode = "enforced" if policy.enforced else "unenforced"
+            except AgentError:
+                mode = "enforced"  # an invalid setting: nothing is verified, so nothing passes as verified
         result = self.docker("inspect", "--type", "container", *names, timeout=timeout, check=False)
         if strict and result.returncode:
             # Inspect errors do not prove that the named container is stopped.
@@ -512,7 +739,8 @@ class TenantRuntime:
             state = item.get("State") or {}
             sysctls = (item.get("HostConfig") or {}).get("Sysctls") or {}
             try:
-                quota = self._verify_storage(self.tenant_dir(data_dir.name))
+                quota = (self._verify_storage(self.tenant_dir(data_dir.name))
+                         if storage and mode == "enforced" and not (policy and policy.refused) else None)
             except AgentError:
                 quota = None
             if quota is not None and any(labels.get(f"org.bananawiki.quota-{key}") != str(quota[key])
@@ -531,13 +759,14 @@ class TenantRuntime:
                 "started_at": state.get("StartedAt"),
                 "quota_protected": _quota_protected((item.get("HostConfig") or {}).get("SecurityOpt")),
                 "storage_quota_verified": quota is not None, "storage_quota": quota,
+                **({"storage_quota_mode": mode} if mode else {}),
                 "ipv6_disabled": isinstance(sysctls, dict) and all(sysctls.get(k) == v for k, v in IPV6_SYSCTLS.items()),
             })
         return output
 
-    def tenant_list(self, args: dict[str, Any]) -> dict[str, Any]:
+    def tenant_list(self, args: dict[str, Any], *, storage: bool = True) -> dict[str, Any]:
         ids = self.docker("ps", "--all", "--quiet", "--filter", "label=" + LABEL_ROLE).stdout.split()
-        return {"tenants": self._inspect(ids)}
+        return {"tenants": self._inspect(ids, storage=storage)}
 
     def tenant_status(self, args: dict[str, Any]) -> dict[str, Any]:
         data_dir = self.tenant_dir(args.get("tenant"))
@@ -547,12 +776,16 @@ class TenantRuntime:
     def _network(self, data_dir: Path, mode: str) -> str:
         name = container_name(str(data_dir)) + "-net"
         internal = mode == "isolated"
-        inspected = self.docker("network", "inspect", "--format", "{{.Internal}}", name, timeout=15, check=False)
-        if inspected.returncode == 0 and inspected.stdout.strip().lower() != str(internal).lower():
-            # Never keep an older, more permissive network.
+        bridge = bridge_name(name)
+        inspected = self.docker("network", "inspect", "--format",
+                                "{{.Internal}} {{index .Options \"" + BRIDGE_OPTION + "\"}}", name,
+                                timeout=15, check=False)
+        if inspected.returncode == 0 and inspected.stdout.lower().split() != [str(internal).lower(), bridge]:
+            # Never keep an older, more permissive network, nor one whose bridge the host firewall cannot
+            # match by name (created before 1.7, when Docker named it br-<id>).
             # Caddy must first forget its former upstream: removing the bridge
             # makes its subnet available for an unrelated tenant to reuse.
-            if not self._refresh_routes():
+            if not self._routes_released():
                 raise AgentError("routing_unavailable", "Caddy must reload before changing a tenant network.")
             removed = self.docker("network", "rm", name, timeout=20, check=False)
             if removed.returncode and "No such network" not in (removed.stderr or ""):
@@ -560,7 +793,7 @@ class TenantRuntime:
             inspected = self.docker("network", "inspect", name, timeout=15, check=False)
         if inspected.returncode != 0:
             self.docker("network", "create", "--driver", "bridge", "--ipv6=false",
-                        *(["--internal"] if internal else []),
+                        *(["--internal"] if internal else []), "--opt", f"{BRIDGE_OPTION}={bridge}",
                         "--label", LABEL_ROLE, name, timeout=30)
         ipv6 = self.docker("network", "inspect", "--format", "{{.EnableIPv6}}", name, timeout=15, check=False)
         if ipv6.returncode or ipv6.stdout.strip().lower() != "false":
@@ -661,26 +894,41 @@ class TenantRuntime:
         environment = self._environment(args, _bounded_int(args, "internal_port", 5001, 1024, 65535))
         # Validate the whole request before removing the currently healthy wiki.
         self._limit_flags(args)
-        self._storage_limits(args)
+        policy = self.storage_policy()
+        enforced = self._enforced(policy)
+        byte_limit, _inodes = self._storage_limits(args, enforced=enforced)
         self._user(data_dir)
         seccomp_profile()  # fail closed before removing an existing healthy container
         if args.get("publish_port") is not None:
             _bounded_int(args, "publish_port", 0, 1024, 65535)
+        if not enforced:
+            # No kernel limit: the wiki's own storage check holds it to the ceiling a hard quota would have
+            # (a plan of zero, an apex or an administrator's wiki, is otherwise unlimited).
+            environment["BW_STORAGE_LIMIT_BYTES"] = str(byte_limit)
+        name = container_name(str(data_dir))
         with self._tenant_lock(data_dir), self.lock:
-            found = self._inspect([container_name(str(data_dir))], strict=True)
-            self._stop_task_containers(data_dir)
-            self._prepare_storage(data_dir, args, running=bool(found and found[0]["running"]))
-            with self._pinned_storage(data_dir, args, allowed_main=container_name(str(data_dir))) as (mount_source, quota):
-                self.docker("rm", "--force", container_name(str(data_dir)), timeout=30, check=False)
+            if enforced:
+                found = self._inspect([name], strict=True, policy=policy)
+                self._stop_task_containers(data_dir)
+                self._prepare_storage(data_dir, args, running=bool(found and found[0]["running"]))
+                storage = self._pinned_storage(data_dir, args, allowed_main=name)
+            else:
+                # No quota identity to verify, but the directory's inode is still compared with the actual mount.
+                self._stop_task_containers(data_dir)
+                storage = self._pinned_directory(data_dir, allowed_main=name)
+            with storage as (mount_source, witness):
+                self.docker("rm", "--force", name, timeout=30, check=False)
                 network = self._network(data_dir, network_mode)
                 gate_token = secrets.token_hex(16)
-                name = container_name(str(data_dir))
                 try:
                     with self._env_file(environment) as env_file:
                         self.docker(*self.build_run(args, data_dir, env_file, network,
-                                                   mount_source=mount_source, quota=quota,
+                                                   mount_source=mount_source, quota=witness if enforced else None,
                                                    gate_token=gate_token), timeout=120)
-                    self._verify_started_mount(name, quota)
+                    if enforced:
+                        self._verify_started_mount(name, witness)
+                    else:
+                        self._verify_started_identity(name, witness)
                     self.docker("exec", name, "python", "-E", "-s", "-m", "bananawiki.ops.tenant_guard",
                                 "release", gate_token, timeout=15)
                 except BaseException:
@@ -693,13 +941,19 @@ class TenantRuntime:
         data_dir = self.tenant_dir(args.get("tenant"))
         timeout = _bounded_int(args, "timeout", 15, 1, 120)
         name = container_name(str(data_dir))
+        # Only quota repairs need the mounts identified by inode; never keep a wiki from stopping otherwise.
+        try:
+            inodes = self.storage_policy().enforced
+        except AgentError:
+            inodes = True
         with self._tenant_lock(data_dir), self.lock:
             self._stop_task_containers(data_dir)
-            descriptor = os.open(data_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
-            try:
-                self._quiesce_mount(descriptor, allowed_main=name)
-            finally:
-                os.close(descriptor)
+            if inodes:
+                descriptor = os.open(data_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                try:
+                    self._quiesce_mount(descriptor, allowed_main=name)
+                finally:
+                    os.close(descriptor)
             self.docker("stop", "--time", str(timeout), name, timeout=timeout + 30, check=False)
             removed = self.docker("rm", "--force", name, timeout=30, check=False)
             if removed.returncode and "No such container" not in (removed.stderr or ""):
@@ -735,6 +989,8 @@ class TenantRuntime:
             raise AgentError("too_large", "The task request is too large.")
         timeout = _bounded_int(args, "timeout", 120, 5, 600)
         seccomp_profile()
+        policy = self.storage_policy()
+        enforced = self._enforced(policy)
         name = container_name(str(data_dir))
         deadline = time.monotonic() + timeout
 
@@ -749,11 +1005,12 @@ class TenantRuntime:
             raise AgentError("timeout", "The tenant task could not start before its deadline.")
         try:
             self._user(data_dir)
-            self._verify_storage(data_dir)
-            found = self._inspect([name], timeout=min(30, remaining()), strict=True)
+            if enforced:
+                self._verify_storage(data_dir)
+            found = self._inspect([name], timeout=min(30, remaining()), strict=True, policy=policy)
             if found and found[0]["running"]:
                 if (not found[0]["quota_protected"] or not found[0]["ipv6_disabled"]
-                        or not found[0]["storage_quota_verified"]):
+                        or enforced and not found[0]["storage_quota_verified"]):
                     raise AgentError("sandbox_outdated", "Restart this tenant to apply the current sandbox policy "
                                      "before running a task.")
                 # An exec process survives a killed Docker CLI. Its deadline
@@ -773,7 +1030,8 @@ class TenantRuntime:
                         # parallel after their mounts have been verified.
                         with self.lock:
                             self._stop_task_containers(data_dir)
-                            mount_source, quota = contexts.enter_context(self._pinned_storage(data_dir))
+                            mount_source, witness = contexts.enter_context(
+                                self._pinned_storage(data_dir) if enforced else self._pinned_directory(data_dir))
                             env_file = contexts.enter_context(self._env_file(environment))
                             sandbox = self._sandbox_flags(data_dir, env_file, mount_source=mount_source)
                             budget = remaining()
@@ -786,7 +1044,10 @@ class TenantRuntime:
                             ]
                             launch_attempted = True
                             self.docker(*command, timeout=min(30, budget))
-                            self._verify_started_mount(task_name, quota, timeout=min(30, remaining()))
+                            if enforced:
+                                self._verify_started_mount(task_name, witness, timeout=min(30, remaining()))
+                            else:
+                                self._verify_started_identity(task_name, witness, timeout=min(30, remaining()))
                         budget = remaining()
                         result = self._run_task(["exec", "-i", task_name, "/usr/bin/timeout", "--signal=TERM",
                                                  "--kill-after=5s", f"{budget:.6f}s", *TASK_COMMAND], payload, budget + 10)
@@ -875,7 +1136,7 @@ class TenantRuntime:
             except (OSError, ValueError):
                 return {"routes": 0, "changed": False, "reloaded": False}
         upstreams = {}
-        for item in self.tenant_list({})["tenants"]:
+        for item in self.tenant_list({}, storage=False)["tenants"]:
             if item["running"] and item["address"] and item["tenant"] in wanted:
                 address = ipaddress.ip_address(item["address"])
                 if address.is_private and not address.is_loopback:
@@ -895,15 +1156,18 @@ class TenantRuntime:
                 previous_digest = acknowledged.read_text(encoding="ascii")
             except (OSError, UnicodeError):
                 previous_digest = ""
+            unrouted = False  # no Caddy runs here: nothing holds the former upstreams
             if changed or previous_digest != digest:
                 reload = self.runner(["systemctl", "reload", "caddy"], capture_output=True, text=True,
                                      timeout=60, check=False)
                 reloaded = reload.returncode == 0
                 if reloaded:
                     _write_file(acknowledged, digest, 0o600)
-                else:
+                elif self._caddy_active():
                     log.warning("Caddy did not reload after a routing change: %s", (reload.stderr or "")[-300:])
-            if reloaded or previous_digest == digest:
+                else:
+                    unrouted = True
+            if reloaded or previous_digest == digest or unrouted:
                 self._clean_retired_networks()
         return {"routes": len(upstreams), "changed": changed, "reloaded": reloaded}
 
@@ -945,14 +1209,46 @@ class TenantRuntime:
         if pending != before:
             _write_file(Path(self.config["routes_dir"]) / RETIRED_NETWORKS, json.dumps(pending), 0o600)
 
+    def _caddy_active(self) -> bool:
+        """Whether Caddy runs on this host (it may not: another reverse proxy can send wikis to the portal)."""
+        try:
+            result = self.runner(["systemctl", "is-active", "--quiet", "caddy.service"], capture_output=True,
+                                 text=True, timeout=15, check=False)
+        except (OSError, subprocess.SubprocessError):
+            return True  # cannot tell: assume that it routes
+        return result.returncode == 0
+
+    def _routes_released(self) -> bool:
+        """Whether no reverse proxy can still send traffic to a tenant bridge about to be removed.
+
+        Its subnet becomes free for another tenant's network, so Caddy must
+        have reloaded the current routes first, unless it holds none: the
+        portal publishes no routes (port and onion mode), or Caddy does not run
+        on this host (another reverse proxy, such as Traefik, sends the wikis'
+        traffic to the portal, which looks up each container's current address).
+        """
+        directory = self.config.get("routes_dir")
+        if not directory or not (Path(directory) / ROUTES_WANTED).is_file():
+            return True
+        return self._refresh_routes() or not self._caddy_active()
+
     def _refresh_routes(self) -> bool:
+        """Publish the routes; whether Caddy acknowledged the current table.
+
+        Never acknowledged is not an error: on a host without Caddy (another
+        reverse proxy, such as Traefik, sends the wikis' traffic to the portal)
+        no acknowledgement is ever written.
+        """
         if not self.config.get("routes_dir"):
             return True
         try:
             self._publish_routes()
             directory = Path(self.config["routes_dir"])
-            return (directory / ROUTES_RELOADED).read_text(encoding="ascii") == \
-                hashlib.sha256((directory / ROUTES_FILE).read_bytes()).hexdigest()
+            try:
+                acknowledged = (directory / ROUTES_RELOADED).read_text(encoding="ascii")
+            except FileNotFoundError:
+                return False
+            return acknowledged == hashlib.sha256((directory / ROUTES_FILE).read_bytes()).hexdigest()
         except (AgentError, OSError, subprocess.SubprocessError, ValueError) as error:
             log.warning("Could not refresh tenant routes: %s", error)
             return False
@@ -1053,6 +1349,11 @@ def load_config(root: Path) -> dict[str, Any]:
         except ValueError:
             return default
 
+    try:
+        quota_mode = tenant_quotas.setting(environment)
+    except tenant_quotas.InvalidSetting as error:
+        raise AgentError("not_configured", str(error)) from None
+
     def quota_number(key: str, default: int, minimum: int, maximum: int) -> int:
         try:
             value = int(environment.get(key, default))
@@ -1066,6 +1367,7 @@ def load_config(root: Path) -> dict[str, Any]:
         "service": service, "service_uid": entry.pw_uid, "service_gid": entry.pw_gid,
         "instances_dir": environment.get("INSTANCES_DIR", str(root / "data/instances")),
         "routes_dir": routes_dir(service),
+        "tenant_quotas": quota_mode,
         "quota": {
             "state_dir": f"/var/lib/{service}-quotas",
             "max_bytes": quota_number("HOSTING_AGENT_MAX_STORAGE_BYTES", DEFAULT_STORAGE_BYTES, 512, 2 ** 50),
@@ -1214,11 +1516,39 @@ class AgentServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
             return self._shared
 
 
+def log_storage_policy(runtime: TenantRuntime) -> None:
+    """Say whether hosted wikis get hard storage quotas, and how to get them when they do not (every start).
+
+    An error when wikis cannot start (``required``), a warning when quotas
+    enforced here before were lost (logged by :meth:`TenantRuntime.storage_policy`),
+    a calm notice when the storage never had them or they are off.
+    """
+    try:
+        policy = runtime.storage_policy()
+    except AgentError as error:
+        log.error("Hosted wikis cannot start: %s", error.message)
+        return
+    warning = policy.warning()
+    if policy.refused:
+        log.error("%s", warning)
+    elif policy.lost:
+        pass  # storage_policy() has just logged it, as a warning
+    elif warning:
+        log.info("%s", warning)
+    else:
+        log.info("Hard per-wiki storage quotas are enforced (XFS project quotas, %s=%s).", tenant_quotas.VARIABLE,
+                 policy.setting)
+
+
 def serve(root: Path, socket_path: Path) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     server = AgentServer(socket_path, root)
     signal.signal(signal.SIGTERM, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
     log.info("Runtime agent listening on %s", socket_path)
+    try:
+        log_storage_policy(server.runtime())
+    except AgentError as error:
+        log.error("The runtime agent is not configured: %s", error.message)
     try:
         server.serve_forever()
     finally:

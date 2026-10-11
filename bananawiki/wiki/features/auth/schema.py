@@ -1,4 +1,8 @@
-"""Schema additions of the sign-in feature (run by migration 4)."""
+"""Schema additions of the sign-in feature (run by migration 4).
+
+Version 9 (two-step verification, device epochs) carries its own DDL:
+see :mod:`bananawiki.wiki.migrations.v9_two_step`.
+"""
 
 from __future__ import annotations
 

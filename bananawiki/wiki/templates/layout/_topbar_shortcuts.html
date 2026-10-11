@@ -6,7 +6,10 @@
   {{ icon('sliders') }}
   <span class="topbar__shortcut-label">{{ t('nav.customize') }}</span>
 </a>
-<a class="btn btn--ghost btn--small topbar__desktop-action" href="{{ url_for('users.settings') }}"{% if request.endpoint == 'users.settings' %} aria-current="page"{% endif %}>{{ t('users.nav.settings') }}</a>
+{#- Settings stays current on every settings tab and sub-page; Display is "Customise". -#}
+{% set settings_pages = ('users.settings', 'users.edit_profile', 'users.sessions_page', 'api_service.tokens_page',
+  'assessments.points', 'auth.two_step_settings', 'users.merge_pending', 'users.merge_request', 'user_profiles.own_fields') %}
+<a class="btn btn--ghost btn--small topbar__desktop-action" href="{{ url_for('users.settings') }}"{% if request.endpoint in settings_pages %} aria-current="page"{% endif %}>{{ t('users.nav.settings') }}</a>
 <form class="inline topbar__desktop-action" method="post" action="{{ url_for('auth.logout') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <button class="btn btn--ghost btn--small" type="submit">{{ t('nav.sign_out') }}</button>

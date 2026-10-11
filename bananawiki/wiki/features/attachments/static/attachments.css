@@ -6,6 +6,8 @@
 .attachments__item { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .75rem; padding: .4rem 0; border-bottom: 1px solid var(--border); }
 .attachments__item:last-child { border-bottom: 0; }
 .attachments__item > a, .attachments__item > span:first-child { overflow-wrap: anywhere; min-width: 0; }
+/* The file name sits in a line of muted details: an underline marks it as a link (WCAG 1.4.1). */
+.attachments__item > a { text-decoration: underline; text-underline-offset: .2em; }
 .attachments__item form, .attachments__item button { margin-left: auto; }
 .attachments__upload { display: grid; gap: .4rem; margin-top: .5rem; }
 .attachments__upload input[type="file"] { max-width: 100%; }

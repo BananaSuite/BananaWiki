@@ -1,5 +1,5 @@
 {
-  "feature.pages.description": "Pagine del wiki, categorie, navigazione, ricerca e immagini.",
+  "feature.pages.description": "Pagine della wiki, categorie, navigazione, ricerca e immagini.",
   "feature.pages.name": "Pagine",
   "js.pages.editor_column": "Colonna {n}",
   "js.pages.editor_counts": "{words} parole · {chars} caratteri",
@@ -79,7 +79,7 @@
   "pages.editor.insert": "Inserisci",
   "pages.editor.italic": "Corsivo (Ctrl+I)",
   "pages.editor.link": "Link",
-  "pages.editor.link_page": "Oppure cerca una pagina del wiki",
+  "pages.editor.link_page": "Oppure cerca una pagina della wiki",
   "pages.editor.link_text": "Testo",
   "pages.editor.link_url": "Indirizzo",
   "pages.editor.more_formatting": "Formattazione",
@@ -146,6 +146,7 @@
   "pages.nav.new_category": "Nuova categoria",
   "pages.nav.new_page": "Nuova pagina",
   "pages.nav.open_category": "Apri",
+  "pages.nav.open_category_named": "Apri {name}",
   "pages.nav.page": "Pagina",
   "pages.nav.search_content": "Includi il testo delle pagine",
   "pages.nav.search_label": "Cerca pagine e categorie",

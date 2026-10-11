@@ -4,17 +4,20 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import re
 import time
 
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, session, url_for
 
-from ...core.web import client_ip, safe_next
+from ...core.web import client_ip, client_network, safe_next
 from .. import accounts, auth, mfa, notifications, settings
+from .. import email as hosting_email
 from ..db import _session
+from ..email import RECOVERY_REQUESTS_PER_IPV6_SITE, RECOVERY_REQUESTS_PER_NETWORK
 from ..errors import ServiceError
 from ..i18n import t
-from ..limits import HostingLimiter, clear, hit, rate_limit
+from ..limits import HostingLimiter, clear, exceeded, hit, rate_limit, record
 from .common import flash_error
 
 bp = Blueprint("auth", __name__)
@@ -28,6 +31,15 @@ MFA_STARTED_KEY = "hosting_mfa_started_at"
 MFA_VERSION_KEY = "hosting_mfa_session_version"
 MFA_NEXT_KEY = "hosting_mfa_next"
 MFA_SECONDS = 300
+MFA_WINDOW = 300
+MFA_LIMIT = 10
+MFA_DAILY = 50
+# Codes for one account from every browser together: twice what a browser the account does not know
+# may try, so someone holding the password cannot use up the owner's share; and a daily ceiling.
+MFA_ACCOUNT_LIMIT = 2 * MFA_LIMIT
+MFA_ACCOUNT_DAILY = 3 * MFA_DAILY
+RECOVERY_DAY = 86400
+SIGNUP_DAY = 86400
 _MAX_FORM_AGE = 4 * 3600
 _FORM_TOKEN = re.compile(r"([0-9]{1,16})\.([0-9a-f]{20})")
 
@@ -72,13 +84,17 @@ def complete_login(account: dict, next_url: str | None, method: str):
     auth.start_session(account, method)
     # Clear this account-and-source only, preserving failures from other
     # sources and the shared address budget for guessing other accounts.
-    clear("login-account-ip", key=f"{account['username'].lower()}\n{client_ip()}")
+    clear("login-account-ip", key=f"{account['username'].lower()}\n{client_network()}")
     gate = auth.pending_gate(account, None)
     if gate:
-        return redirect(url_for(gate))
-    if settings.flag("ask_email_existing_users") and not account.get("email") and not account.get("email_prompt_dismissed"):
-        return redirect(url_for("account.account"))
-    return redirect(safe_next(url_for("dashboard.dashboard"), next_url))
+        response = redirect(url_for(gate))
+    elif (settings.flag("ask_email_existing_users") and not account.get("email")
+          and not account.get("email_prompt_dismissed")):
+        response = redirect(url_for("account.account"))
+    else:
+        response = redirect(safe_next(url_for("dashboard.dashboard"), next_url))
+    auth.set_device_cookie(response, accounts.get(account["id"]) or account)
+    return response
 
 
 @bp.route("/login", methods=["GET", "POST"])
@@ -101,13 +117,23 @@ def login():
 
     if bot_blocked():
         return refuse("hosting.form.rejected", 400)
+    account = accounts.by_username(username)
+    device = auth.device_cookie_nonce(account) if account else None
+    # Per client network: an IPv4 address, or an IPv6 address's whole /64.
+    network = client_network()
+    buckets = [(network, "login-failed", LOGIN_MAX_PER_IP),
+               (f"{username.lower()}\n{network}", "login-account-ip", LOGIN_MAX_PER_ACCOUNT)]
+    # Failures from a browser that has signed in to this account before are
+    # counted apart from everyone else's, so strangers cannot lock it out.
+    if account is not None and device:
+        buckets.append((f"{account['id']}\n{device}", "login-device", LOGIN_MAX_PER_ACCOUNT))
+    else:
+        buckets.append((username.lower(), "login-account", LOGIN_MAX_PER_ACCOUNT_TOTAL))
     limiter = HostingLimiter(_session())
     reservations = []
     try:
         with limiter.db.transaction():
-            for key, bucket, limit in ((client_ip(), "login-failed", LOGIN_MAX_PER_IP),
-                                       (f"{username.lower()}\n{client_ip()}", "login-account-ip", LOGIN_MAX_PER_ACCOUNT),
-                                       (username.lower(), "login-account", LOGIN_MAX_PER_ACCOUNT_TOTAL)):
+            for key, bucket, limit in buckets:
                 reservation = limiter.reserve(key, bucket, limit, LOGIN_WINDOW)
                 if reservation is None:
                     # Roll back reservations in all buckets if any one is full.
@@ -115,15 +141,13 @@ def login():
                 reservations.append(reservation)
     except ServiceError as error:
         return refuse(error.key, 429)
-    account = accounts.by_username(username)
     if not accounts.verify_password(account, password):
         return refuse("hosting.login.invalid", 401)
     with limiter.db.transaction():
         for reservation in reservations:
             limiter.release(reservation)
-    if accounts.is_suspended(account):  # type: ignore[arg-type]
-        session[auth.SUSPENDED_KEY] = account["id"]  # type: ignore[index]
-        return redirect(url_for("auth.account_suspended"))
+    # The suspension page shows the reason and end date: with two-step
+    # verification on, only after the second factor (login_mfa checks it).
     if account.get("totp_enabled"):  # type: ignore[union-attr]
         session.clear()
         session[MFA_PENDING_KEY] = account["id"]  # type: ignore[index]
@@ -131,6 +155,9 @@ def login():
         session[MFA_VERSION_KEY] = int(account.get("session_version") or 0)  # type: ignore[union-attr]
         session[MFA_NEXT_KEY] = next_url
         return redirect(url_for("auth.login_mfa"))
+    if accounts.is_suspended(account):  # type: ignore[arg-type]
+        session[auth.SUSPENDED_KEY] = account["id"]  # type: ignore[index]
+        return redirect(url_for("auth.account_suspended"))
     return complete_login(account, next_url, "password")  # type: ignore[arg-type]
 
 
@@ -147,16 +174,61 @@ def login_mfa():
         flash(t("hosting.mfa.sign_in_again"), "info")
         return redirect(url_for("auth.login"))
     if request.method == "POST":
-        if not hit("mfa-login", 10, 300, key=account["id"]):
+        reservations = _reserve_code_attempt(account)
+        if reservations is None:
             abort(429)
         method = mfa.verify_second_factor(account["id"], request.form.get("code", ""))
         if method:
+            limiter = HostingLimiter(_session())
+            with limiter.db.transaction():  # only wrong codes use up the budgets
+                for reservation in reservations:
+                    limiter.release(reservation)
             if accounts.is_suspended(account):
                 session[auth.SUSPENDED_KEY] = account["id"]
                 return redirect(url_for("auth.account_suspended"))
             return complete_login(account, session.get(MFA_NEXT_KEY), method)
         flash(t("hosting.mfa.invalid_code"), "error")
     return render_template("hosting/auth/login_mfa.html")
+
+
+@bp.post("/login/mfa/cancel")
+@auth.public
+@auth.exempt(*auth.GATES)
+@rate_limit(30)
+def cancel_login_mfa():
+    """Leave the second step: the half-finished sign-in is forgotten, so this browser has to give the
+    password again before any code is taken (a plain link back would keep the first step passed)."""
+    for key in (MFA_PENDING_KEY, MFA_STARTED_KEY, MFA_VERSION_KEY, MFA_NEXT_KEY):
+        session.pop(key, None)
+    return redirect(url_for("auth.login"))
+
+
+def _reserve_code_attempt(account: dict) -> list[int] | None:
+    """Reserve one second-step attempt in every budget, or None (and nothing reserved) when one is spent.
+
+    A browser that passed both steps for this account before (its device
+    cookie, which turning two-step verification on or off retires) has
+    budgets of its own, so someone holding the password cannot use up the
+    owner's attempts; every other browser shares one. Above both, the
+    account has a ceiling for all its browsers together.
+    """
+    device = auth.device_cookie_nonce(account)
+    browser = f"{account['id']}\n{device}" if device else account["id"]
+    budgets = ((browser, "mfa-login", MFA_LIMIT, MFA_WINDOW), (browser, "mfa-login-day", MFA_DAILY, 86400),
+               (account["id"], "mfa-login-account", MFA_ACCOUNT_LIMIT, MFA_WINDOW),
+               (account["id"], "mfa-login-account-day", MFA_ACCOUNT_DAILY, 86400))
+    limiter = HostingLimiter(_session())
+    reservations = []
+    try:
+        with limiter.db.transaction():
+            for key, bucket, limit, window in budgets:
+                reservation = limiter.reserve(key, bucket, limit, window)
+                if reservation is None:
+                    raise ServiceError("hosting.login.too_many")  # rolls back the other reservations
+                reservations.append(reservation)
+    except ServiceError:
+        return None
+    return reservations
 
 
 @bp.post("/logout")
@@ -207,6 +279,12 @@ def signup():
     }
     if request.method == "GET" or mode == "closed":
         return render_template("hosting/auth/signup.html", **context), 403 if mode == "closed" and request.method == "POST" else 200
+    # Accounts created per client network and day (HOSTING_SIGNUPS_PER_IP_PER_DAY; an IPv6 /64 counts
+    # once), on top of the per-minute limit: one client cannot mass-produce accounts to fill the platform.
+    daily_signups = current_app.config["HOSTING"].signups_per_ip_per_day
+    if not first and daily_signups and exceeded("signup-day", daily_signups, SIGNUP_DAY):
+        flash(t("hosting.signup.too_many_today"), "error")
+        return render_template("hosting/auth/signup.html", **context), 429
     try:
         if bot_blocked():
             raise ServiceError("hosting.form.rejected")
@@ -225,6 +303,8 @@ def signup():
     except ServiceError as error:
         flash_error(error)
         return render_template("hosting/auth/signup.html", **context), 400
+    if daily_signups:
+        record("signup-day")
     auth.start_session(account, "signup")
     if account["email"] and notifications.verification_required():
         ok, key = notifications.send_verification(account, ignore_cooldown=True)
@@ -242,6 +322,36 @@ def signup():
 # ── Recovery ──────────────────────────────────────────────────────────────────
 
 
+def _ipv6_site() -> str | None:
+    """The client's IPv6 /48 (one site's allocation, 65,536 /64 networks), None for IPv4 clients."""
+    try:
+        parsed = ipaddress.ip_address(client_ip())
+    except ValueError:
+        return None
+    if not isinstance(parsed, ipaddress.IPv6Address) or parsed.ipv4_mapped is not None:
+        return None
+    return str(ipaddress.IPv6Network((parsed.packed[:6] + bytes(10), 48)))
+
+
+def _recovery_allowed(kind: str) -> bool:
+    """Count a recovery request of this client network for the day; False (and say why) when refused.
+
+    Every request counts, whether or not an account matches, and a spent
+    recovery share is told to everyone alike, so the answer reveals nothing
+    about accounts (see :mod:`bananawiki.hosting.email` for the budgets).
+    """
+    contact = current_app.config["HOSTING"].contact_email
+    if notifications.configured() and hosting_email.recovery_paused(current_app.config["HOSTING"].email, kind):
+        flash(t("hosting.recovery.paused", contact=contact), "error")
+        return False
+    site = _ipv6_site()
+    if hit("recovery-day", RECOVERY_REQUESTS_PER_NETWORK, RECOVERY_DAY) and (
+            site is None or hit("recovery-day-site", RECOVERY_REQUESTS_PER_IPV6_SITE, RECOVERY_DAY, key=site)):
+        return True
+    flash(t("hosting.recovery.too_many_today", contact=contact), "error")
+    return False
+
+
 @bp.route("/forgot-username", methods=["GET", "POST"])
 @auth.public
 @auth.exempt(*auth.GATES)
@@ -251,6 +361,8 @@ def forgot_username():
     if signed_in:
         return signed_in
     if request.method == "POST":
+        if not _recovery_allowed("username"):
+            return render_template("hosting/auth/forgot_username.html"), 429
         address = (request.form.get("email") or "").strip().lower()
         if not accounts.EMAIL.match(address):
             flash(t("hosting.accounts.invalid_email"), "error")
@@ -274,6 +386,8 @@ def forgot_password():
     if request.method == "POST":
         from .. import urls
 
+        if not _recovery_allowed("reset"):
+            return render_template("hosting/auth/forgot_password.html"), 429
         account = accounts.by_username((request.form.get("username") or "").strip())
         address = (request.form.get("email") or "").strip().lower()
         if (account and not account["deleted_at"] and (account.get("email") or "").lower() == address

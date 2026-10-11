@@ -9,9 +9,14 @@ Other features record security-relevant actions with :func:`record`::
 
 The acting account and the client IP default to the current request (None
 outside one). ``details`` must be JSON-serialisable and must never contain
-secrets (passwords, tokens). Nothing is written while the audit feature is
-switched off, and a failure to write is logged, never raised, so auditing
-can never break the action it describes.
+secrets (passwords, tokens, invite codes). Nothing is written while the
+audit feature is switched off (except with ``force``, for the entry saying
+it was switched off), and a failure to write is logged, never raised, so
+auditing can never break the action it describes.
+
+Only owners and superusers switch the log off or change how long it keeps
+entries (:mod:`.guard`, :mod:`.routes`); both, and every pruning, are
+recorded.
 """
 
 from __future__ import annotations
@@ -58,10 +63,11 @@ def record(
     target_id: Any = None,
     details: dict[str, Any] | None = None,
     ip: Any = _CURRENT,
+    force: bool = False,
 ) -> None:
     """Append one entry to the audit log (see the module docstring)."""
     try:
-        if not registry.is_enabled(FEATURE_ID):
+        if not force and not registry.is_enabled(FEATURE_ID):
             return
         actor = _request_actor() if actor_id is _CURRENT else actor_id
         address = (client_ip() if has_request_context() else None) if ip is _CURRENT else ip
@@ -101,7 +107,8 @@ def entries(*, action: str = "", actor: str = "", page: int = 1) -> tuple[list[d
     pages = max(1, -(-total // PAGE_SIZE))
     page = min(max(page, 1), pages)
     rows = db.all(
-        f"SELECT a.*, u.username AS actor_username {base} ORDER BY a.id DESC LIMIT ? OFFSET ?",
+        f"SELECT a.*, u.username AS actor_username, u.role AS actor_role, u.is_superuser AS actor_superuser "
+        f"{base} ORDER BY a.id DESC LIMIT ? OFFSET ?",
         (*params, PAGE_SIZE, (page - 1) * PAGE_SIZE),
     )
     for row in rows:
@@ -121,8 +128,14 @@ def retention_days() -> int:
 
 
 def prune() -> int:
-    """Delete entries older than the retention period (background job)."""
+    """Delete entries older than the retention period (background job); the pruning itself is recorded."""
     days = retention_days()
     if days <= 0:
         return 0
-    return db.execute("DELETE FROM audit_log WHERE created_at < ?", (sql_in(days=-days),)).rowcount
+    cutoff = sql_in(days=-days)
+    with db.transaction():
+        deleted = db.execute("DELETE FROM audit_log WHERE created_at < ?", (cutoff,)).rowcount
+        if deleted:
+            record("audit.pruned", actor_id=None, ip=None,
+                   details={"deleted": deleted, "older_than": cutoff, "retention_days": days})
+    return deleted

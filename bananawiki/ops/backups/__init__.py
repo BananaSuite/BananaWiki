@@ -11,7 +11,10 @@ snapshots uploaded by 1.4 restore with 1.6 and the other way round:
 * ``index.json`` also carries ``authentication``: an HMAC-SHA256,
   keyed from the recovery identity, over the rest of the index (context and
   the SHA-256 of every part). Restores refuse snapshots without it unless
-  ``--allow-unauthenticated``; older releases ignore the extra key.
+  ``--allow-unauthenticated``; older releases ignore the extra key;
+* ``repository.json`` may set ``append_only``: uploads then never delete
+  snapshots (the token needs no right to delete branches) and ``backups
+  prune`` applies the retention with a token given for that command only.
 
 Configuration lives in ``config/remote-backup/`` (repository.json,
 schedule.json, repo.token, recovery.agekey, last-backup.json).

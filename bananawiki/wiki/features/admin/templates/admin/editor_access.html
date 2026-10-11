@@ -3,16 +3,17 @@
 {% from "admin/_categories.html" import category_list with context %}
 {% block title %}{{ t('admin.editor_access.title') }} · {{ target.username }}{% endblock %}
 {% block admin_content %}
-<nav class="breadcrumbs" aria-label="{{ t('common.back') }}"><ol>
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
   <li><a href="{{ url_for('admin.users') }}">{{ t('admin.users.title') }}</a></li>
   <li><a href="{{ url_for('admin.user_detail', user_id=target.id) }}">{{ target.username }}</a></li>
-  <li>{{ t('admin.editor_access.title') }}</li>
+  <li aria-current="page">{{ t('admin.editor_access.title') }}</li>
 </ol></nav>
-<header class="page-header"><h1>{{ t('admin.editor_access.heading', username=target.username) }}</h1></header>
+<header class="page-header"><h1>{{ t('admin.editor_access.heading', username=target.username) if target.role == 'editor' else t('admin.editor_access.title') }}</h1></header>
 {% if protection %}
 <div class="alert alert--warning"><div class="alert__body">{{ t(protection) }}</div></div>
 {% elif target.role != 'editor' %}
 <div class="alert"><div class="alert__body">{{ t('admin.editor_access.error.not_editor') }}</div></div>
+<p class="btn-row"><a class="btn" href="{{ url_for('admin.user_detail', user_id=target.id) }}">{{ t('admin.editor_access.change_role') }}</a></p>
 {% elif target.custom_role_id %}
 <div class="alert"><div class="alert__body">{{ t('admin.permissions.error.custom_role') }}</div></div>
 {% else %}

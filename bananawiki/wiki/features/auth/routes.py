@@ -25,6 +25,7 @@ from ...i18n import BUILTIN_LANGUAGES, t
 from ...permissions import ADMIN_ROLES
 from ...registry import emit
 from ...templating import nav_items
+from ..audit.service import record
 from . import signin, signup
 from .blueprint import ALL_GATES, SIGN_IN_GATES, bp
 
@@ -97,7 +98,7 @@ def _sign_in(template: str, *, admin_only: bool = False, default: str = "/", **c
     try:
         user = signin.verify(username, password, admin_only=admin_only)
     except signin.Refused as refusal:
-        auth.flash_t(refusal.key, "error")
+        auth.flash_t(refusal.key, "error", **refusal.values)
         return render_template(template, next_url=next_url, username=username, **context), refusal.status
     return signin.finish(user, remember=remember, next_url=next_url, default=default)
 
@@ -321,5 +322,7 @@ def stop_impersonation():
         "UPDATE impersonation_logs SET ended_at = ? WHERE admin_id = ? AND target_user_id = ? AND ended_at IS NULL",
         (now_sql(), auth.real_user()["id"], target["id"]),
     )
+    record("user.impersonation_ended", target_type="user", target_id=target["id"],
+           details={"username": target["username"]})
     auth.flash_t("auth.impersonation_ended", "success")
     return redirect("/")

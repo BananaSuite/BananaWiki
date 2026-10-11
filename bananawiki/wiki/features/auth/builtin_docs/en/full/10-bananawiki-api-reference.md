@@ -8,7 +8,7 @@ Common web endpoints include search, Markdown preview, draft management, sidebar
 
 ## API Service plugin
 
-When enabled, API Service provides `/api/v1/` endpoints authenticated with Bearer tokens. Users can create personal tokens where allowed. Admins can configure scopes, token limits, expiry behavior, and audit visibility.
+When enabled, API Service provides `/api/v1/` endpoints authenticated with Bearer tokens. Users can create personal tokens where allowed. Admins can configure scopes, token limits, expiry behaviour, and audit visibility.
 
 ## Scopes
 

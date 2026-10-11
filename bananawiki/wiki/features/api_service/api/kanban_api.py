@@ -288,7 +288,8 @@ def reorder_columns(board_id: int):
 @bp.put("/kanban/columns/<int:column_id>")
 @requires("kanban", write=True, feature=FEATURE)
 def update_column(column_id: int):
-    """``{title?, wip_limit?}``: rename the column and/or set its work-in-progress limit (null or 0 removes it)."""
+    """``{title?, wip_limit?, done?}``: rename the column, set its work-in-progress limit (null or 0 removes it)
+    and/or mark it done (its tickets are then never overdue)."""
     board, column = _column(column_id, "write")
     data = json_body()
     changes: dict[str, Any] = {}
@@ -299,6 +300,10 @@ def update_column(column_id: int):
         if limit is not None and type(limit) is not int:
             raise invalid("wip_limit", "integer")
         changes["wip_limit"] = limit
+    if "done" in data:
+        if not isinstance(data["done"], bool):
+            raise invalid("done", "boolean")
+        changes["done"] = data["done"]
     if not changes:
         raise invalid("title", "required")
     return ok(column=_run(service.update_column, board, column, caller(), changes))

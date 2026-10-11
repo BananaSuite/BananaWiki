@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% import "users/_macros.html" as m with context %}
+{% block title %}{{ t('auth.two_step.title') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('auth.css', blueprint='auth') }}">{% endblock %}
+{% macro code_field(id, label, numeric=false) -%}
+<div class="field">
+  <label for="{{ id }}">{{ label }}</label>
+  <input class="input two-step-code" id="{{ id }}" name="code" required maxlength="32" autocomplete="one-time-code"
+    autocapitalize="characters" spellcheck="false"{% if numeric %} inputmode="numeric"{% endif %}>
+</div>
+{%- endmacro %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('users.settings') }}">{{ t('users.settings.title') }}</a></li><li>{{ t('auth.two_step.title') }}</li>
+</ol></nav>
+<header class="page-header"><h1>{{ t('auth.two_step.title') }}</h1></header>
+{% if required and not state %}
+<div class="alert alert--warning" role="status"><div class="alert__body">
+  <p>{{ t('auth.two_step.required_notice') }}</p>
+  <form method="post" action="{{ url_for('auth.logout') }}" class="inline">
+    {{ forms.csrf() }}<button class="btn btn--small" type="submit">{{ t('nav.sign_out') }}</button>
+  </form>
+</div></div>
+{% endif %}
+<div class="section-stack">
+{% if state %}
+  <section class="form-section" aria-labelledby="two-step-status">
+    <h2 id="two-step-status">{{ t('auth.two_step.status_title') }}</h2>
+    <p><span class="badge badge--success">{{ t('auth.two_step.on') }}</span>
+      {{ t('auth.two_step.on_since', when=state.enabled_at|date) }}</p>
+    <p>{{ t('auth.two_step.codes_left', count=state.codes_left) }}</p>
+  </section>
+
+  <section class="form-section" aria-labelledby="two-step-renew">
+    <h2 id="two-step-renew">{{ t('auth.two_step.codes_title') }}</h2>
+    <p class="hint">{{ t('auth.two_step.renew_help') }}</p>
+    <form method="post" action="{{ url_for('auth.two_step_settings') }}" class="form">
+      {{ forms.csrf() }}<input type="hidden" name="action" value="renew">
+      {{ m.password('renew-password', t('auth.field.current_password')) }}
+      {{ code_field('renew-code', t('auth.two_step.code_or_recovery')) }}
+      <div><button class="btn" type="submit">{{ t('auth.two_step.renew') }}</button></div>
+    </form>
+  </section>
+
+  <section class="form-section form-section--danger" aria-labelledby="two-step-disable">
+    <h2 id="two-step-disable">{{ t('auth.two_step.disable_title') }}</h2>
+    <p class="hint">{{ t('auth.two_step.disable_help') }}</p>
+    <form method="post" action="{{ url_for('auth.two_step_settings') }}" class="form" data-confirm="{{ t('auth.two_step.disable_confirm') }}">
+      {{ forms.csrf() }}<input type="hidden" name="action" value="disable">
+      {{ m.password('disable-password', t('auth.field.current_password')) }}
+      {{ code_field('disable-code', t('auth.two_step.code_or_recovery')) }}
+      <div><button class="btn btn--danger" type="submit">{{ t('auth.two_step.disable') }}</button></div>
+    </form>
+  </section>
+{% else %}
+  <section class="form-section" aria-labelledby="two-step-setup">
+    <h2 id="two-step-setup">{{ t('auth.two_step.setup_title') }}</h2>
+    <p>{{ t('auth.two_step.intro') }}</p>
+    <ol class="two-step-steps">
+      <li>
+        <p>{{ t('auth.two_step.step_scan') }}</p>
+        <img class="two-step-qr" src="{{ qr }}" alt="{{ t('auth.two_step.qr_alt') }}">
+        <p class="small">{{ t('auth.two_step.manual_key') }}</p>
+        {#- Groups of four characters (authenticator apps ignore the spaces): easier to type, and it wraps between groups. -#}
+        <p class="cluster"><code id="two-step-key" class="mono two-step-key">{% for i in range(0, secret|length, 4) %}{{ secret[i:i + 4] }}{% if not loop.last %} {% endif %}{% endfor %}</code>
+          <button type="button" class="btn btn--small" data-copy="{{ secret }}">{{ t('auth.two_step.copy_key') }}</button></p>
+      </li>
+      <li>
+        <p>{{ t('auth.two_step.step_confirm') }}</p>
+        <form method="post" action="{{ url_for('auth.two_step_settings') }}" class="form">
+          {{ forms.csrf() }}<input type="hidden" name="action" value="enable">
+          {#- Password first, then the code: the order of the sign-in and of the other forms on this page. -#}
+          {{ m.password('enable-password', t('auth.field.current_password')) }}
+          {{ code_field('enable-code', t('auth.two_step.app_code'), numeric=true) }}
+          <div><button class="btn btn--primary" type="submit">{{ t('auth.two_step.enable') }}</button></div>
+        </form>
+      </li>
+    </ol>
+  </section>
+{% endif %}
+</div>
+{% endblock %}

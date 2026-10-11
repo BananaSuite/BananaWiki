@@ -5,7 +5,7 @@
 {% block admin_content %}
 <header class="page-header">
   <h1>{{ t('tts.admin.title') }}</h1>
-  <p class="muted">{{ t('tts.admin.intro') }}</p>
+  <p class="page-header__meta">{{ t('tts.admin.intro') }}</p>
 </header>
 
 {% if system.host_disabled %}
@@ -26,8 +26,8 @@
   <h2>{{ t('tts.admin.actions') }}</h2>
   <div class="btn-row">
     {{ forms.post_button(url_for('tts.admin_backfill'), t('tts.admin.backfill', count=stats.missing), cls='btn btn--primary') }}
-    {{ forms.post_button(url_for('tts.admin_retry_failed'), t('tts.admin.retry_failed'), cls='btn') }}
-    {{ forms.post_button(url_for('tts.admin_clear'), t('tts.admin.clear'), cls='btn btn--danger', confirm=t('tts.admin.clear_confirm')) }}
+    {{ forms.post_button(url_for('tts.admin_retry_failed'), t('tts.admin.retry_failed'), cls='btn', attrs={} if stats.counts.failed else {'disabled': 'disabled'}) }}
+    {{ forms.post_button(url_for('tts.admin_clear'), t('tts.admin.clear'), cls='btn btn--danger', confirm=t('tts.admin.clear_confirm'), attrs={} if stats.bytes else {'disabled': 'disabled'}) }}
   </div>
   <p class="hint">{{ t('tts.admin.backfill_hint') }}</p>
 </section>
@@ -102,8 +102,9 @@
       <summary>{{ t('tts.admin.gpu') }}</summary>
       <p class="hint">{{ t('tts.admin.gpu_hint') }}</p>
       {% if system.gpu_from_env %}<p class="hint">{{ t('tts.admin.gpu_env') }}</p>{% endif %}
+      {% if system.gpu_env_token_only %}<p class="hint">{{ t('tts.admin.gpu_env_token_only') }}</p>{% endif %}
       {{ forms.checkbox('tts_gpu_enabled', t('tts.admin.gpu_enabled'), values.tts_gpu_enabled) }}
-      {{ forms.field('tts_gpu_url', t('tts.admin.gpu_url'), values.tts_gpu_url, type='url', hint=t('tts.admin.gpu_url_hint'), attrs={'placeholder': 'http://100.64.0.2:8787'}) }}
+      {{ forms.field('tts_gpu_url', t('tts.admin.gpu_url'), values.tts_gpu_url, type='url', hint=t('tts.admin.gpu_url_hint'), attrs={'placeholder': 'http://192.168.1.50:8787'}) }}
       {{ forms.field('tts_gpu_auth_token', t('tts.admin.gpu_token'), '', type='password', hint=t('tts.admin.gpu_token_set') if values.tts_gpu_auth_token else t('tts.admin.gpu_token_hint'), attrs={'autocomplete': 'off'}) }}
       {% if values.tts_gpu_auth_token %}{{ forms.checkbox('clear_gpu_token', t('tts.admin.gpu_token_clear')) }}{% endif %}
       {{ forms.field('tts_gpu_timeout', t('tts.admin.gpu_timeout'), values.tts_gpu_timeout or 120, type='number', attrs={'min': 1, 'max': 3600}) }}
@@ -119,10 +120,10 @@
 <section class="card">
   <h2>{{ t('tts.admin.system') }}</h2>
   <div class="table-wrap">
-    <table class="table">
+    <table class="table tts-system">
       <tbody>
         <tr><th scope="row">{{ t('tts.admin.sys.backend') }}</th><td>{{ t('tts.backend.' ~ system.backend) }}</td></tr>
-        <tr><th scope="row">{{ t('tts.admin.sys.worker') }}</th><td>{{ t('tts.admin.sys.worker_inline' if system.inline_worker else 'tts.admin.sys.worker_service', count=system.worker_count) }}</td></tr>
+        <tr><th scope="row">{{ t('tts.admin.sys.worker') }}</th><td>{{ tn('tts.admin.sys.worker_inline' if system.inline_worker else 'tts.admin.sys.worker_service', system.worker_count) }}</td></tr>
         <tr><th scope="row">{{ t('tts.admin.sys.limits') }}</th><td>{{ t('tts.admin.sys.limits_value', total=system.limits[0], per_user=system.limits[1]) }}</td></tr>
         <tr><th scope="row">Piper</th><td>{{ t('common.yes') if system.piper_installed else t('tts.admin.sys.not_installed') }}</td></tr>
         <tr><th scope="row">ffmpeg</th><td>{{ t('common.yes') if system.ffmpeg else t('tts.admin.sys.ffmpeg_missing') }}</td></tr>
@@ -134,7 +135,7 @@
   <h3>{{ t('tts.admin.sys.voices') }}</h3>
   <ul class="tts-voices">
     {% for code, label, state in system.voices %}
-    <li><span>{{ label }}</span> <span class="badge tts-voice--{{ state }}">{{ t('tts.voice.' ~ state) }}</span></li>
+    <li><span>{{ label }}</span><span class="badge tts-voice--{{ state }}">{{ t('tts.voice.' ~ state) }}</span></li>
     {% endfor %}
   </ul>
 </section>

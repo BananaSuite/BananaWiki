@@ -63,6 +63,19 @@ def test_full_flow_with_pkce(web, make_account, login, wiki_client):
     assert web.get("/oauth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 200
 
 
+def test_wikis_are_not_told_an_administrator_without_two_step_verification_is_one(web, make_account, login,
+                                                                                   query, wiki_client):
+    admin = make_account(admin=True)
+    login(web, admin)
+    token = _token(web, wiki_client, _authorize(web, wiki_client)["code"][0]).get_json()["access_token"]
+    bearer = {"Authorization": f"Bearer {token}"}
+    assert web.get("/oauth/userinfo", headers=bearer).get_json()["is_admin"] is True
+    query("UPDATE hosting_settings SET admin_mfa_required = 1 WHERE id = 1")
+    assert web.get("/oauth/userinfo", headers=bearer).get_json()["is_admin"] is False
+    query("UPDATE accounts SET totp_enabled = 1 WHERE id = ?", (admin["id"],))
+    assert web.get("/oauth/userinfo", headers=bearer).get_json()["is_admin"] is True
+
+
 def test_code_works_once_and_needs_the_right_verifier(web, make_account, login, wiki_client):
     login(web, make_account())
     code = _authorize(web, wiki_client)["code"][0]

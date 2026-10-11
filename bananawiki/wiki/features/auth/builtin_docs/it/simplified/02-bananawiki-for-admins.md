@@ -1,6 +1,6 @@
 # Per amministratori
 
-Gli admin definiscono come si comporta la wiki. La maggior parte dei controlli si trova in **Admin -> Impostazioni sito**, **Admin -> Utenti** e **Admin -> Plugin**.
+Gli admin definiscono come si comporta la wiki. La maggior parte dei controlli si trova in **Amministrazione → Impostazioni del sito**, **Amministrazione → Utenti** e **Amministrazione → Plugin**.
 
 ## Prime verifiche
 
@@ -16,7 +16,7 @@ Usa i ruoli per l'accesso generale e le restrizioni di categoria per decidere do
 
 ## Documentazione integrata
 
-La sezione **Documentazione Wiki** può creare questa guida dentro la wiki. Scegli guida completa o semplificata, in inglese, italiano o tedesco. Puoi anche scaricare lo ZIP Markdown, modificarlo e importare le pagine personalizzate.
+La pagina **Amministrazione → Documentazione** può creare questa guida dentro la wiki. Scegli guida completa o semplificata, in inglese, italiano o tedesco. Puoi anche scaricare lo ZIP Markdown, modificarlo e importare le pagine personalizzate.
 
 ## Backup
 

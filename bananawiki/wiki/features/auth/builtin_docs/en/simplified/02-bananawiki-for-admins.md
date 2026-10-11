@@ -1,6 +1,6 @@
 # For Admins
 
-Admins shape how the wiki behaves. Most controls live in **Admin -> Site Settings**, **Admin -> Users**, and **Admin -> Plugins**.
+Admins shape how the wiki behaves. Most controls live in **Administration → Site settings**, **Administration → Users**, and **Administration → Plugins**.
 
 ## First checks
 
@@ -16,7 +16,7 @@ Use roles for broad access and category restrictions for where people can work. 
 
 ## Built-in documentation
 
-The **Wiki Documentation** section can spawn this guide into the wiki. Choose full or simplified docs, and English, Italian or German. You can also download the Markdown ZIP, edit it, and import the customized pages.
+The **Administration → Documentation** page can create this guide in the wiki. Choose full or simplified docs, and English, Italian or German. You can also download the Markdown ZIP, edit it, and import the customised pages.
 
 ## Backups
 

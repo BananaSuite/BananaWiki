@@ -1,6 +1,6 @@
 {% extends layout %}
 {% import "macros/forms.html" as forms with context %}
-{% block title %}{{ t('chat.admin.title') }}{% endblock %}
+{% block title %}{{ t('chat.admin.tab_settings') }} · {{ t('chat.admin.title') }}{% endblock %}
 {% macro number(name, minimum, maximum) -%}
 <div class="field">
   <label for="f-{{ name }}">{{ t('chat.settings.' ~ name) }}</label>
@@ -39,18 +39,22 @@
       {{ number('chat_cleanup_frequency_days', 1, 365) }}
       {{ number('chat_cleanup_hour', 0, 23) }}
     </div>
-    <h3>{{ t('chat.settings.dm_policy') }}</h3>
-    {{ flag('chat_dm_auto_clear_messages') }}
-    {{ number('chat_dm_message_retention_days', 0, 36500) }}
-    {{ flag('chat_dm_auto_clear_attachments') }}
-    {{ number('chat_dm_attachment_retention_days', 0, 36500) }}
-    <h3>{{ t('chat.settings.group_policy') }}</h3>
-    {{ flag('chat_group_auto_clear_messages') }}
-    {{ number('chat_group_message_retention_days', 0, 36500) }}
-    {{ flag('chat_group_auto_clear_attachments') }}
-    {{ number('chat_group_attachment_retention_days', 0, 36500) }}
+    <fieldset class="stack">
+      <legend>{{ t('chat.settings.dm_policy') }}</legend>
+      {{ flag('chat_dm_auto_clear_messages') }}
+      {{ number('chat_dm_message_retention_days', 0, 36500) }}
+      {{ flag('chat_dm_auto_clear_attachments') }}
+      {{ number('chat_dm_attachment_retention_days', 0, 36500) }}
+    </fieldset>
+    <fieldset class="stack">
+      <legend>{{ t('chat.settings.group_policy') }}</legend>
+      {{ flag('chat_group_auto_clear_messages') }}
+      {{ number('chat_group_message_retention_days', 0, 36500) }}
+      {{ flag('chat_group_auto_clear_attachments') }}
+      {{ number('chat_group_attachment_retention_days', 0, 36500) }}
+    </fieldset>
     <p class="small muted">
-      {{ t('chat.settings.last_run', when=(last_run|datetime) if last_run else t('common.never')) }}
+      {{ t('chat.settings.last_run', when=last_run|datetime) if last_run else t('chat.settings.never_run') }}
       {% if next_run %}· {{ t('chat.settings.next_run', when=next_run|datetime) }}{% endif %}
     </p>
   </section>

@@ -600,7 +600,10 @@
       button.disabled = !hasSelection || (nodeOnly && count < min);
     }, this);
     var menu = this.app.querySelector("[data-arrange-menu]");
-    if (menu) menu.classList.toggle("is-disabled", !count);
+    if (menu) {
+      menu.classList.toggle("is-disabled", !count);
+      menu.querySelector("summary").setAttribute("aria-disabled", count ? "false" : "true");
+    }
     var undo = this.app.querySelector("[data-action='undo']");
     var redo = this.app.querySelector("[data-action='redo']");
     if (undo) undo.disabled = !this.undoStack.length;
@@ -1490,8 +1493,31 @@
     });
   };
 
+  // The dividers separate toolbar groups on one line: a group that wraps to a new row starts it
+  // without one. Measured with every divider in place, so the result does not feed back into itself.
+  function markRowStarts(toolbar) {
+    var groups = Array.prototype.slice.call(toolbar.querySelectorAll(".canvas-toolbar__group"));
+    groups.forEach(function (group) { group.classList.remove("is-row-start"); });
+    var tops = groups.map(function (group) { return group.offsetTop; });
+    groups.forEach(function (group, index) {
+      if (index && tops[index] > tops[index - 1] + 2) group.classList.add("is-row-start");
+    });
+  }
+
   BW.onReady(function () {
     var app = document.getElementById("canvas-app");
     if (app && BW.Canvas) BW.canvasEditor = new Editor(app);
+    var toolbar = document.querySelector(".canvas-toolbar");
+    if (toolbar) {
+      markRowStarts(toolbar);
+      var pending = false;
+      var again = function () {
+        if (pending) return;
+        pending = true;
+        window.requestAnimationFrame(function () { pending = false; markRowStarts(toolbar); });
+      };
+      if (window.ResizeObserver) new ResizeObserver(again).observe(toolbar);
+      else window.addEventListener("resize", again);
+    }
   });
 })();

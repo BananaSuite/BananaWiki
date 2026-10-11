@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ t('assessments.points_title') }}{% endblock %}
 {% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('users.settings') }}">{{ t('users.settings.title') }}</a></li>
+  <li aria-current="page">{{ t('assessments.points_title') }}</li>
+</ol></nav>
 <div class="page-header"><h1>{{ t('assessments.points_title') }}</h1></div>
+<div class="stack">
 <div class="card">
   <div class="stat">
     <span class="stat__value">{{ total }}</span>
@@ -13,7 +18,7 @@
 <div class="empty-state">{{ t('assessments.no_attempts_yet') }}</div>
 {% else %}
 <div class="table-wrap">
-  <table class="table">
+  <table class="table table--stack">
     <thead><tr>
       <th scope="col">{{ t('assessments.quiz') }}</th>
       <th scope="col">{{ t('assessments.page') }}</th>
@@ -25,14 +30,15 @@
     {% for row in sources %}
       <tr>
         <td><a href="{{ url_for('assessments.attempt', slug=row.page_slug, attempt_id=row.attempt_id) }}">{{ row.assessment_title or row.page_title }}</a></td>
-        <td><a href="{{ url_for('pages.view', slug=row.page_slug) }}">{{ row.page_title }}</a></td>
-        <td>{{ row.attempt_number }}</td>
-        <td><strong>{{ row.total_points }}/{{ row.max_points }}</strong></td>
-        <td class="nowrap">{{ row.submitted_at|datetime }}</td>
+        <td data-label="{{ t('assessments.page') }}"><a href="{{ url_for('pages.view', slug=row.page_slug) }}">{{ row.page_title }}</a></td>
+        <td data-label="{{ t('assessments.attempt') }}">{{ row.attempt_number }}</td>
+        <td data-label="{{ t('assessments.score') }}"><strong>{{ row.total_points }}/{{ row.max_points }}</strong></td>
+        <td class="nowrap" data-label="{{ t('assessments.submitted_at') }}">{{ row.submitted_at|datetime }}</td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
 {% endif %}
+</div>
 {% endblock %}

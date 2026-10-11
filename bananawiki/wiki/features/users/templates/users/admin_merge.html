@@ -2,6 +2,10 @@
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('users.admin.merge_direct') }}{% endblock %}
 {% block admin_content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('users.admin_merge_requests') }}">{{ t('users.nav.merge_requests') }}</a></li>
+  <li aria-current="page">{{ t('users.admin.merge_direct') }}</li>
+</ol></nav>
 <header class="page-header"><h1>{{ t('users.admin.merge_direct') }}</h1></header>
 <section class="card">
   <p>{{ t('users.admin.merge_intro') }}</p>

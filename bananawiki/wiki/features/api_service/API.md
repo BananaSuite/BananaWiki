@@ -217,7 +217,7 @@ names are at most 100 characters.
 | `POST /kanban/boards/<id>/tickets/archive` / `restore` | `{ids: [ticket ids]}` (all on this board; at most 500 ids, repeats included, else 400 `too_many`) → `archived` / `restored` count |
 | `POST /kanban/boards/<id>/columns` | `{title}` |
 | `POST /kanban/boards/<id>/columns/reorder` | `{order: [column ids]}` |
-| `PUT` / `DELETE /kanban/columns/<id>` | `{title?, wip_limit?}` (rename and/or set the work-in-progress limit, `null` or `0` removes it) / delete with its tickets |
+| `PUT` / `DELETE /kanban/columns/<id>` | `{title?, wip_limit?, done?}` (rename, set the work-in-progress limit, `null` or `0` removes it, and/or mark the column done) / delete with its tickets |
 | `POST /kanban/columns/<id>/archive` | archive every active ticket of the column → `archived` count |
 | `POST /kanban/columns/<id>/tickets` | `{title, description?, priority?, color?, due_date?, labels?, assignees?}` |
 | `GET` / `PUT` / `DELETE /kanban/tickets/<id>` | one ticket with its description / change / delete |
@@ -243,7 +243,8 @@ boards and in the board's activity and history.
 
 Tickets include `checklist_total` and `checklist_done`; columns include
 `wip_limit` (`null` for none; a full column still accepts tickets, the board
-only warns). Checklist changes need write access to the board and answer
+only warns) and `done` (`true` for a column of finished work: its tickets are
+never overdue or due soon, also in the `due` filters). Checklist changes need write access to the board and answer
 the whole `checklist` with the updated `ticket`; a ticket holds at most 100
 items of up to 300 characters.
 

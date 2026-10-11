@@ -203,9 +203,12 @@ def test_export_with_attachments_is_a_zip(client, dm):
     assert b"file body" in archive.read([n for n in names if n.startswith("attachments/")][0])
 
 
-def test_clear_removes_files(app, client, dm, db):
+def test_clear_removes_files(app, client, login, dm, people, db):
     send(client, f"/chats/{dm}/send", "x", attachment=upload())
     name = db.scalar("SELECT filename FROM chat_attachments")
+    client.post(f"/chats/{dm}/clear")
+    assert (chat_folder(app) / name).exists()  # the other participant's copy (see test_chat_safety)
+    switch(client, login, people[1])
     client.post(f"/chats/{dm}/clear")
     assert db.scalar("SELECT COUNT(*) FROM chat_messages") == 0
     assert not (chat_folder(app) / name).exists()
@@ -243,7 +246,7 @@ def test_admin_settings(client, admin_client, db):
     assert admin_client.get("/admin/chats/settings").status_code == 200
 
 
-def test_send_is_rate_limited(client, dm):
+def test_send_is_rate_limited(client, dm, frozen_limiter_clock):
     statuses = [send(client, f"/chats/{dm}/send", "flood").status_code for _ in range(31)]
     assert statuses[-1] == 429 and statuses.count(200) == 30
 

@@ -51,7 +51,9 @@
   <label class="check"><input type="checkbox" name="not_removable" value="1"{% if form.not_removable %} checked{% endif %}> <span>{{ t('announcements.not_removable') }}</span></label>
   <label class="check"><input type="checkbox" name="show_countdown" value="1"{% if form.show_countdown %} checked{% endif %}> <span>{{ t('announcements.show_countdown') }}</span></label>
   <label class="check"><input type="checkbox" name="custom_colors" value="1"{% if form.custom_colors %} checked{% endif %}> <span>{{ t('announcements.custom_colors') }}</span></label>
-  <div class="form-grid">
+  {#- The pickers apply only with custom colours on: admin.js shows them only then (all shown without JS). -#}
+  <div class="form-grid" data-reveal-for="custom_colors" data-reveal-values="1">
+    <p class="hint form-grid__full">{{ t('announcements.custom_colors_hint') }}</p>
     <div class="field">
       <label for="a-bg">{{ t('announcements.background') }}</label>
       <input id="a-bg" type="color" name="custom_background" value="{{ form.custom_background or '#24304f' }}">

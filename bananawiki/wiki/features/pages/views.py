@@ -145,8 +145,10 @@ def navigation_pages():
         listing = navigation.batch(auth.current_user(), category_id, after)
     except navigation.NavigationChanged:
         abort(409)
+    user = auth.current_user()
     return render_template("pages/navigation_pages.html", listing=listing, category_id=category_id,
-                           category=categories.get(category_id) if category_id else None)
+                           category=categories.get(category_id) if category_id else None,
+                           can_create_page=service.can_create(category_id or None, user) if user else False)
 
 
 @bp.get("/search")

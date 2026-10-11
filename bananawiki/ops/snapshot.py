@@ -4,10 +4,19 @@
 grew with the size of the installation (every tenant in hosting mode). A
 snapshot is prepared while the site is still serving:
 
-* SQLite databases are copied (with their WAL or journal) by descriptor into
-  a private directory and turned into one file there with SQLite's backup
-  API, so SQLite never opens a path in a tree someone else writes;
-* append-only or rewritten-in-place files (logs, locks, small files) are copied;
+* the databases the platform keeps (:func:`~.files.application_databases`)
+  are copied (with their WAL or journal) by descriptor into a private
+  directory and turned into one file there with SQLite's backup API, so
+  SQLite never opens a path in a tree someone else writes. Any other file is
+  just a file, whatever its name: a user's upload called ``notes.db`` must not
+  fail every backup;
+* a hosted wiki's database (``instances/<tenant>/bananawiki.db``) is the
+  tenant's content: it is copied as bytes with its WAL or journal, and
+  re-copied once the wiki is stopped, never opened here. Root never parses
+  what a tenant wrote; SQLite replays the WAL when the wiki opens the
+  restored copy, inside its own sandbox;
+* append-only or rewritten-in-place files (logs, locks, small files, and
+  files named like databases, which a plugin may keep) are copied;
 * files tenants control (hosting: ``data/instances/<tenant>/…``, marked by
   *allowed_link*) are always copied: the package is written after the
   tenants run again, and a hard link would let a tenant rewrite the staged
@@ -38,27 +47,34 @@ files); a journal of theirs is still recovered.
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import json
+import logging
 import os
 import secrets
 import shutil
 import sqlite3
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from ..core.logformat import one_line
 from .files import (
     DEFAULT_MAX_FILES,
     MAINTENANCE_MARKER,
     Refused,
+    application_databases,
     fsync_directory,
     open_directory,
     open_regular,
     read_json,
     regular_files,
+    tenant_database,
 )
+
+log = logging.getLogger("bananawiki.ops")
 
 CONFIG_FILES = ("installation.json", "source.json", "app.env", "repo.token", "repo.key", "repo.known_hosts",
                 "repo.allowed_signers", "updates.json")
@@ -66,24 +82,44 @@ INDEX = "index.jsonl"
 LEGACY_INDEX = "index.json"
 _METHODS = {"sqlite", "copy", "link"}
 _LINE = 64 * 1024  # one index line: a path, its capture method and its signature
-_DATABASE_SUFFIXES = {".db", ".sqlite", ".sqlite3"}
+_DATABASE_SUFFIXES = {".db", ".sqlite", ".sqlite3"}  # named like a database: copied, never linked
 _SIDECARS = ("-wal", "-shm", "-journal")
 _MUTABLE_SUFFIXES = {".log", ".jsonl", ".lock", ".pid", ".tmp"}
 _SMALL = 64 * 1024
+_STAGING_ERRORS = {errno.ENOSPC, errno.EDQUOT, errno.EIO, errno.EROFS}
 
 
-def is_database(path: Path) -> bool:
-    return path.suffix in _DATABASE_SUFFIXES
+def database_names(root: Path) -> set[str]:
+    """The platform's databases in the installation at *root* (package entry names)."""
+    return application_databases(Path(root), str(root))
 
 
-def is_sidecar(path: Path) -> bool:
-    return any(path.name.endswith(suffix) and is_database(Path(path.name[: -len(suffix)])) for suffix in _SIDECARS)
+def is_database(name: str, databases: Collection[str]) -> bool:
+    """Whether package entry *name* is a database the platform keeps (captured with SQLite's backup API)."""
+    return name in databases
+
+
+def tenant_database_file(name: str) -> bool:
+    """A hosted wiki's database, or its WAL or journal: the tenant's bytes, copied as they are."""
+    return tenant_database(name) or any(name.endswith(suffix) and tenant_database(name[: -len(suffix)])
+                                        for suffix in ("-wal", "-journal"))
+
+
+def is_sidecar(name: str, databases: Collection[str]) -> bool:
+    """Left out of a snapshot: what SQLite folds into a platform database's copy, and a hosted wiki's index.
+
+    The WAL, shared-memory index and journal of a platform database go into
+    its consolidated copy. A hosted wiki keeps its WAL and journal (they hold
+    committed data); its ``-shm`` index is rebuilt from the WAL when opened.
+    """
+    return (any(name.endswith(suffix) and is_database(name[: -len(suffix)], databases) for suffix in _SIDECARS)
+            or name.endswith("-shm") and tenant_database(name[: -len("-shm")]))
 
 
 def _mutable(relative: str, size: int) -> bool:
     path = Path(relative)
-    return (path.suffix in _MUTABLE_SUFFIXES or ".log." in path.name or "logs" in path.parts[:-1]
-            or size < _SMALL)
+    return (path.suffix in _MUTABLE_SUFFIXES or path.suffix in _DATABASE_SUFFIXES or path.name.endswith(_SIDECARS)
+            or ".log." in path.name or "logs" in path.parts[:-1] or size < _SMALL)
 
 
 def backup_database(source: Path, destination: Path) -> bool:
@@ -187,8 +223,9 @@ def _copy(source: Path, destination: Path) -> str:
 def sources(root: Path, allowed_link: Callable[[Path], bool] | None = None) -> dict[str, Path]:
     """What a snapshot of the installation at *root* captures, by package entry name."""
     output: dict[str, Path] = {}
+    databases = database_names(root)
     for path, name in regular_files(root / "data", allowed_link=allowed_link):
-        if not is_sidecar(path):
+        if not is_sidecar("data/" + name, databases):
             output["data/" + name] = path
     for path, name in regular_files(root / "site"):
         output["site/" + name] = path
@@ -219,20 +256,22 @@ class Snapshot:
     """
 
     def __init__(self, path: Path, root: Path, allowed_link: Callable[[Path], bool] | None = None, *,
-                 max_files: int = DEFAULT_MAX_FILES):
+                 max_files: int = DEFAULT_MAX_FILES, reserve: int = 0):
         self.path = Path(path)
         self.root = Path(root)
         self.allowed_link = allowed_link
         self.max_files = max_files  # the package limit it was taken under, and its package written with
+        self.reserve = reserve  # bytes the capture must leave free (hosted wikis' storage reservations)
+        self.databases = database_names(self.root)
 
     @classmethod
     def create(cls, root: Path, allowed_link: Callable[[Path], bool] | None = None, *,
-               max_files: int = DEFAULT_MAX_FILES) -> Snapshot:
+               max_files: int = DEFAULT_MAX_FILES, reserve: int = 0) -> Snapshot:
         staging = Path(root) / "staging"
         staging.mkdir(mode=0o700, parents=True, exist_ok=True)
         path = staging / ("snapshot-" + secrets.token_hex(6))
         path.mkdir(mode=0o700)
-        snapshot = cls(path, root, allowed_link, max_files=max_files)
+        snapshot = cls(path, root, allowed_link, max_files=max_files, reserve=reserve)
         try:
             snapshot.capture(max_files)
         except BaseException:
@@ -303,7 +342,7 @@ class Snapshot:
         return self.allowed_link is not None and self.allowed_link(self.root / name)
 
     def _add(self, name: str) -> dict[str, Any] | None:
-        """Capture ``root/name`` by descriptor; None when a tenant's entry vanished or is no regular file."""
+        """Capture ``root/name`` by descriptor; None when a tenant's entry cannot be captured."""
         destination = self.path / name
         parent, _, leaf = name.rpartition("/")
         try:
@@ -320,15 +359,30 @@ class Snapshot:
         try:
             with os.fdopen(fd, "rb") as source:
                 info = os.fstat(fd)
-                if is_database(Path(name)) and _copy_database(directory, leaf, source, destination, self.path):
+                database = is_database(name, self.databases)
+                if database and _copy_database(directory, leaf, source, destination, self.path):
                     method = "sqlite"
                 else:
+                    if database:
+                        log.warning("%s is not a readable SQLite database; it is saved as a plain file.",
+                                    one_line(name[:200]))
                     source.seek(0)
                     if self._untrusted(name) or _mutable(name, info.st_size):
                         _write_from(source, destination, info.st_mode)
                         method = "copy"
                     else:
                         method = _link_descriptor(directory, fd, source, destination, info.st_mode)
+        except (OSError, ValueError) as error:
+            # A tenant's name can be too long to stage, or its file shrink while
+            # it is copied; the offline refresh captures what changed meanwhile.
+            # A full or failing staging disk still fails the snapshot.
+            if not self._untrusted(name) or getattr(error, "errno", None) in _STAGING_ERRORS:
+                raise
+            log.warning("Leaving %s out of the snapshot: %s", one_line(name[:200]),
+                        one_line(getattr(error, "strerror", None) or error))
+            with contextlib.suppress(OSError):
+                destination.unlink(missing_ok=True)
+            return None
         finally:
             os.close(directory)
         return {"method": method, "signature": _signature(info)}
@@ -338,14 +392,19 @@ class Snapshot:
         for name, path in sources.items():
             info = _current(path)
             size = info.st_size if info else 0
-            if is_database(path):
+            if is_database(name, self.databases):
                 needed += 2 * size  # the private copy and the consolidated one
             elif self._untrusted(name) or _mutable(name, size):
                 needed += size
-        if shutil.disk_usage(self.path).free < needed + 128 * 1024 * 1024:
+        free = shutil.disk_usage(self.path).free
+        if free < needed + 128 * 1024 * 1024:
             # Checked while capturing, before anything stops.
             raise Refused("Not enough free space for a pre-update snapshot, so nothing was changed. Free some "
                           "space, then retry.")
+        if free < needed + 128 * 1024 * 1024 + self.reserve:
+            raise Refused(f"A snapshot needs about {needed // 2**20:,} MiB, which would use space reserved for the "
+                          f"hosted wikis' storage quotas ({self.reserve // 2**20:,} MiB on this volume), so nothing "
+                          "was changed. Free space on the volume or lower the wikis' storage limits, then retry.")
 
     def capture(self, max_files: int = DEFAULT_MAX_FILES) -> None:
         sources = self._sources()
@@ -376,8 +435,10 @@ class Snapshot:
         for name, path in sources.items():
             entry = index.get(name)
             info = _current(path)
-            if (entry and entry["method"] != "sqlite" and not is_database(path) and info is not None
-                    and entry["signature"] == _signature(info)):
+            # Databases are always captured again now that nothing writes them: a database and its WAL
+            # must come from the same moment.
+            if (entry and entry["method"] != "sqlite" and not is_database(name, self.databases)
+                    and not tenant_database_file(name) and info is not None and entry["signature"] == _signature(info)):
                 counts["kept"] += 1
                 continue
             added = self._add(name)

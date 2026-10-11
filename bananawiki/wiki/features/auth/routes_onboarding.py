@@ -91,7 +91,17 @@ def tour_start():
 
 @bp.post("/tour/role/<role>")
 def tour_role(role: str):
-    return _tour_redirect(tour.normalize_role(role, auth.current_user()))
+    """Switch the tour's point of view and stay on the same step (or the nearest one that role has)."""
+    new_role = tour.normalize_role(role, auth.current_user())
+    steps = tour.steps_for(new_role)
+    wanted = request.form.get("step_id", "")
+    index = next((number for number, step in enumerate(steps) if step.id == wanted), None)
+    if index is None:
+        try:
+            index = int(request.form.get("step", "0"))
+        except ValueError:
+            index = 0
+    return _tour_redirect(new_role, max(0, min(index, len(steps) - 1)))
 
 
 @bp.get("/tour/presenter/<role>/<int:step>")

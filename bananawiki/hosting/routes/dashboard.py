@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 from dataclasses import replace
+from datetime import timedelta
 from pathlib import Path
 
 from flask import (
@@ -21,7 +22,7 @@ from flask import (
     url_for,
 )
 
-from ...core.timeutil import is_past
+from ...core.timeutil import is_past, utcnow
 from .. import accounts, collaborators, domains, features, instances, settings, urls
 from ..errors import ServiceError
 from ..i18n import t
@@ -37,11 +38,16 @@ def dashboard():
     current = account()
     items = instances.dashboard_list(current)
     stats = {status: sum(1 for i in items if i["status"] == status) for status in instances.STATUSES}
+    # An expired wiki keeps its container state but is offline: it is not counted as running (or stopped).
+    for status in ("running", "stopped"):
+        stats[status] = sum(1 for i in items if i["status"] == status and not i.get("expired"))
     stats["shared"] = sum(1 for i in items if i["role"] == "collaborator")
     stats["storage_mb"] = round(sum(i["storage_mb"] for i in items if i["role"] == "owner"), 1)
     return render_template("hosting/dashboard/dashboard.html", items=items, stats=stats,
                            transfers=collaborators.incoming_transfers(current["id"]),
-                           max_instances=current_app.config["HOSTING"].limits.max_per_account)
+                           outgoing=collaborators.outgoing_transfers(current["id"]),
+                           can_terminate_expired=bool(current["is_admin"]) or settings.flag("allow_owner_delete_expired"),
+                           max_instances=instances.account_limit(current))
 
 
 def _create_context(**extra):
@@ -80,6 +86,11 @@ def create_instance():
                 raise ServiceError("hosting.accounts.password_too_short")
             if password != (request.form.get("admin_confirm_password") or ""):
                 raise ServiceError("hosting.accounts.password_mismatch")
+        elif any((request.form.get(name) or "").strip()
+                 for name in ("admin_username", "admin_password", "admin_confirm_password")):
+            # Typed with the box unticked (without JavaScript the fields stay usable): refuse rather than
+            # ignore them and generate a login the owner did not expect.
+            raise ServiceError("hosting.create.credentials_unticked", label=t("hosting.create.set_credentials"))
         inst, username, password = instances.create(
             current, request.form.get("subdomain") or "", domain_mode=mode, admin_username=username,
             admin_password=password, easy_wiki=request.form.get("easy_wiki") == "1", use_case=use_case,
@@ -89,7 +100,8 @@ def create_instance():
         return render_template("hosting/dashboard/create.html", **_create_context()), 400
     from .. import notifications
 
-    notifications.notify_account(current, "instance_created", slug=inst["subdomain"], url=urls.instance_url(inst))
+    notifications.notify_account(current, "instance_created", by_account=True, slug=inst["subdomain"],
+                                 url=urls.instance_url(inst))
     return _credentials_page(inst, username, password, "created")
 
 
@@ -122,6 +134,8 @@ def instance_detail(instance_id: str):
         owner_can_delete_expired=settings.flag("allow_owner_delete_expired"),
         owner_can_download=settings.flag("allow_owner_download_expired"),
         upload_policy=instances.upload_policy(inst),
+        can_renew=instances.may_renew(inst, viewer) and instances.renewable(inst),
+        duration_days=current_app.config["HOSTING"].limits.duration_days,
     )
 
 
@@ -143,6 +157,15 @@ def _act(instance_id: str, permission: str, action, success_key: str):
 def stop(instance_id: str):
     return _act(instance_id, "start_stop", lambda i: instances.stop(i, actor_id=account()["id"]),
                 "hosting.instances.stopped")
+
+
+@bp.post("/instances/<instance_id>/renew")
+@rate_limit(10)
+def renew(instance_id: str):
+    if not instances.may_renew(instance_for(instance_id), account()):
+        abort(403)
+    return _act(instance_id, "start_stop", lambda i: instances.renew(i, actor_id=account()["id"]),
+                "hosting.instances.renewed")
 
 
 @bp.post("/instances/<instance_id>/restart")
@@ -223,8 +246,12 @@ def reset_wiki(instance_id: str):
 @rate_limit(10)
 def update_use_case(instance_id: str):
     inst = instance_for(instance_id, "use_case")
+    viewer = account()
     try:
-        if request.form.get("compliance_declared") != "1":
+        # The declaration is the owner's (or a collaborator's) to make; an administrator editing someone
+        # else's wiki is not asked to promise how it will be used.
+        acting_admin = bool(viewer["is_admin"]) and inst["account_id"] != viewer["id"]
+        if request.form.get("compliance_declared") != "1" and not acting_admin:
             raise ServiceError("hosting.instances.compliance_required")
         instances.set_use_case(inst, request.form.get("declared_use_case") or "")
         flash(t("hosting.instances.use_case_saved"), "success")
@@ -275,7 +302,21 @@ def analytics(instance_id: str):
         return redirect(detail_url(instance_id))
     peak = max([1] + [int(row.get(kind, 0) or 0) for row in summary.get("daily", [])
                       for kind in ("request", "page_view", "error")])
-    return render_template("hosting/dashboard/analytics.html", instance=inst, summary=summary, days=days, peak=peak)
+    return render_template("hosting/dashboard/analytics.html", instance=inst, summary=summary, days=days, peak=peak,
+                           chart=_every_day(summary.get("daily", []), days))
+
+
+def _every_day(daily: list[dict], days: int) -> list[dict]:
+    """One row per day of the period, ending today (UTC), with zeros for days without traffic, so the chart's
+    bars sit on a time scale. The wiki already reports every day of its own window, but that window ends on
+    the wiki's clock, and a runtime may leave out days without traffic; this keys the chart to the portal's."""
+    by_day = {str(row.get("day")): row for row in daily}
+    today = utcnow().date()
+    rows = []
+    for days_ago in range(days - 1, -1, -1):
+        day = (today - timedelta(days=days_ago)).isoformat()
+        rows.append(by_day.get(day) or {"day": day, "request": 0, "page_view": 0, "error": 0})
+    return rows
 
 
 def stream_file(path: Path, name: str, cleanup: Path) -> Response:
@@ -452,7 +493,8 @@ def start_transfer(instance_id: str):
 @rate_limit(5)
 def accept_transfer(transfer_id: int):
     try:
-        instance_id = collaborators.accept_transfer(transfer_id, account())
+        instance_id = collaborators.accept_transfer(transfer_id, account(),
+                                                    previous_owner=request.form.get("previous_owner") or "none")
     except ServiceError as error:
         flash_error(error)
         return redirect(url_for("dashboard.dashboard"))

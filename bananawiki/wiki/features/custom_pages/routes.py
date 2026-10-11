@@ -23,7 +23,7 @@ bp = registry.feature_blueprint(
 MAX_VIDEO_MB = 10_240
 SERVED_METHODS = ("GET", "HEAD")
 NEW_PAGE = {
-    "content_type": "wiki_page", "is_published": 1, "redirect_code": 302, "links_json": "[]",
+    "content_type": "wiki_page", "is_published": 0, "redirect_code": 302, "links_json": "[]",
     "code_language": "text", "iframe_height": service.DEFAULT_IFRAME_HEIGHT, "video_controls": 1,
 }
 

@@ -7,16 +7,20 @@ containers and waits for them to return). Then, every *interval* seconds,
 :func:`run_once` performs one pass:
 
 * lift timed suspensions of wikis and accounts that have run out;
-* terminate expired wikis (they enter the grace period) and delete data
-  whose grace period ended;
-* suspend non-admin wikis that materially exceed their storage cap;
+* warn owners before their wikis expire, terminate expired wikis (they
+  enter the grace period, and their owners are told) and delete data whose
+  grace period ended;
+* suspend non-admin wikis that materially exceed their storage cap, and reopen
+  those suspended only for storage once they fit within their limit again
+  (their owners are told both times);
 * renew custom-domain proofs;
 * delete denied accounts past the configured timeout and accounts whose
   scheduled deletion is due (their wikis are terminated first);
 * email administrators about requests waiting for them (immediately, as a
   digest or daily, see :mod:`.notifications`) and owners about decisions on
   their own requests; purge deleted-account tombstones and old notices;
-* prune expired sessions, rate-limit hits, OAuth grants and stale uploads;
+* prune expired sessions, rate-limit hits, OAuth grants, the email log and stale uploads,
+  and moderation log entries older than ``HOSTING_EVENT_RETENTION_DAYS`` (10 years);
 * publish the routing table.
 
 Each wiki or account is handled on its own: one that fails is logged and
@@ -44,7 +48,7 @@ from typing import Any
 from flask import Flask
 
 from ..core.timeutil import now_sql, sql_in
-from . import accounts, attention, domains, instances, notifications
+from . import accounts, attention, domains, email, events, instances, notifications
 from .db import connection_scope, db
 
 log = logging.getLogger("bananawiki.hosting.maintenance")
@@ -91,6 +95,7 @@ def _prune() -> None:
                (sql_in(days=-30), sql_in(days=-30)))
     db.execute("DELETE FROM hosting_oauth_authorization_codes WHERE expires_at < ?", (now_sql(),))
     db.execute("DELETE FROM hosting_oauth_access_tokens WHERE expires_at < ?", (now_sql(),))
+    email.prune()
 
 
 def _prune_uploads(app: Flask) -> None:
@@ -113,8 +118,10 @@ def _steps(app: Flask) -> list[tuple[str, Callable[[], Any]]]:
         ("account suspensions", lambda: _per_account(
             "account suspensions", "lift_account_suspension", accounts.expired_suspensions(),
             lambda i: accounts.unsuspend(i, actor_id=None, automatic=True))),
+        ("expiry warnings", instances.warn_expiring),
         ("expired wikis", instances.terminate_expired),
         ("grace periods", instances.purge_expired_grace_periods),
+        ("storage suspensions", instances.lift_storage_suspensions),
         ("storage quotas", instances.enforce_storage_quotas),
         ("custom domains", domains.refresh),
         ("denied accounts", lambda: _per_account("denied accounts", "delete_account", accounts.expired_denials(),
@@ -125,6 +132,7 @@ def _steps(app: Flask) -> list[tuple[str, Callable[[], Any]]]:
         ("decision emails", notifications.send_decisions),
         ("tombstones", accounts.purge_tombstones),
         ("pruning", _prune),
+        ("moderation log", lambda: events.prune(app.config["HOSTING"].event_retention_days)),
         ("notices", attention.prune),
         ("uploads", lambda: _prune_uploads(app)),
         ("routes", instances.sync_routes),

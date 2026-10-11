@@ -11,6 +11,7 @@
     if (!list || !list.dataset.orderUrl) return;
     var version = list.dataset.orderVersion;
     var dragged = null;
+    BW.markMoveEnds(list, "[data-layout-id]");
 
     function save() {
       var ids = Array.prototype.map.call(list.children, function (item) { return Number(item.dataset.layoutId); });
@@ -29,6 +30,7 @@
       if (!sibling) return;
       list.insertBefore(item, up ? sibling : sibling.nextElementSibling);
       button.focus();
+      BW.markMoveEnds(list, "[data-layout-id]");
       save();
     });
 
@@ -42,6 +44,7 @@
       });
       item.addEventListener("dragend", function () {
         item.classList.remove("is-dragging");
+        BW.markMoveEnds(list, "[data-layout-id]");
         if (dragged) save();
         dragged = null;
       });

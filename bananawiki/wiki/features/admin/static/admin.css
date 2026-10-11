@@ -1,11 +1,17 @@
 /* Administration area: layout, dashboard chart and forms. Uses design-system tokens only. */
 
-.admin-shell { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 2rem; align-items: start; }
+.admin-shell { display: grid; grid-template-columns: 13rem minmax(0, 1fr); gap: 2rem; align-items: start; }
 .admin-shell--single { grid-template-columns: minmax(0, 1fr); }
 .admin-nav { position: sticky; top: calc(var(--topbar-height) + 1rem);
   border-right: 1px solid var(--border); padding: .25rem .8rem .5rem 0;
   max-height: calc(100dvh - var(--topbar-height) - 2rem); overflow-y: auto; scrollbar-width: thin; }
-.admin-nav .nav-list a { font-size: .85rem; padding: .45rem .6rem; }
+.admin-nav .nav-list a { font-size: .85rem; padding: .45rem .6rem; align-items: flex-start; }
+/* Long labels wrap (like the group headings) instead of being cut with an ellipsis. */
+.admin-nav .nav-list .nav-label { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+/* German compounds wider than the sidebar are hyphenated, not cut at any letter. */
+:lang(de) .admin-nav .nav-list .nav-label { hyphens: auto; }
+.admin-nav .count-pill { flex: none; margin-top: .05rem; }
+.admin-nav__group > summary .count-pill { margin-inline-start: auto; }
 .admin-nav__menu > summary { display: none; }
 .admin-nav__group { margin-top: .5rem; }
 .admin-nav__group > summary { display: flex; align-items: center; gap: .4rem; padding: .45rem .6rem;
@@ -17,6 +23,7 @@
 .admin-nav__group > summary:hover, .admin-nav__group[open] > summary { color: var(--bw-text); }
 .admin-nav__group .nav-list { margin-left: .7rem; padding-left: .25rem; }
 .admin-nav__current { color: var(--muted); font-weight: 400; }
+.admin-nav__current + .admin-nav__current::before { content: "· "; }
 .admin-main { min-width: 0; }
 
 @media (max-width: 760px) {
@@ -24,8 +31,9 @@
   .admin-nav { position: static; padding: 0 0 .6rem; border-right: 0; border-bottom: 1px solid var(--border);
     max-height: none; overflow: visible; }
   .admin-nav .sidebar__section-title { display: none; }
-  .admin-nav__menu > summary { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .75rem;
+  .admin-nav__menu > summary { display: flex; flex-wrap: nowrap; align-items: center; gap: .35rem .75rem;
     min-height: 2.75rem; cursor: pointer; font-size: .85rem; font-weight: 600; }
+  .admin-nav__current { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .admin-nav__menu > summary::after { content: ""; width: .35rem; height: .35rem; margin-left: auto;
     margin-right: .2rem; color: var(--muted); border-right: 1.5px solid currentColor;
     border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); }
@@ -61,7 +69,7 @@
   border-bottom: 1px solid var(--border-strong); }
 .traffic-chart__bar { flex: 1 1 0; min-width: 2px; background: var(--bw-primary); border-radius: 4px 4px 0 0;
   min-height: 1px; position: relative; }
-.traffic-chart__bar:hover, .traffic-chart__bar:focus-visible { background: var(--bw-accent); }
+.traffic-chart__bar:hover { background: var(--bw-accent); }
 .traffic-chart__axis { display: flex; justify-content: space-between; font-size: .75rem; color: var(--muted); margin-top: .3rem; }
 
 .admin-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-end; margin-bottom: 1rem; }
@@ -74,10 +82,19 @@
   border: 0; border-top: 1px solid var(--border); border-radius: 0; }
 .perm-groups legend { font-size: .85rem; padding: 0 .5rem 0 0; }
 .perm-groups fieldset:not(:has(.check:not([hidden]))) { display: none; }
+/* Only the grid gap spaces the items: a hidden option before them must not add a margin. */
+.perm-groups fieldset > .check + .check { margin-top: 0; }
 .category-list { display: grid; gap: .35rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
   max-height: 18rem; overflow-y: auto; padding: .25rem; }
 .danger-zone { border-color: color-mix(in srgb, var(--danger) 55%, transparent); }
-.code-value { font-family: var(--font-mono); font-weight: 650; letter-spacing: .04em; }
+.code-value { font-family: var(--font-mono); font-weight: 650; letter-spacing: .04em; white-space: nowrap; }
+/* A checkbox-only column stays narrow so the names line up from one table to the next. */
+.table .col-check { width: 2.5rem; }
 .definition-list { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; margin: 0; }
 .definition-list dt { color: var(--muted); }
 .definition-list dd { margin: 0; overflow-wrap: anywhere; }
+/* Audit log: the details column wraps instead of pushing the IP column out of the table. */
+.audit-details { min-width: 14rem; max-width: 24rem; overflow-wrap: anywhere; }
+/* Custom role form: the category limits get their own heading, and the submit button keeps its distance. */
+.role-limits-heading { margin-top: 1.5rem; }
+fieldset + .btn-row { margin-top: 1rem; }

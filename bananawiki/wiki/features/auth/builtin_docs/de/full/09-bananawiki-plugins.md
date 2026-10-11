@@ -4,7 +4,7 @@ Mit Plugins kann BananaWiki wachsen, ohne dass jedes Wiki jede Funktion nutzen m
 
 ## Plugins verwalten
 
-Öffne **Verwaltung -> Plugins**, um Plugin-Pakete zu aktivieren, zu deaktivieren, zu prüfen, zu importieren oder zu entfernen. Integrierte Plugins werden mit BananaWiki ausgeliefert. Externe `.bwplugin`-Pakete kannst du importieren, wenn deine Installation das erlaubt.
+Öffne **Verwaltung → Plugins**, um Plugin-Pakete zu aktivieren, zu deaktivieren, zu prüfen, zu importieren oder zu entfernen. Integrierte Plugins werden mit BananaWiki ausgeliefert. Externe `.bwplugin`-Pakete laufen mit allen Rechten des Wikis. Deshalb sind sie ausgeschaltet, solange der Betreiber des Servers sie nicht erlaubt (`BW_ALLOW_EXTERNAL_PLUGINS=1`), und nur der Eigentümer oder ein Superuser kann eines importieren oder aktivieren. Andere Administratoren können Plugins trotzdem ausschalten und entfernen.
 
 ## Was Plugins hinzufügen können
 

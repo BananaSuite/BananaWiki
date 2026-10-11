@@ -31,7 +31,7 @@
   {% if calendar %}
   <section class="users-profile__section" aria-labelledby="calendar-heading">
     <div class="card__header">
-      <h2 id="calendar-heading">{{ t('users.profile.contributions_in', count=calendar.total, year=calendar.year) }}</h2>
+      <h2 id="calendar-heading">{{ tn('users.profile.contributions_in', calendar.total, year=calendar.year) }}</h2>
       {% if years|length > 1 %}
       <form method="get" action="{{ url_for('users.profile', username=target.username) }}" class="inline-fields">
         <label for="year" class="visually-hidden">{{ t('users.profile.year') }}</label>

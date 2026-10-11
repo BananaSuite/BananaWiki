@@ -6,9 +6,11 @@ BananaWiki is built for private knowledge, so it protects accounts and content, 
 
 Passwords are stored as hashes, login attempts are rate-limited, CSRF tokens protect forms and AJAX mutations, and admins can enforce session limits. Suspensions, forced password changes, invite codes, and maintenance mode provide additional controls.
 
+Anyone can turn on **two-step verification** in **Settings → Two-step verification**: after the password, signing in also asks for a code from an authenticator app on their phone, or one of ten single-use recovery codes shown when it is turned on. Owners and superusers can require it for every administrator in **Administration → Site settings → Security**, and reset it in **Administration → Users** for someone who lost both their phone and their recovery codes.
+
 ## Content protection
 
-Markdown is sanitized before display. Uploads are validated and dangerous file types are blocked where appropriate. Attachments are served through authenticated routes rather than as public files. Category restrictions and permissions keep sensitive pages away from users who should not see them.
+Markdown is sanitised before display. Uploads are validated and dangerous file types are blocked where appropriate. Attachments are served through authenticated routes rather than as public files. Category restrictions and permissions keep sensitive pages away from users who should not see them.
 
 ## Operational safety
 

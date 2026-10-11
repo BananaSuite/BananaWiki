@@ -15,19 +15,23 @@ Access
 ------
 Views need a signed-in account unless marked :func:`public`. Administrator
 views use :func:`admin_required`. Account states (scheduled deletion, flagged
-email, missing contact email, unverified email, pending or denied approval)
-redirect to the page that resolves them; views that must stay reachable in a
-state are marked with :func:`exempt`.
+email, missing contact email, unverified email, pending or denied approval,
+an administrator without the required two-step verification, terms not yet
+accepted) redirect to the page that resolves the first of them in
+:data:`GATES` order; views that must stay reachable in a state are marked
+with :func:`exempt` (see :func:`pending_gate`).
 """
 
 from __future__ import annotations
 
 import functools
+import hashlib
+import hmac
 import secrets
 from collections.abc import Callable
 from typing import Any
 
-from flask import abort, flash, g, jsonify, redirect, request, session, url_for
+from flask import abort, current_app, flash, g, jsonify, redirect, request, session, url_for
 
 from ..core.crypto import sha256_hex
 from ..core.timeutil import now_sql, parse, sql_in, utcnow
@@ -45,9 +49,11 @@ SUSPENDED_KEY = "hosting_suspended_account_id"
 LOGIN_BANNER_KEY = "hosting_attention_after_login"
 SESSION_DAYS = 7
 TOUCH_INTERVAL = 300
+DEVICE_COOKIE = "bwh_device"
+DEVICE_COOKIE_DAYS = 365
 _KEEP = ("interface_language", "_csrf")
 
-GATES = ("deletion", "email_flag", "contact_email", "verification", "approval", "admin_mfa")
+GATES = ("deletion", "email_flag", "contact_email", "verification", "approval", "admin_mfa", "terms")
 
 
 def public(view: Callable) -> Callable:
@@ -267,7 +273,15 @@ def contact_email_required(account: dict[str, Any]) -> bool:
 
 
 def pending_gate(account: dict[str, Any], view: Callable | None) -> str | None:
-    """The endpoint an account in a blocking state must go to, or None."""
+    """The endpoint an account in a blocking state must go to, or None.
+
+    Only the first blocking state in :data:`GATES` order counts: the account
+    is sent to the page that resolves it, and a view exempt from that state
+    is let through even while later states block too. Each state's page is
+    exempt from its own state, so it is always shown, and no two pages can
+    send an account back and forth, whatever combination of states it is in.
+    Once the first state is resolved, the next one takes over.
+    """
     from . import notifications
 
     checks = (
@@ -278,12 +292,17 @@ def pending_gate(account: dict[str, Any], view: Callable | None) -> str | None:
                               and notifications.verification_required()), "account.verify_email_pending"),
         ("approval", account.get("approval_status") in ("pending", "denied"),
          "auth.activation_denied" if account.get("approval_status") == "denied" else "auth.activation_pending"),
+        # Administrator rights reach every tenant's wiki, not only /admin: until an administrator who
+        # must use two-step verification turns it on, the portal only offers to do that.
+        ("admin_mfa", admin_mfa_missing(account), "account.mfa"),
+        # New terms the operator requires everyone to accept (HOSTING_TERMS_REQUIRED_VERSION).
+        ("terms", accounts.terms_outdated(account), "account.terms"),
     )
     if impersonating():
         return None
     for gate, blocked, endpoint in checks:
-        if blocked and not is_exempt(view, gate):
-            return endpoint
+        if blocked:
+            return None if is_exempt(view, gate) else endpoint
     return None
 
 
@@ -298,6 +317,55 @@ def redirect_to_login():
     return redirect(url_for("auth.login", next=target))
 
 
+# ── Device cookies for sign-in throttling ─────────────────────────────────────
+# A browser that has signed in to an account gets its own failure count for
+# that account, so failed attempts by anyone else cannot lock the owner out.
+# The cookie carries the account's ``mfa_epoch``, which turning two-step
+# verification on or off bumps: a browser that signed in with the password
+# alone before then gets no second-step budget of its own afterwards.
+
+
+def _device_cookie_name() -> str:
+    # ``__Host-`` over HTTPS for the reason given in the session interface.
+    return ("__Host-" if request.is_secure else "") + DEVICE_COOKIE
+
+
+def _device_signature(account: dict[str, Any], nonce: str) -> str:
+    # The password hash is signed so that a password change retires every
+    # device cookie, and the two-step epoch so that turning two-step
+    # verification on or off does. Not the session version: "sign out
+    # everywhere" bumps it.
+    message = f"device:{account['id']}:{account['password']}:{int(account.get('mfa_epoch') or 0)}:{nonce}".encode()
+    return hmac.new(current_app.config["SECRET_KEY"].encode(), message, hashlib.sha256).hexdigest()[:32]
+
+
+def device_cookie_nonce(account: dict[str, Any]) -> str | None:
+    """The nonce of this browser's device cookie when it is valid for *account*."""
+    owner, _, rest = (request.cookies.get(_device_cookie_name()) or "").partition(".")
+    nonce, _, signature = rest.partition(".")
+    if (owner != str(account["id"]) or len(nonce) != 22 or len(signature) != 32
+            or not nonce.isascii() or not signature.isascii()):
+        return None
+    return nonce if hmac.compare_digest(signature, _device_signature(account, nonce)) else None
+
+
+def set_device_cookie(response: Any, account: dict[str, Any]) -> None:
+    """A fresh device cookie on every sign-in."""
+    nonce = secrets.token_urlsafe(16)
+    response.set_cookie(_device_cookie_name(), f"{account['id']}.{nonce}.{_device_signature(account, nonce)}",
+                        max_age=DEVICE_COOKIE_DAYS * 86400, path="/", httponly=True, secure=request.is_secure,
+                        samesite="Lax")
+
+
+def admin_mfa_missing(account: dict[str, Any]) -> bool:
+    """True while *account* may not act as an administrator until it turns on two-step verification.
+
+    Every way into administrator rights checks this (the portal, API tokens,
+    the ``is_admin`` claim hosted wikis receive), not only the portal pages.
+    """
+    return bool(account["is_admin"]) and settings.flag("admin_mfa_required") and not account.get("totp_enabled")
+
+
 def admin_required(view: Callable) -> Callable:
     @functools.wraps(view)
     def wrapper(*args: Any, **kwargs: Any):
@@ -306,8 +374,7 @@ def admin_required(view: Callable) -> Callable:
             return redirect_to_login()
         if not account["is_admin"]:
             abort(403)
-        if (settings.flag("admin_mfa_required") and not account.get("totp_enabled")
-                and not is_exempt(wrapper, "admin_mfa")):
+        if admin_mfa_missing(account) and not is_exempt(wrapper, "admin_mfa"):
             flash(t("hosting.mfa.required_for_admins"), "warning")
             return redirect(url_for("account.mfa"))
         return view(*args, **kwargs)

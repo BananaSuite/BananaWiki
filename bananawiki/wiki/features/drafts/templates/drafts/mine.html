@@ -3,16 +3,16 @@
 {% block title %}{{ t('drafts.mine.title') }}{% endblock %}
 {% block content %}
 <header class="page-header"><h1>{{ t('drafts.mine.title') }}</h1></header>
-<p class="hint">{{ t('drafts.mine.intro') }}</p>
+<p class="hint hint--block">{{ t('drafts.mine.intro') }}</p>
 {% if drafts %}
 <div class="table-wrap">
-  <table class="table">
+  <table class="table table--stack">
     <thead><tr><th scope="col">{{ t('drafts.mine.page') }}</th><th scope="col">{{ t('drafts.mine.saved') }}</th><th scope="col" class="actions">{{ t('common.actions') }}</th></tr></thead>
     <tbody>
       {% for d in drafts %}
       <tr>
         <td>{% if d.page_slug %}{{ d.page_title }}{% else %}{{ d.title or t('drafts.mine.untitled') }} <span class="badge badge--warning">{{ t('drafts.mine.unavailable') }}</span>{% endif %}</td>
-        <td class="nowrap"><time datetime="{{ d.updated_at }}" title="{{ d.updated_at|datetime }}">{{ d.updated_at|time_ago }}</time></td>
+        <td class="nowrap" data-label="{{ t('drafts.mine.saved') }}"><time datetime="{{ d.updated_at }}" title="{{ d.updated_at|datetime }}">{{ d.updated_at|time_ago }}</time></td>
         <td class="actions">
           <div class="cluster">
             {% if d.editable %}<a class="btn btn--small btn--primary" href="{{ url_for('pages.edit', slug=d.page_slug) }}">{{ t('drafts.mine.continue') }}</a>{% endif %}

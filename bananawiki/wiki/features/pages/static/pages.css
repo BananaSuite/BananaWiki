@@ -3,11 +3,14 @@
 @media (min-width: 1100px) { .wiki-page:has(.wiki-page__aside) { grid-template-columns: minmax(0, 1fr) 200px; } }
 .wiki-page__main { min-width: 0; }
 .wiki-page__main > .prose { max-width: var(--reading-width); }
+/* Panels above and below the text (quiz, attachments, read aloud, notices) end where the text ends. */
+.wiki-page__main > :not(.wiki-page__header, .breadcrumbs) { max-width: var(--reading-width); }
 .wiki-page__header { align-items: flex-start; padding-bottom: 1.25rem; margin-bottom: 1.5rem; }
 .wiki-page__title { flex: 1 1 auto; min-width: 0; }
+@media (min-width: 901px) { .wiki-page__title { flex-basis: 0; } }
 .wiki-page__title h1 { margin: 0; }
 .wiki-page__header .page-header__actions { padding-block-start: .125rem; }
-.wiki-page__contents { display: none; margin-bottom: 1.25rem; }
+.wiki-page__contents { display: none; margin-bottom: 1.25rem; border-top: 0; padding-top: 0; }
 .wiki-page__aside { display: flex; flex-direction: column; gap: 1rem; }
 @media (min-width: 1100px) { .wiki-page__aside { position: sticky; top: calc(var(--topbar-height) + 1rem); align-self: start; max-height: calc(100vh - var(--topbar-height) - 2rem); overflow-y: auto; } }
 .toc-card { padding: .25rem 0 .25rem 1rem; border-inline-start: 1px solid var(--border); }
@@ -19,10 +22,16 @@
 .seq-nav { display: flex; justify-content: space-between; gap: 1rem; margin: 2rem 0 1rem; flex-wrap: wrap; }
 .seq-nav .btn { white-space: normal; max-width: 48%; }
 .page-edit-info { margin: .5rem 0 0; color: var(--muted); font-size: var(--font-size-sm); }
+.page-edit-info a { text-decoration: underline; text-underline-offset: .3em; text-decoration-thickness: 1px; }
 .page-list { display: grid; gap: 0; list-style: none; margin: 0 0 1rem; padding: 0; border-top: 1px solid var(--border); }
-.page-list li { padding: .65rem .2rem; border-bottom: 1px solid var(--border); }
+.page-header + .page-list { border-top: 0; }
+.page-list li { padding: .65rem 0; border-bottom: 1px solid var(--border); }
+.page-list + .category-manage { border-top: 0; margin-top: 0; }
 .page-list li > a { font-weight: 550; }
-.menu__form { display: grid; gap: .3rem; padding: .45rem .65rem; }
+/* A form inside a menu panel (transfer a history entry): label, field and button keep their gaps
+   (the panel's own "form { display: block }" would otherwise glue them together). */
+.menu__panel .menu__form, .menu__form { display: grid; gap: .3rem; padding: .45rem .65rem; }
+.menu__form > .btn { justify-self: start; }
 .h3 { font-size: 1.05rem; font-weight: 600; }
 
 /* Navigation tree */
@@ -47,8 +56,30 @@
 .nav-search-results a:hover, .nav-search-results a:focus { background: var(--surface-2); text-decoration: none; }
 .nav-search-results small { display: block; color: var(--muted); }
 .nav-tree--page summary { font-size: 1rem; }
+.nav-tree--page [data-reorder-item] { position: relative; }
+.nav-tree--page summary { padding-inline-end: 4.5rem; min-height: 2.2rem; box-sizing: border-box; }
+.nav-tree--reorder summary { padding-inline-end: 9rem; }
+.nav-tree--reorder [data-reorder-item] > a { padding-inline-end: 5rem; }
+.nav-tree--page [data-uncategorized] { position: relative; margin-top: .25rem; }
+.hint + .nav-tree { margin-top: .75rem; }
+.nav-tree + .card, .nav-tree + .empty-state { margin-top: 1.5rem; }
+@media (max-width: 600px) {
+  .nav-tree--reorder summary .nav-label, .nav-tree--page [data-reorder-item] > a .nav-label { white-space: normal; overflow-wrap: anywhere; }
+}
+/* The category being shown, in the sidebar tree. */
+.nav-tree summary[aria-current="page"] { background: color-mix(in srgb, var(--bw-primary) 10%, transparent); color: var(--heading);
+  box-shadow: inset 2px 0 var(--bw-primary); }
+.nav-tree__actions { position: absolute; inset-block-start: 0; inset-inline-end: .55rem; z-index: 1; display: flex;
+  align-items: center; gap: .35rem; min-height: 2.2rem; }
+@media (pointer: coarse) { .nav-tree--page summary, .nav-tree__actions { min-height: 2.75rem; } }
 .nav-tree--page .tree-root { border: 0; margin: 0; padding: 0; }
 .reorder-buttons { display: inline-flex; gap: .1rem; }
+.reorder-buttons--placeholder { visibility: hidden; }
+/* A category name that wraps keeps the twisty and the count on its first line, beside "Open" and
+   the arrows: every item gets the label's line height and sits at the top. */
+.nav-tree--page summary { align-items: flex-start; }
+.nav-tree--page summary::before, .nav-tree--page summary .nav-count { line-height: calc(var(--line-height) * 1rem); }
+@media (pointer: coarse) { .nav-tree--page summary { padding-block: .575rem; } }
 [data-reorder-item].is-dragging { opacity: .45; }
 [data-reorder-item].is-drop-target { outline: 2px dashed var(--bw-primary); }
 
@@ -56,7 +87,8 @@
 .editor { display: grid; gap: 0; }
 .editor__pane-labels { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border-inline: 1px solid var(--border-strong); background: var(--surface); }
 .editor__pane-labels span { padding: .5rem 1rem; font-size: var(--font-size-sm); font-weight: 600; color: var(--heading); }
-.editor__pane-labels span + span { border-inline-start: 1px solid var(--border-strong); }
+/* The separator is the first label's end border: the same x as the textarea's own border below it. */
+.editor__pane-labels span:first-child { border-inline-end: 1px solid var(--border-strong); }
 .editor .toolbar { position: sticky; top: var(--topbar-height); z-index: 5; border-color: var(--border-strong); gap: .1rem; padding: .4rem; }
 .editor .toolbar .btn { min-width: 2rem; padding-inline: .45rem; }
 .editor__separator { align-self: center; width: 1px; height: 1.25rem; margin-inline: .4rem; background: var(--border-strong); }
@@ -67,10 +99,11 @@
 .editor .toolbar:has(details.menu[open]) { z-index: 30; }
 .editor__tabs { display: none; gap: .25rem; margin: .5rem 0; }
 .editor__panes { --editor-height: clamp(22rem, 60vh, 48rem); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; }
-.editor__textarea { display: block; height: var(--editor-height); min-height: 22rem; border-radius: 0 0 0 var(--radius-sm); padding: 1rem; line-height: 1.7; }
+.editor__textarea { display: block; height: var(--editor-height); min-height: 22rem; border-radius: 0 0 0 var(--radius-sm); padding: 1rem; line-height: 1.7; resize: none; }
 .editor__textarea.is-over { outline: 2px dashed var(--bw-primary); }
 .editor__preview { border: 1px solid var(--border-strong); border-inline-start: 0; border-radius: 0 0 var(--radius-sm) 0; padding: 1.25rem; height: var(--editor-height); overflow: auto; background: var(--bw-bg); }
 .editor__status { display: flex; flex-wrap: wrap; font-size: var(--font-size-xs); gap: .5rem; padding-block: .5rem; }
+.editor__status-hint { margin-inline-start: auto; }
 .editor.is-fullscreen { position: fixed; inset: 0; z-index: 150; background: var(--bw-bg); padding: 1rem; overflow: auto; }
 .editor.is-fullscreen .editor__textarea, .editor.is-fullscreen .editor__preview { height: calc(100vh - 8rem); min-height: 22rem; }
 @media (max-width: 900px) {
@@ -82,6 +115,8 @@
   .editor .toolbar .menu__panel { position: fixed; left: .75rem; right: .75rem; top: auto; bottom: .75rem;
     min-width: 0; max-height: calc(100dvh - var(--topbar-height) - 2rem); }
   .editor__preview { border-inline-start: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+  /* The toolbar no longer joins the pane labels: it is a closed box of its own. */
+  .editor .toolbar { border-bottom: 1px solid var(--border-strong); border-radius: var(--radius); }
   .editor__textarea { border-radius: var(--radius-sm); }
 }
 .link-results { list-style: none; margin: .35rem 0 0; padding: 0; max-height: 12rem; overflow: auto; }
@@ -95,11 +130,6 @@
 .category-manage { margin-top: 1.5rem; }
 .category-manage .section-stack > form { padding-block: 1rem; border-bottom: 1px solid var(--border); }
 .category-manage .section-stack > form:last-child { border-bottom: 0; }
-.category-manage > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: .4rem; }
-.category-manage > summary::-webkit-details-marker { display: none; }
-.category-manage > summary::before { content: "▸"; color: var(--muted); font-size: .8rem; }
-.category-manage[open] > summary { margin-bottom: .9rem; }
-.category-manage[open] > summary::before { content: "▾"; }
 .category-manage > summary h2 { margin: 0; }
 .category-manage__sequential { align-items: flex-start; flex-wrap: nowrap; justify-content: space-between; }
 .page-list + .h3, .page-list + .btn + .h3 { margin-top: 1.5rem; }

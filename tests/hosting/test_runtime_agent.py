@@ -15,7 +15,7 @@ from bananawiki.hosting.runtime import OAuthClient, RuntimeFailure, TenantPolicy
 from bananawiki.hosting.runtime.agent import AgentRuntime, tenant_environment
 from bananawiki.ops.runtime_agent import AgentError, TenantRuntime
 
-from .agent_fakes import WIKI_PASSWORD, make_runtime, make_spec, provision
+from .agent_fakes import WIKI_PASSWORD, hold_above_plan, make_runtime, make_spec, provision
 
 
 @pytest.fixture
@@ -434,10 +434,10 @@ def test_recover_starts_the_other_tenants_when_one_fails_unexpectedly(setup, mon
     agent.containers.clear()
     start = runtime._start
 
-    def broken_first(cfg, spec):
+    def broken_first(cfg, spec, **options):
         if spec.data_dir_name == "wiki0":
             raise PermissionError(errno.EACCES, "Permission denied")
-        start(cfg, spec)
+        start(cfg, spec, **options)
 
     monkeypatch.setattr(runtime, "_start", broken_first)
     # More tenants than recovery threads: an escaping error used to cancel the queued ones.
@@ -688,6 +688,25 @@ def test_a_plugin_snapshot_refuses_a_database_copy_changed_once_made(setup, monk
     files = [path.name for path in runtime._state(runtime._cfg(), spec).root.rglob("*.db")]
     assert files == [kept], "no other copy is kept"
     assert not list((Path(runtime._cfg().instances_dir) / "acme" / ".bw-host").iterdir()), "the copy is removed"
+
+
+def test_a_plugin_snapshot_of_a_wiki_held_above_its_plan_is_kept(setup, monkeypatch):
+    """A wiki the runtime agent adopted above its plan (UP-1) serves: its plugin snapshots (before an enable, a
+    quarantine or a restore) get the hard limit it was adopted at, not its plan alone."""
+    from bananawiki.hosting.runtime import platform_backup
+
+    monkeypatch.setattr(platform_backup, "BUDGET_SLACK_BYTES", 0)
+    runtime, _agent = setup
+    spec = make_spec()
+    provision(runtime, spec)
+    # A 1 MB plan below what it holds (a database copy of some 1.2 MiB), adopted at 3 MiB.
+    limited = replace(spec, policy=TenantPolicy(storage_limit_bytes=1024 ** 2))
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.capture_plugin_snapshot(limited)
+    assert error.value.code == "too_large", "held to its plan"
+    hold_above_plan(runtime, spec.instance_id, 1024 ** 2, 3 * 1024 ** 2)
+    kept = runtime.capture_plugin_snapshot(limited)
+    assert [item["name"] for item in runtime.list_plugin_snapshots(spec)] == [kept]
 
 
 def _full_disk(monkeypatch) -> None:

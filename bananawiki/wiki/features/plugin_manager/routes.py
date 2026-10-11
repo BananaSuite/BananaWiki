@@ -77,6 +77,7 @@ def index():
         pending=[e for e in entries if e.restart],
         restart_mode=service.restart_mode(),
         external_allowed=rt.allowed,
+        can_install=service.can_trust_code(),
         managed=current_app.config["BW"].managed_hosting,
         apps=service.sidebar_apps(),
         max_archive_mb=archive.MAX_ARCHIVE_BYTES // archive.MIB,
@@ -120,6 +121,10 @@ def enable(plugin_id: str):
             auth.flash_t("plugin_manager.flash.dependency_unavailable", "error", id=dependency.id if dependency else "")
             return _back()
     external = [e for e in (*dependencies, entry) if e and e.kind == "external"]
+    if external and not service.can_trust_code():
+        # Entries already carry the lock; this guards the route itself.
+        auth.flash_t("plugin_manager.lock.owner_only", "error")
+        return _back()
     if external:
         status = _password("enable", entry.id)
         if status != "ok":
@@ -177,6 +182,10 @@ def disable(plugin_id: str):
 def import_plugin():
     if not plugins_external.runtime().allowed:
         auth.flash_t("plugin_manager.lock.external_off", "error")
+        return _back()
+    if not service.can_trust_code():
+        _audit("plugin_import_refused", "-", reason="not_owner")
+        auth.flash_t("plugin_manager.lock.owner_only", "error")
         return _back()
     if _rate_limited("install"):
         return auth.deny(429, "error.429.title")

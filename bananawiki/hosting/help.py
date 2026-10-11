@@ -37,7 +37,16 @@ def articles(language: str) -> tuple[dict[str, Any], ...]:
     )
 
 
-def article(language: str, slug: str, *, contact_email: str, source_url: str) -> dict[str, Any] | None:
+# A link from one article to another (or to the index), with an optional #fragment.
+_HELP_LINK = re.compile(r'href="(/help(?:/[a-z0-9-]+)?)(#[^"]*)?"')
+
+
+def article(language: str, slug: str, *, contact_email: str, source_url: str,
+            link_language: str | None = None) -> dict[str, Any] | None:
+    """*slug* in *language* (or English), with this platform's values filled in.
+
+    link_language: the language the reader asked for with ``?lang=``; links to other articles keep it.
+    """
     if not valid_slug(slug):
         return None
     found = next((a for a in articles(language) if a["slug"] == slug), None)
@@ -50,6 +59,8 @@ def article(language: str, slug: str, *, contact_email: str, source_url: str) ->
     def fill(text: str) -> str:
         for placeholder, value in values.items():
             text = text.replace(placeholder, value)
+        if link_language in LANGUAGES:
+            text = _HELP_LINK.sub(lambda m: f'href="{m.group(1)}?lang={link_language}{m.group(2) or ""}"', text)
         return text
 
     return {**found, "sections": [{**s, "html": fill(s["html"])} for s in found["sections"]]}

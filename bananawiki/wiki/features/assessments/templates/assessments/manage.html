@@ -39,15 +39,15 @@
   </div>
   <div class="field">
     <label for="q{{ index }}-correct">{{ t('assessments.correct_answers') }}</label>
-    <textarea id="q{{ index }}-correct" name="questions-{{ index }}-correct" rows="2" aria-describedby="q{{ index }}-correct-hint">{{ q.correct_answers|join('\n') }}</textarea>
+    <textarea id="q{{ index }}-correct" name="questions-{{ index }}-correct" rows="{{ [[q.correct_answers|length + 1, 3]|max, 8]|min }}" aria-describedby="q{{ index }}-correct-hint">{{ q.correct_answers|join('\n') }}</textarea>
     <p class="hint" id="q{{ index }}-correct-hint">{{ t('assessments.correct_hint') }}</p>
   </div>
   <div class="split">
     <label class="check"><input type="checkbox" name="questions-{{ index }}-required" value="1"{% if q.is_required %} checked{% endif %}> <span>{{ t('assessments.required') }}</span></label>
     <div class="cluster">
-      <button type="button" class="btn btn--small btn--ghost" data-question-move="-1" hidden>{{ t('assessments.move_up') }}</button>
-      <button type="button" class="btn btn--small btn--ghost" data-question-move="1" hidden>{{ t('assessments.move_down') }}</button>
-      <label class="check"><input type="checkbox" name="questions-{{ index }}-remove" value="1" data-question-remove> <span>{{ t('assessments.remove_question') }}</span></label>
+      <button type="button" class="btn btn--small" data-question-move="-1" hidden>{{ t('assessments.move_up') }}</button>
+      <button type="button" class="btn btn--small" data-question-move="1" hidden>{{ t('assessments.move_down') }}</button>
+      <label class="check small"><input type="checkbox" name="questions-{{ index }}-remove" value="1" data-question-remove> <span>{{ t('assessments.remove_question') }}</span></label>
     </div>
   </div>
 </fieldset>
@@ -66,7 +66,7 @@
 </div>
 {% if error %}<div class="alert alert--error" role="alert"><div class="alert__body">{{ error }}</div></div>{% endif %}
 {% if attempt_count %}
-<div class="alert alert--warning"><div class="alert__body">{{ t('assessments.edit_after_attempts', n=attempt_count) }}</div></div>
+<div class="alert alert--warning"><div class="alert__body">{{ tn('assessments.edit_after_attempts', attempt_count, n=attempt_count) }}</div></div>
 {% endif %}
 
 <form method="post" action="{{ url_for('assessments.manage', slug=page.slug) }}" class="form section-stack assessment-editor" data-assessment-editor>

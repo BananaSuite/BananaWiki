@@ -25,4 +25,4 @@ BananaWiki ist ein privates Wiki für dein Team. Es läuft auf deinem Server, b�
 | **Administrator** | das Wiki, Konten, Einstellungen und Plugins verwalten |
 | **Eigentümer** | Administratorzugriff, den normale Administratoren nicht ändern können |
 
-Administratoren können diese Anleitung unter **Verwaltung -> Website-Einstellungen -> Dokumentation** neu erstellen und dabei zwischen Deutsch, Englisch und Italienisch sowie zwischen ausführlicher Anleitung und Kurzanleitung wählen.
+Administratoren können diese Anleitung unter **Verwaltung → Dokumentation** neu erstellen und dabei zwischen Deutsch, Englisch und Italienisch sowie zwischen ausführlicher Anleitung und Kurzanleitung wählen.

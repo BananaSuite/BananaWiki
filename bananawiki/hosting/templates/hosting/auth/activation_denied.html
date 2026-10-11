@@ -3,6 +3,6 @@
 {% block content %}
 <div class="card card--narrow card--danger"><h1>{{ t('hosting.activation.denied_title') }}</h1><p>{{ t('hosting.activation.denied_body') }}</p>
 {% if current_account.decision_reason %}<p><strong>{{ t('hosting.activation.reason') }}</strong> {{ current_account.decision_reason }}</p>{% endif %}
-{% if remaining is not none %}<p>{{ t('hosting.activation.deleted_in', time=remaining|duration) }}</p>{% endif %}
-<p class="small muted">{{ t('hosting.common.contact', email=contact_email) }}</p></div>
+{% if remaining is not none %}<p>{% if remaining > 60 %}{{ t('hosting.activation.deleted_in', time=remaining|duration_long) }}{% else %}{{ t('hosting.activation.deleted_soon') }}{% endif %}</p>{% endif %}
+{% include "hosting/_contact.html" %}</div>
 {% endblock %}

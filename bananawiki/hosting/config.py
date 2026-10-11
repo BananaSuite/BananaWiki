@@ -21,7 +21,9 @@ import re
 import secrets
 import socket
 import tempfile
+import unicodedata
 from dataclasses import dataclass, field
+from datetime import date
 from email.utils import parseaddr
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -29,6 +31,7 @@ from urllib.parse import urlsplit
 from filelock import FileLock
 
 from ..core.env import ConfigError, Env
+from ..core.i18n import FALLBACK
 
 log = logging.getLogger("bananawiki.hosting.config")
 
@@ -37,6 +40,11 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 LEGACY_DATA_DIR = REPO_ROOT / "hosting" / "data"
 DEFAULT_SOURCE_URL = "https://github.com/BananaSuite/BananaWiki"
 CONTACT_EMAIL_PLACEHOLDER = "contact@localhost"
+# The name the platform goes by in its pages, emails and authenticator apps (HOSTING_SERVICE_NAME).
+DEFAULT_SERVICE_NAME = "BananaWiki Hosting"
+SERVICE_NAME_MAX_LENGTH = 60
+# The pages /terms and /privacy lead to (HOSTING_TERMS_URL, HOSTING_PRIVACY_URL; /compliance is the terms).
+LEGAL_PAGES = ("terms", "privacy")
 HOSTING_MODES = frozenset({"subdomain", "port", "onion"})
 
 _IPV4 = re.compile(r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$")
@@ -69,6 +77,8 @@ class EmailSettings:
     smtp_tls: bool
     token_ttl_seconds: int
     daily_limit: int
+    # Messages per day sent at one account's request (verification links, wiki notices); 0 = no cap.
+    account_daily_limit: int = 10
 
 
 @dataclass(frozen=True)
@@ -83,6 +93,13 @@ class InstanceLimits:
     cpu_limit: str
     pids_limit: int
     startup_timeout_seconds: int
+    # Accounts younger than ``new_account_days`` may hold ``new_account_max_instances`` wikis, and all
+    # their wikis together at most ``new_account_share_percent`` of the platform's wiki limit.
+    new_account_days: int = 7
+    new_account_max_instances: int = 1
+    new_account_share_percent: int = 50
+    # Days before expiry on which the owner is warned by email (largest first); empty = no warnings.
+    expiry_warning_days: tuple[int, ...] = (3, 1)
 
 
 @dataclass(frozen=True)
@@ -140,8 +157,31 @@ class HostingConfig:
     default_signup_mode: str
     maintenance_file: str
     log_level: str
+    log_format: str
     db_busy_timeout_ms: int = 5000
     min_form_seconds: float = 1.5
+    # Accounts the sign-up form creates per client address per day; 0 = no cap.
+    signups_per_ip_per_day: int = 10
+    # Days the moderation log (hosting_events) keeps an entry; 0 = forever. The privacy policy
+    # promises deletion at the latest 10 years after the decision.
+    event_retention_days: int = 3650
+    # Wikis the maintenance service restarts at once after an update or a backup; the updater
+    # sizes its readiness timeout from the same variable.
+    recovery_max_workers: int = 2
+    # Version (YYYY-MM-DD) of the terms of service and privacy policy the operator publishes, as
+    # printed on them (HOSTING_TERMS_VERSION; default accounts.TERMS_VERSION): what sign-ups and
+    # /account/terms record as accepted.
+    terms_version: str = ""
+    # Terms version every account must have accepted; older ones are asked to accept the current
+    # terms before anything else. "" = nobody is asked (new sign-ups always accept them). Never later
+    # than terms_version (load_config refuses that).
+    terms_required_version: str = ""
+    # The name the platform goes by: page titles and top bar, emails, the authenticator label.
+    service_name: str = DEFAULT_SERVICE_NAME
+    # The operator's own legal pages as (page, language, https URL); language "" is the page for every
+    # interface language without its own. Empty: /terms and /privacy lead to the static site on the base
+    # domain (see routes.public). Read through legal_url().
+    legal_urls: tuple[tuple[str, str, str], ...] = ()
     testing: bool = False
     # Accept custom domains whose records are proxied by Cloudflare (only Cloudflare addresses visible).
     custom_domain_allow_proxied: bool = True
@@ -160,6 +200,11 @@ class HostingConfig:
     def tenant_network_outbound(self) -> bool:
         return self.instance_runtime == "docker" and self.tenant_network == "outbound"
 
+    def legal_url(self, page: str, language: str) -> str:
+        """The operator's address of *page* (``terms`` or ``privacy``) for *language*, or "" for none."""
+        urls = {(name, lang): url for name, lang, url in self.legal_urls}
+        return urls.get((page, language)) or urls.get((page, ""), "")
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -167,6 +212,64 @@ class HostingConfig:
 def _lax_bool(env: Env, name: str, default: str, falsy: tuple[str, ...] = ("0", "false", "no", "off", "")) -> bool:
     """1.4 read these flags as "anything but a false word is on"; keep that."""
     return env.str(name, default).lower() not in falsy
+
+
+def _warning_days(env: Env) -> tuple[int, ...]:
+    days = set()
+    for item in env.list("HOSTING_EXPIRY_WARNING_DAYS", "3,1"):
+        try:
+            value = int(item)
+        except ValueError:
+            raise ConfigError("HOSTING_EXPIRY_WARNING_DAYS must list whole numbers of days, such as 3,1.") from None
+        if not 0 <= value <= 365:
+            raise ConfigError("HOSTING_EXPIRY_WARNING_DAYS values must be between 1 and 365 (0 for none).")
+        if value:
+            days.add(value)
+    return tuple(sorted(days, reverse=True))
+
+
+def _terms_version(env: Env, name: str, default: str = "") -> str:
+    """A terms version: a real ``YYYY-MM-DD`` date, so that versions order as text (see accounts.terms_outdated)."""
+    value = env.str(name) or default
+    if value:
+        try:
+            valid = bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", value)) and date.fromisoformat(value) is not None
+        except ValueError:
+            valid = False
+        if not valid:
+            raise ConfigError(f"{name} must be the terms' version date, such as 2026-10-09.")
+    return value
+
+
+def _check_terms(cfg: HostingConfig) -> None:
+    """Accounts can only accept the published version: a later required one would lock everyone out."""
+    if cfg.terms_required_version and cfg.terms_required_version > cfg.terms_version:
+        raise ConfigError(
+            f"HOSTING_TERMS_REQUIRED_VERSION ({cfg.terms_required_version}) is later than the terms accounts "
+            f"accept ({cfg.terms_version}). Set HOSTING_TERMS_VERSION to the version printed on the terms "
+            "you publish, then require that version or an earlier one."
+        )
+
+
+def _recovery_workers(env: Env) -> int:
+    """``BW_HOSTING_RECOVERY_MAX_WORKERS``, read exactly as the updater reads it.
+
+    The updater (``bananawiki.ops.system``, readiness timeout) takes it from
+    ``config/app.env`` clamped to 1-16, and 2 for anything that is not a
+    whole number. The portal never read it before 1.7, so a value the updater
+    tolerated must not stop the portal from starting: it is clamped the same
+    way, with a warning.
+    """
+    raw = (env.raw("BW_HOSTING_RECOVERY_MAX_WORKERS") or "").strip() or "2"
+    try:
+        value = int(raw)
+    except ValueError:
+        log.warning("BW_HOSTING_RECOVERY_MAX_WORKERS=%r is not a whole number; using 2.", raw)
+        return 2
+    if not 1 <= value <= 16:
+        log.warning("BW_HOSTING_RECOVERY_MAX_WORKERS=%d is outside 1-16; using %d.", value,
+                    max(1, min(16, value)))
+    return max(1, min(16, value))
 
 
 def is_ip_address(value: str) -> bool:
@@ -242,6 +345,62 @@ def _http_url(name: str, value: str) -> str:
         parts = urlsplit(value)
         if parts.scheme not in ("http", "https") or not parts.netloc or "@" in parts.netloc:
             raise ConfigError(f"{name} must be an absolute http(s) URL without credentials.")
+    return value
+
+
+def _https_url(name: str, value: str) -> str:
+    """An absolute ``https://`` address for visitors' browsers: no credentials, spaces or control characters.
+
+    An onion address may use ``http://``: Tor already encrypts the connection.
+    """
+    if value:
+        try:
+            parts = urlsplit(value)
+            onion = parts.scheme == "http" and (parts.hostname or "").endswith(".onion")
+            # The port is parsed lazily: an invalid one would otherwise fail every redirect to the page.
+            valid = (parts.scheme == "https" or onion) and bool(parts.hostname) and "@" not in parts.netloc \
+                and (parts.port is None or parts.port > 0)
+        except ValueError:  # such as an unclosed [IPv6 address or a port that is not a number up to 65535
+            valid = False
+        if not valid or any(char.isspace() or not char.isprintable() for char in value):
+            raise ConfigError(f"{name} must be an absolute https:// URL (http:// for an onion address) "
+                              "without credentials or spaces.")
+    return value
+
+
+def _legal_urls(env: Env, languages: tuple[str, ...]) -> tuple[tuple[str, str, str], ...]:
+    """``HOSTING_TERMS_URL``, ``HOSTING_PRIVACY_URL`` and their ``_<LANG>`` variants for other interface languages.
+
+    Both pages or neither: one on the operator's site and the other on a static site they may not run
+    would send visitors to a missing page. A language variant only replaces its page for that language.
+    """
+    urls: list[tuple[str, str, str]] = []
+    for page in LEGAL_PAGES:
+        name = f"HOSTING_{page.upper()}_URL"
+        default = _https_url(name, env.str(name))
+        if default:
+            urls.append((page, "", default))
+        for language in languages:
+            variant = f"{name}_{language.upper()}"
+            value = _https_url(variant, env.str(variant))
+            if value and not default:
+                raise ConfigError(f"{variant} needs {name}: it only replaces that address for one language.")
+            if value:
+                urls.append((page, language, value))
+    if len({page for page, _language, _url in urls}) == 1:
+        raise ConfigError("Set HOSTING_TERMS_URL and HOSTING_PRIVACY_URL together (they may be the same address), "
+                          "or neither for the pages of the static site on BASE_DOMAIN.")
+    return tuple(urls)
+
+
+def _service_name(env: Env) -> str:
+    """``HOSTING_SERVICE_NAME``: one short line, shown escaped; braces would read as translation placeholders."""
+    value = env.str("HOSTING_SERVICE_NAME") or DEFAULT_SERVICE_NAME
+    if (len(value) > SERVICE_NAME_MAX_LENGTH or "{" in value or "}" in value
+            or any(unicodedata.category(char)[0] == "C" or unicodedata.category(char) in ("Zl", "Zp")
+                   for char in value)):
+        raise ConfigError(f"HOSTING_SERVICE_NAME must be at most {SERVICE_NAME_MAX_LENGTH} characters on one line, "
+                          "without braces or control characters.")
     return value
 
 
@@ -334,6 +493,9 @@ def valid_suffix(value: str) -> bool:
 
 def load_config(environ: dict[str, str] | None = None, **overrides: object) -> HostingConfig:
     """Build the configuration from the environment (plus test overrides)."""
+    from .accounts import TERMS_VERSION  # the default: the version this release ships with
+    from .i18n import LANGUAGES
+
     env = Env(environ)
     run_env = env.choice(
         "HOSTING_ENV", env.str("BW_ENV", "production") or "production",
@@ -386,6 +548,7 @@ def load_config(environ: dict[str, str] | None = None, **overrides: object) -> H
         smtp_tls=_lax_bool(env, "HOSTING_EMAIL_SMTP_TLS", "1", falsy=("0", "false", "no")),
         token_ttl_seconds=max(300, env.int("HOSTING_EMAIL_TOKEN_TTL_SECONDS", 86400)),
         daily_limit=env.int("HOSTING_EMAIL_DAILY_LIMIT", 300, minimum=0),
+        account_daily_limit=env.int("HOSTING_EMAIL_ACCOUNT_DAILY_LIMIT", 10, minimum=0),
     )
     import_max = env.int("HOSTING_IMPORT_MAX_BYTES", 10 * 1024 ** 3, minimum=1)
     archives = ArchiveSettings(
@@ -404,7 +567,7 @@ def load_config(environ: dict[str, str] | None = None, **overrides: object) -> H
     )
     limits = InstanceLimits(
         max_per_account=env.int("MAX_INSTANCES_PER_ACCOUNT", 5, minimum=0),
-        duration_days=env.int("INSTANCE_DURATION_DAYS", 14, minimum=1),
+        duration_days=env.int("INSTANCE_DURATION_DAYS", 14, minimum=0),
         storage_limit_mb=env.int("INSTANCE_STORAGE_LIMIT_MB", 500, minimum=1),
         max_upload_mb=env.int("INSTANCE_MAX_UPLOAD_MB", 16, minimum=1),
         max_attachment_mb=env.int("INSTANCE_MAX_ATTACHMENT_MB", 100, minimum=1),
@@ -413,7 +576,16 @@ def load_config(environ: dict[str, str] | None = None, **overrides: object) -> H
         cpu_limit=env.str("INSTANCE_CPU_LIMIT", "1.0") or "1.0",
         pids_limit=env.int("INSTANCE_PIDS_LIMIT", 256, minimum=32),
         startup_timeout_seconds=max(30, min(600, env.int("INSTANCE_STARTUP_TIMEOUT_SECONDS", 120))),
+        new_account_days=env.int("HOSTING_NEW_ACCOUNT_DAYS", 7, minimum=0, maximum=365),
+        new_account_max_instances=env.int("HOSTING_NEW_ACCOUNT_MAX_INSTANCES", 1, minimum=0),
+        new_account_share_percent=env.int("HOSTING_NEW_ACCOUNT_SHARE_PERCENT", 50, minimum=0, maximum=100),
+        expiry_warning_days=_warning_days(env),
     )
+    legal_urls = _legal_urls(env, tuple(language for language in LANGUAGES if language != FALLBACK))
+    if legal_urls and not env.str("HOSTING_TERMS_VERSION"):
+        log.warning("HOSTING_TERMS_URL is set but HOSTING_TERMS_VERSION is not: accounts that accept your terms are "
+                    "recorded as accepting version %s, this release's default. Set HOSTING_TERMS_VERSION to the "
+                    "version date printed on your terms.", TERMS_VERSION)
     default_signup = env.str("HOSTING_DEFAULT_SIGNUP_MODE", "open").lower()
     secret_key_path = env.path("HOSTING_SECRET_KEY_PATH", str(LEGACY_DATA_DIR / ".secret_key"))
     secret_key = str(overrides.pop("secret_key", "") or "") or _load_secret_key(env, secret_key_path, production)
@@ -456,16 +628,25 @@ def load_config(environ: dict[str, str] | None = None, **overrides: object) -> H
         contact_email=_contact_email(env, reply_to, hosting_mode, base_domain),
         status_url=_http_url("HOSTING_STATUS_URL", env.str("HOSTING_STATUS_URL")),
         source_url=_http_url("BW_SOURCE_URL", env.str("BW_SOURCE_URL", DEFAULT_SOURCE_URL)) or DEFAULT_SOURCE_URL,
+        service_name=_service_name(env),
+        legal_urls=legal_urls,
         archives=archives,
         default_signup_mode=default_signup if default_signup in ("open", "invite", "approval", "closed") else "open",
         maintenance_file=env.str("BANANA_MAINTENANCE_FILE", "", "BW_MAINTENANCE_FILE"),
         log_level=env.choice("HOSTING_LOG_LEVEL", "info", frozenset({"debug", "info", "warning", "error"})),
+        log_format=env.choice("HOSTING_LOG_FORMAT", "text", frozenset({"text", "json"})),
         db_busy_timeout_ms=env.int("HOSTING_DB_BUSY_TIMEOUT_MS", 5000, minimum=100, maximum=30000),
+        signups_per_ip_per_day=env.int("HOSTING_SIGNUPS_PER_IP_PER_DAY", 10, minimum=0),
+        event_retention_days=env.int("HOSTING_EVENT_RETENTION_DAYS", 3650, minimum=0, maximum=36500),
+        recovery_max_workers=_recovery_workers(env),
+        terms_version=_terms_version(env, "HOSTING_TERMS_VERSION", TERMS_VERSION),
+        terms_required_version=_terms_version(env, "HOSTING_TERMS_REQUIRED_VERSION"),
         testing=run_env == "test",
         custom_domain_allow_proxied=env.bool("HOSTING_CUSTOM_DOMAIN_ALLOW_PROXIED", True),
     )
     values.update(overrides)
     cfg = HostingConfig(**values)  # type: ignore[arg-type]
+    _check_terms(cfg)
     if cfg.port_range[0] >= cfg.port_range[1]:
         raise ConfigError("INSTANCE_PORT_START must be lower than INSTANCE_PORT_END.")
     if cfg.allow_tenant_plugins and cfg.hosting_mode in ("port", "onion"):

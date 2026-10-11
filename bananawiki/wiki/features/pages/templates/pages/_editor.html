@@ -44,12 +44,13 @@
       <textarea id="editor-content" name="content" class="textarea--code editor__textarea" spellcheck="true">{{ content }}</textarea>
       {% if can_upload %}<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden data-image-input>{% endif %}
     </div>
-    <div class="editor__preview prose" id="editor-preview" data-preview aria-live="polite" aria-label="{{ t('pages.editor.preview') }}"></div>
+    <div class="editor__preview prose" id="editor-preview" data-preview role="region" aria-live="polite" aria-label="{{ t('pages.editor.preview') }}"></div>
   </div>
   <div class="editor__status small muted">
     <span data-word-count></span>
-    {% if can_upload %}<span>{{ t('pages.editor.drop_hint') }}</span>{% endif %}
+    {#- Before the hint: the empty status takes no room at the right edge. -#}
     <span data-upload-status aria-live="polite"></span>
+    {% if can_upload %}<span class="editor__status-hint">{{ t('pages.editor.drop_hint') }}</span>{% endif %}
   </div>
 </div>
 

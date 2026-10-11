@@ -86,6 +86,17 @@ def _denied(plugin_id: str) -> bool:
     return plugins_external.runtime().denied(plugin_id)
 
 
+def can_trust_code(user: dict[str, Any] | None = None) -> bool:
+    """Whether *user* (by default the person at the keyboard) may install or enable plugin code.
+
+    Plugin code runs with the wiki's own rights and could make anyone an
+    owner, so only the owner and superusers may bring it in. Administrators
+    may still switch plugins off and remove them.
+    """
+    user = auth.real_user() if user is None else user
+    return bool(user) and auth.is_admin(user) and (user.get("role") == "owner" or bool(user.get("is_superuser")))
+
+
 def _feature_entry(feature: registry.Feature, rows: dict[str, dict[str, Any]]) -> Entry:
     if feature.toggle == "always":
         stored = True
@@ -135,6 +146,8 @@ def _external_entry(plugin_id: str, state: plugins_external.PluginState | None,
         entry.lock = "plugin_manager.lock.external_off"
     elif _denied(plugin_id):
         entry.lock = "plugin_manager.lock.denylisted"
+    elif not stored and not can_trust_code():
+        entry.lock = "plugin_manager.lock.owner_only"
     if state is not None and state.error_key:
         entry.error_key, entry.error_values = state.error_key, state.error_values
     if stored and not loaded and state is not None and not state.error_key and rt.allowed and not _denied(plugin_id):
@@ -283,12 +296,25 @@ def sidebar_apps() -> list[dict[str, Any]]:
         if key and key not in saved:
             saved.append(key)
     rank = {key: index for index, key in enumerate(saved)}
+    user = auth.current_user()
+
+    def shown(item: registry.NavItem) -> bool:
+        try:
+            return item.visible is None or bool(item.visible(user))
+        except Exception:  # a predicate that needs more context than this page has: assume shown
+            return True
+
     apps = []
     for feature in registry.registry().ordered():
         items = [item for item in feature.nav if item.area == "apps"]
         if not items or (_cfg().easy_wiki and not feature.easy_wiki):
             continue
-        apps.append({"id": feature.id, "label": i18n.t(items[0].label), "enabled": registry.is_enabled(feature.id),
+        # A feature with several apps (chat: Messages and Groups) is named after all of them, as in the sidebar.
+        labels = list(dict.fromkeys(i18n.t(item.label) for item in sorted(items, key=lambda item: item.order)))
+        enabled = registry.is_enabled(feature.id)
+        # Enabled, but its link only appears once there is something to show (federated pages).
+        hidden = enabled and not any(shown(item) for item in items)
+        apps.append({"id": feature.id, "label": ", ".join(labels), "enabled": enabled, "hidden": hidden,
                      "order": min(item.order for item in items)})
     apps.sort(key=lambda app: (rank.get(app["id"], 1000 + app["order"]), app["label"]))
     return apps

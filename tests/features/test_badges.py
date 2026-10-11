@@ -53,7 +53,7 @@ def test_manual_award_revoke_and_notification(app, admin_client, make_user, logi
     client = app.test_client()
     login(client, bob)
     page = client.get("/settings").get_data(as_text=True)
-    assert "You earned new badges: 1" in page
+    assert "You earned a new badge." in page  # singular for one badge
     assert b"Helper" in client.get("/badges/notifications").data
     client.post("/badges/notifications/dismiss")
     assert db.scalar("SELECT COUNT(*) FROM badge_notifications WHERE notified = 0") == 0

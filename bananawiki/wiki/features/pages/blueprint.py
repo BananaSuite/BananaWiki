@@ -8,7 +8,7 @@ from typing import Any
 
 from flask import Blueprint, abort, current_app, jsonify, redirect, render_template, request, url_for
 
-from ....core.web import client_ip, safe_next
+from ....core.web import client_network, safe_next
 from ... import auth
 from ...i18n import t
 from . import service
@@ -24,7 +24,7 @@ def rate_limited(bucket: str, limit: int, window: int = 60) -> Callable[[Callabl
         @functools.wraps(view)
         def wrapper(*args: Any, **kwargs: Any):
             user = auth.current_user()
-            who = f"u:{user['id']}" if user else f"ip:{client_ip()}"
+            who = f"u:{user['id']}" if user else f"ip:{client_network()}"
             limiter = current_app.extensions["bananawiki.limiter"]
             if not limiter.hit(f"pages:{bucket}:{who}", limit, window):
                 if auth.wants_json():

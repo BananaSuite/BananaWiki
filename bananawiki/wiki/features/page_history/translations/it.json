@@ -16,6 +16,7 @@
   "page_history.empty": "Questa pagina non ha voci di cronologia.",
   "page_history.entry_title": "Versione: {title}",
   "page_history.error.user_missing": "Quell'utente non esiste.",
+  "page_history.first_version": "Prima versione",
   "page_history.flash.bulk_transferred": "{count} voci ora sono attribuite a {username}.",
   "page_history.flash.cleared": "{count} voci della cronologia eliminate.",
   "page_history.flash.deattributed": "Autore rimosso.",

@@ -56,7 +56,7 @@ def test_audit_page_and_attributions(admin_client, admin, make_user, db):
                (page_id, bob["id"]))
     admin_client.post(f"/admin/users/{bob['id']}/edit", data={"action": "suspend", "suspend_reason": "rude"})
     page = admin_client.get(f"/admin/users/{bob['id']}/audit").data.decode()
-    assert "rude" in page and "1 page edit(s)" in page
+    assert "rude" in page and "1 page edit is credited" in page  # singular, no "(s)"
     admin_client.post(f"/admin/users/{bob['id']}/attributions",
                       data={"action": "mass_reattribute", "to_username": "carol"})
     assert db.scalar("SELECT edited_by FROM page_history WHERE page_id = ? AND title = 't'", (page_id,)) == carol["id"]

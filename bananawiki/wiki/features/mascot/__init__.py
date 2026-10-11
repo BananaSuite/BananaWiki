@@ -1,7 +1,7 @@
 """The mascot: a pixel-art banana in place of the top bar logo.
 
 It bobs, blinks and hops when clicked; the eleventh click puts sunglasses on
-it, and they stay until the person takes them off under "Customize".
+it, and they stay until the person takes them off under "Customise".
 Administrators can show, hide or dress it for everyone at once from
 Appearance. See :mod:`.service` for where the choices are stored.
 
@@ -9,7 +9,7 @@ Slots filled here
 -----------------
 * ``topbar.brand`` - the mascot in place of the logo, with its stylesheet and script, for
   signed-in people who keep it on.
-* ``account.display_sections`` - the viewer's own switch under "Customize".
+* ``account.display_sections`` - the viewer's own switch under "Customise".
 * ``admin.appearance`` - the actions for every account.
 """
 

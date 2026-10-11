@@ -7,7 +7,7 @@
 </nav>
 <header class="page-header">
   <h1>{{ t('kanban.mine.title') }}</h1>
-  <div class="page-header__meta"><span>{{ t('kanban.mine.count', count=total) }}</span></div>
+  <div class="page-header__meta"><span>{{ tn('kanban.mine.count', total) }}</span></div>
 </header>
 <form class="kanban-filter no-print{% if filter.active %} is-active{% endif %}" method="get" action="{{ url_for('kanban.mine') }}" role="search" aria-label="{{ t('kanban.filter.label') }}">
   <div class="kanban-filter__field kanban-filter__field--search">
@@ -54,7 +54,7 @@
         <p class="small muted kanban-mine__where">{{ t('kanban.mine.where', board=ticket.board_title, column=ticket.column_title) }}</p>
         <div class="kanban-card__meta">
           {% if ticket.priority != 'medium' %}<span class="badge kanban-priority--{{ ticket.priority }}">{{ t('kanban.priority.' ~ ticket.priority) }}</span>{% endif %}
-          {% if ticket.due_date %}<span class="badge{% if name == 'overdue' %} kanban-due--overdue{% elif name == 'today' %} kanban-due--soon{% endif %}">{{ t('kanban.mine.due', date=ticket.due_date) }}</span>{% endif %}
+          {% if ticket.due_date %}<span class="badge{% if name == 'overdue' %} kanban-due--overdue{% elif name == 'today' %} kanban-due--soon{% endif %}">{{ t('kanban.mine.due_overdue' if name == 'overdue' else 'kanban.mine.due', date=ticket.due_date) }}</span>{% endif %}
           {% if ticket.checklist_total %}<span class="badge{% if ticket.checklist_done == ticket.checklist_total %} kanban-checklist--complete{% endif %}">{{ t('kanban.mine.checklist', done=ticket.checklist_done, total=ticket.checklist_total) }}</span>{% endif %}
           {% for label in ticket.labels %}<span class="badge badge--primary">+{{ label }}</span>{% endfor %}
         </div>

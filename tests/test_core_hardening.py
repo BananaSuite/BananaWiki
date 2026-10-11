@@ -207,7 +207,9 @@ def test_successful_login_refunds_only_its_aggregate_reservations(app, make_user
 
 
 def test_logged_values_cannot_start_a_new_log_line():
+    from bananawiki.core import logformat
     from bananawiki.core.web import one_line
 
     assert one_line("acme\r\n2026-10-09 ERROR forged") == "acme  2026-10-09 ERROR forged"
     assert one_line(42) == "42"
+    assert one_line is logformat.one_line, "one helper, which the standard-library-only controller can import too"

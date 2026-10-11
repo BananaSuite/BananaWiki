@@ -42,7 +42,7 @@ FEATURE = Feature(
         NavItem("site_admin.nav.migration", "site_admin.migration_page", icon="archive", area="admin", order=96,
                 visible=_is_admin),
         NavItem("site_admin.nav.server", "site_admin.server_page", icon="server", area="admin", order=97,
-                visible=_is_admin),
+                visible=_is_admin, active_endpoints=("site_admin.error_log",)),
     ],
     slots={"page.banners": public_notice},
     jobs=[Job("site_admin.cleanup_exports", 3600, cleanup_stale, initial_delay=300)],

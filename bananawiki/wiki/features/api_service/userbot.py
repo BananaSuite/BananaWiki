@@ -90,11 +90,15 @@ def profile(user_id: str) -> dict[str, Any]:
     }
 
 
-def update_profile(user_id: str, *, real_name: str, bio: str, page_published: bool | None) -> dict[str, Any]:
+def update_profile(user_id: str, *, real_name: str | None, bio: str | None,
+                   page_published: bool | None) -> dict[str, Any]:
+    """Change the given fields; ``None`` keeps the current value."""
     current = profile(user_id)
     if page_published and current["page_disabled_by_admin"]:
         raise UserbotError("api_service.userbot.profile_disabled")
     published = current["page_published"] if page_published is None else page_published
+    real_name = current["real_name"] if real_name is None else real_name
+    bio = current["bio"] if bio is None else bio
     db.execute(
         "INSERT INTO user_profiles (user_id, real_name, bio, page_published, updated_at) VALUES (?, ?, ?, ?, ?) "
         "ON CONFLICT(user_id) DO UPDATE SET real_name = excluded.real_name, bio = excluded.bio, "

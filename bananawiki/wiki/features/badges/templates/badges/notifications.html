@@ -4,7 +4,7 @@
 {% block head %}<link rel="stylesheet" href="{{ asset_url('badges.css', blueprint='badges') }}">{% endblock %}
 {% block content %}
 <header class="page-header"><h1>{{ t('badges.notifications.title') }}</h1>
-  <div class="page-header__actions"><a class="btn" href="{{ url_for('users.my_profile') }}">{{ t('users.nav.profile') }}</a></div></header>
+  <div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('users.my_profile') }}">{{ t('users.nav.profile') }}</a></div></header>
 {% if items %}
 <ul class="badge-notices">
   {% for item in items %}

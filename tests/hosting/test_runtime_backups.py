@@ -8,6 +8,7 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import time
@@ -27,7 +28,7 @@ from bananawiki.hosting.runtime.agent import GDRIVE_RETRY_SECONDS
 from bananawiki.hosting.runtime.crypto import MAGIC
 from bananawiki.ops.runtime_agent import AgentError
 
-from .agent_fakes import make_runtime, make_spec, provision
+from .agent_fakes import hold_above_plan, make_runtime, make_spec, provision
 
 
 def _hosting_db(runtime) -> None:
@@ -335,6 +336,18 @@ def test_tenant_file_names_a_restore_refuses_never_reach_the_backup(tmp_path, mo
     assert (restored / "acme" / "storage" / "uploads" / "a.png").read_bytes() == b"acme"
     assert (restored / "acme" / "bananawiki.db").is_file()
     assert "did not hold these wikis in full: acme (failed)" in caplog.text, "the restore says what is missing"
+
+
+def test_tenant_file_names_never_start_a_line_of_the_platform_backups_log(tmp_path, caplog):
+    """The backup logs why a wiki is not held in full, naming the files it left out: a wiki names its own, and
+    with their line breaks a name could forge further lines in the portal's log."""
+    runtime, _agent, base = _two_wikis(tmp_path)
+    (base / "acme" / "storage" / "uploads" / "x:\n2026-10-10 00:00:00 bananawiki.agent WARNING forged").write_text("")
+    with caplog.at_level(logging.WARNING):
+        runtime.export_platform(_work(tmp_path))
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("does not hold acme in full" in message and "forged" in message for message in messages)
+    assert not [message for message in messages if "\n" in message or "\r" in message]
 
 
 @pytest.mark.parametrize("folder", ["bananawiki.db", "bananawiki.db-wal"], ids=["database", "journal"])
@@ -781,6 +794,42 @@ def test_a_database_copy_over_the_wikis_budget_stays_out_of_the_platform_backup(
     assert (skipped["tenant"], skipped["code"]) == ("acme", "too_large") and "storage limit" in skipped["detail"]
 
 
+def test_a_wiki_held_above_its_plan_keeps_its_database_in_the_platform_backup(tmp_path, monkeypatch):
+    """A wiki the runtime agent adopted above its plan (UP-1) serves, and its quota holds it to the hard limit it
+    was adopted at: its budget is that limit. From its plan alone, its genuine database was left out of every
+    platform backup. A sparse file beyond the adopted limit still stays out, and a wiki held to its plan keeps
+    the plan's budget."""
+    from bananawiki.hosting.runtime import platform_backup
+
+    monkeypatch.setattr(platform_backup, "BUDGET_SLACK_BYTES", 0)
+    runtime, _agent, base = _two_wikis(tmp_path)
+    # A 1 MB plan below what each holds (a database copy of some 1.2 MiB); acme was adopted at 3 MiB.
+    _wiki_rows(runtime, ("acme", "hosting", 1, False), ("beta", "hosting", 1, False))
+    hold_above_plan(runtime, "id-acme-hosting", 1024 ** 2, 3 * 1024 ** 2)
+    cfg = runtime._cfg()
+    assert platform_backup._storage_limits(cfg, Path(cfg.database_path)) == {"acme": 3 * 1024 ** 2,
+                                                                             "beta": 1024 ** 2}
+    path = runtime.export_platform(_work(tmp_path))
+    with _backup(runtime, path) as archive:
+        names = set(archive.namelist())
+        manifest = json.loads(archive.read("backup_manifest.json"))
+    assert {"hosting.db", "instances/acme/bananawiki.db", "instances/acme/storage/uploads/a.png",
+            "instances/beta/storage/uploads/a.png"} <= names
+    assert "instances/beta/bananawiki.db" not in names, "held to its plan"
+    assert manifest["tenants"] == ["acme"]
+    assert [(item["tenant"], item["code"]) for item in manifest["skipped"]] == [("beta", "too_large")]
+
+    with open(base / "acme" / "storage" / "uploads" / "sparse.bin", "wb") as handle:
+        handle.truncate(4 * 1024 ** 2)
+    path = runtime.export_platform(_work(tmp_path, "sparse"))
+    with _backup(runtime, path) as archive:
+        names = set(archive.namelist())
+        manifest = json.loads(archive.read("backup_manifest.json"))
+    assert "instances/acme/bananawiki.db" in names and "instances/acme/storage/uploads/sparse.bin" not in names
+    skipped = {item["tenant"]: item for item in manifest["skipped"]}
+    assert skipped["acme"]["code"] == "too_large" and "sparse.bin" in skipped["acme"]["detail"]
+
+
 def test_a_database_copy_rewritten_once_made_leaves_the_wiki_incomplete(tmp_path, monkeypatch):
     """Same size, other bytes: the backup held a database its sandbox never checked, and counted as complete."""
 
@@ -866,8 +915,10 @@ def test_settings_page_shows_wikis_missing_from_the_latest_backup(web, runtime, 
     runtime.backup_status = {"finished_at": "2026-10-08T03:00:00+00:00", "complete_at": "2026-10-01T03:00:00+00:00",
                              "skipped": [{"tenant": "acme", "code": "timeout", "detail": "the snapshot did not finish"}]}
     page = web.get("/admin/settings").get_data(as_text=True)
-    assert "Latest complete platform backup: 2026-10-01 03:00 UTC." in page
-    assert "(2026-10-08 03:00 UTC) did not save these wikis in full" in page
+    # The dates are kept on one line (a no-wrap span): compare the text without that markup.
+    text = re.sub(r'</?span[^>]*>', "", page)
+    assert "Latest complete platform backup: 2026-10-01 03:00 UTC." in text
+    assert "(2026-10-08 03:00 UTC) did not save these wikis in full" in text
     assert "<code>acme</code>: The operation took too long." in page
     assert UnavailableRuntime().platform_backup_status() == {}, "the page also renders without a runtime backend"
 
@@ -990,6 +1041,26 @@ def test_restore_refuses_members_whose_decompression_cannot_be_bounded(tmp_path,
     with pytest.raises(RuntimeFailure) as error:
         runtime.restore_platform([part])
     assert error.value.code == "archive_invalid"
+    assert Path(runtime._cfg().database_path).read_bytes() == before
+
+
+@pytest.mark.parametrize("flag", [0x01, 0x20, 0x40], ids=["encrypted", "patched-data", "strong-encryption"])
+def test_restore_refuses_members_zipfile_cannot_unpack_like_a_site_import(tmp_path, flag):
+    """Patched data and strong encryption make zipfile raise NotImplementedError: refused up front instead."""
+    runtime, _agent = make_runtime(tmp_path)
+    _hosting_db(runtime)
+    part = tmp_path / "flagged.zip"
+    with zipfile.ZipFile(part, "w", zipfile.ZIP_STORED) as archive:
+        archive.write(runtime._cfg().database_path, "hosting.db")
+    raw = bytearray(part.read_bytes())
+    for position in (raw.index(b"PK\x03\x04") + 6, raw.index(b"PK\x01\x02") + 8):  # local and central headers
+        raw[position:position + 2] = flag.to_bytes(2, "little")
+    part.write_bytes(raw)
+    before = Path(runtime._cfg().database_path).read_bytes()
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.restore_platform([part])
+    assert error.value.code == "archive_invalid"
+    assert "encrypted or unsupported" in error.value.detail, "refused before any member is read"
     assert Path(runtime._cfg().database_path).read_bytes() == before
 
 

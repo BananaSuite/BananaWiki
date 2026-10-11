@@ -1,0 +1,106 @@
+#!/usr/sbin/nft -f
+# BananaWiki hosting: the default host firewall for tenant containers (nftables).
+# See docs/hosting.md#host-firewall. Load it before starting tenants:
+#
+#   sudo bananawiki firewall | sudo nft -f -
+#
+# ("bananawiki firewall" prints this file with this host's DNS resolvers filled
+# in, see dns_resolvers_v4.) Load, and make persistent, that output, not this
+# file: here dns_resolvers_v4 is empty, so on a host that uses a private
+# resolver (a VPC or LAN resolver) wikis would get no DNS. To persist it, save
+# the output (for example "sudo bananawiki firewall | sudo tee
+# /etc/nftables.d/bananawiki-tenants.nft") and include that copy from
+# /etc/nftables.conf; save it again after changing the host's resolvers.
+#
+# The runtime agent (1.7 and later) names every tenant bridge bwt<12 hex>, so
+# these rules cover the bridges that exist now and those created later, and no
+# other interface of the host:
+#
+# * A wiki never opens a connection to the host itself (the portal, SSH, a
+#   database or anything else listening on the bridge gateway or 0.0.0.0),
+#   except to the TCP and UDP ports in host_tcp_ports and host_udp_ports.
+#   Replies to connections the host opens (Caddy, health checks) pass.
+# * A wiki with outbound networking (port and onion modes, or
+#   HOSTING_TENANT_NETWORK=outbound) reaches the internet, but not private,
+#   loopback, link-local (cloud metadata at 169.254.169.254), shared
+#   (100.64.0.0/10), multicast or reserved addresses, except those in
+#   allowed_private_v4 and DNS (port 53) to the private resolvers in
+#   dns_resolvers_v4: Docker's resolver sends a wiki's queries from the
+#   wiki's own network to the resolvers the host uses (a VPC or LAN resolver,
+#   for example), never to any other private address.
+# * No wiki talks to another wiki's bridge. Tenant bridges are IPv4-only:
+#   IPv6 from them is dropped.
+#
+# Loading the file again replaces this table (and only this one): change the
+# sets below and load it again rather than adding rules by hand. Docker's own
+# rules stay in force; an accept here never overrides a drop in Docker's chains.
+
+table inet bananawiki_tenants
+delete table inet bananawiki_tenants
+
+table inet bananawiki_tenants {
+	# Host ports wikis may connect to: Caddy, so a wiki reaches the portal (platform
+	# sign-in) and other public sites of the platform by their public names. Add the
+	# port of a host service the wikis need, such as a speech server on this host.
+	set host_tcp_ports {
+		type inet_service
+		elements = { 80, 443 }
+	}
+
+	set host_udp_ports {
+		type inet_service
+	}
+
+	# Private addresses or networks outbound wikis may reach, for example
+	# a GPU speech server on the LAN: elements = { 192.168.1.50 }
+	set allowed_private_v4 {
+		type ipv4_addr
+		flags interval
+	}
+
+	# The private DNS resolvers this host uses (nameserver lines of
+	# /etc/resolv.conf, or of /run/systemd/resolve/resolv.conf behind
+	# systemd-resolved's stub): "bananawiki firewall" fills them in. Public
+	# resolvers need no entry. A resolver on one of this host's own addresses
+	# is reached through the input chain instead: port 53 in host_udp_ports
+	# and host_tcp_ports, which "bananawiki firewall" adds as well.
+	set dns_resolvers_v4 {
+		type ipv4_addr
+		flags interval
+	}
+
+	set non_public_v4 {
+		type ipv4_addr
+		flags interval
+		elements = { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8,
+			     169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24,
+			     192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24,
+			     224.0.0.0/3 }
+	}
+
+	chain input {
+		type filter hook input priority -10; policy accept;
+		iifname "bwt*" jump tenant_to_host
+	}
+
+	chain tenant_to_host {
+		ct state established,related accept
+		meta nfproto ipv4 tcp dport @host_tcp_ports accept
+		meta nfproto ipv4 udp dport @host_udp_ports accept
+		counter drop
+	}
+
+	chain forward {
+		type filter hook forward priority -10; policy accept;
+		iifname "bwt*" jump tenant_forward
+	}
+
+	chain tenant_forward {
+		meta nfproto ipv6 counter drop
+		oifname "bwt*" counter drop
+		ct state established,related accept
+		ip daddr @allowed_private_v4 accept
+		ip daddr @dns_resolvers_v4 meta l4proto { tcp, udp } th dport 53 accept
+		ip daddr @non_public_v4 counter drop
+	}
+}

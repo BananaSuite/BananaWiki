@@ -11,7 +11,7 @@ it.
 
 ## Display preferences
 
-Open **Customize** in the topbar for your **Display preferences**. These change
+Open **Customise** in the topbar for your **Display preferences**. These change
 how the wiki looks for you only: light or dark
 theme, text size, line and letter spacing, content and sidebar width,
 contrast, your own colours, a background picture, a dyslexia-friendly font,
@@ -19,10 +19,10 @@ reduced motion, and how strongly bold text, links, headings and code stand
 out. **Reset display preferences** returns to the site's defaults and removes
 your background picture; your language and mascot choices stay as they are.
 
-If your wiki has the mascot, a banana in place of the logo, a click makes it
-hop; the site name next to it leads to the home page. **Customize** hides it
-(the logo comes back) or takes off the sunglasses it wears after enough
-clicks.
+If your wiki has the mascot, a banana in place of the logo in the topbar, a
+click makes it hop; the site name next to it leads to the home page. Here
+under **Customise** you can hide it (the logo comes back), or take its
+sunglasses off if you found out how to put them on.
 
 ## Language
 
@@ -33,7 +33,9 @@ have not switched it off. Pages themselves are not translated.
 ## Password and user name
 
 Change your password in Settings. Doing so signs out your other sessions (the
-current one stays) and stops your API tokens. Changing your user name
+current one stays) and stops your API tokens. A new password needs at least 8
+characters, must not contain your user name or the part of your email address
+before the @, and must not be one of the most common passwords. Changing your user name
 leaves pages as they are: `@mentions` of your old name still lead to your
 profile, and nobody else can take that name unless an administrator releases
 it. You can change it three times a day.

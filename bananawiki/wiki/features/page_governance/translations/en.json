@@ -48,7 +48,7 @@
   "page_governance.directory.cooldown": "Cooldown until {until}",
   "page_governance.directory.empty": "There are no pages you can reserve.",
   "page_governance.directory.free": "Available",
-  "page_governance.directory.reserved_by": "{user} until {until}",
+  "page_governance.directory.reserved_by": "Reserved by {user} until {until}",
   "page_governance.directory.title": "Page reservations",
   "page_governance.directory.uncategorized": "Uncategorised",
   "page_governance.directory.until": "until {until}",
@@ -63,7 +63,7 @@
   "page_governance.notice.admin_override": "As an administrator you can still edit it; please coordinate with them.",
   "page_governance.notice.cooldown": "You can reserve this page again after {until}.",
   "page_governance.notice.protected_by": "Protected by {user} since {since}.",
-  "page_governance.notice.protected_by_you": "You have protected this page since {since}. Other editors cannot change it.",
+  "page_governance.notice.protected_by_you": "Protected by you since {since}. Other editors cannot change it.",
   "page_governance.notice.reserved_by": "Reserved by {user} until {until}.",
   "page_governance.notice.reserved_by_you": "You have reserved this page until {until}.",
   "page_governance.notice.unlock_requested": "{user} asked to unlock it; the protection can be removed from {ready}.",
@@ -100,6 +100,7 @@
   "page_governance.quota.error.reason_too_long": "The text can be at most {limit} characters long.",
   "page_governance.quota.history": "Request history",
   "page_governance.quota.in_use": "Reservations in use",
+  "page_governance.quota.intro": "How many pages you can reserve at the same time. A reservation keeps a page for you while you work on it.",
   "page_governance.quota.my_reservations": "Active reservations",
   "page_governance.quota.new_quota": "Quota",
   "page_governance.quota.pending_body": "Requested {quota} on {date}.",
@@ -146,5 +147,6 @@
   "page_governance.setting.page_reservations_enabled": "Page reservations",
   "page_governance.setting.page_reservations_enabled_hint": "Editors can check out a page for a limited time.",
   "page_governance.setting.quota_request_cooldown_hours": "Wait between quota requests (hours)",
-  "page_governance.setting.reservation_quota_auto_approve_max": "Approve quota requests automatically up to"
+  "page_governance.setting.reservation_quota_auto_approve_max": "Auto-approve requests up to (reservations)",
+  "page_governance.setting.reservation_quota_auto_approve_max_hint": "Requests for at most this many reservations are approved at once. 0 = an administrator always decides."
 }

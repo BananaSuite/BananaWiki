@@ -46,7 +46,8 @@ def register(
     accounts.validate_username(username)
     if password_hash is None:
         # Hash before taking the write lock: it is the slow part.
-        password_hash = accounts.hash_password(accounts.validate_password(password))
+        password_hash = accounts.hash_password(accounts.validate_password(
+            password, username=username, email=(extra or {}).get("email")))
     needs_invite = invite_required()
     if needs_invite and not invites.normalize(invite_code):
         raise accounts.AccountError("auth.signup.error.invite_required")

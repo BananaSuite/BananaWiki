@@ -12,10 +12,11 @@ import functools
 from collections.abc import Callable
 from typing import Any
 
-from flask import Blueprint, abort, redirect, render_template, request, url_for
+from flask import Blueprint, abort, jsonify, make_response, redirect, render_template, request, url_for
 
 from ... import auth, registry
 from ...db import db
+from ...i18n import t
 from ..pages import access, diff, rendering, service
 from ..pages.blueprint import page_url, rate_limited, visible_page_or_404
 
@@ -41,9 +42,16 @@ def _readable_page(slug: str) -> dict[str, Any]:
 
 
 def _managed_page(slug: str, permission: str) -> dict[str, Any]:
+    """A page the user may change the history of: protection, reservations and the deletion freeze apply."""
     page = _readable_page(slug)
     if not auth.has_permission(permission) or not service.can_edit(page):
         abort(403)
+    blocked = access.edit_blocked(page)
+    if blocked:
+        if auth.wants_json():
+            abort(make_response(jsonify({"error": t(blocked)}), 423))
+        auth.flash_t(blocked, "error")
+        abort(redirect(page_url(page)))
     return page
 
 
@@ -125,10 +133,6 @@ def attach(bp: Blueprint) -> None:
     def revert(slug: str, entry_id: int):
         page = _managed_page(slug, "history.revert")
         _entry_or_404(page, entry_id)
-        blocked = access.edit_blocked(page)
-        if blocked:
-            auth.flash_t(blocked, "error")
-            return redirect(page_url(page))
         try:
             service.revert(page, entry_id, author_id=auth.current_user()["id"])
         except service.PageError as exc:

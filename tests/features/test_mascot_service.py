@@ -107,11 +107,11 @@ def test_bulk_action_reads_the_raw_keys_and_counts_exactly(app, admin_client, ma
     assert _prefs(db, accounts["hidden"]) == {"mascot_enabled": 1, "theme_mode": "dark"}
     monkeypatch.undo()
 
-    # The audit entry still says how many accounts changed.
+    # The audit entry still says how many accounts changed (one action name per button, see test_mascot).
     admin_client.post("/admin/appearance/mascot", data={"action": "shades_on"})
     details = db.scalar("SELECT details FROM audit_log WHERE action = ? ORDER BY id DESC LIMIT 1",
-                        ("mascot.bulk_updated",))
-    assert json.loads(details) == {"action": "shades_on", "accounts": everyone}
+                        ("mascot.everyone.shades_on",))
+    assert json.loads(details) == {"count": everyone}
 
 
 @pytest.mark.parametrize(("raw", "enabled", "shades"), [

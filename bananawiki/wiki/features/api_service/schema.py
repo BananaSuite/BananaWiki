@@ -14,6 +14,11 @@
   failures and the automatic switch-off it led to.
 * ``site_settings.api_service_webhook_max_failures``: failed attempts in a
   row after which a webhook is switched off (0: never).
+
+Version 8 adds ``api_service__tokens.parent_id``: the token that issued a
+token through ``POST /tokens``, so revoking a token revokes what it issued.
+Tokens of earlier versions have none. It carries its own DDL: see
+:mod:`bananawiki.wiki.migrations.v8_tokens_and_chat_safety`.
 """
 
 from __future__ import annotations

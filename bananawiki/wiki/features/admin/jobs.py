@@ -37,7 +37,11 @@ def last_logout_moment(hour: int):
 
 
 def auto_logout() -> None:
-    """Daily sign-out of everyone at ``auto_logout_hour`` (site time zone).
+    """Daily sign-out of users and editors at ``auto_logout_hour`` (site time zone).
+
+    Any administrator may switch it on and choose the hour, so it ends only
+    the sessions every administrator may end (as their mass sign-out does):
+    administrators, owners and superusers stay signed in.
 
     The job runs every few minutes. It acts when the configured hour passed
     since its previous run and then revokes only the sessions that started
@@ -53,7 +57,8 @@ def auto_logout() -> None:
         return
     cutoff = to_sql(moment)
     count = db.execute(
-        "UPDATE user_sessions SET revoked_at = ? WHERE revoked_at IS NULL AND created_at < ?",
+        "UPDATE user_sessions SET revoked_at = ? WHERE revoked_at IS NULL AND created_at < ? "
+        f"AND user_id IN (SELECT id FROM users WHERE {service.BELOW_ADMINISTRATORS_SQL})",
         (to_sql(utcnow()), cutoff),
     ).rowcount
     log.info("Scheduled sign-out ended %d session(s)", count)

@@ -12,7 +12,7 @@
   <meta name="color-scheme" content="dark light">
   <title>{% block title %}{{ site_name() }}{% endblock %}{% if self.title() != site_name() %} · {{ site_name() }}{% endif %}</title>
   <link rel="icon" href="{{ favicon_url() }}">
-  <link rel="apple-touch-icon" href="{{ url_for('static', filename='favicons/banana_yellow.png') }}">
+  <link rel="apple-touch-icon" href="{{ asset_url('favicons/apple-touch-icon.png') }}">
   <link rel="stylesheet" href="{{ asset_url('css/bananawiki.css') }}">
   <link rel="stylesheet" href="{{ asset_url('css/content.css') }}">
   <link rel="stylesheet" href="{{ asset_url('css/pygments.css') }}">
@@ -23,14 +23,20 @@
   <a class="skip-link" href="#main">{{ t('a11y.skip_to_content') }}</a>
   {% include "layout/_banners.html" %}
   {% block shell %}
-  <div class="shell">
+  {#- A visitor with nothing to browse (signed out on a private wiki: no page tree, no apps) gets no
+      sidebar and no menu button: the content takes the whole width instead of an empty column. -#}
+  {% set sidebar_html %}{% block sidebar %}{% include "layout/_sidebar.html" %}{% endblock %}{% endset %}
+  {% set has_sidebar = sidebar_html|trim|length > 0 %}
+  <div class="shell{% if not has_sidebar %} shell--no-sidebar{% endif %}">
     <header class="topbar">
+      {% if has_sidebar %}
       <button type="button" class="btn btn--ghost btn--icon topbar__menu-toggle" data-sidebar-toggle
               aria-controls="sidebar" aria-expanded="false" aria-label="{{ t('nav.menu') }}"><svg class="icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button>
+      {% endif %}
       {%- set brand_icon = slot('topbar.brand') %}
       {{ brand_icon }}
       <a class="topbar__brand" href="/">
-        {% if not brand_icon %}<img src="{{ url_for('static', filename='favicons/banana_yellow.png') }}" alt="" width="24" height="24">{% endif %}<span>{{ site_name() }}</span>
+        {% if not brand_icon %}<img class="topbar__logo" src="{{ asset_url('favicons/banana_yellow.png') }}" alt="" width="32" height="32">{% endif %}<span>{{ site_name() }}</span>
       </a>
       <div class="topbar__spacer"></div>
       <div class="topbar__actions">
@@ -41,9 +47,11 @@
         {% include "layout/_user_menu.html" %}
       </div>
     </header>
+    {% if has_sidebar %}
     <nav class="sidebar" id="sidebar" aria-label="{{ t('nav.sidebar') }}">
-      {% block sidebar %}{% include "layout/_sidebar.html" %}{% endblock %}
+      {{ sidebar_html }}
     </nav>
+    {% endif %}
     <main id="main" class="main {% block main_class %}{% endblock %}" tabindex="-1">
       <div class="content-column">
         {% block content %}{% endblock %}

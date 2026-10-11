@@ -127,6 +127,22 @@ def test_gpu_settings_ignore_tenant_columns_on_managed_hosting(app, db):
         assert options.backend_name() == "piper"
 
 
+def test_gpu_settings_never_send_the_environment_token_to_a_saved_url(app, db):
+    """An operator token from the environment only goes to the operator's URL, never to one an admin saved."""
+    db.execute("UPDATE site_settings SET tts_gpu_enabled = 1, tts_gpu_url = 'http://evil.example', "
+               "tts_gpu_auth_token = 'tenant-token'")
+    with app.test_request_context(), connection_scope():
+        cfg = options.config()
+        app.extensions["bananawiki.tts.config"] = options.TtsConfig(**{**cfg.__dict__, "gpu_token": "operator-token"})
+        url, token, _timeout = options.gpu_settings()
+        assert (url, token) == ("", "operator-token")
+        assert options.backend_name() == "piper"
+        # An address from the environment may still use the token saved by the admin.
+        app.extensions["bananawiki.tts.config"] = options.TtsConfig(
+            **{**cfg.__dict__, "gpu_url": "http://gpu.internal:8787"})
+        assert options.gpu_settings()[:2] == ("http://gpu.internal:8787", "tenant-token")
+
+
 # ── Standalone GPU server ─────────────────────────────────────────────────────
 
 
@@ -235,8 +251,75 @@ def test_gpu_server_limits_and_validation(gpu_server):
 def test_gpu_server_health_hides_details_without_token(gpu_server):
     port, _engine, _module = gpu_server
     status, data = call(port, "GET", "/health", token=None)
-    assert status == 200 and json.loads(data) == {"status": "ok", "version": "1.6.0"}
+    assert status == 200 and json.loads(data) == {"status": "ok", "version": "1.7.0"}
     assert json.loads(call(port, "GET", "/health")[1])["gpu_available"] is True
+
+
+def _slow_server(module, **values):
+    settings = module.Settings(token="x" * 32, port=0, **values)
+    server = module.make_server(settings, FakeEngine())
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def _closed_by_server(sock, within: float) -> bool:
+    sock.settimeout(within)
+    try:
+        return sock.recv(1024) == b""
+    except TimeoutError:
+        return False
+    except ConnectionError:
+        return True
+
+
+def test_gpu_server_drops_connections_that_send_too_slowly():
+    import socket
+
+    module = load_server()
+    assert module.Settings.from_env({"TTS_AUTH_TOKEN": "x" * 32}).socket_timeout == 30.0
+    server = _slow_server(module, socket_timeout=0.5)
+    try:
+        port = server.server_address[1]
+        idle = socket.create_connection(("127.0.0.1", port), timeout=5)
+        idle.sendall(b"POST /synthesize HTTP/1.1\r\nHost: x\r\n")  # headers never finish
+        body = socket.create_connection(("127.0.0.1", port), timeout=5)
+        body.sendall(b"POST /synthesize HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer " + b"x" * 32
+                     + b"\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{")  # body never finishes
+        assert _closed_by_server(idle, 5)
+        assert _closed_by_server(body, 5)
+        idle.close()
+        body.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_gpu_server_caps_open_connections():
+    import socket
+
+    module = load_server()
+    assert module.Settings.from_env({"TTS_AUTH_TOKEN": "x" * 32}).max_connections == 64
+    server = _slow_server(module, max_connections=1, socket_timeout=10)
+    try:
+        port = server.server_address[1]
+        first = socket.create_connection(("127.0.0.1", port), timeout=5)
+        first.sendall(b"GET /health HTTP/1.1\r\nHost: x\r\n")  # holds the only connection
+        second = socket.create_connection(("127.0.0.1", port), timeout=5)
+        assert _closed_by_server(second, 5), "a connection over the cap is closed at once"
+        assert not _closed_by_server(first, 0.3)
+        first.close()
+        second.close()
+        # Once the first connection is gone, new ones are served again.
+        for _attempt in range(50):
+            try:
+                status, _data = call(port, "GET", "/health", token=None)
+                break
+            except (ConnectionError, http.client.RemoteDisconnected):
+                threading.Event().wait(0.05)
+        assert status == 200
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_gpu_server_refuses_to_start_without_token():
@@ -282,3 +365,13 @@ def test_gpu_server_accepts_per_wiki_tokens_and_revokes_single_wikis():
     assert not module.token_valid(settings, tenant_tts_token(master, "badwiki1"))
     assert not module.token_valid(settings, tenant_tts_token("other" * 8, "goodwiki1"))
     assert not module.token_valid(settings, token.replace("goodwiki1", "goodwiki2"))
+
+
+def test_gpu_server_versions_with_the_release(gpu_server):
+    """The GPU server ships in this repository and is released with BananaWiki: same version, same README."""
+    import bananawiki
+
+    _port, _engine, module = gpu_server
+    assert bananawiki.__version__ == module.VERSION
+    readme = Path(module.__file__).with_name("README.md").read_text(encoding="utf-8")
+    assert f'"version": "{bananawiki.__version__}"' in readme

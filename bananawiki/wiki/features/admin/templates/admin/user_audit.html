@@ -3,10 +3,10 @@
 {% block title %}{{ t('admin.audit.title') }} · {{ target.username }}{% endblock %}
 {% block admin_content %}
 {% set attr_url = url_for('admin.attributions', user_id=target.id) %}
-<nav class="breadcrumbs" aria-label="{{ t('common.back') }}"><ol>
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
   <li><a href="{{ url_for('admin.users') }}">{{ t('admin.users.title') }}</a></li>
   <li><a href="{{ url_for('admin.user_detail', user_id=target.id) }}">{{ target.username }}</a></li>
-  <li>{{ t('admin.audit.title') }}</li>
+  <li aria-current="page">{{ t('admin.audit.title') }}</li>
 </ol></nav>
 <header class="page-header"><h1>{{ t('admin.audit.heading', username=target.username) }}</h1></header>
 
@@ -81,7 +81,7 @@
 
 <section class="card">
   <h2>{{ t('admin.attributions.title') }}</h2>
-  <p>{{ t('admin.attributions.count', count=contributions) }}</p>
+  <p>{{ tn('admin.attributions.count', contributions) }}</p>
   {% if contributions and not protection %}
   <div class="section-stack">
     {{ forms.post_button(attr_url, t('admin.attributions.remove_all'), 'btn btn--danger', confirm=t('admin.attributions.remove_confirm'), hidden={'action': 'deattribute_all'}) }}

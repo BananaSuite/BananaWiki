@@ -1,6 +1,9 @@
 {
   "feature.temporary_accounts.description": "Delete pages and accounts, hide pages or revert roles automatically at a set time.",
   "feature.temporary_accounts.name": "Temporary accounts and pages",
+  "temporary_accounts.admin_user.deleted_on": "This account is deleted automatically on {date}.",
+  "temporary_accounts.admin_user.manage": "Temporary items",
+  "temporary_accounts.admin_user.title": "Temporary account",
   "temporary_accounts.col.countdown": "Countdown shown",
   "temporary_accounts.col.expires": "When",
   "temporary_accounts.col.page": "Page",

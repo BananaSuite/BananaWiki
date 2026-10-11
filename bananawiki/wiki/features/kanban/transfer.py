@@ -9,8 +9,8 @@ plain JSON upload, and only the files tickets refer to are streamed into
 storage, through the normal upload checks, within ``MAX_UNCOMPRESSED`` and
 the storage left under a quota. 1.6 exports add each
 column's ``wip_limit``, each ticket's ``checklist``, ``"archived": true`` on
-archived tickets and on an archived board (imported as archived again);
-documents without them import as before.
+archived tickets and on an archived board (imported as archived again); 1.7
+adds each column's ``done`` flag. Documents without them import as before.
 """
 
 from __future__ import annotations
@@ -28,10 +28,11 @@ from werkzeug.datastructures import FileStorage
 
 from ....core.json import loads as safe_json_loads
 from ....core.timeutil import now_sql, utcnow
+from ....core.zipcheck import readable_member
 from ... import storage
 from ...db import db
 from ...i18n import t
-from . import access, events, extras, fields, history, signals, store
+from . import access, events, extras, fields, history, logtext, signals, store
 from .fields import KanbanError
 
 FORMAT_VERSION = "1.2"
@@ -45,8 +46,6 @@ MAX_RATIO = 200  # largest unpacked/packed ratio of a bundled file over 1 MiB
 # zipfile turns every central directory entry into an object: a directory
 # larger than this per allowed member is refused before it is read.
 _DIRECTORY_PER_MEMBER = 512
-# General purpose flags zipfile cannot unpack: encryption (bit 0), patched data (5), strong encryption (6).
-_UNREADABLE_FLAGS = 0x61
 # What zipfile raises on an archive it cannot read (OverflowError: an offset
 # past any a file can seek to); OSError as well while the archive or a member
 # is opened, not while a member is saved (then it is a storage fault).
@@ -83,7 +82,8 @@ def export(board: dict[str, Any]) -> tuple[dict[str, Any], list[tuple[str, str]]
         "title": board["title"],
         "description": board["description"] or "",
         "columns": [
-            {"title": column["title"], "wip_limit": column["wip_limit"], "tickets": [
+            {"title": column["title"], "wip_limit": column["wip_limit"], "done": bool(column.get("done")),
+             "tickets": [
                 {"title": ticket["title"], "description": ticket["description"], "priority": ticket["priority"],
                  "due_date": ticket["due_date"], "color": ticket["color"], "labels": ticket["labels"],
                  "assignee_usernames": ticket["assignee_usernames"], "checklist": ticket["checklist"],
@@ -162,12 +162,6 @@ def _directory_size(stream: BinaryIO) -> int | None:
     return end[size] if end else None
 
 
-def _readable(info: zipfile.ZipInfo) -> bool:
-    """Stored or deflated, neither encrypted nor patched: the only members unpacked in bounded memory."""
-    return (info.compress_type in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)
-            and not info.flag_bits & _UNREADABLE_FLAGS)
-
-
 def _read(upload: BinaryIO) -> _Parsed:
     """The document, and for a ZIP the open archive with its attachment entries (none unpacked yet)."""
     head = upload.read(4)
@@ -210,7 +204,7 @@ def _contents(archive: zipfile.ZipFile) -> tuple[dict[str, Any], dict[str, zipfi
             document = info
         elif name.startswith("attachments/"):
             attachments[name] = info
-    if document is None or document.file_size > MAX_JSON or not _readable(document):
+    if document is None or document.file_size > MAX_JSON or not readable_member(document):
         raise KanbanError("kanban.error.import_invalid")
     try:
         with archive.open(document) as source:
@@ -283,8 +277,8 @@ def _store_bundled(parsed: _Parsed, columns: list[dict[str, Any]], saved: dict[s
                 info = parsed.members.get(path)
                 if info is None or path in saved or info.file_size > min(limit, budget):
                     continue
-                if not _readable(info) or (info.file_size > MIB
-                                           and info.file_size > MAX_RATIO * max(info.compress_size, 1)):
+                if not readable_member(info) or (info.file_size > MIB
+                                                 and info.file_size > MAX_RATIO * max(info.compress_size, 1)):
                     raise KanbanError("kanban.error.import_invalid")
                 budget -= info.file_size
                 name = str(attachment.get("original_name") or "file")[:255]
@@ -312,7 +306,8 @@ def import_board(user: dict[str, Any], upload: FileStorage | None) -> dict[str, 
         for item in parsed.document.get("columns", [])[:MAX_COLUMNS]:
             if isinstance(item, dict):
                 tickets = [ticket for ticket in item.get("tickets") or [] if isinstance(ticket, dict)]
-                columns.append({"title": item.get("title"), "wip_limit": item.get("wip_limit"), "tickets": tickets})
+                columns.append({"title": item.get("title"), "wip_limit": item.get("wip_limit"),
+                                "done": item.get("done"), "tickets": tickets})
         if sum(len(column["tickets"]) for column in columns) > MAX_TICKETS:
             raise KanbanError("kanban.error.import_invalid")
         _store_bundled(parsed, columns, saved)
@@ -347,6 +342,7 @@ def _create(user: dict[str, Any], document: dict[str, Any], columns: list[dict[s
                 "board_id": board_id, "sort_order": column_index, "created_at": now,
                 "title": _clean(column["title"], fields.MAX_COLUMN_TITLE, t("kanban.import.untitled_column")),
                 "wip_limit": fields.stored_wip_limit(column["wip_limit"]),
+                "is_done": fields.stored_done_flag(column["done"]),
             })
             positions = {False: 0, True: 0}
             for item in column["tickets"]:
@@ -370,7 +366,7 @@ def _create(user: dict[str, Any], document: dict[str, Any], columns: list[dict[s
                         "original_name": stored.original_name, "file_size": stored.size,
                         "uploaded_by": user["id"], "uploaded_at": now,
                     })
-        message = t("kanban.log.board_imported", title=title)
+        message = logtext.message("kanban.log.board_imported", title=title)
         events.append(board_id, "board_reset", {}, user["id"])
         events.log_activity(board_id, user["id"], "board_imported", message)
         history.record(board_id, user["id"], message)

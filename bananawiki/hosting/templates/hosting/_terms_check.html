@@ -1,0 +1,2 @@
+{#- The consent box of the sign-up form and of the new-terms page: one sentence with both links. -#}
+<label class="check"><input type="checkbox" name="accept_terms" value="1" required{% if request.form.get('accept_terms') %} checked{% endif %}{% if field_error('terms') %} aria-invalid="true"{% endif %}><span>{{ tm('hosting.signup.accept_terms_sentence', terms=link(url_for('public.terms'), t('hosting.signup.terms')), privacy=link(url_for('public.privacy'), t('hosting.signup.privacy'))) }}</span></label>

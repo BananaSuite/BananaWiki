@@ -6,11 +6,11 @@ A short tour for new administrators. The full reference is in the
 
 ## Trust
 
-Administrators can do everything, including installing plugins and importing
-a whole site, each of which gives complete control of the wiki. Only give the
-role to people you trust with everything. Owners and superusers are protected
-from other administrators: only owners and superusers can change an
-administrator.
+Installing third-party plugins and importing a whole site each give complete
+control of the wiki, so only owners and superusers can do them. Other
+administrators still manage every other account and all content: only give the
+role to people you trust with that. Owners and superusers are protected from
+other administrators: only owners and superusers can change an administrator.
 
 ## The Admin area
 

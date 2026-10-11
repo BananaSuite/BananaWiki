@@ -1,16 +1,25 @@
 {% extends "hosting/base.html" %}
+{% set active_page = 'admin' if current_account.is_admin and instance.account_id != current_account.id else 'dashboard' %}
 {% block title %}{{ t('hosting.analytics.title') }}{% endblock %}
 {% block content %}
-<nav class="breadcrumbs"><a href="{{ url_for('dashboard.instance_detail', instance_id=instance.id) }}">{{ instance.subdomain }}</a></nav>
+<nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('dashboard.instance_detail', instance_id=instance.id) }}">{{ instance.subdomain }}</a></nav>
 <h1>{{ t('hosting.analytics.title') }}</h1>
 <form method="get" class="cluster"><label for="f-days" class="label">{{ t('hosting.analytics.days') }}</label>
-  <select id="f-days" name="days" data-autosubmit>{% for d in (7, 30, 90, 365) %}<option value="{{ d }}"{% if d == days %} selected{% endif %}>{{ d }}</option>{% endfor %}</select></form>
+  <select id="f-days" name="days" data-autosubmit>{% for d in (7, 30, 90, 365) %}<option value="{{ d }}"{% if d == days %} selected{% endif %}>{{ t('hosting.api_tokens.days', count=d) }}</option>{% endfor %}</select>
+  <noscript><button class="btn btn--small" type="submit">{{ t('hosting.analytics.apply') }}</button></noscript></form>
 <div class="stats">
   {% for kind in ('request', 'page_view', 'error') %}<div class="stat"><span class="stat__value">{{ summary.totals.get(kind, 0) }}</span><span class="stat__label">{{ t('hosting.analytics.' ~ kind) }}</span></div>{% endfor %}
 </div>
+{#- One bar per day of the period (days without traffic are empty), scaled to the busiest day of page views;
+    the axis names the first and last day of the period. -#}
+{% set view_peak = [1] + chart|map(attribute='page_view')|map('int')|list %}
 <section class="card"><h2>{{ t('hosting.analytics.page_view') }}</h2>
-<div class="bars" role="img" aria-label="{{ t('hosting.analytics.chart') }}">{% for row in summary.daily %}<span style="height: {{ (row.page_view or 0) * 100 // peak }}%" title="{{ row.day }}: {{ row.page_view }}"></span>{% endfor %}</div></section>
+<div class="bars{% if chart|length > 120 %} bars--year{% elif chart|length > 45 %} bars--dense{% endif %}" role="img" aria-label="{{ t('hosting.analytics.chart') }}">{% for row in chart %}<span{% if not row.page_view %} class="bars__empty"{% endif %} style="height: {{ (row.page_view or 0)|int * 100 // view_peak|max }}%" title="{{ row.day }}: {{ row.page_view or 0 }}"></span>{% endfor %}</div>
+{% if chart %}<div class="bars-axis" aria-hidden="true"><span>{{ chart[0].day }}</span>{% if chart|length > 1 %}<span>{{ chart[-1].day }}</span>{% endif %}</div>{% endif %}
+{% if not chart|selectattr('page_view')|list %}<p class="small muted">{{ t('hosting.analytics.no_views') }}</p>{% endif %}</section>
 <div class="table-wrap"><table class="table"><thead><tr><th>{{ t('hosting.analytics.day') }}</th><th>{{ t('hosting.analytics.request') }}</th><th>{{ t('hosting.analytics.page_view') }}</th><th>{{ t('hosting.analytics.error') }}</th></tr></thead><tbody>
-{% for row in summary.daily|reverse %}<tr><td>{{ row.day }}</td><td>{{ row.request }}</td><td>{{ row.page_view }}</td><td>{{ row.error }}</td></tr>{% endfor %}
+{#- Only the days that had traffic: the wiki reports every day of the period, mostly zeros over a year. -#}
+{% for row in summary.daily|reverse if row.request or row.page_view or row.error %}<tr><td class="date">{{ row.day }}</td><td>{{ row.request }}</td><td>{{ row.page_view }}</td><td>{{ row.error }}</td></tr>
+{% else %}<tr><td colspan="4" class="muted">{{ t('hosting.analytics.no_traffic') }}</td></tr>{% endfor %}
 </tbody></table></div>
 {% endblock %}

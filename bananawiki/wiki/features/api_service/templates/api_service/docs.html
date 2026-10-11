@@ -7,20 +7,22 @@
 <section class="card">
   <h2>{{ t('api_service.docs.auth') }}</h2>
   <p>{{ t('api_service.docs.auth_body') }}</p>
-  <pre class="mono">curl -H "Authorization: Bearer $TOKEN" {{ example_url }}/api/v1/pages</pre>
+  <pre class="mono code-sample">curl -H "Authorization: Bearer $TOKEN" {{ example_url }}/api/v1/pages</pre>
   <p>{{ t('api_service.docs.scopes') }} {% for scope in scopes %}<code>{{ scope }}</code>{{ ', ' if not loop.last }}{% endfor %}</p>
   <p>{{ t('api_service.docs.errors') }}</p>
-  <pre class="mono">{"ok": false, "error": "…", "code": "page_not_found"}</pre>
+  <pre class="mono code-sample">{"ok": false, "error": "…", "code": "page_not_found"}</pre>
   <p><a href="{{ url_for('api_v1.openapi_description') }}">{{ t('api_service.docs.openapi') }}</a></p>
 </section>
 <section class="card">
   <h2>{{ t('api_service.docs.conventions') }}</h2>
-  <p>{{ t('api_service.docs.conventions_body') }}</p>
+  <p class="api-conventions">{{ t_code('api_service.docs.conventions_body', limit='limit', offset='offset', next_offset='next_offset', null='null',
+                 idempotency_key='Idempotency-Key', post='POST', etag='ETag', if_match='If-Match',
+                 rate_limit='X-RateLimit-Limit', rate_remaining='X-RateLimit-Remaining', rate_reset='X-RateLimit-Reset') }}</p>
 </section>
 {% for group, endpoints in groups.items() %}
 <section class="card">
   <h2>{{ t('api_service.docs.group.' ~ group) }}</h2>
-  <div class="table-wrap"><table class="table">
+  <div class="table-wrap"><table class="table table--stack api-endpoints">
     <thead><tr>
       <th scope="col">{{ t('api_service.docs.method') }}</th>
       <th scope="col">{{ t('api_service.docs.path') }}</th>
@@ -31,9 +33,9 @@
     {% for endpoint in endpoints %}
     <tr>
       <td><span class="badge">{{ endpoint.method }}</span></td>
-      <td class="mono">/api/v1{{ endpoint.path }}</td>
-      <td>{% if endpoint.scope %}<code>{{ endpoint.scope }}</code>{% if endpoint.write %} + {{ t('api_service.docs.write') }}{% endif %}{% else %}—{% endif %}</td>
-      <td>{{ t('api_service.endpoint.' ~ endpoint.method|lower ~ ' ' ~ endpoint.path) }}</td>
+      <td class="api-endpoints__path"><code>{{ ('/api/v1' ~ endpoint.path)|path_breaks }}</code></td>
+      <td data-label="{{ t('api_service.docs.scope') }}">{% if endpoint.scope %}<code>{{ endpoint.scope }}</code>{% if endpoint.write %} <span class="nowrap">+ {{ t('api_service.docs.write') }}</span>{% endif %}{% else %}—{% endif %}</td>
+      <td class="api-endpoints__desc">{{ t('api_service.endpoint.' ~ endpoint.method|lower ~ ' ' ~ endpoint.path) }}</td>
     </tr>
     {% endfor %}
     </tbody>

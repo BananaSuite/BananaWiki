@@ -8,6 +8,7 @@ the whole controller against a fake host. All commands go through
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import grp
 import http.client
@@ -29,11 +30,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from . import MANAGED_MARKER, project_quota, units
+from . import MANAGED_MARKER, project_quota, tenant_quotas, units
 from .caddy_blocks import parse_version
-from .files import Refused, atomic_write, digest_file, read_environment, read_json
-from .profile import TENANT_IMAGE, ReleaseFeatures, Service, hosting_storage_link, inside_tenant
-from .runtime_agent import ROUTES_FILE, ROUTES_WANTED
+from .files import (
+    TENANT_DEPTH,
+    Refused,
+    atomic_write,
+    digest_file,
+    open_directory,
+    open_regular,
+    read_environment,
+    read_json,
+)
+from .profile import TENANT_IMAGE, ReleaseFeatures, Service, agent_socket, hosting_storage_link, inside_tenant
+from .runtime_agent import ISOLATED_WIKIS, ROUTES_FILE, ROUTES_WANTED, AgentError, load_config
 
 Runner = Callable[..., subprocess.CompletedProcess]
 AUXILIARY_SUFFIXES = ("-tts", "-maintenance", "-agent")
@@ -42,6 +52,33 @@ TRUE_VALUES = frozenset({"1", "true", "yes", "on"})  # how the portal reads a bo
 INSTANCE_ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]{0,63}")  # the portal's plugin state names (never an option)
 PLUGIN_FOLDER = "external_plugins"  # BW_EXTERNAL_PLUGINS_DIR inside the tenant's /data
 QUARANTINE_MARKER = "plugin_quarantine"  # under HOSTING_PLATFORM_STATE_DIR/<instance id>/
+SYSTEM_PYTHON = "/usr/bin/python3"  # what the installed command and the agent unit run the controller with
+PREFLIGHT_TIMEOUT = 180
+BUILDKIT_PACKAGES = ("On Debian and Ubuntu with Docker from the distribution (docker.io): sudo apt install "
+                     "docker-buildx. With Docker CE from Docker's repository (docker-ce): sudo apt install "
+                     "docker-buildx-plugin. Check with 'docker buildx version'.")
+
+
+def output_tail(result: subprocess.CompletedProcess, lines: int) -> str:
+    """The last *lines* non-empty lines a failed command printed (its error, usually), on one line."""
+    text = (result.stderr or "").strip() or (result.stdout or "").strip()
+    tail = [line.strip() for line in text.splitlines() if line.strip()][-lines:]
+    return " | ".join(tail)[-1000:]
+
+
+def platform_state_dir(root: Path, environment: dict[str, str]) -> Path:
+    """Where the portal keeps its platform state (``hosting/config.py``): next to its database unless configured."""
+    configured = environment.get("HOSTING_PLATFORM_STATE_DIR", "").strip()
+    if configured:
+        return Path(configured)
+    database = Path(environment.get("HOSTING_DATABASE_PATH", "").strip() or root / "data/hosting.db")
+    return database.parent / "platform_state"
+
+
+def _quarantine_marked(state: Path, instance_id: str) -> bool:
+    """Whether the plugin quarantine marker of *instance_id* is set, as the portal reads it (plugin_safety)."""
+    marker = state / instance_id / QUARANTINE_MARKER
+    return marker.is_file() and not marker.is_symlink()
 
 
 class Readiness(NamedTuple):
@@ -63,6 +100,23 @@ class TenantStorageUnsupported(Refused):
     """The wikis running when an operation began could not start again (:meth:`System.check_tenant_storage`)."""
 
 
+class BuildKitUnavailable(Refused):
+    """Docker cannot build with BuildKit (no buildx component), which the tenant image needs: nothing was changed."""
+
+
+class CandidateRefused(Refused):
+    """The new release's own preflight (``banana preflight``) refused this server before anything stopped."""
+
+
+class CandidateUnavailable(Refused):
+    """The new release's preflight could not decide because of the host for now (Docker did not answer, no answer
+    in time): nothing stopped, and the revision is not recorded as failed (the next run asks again)."""
+
+
+class InvalidTenantQuotas(Refused, ValueError):
+    """``BW_HOSTING_TENANT_QUOTAS`` in ``app.env`` is not auto, required or off; checked before anything changes."""
+
+
 def base_images(dockerfile: Path) -> list[str]:
     """The registry images a Dockerfile builds ``FROM`` (earlier stages, ``scratch`` and variables excluded)."""
     images: list[str] = []
@@ -77,6 +131,15 @@ def base_images(dockerfile: Path) -> list[str]:
         if len(words) >= 4 and words[2].upper() == "AS":
             stages.add(words[3].lower())
     return images
+
+
+def needs_buildkit(dockerfile: Path) -> bool:
+    """Whether a Dockerfile needs BuildKit: a ``# syntax=`` frontend or ``RUN --mount`` (every release since 1.7)."""
+    for line in dockerfile.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip().lower()
+        if stripped.startswith("# syntax=") or stripped.startswith("run") and "--mount=" in stripped:
+            return True
+    return False
 
 
 def set_release_owner(path: Path, uid: int, gid: int, *, readonly: bool = False) -> None:
@@ -173,8 +236,13 @@ class System:
 
     # Commands -------------------------------------------------------------
 
-    def run(self, command: Sequence[Any], *, check: bool = True, timeout: int = 600,
-            cwd: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+    def run(self, command: Sequence[Any], *, check: bool = True, timeout: int = 600, cwd: Path | None = None,
+            env: dict[str, str] | None = None, tail: int = 0) -> subprocess.CompletedProcess:
+        """Run *command*; with *check*, a failure raises with the private log's path and, given *tail*, the
+        last lines the command printed (for a build: why it failed, not only its exit code).
+
+        *env*, when given, is the command's whole environment: nothing of the
+        controller's own is added (a caller that wants it passes it along)."""
         arguments = [str(part) for part in command]
         result = self.runner(arguments, capture_output=True, text=True, timeout=timeout, cwd=cwd, check=False,
                              **({"env": env} if env is not None else {}))
@@ -185,8 +253,9 @@ class System:
                 atomic_write(log, ((result.stdout or "") + "\n" + (result.stderr or ""))[-100000:])
                 detail = f" Details are in the private log {log}."
             name = Path(arguments[0]).name
+            cause = output_tail(result, tail) if tail else ""
             raise RuntimeError(f"{name} {arguments[1] if len(arguments) > 1 else ''} failed "
-                               f"(exit {result.returncode}).{detail}")
+                               f"(exit {result.returncode}){': ' + cause if cause else ''}.{detail}")
         return result
 
     # Accounts and permissions ---------------------------------------------
@@ -243,6 +312,9 @@ class System:
         for current, directories, files, directory in os.fwalk(data, follow_symlinks=False):
             os.fchown(directory, uid, gid)
             os.fchmod(directory, 0o700)
+            if (hosting and directories and inside_tenant(Path(current), data)
+                    and len(Path(current).relative_to(data).parts) >= TENANT_DEPTH):
+                directories.clear()  # see TENANT_DEPTH: the tenant's own deeper folders are left as they are
             for name in (*directories, *files):
                 path = Path(current) / name
                 info = os.stat(name, dir_fd=directory, follow_symlinks=False)
@@ -303,13 +375,20 @@ class System:
                "--disable-pip-version-check", "--no-cache-dir", "--no-input"]
         self.run(["python3", "-m", "venv", str(release / ".venv")])
         set_release_owner(release / ".venv", uid, gid)
+        # 1.7 releases ship hash-pinned locks (scripts/lock_requirements.py): every package, the installer
+        # included, at the exact version and file hashes the release was tested with. Earlier releases (a
+        # rollback) resolve their requirements.txt ranges as they always did.
+        build_lock, lock = release / "requirements-build.lock", release / "requirements.lock"
+        locked = features.hardened and build_lock.is_file() and lock.is_file()
         # Python 3.11 ensurepip also installs setuptools; refresh inherited build tools before use.
-        self.run([*pip, "--only-binary=:all:", "--no-deps", "--upgrade", "pip>=26.2.1", "setuptools>=83"],
+        self.run([*pip, "--only-binary=:all:", "--no-deps", "--upgrade",
+                  *(["--require-hashes", "-r", str(build_lock)] if locked else ["pip>=26.2.1", "setuptools>=83"])],
                  timeout=600, cwd=release)
         print("Installing Python dependencies; this may take several minutes.", file=sys.stderr, flush=True)
         # 1.6 releases install wheels only: no package build scripts run on the server.
         binary = ["--only-binary=:all:"] if features.hardened else []
-        self.run([*pip, *binary, "-r", str(release / "requirements.txt")], timeout=1800, cwd=release)
+        self.run([*pip, *binary, *(["--require-hashes", "-r", str(lock)] if locked
+                                   else ["-r", str(release / "requirements.txt")])], timeout=1800, cwd=release)
         warnings: list[str] = []
         if settings["mode"] == "hosting":
             print("Building the tenant image from this source revision.", file=sys.stderr, flush=True)
@@ -342,6 +421,12 @@ class System:
         pulls and tries the new base image again.
         """
         dockerfile = release / "Dockerfile.tenant"
+        # Since 1.7 the Dockerfiles need BuildKit (RUN --mount): without its buildx component Docker would fall
+        # back to the legacy builder, which fails half way with "the --mount option requires BuildKit". An older
+        # release (a rollback) still builds with whichever builder Docker has.
+        buildkit = needs_buildkit(dockerfile)
+        if buildkit:
+            self.check_buildkit(settings)
         warnings: list[str] = []
         replaced: dict[str, tuple[str, str]] = {}  # base image -> (previous ID, ID the pull brought)
         for image in base_images(dockerfile):
@@ -359,12 +444,14 @@ class System:
         for warning in warnings:
             print(f"Warning: {warning}", file=sys.stderr, flush=True)
         refresh = "BW_REFRESH=" + datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        tag = f"{TENANT_IMAGE}:{settings['revision']}"
         build = ["docker", "build", "--pull=false", "--build-arg", refresh, "-f", str(dockerfile),
-                 "-t", f"{TENANT_IMAGE}:{settings['revision']}", str(release)]
+                 "-t", tag, str(release)]
         unused = {image: previous for image, (previous, _current) in replaced.items()}
+        environment = {**os.environ, "DOCKER_BUILDKIT": "1"} if buildkit else None
         try:
             try:
-                self.run(build, timeout=1800)
+                self.run(build, timeout=1800, env=environment, tail=6)
             except BaseException as error:
                 # Whatever stopped the build (a failure, a timeout, an interruption), the previous base image
                 # is the one whose FFmpeg and ACL stages Docker has cached, and the pull moved the tag off it:
@@ -374,7 +461,7 @@ class System:
                 names = ", ".join(replaced)
                 print(f"The tenant image did not build on the newly pulled {names}; retrying once on the "
                       "previous base image.", file=sys.stderr, flush=True)
-                self.run(build, timeout=1800)
+                self.run(build, timeout=1800, env=environment, tail=6)
                 warnings.append(f"The tenant image did not build on the newly pulled {names}: {error} It was "
                                 "built on the previous base image instead and may lack its latest fixes "
                                 "(distribution updates were still applied). The next release build pulls and "
@@ -390,6 +477,14 @@ class System:
                     self.run(["docker", "image", "rm", identifier], check=False, timeout=120)
                 except (OSError, subprocess.SubprocessError):
                     pass  # best effort: an image left behind is removed by a later build or prune
+        if self._image_field(tag, "{{.Id}}", present=True) is None:
+            # A buildx builder other than Docker's own (docker-container driver, selected with 'docker buildx use'
+            # or BUILDX_BUILDER) builds successfully and keeps the image in its own cache: every wiki would then
+            # be stopped for a release whose image Docker cannot run.
+            raise RuntimeError(f"The tenant image build finished, but Docker has no image {tag}: the build probably "
+                               "ran on a buildx builder that keeps its results to itself (see 'docker buildx ls'). "
+                               "Select Docker's own builder with 'docker buildx use default', then retry. "
+                               "Nothing was stopped.")
         return warnings
 
     def _tag_previous_bases(self, replaced: dict[str, tuple[str, str]], unused: dict[str, str]) -> bool:
@@ -407,7 +502,8 @@ class System:
             unused[image] = current
         return True
 
-    def _image_field(self, image: str, template: str) -> str | None:
+    def _image_field(self, image: str, template: str, *, present: bool = False) -> str | None:
+        """A field of *image*, or None when it is unknown; *present*: any non-None answer when Docker has it."""
         try:
             result = self.run(["docker", "image", "inspect", "--format", template, image], check=False,
                               timeout=30)
@@ -415,7 +511,7 @@ class System:
             return None
         if result.returncode:
             return None
-        return (result.stdout or "").strip() or None
+        return (result.stdout or "").strip() or ("" if present else None)
 
     def image_created(self, image: str) -> str | None:
         """When *image* was built (Docker's ``Created``), or None when unknown."""
@@ -532,37 +628,212 @@ class System:
         except (RuntimeError, OSError, subprocess.SubprocessError) as error:
             raise DockerUnavailable(f"Docker did not answer, so nothing was changed: {error}") from error
 
-    def check_tenant_storage(self, settings: dict[str, Any]) -> None:
-        """Fail with :class:`TenantStorageUnsupported` unless the running wikis could start again (hosting only).
+    def check_buildkit(self, settings: dict[str, Any]) -> None:
+        """Fail with :class:`BuildKitUnavailable` unless Docker can build with BuildKit (hosting only).
 
-        For releases whose runtime agent starts a wiki only on storage that
-        enforces XFS project quotas. Checked, like :meth:`check_docker`,
-        before an operation stops anything: on other storage every wiki it
-        stops would stay down until the readiness checks give up. Without a
-        running wiki nothing would be kept down, and nothing is checked.
+        The tenant image of every release since 1.7 needs it. Checked before
+        an update prepares (so before it stops) anything, and before each build.
         """
         if settings["mode"] != "hosting":
             return
+        try:
+            result = self.run(["docker", "buildx", "version"], check=False, timeout=30)
+        except (OSError, subprocess.SubprocessError) as error:
+            cause = str(error)
+        else:
+            if not result.returncode:
+                return
+            cause = output_tail(result, 2) or f"exit {result.returncode}"
+        raise BuildKitUnavailable(
+            "Docker cannot build images with BuildKit, which the tenant image of this release needs "
+            f"('docker buildx version' failed: {cause}). Install Docker's buildx component, then retry. "
+            f"{BUILDKIT_PACKAGES} Nothing was changed.")
+
+    def tenant_quota_setting(self, settings: dict[str, Any]) -> str:
+        """``BW_HOSTING_TENANT_QUOTAS`` (auto when unset); :class:`InvalidTenantQuotas` before anything changes."""
+        try:
+            return tenant_quotas.setting(read_environment(Path(settings["root"]) / "config/app.env"))
+        except tenant_quotas.InvalidSetting as error:
+            raise InvalidTenantQuotas(str(error)) from None
+
+    def instances_dir(self, settings: dict[str, Any]) -> Path:
+        root = Path(settings["root"])
+        return Path(read_environment(root / "config/app.env").get("INSTANCES_DIR", root / "data/instances"))
+
+    def tenant_storage(self, settings: dict[str, Any], *, configured: str | None = None,
+                       storage: Path | None = None, agent_problem: str | None = None) -> tenant_quotas.Policy:
+        """What the runtime agent decides about hard per-wiki quotas (:func:`.tenant_quotas.decide`).
+
+        *configured* overrides ``BW_HOSTING_TENANT_QUOTAS``; *storage* is the
+        directory to check (default ``INSTANCES_DIR``); *agent_problem* why the
+        agent cannot use quotas whatever the storage supports (see
+        :meth:`agent_unit_quotas`). The quota registry that tells lost quotas
+        (:attr:`.tenant_quotas.Policy.lost`) from storage that never had them
+        is the agent's ``/var/lib/<service>-quotas``.
+        """
+        configured = configured or self.tenant_quota_setting(settings)
+        storage = storage or self.instances_dir(settings)
+        registry = self.state_dir / (settings["service"] + "-quotas")
+        return tenant_quotas.decide(configured, problem=lambda: agent_problem or self.storage_problem(storage),
+                                    enforced_before=lambda: tenant_quotas.registry_exists(registry))
+
+    def agent_unit_quotas(self, settings: dict[str, Any]) -> bool:
+        """Whether the runtime agent's installed unit lets it use quotas (``quotactl_fd``, ``CAP_SYS_PTRACE``).
+
+        Units of generation 3 do; an updater from before 1.7 writes generation 2.
+        """
+        try:
+            text = self._unit(settings["service"] + "-agent").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+        found = re.search(r"^# bananawiki-ops: ([0-9]{1,4})$", text, re.MULTILINE)
+        return bool(found) and int(found[1]) >= units.QUOTA_GENERATION
+
+    def storage_problem(self, storage: Path) -> str | None:
+        """Why *storage* does not enforce XFS project quotas (None: it does)."""
+        try:
+            self.quota_storage(storage)
+        except (project_quota.QuotaError, OSError) as error:
+            return str(error)
+        return None
+
+    def check_tenant_storage(self, settings: dict[str, Any], *, required: bool = False) -> tenant_quotas.Policy | None:
+        """Fail with :class:`TenantStorageUnsupported` unless the running wikis could start again (hosting only).
+
+        For releases whose runtime agent starts a wiki only on storage that
+        enforces XFS project quotas when ``BW_HOSTING_TENANT_QUOTAS=required``
+        (the operator's opt-in; for a release from before that setting,
+        *required*) asks for them; ``auto`` never refuses. Checked,
+        like :meth:`check_docker`, before an operation stops anything: on other
+        storage every wiki it stops would stay down until the readiness checks
+        give up. Without a running wiki nothing would be kept down, and nothing
+        is checked (None). Returns the policy the wikis start under.
+        """
+        if settings["mode"] != "hosting":
+            return None
+        configured = "required" if required else self.tenant_quota_setting(settings)
         try:
             running = self.run(["docker", "ps", "--quiet", "--filter", TENANT_FILTER], timeout=60).stdout.split()
         except (RuntimeError, OSError, subprocess.SubprocessError) as error:
             raise DockerUnavailable(f"Docker did not answer, so nothing was changed: {error}") from error
         if not running:
-            return
-        root = Path(settings["root"])
-        instances = Path(read_environment(root / "config/app.env").get("INSTANCES_DIR", root / "data/instances"))
-        try:
-            self.quota_storage(instances)
-        except (project_quota.QuotaError, OSError) as error:
+            return None
+        instances = self.instances_dir(settings)
+        if required:
+            problem = self.storage_problem(instances)
+            if problem is None:
+                return tenant_quotas.Policy("required", True)
             raise TenantStorageUnsupported(
                 f"Could not confirm that the wiki storage {instances} enforces XFS project quotas, which this release "
-                f"needs to start a wiki ({error}), so nothing was changed: the running wikis would not start again. "
-                "Put the wiki storage on an XFS filesystem mounted with prjquota (see docs/operations.md), then "
-                "retry.") from error
+                f"needs to start a wiki ({problem}), so nothing was changed: the running wikis would not start "
+                "again. Put the wiki storage on an XFS filesystem mounted with prjquota (see UPGRADING.md, "
+                "\"Wiki storage and hard quotas\"), then retry.")
+        policy = self.tenant_storage(settings, configured=configured)
+        if not policy.refused:
+            return policy
+        raise TenantStorageUnsupported(
+            f"The wiki storage {instances} cannot start the running wikis again, so nothing was changed: "
+            f"{policy.reason}")
 
     def quota_storage(self, instances: Path) -> None:
         """Raise unless *instances* is on XFS with project quotas enforced (:func:`.project_quota.check_storage`)."""
         project_quota.check_storage(instances)
+
+    def staging_reserve(self, settings: dict[str, Any], staging: Path) -> int:
+        """Bytes a snapshot staged at *staging* must leave free for the hosted wikis (hosting only).
+
+        When *staging* is on the wikis' volume: the unused part of every
+        admitted storage quota plus the host reserve
+        (:meth:`.project_quota.ProjectQuota.reserved_bytes`). A staged copy
+        that ate into it would leave admitted wikis unable to grow to the
+        limits they were promised.
+        """
+        if settings["mode"] != "hosting":
+            return 0
+        root = Path(settings["root"])
+        instances = self.instances_dir(settings)
+        try:
+            same = os.stat(staging if staging.exists() else root).st_dev == os.stat(instances).st_dev
+        except OSError:
+            return 0
+        return self.quota_reserve(root) if same else 0
+
+    def quota_reserve(self, root: Path) -> int:
+        """The runtime agent's reservations on the wikis' volume (0 when none were ever admitted or unreadable)."""
+        try:
+            config = load_config(root)
+            quota = config["quota"]
+            # No registry: no wiki was ever put under quota here (BW_HOSTING_TENANT_QUOTAS off, or storage without
+            # quotas in auto), so none was promised any space.
+            if not Path(quota["state_dir"]).is_dir():
+                return 0
+            manager = project_quota.ProjectQuota(
+                Path(config["instances_dir"]), Path(quota["state_dir"]), max_bytes=quota["max_bytes"],
+                max_inodes=quota["max_inodes"], project_start=quota["project_start"],
+                storage_reserve_bytes=quota["storage_reserve_bytes"])
+            reserved = manager.reserved_bytes()[1]
+            over = manager.overcommitted_bytes()
+            if over:
+                # Wikis from before 1.7 were adopted without admission (1.6 never checked plans against the
+                # volume). The snapshot leaves them their adoption headroom only, so it is not refused.
+                print(f"Warning: the storage limits of hosted wikis adopted from before 1.7 exceed the free space "
+                      f"on their volume by {-(-over // 2**20):,} MiB, so they can run out of space before reaching "
+                      "their limits. Free space on the volume, or lower their plans (or HOSTING_AGENT_MAX_INODES); "
+                      "their next start then admits them.", file=sys.stderr, flush=True)
+            return reserved
+        except (AgentError, project_quota.QuotaError, OSError) as error:
+            # Not a reason to refuse a backup or an update: the wikis' starts no longer depend on it.
+            try:
+                off = tenant_quotas.setting(read_environment(root / "config/app.env")) == "off"
+            except tenant_quotas.InvalidSetting:
+                off = False
+            if not off:
+                print(f"Warning: the wikis' storage reservations could not be read ({error}); the snapshot only "
+                      "checks physical free space.", file=sys.stderr, flush=True)
+            # BW_HOSTING_TENANT_QUOTAS=off on storage without quotas: the registry left from before reserves nothing.
+            return 0
+
+    def candidate_preflight(self, settings: dict[str, Any], release: Path) -> dict[str, Any]:
+        """Run the new release's own ``banana preflight`` against this server; :class:`CandidateRefused` unless it agrees.
+
+        The installed controller cannot know what a newer release will
+        refuse once it runs (storage it cannot use, a configuration it no
+        longer accepts), so it asks that release's own code, before anything
+        is stopped: as root with the system Python, like the installed
+        command, isolated from the environment (``-I``), within a time limit.
+        It answers one JSON object on its last line of output: ``{"ok": true,
+        "warnings": [...], "notes": [...]}`` (exit 0) or ``{"ok": false,
+        "reason": ...}`` (exit 3). Anything else (a crash, unreadable output)
+        is a refusal too. A refusal that adds ``"retryable": true`` (Docker
+        did not answer), no answer in time and a preflight that could not be
+        started are :class:`CandidateUnavailable`: conditions of the host, not
+        of the release.
+        """
+        command = [SYSTEM_PYTHON, "-I", str(release / "banana"), "--root", str(settings["root"]), "preflight"]
+        try:
+            result = self.run(command, check=False, timeout=PREFLIGHT_TIMEOUT, cwd=release)
+        except subprocess.TimeoutExpired:
+            raise CandidateUnavailable(f"The new release's preflight did not answer within {PREFLIGHT_TIMEOUT} "
+                                       "seconds, so nothing was stopped; the next update asks again.") from None
+        except (OSError, subprocess.SubprocessError) as error:
+            raise CandidateUnavailable(f"The new release's preflight could not run ({error}), so nothing was "
+                                       "stopped; the next update asks again.") from None
+        lines = [line for line in (result.stdout or "").splitlines() if line.strip()]
+        try:
+            answer = json.loads(lines[-1]) if lines else None
+        except ValueError:
+            answer = None
+        if not isinstance(answer, dict):
+            raise CandidateRefused(f"The new release's preflight failed (exit {result.returncode}"
+                                   f"{': ' + output_tail(result, 3) if output_tail(result, 3) else ''}), so nothing "
+                                   "was stopped.")
+        if result.returncode == 0 and answer.get("ok") is True:
+            return answer
+        reason = str(answer.get("reason") or f"exit {result.returncode}")[:2000]
+        if answer.get("retryable") is True:
+            raise CandidateUnavailable(f"The new release could not check this server for now, so nothing was "
+                                       f"stopped; the next update asks again: {reason}")
+        raise CandidateRefused(f"The new release cannot run on this server, so nothing was stopped: {reason}")
 
     def containers(self, settings: dict[str, Any]) -> list[dict[str, Any]]:
         if settings["mode"] != "hosting":
@@ -623,6 +894,81 @@ class System:
             output[str(directory)] = value
         return output
 
+    def stop_tenants(self, settings: dict[str, Any], directories: Collection[str]) -> None:
+        """Stop and remove the wikis of *directories* (data directories) for good, best effort; verify with containers().
+
+        Through the runtime agent when it runs: its ``tenant.stop`` waits for
+        a start of the same wiki in progress (the portal's recovery may be
+        starting it right now) instead of racing it. Then, and without the
+        agent, their containers are stopped and removed directly.
+        """
+        names = sorted(Path(directory).name for directory in directories)
+        socket_path = Path(agent_socket(settings))
+        if socket_path.exists():
+            from .agent_client import AgentClient
+
+            client = AgentClient(socket_path, timeout=120)
+            for name in names:
+                try:
+                    client.call("tenant.stop", {"tenant": name, "timeout": 30})
+                except AgentError as error:
+                    print(f"Warning: the runtime agent did not stop {name}: {error.message}", file=sys.stderr,
+                          flush=True)
+        wanted = {str(directory) for directory in directories}
+        listed = [item for item in self.containers(settings) if item.get("data_dir") in wanted]
+        self.stop_containers(listed)
+        self.remove_containers(listed)
+
+    def mark_isolated(self, settings: dict[str, Any], reasons: dict[str, str]) -> None:
+        """Record *reasons* (wiki name -> why) in the portal's ``isolated-wikis.json``, keeping earlier entries.
+
+        The portal's recovery never starts these wikis again by itself (after
+        a restart of its maintenance service or of the host) until one is
+        started explicitly. The directory belongs to the portal's account, so
+        nothing in it is followed, and the file is handed to that account.
+        """
+        root = Path(settings["root"])
+        uid, gid = self.identity(settings["service"])
+        location = platform_state_dir(root, read_environment(root / "config/app.env"))
+        try:
+            relative = location.relative_to(root / "data")
+        except ValueError:
+            print(f"Warning: {location} is outside {root / 'data'}, so the isolated wikis were not recorded there: "
+                  "the portal starts them again when its maintenance service restarts.", file=sys.stderr, flush=True)
+            return
+        parent = open_directory(root, str(Path("data", relative.parent)))
+        try:
+            try:
+                os.mkdir(relative.name, 0o700, dir_fd=parent)
+                os.chown(relative.name, uid, gid, dir_fd=parent, follow_symlinks=False)
+            except FileExistsError:
+                pass
+            state = os.open(relative.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+        finally:
+            os.close(parent)
+        try:
+            try:
+                with os.fdopen(open_regular(ISOLATED_WIKIS, dir_fd=state), "rb") as handle:
+                    current = json.loads(handle.read(1024 * 1024)).get("tenants")
+            except (ValueError, AttributeError, OSError):  # none yet, or not ours to keep
+                current = None
+            if not isinstance(current, dict):
+                current = {}
+            value = {"schema": 1, "tenants": {**{str(key): str(item) for key, item in current.items()}, **reasons}}
+            temporary = f".{ISOLATED_WIKIS}.{os.getpid()}"
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(temporary, dir_fd=state)
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600,
+                         dir_fd=state)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                os.fchown(handle.fileno(), uid, gid)
+                handle.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.rename(temporary, ISOLATED_WIKIS, src_dir_fd=state, dst_dir_fd=state)
+        finally:
+            os.close(state)
+
     # Plugin quarantine (R-07) ---------------------------------------------------
 
     def plugin_quarantine_candidates(self, settings: dict[str, Any], directories: Collection[str]) -> dict[str, str]:
@@ -640,17 +986,22 @@ class System:
         environment = read_environment(root / "config/app.env")
         if environment.get("HOSTING_ALLOW_TENANT_PLUGINS", "").strip().lower() not in TRUE_VALUES:
             return {}
-        database = Path(environment.get("HOSTING_DATABASE_PATH", root / "data/hosting.db"))
-        state = Path(environment.get("HOSTING_PLATFORM_STATE_DIR") or database.parent / "platform_state")
+        state = platform_state_dir(root, environment)
         output = {}
         for directory, instance_id in self._running_tenants(settings, "id").items():
             if directory not in directories or not isinstance(instance_id, str) \
                     or not INSTANCE_ID.fullmatch(instance_id):
                 continue
-            marker = state / instance_id / QUARANTINE_MARKER  # as the portal reads it (plugin_safety.PluginState)
-            if not (marker.is_file() and not marker.is_symlink()) and self.holds_plugins(Path(directory)):
+            if not _quarantine_marked(state, instance_id) and self.holds_plugins(Path(directory)):
                 output[directory] = instance_id
         return output
+
+    def plugin_quarantine_in_force(self, settings: dict[str, Any], instance_id: str) -> bool:
+        """Whether the portal's plugin quarantine marker of the wiki *instance_id* is set: what keeps its plugin
+        code off, whether or not its plugins were also switched off in its database."""
+        root = Path(settings["root"])
+        return bool(INSTANCE_ID.fullmatch(instance_id)) and _quarantine_marked(
+            platform_state_dir(root, read_environment(root / "config/app.env")), instance_id)
 
     @staticmethod
     def holds_plugins(directory: Path) -> bool:

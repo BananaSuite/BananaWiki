@@ -4,7 +4,7 @@
 {% block content %}
 <header class="page-header"><h1>{{ t('chat.dm.new') }}</h1></header>
 <div class="stack">
-  <form method="post" class="form" action="{{ url_for('chat.dm_new') }}">
+  <form method="post" class="form form--narrow" action="{{ url_for('chat.dm_new') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="field">
       <label for="dm-username">{{ t('chat.dm.username') }}</label>

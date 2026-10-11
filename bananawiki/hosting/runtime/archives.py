@@ -14,8 +14,9 @@ folder (hosting archives, with ``storage/<name>/`` asset paths) and
 JSON dump is turned into a database inside the tenant container).
 
 Import safety: the whole member list is checked before anything is written
-(no absolute or ``..`` paths, backslashes, links, special files, duplicates
-or members compressed other than stored or deflated; member count, unpacked
+(no absolute or ``..`` paths, backslashes, links, special files, duplicates,
+or members every import refuses, :mod:`bananawiki.core.zipcheck`: compressed
+other than stored or deflated, encrypted or patched; member count, unpacked
 size and compression ratio bounded by ``HOSTING_IMPORT_*``; free disk
 space), members are streamed to new files in
 a staging folder, and only the database and the data folders are taken:
@@ -43,6 +44,8 @@ from typing import Any, BinaryIO
 
 from ... import __version__
 from ...core.json import loads as safe_json_loads
+from ...core.logformat import one_line
+from ...core.zipcheck import readable_member
 from ..config import ArchiveSettings
 from . import RuntimeFailure, tenantfs
 
@@ -60,11 +63,6 @@ MAX_RATIO = 200
 MAX_MANIFEST_BYTES = 1024 * 1024
 # ZipInfo.compress_level is public from Python 3.13; 3.11 and 3.12 read _compresslevel.
 _LEVEL_ATTRIBUTE = "compress_level" if hasattr(zipfile.ZipInfo, "compress_level") else "_compresslevel"
-# zipfile bounds each read of a deflated member, but hands bzip2 and LZMA data
-# to decompressors without an output limit: a few hundred bytes expand to
-# gigabytes in memory before any size check sees them. BananaWiki only ever
-# writes stored and deflated members.
-READABLE_COMPRESSION = frozenset({zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED})
 # Restores and imports unpack below folders of their own, within Linux's
 # 4096-byte path limit: a longer tenant path would make the whole archive
 # fail to unpack.
@@ -412,10 +410,10 @@ def export(root: Path, snapshot: DatabaseCopy, destination_dir: Path, slug: str,
                                       directories=tenantfs.ASSET_FOLDERS, budget=budget, links=links)
             if refused:
                 log.warning("The export of %s left out %d file(s) no import would accept or keep apart from the "
-                            "wiki's own: %s", slug, len(refused), ", ".join(refused[:5])[:300])
+                            "wiki's own: %s", slug, len(refused), one_line(", ".join(refused[:5])[:300]))
             if links:
                 log.warning("The export of %s left out %d further hard link(s) to files already in it: %s", slug,
-                            len(links), ", ".join(links[:5])[:300])
+                            len(links), one_line(", ".join(links[:5])[:300]))
             omitted = refused + links
             manifest.update(omitted_files=[item[:300] for item in omitted[:MAX_LISTED_FILES]],
                             omitted_file_count=len(omitted))
@@ -427,11 +425,6 @@ def export(root: Path, snapshot: DatabaseCopy, destination_dir: Path, slug: str,
 
 
 # ── Reading ───────────────────────────────────────────────────────────────────
-
-
-def readable_member(info: zipfile.ZipInfo) -> bool:
-    """Neither encrypted nor compressed with a method whose output zipfile cannot bound."""
-    return not info.flag_bits & 1 and info.compress_type in READABLE_COMPRESSION
 
 
 def _layout_prefix(names: set[str]) -> str:

@@ -28,7 +28,7 @@ from ....core.timeutil import now_sql
 from ...db import db
 from ...i18n import t
 from ...markdown import render
-from . import access, events, fields, filters, history, signals, store
+from . import access, events, fields, filters, history, logtext, signals, store
 from .fields import KanbanError
 
 User = dict[str, Any]
@@ -50,7 +50,7 @@ def _log(board_id: int, user: User | None, *, op: str, payload: dict[str, Any], 
 
 def _column_payload(column: dict[str, Any]) -> dict[str, Any]:
     return {"id": column["id"], "title": column["title"], "wip_limit": column.get("wip_limit"),
-            "tickets": store.ticket_ids(column["id"])}
+            "done": bool(column.get("is_done")), "tickets": store.ticket_ids(column["id"])}
 
 
 # ── Boards ────────────────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ def create_board(user: User, title: Any, description: Any = "", *, default_colum
                 db.insert("kanban_columns", {"board_id": board_id, "title": t(key), "sort_order": index,
                                              "created_at": now_sql()})
         _log(board_id, user, op="board_reset", payload={}, action="board_created",
-             message=t("kanban.log.board_created", title=clean_title))
+             message=logtext.message("kanban.log.board_created", title=clean_title))
     board = store.get_board(board_id)
     assert board is not None
     signals.board("created", board, user)
@@ -81,7 +81,7 @@ def update_board(board: dict[str, Any], user: User, title: Any, description: Any
     with db.transaction():
         db.update("kanban_boards", values, "id = ?", (board["id"],))
         _log(board["id"], user, op="board_updated", payload=values, action="board_updated",
-             message=t("kanban.log.board_updated"))
+             message=logtext.message("kanban.log.board_updated"))
     signals.board_changed(board["id"], user)
 
 
@@ -103,7 +103,7 @@ def archive_board(board: dict[str, Any], user: User | None) -> dict[str, Any]:
         with db.transaction():
             db.update("kanban_boards", {"archived_at": now_sql(), "archived_by": user_id}, "id = ?", (board["id"],))
             events.append(board["id"], "board_reset", {}, user_id)
-            events.log_activity(board["id"], user_id, "board_archived", t("kanban.log.board_archived"))
+            events.log_activity(board["id"], user_id, "board_archived", logtext.message("kanban.log.board_archived"))
         signals.board_changed(board["id"], user)
     fresh = store.get_board(board["id"])
     assert fresh is not None
@@ -117,7 +117,7 @@ def restore_board(board: dict[str, Any], user: User | None) -> dict[str, Any]:
         with db.transaction():
             db.update("kanban_boards", {"archived_at": None, "archived_by": None}, "id = ?", (board["id"],))
             events.append(board["id"], "board_reset", {}, user_id)
-            events.log_activity(board["id"], user_id, "board_restored", t("kanban.log.board_restored"))
+            events.log_activity(board["id"], user_id, "board_restored", logtext.message("kanban.log.board_restored"))
         signals.board_changed(board["id"], user)
     fresh = store.get_board(board["id"])
     assert fresh is not None
@@ -329,9 +329,9 @@ def create_column(board: dict[str, Any], user: User, title: Any) -> dict[str, An
                                  default=0))
         column_id = db.insert("kanban_columns", {"board_id": board["id"], "title": clean, "sort_order": position,
                                                  "created_at": now_sql()})
-        column = {"id": column_id, "title": clean, "wip_limit": None, "tickets": []}
+        column = {"id": column_id, "title": clean, "wip_limit": None, "done": False, "tickets": []}
         _log(board["id"], user, op="column_upsert", payload={"column": column, "order": store.column_ids(board["id"])},
-             action="column_created", message=t("kanban.log.column_created", title=clean))
+             action="column_created", message=logtext.message("kanban.log.column_created", title=clean))
     signals.board_changed(board["id"], user)
     return column
 
@@ -342,25 +342,34 @@ def rename_column(board: dict[str, Any], column: dict[str, Any], user: User, tit
         db.update("kanban_columns", {"title": clean}, "id = ?", (column["id"],))
         payload = _column_payload({**column, "title": clean})
         _log(board["id"], user, op="column_upsert", payload={"column": payload, "order": store.column_ids(board["id"])},
-             action="column_renamed", message=t("kanban.log.column_renamed", title=clean))
+             action="column_renamed", message=logtext.message("kanban.log.column_renamed", title=clean))
     signals.board_changed(board["id"], user)
     return payload
 
 
 def update_column(board: dict[str, Any], column: dict[str, Any], user: User, data: dict[str, Any]) -> dict[str, Any]:
-    """Change a column's ``title`` and/or ``wip_limit`` (whichever *data* holds) in one step."""
+    """Change a column's ``title``, ``wip_limit`` and/or ``done`` flag (whichever *data* holds) in one step.
+
+    A done column holds finished work: its tickets are never overdue or due soon.
+    """
     values: dict[str, Any] = {}
     if "title" in data:
         values["title"] = fields.title(data["title"], fields.MAX_COLUMN_TITLE)
     if "wip_limit" in data:
         values["wip_limit"] = fields.wip_limit(data["wip_limit"])
+    if "done" in data:
+        values["is_done"] = fields.done_flag(data["done"])
     if not values:
         raise KanbanError("kanban.error.nothing_to_change")
     updated = {**column, **values}
     if "title" in values and values["title"] != column["title"]:
-        action, message = "column_renamed", t("kanban.log.column_renamed", title=updated["title"])
+        action, message = "column_renamed", logtext.message("kanban.log.column_renamed", title=updated["title"])
+    elif "is_done" in values and values["is_done"] != int(column.get("is_done") or 0):
+        action = "column_done"
+        message = logtext.message("kanban.log.column_done" if values["is_done"] else "kanban.log.column_not_done",
+                                  title=updated["title"])
     else:
-        action, message = "column_limit", t("kanban.log.column_limit", title=updated["title"])
+        action, message = "column_limit", logtext.message("kanban.log.column_limit", title=updated["title"])
     with db.transaction():
         db.update("kanban_columns", values, "id = ?", (column["id"],))
         payload = _column_payload(updated)
@@ -368,11 +377,6 @@ def update_column(board: dict[str, Any], column: dict[str, Any], user: User, dat
              action=action, message=message)
     signals.board_changed(board["id"], user)
     return payload
-
-
-def set_wip_limit(board: dict[str, Any], column: dict[str, Any], user: User, limit: Any) -> dict[str, Any]:
-    """Set (or with ``None``/0/empty, remove) a column's work-in-progress limit."""
-    return update_column(board, column, user, {"wip_limit": limit})
 
 
 def delete_columns(board: dict[str, Any], columns: list[dict[str, Any]], user: User) -> None:
@@ -392,8 +396,8 @@ def delete_columns(board: dict[str, Any], columns: list[dict[str, Any]], user: U
             events.append(board["id"], "column_deleted", {"column_id": column["id"], "order": remaining},
                           user["id"])
         names = ", ".join(column["title"] for column in columns)
-        events.log_activity(board["id"], user["id"], "column_deleted", t("kanban.log.column_deleted", title=names))
-        history.record(board["id"], user["id"], t("kanban.log.column_deleted", title=names))
+        events.log_activity(board["id"], user["id"], "column_deleted", logtext.message("kanban.log.column_deleted", title=names))
+        history.record(board["id"], user["id"], logtext.message("kanban.log.column_deleted", title=names))
     store.delete_files(refs)
     board_row = store.get_board(board["id"]) or board
     signals.tickets("deleted", doomed, board_row, user)
@@ -405,7 +409,7 @@ def reorder_columns(board: dict[str, Any], order: list[Any], user: User) -> list
         ordered = store.reorder(store.column_ids(board["id"]), order)
         store.write_column_order(board["id"], ordered)
         _log(board["id"], user, op="columns_reordered", payload={"order": ordered}, action="columns_reordered",
-             message=t("kanban.log.columns_reordered"), coalesce=True)
+             message=logtext.message("kanban.log.columns_reordered"), coalesce=True)
     signals.board_changed(board["id"], user)
     return ordered
 
@@ -493,7 +497,7 @@ def create_ticket(board: dict[str, Any], column: dict[str, Any], user: User, dat
         assert card is not None
         _log(board["id"], user, op="ticket_upsert",
              payload={"ticket": card, "columns": {str(column["id"]): store.ticket_ids(column["id"])}},
-             action="ticket_created", message=t("kanban.log.ticket_created", title=card["title"]))
+             action="ticket_created", message=logtext.message("kanban.log.ticket_created", title=card["title"]))
     signals.tickets_changed("created", [ticket_id], board["id"], user)
     return card
 
@@ -511,7 +515,7 @@ def update_ticket(board: dict[str, Any], ticket: dict[str, Any], user: User, dat
         card = store.ticket_card(ticket["id"])
         assert card is not None
         _log(board["id"], user, op="ticket_upsert", payload={"ticket": card, "columns": {}},
-             action="ticket_updated", message=t("kanban.log.ticket_updated", title=card["title"]))
+             action="ticket_updated", message=logtext.message("kanban.log.ticket_updated", title=card["title"]))
     signals.tickets_changed("updated", [ticket["id"]], board["id"], user)
     return card
 
@@ -543,8 +547,8 @@ def move_ticket(board: dict[str, Any], ticket: dict[str, Any], target: dict[str,
         # The history entry leaves the column out, so moving a ticket back and forth shares one entry.
         _log(board["id"], user, op="ticket_upsert", payload={"ticket": card, "columns": columns},
              action="ticket_moved", coalesce=True,
-             message=t("kanban.log.ticket_moved", title=card["title"], column=target["title"]),
-             entry=t("kanban.log.ticket_moved_entry", title=card["title"]))
+             message=logtext.message("kanban.log.ticket_moved", title=card["title"], column=target["title"]),
+             entry=logtext.message("kanban.log.ticket_moved_entry", title=card["title"]))
     signals.moved([(ticket["id"], source_id)], board["id"], user)
     return {"ticket": card, "columns": columns}
 
@@ -556,7 +560,7 @@ def reorder_tickets(board: dict[str, Any], column: dict[str, Any], order: list[A
         ordered = store.reorder(before, order)
         store.write_ticket_order(column["id"], ordered)
         _log(board["id"], user, op="tickets_reordered", payload={"columns": {str(column["id"]): ordered}},
-             action="tickets_reordered", message=t("kanban.log.tickets_reordered"), coalesce=True)
+             action="tickets_reordered", message=logtext.message("kanban.log.tickets_reordered"), coalesce=True)
     shifted = [ticket_id for index, ticket_id in enumerate(ordered) if before[index] != ticket_id]
     signals.moved([(ticket_id, column["id"]) for ticket_id in shifted], board["id"], user)
     return ordered
@@ -582,7 +586,7 @@ def delete_tickets(board: dict[str, Any], tickets: list[dict[str, Any]], user: U
         names = ", ".join(ticket["title"] for ticket in tickets)
         archived = [ticket["id"] for ticket in tickets if ticket.get("archived_at")]
         _log(board["id"], user, op="ticket_deleted", payload={"ticket_ids": ids, "columns": columns, "archived": archived},
-             action="ticket_deleted", message=t("kanban.log.ticket_deleted", title=names[:300]))
+             action="ticket_deleted", message=logtext.message("kanban.log.ticket_deleted", title=names[:300]))
     store.delete_files(refs)
     signals.tickets("deleted", doomed, store.get_board(board["id"]) or board, user)
 
@@ -660,7 +664,7 @@ def bulk_update(board: dict[str, Any], tickets: list[dict[str, Any]], user: User
             elif values:
                 db.update("kanban_tickets", values, "id = ?", (ticket["id"],))
         _log(board["id"], user, op="board_reset", payload={}, action=f"tickets_bulk_{action}",
-             message=t(f"kanban.log.bulk_{action}", count=len(tickets)))
+             message=logtext.message(f"kanban.log.bulk_{action}", count=len(tickets)))
     if target is not None:
         signals.moved([(ticket["id"], ticket["column_id"]) for ticket in tickets], board["id"], user)
     else:
@@ -697,10 +701,10 @@ def archive_tickets(board: dict[str, Any], tickets: list[dict[str, Any]], user: 
             remaining = store.ticket_ids(column_id)
             store.write_ticket_order(column_id, remaining)
             columns[str(column_id)] = remaining
-        names = ", ".join(ticket["title"] for ticket in active)
+        names = ", ".join(f"“{ticket['title']}”" for ticket in active)
         events.append(board["id"], "tickets_archived", {"ticket_ids": ids, "columns": columns}, user_id)
-        events.log_activity(board["id"], user_id, "ticket_archived", t("kanban.log.ticket_archived", title=names[:300]))
-        history.record(board["id"], user_id, t("kanban.log.ticket_archived", title=names[:300]))
+        events.log_activity(board["id"], user_id, "ticket_archived", logtext.message("kanban.log.ticket_archived", title=names[:300]))
+        history.record(board["id"], user_id, logtext.message("kanban.log.ticket_archived", title=names[:300]))
     signals.tickets_changed("updated", ids, board["id"], user)
     return len(ids)
 
@@ -725,9 +729,9 @@ def restore_tickets(board: dict[str, Any], tickets: list[dict[str, Any]], user: 
                           {"ticket": store.ticket_card(ids[0]), "columns": columns, "restored": True}, user_id)
         else:
             events.append(board["id"], "board_reset", {}, user_id)
-        names = ", ".join(ticket["title"] for ticket in archived)
-        events.log_activity(board["id"], user_id, "ticket_restored", t("kanban.log.ticket_restored", title=names[:300]))
-        history.record(board["id"], user_id, t("kanban.log.ticket_restored", title=names[:300]))
+        names = ", ".join(f"“{ticket['title']}”" for ticket in archived)
+        events.log_activity(board["id"], user_id, "ticket_restored", logtext.message("kanban.log.ticket_restored", title=names[:300]))
+        history.record(board["id"], user_id, logtext.message("kanban.log.ticket_restored", title=names[:300]))
     signals.tickets_changed("updated", ids, board["id"], user)
     return len(ids)
 
@@ -767,7 +771,7 @@ def _checklist_changed(board: dict[str, Any], ticket: dict[str, Any], user: User
     card = store.ticket_card(ticket["id"])
     assert card is not None
     _log(board["id"], user, op="ticket_upsert", payload={"ticket": card, "columns": {}}, action="checklist_changed",
-         message=t("kanban.log.checklist_changed", title=ticket["title"]), coalesce=True)
+         message=logtext.message("kanban.log.checklist_changed", title=ticket["title"]), coalesce=True)
     return {"checklist": store.checklist(ticket["id"]), "ticket": card}
 
 
@@ -840,8 +844,8 @@ def assigned_tickets(user: User, limit: int = MY_TICKETS_LIMIT,
                      flt: filters.TicketFilter | None = None) -> list[dict[str, Any]]:
     """Tickets assigned to *user* on every board they can open, earliest due date first.
 
-    Each entry is the ticket's card plus ``board_id``, ``board_title`` and
-    ``column_title``. Boards the user can no longer open, archived boards and
+    Each entry is the ticket's card plus ``board_id``, ``board_title``,
+    ``column_title`` and ``column_done`` (it is in a done column). Boards the user can no longer open, archived boards and
     archived tickets are left out. *flt* narrows the list with the board filter
     rules (its ``who`` part is ignored: these are the user's own tickets).
     """
@@ -868,16 +872,20 @@ def assigned_tickets(user: User, limit: int = MY_TICKETS_LIMIT,
     ids = [row["id"] for row in rows]
     people = store.assignees_by_ticket(f"t.id IN ({','.join('?' * len(ids))})", tuple(ids))
     column_ids = sorted({row["column_id"] for row in rows})
-    columns = {row["id"]: row["title"] for row in db.all(
-        f"SELECT id, title FROM kanban_columns WHERE id IN ({','.join('?' * len(column_ids))})", tuple(column_ids),
+    columns = {row["id"]: row for row in db.all(
+        f"SELECT id, title, is_done FROM kanban_columns WHERE id IN ({','.join('?' * len(column_ids))})",
+        tuple(column_ids),
     )}
     result = []
     for row in rows:
         card = store.card(row, people.get(row["id"]))
-        if in_python and not filters.matches(card, flt, user_id=user["id"], today=today):  # type: ignore[arg-type]
+        column = columns.get(row["column_id"]) or {}
+        done = bool(column.get("is_done"))
+        if in_python and not filters.matches(card, flt, user_id=user["id"], today=today,  # type: ignore[arg-type]
+                                             done=done):
             continue
         result.append({**card, "board_id": row["board_id"], "board_title": boards[row["board_id"]]["title"],
-                       "column_title": columns.get(row["column_id"], "")})
+                       "column_title": column.get("title", ""), "column_done": done})
         if len(result) >= limit:
             break
     return result
@@ -889,7 +897,7 @@ def assigned_tickets(user: User, limit: int = MY_TICKETS_LIMIT,
 def revert(board: dict[str, Any], entry: dict[str, Any], user: User) -> dict[str, int]:
     with db.transaction():
         result = history.revert(board, entry["state"], user["id"])
-        message = t("kanban.log.reverted", id=entry["id"])
+        message = logtext.message("kanban.log.reverted", id=entry["id"])
         events.append(board["id"], "board_reset", {}, user["id"])
         events.log_activity(board["id"], user["id"], "board_reverted", message)
         history.record(board["id"], user["id"], message, is_revert=True)
@@ -1028,7 +1036,7 @@ def hand_over(user: User, deleted_by: str | None = None, **_: Any) -> None:
             key = "kanban.log.account_deleted"
         else:
             key = "kanban.log.account_deleted_assignee"
-        message = t(key, username=user["username"], owner=owners.get(board_id, ""))
+        message = logtext.message(key, username=user["username"], owner=owners.get(board_id, ""))
         events.append(board_id, "board_reset", {}, actor)
         events.log_activity(board_id, actor, "account_deleted", message)
         history.record(board_id, actor, message)

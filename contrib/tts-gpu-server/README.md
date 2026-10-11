@@ -13,9 +13,9 @@ wiki configuration keeps working.
 On the GPU machine (Ubuntu/Debian with the NVIDIA driver, CUDA and cuDNN installed):
 
 ```sh
-sudo ./install.sh                  # listens on the Tailscale address, or 127.0.0.1
-sudo ./install.sh --host 10.0.0.5  # a specific private address
-sudo ./install.sh --cpu            # no GPU: CPU onnxruntime
+sudo ./install.sh                      # listens on the Tailscale address, or 127.0.0.1
+sudo ./install.sh --host 192.168.1.50  # a specific private address
+sudo ./install.sh --cpu                # no GPU: CPU onnxruntime
 sudo ./install.sh --uninstall
 ```
 
@@ -24,7 +24,7 @@ the root-only environment file `/etc/bananawiki-tts-gpu.env` with a random `TTS_
 and the systemd unit `bananawiki-tts-gpu`.
 
 Manual run: `pip install -r requirements.txt`, then
-`TTS_AUTH_TOKEN=... TTS_HOST=100.64.0.2 python server.py`.
+`TTS_AUTH_TOKEN=... TTS_HOST=192.168.1.50 python server.py`.
 
 Never expose the server to the internet: bind it to a private address (a LAN, a VPN such as
 Tailscale or WireGuard) and firewall the port.
@@ -32,7 +32,7 @@ Tailscale or WireGuard) and firewall the port.
 ## Connect a wiki
 
 In the wiki: **Admin → Read aloud → Remote GPU server**. Enter the address
-(`http://100.64.0.2:8787`) and the token, tick *Use the GPU server*, save, and press
+(`http://192.168.1.50:8787`) and the token, tick *Use the GPU server*, save, and press
 *Test the GPU server*. Alternatively set `BW_TTS_REMOTE_GPU_URL`,
 `BW_TTS_REMOTE_GPU_AUTH_TOKEN` and optionally `BW_TTS_REMOTE_GPU_TIMEOUT` (seconds) in the
 wiki's environment; they take precedence (and on managed hosting they are the only source).
@@ -57,6 +57,8 @@ link-local and metadata addresses are refused, and redirects are never followed.
 | `TTS_QUEUE_TIMEOUT` | `30` | Seconds a request waits for a free slot before `503` |
 | `TTS_MAX_INPUT_CHARS` | `20000` | Longer text is refused with `413` (the wiki sends at most 20000) |
 | `TTS_MAX_BODY_BYTES` | `262144` | Larger request bodies are refused with `413` |
+| `TTS_SOCKET_TIMEOUT` | `30` | Seconds a client may stay silent while sending a request (or between keep-alive requests) before it is disconnected |
+| `TTS_MAX_CONNECTIONS` | `64` | Open connections at once; further ones are closed straight away |
 | `TTS_OUTPUT_FORMAT` | `mp3` | `mp3` (needs ffmpeg) or `wav` |
 | `TTS_FFMPEG` | | Path to ffmpeg if it is not on `PATH` |
 | `TTS_LENGTH_SCALE`, `TTS_NOISE_SCALE`, `TTS_NOISE_W_SCALE` | `1.0`, `0.667`, `0.8` | Piper voice parameters |
@@ -64,7 +66,7 @@ link-local and metadata addresses are refused, and redirects are never followed.
 
 ## API
 
-* `GET /health` → `{"status": "ok", "version": "1.6.0"}`. With the bearer token it also
+* `GET /health` → `{"status": "ok", "version": "1.7.0"}`. With the bearer token it also
   reports `gpu_available`, `cuda_enabled`, `loaded_voices` and `output_format`.
 * `POST /synthesize` with `Authorization: Bearer <token>`, `Content-Type: application/json`
   and `{"text": "...", "language": "en"}` → `200` with `audio/mpeg` (or `audio/wav`).

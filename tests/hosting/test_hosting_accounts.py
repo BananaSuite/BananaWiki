@@ -173,7 +173,8 @@ def test_suspended_account_cannot_sign_in(web, make_account):
 
 def _enrol(portal, client) -> tuple[str, list[str]]:
     html = client.get("/account/mfa").get_data(as_text=True)
-    secret = re.search(r'class="secret-box">([A-Z2-7]{32})<', html).group(1)
+    # The page shows the key in groups of four.
+    secret = re.search(r'class="secret-box[^"]*">([A-Z2-7 ]{32,40})<', html).group(1).replace(" ", "")
     with portal.app_context():
         code = mfa.totp_code(secret)
     response = client.post("/account/mfa", data={"password": PASSWORD, "code": code})
@@ -201,6 +202,64 @@ def test_mfa_enrolment_requires_a_code_at_next_sign_in(portal, web, make_account
     third.post("/login", data={"username": user["username"], "password": PASSWORD})
     third.post("/login/mfa", data={"code": codes[0]})
     assert third.get("/dashboard").status_code == 302, "a recovery code works only once"
+
+
+def test_leaving_the_second_step_forgets_the_half_finished_sign_in(portal, web, make_account, login):
+    user = make_account()
+    login(web, user)
+    _secret, codes = _enrol(portal, web)
+    other = portal.test_client()
+    other.post("/login", data={"username": user["username"], "password": PASSWORD})
+    page = other.get("/login/mfa").get_data(as_text=True)
+    # The way back is a form: a plain link would leave the password step passed in this browser.
+    assert re.search(r'<form method="post" action="/login/mfa/cancel"[^>]*>\s*<input type="hidden" name="csrf_token"',
+                     page)
+    assert other.get("/login/mfa/cancel").status_code == 405
+    response = other.post("/login/mfa/cancel")
+    assert response.status_code == 302 and response.headers["Location"].endswith("/login")
+    with other.session_transaction() as state:
+        assert not [key for key in state if key.startswith("hosting_mfa_")]
+    # The code page no longer takes a code for that account, and the code is not used up.
+    assert other.post("/login/mfa", data={"code": codes[0]}).headers["Location"].endswith("/login")
+    assert other.get("/dashboard").status_code == 302
+    other.post("/login", data={"username": user["username"], "password": PASSWORD})
+    assert other.post("/login/mfa", data={"code": codes[0]}).status_code == 302
+    assert other.get("/dashboard").status_code == 200
+
+
+def test_suspension_details_are_shown_only_after_the_second_factor(portal, web, make_account, login, query):
+    user = make_account()
+    login(web, user)
+    _secret, codes = _enrol(portal, web)
+    query("UPDATE accounts SET suspended = 1, suspend_reason = 'spam', suspend_reason_visible = 1 WHERE id = ?",
+          (user["id"],))
+    other = portal.test_client()
+    response = other.post("/login", data={"username": user["username"], "password": PASSWORD})
+    assert response.headers["Location"].endswith("/login/mfa")
+    assert "spam" not in other.get("/account-suspended", follow_redirects=True).get_data(as_text=True)
+    response = other.post("/login/mfa", data={"code": codes[0]})
+    assert response.headers["Location"].endswith("/account-suspended")
+    assert "spam" in other.get("/account-suspended").get_data(as_text=True)
+
+
+def test_second_factor_attempts_are_capped_per_day_except_for_a_known_browser(portal, web, make_account, login,
+                                                                               monkeypatch):
+    from bananawiki.hosting.routes import auth as auth_routes
+
+    monkeypatch.setattr(auth_routes, "MFA_DAILY", 3)
+    user = make_account()
+    login(web, user)
+    _secret, codes = _enrol(portal, web)
+    web.post("/logout")
+    stranger = portal.test_client()
+    assert stranger.post("/login", data={"username": user["username"], "password": PASSWORD}).status_code == 302
+    for _ in range(3):
+        assert stranger.post("/login/mfa", data={"code": "000000"}).status_code == 200
+    assert stranger.post("/login/mfa", data={"code": codes[0]}).status_code == 429
+    response = web.post("/login", data={"username": user["username"], "password": PASSWORD})
+    assert response.headers["Location"].endswith("/login/mfa")
+    assert web.post("/login/mfa", data={"code": codes[1]}).status_code == 302
+    assert web.get("/dashboard").status_code == 200
 
 
 def test_admin_mfa_requirement_gates_admin_pages(web, make_account, login, query):

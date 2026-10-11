@@ -377,7 +377,7 @@ def test_preview_and_drafts_need_builder_access(builder_on, client, make_user, l
                 {"document": V2, "base_revision": page["revision"]}).status_code == 403
 
 
-def test_preview_is_rate_limited(builder_on, admin_client, app, page):
+def test_preview_is_rate_limited(builder_on, admin_client, app, page, frozen_limiter_clock):
     from bananawiki.wiki.features.page_builder import routes
 
     url = f"/api/page/{page['slug']}/builder/preview"

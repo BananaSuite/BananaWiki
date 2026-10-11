@@ -26,4 +26,4 @@ Seiten enthalten Inhalte in Markdown. Kategorien ordnen die Seiten in der Seiten
 
 ## Über diese Anleitung
 
-Diese Dokumentation wird von BananaWiki selbst erzeugt. Administratoren können sie unter **Verwaltung -> Website-Einstellungen -> Dokumentation** neu erstellen, als Markdown herunterladen, anpassen und die bearbeitete Fassung wieder ins Wiki importieren.
+Diese Dokumentation wird von BananaWiki selbst erzeugt. Administratoren können sie unter **Verwaltung → Dokumentation** neu erstellen, als Markdown herunterladen, anpassen und die bearbeitete Fassung wieder ins Wiki importieren.

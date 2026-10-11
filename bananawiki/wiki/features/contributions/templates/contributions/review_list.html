@@ -1,22 +1,26 @@
-{% extends "base.html" %}
+{#- Administrators review proposals inside the administration layout (side menu); editors
+    who review get the plain page. -#}
+{% extends "admin/_layout.html" if is_admin else "base.html" %}
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('contributions.review_title') }}{% endblock %}
-{% block content %}
+{% block content %}{% if is_admin %}{{ super() }}{% else %}{{ self.review_body() }}{% endif %}{% endblock %}
+{% block admin_content %}{{ self.review_body() }}{% endblock %}
+{% block review_body %}
 <header class="page-header"><h1>{{ t('contributions.review_title') }}</h1></header>
 <div class="section-stack">
 <section class="card">
   {% if contributions %}
-  <div class="table-wrap"><table class="table">
-    <thead><tr><th>{{ t('contributions.col.page') }}</th><th>{{ t('contributions.col.user') }}</th><th>{{ t('contributions.field.reason') }}</th><th>{{ t('common.created') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+  <div class="table-wrap"><table class="table table--stack">
+    <thead><tr><th>{{ t('contributions.col.page') }}</th><th>{{ t('contributions.col.user') }}</th><th>{{ t('contributions.field.reason') }}</th><th>{{ t('common.created') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>
     <tbody>
     {% for c in contributions %}
     <tr>
       <td><a href="{{ url_for('pages.view', slug=c.page_slug) }}">{{ c.page_title }}</a>
         {% if per_page[c.page_id] > 1 %}<span class="badge badge--warning">{{ t('contributions.conflict', count=per_page[c.page_id]) }}</span>{% endif %}</td>
-      <td>{{ c.username }}</td>
-      <td>{{ c.reason }}</td>
-      <td>{{ c.created_at|datetime }}</td>
-      <td><a class="btn btn--small btn--primary" href="{{ url_for('contributions.review_detail', contribution_id=c.id) }}">{{ t('contributions.review') }}</a></td>
+      <td data-label="{{ t('contributions.col.user') }}">{{ c.username }}</td>
+      <td data-label="{{ t('contributions.field.reason') }}">{{ c.reason }}</td>
+      <td class="nowrap" data-label="{{ t('common.created') }}">{{ c.created_at|datetime }}</td>
+      <td class="actions"><a class="btn btn--small btn--primary" href="{{ url_for('contributions.review_detail', contribution_id=c.id) }}">{{ t('contributions.review') }}</a></td>
     </tr>
     {% endfor %}
     </tbody>
@@ -28,18 +32,18 @@
 <section class="card">
   <h2>{{ t('contributions.quota.requests_title') }}</h2>
   {% if quota_requests %}
-  <div class="table-wrap"><table class="table">
-    <thead><tr><th>{{ t('contributions.col.user') }}</th><th>{{ t('contributions.quota.requested') }}</th><th>{{ t('contributions.field.reason') }}</th><th>{{ t('common.actions') }}</th></tr></thead>
+  <div class="table-wrap"><table class="table table--stack">
+    <thead><tr><th>{{ t('contributions.col.user') }}</th><th>{{ t('contributions.quota.requested') }}</th><th>{{ t('contributions.field.reason') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>
     <tbody>
     {% for q in quota_requests %}
     <tr>
       <td>{{ q.username }}</td>
-      <td>{{ t('contributions.quota.unlimited') if q.requested_quota == -1 else q.requested_quota }}</td>
-      <td>{{ q.reason }}</td>
-      <td class="cluster">
+      <td data-label="{{ t('contributions.quota.requested') }}">{{ t('contributions.quota.unlimited') if q.requested_quota == -1 else q.requested_quota }}</td>
+      <td data-label="{{ t('contributions.field.reason') }}">{{ q.reason }}</td>
+      <td class="actions"><div class="cluster">
         {{ forms.post_button(url_for('contributions.review_quota_request', request_id=q.id), t('contributions.approve'), cls='btn btn--small btn--primary', hidden={'action': 'approve'}) }}
         {{ forms.post_button(url_for('contributions.review_quota_request', request_id=q.id), t('contributions.deny'), cls='btn btn--small btn--danger', hidden={'action': 'deny'}) }}
-      </td>
+      </div></td>
     </tr>
     {% endfor %}
     </tbody>
@@ -53,7 +57,7 @@
     {{ forms.csrf() }}
     <div class="form-grid">
     {% for name, minimum, maximum in number_settings %}
-      {{ forms.field(name, t('contributions.setting.' ~ name), value=settings_values[name], type='number', required=true, attrs={'min': minimum, 'max': maximum}) }}
+      {{ forms.field(name, t('contributions.setting.' ~ name), value=settings_values[name], type='number', required=true, hint=t('contributions.setting.' ~ name ~ '_hint', ''), attrs={'min': minimum, 'max': maximum}) }}
     {% endfor %}
     </div>
     <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>

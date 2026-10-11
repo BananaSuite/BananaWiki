@@ -32,11 +32,6 @@ def valid_code(code: object) -> str:
     return text if LANG_CODE.fullmatch(text) else ""
 
 
-class _SafeDict(dict):
-    def __missing__(self, key: str) -> str:
-        return "{" + key + "}"
-
-
 def format_text(text: str, values: dict[str, Any]) -> str:
     if not values:
         return text

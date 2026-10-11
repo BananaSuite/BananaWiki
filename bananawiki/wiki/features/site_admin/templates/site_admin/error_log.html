@@ -5,16 +5,17 @@
 <header class="page-header">
   <h1>{{ t('site_admin.log.title') }}</h1>
   <div class="page-header__actions">
-    {% if errors_only %}<a class="btn" href="{{ url_for('site_admin.error_log', level='all') }}">{{ t('site_admin.log.show_all') }}</a>
-    {% else %}<a class="btn" href="{{ url_for('site_admin.error_log') }}">{{ t('site_admin.log.show_errors') }}</a>{% endif %}
+    <a class="btn btn--small" href="{{ url_for('site_admin.server_page') }}">{{ t('site_admin.log.back_to_server') }}</a>
+    {% if errors_only %}<a class="btn btn--small" href="{{ url_for('site_admin.error_log', level='all') }}">{{ t('site_admin.log.show_all') }}</a>
+    {% else %}<a class="btn btn--small" href="{{ url_for('site_admin.error_log') }}">{{ t('site_admin.log.show_errors') }}</a>{% endif %}
   </div>
 </header>
 <section class="card">
-  <p class="hint">{{ t('site_admin.log.intro') }}</p>
+  <p class="hint">{{ t('site_admin.log.intro_errors' if errors_only else 'site_admin.log.intro') }}</p>
   {% if content is none %}
   <p class="empty-state">{{ t('site_admin.log.missing') }}</p>
   {% elif not content.strip() %}
-  <p class="empty-state">{{ t('site_admin.log.empty') }}</p>
+  <p class="empty-state">{{ t('site_admin.log.empty_errors' if errors_only else 'site_admin.log.empty') }}</p>
   {% else %}
   <pre class="log-view mono" tabindex="0">{{ content }}</pre>
   {% endif %}

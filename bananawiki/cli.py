@@ -9,6 +9,7 @@ Wiki commands (configuration comes from ``BW_*`` variables, as for the server)::
     bananawiki db prune-retired [--yes]               drop tables of retired 1.4 plugins
     bananawiki create-admin NAME [--owner] [--password-file F]
     bananawiki reset-password NAME [--password-file F | --generate] [--temporary]
+    bananawiki reset-two-step NAME                    turn off two-step verification (lost app and codes)
     bananawiki jobs list | jobs run [NAME]            background jobs (e.g. from cron)
     bananawiki config check                           validate the environment
     bananawiki export --output FILE | import FILE     move a wiki's instance directory
@@ -233,15 +234,26 @@ def cmd_create_admin(args: argparse.Namespace) -> int:
     return 0
 
 
+def _generated_password(user: dict[str, Any]) -> str:
+    """A random password the policy accepts: one may contain a short user name by chance."""
+    from .core.passwords import check_new_password
+
+    while True:
+        password = secrets.token_urlsafe(12)
+        if check_new_password(password, username=user["username"], email=user.get("email")) is None:
+            return password
+
+
 def cmd_reset_password(args: argparse.Namespace) -> int:
     from .wiki import accounts
 
-    password = secrets.token_urlsafe(12) if args.generate else _read_password(
-        args, prompt=f"New password for {args.username}: ")
+    password = None if args.generate else _read_password(args, prompt=f"New password for {args.username}: ")
     with _app_scope():
         user = accounts.by_username(args.username)
         if user is None:
             raise CommandError(f"No account named {args.username!r}.")
+        if password is None:
+            password = _generated_password(user)
         try:
             accounts.set_password(user["id"], password, require_change=args.temporary or args.generate)
         except accounts.AccountError as error:
@@ -251,6 +263,27 @@ def cmd_reset_password(args: argparse.Namespace) -> int:
     if args.generate:
         result["password"] = password
     _print(result)
+    return 0
+
+
+def cmd_reset_two_step(args: argparse.Namespace) -> int:
+    """For any account, owners and superusers included: the way back in from the server."""
+    from .wiki import accounts, auth
+    from .wiki.db import db
+    from .wiki.features.audit.service import record
+    from .wiki.features.auth import two_step
+
+    with _app_scope():
+        user = accounts.by_username(args.username)
+        if user is None:
+            raise CommandError(f"No account named {args.username!r}.")
+        with db.transaction():
+            if not two_step.disable(user["id"]):
+                raise CommandError(f"{user['username']} does not use two-step verification.")
+            auth.revoke_sessions(user["id"])
+        record("user.two_step_reset", actor_id=None, ip=None, target_type="user", target_id=user["id"],
+               details={"username": user["username"], "via": "command line"})
+    _print({"reset": user["username"], "sessions_revoked": True})
     return 0
 
 
@@ -373,6 +406,9 @@ def parser() -> argparse.ArgumentParser:
     group.add_argument("--password-file")
     group.add_argument("--generate", action="store_true", help="Generate a temporary password and print it")
     reset.add_argument("--temporary", action="store_true", help="Require a change at next sign-in")
+    two_step = commands.add_parser("reset-two-step", help="Turn off two-step verification and end the "
+                                                          "account's sessions")
+    two_step.add_argument("username")
     jobs = commands.add_parser("jobs", help="Background jobs")
     job_actions = jobs.add_subparsers(dest="jobs_action", required=True)
     job_actions.add_parser("list")
@@ -389,8 +425,8 @@ def parser() -> argparse.ArgumentParser:
 
 HANDLERS = {
     "serve": cmd_serve, "setup-token": cmd_setup_token, "migrate": cmd_migrate, "db": cmd_db,
-    "create-admin": cmd_create_admin, "reset-password": cmd_reset_password, "jobs": cmd_jobs,
-    "config": cmd_config, "export": cmd_export, "import": cmd_import,
+    "create-admin": cmd_create_admin, "reset-password": cmd_reset_password, "reset-two-step": cmd_reset_two_step,
+    "jobs": cmd_jobs, "config": cmd_config, "export": cmd_export, "import": cmd_import,
 }
 
 

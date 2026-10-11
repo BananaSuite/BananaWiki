@@ -1,7 +1,7 @@
 # BananaWiki documentation
 
-Documentation for BananaWiki 1.6. The [project README](../README.md) is the
-short introduction; upgrading from 1.4 is in [UPGRADING](../UPGRADING.md).
+Documentation for BananaWiki 1.7. The [project README](../README.md) is the
+short introduction; upgrading from 1.6 or 1.4 is in [UPGRADING](../UPGRADING.md).
 
 ## Install and run
 

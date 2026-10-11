@@ -140,6 +140,16 @@ def test_admin_accounts_and_database(wiki_env, capsys):
     assert code == 1
 
 
+def test_a_generated_password_never_trips_the_password_policy(wiki_env, capsys, monkeypatch):
+    """A random password can contain a short user name by chance: another one is drawn."""
+    run_admin(capsys, "create-admin", "bob", "--password-file", str(wiki_env / "password"))
+    draws = iter(["xxBoBxxxxxxxxxxx", "Zq3-kP9_wL2mVt8r"])
+    monkeypatch.setattr(admin, "secrets", SimpleNamespace(token_urlsafe=lambda size: next(draws)))
+    code, output = run_admin(capsys, "reset-password", "bob", "--generate")
+    assert code == 0, output
+    assert output["password"] == "Zq3-kP9_wL2mVt8r" and output["must_change"]
+
+
 def test_prune_retired_plugin_tables(wiki_env, capsys):
     run_admin(capsys, "migrate")
     database = sqlite3.connect(wiki_env / "instance/bananawiki.db")

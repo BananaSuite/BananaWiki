@@ -110,6 +110,28 @@ def t(key: str, default: str | None = None, /, **values: Any) -> str:
     return catalog().translate(current_language(), key, default, **values)
 
 
+def tn(key: str, count: Any, /, **values: Any) -> str:
+    """Count-dependent text: ``<key>_one`` when *count* is 1 and the catalogue has it, else *key*.
+
+    The plain key holds the general (plural) form, so existing strings keep working;
+    languages add a ``_one`` variant where the singular differs.
+    """
+    values.setdefault("count", count)
+    try:
+        single = int(count) == 1
+    except (TypeError, ValueError):
+        single = False
+    if single:
+        lang = current_language()
+        strings = catalog().strings(lang)
+        one = f"{key}_one"
+        # Only a language that has its own singular uses it: a pack without one keeps its plural
+        # sentence rather than switching to the English singular.
+        if one in strings:
+            return catalog().translate(lang, one, None, **values)
+    return t(key, **values)
+
+
 def t_lang(lang: str, key: str, default: str | None = None, /, **values: Any) -> str:
     return catalog().translate(lang, key, default, **values)
 

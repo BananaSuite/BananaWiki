@@ -21,6 +21,9 @@ MAX_ICON = 10
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 READING_HEARTBEAT_MAX = 120
 
+# Catalogue keys of the default badges ("badges.default.<key>.name|description"), in DEFAULT_BADGES order;
+# the English texts below stay as the fallback and to recognise badges added by earlier versions.
+DEFAULT_BADGE_KEYS = ("first_edit", "prolific", "super", "master", "diverse", "veteran")
 DEFAULT_BADGES = (
     ("First Edit", "Made your first contribution to the wiki", "✏️", "#4a90e2", "first_edit", 0),
     ("Prolific Contributor", "Made 10 contributions to the wiki", "🌟", "#ffd700", "contribution_count", 10),
@@ -108,11 +111,20 @@ def delete_type(type_id: int) -> None:
 
 
 def add_defaults(created_by: str | None) -> int:
-    """Create the 1.4 default badges that do not exist yet (disabled)."""
+    """Create the 1.4 default badges that do not exist yet (disabled), named in the wiki's language."""
+    from ... import i18n
+
+    try:
+        language = i18n.default_language()
+    except Exception:  # noqa: BLE001 - outside a request: English
+        language = "en"
     added = 0
     with db.transaction():
-        for name, description, icon, color, trigger, threshold in DEFAULT_BADGES:
-            if _name_taken(name):
+        for key, (english, english_description, icon, color, trigger, threshold) in zip(DEFAULT_BADGE_KEYS,
+                                                                                      DEFAULT_BADGES, strict=True):
+            name = i18n.t_lang(language, f"badges.default.{key}.name", english)
+            description = i18n.t_lang(language, f"badges.default.{key}.description", english_description)
+            if _name_taken(english) or _name_taken(name):
                 continue
             db.insert("badge_types", {
                 "name": name, "description": description, "icon": icon, "color": color, "enabled": 0,

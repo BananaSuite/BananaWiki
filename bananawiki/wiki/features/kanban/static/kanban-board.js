@@ -9,7 +9,7 @@
  *   K.moveTicket(id, columnId, index), K.cardHooks (functions(li, ticket)),
  *   K.onRefresh (callbacks), K.announce(text), K.fail(error),
  *   K.isShown(ticket) (replaced by kanban-filter.js; hidden cards are skipped by keyboard moves),
- *   K.dueState(date) ("overdue", "soon" or ""),
+ *   K.dueState(date) ("overdue", "soon" or ""), K.dueStateIn(ticket) (always "" in a done column),
  *   K.lanes (set by kanban-lanes.js to group the board into rows: null, or
  *     { list() -> [{id, label}], of(ticket) -> [lane ids], draggable, change(id, from, to) -> Promise,
  *       create(laneId) -> extra fields for a ticket added in that row })
@@ -117,11 +117,38 @@
     return due <= isoDate(soon) ? "soon" : "";
   };
   K.isoDate = isoDate;
+  // A done column holds finished work: its tickets keep their dates but are never overdue or due soon.
+  K.dueStateIn = function (ticket) {
+    var col = column(ticket.column_id);
+    return col && col.done ? "" : K.dueState(ticket.due_date);
+  };
   K.isShown = function () { return true; };
 
   // ── Rendering ────────────────────────────────────────────────────────────
   function badge(text, extra) {
     return el("span", "badge" + (extra ? " " + extra : ""), text);
+  }
+
+  // Same geometry as the server-side icon macro (macros/icons.html).
+  var ICONS = {
+    attachments: ["M15.5 9.5l-5.8 5.8a3.5 3.5 0 0 1-5-5l6.4-6.4a2.3 2.3 0 0 1 3.3 3.3l-6.3 6.3a1.2 1.2 0 0 1-1.7-1.7l5.6-5.6"],
+    comments: ["M5 3h10a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H8l-5 3V5a2 2 0 0 1 2-2Z", "M6.5 7h7m-7 3h4"],
+    // The done-column toggle: an outlined circle, filled by kanban.css while the toggle is pressed.
+    done: ["M10 2.5a7.5 7.5 0 1 1 0 15a7.5 7.5 0 0 1 0-15Z", "m6.6 10.3 2.3 2.3 4.6-5"],
+  };
+
+  function icon(name) {
+    var ns = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(ns, "svg");
+    [["class", "icon"], ["width", "14"], ["height", "14"], ["viewBox", "0 0 20 20"], ["fill", "none"],
+      ["stroke", "currentColor"], ["stroke-width", "1.5"], ["stroke-linecap", "round"], ["stroke-linejoin", "round"],
+      ["aria-hidden", "true"], ["focusable", "false"]].forEach(function (pair) { svg.setAttribute(pair[0], pair[1]); });
+    ICONS[name].forEach(function (d) {
+      var path = document.createElementNS(ns, "path");
+      path.setAttribute("d", d);
+      svg.appendChild(path);
+    });
+    return svg;
   }
 
   function renderCard(ticket) {
@@ -148,9 +175,10 @@
     var meta = el("div", "kanban-card__meta");
     if (ticket.priority !== "medium") meta.appendChild(badge(BW.t("kanban.priority." + ticket.priority), "kanban-priority--" + ticket.priority));
     if (ticket.due_date) {
-      var due = K.dueState(ticket.due_date);
-      var dueBadge = badge(BW.t("kanban.due", { date: ticket.due_date }), due ? "kanban-due--" + due : "");
-      if (due) dueBadge.title = BW.t("kanban.due_" + due);
+      var due = K.dueStateIn(ticket);
+      // The state is in the words too ("Overdue since…"), not only in the badge colour.
+      var dueBadge = badge(BW.t(due ? "kanban.due_" + due + "_on" : "kanban.due", { date: ticket.due_date }),
+        due ? "kanban-due--" + due : "");
       meta.appendChild(dueBadge);
     }
     if (ticket.checklist_total) {
@@ -165,7 +193,8 @@
     [["attachment_count", "attachments"], ["comment_count", "comments"]].forEach(function (pair) {
       var count = ticket[pair[0]];
       if (!count) return;
-      var counter = badge(BW.t("kanban." + pair[1] + "_count", { count: count }));
+      var counter = badge(BW.t("kanban." + pair[1] + "_count", { count: count }), "kanban-card__count");
+      counter.prepend(icon(pair[1]));
       counter.title = BW.t("kanban." + pair[1] + "_title", { count: count });
       counter.setAttribute("aria-label", counter.title);
       meta.appendChild(counter);
@@ -186,6 +215,7 @@
     input.dataset.action = "new-ticket";
     input.placeholder = BW.t("kanban.add_ticket_placeholder");
     input.setAttribute("aria-label", BW.t("kanban.add_ticket"));
+    if (document.getElementById("kanban-quick-add-hint")) input.setAttribute("aria-describedby", "kanban-quick-add-hint");
     var submit = el("button", "btn btn--small", BW.t("kanban.add_ticket"));
     submit.type = "submit";
     form.appendChild(input);
@@ -216,6 +246,14 @@
       limit.type = "button";
       limit.dataset.action = "wip-limit";
       tools.appendChild(limit);
+      // An icon toggle, named by its aria-label and explained by its tooltip (fillColumn), so that at the
+      // default column width the tools keep one row with the delete button.
+      var finished = el("button", "btn btn--ghost btn--icon btn--small kanban-column__done", "");
+      finished.type = "button";
+      finished.dataset.action = "done-column";
+      finished.setAttribute("aria-pressed", "false");
+      finished.appendChild(icon("done"));
+      tools.appendChild(finished);
       var shelve = el("button", "btn btn--ghost btn--small kanban-column__archive", BW.t("kanban.archive_column"));
       shelve.type = "button";
       shelve.dataset.action = "archive-column";
@@ -225,11 +263,16 @@
       remove.dataset.action = "delete-column";
       tools.appendChild(remove);
       head.appendChild(tools);
+    } else {
+      var mark = el("span", "badge kanban-column__done-mark", BW.t("kanban.done_button"));
+      mark.hidden = true;
+      head.appendChild(mark);
     }
     section.appendChild(head);
     if (headOnly) return section;
     var list = el("ul", "kanban-column__cards");
     list.dataset.columnId = col.id;
+    list.dataset.empty = BW.t("kanban.column_empty");
     list.setAttribute("aria-labelledby", title.id);
     section.appendChild(list);
     if (K.canWrite) section.appendChild(addTicketForm());
@@ -265,13 +308,22 @@
     var over = !!col.wip_limit && total > col.wip_limit;
     if (col.wip_limit) text = BW.t("kanban.wip_count", { count: text, limit: col.wip_limit });
     count.textContent = text;
-    count.title = col.wip_limit ? BW.t(over ? "kanban.wip_over" : "kanban.wip_title", { count: total, limit: col.wip_limit })
-      : BW.t("kanban.tickets_count", { count: total });
+    count.title = col.wip_limit ? BW.tn(over ? "kanban.wip_over" : "kanban.wip_title", total, { count: total, limit: col.wip_limit })
+      : BW.tn("kanban.tickets_count", total, { count: total });
     count.setAttribute("aria-label", count.title);
     section.classList.toggle("is-over-limit", over);
     section.classList.toggle("is-at-limit", !!col.wip_limit && total === col.wip_limit);
     var limitButton = section.querySelector("[data-action='wip-limit']");
     if (limitButton) limitButton.setAttribute("aria-label", BW.t("kanban.wip_set", { title: col.title }));
+    section.classList.toggle("is-done", !!col.done);
+    var doneButton = section.querySelector("[data-action='done-column']");
+    if (doneButton) {
+      doneButton.setAttribute("aria-pressed", col.done ? "true" : "false");
+      doneButton.setAttribute("aria-label", BW.t("kanban.done_label", { title: col.title }));
+      doneButton.title = BW.t("kanban.done_set", { title: col.title });
+    }
+    var doneMark = section.querySelector(".kanban-column__done-mark");
+    if (doneMark) doneMark.hidden = !col.done;
     var grip = section.querySelector("[data-grip='column']");
     if (grip) grip.setAttribute("aria-label", BW.t("kanban.move_column", { title: col.title }));
     var remove = section.querySelector("[data-action='delete-column']");
@@ -294,8 +346,9 @@
     input.type = "text";
     input.maxLength = 100;
     input.required = true;
-    input.placeholder = BW.t("kanban.add_column");
-    input.setAttribute("aria-label", BW.t("kanban.add_column"));
+    // The field asks for a name; only the button says "Add column".
+    input.placeholder = BW.t("kanban.column_name");
+    input.setAttribute("aria-label", BW.t("kanban.column_name"));
     var submit = el("button", "btn btn--small", BW.t("kanban.add_column"));
     submit.type = "submit";
     form.appendChild(input);
@@ -379,7 +432,7 @@
         if (K.isShown(ticket) && inLane(ticket, lane.id)) shown += 1;
       });
       var count = el("span", "badge", String(shown));
-      count.setAttribute("aria-label", BW.t("kanban.tickets_count", { count: shown }));
+      count.setAttribute("aria-label", BW.tn("kanban.tickets_count", shown, { count: shown }));
       heading.appendChild(count);
       section.setAttribute("aria-labelledby", heading.id);
       section.appendChild(heading);
@@ -391,6 +444,7 @@
         var list = el("ul", "kanban-column__cards");
         list.dataset.columnId = col.id;
         list.dataset.lane = lane.id;
+        list.dataset.empty = BW.t("kanban.column_empty");
         list.setAttribute("aria-label", BW.t("kanban.lane_cell", { column: col.title, lane: lane.label }));
         fillCards(list, col, lane.id);
         cell.appendChild(list);
@@ -481,9 +535,11 @@
       if (existing) {
         existing.title = p.column.title;
         existing.wip_limit = p.column.wip_limit || null;
+        existing.done = !!p.column.done;
         existing.tickets = p.column.tickets;
       } else {
-        K.state.columns.push({ id: p.column.id, title: p.column.title, wip_limit: p.column.wip_limit || null, tickets: p.column.tickets || [] });
+        K.state.columns.push({ id: p.column.id, title: p.column.title, wip_limit: p.column.wip_limit || null,
+          done: !!p.column.done, tickets: p.column.tickets || [] });
       }
       orderColumns(p.order);
     },
@@ -562,7 +618,7 @@
     K.refresh();
     var message = BW.t("kanban.moved", { title: K.ticket(ticketId).title, column: to.title, position: to.tickets.indexOf(ticketId) + 1 });
     if (from !== to && to.wip_limit && to.tickets.length > to.wip_limit) {
-      var warning = BW.t("kanban.wip_exceeded", { title: to.title, count: to.tickets.length, limit: to.wip_limit });
+      var warning = BW.tn("kanban.wip_exceeded", to.tickets.length, { title: to.title, count: to.tickets.length, limit: to.wip_limit });
       BW.toast(warning, "warning");
       message += ". " + warning;
     }
@@ -610,13 +666,13 @@
   function archiveColumn(section) {
     var col = column(Number(section.dataset.columnId));
     if (!col || !col.tickets.length) return;
-    if (!window.confirm(BW.t("kanban.confirm_archive_column", { title: col.title, count: col.tickets.length }))) return;
+    if (!window.confirm(BW.tn("kanban.confirm_archive_column", col.tickets.length, { title: col.title, count: col.tickets.length }))) return;
     K.api("/columns/" + col.id + "/archive", "POST").then(function (result) {
       var ids = col.tickets.slice();
       removeTickets(ids);
       K.state.archived_count = (K.state.archived_count || 0) + result.updated;
       K.refresh();
-      K.announce(BW.t("kanban.archived_done", { count: result.updated }));
+      K.announce(BW.tn("kanban.archived_done", result.updated, { count: result.updated }));
       document.dispatchEvent(new CustomEvent("kanban:archived"));
     }).catch(K.fail);
   }
@@ -706,9 +762,22 @@
     input.addEventListener("blur", function () { finish(true); });
   }
 
+  function toggleDone(button) {
+    var col = column(Number(button.closest(".kanban-column").dataset.columnId));
+    if (!col) return;
+    K.api("/columns/" + col.id, "PUT", { done: !col.done }).then(function (result) {
+      col.done = !!result.done;
+      K.refresh();
+      K.announce(BW.t(col.done ? "kanban.done_on" : "kanban.done_off", { title: col.title }));
+    }).catch(K.fail).then(function () {
+      var again = root.querySelector(".kanban-column[data-column-id='" + col.id + "'] [data-action='done-column']");
+      if (again) again.focus();
+    });
+  }
+
   function deleteColumn(section) {
     var col = column(Number(section.dataset.columnId));
-    if (!col || !window.confirm(BW.t("kanban.confirm_delete_column", { title: col.title, count: col.tickets.length }))) return;
+    if (!col || !window.confirm(BW.tn("kanban.confirm_delete_column", col.tickets.length, { title: col.title, count: col.tickets.length }))) return;
     K.api("/columns/" + col.id, "DELETE").then(function () {
       handlers.column_deleted({ column_id: col.id, order: K.state.columns.map(function (c) { return c.id; }).filter(function (id) { return id !== col.id; }) });
       K.refresh();
@@ -730,6 +799,8 @@
       startRename(target);
     } else if (target.dataset.action === "wip-limit") {
       startLimit(target);
+    } else if (target.dataset.action === "done-column") {
+      toggleDone(target);
     } else if (target.dataset.action === "delete-column") {
       deleteColumn(target.closest(".kanban-column"));
     } else if (target.dataset.action === "archive-column") {

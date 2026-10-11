@@ -14,7 +14,8 @@ Hierarchy
 * The last owner can never be demoted or deleted.
 
 Every function takes the acting user and raises :class:`AccountError` with a
-translation key when the change is refused.
+translation key when the change is refused. Changes are written to the audit
+log once they have committed (directly, or through the ``user.*`` events).
 """
 
 from __future__ import annotations
@@ -23,12 +24,15 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from bananawiki.core.numbers import ascii_int
+
 from ....core.timeutil import now_sql, to_sql, utcnow
 from ... import accounts, attention, auth
 from ... import permissions as perms
 from ...accounts import AccountError
 from ...db import db
 from ...registry import emit
+from ..audit.service import record
 
 MAX_SUSPEND_REASON = 500
 USERS_PER_PAGE = 50
@@ -42,8 +46,9 @@ def is_superuser(user: dict[str, Any] | None) -> bool:
     return bool(user and user.get("is_superuser"))
 
 
-def _is_top(user: dict[str, Any]) -> bool:
-    return user.get("role") == "owner" or is_superuser(user)
+def is_top(user: dict[str, Any] | None) -> bool:
+    """Owners and superusers: the accounts above plain administrators."""
+    return bool(user) and (user.get("role") == "owner" or is_superuser(user))  # type: ignore[union-attr]
 
 
 def protection_error(actor: dict[str, Any], target: dict[str, Any]) -> str | None:
@@ -54,7 +59,7 @@ def protection_error(actor: dict[str, Any], target: dict[str, Any]) -> str | Non
         return "admin.users.error.protected"
     if target["role"] == "owner":
         return "admin.users.error.owner_only_self"
-    if target["role"] == "admin" and not _is_top(actor):
+    if target["role"] == "admin" and not is_top(actor):
         return "admin.users.error.admin_needs_owner"
     return None
 
@@ -80,6 +85,11 @@ def _current_accounts(actor: dict[str, Any], target: dict[str, Any], *, manageab
     if manageable:
         require_manageable(current_actor, current_target)
     return current_actor, current_target
+
+
+def _audit(action: str, actor: dict[str, Any], target: dict[str, Any], **details: Any) -> None:
+    record(action, actor_id=actor["id"], target_type="user", target_id=target["id"],
+           details={"username": target["username"], **details})
 
 
 def _require_other(actor: dict[str, Any], target: dict[str, Any], key: str) -> None:
@@ -135,7 +145,7 @@ class UserFilter:
             role=role if role in perms.ROLES else "",
             status=status if status in ("active", "suspended") else "",
             approval=approval if approval in ("pending", "approved", "denied") else "",
-            custom_role=int(custom) if custom.isdigit() else None,
+            custom_role=ascii_int(custom),
         )
 
     def as_args(self) -> dict[str, Any]:
@@ -177,6 +187,10 @@ def list_users(flt: UserFilter, page: int = 1, per_page: int = USERS_PER_PAGE) -
     return rows, total
 
 
+_SESSION_COLUMNS = ("s.id, s.user_id, s.created_at, s.last_seen_at, s.expires_at, s.remember_me, s.auth_method, "
+                    "s.ip_address, s.last_ip, s.user_agent, u.username, u.role, u.is_superuser")
+
+
 def active_sessions(user_id: str | None = None, *, limit: int = 200) -> list[dict[str, Any]]:
     """Active sign-in sessions, newest activity first (one user's, or everyone's)."""
     where, params = "s.revoked_at IS NULL AND s.expires_at > ?", [now_sql()]
@@ -184,11 +198,35 @@ def active_sessions(user_id: str | None = None, *, limit: int = 200) -> list[dic
         where += " AND s.user_id = ?"
         params.append(user_id)
     return db.all(
-        "SELECT s.id, s.user_id, s.created_at, s.last_seen_at, s.expires_at, s.remember_me, s.auth_method, "
-        "s.ip_address, s.last_ip, s.user_agent, u.username FROM user_sessions s JOIN users u ON u.id = s.user_id "
+        f"SELECT {_SESSION_COLUMNS} FROM user_sessions s JOIN users u ON u.id = s.user_id "
         f"WHERE {where} ORDER BY s.last_seen_at DESC LIMIT ?",
         [*params, limit],
     )
+
+
+def active_session(session_id: str) -> dict[str, Any] | None:
+    """One active session by id, however many others there are."""
+    return db.one(
+        f"SELECT {_SESSION_COLUMNS} FROM user_sessions s JOIN users u ON u.id = s.user_id "
+        "WHERE s.id = ? AND s.revoked_at IS NULL AND s.expires_at > ?",
+        (session_id, now_sql()),
+    )
+
+
+def sessions_for(actor: dict[str, Any], sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """*sessions* as *actor* may see them.
+
+    The addresses of accounts the actor may not change (other administrators
+    for a plain administrator, owners, superusers) are hidden, and those
+    sessions are marked ``locked``: the hierarchy covers sign-in data too.
+    """
+    shown = []
+    for row in sessions:
+        target = {"id": row["user_id"], "role": row["role"], "is_superuser": row["is_superuser"]}
+        locked = protection_error(actor, target) is not None
+        shown.append(dict(row, locked=locked, ip_address=None if locked else row["ip_address"],
+                          last_ip=None if locked else row["last_ip"]))
+    return shown
 
 
 def audit_trail(user_id: str) -> dict[str, list[dict[str, Any]]]:
@@ -284,7 +322,7 @@ def change_role(actor: dict[str, Any], target: dict[str, Any], new_role: str) ->
         actor, target = _current_accounts(actor, target)
         if actor["id"] == target["id"] and not (target["role"] == "owner" and new_role != "owner"):
             raise AccountError("admin.users.error.own_role")
-        if new_role == "owner" and not _is_top(actor):
+        if new_role == "owner" and not is_top(actor):
             raise AccountError("admin.users.error.owner_grant")
         if target["role"] == "owner" and new_role != "owner" and accounts.owners_count() <= 1:
             raise AccountError("admin.users.error.last_owner")
@@ -311,6 +349,7 @@ def assign_custom_role(actor: dict[str, Any], target: dict[str, Any], role: dict
         clear_overrides(target["id"])
         if role["base_role"] != target["role"]:
             record_role_change(target["id"], target["role"], role["base_role"], actor["id"])
+    _audit("user.custom_role_assigned", actor, target, custom_role=role["name"], custom_role_id=role["id"])
     updated = get_user(target["id"])
     if role["base_role"] != target["role"]:
         emit("user.role_changed", user=updated, old_role=target["role"], new_role=role["base_role"],
@@ -325,6 +364,7 @@ def remove_custom_role(actor: dict[str, Any], target: dict[str, Any]) -> None:
             raise AccountError("admin.roles.error.not_assigned")
         db.execute("UPDATE users SET custom_role_id = NULL WHERE id = ?", (target["id"],))
         clear_overrides(target["id"])
+    _audit("user.custom_role_removed", actor, target, custom_role_id=target["custom_role_id"])
 
 
 def suspension_end(duration: str, custom_datetime: datetime | None, rel_hours: str,
@@ -371,7 +411,7 @@ def suspend(actor: dict[str, Any], target: dict[str, Any], *, until: str | None,
         db.insert("suspension_audit", {
             "user_id": target["id"], "action": "suspend", "reason": reason or None,
             "reason_visible": int(reason_visible), "time_visible": int(time_visible), "duration": label,
-            "suspended_until": until, "performed_by": actor["id"], "imposed_by_top": int(_is_top(actor)),
+            "suspended_until": until, "performed_by": actor["id"], "imposed_by_top": int(is_top(actor)),
             "created_at": now_sql(),
         })
         auth.revoke_sessions(target["id"])
@@ -388,6 +428,7 @@ def unsuspend(actor: dict[str, Any], target: dict[str, Any]) -> None:
         db.insert("suspension_audit", {
             "user_id": target["id"], "action": "unsuspend", "performed_by": actor["id"], "created_at": now_sql(),
         })
+    _audit("user.unsuspended", actor, target)
 
 
 def expire_suspensions() -> int:
@@ -410,6 +451,7 @@ def approve(actor: dict[str, Any], target: dict[str, Any]) -> None:
         ).rowcount
         if not changed:
             raise AccountError("admin.approval.error.not_pending")
+    _audit("user.approved", actor, target)
     attention.decided(target["id"], "admin.signups", "approved")
 
 
@@ -425,6 +467,7 @@ def deny(actor: dict[str, Any], target: dict[str, Any]) -> None:
         if not changed:
             raise AccountError("admin.approval.error.not_pending")
         auth.revoke_sessions(target["id"])
+    _audit("user.denied", actor, target)
     attention.decided(target["id"], "admin.signups", "denied")
 
 
@@ -438,7 +481,7 @@ def reset_password(actor: dict[str, Any], target: dict[str, Any], password: str,
             db.execute("UPDATE users SET original_password_backup = ? WHERE id = ?",
                        (target["password"], target["id"]))
         accounts.set_password(target["id"], password, keep_session_id=auth.current_session_id() if own else None,
-                              require_change=require_change and not own)
+                              require_change=require_change and not own, keep_backup=keep_original)
     emit("user.password_reset", user=get_user(target["id"]), actor_id=actor["id"])
 
 
@@ -471,6 +514,7 @@ def toggle_chat(actor: dict[str, Any], target: dict[str, Any]) -> bool:
         actor, target = _current_accounts(actor, target)
         disabled = not target.get("chat_disabled")
         db.execute("UPDATE users SET chat_disabled = ? WHERE id = ?", (int(disabled), target["id"]))
+    _audit("user.chat_disabled" if disabled else "user.chat_enabled", actor, target)
     return disabled
 
 
@@ -483,6 +527,7 @@ def toggle_superuser(actor: dict[str, Any], target: dict[str, Any]) -> bool:
         _require_other(actor, target, "admin.users.error.own_superuser")
         enabled = not is_superuser(target)
         db.execute("UPDATE users SET is_superuser = ? WHERE id = ?", (int(enabled), target["id"]))
+    _audit("user.superuser_granted" if enabled else "user.superuser_revoked", actor, target)
     return enabled
 
 
@@ -492,24 +537,50 @@ def revoke_session(actor: dict[str, Any], target: dict[str, Any], session_id: st
         actor, target = _current_accounts(actor, target)
         if session_id is None:
             own = actor["id"] == target["id"]
-            return auth.revoke_sessions(target["id"], except_session_id=auth.current_session_id() if own else None)
-        return db.execute(
-            "UPDATE user_sessions SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
-            (now_sql(), session_id, target["id"]),
-        ).rowcount
+            count = auth.revoke_sessions(target["id"], except_session_id=auth.current_session_id() if own else None)
+        else:
+            count = db.execute(
+                "UPDATE user_sessions SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
+                (now_sql(), session_id, target["id"]),
+            ).rowcount
+    if count:
+        _audit("user.sessions_revoked", actor, target, sessions=count)
+    return count
+
+
+# SQL condition on ``users``: the accounts every administrator may manage (users and editors).
+BELOW_ADMINISTRATORS_SQL = "(is_superuser = 0 AND role IN ('user', 'editor'))"
+
+
+def _manageable_sql(actor: dict[str, Any]) -> tuple[str, list[Any]]:
+    """SQL condition on ``users`` matching the accounts :func:`protection_error` lets *actor* change."""
+    if not is_top(actor):
+        return f"(id = ? OR {BELOW_ADMINISTRATORS_SQL})", [actor["id"]]
+    return "(id = ? OR (is_superuser = 0 AND role IN ('user', 'editor', 'admin')))", [actor["id"]]
 
 
 def mass_logout(actor: dict[str, Any]) -> int:
-    """Sign everyone out except the administrator's current session."""
+    """Sign out everyone the administrator may manage, except the administrator's current session.
+
+    Owners, superusers and (for a plain administrator) other administrators
+    are left alone: the same hierarchy as every other account action.
+    """
     session_id = auth.current_session_id()
-    params: list[Any] = [now_sql()]
-    extra = ""
-    if session_id:
-        extra = " AND id != ?"
-        params.append(session_id)
     with db.transaction():
-        _current_accounts(actor, actor, manageable=False)
-        return db.execute(f"UPDATE user_sessions SET revoked_at = ? WHERE revoked_at IS NULL{extra}", params).rowcount
+        actor, _ = _current_accounts(actor, actor, manageable=False)
+        condition, manageable = _manageable_sql(actor)
+        params: list[Any] = [now_sql()]
+        extra = ""
+        if session_id:
+            extra = " AND id != ?"
+            params.append(session_id)
+        count = db.execute(
+            f"UPDATE user_sessions SET revoked_at = ? WHERE revoked_at IS NULL{extra} "
+            f"AND user_id IN (SELECT id FROM users WHERE {condition})",
+            [*params, *manageable],
+        ).rowcount
+    record("sessions.mass_logout", actor_id=actor["id"], details={"sessions": count})
+    return count
 
 
 def start_impersonation(actor: dict[str, Any], target: dict[str, Any]) -> None:
@@ -525,6 +596,7 @@ def start_impersonation(actor: dict[str, Any], target: dict[str, Any]) -> None:
             (actor["id"], target["id"], now_sql()),
         )
         auth.start_impersonation(target)
+    _audit("user.impersonation_started", actor, target, role=target["role"])
 
 
 # ── Attribution and history clean-up ─────────────────────────────────────────
@@ -535,6 +607,7 @@ def deattribute_all(actor: dict[str, Any], target: dict[str, Any]) -> int:
         actor, target = _current_accounts(actor, target)
         count = db.execute("UPDATE page_history SET edited_by = NULL WHERE edited_by = ?", (target["id"],)).rowcount
         db.execute("UPDATE pages SET last_edited_by = NULL WHERE last_edited_by = ?", (target["id"],))
+    _audit("user.attributions_removed", actor, target, edits=count)
     return count
 
 
@@ -547,6 +620,7 @@ def reattribute_all(actor: dict[str, Any], target: dict[str, Any], recipient: di
         count = db.execute("UPDATE page_history SET edited_by = ? WHERE edited_by = ?",
                            (recipient["id"], target["id"])).rowcount
         db.execute("UPDATE pages SET last_edited_by = ? WHERE last_edited_by = ?", (recipient["id"], target["id"]))
+    _audit("user.attributions_moved", actor, target, edits=count, to=recipient["username"])
     return count
 
 
@@ -556,11 +630,15 @@ def delete_role_history(actor: dict[str, Any], target: dict[str, Any], entry_id:
     with db.transaction():
         actor, target = _current_accounts(actor, target)
         if entry_id is None:
-            return db.execute("DELETE FROM role_history WHERE user_id = ?", (target["id"],)).rowcount
-        count = db.execute("DELETE FROM role_history WHERE id = ? AND user_id = ?", (entry_id, target["id"])).rowcount
-        if not count:
-            raise AccountError("admin.attributions.error.entry_not_found")
-        return count
+            count = db.execute("DELETE FROM role_history WHERE user_id = ?", (target["id"],)).rowcount
+        else:
+            count = db.execute("DELETE FROM role_history WHERE id = ? AND user_id = ?",
+                               (entry_id, target["id"])).rowcount
+            if not count:
+                raise AccountError("admin.attributions.error.entry_not_found")
+    # The role history is gone; this entry keeps the fact that it was removed.
+    _audit("user.role_history_deleted", actor, target, entries=count)
+    return count
 
 
 def release_name(actor: dict[str, Any], target: dict[str, Any],
@@ -604,7 +682,7 @@ def user_access(user: dict[str, Any]) -> Access:
 
 
 def existing_category_ids(values: list[str]) -> list[int]:
-    wanted = {int(v) for v in values if str(v).isdigit()}
+    wanted = {number for number in map(ascii_int, values) if number is not None}
     if not wanted:
         return []
     known = set(db.column("SELECT id FROM categories"))
@@ -646,6 +724,9 @@ def save_overrides(actor: dict[str, Any], target: dict[str, Any], *, keys: list[
                        [(target["id"], key) for key in sorted(granted)])
         _write_access(target["id"], "read", read_restricted, read_ids)
         _write_access(target["id"], "write", write_restricted, write_ids)
+    _audit("user.permissions_changed", actor, target, permissions=" ".join(sorted(granted)),
+           read_categories=sorted(read_ids) if read_restricted else "all",
+           write_categories=sorted(write_ids) if write_restricted else "all")
 
 
 def save_editor_access(actor: dict[str, Any], target: dict[str, Any], *, restricted: bool,
@@ -662,6 +743,8 @@ def save_editor_access(actor: dict[str, Any], target: dict[str, Any], *, restric
                            [(target["id"], key) for key in sorted(current.keys)])
             _write_access(target["id"], "read", False, [])
         _write_access(target["id"], "write", restricted, category_ids)
+    _audit("user.permissions_changed", actor, target,
+           write_categories=sorted(category_ids) if restricted else "all")
 
 
 def reset_overrides(actor: dict[str, Any], target: dict[str, Any]) -> None:
@@ -669,22 +752,31 @@ def reset_overrides(actor: dict[str, Any], target: dict[str, Any]) -> None:
         actor, target = _current_accounts(actor, target)
         _require_overridable(actor, target)
         clear_overrides(target["id"])
+    _audit("user.permissions_reset", actor, target)
 
 
 # ── Automatic clean-up ───────────────────────────────────────────────────────
 
 
 def delete_expired_signups(denied_hours: int, pending_hours: int) -> int:
-    """Delete denied accounts after *denied_hours* and unreviewed ones after *pending_hours* (0: never)."""
-    candidates = db.all(
-        "SELECT * FROM users WHERE approval_status = 'denied' AND denied_at IS NOT NULL AND denied_at <= ?",
-        (to_sql(utcnow() - timedelta(hours=max(denied_hours, 0))),),
-    )
+    """Delete denied accounts after *denied_hours* and unreviewed ones after *pending_hours* (0: never).
+
+    Each account is checked again inside the transaction that deletes it, so
+    one approved (or denied later) since the candidates were listed is kept.
+    """
+    clauses = ["(approval_status = 'denied' AND denied_at IS NOT NULL AND denied_at <= ?)"]
+    params: list[Any] = [to_sql(utcnow() - timedelta(hours=max(denied_hours, 0)))]
     if pending_hours > 0:
-        candidates += db.all(
-            "SELECT * FROM users WHERE approval_status = 'pending' AND created_at <= ?",
-            (to_sql(utcnow() - timedelta(hours=pending_hours)),),
-        )
-    for user in candidates:
-        accounts.delete(user)
-    return len(candidates)
+        clauses.append("(approval_status = 'pending' AND created_at <= ?)")
+        params.append(to_sql(utcnow() - timedelta(hours=pending_hours)))
+    expired = " OR ".join(clauses)
+    deleted = 0
+    for user_id in db.column(f"SELECT id FROM users WHERE {expired}", params):
+        with db.transaction():
+            user = db.one(f"SELECT * FROM users WHERE id = ? AND ({expired})", [user_id, *params])
+            if user is None:
+                continue
+            accounts.delete(user, emit_event=False)
+        emit("user.deleted", user=user, deleted_by=None)
+        deleted += 1
+    return deleted

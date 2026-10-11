@@ -249,6 +249,33 @@ def test_import_refuses_path_traversal(admin_client, db):
     assert db.scalar("SELECT COUNT(*) FROM kanban_boards") == 0
 
 
+def test_import_keeps_attachments_that_together_exceed_one_attachments_limit(admin_client, db, monkeypatch):
+    set_settings(db, upload_max_size_mb=1)
+    paths = [f"attachments/1/part{n}.txt" for n in range(3)]
+    document = {"title": "Heavy", "columns": [{"title": "Todo", "tickets": [{"title": "Files", "attachments": [
+        {"bundle_path": path, "original_name": path.rsplit("/", 1)[1]} for path in paths]}]}]}
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("board.json", json.dumps(document))
+        for path in paths:
+            archive.writestr(path, b"x" * (600 * 1024))
+        archive.writestr("attachments/9/unlisted.bin", b"\0" * (900 * 1024))
+    opened = []
+    original_open = zipfile.ZipFile.open
+
+    def recording_open(self, name, *args, **kwargs):
+        opened.append(getattr(name, "filename", name))
+        return original_open(self, name, *args, **kwargs)
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", recording_open)
+    response = admin_client.post("/kanban/import", data={"import_file": (io.BytesIO(buffer.getvalue()), "h.zip")},
+                                 content_type="multipart/form-data")
+    assert response.status_code == 302
+    # Together the files exceed one attachment's limit; each is within it, so all three are kept.
+    assert db.scalar("SELECT COUNT(*) FROM kanban_ticket_attachments") == 3
+    assert "attachments/9/unlisted.bin" not in opened
+
+
 def test_embed_respects_permissions(app, admin_client, board, db, make_user, login):
     data = admin_client.get(f"/api/embed/kanban/{board}").get_json()
     assert data["board"]["title"] == "Roadmap" and data["url"] == f"/kanban/{board}"

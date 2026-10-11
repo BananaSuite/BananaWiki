@@ -10,7 +10,9 @@ reason (a test keeps the two complete, so a new feature has to decide).
 What is never exported:
 
 * credentials: password hashes, token and session digests, invite codes,
-  webhook secrets, stored API answers (``api_service__idempotency``);
+  webhook secrets, stored API answers (``api_service__idempotency``), the
+  two-step authenticator key and recovery code digests (only whether it is
+  on, since when and how many recovery codes are left);
 * what administrators keep about the account without showing it: hidden
   suspension reasons and end times, impersonation records, who changed a
   role or awarded a badge, internal tags;
@@ -122,6 +124,10 @@ EXPORTED: tuple[Rows, ...] = (
                          "FROM invite_codes WHERE created_by = ? ORDER BY id"),
     Rows("user_notices", "SELECT id, source_id, outcome, object_id, endpoint, created_at, dismissed_at, emailed_at "
                          "FROM user_notices WHERE user_id = ? ORDER BY id"),
+    # Two-step verification: whether it is on (a row) and since when, never the key or the code digests.
+    Rows("auth__two_step", "SELECT enabled_at, CASE WHEN json_valid(recovery_hashes) "
+                           "THEN json_array_length(recovery_hashes) ELSE 0 END AS recovery_codes_left "
+                           "FROM auth__two_step WHERE user_id = ?"),
     Rows("platform_oauth_links", "SELECT account_id, portal_username, linked_at FROM platform_oauth_links "
                                  "WHERE user_id = ?"),
     Rows("account_merge_requests", "SELECT id, source_user_id, target_user_id, status, source_approved, "
@@ -202,6 +208,8 @@ EXPORTED: tuple[Rows, ...] = (
                   "ORDER BY id"),
     Rows("chat_messages", "SELECT id, chat_id, CASE WHEN is_deleted = 0 THEN content END AS content, is_deleted, "
                           "deleted_at, ip_address, created_at FROM chat_messages WHERE sender_id = ? ORDER BY id"),
+    # Whom the account blocked; never who blocked it (blocks are private).
+    Rows("chat__blocks", "SELECT blocked_id, created_at FROM chat__blocks WHERE blocker_id = ? ORDER BY created_at"),
     Rows("group_members", "SELECT group_id, role, timed_out_until, joined_at, banned FROM group_members "
                           "WHERE user_id = ?"),
     Rows("group_chats", "SELECT id, name, description, is_global, is_active, created_at FROM group_chats "
@@ -214,6 +222,7 @@ EXPORTED: tuple[Rows, ...] = (
 # Tables with a foreign key to users(id) that are left out, and why.
 NOT_EXPORTED = {
     "chat__upload_usage": "short-lived upload rate limiting (24-hour window); technical source ids, no account content",
+    "chat__reports": "moderation records administrators keep; a reporter must not be revealed to the reported account",
     "users": "the account itself: account.json",
     "pages": "site content; the account's own edits are in page_history",
     "user_profiles": "profile/profile.json",

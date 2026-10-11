@@ -8,6 +8,15 @@
   if (!list || !BW) return;
 
   var version = list.dataset.orderVersion;
+  var live = document.getElementById("kanban-list-live");
+
+  function announce(item) {
+    if (!live || !item) return;
+    var items = Array.prototype.slice.call(list.querySelectorAll("[data-board-id]"));
+    var title = item.querySelector(".kanban-boards__title");
+    live.textContent = BW.t("kanban.list.moved", {
+      title: title ? title.textContent.trim() : "", position: items.indexOf(item) + 1, total: items.length });
+  }
 
   function save(focusId) {
     var ids = Array.prototype.map.call(list.querySelectorAll("[data-board-id]"), function (item) {
@@ -23,6 +32,7 @@
   }
 
   if (list.dataset.reorderable === "true") {
+    BW.markMoveEnds(list, "[data-board-id]");
     list.addEventListener("click", function (event) {
       var button = event.target.closest("[data-move]");
       if (!button) return;
@@ -31,6 +41,8 @@
       if (!sibling) return;
       list.insertBefore(item, button.dataset.move === "-1" ? sibling : sibling.nextElementSibling);
       button.focus();
+      BW.markMoveEnds(list, "[data-board-id]");
+      announce(item);
       save();
     });
 
@@ -59,7 +71,9 @@
         if (!dragged || dragged === item) return;
         var items = Array.prototype.slice.call(list.children);
         list.insertBefore(dragged, items.indexOf(dragged) < items.indexOf(item) ? item.nextSibling : item);
+        announce(dragged);
         dragged = null;
+        BW.markMoveEnds(list, "[data-board-id]");
         save();
       });
     });

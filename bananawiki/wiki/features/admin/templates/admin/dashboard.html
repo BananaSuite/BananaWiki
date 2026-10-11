@@ -26,7 +26,7 @@
   <div class="traffic-chart" role="img" aria-label="{{ t('admin.dashboard.chart_label') }}">
     {% for day in traffic.daily %}
     {% set label = t('admin.dashboard.bar', day=day.day, requests=day.request, views=day.page_view, errors=day.error) %}
-    <span class="traffic-chart__bar" tabindex="0" title="{{ label }}" aria-label="{{ label }}"
+    <span class="traffic-chart__bar" title="{{ label }}"
           style="height: {{ ((day.request / traffic.peak) * 100)|round(1) if traffic.peak else 0 }}%"></span>
     {% endfor %}
   </div>
@@ -46,7 +46,7 @@
   </details>
 </section>
 
-<div class="grid grid--2">
+<div class="grid grid--2 grid--top">
   <section class="card" aria-labelledby="pending-title">
     <div class="card__header">
       <h2 id="pending-title">{{ t('admin.dashboard.pending') }}</h2>
@@ -57,7 +57,7 @@
       {% for user in pending %}
       <li class="split">
         <span><a href="{{ url_for('admin.user_detail', user_id=user.id) }}">{{ user.username }}</a>
-          <span class="muted">· {{ user.created_at|time_ago }}</span></span>
+          <span class="muted nowrap">· {{ user.created_at|time_ago }}</span></span>
         <span class="btn-row">
           {{ forms.post_button(url_for('admin.edit_user', user_id=user.id), t('admin.approval.approve'), 'btn btn--small btn--primary', hidden={'action': 'approve_user', 'next': url_for('admin.dashboard')}) }}
           {{ forms.post_button(url_for('admin.edit_user', user_id=user.id), t('admin.approval.deny'), 'btn btn--small btn--danger', confirm=t('admin.approval.deny_confirm', username=user.username), hidden={'action': 'deny_user', 'next': url_for('admin.dashboard')}) }}
@@ -75,7 +75,7 @@
     <ul class="stack small">
       {% for user in signups %}
       <li><a href="{{ url_for('admin.user_detail', user_id=user.id) }}">{{ user.username }}</a>
-        <span class="badge">{{ t('admin.role.' ~ user.role) }}</span> <span class="muted">{{ user.created_at|time_ago }}</span></li>
+        <span class="badge">{{ t('admin.role.' ~ user.role) }}</span> <span class="muted nowrap">{{ user.created_at|time_ago }}</span></li>
       {% endfor %}
     </ul>
   </section>
@@ -88,7 +88,7 @@
     {% for edit in edits %}
     <li>
       {% if edit.url %}<a href="{{ edit.url }}">{{ edit.title }}</a>{% else %}{{ edit.title }}{% endif %}
-      <span class="muted">· {{ edit.username or t('common.unknown_user') }} · {{ edit.created_at|time_ago }}</span>
+      <span class="muted"><span class="nowrap">· {{ edit.username or t('common.unknown_user') }}</span> <span class="nowrap">· {{ edit.created_at|time_ago }}</span></span>
       {% if edit.edit_message %}<br><span class="muted">{{ edit.edit_message }}</span>{% endif %}
     </li>
     {% endfor %}

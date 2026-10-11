@@ -185,3 +185,18 @@ def test_export_keeps_content_only_where_the_account_can_still_read_it(app, clie
     for secret in (b"hidden words", b"Hidden doc", b"plans.txt", b"attached file", b"board words", b"group words"):
         assert secret not in everything, secret
     assert not any(name.startswith("files/page_attachments/") for name in archive.namelist())
+
+
+def test_export_says_whether_two_step_verification_is_on_without_its_secrets(admin_client, make_user, db):
+    bob, eve = make_user("bob"), make_user("eve")
+    db.execute("INSERT INTO auth__two_step (user_id, secret_encrypted, recovery_hashes, last_counter, enabled_at) "
+               "VALUES (?, 'encrypted-authenticator-key', '[\"recovery-digest-1\", \"recovery-digest-2\"]', 7, "
+               "'2026-03-04 05:06:07')", (bob["id"],))
+    archive = _archive(admin_client.get(f"/admin/users/{bob['id']}/export"))
+    assert json.loads(archive.read("data/auth__two_step.json")) == [
+        {"enabled_at": "2026-03-04 05:06:07", "recovery_codes_left": 2}]
+    everything = _everything(archive)
+    for secret in (b"encrypted-authenticator-key", b"recovery-digest-1", b"recovery-digest-2"):
+        assert secret not in everything, secret
+    archive = _archive(admin_client.get(f"/admin/users/{eve['id']}/export"))
+    assert json.loads(archive.read("data/auth__two_step.json")) == [], "an empty list: it is off"

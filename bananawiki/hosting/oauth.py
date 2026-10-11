@@ -188,9 +188,22 @@ def token_row(raw: str) -> dict[str, Any] | None:
                   (sha256_hex(raw), now_sql()))
 
 
+def _shut_out(account: dict[str, Any] | None) -> bool:
+    return bool(not account or account["deleted_at"] or account["suspended"]
+                or account["approval_status"] != "approved" or account["pending_deletion"])
+
+
 def account_may_sign_in(account: dict[str, Any] | None) -> bool:
-    return bool(account and not account["deleted_at"] and not account["suspended"]
-                and account["approval_status"] == "approved" and not account["pending_deletion"])
+    """Whether *account* may sign in to wikis, or keep using a token it holds for one.
+
+    Not while it must accept new terms of service first (``HOSTING_TERMS_REQUIRED_VERSION``).
+    """
+    return not _shut_out(account) and not accounts.terms_outdated(account)  # type: ignore[arg-type]
+
+
+def refusal(account: dict[str, Any]) -> str:
+    """The error a wiki is told when :func:`account_may_sign_in` refuses *account*."""
+    return "account_suspended" if _shut_out(account) else "terms_not_accepted"
 
 
 def revoke_account_tokens(account_id: str) -> int:

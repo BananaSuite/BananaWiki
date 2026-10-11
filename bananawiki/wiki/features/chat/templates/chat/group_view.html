@@ -37,6 +37,9 @@
   <span data-chat-countdown="{{ actor.membership.timed_out_until }}"></span>{% endif %}
 </div></div>
 {% endif %}
+{% if blocked_members %}
+<p class="alert small"><span class="alert__body">{{ t('chat.blocks.group_notice') }}</span></p>
+{% endif %}
 {{ ui.retention_notice(retention) }}
 
 <details class="disclosure chat-panel">
@@ -77,17 +80,18 @@
     </div>
 
     {% if actor.can_moderate %}<p class="small muted">{{ t('chat.groups.moderation_help') }}</p>{% endif %}
+    {#- One card per member wherever the row actions do not fit beside the names (phones, tablets). -#}
     <div class="table-wrap">
-      <table class="table">
+      <table class="table table--stack">
         <thead><tr><th>{{ t('chat.groups.col.user') }}</th><th>{{ t('chat.groups.col.role') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>
         <tbody>
         {% for m in members %}
           <tr>
-            <td>{{ m.username }}</td>
-            <td>{{ t('chat.groups.role.' ~ m.role) }}
+            <td>{{ m.username }}{% if m.user_id in blocked %} <span class="badge">{{ t('chat.blocks.badge') }}</span>{% endif %}</td>
+            <td data-label="{{ t('chat.groups.col.role') }}">{{ t('chat.groups.role.' ~ m.role) }}
               {% if m.timed_out_until and is_future(m.timed_out_until) %}<span class="badge badge--warning">{{ t('chat.groups.muted') }}</span>{% endif %}</td>
             <td class="actions">
-            {% if m.user_id != actor.user.id %}
+            {% if m.user_id != actor.user.id %}<div class="cluster">
               {% if actor.can_manage and m.role == 'member' %}{{ action('chat.group_promote', t('chat.groups.promote'), m.user_id) }}{% endif %}
               {% if actor.can_manage and m.role == 'moderator' %}{{ action('chat.group_demote', t('chat.groups.demote'), m.user_id) }}{% endif %}
               {% if actor.is_owner and not group.is_global %}{{ action('chat.group_transfer', t('chat.groups.transfer'), m.user_id, confirm=t('chat.groups.transfer_confirm', user=m.username)) }}{% endif %}
@@ -109,7 +113,8 @@
                 {{ action('chat.group_kick', t('chat.groups.remove'), m.user_id, confirm=t('chat.groups.remove_confirm', user=m.username)) }}
                 {{ action('chat.group_kick', t('chat.groups.ban'), m.user_id, 'btn btn--small btn--danger', t('chat.groups.ban_confirm', user=m.username), {'permanent': '1'}) }}
               {% endif %}
-            {% endif %}
+              {% if m.user_id in blocked %}{{ ui.unblock_button(m, request.path) }}{% else %}{{ ui.block_button(m, request.path) }}{% endif %}
+            </div>{% endif %}
             </td>
           </tr>
         {% endfor %}
@@ -129,7 +134,8 @@
 
 {% set view_url = url_for('chat.group_view', group_id=group.id) %}
 {{ ui.log(conversation, view_url, url_for('chat.group_delete_message', group_id=group.id),
-            {"poll": url_for('chat.group_messages', group_id=group.id), "read": url_for('chat.group_read', group_id=group.id), "mark_read": actor.is_member}) }}
+            {"poll": url_for('chat.group_messages', group_id=group.id), "read": url_for('chat.group_read', group_id=group.id), "mark_read": actor.is_member},
+            url_for('chat.group_report', group_id=group.id) if actor.is_member else None) }}
 {% if can_send and not timed_out %}
 {{ ui.composer(url_for('chat.group_send', group_id=group.id), can_upload, max_length, max_attachment_bytes, per_day) }}
 {% endif %}

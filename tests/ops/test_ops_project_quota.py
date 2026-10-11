@@ -467,10 +467,54 @@ def test_capacity_reserves_all_unused_limits_and_host_headroom(model):
     finally:
         os.close(fd)
     assert model.manager.verify("alpha") == first
-    # External writes depleting physical headroom also refuse subsequent guards.
+    # External writes depleting physical headroom refuse new admissions only.
     model.free.bytes = 2 * 1024 * 1024
+    assert model.manager.verify("alpha") == first
     with pytest.raises(quota.QuotaError, match="capacity"):
-        model.manager.verify("alpha")
+        prepare(model, "beta")
+
+
+def test_admitted_tenant_keeps_starting_while_other_data_uses_the_volume(model):
+    """Snapshot staging, packages or exports on the shared volume never block an admitted wiki."""
+    witness = prepare(model)
+    # Non-tenant data (an update snapshot, a backup package) now leaves less
+    # physical space than the outstanding tenant reservations.
+    model.free.bytes = 5 * 1024 * 1024
+    assert model.manager.verify("alpha") == witness  # tenant.task and the agent's inventory
+    assert model.manager.verify("alpha", byte_limit=8 * 1024 * 1024, inode_limit=128) == witness
+    assert prepare(model) == witness  # tenant.start of a running wiki
+    assert prepare(model, repair=True) == witness  # tenant.start of a stopped wiki (stopped-only repair)
+    # Lowering limits releases reservations, so it is never refused for capacity either.
+    lowered = model.manager.prepare("alpha", byte_limit=4 * 1024 * 1024, inode_limit=64)
+    assert (lowered.byte_limit, lowered.inode_limit) == (4 * 1024 * 1024, 64)
+    assert model.manager.prepare("alpha", byte_limit=4 * 1024 * 1024, inode_limit=64, repair=True) == lowered
+    # Raising a limit or admitting another tenant is new admission: still checked.
+    with pytest.raises(quota.QuotaError, match="capacity"):
+        model.manager.prepare("alpha", byte_limit=16 * 1024 * 1024, inode_limit=64)
+    with pytest.raises(quota.QuotaError, match="capacity"):
+        model.manager.prepare("alpha", byte_limit=16 * 1024 * 1024, inode_limit=64, repair=True)
+    assert model.manager.verify("alpha") == lowered
+    beta = model.instances / "beta"
+    beta.mkdir()
+    if os.geteuid() == 0:
+        os.chown(beta, 4242, 4242)
+    with pytest.raises(quota.QuotaError, match="capacity"):
+        prepare(model, "beta")
+
+
+def test_reserved_bytes_reports_unused_limits_and_the_host_reserve(model):
+    assert model.manager.reserved_bytes() == (None, 1024 * 1024)
+    witness = prepare(model)
+    (model.tenant / "payload").write_bytes(b"x" * 8192)
+    filesystem, reserved = model.manager.reserved_bytes()
+    assert filesystem == model.kernel.filesystem_id
+    used = model.kernel.limits(0, witness.project_id)
+    expected = (witness.byte_limit - used.bcount * 512 + (witness.inode_limit - used.icount) * 4096
+                + 1024 * 1024)
+    assert reserved == expected
+    # Reported, never refused: it is how much free space other writers must leave.
+    model.free.bytes = 1
+    assert model.manager.reserved_bytes() == (filesystem, expected)
 
 
 def test_deleted_zero_usage_project_releases_budget_but_not_its_id(model):

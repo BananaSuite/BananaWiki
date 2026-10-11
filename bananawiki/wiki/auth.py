@@ -37,7 +37,7 @@ from ..core.web import client_ip
 from . import permissions as perms
 from . import settings
 from .db import db
-from .i18n import t
+from .i18n import t, tn
 
 SESSION_TOKEN_KEY = "auth_session_token"
 SESSION_CONFLICT_KEY = "_session_conflict"
@@ -255,15 +255,6 @@ def revoke_sessions(user_id: str, *, except_session_id: str | None = None) -> in
     return cursor.rowcount
 
 
-def revoke_all_sessions(*, except_user_id: str | None = None) -> int:
-    params: list[Any] = [now_sql()]
-    extra = ""
-    if except_user_id:
-        extra = " AND user_id != ?"
-        params.append(except_user_id)
-    return db.execute(f"UPDATE user_sessions SET revoked_at = ? WHERE revoked_at IS NULL{extra}", params).rowcount
-
-
 def current_session_id() -> str | None:
     row = g.get("auth_session")
     return row["id"] if row else None
@@ -436,5 +427,6 @@ def redirect_to_login():
     return redirect(url_for(endpoint, next=target))
 
 
-def flash_t(key: str, category: str = "info", **values: Any) -> None:
-    flash(t(key, **values), category)
+def flash_t(key: str, category: str = "info", /, **values: Any) -> None:
+    """Flash the translation of *key*; a ``count`` value picks the ``<key>_one`` form for 1."""
+    flash(tn(key, values["count"], **values) if "count" in values else t(key, **values), category)

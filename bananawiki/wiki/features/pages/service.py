@@ -384,17 +384,23 @@ def update(
     is_revert: bool = False,
     record_history: bool = True,
 ) -> dict[str, Any]:
-    """Save new title/content. Raises :class:`EditConflict` on a stale *expected_revision*."""
-    new_title = _clean_title(title) if title is not None else page["title"]
-    new_content = _clean_content(content) if content is not None else page["content"]
-    new_builder = builder_json if builder_json is not None else page.get("builder_json") or ""
-    new_public = (1 if builder_public else 0) if builder_public is not None else page.get("builder_public") or 0
+    """Save new title/content. Raises :class:`EditConflict` on a stale *expected_revision*.
+
+    Fields left as ``None`` keep their stored value, read in the same
+    transaction: *page* may be older than a save that happened meanwhile.
+    """
+    cleaned_title = _clean_title(title) if title is not None else None
+    cleaned_content = _clean_content(content) if content is not None else None
     with db.transaction():
         current = get(page["id"])
         if current is None:
             raise PageError("wiki.error.page_missing")
         if expected_revision is not None and int(current.get("revision") or 0) != int(expected_revision):
             raise EditConflict(current)
+        new_title = current["title"] if cleaned_title is None else cleaned_title
+        new_content = current["content"] if cleaned_content is None else cleaned_content
+        new_builder = (current.get("builder_json") or "") if builder_json is None else builder_json
+        new_public = (current.get("builder_public") or 0) if builder_public is None else (1 if builder_public else 0)
         unchanged = (new_title == current["title"] and new_content == current["content"]
                      and new_builder == (current.get("builder_json") or "")
                      and new_public == (current.get("builder_public") or 0))

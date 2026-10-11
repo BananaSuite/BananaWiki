@@ -1,3 +1,6 @@
 {#- A custom page made with the visual builder: the page builder's own safe renderer (document.render). -#}
 {% extends "custom_pages/_page.html" %}
-{% block page_body %}{{ body }}{% endblock %}
+{% block page_body %}
+{%- if body|striptags|trim or '<img' in body or '<iframe' in body or '<video' in body or 'bw-embed' in body %}{{ body }}
+{%- else %}<p class="empty-state">{{ t('custom_pages.view.no_blocks') }}</p>{% endif %}
+{% endblock %}

@@ -55,9 +55,10 @@ from typing import Any
 from flask import current_app
 
 from ...core.env import Env
+from ...core.i18n import FALLBACK
 from ...ops.agent_client import AgentError, connect
 from ...ops.runtime_agent import HOSTNAME as AGENT_HOSTNAME
-from ...ops.runtime_agent import MAX_HOSTS_PER_TENANT
+from ...ops.runtime_agent import ISOLATED_WIKIS, MAX_HOSTS_PER_TENANT
 from ...ops.runtime_agent import TENANT as AGENT_TENANT
 from ..config import LEGACY_DATA_DIR, HostingConfig
 from . import (
@@ -81,7 +82,6 @@ log = logging.getLogger("bananawiki.hosting.runtime.agent")
 
 MIB = 1024 * 1024
 TASK_TIMEOUT = 140
-RECOVER_PARALLEL = 4
 HEALTH_TTL = 10.0
 NEGATIVE_TTL = 3.0
 USAGE_TTL = 5.0
@@ -99,10 +99,13 @@ _AGENT_CODES = {
     "unsupported_protocol": "unavailable", "unknown_operation": "unavailable", "invalid_tenant": "invalid",
     "invalid_env": "invalid", "invalid_request": "invalid", "invalid_owner": "invalid",
     "unknown_tenant": "not_found", "not_configured": "not_configured", "too_large": "too_large", "timeout": "timeout",
-    "quota_unavailable": "not_configured",
+    "quota_unavailable": "not_configured", "no_space": "no_space",
 }
+STORAGE_TTL = 60.0
 
 Probe = Callable[[str, int], bool]
+# A wiki and the agent's answer to preparing its storage, reported by :meth:`AgentRuntime._note_plan`.
+PlanReport = tuple[TenantSpec, dict[str, Any]]
 
 
 class TaskRefusal(RuntimeFailure):
@@ -132,6 +135,25 @@ def _started_at(value: str | None) -> float | None:
 
 def _flag(value: bool) -> str:
     return "1" if value else "0"
+
+
+def storage_accepted(answer: dict[str, Any]) -> bool:
+    """Whether the agent's answer about a wiki's storage lets it run: hard quotas verified, or not in use.
+
+    ``BW_HOSTING_TENANT_QUOTAS`` decides whether wikis get hard XFS project
+    quotas (see :mod:`bananawiki.ops.tenant_quotas`); without them the agent
+    says ``storage_quota_mode: unenforced`` and verifies nothing. An agent
+    older than 1.7.0's quota modes never says so, and always verifies.
+    """
+    return answer.get("storage_quota_verified") is True or answer.get("storage_quota_mode") == "unenforced"
+
+
+def sandbox_current(item: dict[str, Any]) -> bool:
+    """Whether a running container has the current sandbox and storage policy (else it is started again)."""
+    if item.get("storage_quota_verified"):
+        return True
+    return (item.get("storage_quota_mode") == "unenforced" and bool(item.get("quota_protected"))
+            and bool(item.get("ipv6_disabled")))
 
 
 def tenant_environment(spec: TenantSpec, cfg: HostingConfig, *, quarantined: bool) -> dict[str, str]:
@@ -239,6 +261,7 @@ class AgentRuntime:
         self._usage: dict[str, tuple[float, int]] = {}
         self._containers: tuple[float, dict[str, dict[str, Any]]] | None = None
         self._routes_warned = False
+        self._storage_checked: tuple[float, dict[str, Any]] | None = None
 
     # ── Plumbing ─────────────────────────────────────────────────────────
 
@@ -272,16 +295,67 @@ class AgentRuntime:
             raise TaskRefusal(str(result.get("error") or "failed"), str(result.get("detail") or "")[:300])
         return result
 
-    def _prepare_storage(self, spec: TenantSpec) -> None:
+    def _prepare_storage(self, cfg: HostingConfig, spec: TenantSpec, reports: list[PlanReport] | None = None) -> None:
+        """Have the agent adopt or verify the wiki's hard storage quota; *reports* collects the plan reports.
+
+        Without *reports* the wiki's plan is reported (:meth:`_note_plan`) at
+        once. The recovery's worker threads pass a list instead: they have no
+        portal application context, so the recovery reports in its own thread
+        once they are done.
+        """
         result = self._call("tenant.quota", {"tenant": spec.data_dir_name, "prepare": True,
                                              "limits": _limits(spec)}, "not_configured")
-        if result.get("storage_quota_verified") is not True:
+        if not storage_accepted(result):
             raise RuntimeFailure("not_configured", "The runtime did not verify hard tenant storage quotas.")
+        if reports is None:
+            self._note_plan(cfg, spec, result)
+        else:
+            reports.append((spec, result))
+
+    def _note_plan(self, cfg: HostingConfig, spec: TenantSpec, result: dict[str, Any]) -> None:
+        """Tell the operator and the owner, once, that a wiki holds more than its storage plan (UP-1).
+
+        The agent adopts such a wiki (one 1.6 left above its plan, or whose
+        plan was lowered) at what it holds plus a small headroom rather than
+        keeping it down, and says ``over_plan``: it serves, but cannot store
+        anything new. A hosting event and an email to the owner say so the
+        first time, and again only after it was back within its plan. Best
+        effort: nothing here keeps the wiki from starting.
+        """
+        if "over_plan" not in result:  # an agent older than 1.7 never adopts above the plan
+            return
+        try:
+            marker = self._state(cfg, spec).root / platform_backup.OVER_PLAN_NAME
+            if not result["over_plan"]:
+                marker.unlink(missing_ok=True)
+                return
+            if marker.exists():
+                return
+            held = int((result.get("storage_quota") or {}).get("byte_limit") or 0)
+            plan = int((result.get("plan") or {}).get("storage_bytes") or 0)
+            reason = (f"Holds more than its storage plan of {plan // MIB} MB: started with a hard limit of "
+                      f"{held // MIB} MB, so it cannot store anything new until data is removed or its plan is "
+                      "raised.")
+            log.warning("Wiki %s: %s", spec.data_dir_name, reason)
+            from .. import accounts, events, instances, notifications, urls
+
+            events.record("instance", spec.instance_id, "storage.over_plan", None, reason)
+            inst = instances.get(spec.instance_id)
+            owner = accounts.get(inst["account_id"]) if inst else None
+            if owner and owner.get("email") and not owner.get("deleted_at") and notifications.configured():
+                notifications.send(owner["email"], "instance_storage_over_plan", username=owner["username"],
+                                   lang=owner.get("language") or FALLBACK,
+                                   slug=urls.original_slug(inst["subdomain"]) or inst["subdomain"],
+                                   limit=str(plan // MIB))
+            marker.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            marker.write_text(json.dumps({"plan_bytes": plan, "byte_limit": held}), encoding="utf-8")
+        except Exception:  # noqa: BLE001 - a report must never keep the wiki from starting
+            log.exception("Could not report that %s holds more than its storage plan", spec.data_dir_name)
 
     def _prepare_restored_storage(self, name: str, storage_bytes: int) -> None:
         result = self._call("tenant.quota", {"tenant": name, "prepare": True,
                                              "limits": {"storage_bytes": storage_bytes}}, "not_configured")
-        if result.get("storage_quota_verified") is not True:
+        if not storage_accepted(result):
             raise RuntimeFailure("not_configured", "The runtime did not verify restored tenant storage quotas.")
 
     def _state(self, cfg: HostingConfig, spec: TenantSpec) -> PluginState:
@@ -314,7 +388,7 @@ class AgentRuntime:
                   force_password_change: bool) -> None:
         cfg = self._cfg()
         Path(cfg.instances_dir).mkdir(mode=0o700, parents=True, exist_ok=True)
-        tenantfs.create(self._root(cfg, spec.data_dir_name), prepare=lambda: self._prepare_storage(spec))
+        tenantfs.create(self._root(cfg, spec.data_dir_name), prepare=lambda: self._prepare_storage(cfg, spec))
         try:
             self._task(spec.data_dir_name, {
                 "action": "seed", "username": admin_username, "password": admin_password,
@@ -333,9 +407,55 @@ class AgentRuntime:
     def start(self, spec: TenantSpec) -> None:
         self._start(self._cfg(), spec)
 
-    def _start(self, cfg: HostingConfig, spec: TenantSpec) -> None:
+    def _isolated(self, cfg: HostingConfig) -> dict[str, str]:
+        """The wikis an update stopped because they did not serve under its release (name -> why)."""
+        try:
+            value = json.loads((Path(cfg.platform_state_dir) / ISOLATED_WIKIS).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as error:
+            log.warning("Could not read %s: %s", ISOLATED_WIKIS, error)
+            return {}
+        tenants = value.get("tenants") if isinstance(value, dict) else None
+        return {str(name): str(why) for name, why in tenants.items()} if isinstance(tenants, dict) else {}
+
+    def _lift_isolation(self, cfg: HostingConfig, name: str) -> None:
+        """Forget that an update isolated *name*: someone starts it explicitly."""
+        isolated = self._isolated(cfg)
+        if name not in isolated:
+            return
+        del isolated[name]
+        path = Path(cfg.platform_state_dir) / ISOLATED_WIKIS
+        temporary = path.with_name(f".{ISOLATED_WIKIS}.{secrets.token_hex(4)}")
+        temporary.write_text(json.dumps({"schema": 1, "tenants": isolated}, indent=2, sort_keys=True) + "\n",
+                             encoding="utf-8")
+        os.replace(temporary, path)
+        log.warning("Wiki %s, isolated by an update, is started explicitly again.", name)
+
+    def _refuse_isolated(self, cfg: HostingConfig, spec: TenantSpec) -> None:
+        reason = self._isolated(cfg).get(spec.data_dir_name)
+        if reason is not None:
+            raise RuntimeFailure("start_failed", "an update stopped this wiki because it did not serve under its "
+                                 f"release ({reason[:200]}); start it explicitly once the cause is fixed")
+
+    def _start(self, cfg: HostingConfig, spec: TenantSpec, *, recovering: bool = False,
+               reports: list[PlanReport] | None = None) -> None:
+        """Start (or restart) one wiki; *recovering*: the maintenance service's recovery, which skips isolated ones.
+
+        Any other start is explicit (the portal, ``restart``, a restore) and
+        lifts the isolation an update put on the wiki. The recovery checks
+        again right before and right after it starts the container: an update
+        may isolate the wiki while this start is in progress (its readiness
+        timed out during a slow start), after the update's own stop already
+        ran. The wiki is then stopped again, so it never serves under a
+        release it was isolated from. *reports*: see :meth:`_prepare_storage`.
+        """
         root = self._existing(cfg, spec.data_dir_name)
-        self._prepare_storage(spec)
+        if recovering:
+            self._refuse_isolated(cfg, spec)
+        else:
+            self._lift_isolation(cfg, spec.data_dir_name)
+        self._prepare_storage(cfg, spec, reports)
         tenantfs.clear_stale_state(root)
         tenantfs.ensure_layout(root)
         args: dict[str, Any] = {
@@ -359,9 +479,14 @@ class AgentRuntime:
                 and record.get("started_at") == current.get("started_at")
                 and current.get("image") == cfg.container_image
                 and current.get("quota_protected") and current.get("ipv6_disabled")
-                and current.get("storage_quota_verified")):
+                and storage_accepted(current)):
             return
+        if recovering:
+            self._refuse_isolated(cfg, spec)
         status = self._call("tenant.start", args, "start_failed")
+        if recovering and spec.data_dir_name in self._isolated(cfg):
+            self._stop(cfg, spec)
+            self._refuse_isolated(cfg, spec)
         if not status.get("running"):
             raise RuntimeFailure("start_failed", f"{spec.data_dir_name}: the container exited at once")
         record_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -383,8 +508,13 @@ class AgentRuntime:
                 raise
         self._record_path(cfg, spec).unlink(missing_ok=True)
 
-    def restart(self, spec: TenantSpec, *, force: bool = False) -> None:
+    def restart(self, spec: TenantSpec, *, force: bool = False, policy_change: bool = False) -> None:
         cfg = self._cfg()
+        if policy_change and spec.data_dir_name in self._isolated(cfg):
+            # An update stopped this wiki; applying a policy is not someone starting it. The limits
+            # are already applied, so its next explicit start uses the new policy.
+            log.info("Not restarting %s for a policy change: an update isolated it.", spec.data_dir_name)
+            return
         self._stop(cfg, spec)
         if force:
             with self._lock:
@@ -400,6 +530,7 @@ class AgentRuntime:
         """
         cfg = self._cfg()
         containers = self._container_map(fresh=True)
+        isolated = self._isolated(cfg)
         pending = []
         for spec in specs:
             try:
@@ -407,9 +538,15 @@ class AgentRuntime:
                     log.warning("Not recovering %s: its data directory %s is missing", spec.instance_id,
                                 spec.data_dir_name)
                     continue
+                if spec.data_dir_name in isolated:
+                    log.warning("Not recovering %s: an update stopped it because it did not serve under its "
+                                "release (%s). Start it from the portal once the cause is fixed.",
+                                spec.data_dir_name, isolated[spec.data_dir_name][:200])
+                    continue
                 item = containers.get(spec.data_dir_name)
-                # A container running without verified storage quotas is restarted under them.
-                if (item and item.get("running") and item.get("storage_quota_verified")
+                # A container running without verified storage quotas (when they are in use) or with an older
+                # sandbox is restarted under them.
+                if (item and item.get("running") and sandbox_current(item)
                         and self._judge(cfg, item).state in ("running", "starting")):
                     continue
             except Exception:  # noqa: BLE001 - one wiki must not keep the others down
@@ -417,10 +554,12 @@ class AgentRuntime:
                 continue
             pending.append(spec)
 
+        reports: list[PlanReport] = []
+
         def attempt(spec: TenantSpec) -> bool:
             try:
                 self._stop(cfg, spec)
-                self._start(cfg, spec)
+                self._start(cfg, spec, recovering=True, reports=reports)
                 return True
             except RuntimeFailure as error:
                 log.error("Could not recover %s: %s", spec.data_dir_name, error)
@@ -428,8 +567,13 @@ class AgentRuntime:
                 log.exception("Could not recover %s", spec.data_dir_name)
             return False
 
-        with ThreadPoolExecutor(max_workers=RECOVER_PARALLEL, thread_name_prefix="recover") as pool:
-            return sum(pool.map(attempt, pending))
+        # BW_HOSTING_RECOVERY_MAX_WORKERS at once: the updater's readiness timeout counts on it.
+        with ThreadPoolExecutor(max_workers=cfg.recovery_max_workers, thread_name_prefix="recover") as pool:
+            started = sum(pool.map(attempt, pending))
+        # Here, in the caller's thread: it has the portal's application context that the workers lack.
+        for spec, result in reports:
+            self._note_plan(cfg, spec, result)
+        return started
 
     def relocate(self, instance_id: str, old_dir_name: str, new_dir_name: str) -> None:
         cfg = self._cfg()
@@ -473,6 +617,33 @@ class AgentRuntime:
         with self._lock:
             self._status[name] = (now + (HEALTH_TTL if result.healthy else NEGATIVE_TTL), result)
         return result
+
+    def storage_protection(self) -> dict[str, Any]:
+        """Whether hosted wikis get hard storage quotas (``{setting, hard_quotas, refused, lost, reason}``; ``{}``:
+        unknown).
+
+        Asked of the agent at most once a minute per process, for the
+        administrators' dashboard. An agent from before ``lost`` never says
+        it: as storage that never had hard quotas.
+        """
+        now = time.monotonic()
+        with self._lock:
+            cached = self._storage_checked
+        if cached and cached[0] > now:
+            return cached[1]
+        try:
+            answer = self._call("ping", {})
+            storage = answer.get("storage") if isinstance(answer, dict) else None
+        except Exception:  # noqa: BLE001 - a dashboard must render whatever the agent does
+            storage = None
+        value = {
+            "setting": str(storage.get("setting") or ""), "hard_quotas": storage.get("hard_quotas") is True,
+            "refused": storage.get("refused") is True, "lost": storage.get("lost") is True,
+            "reason": str(storage.get("reason") or "")[:1000],
+        } if isinstance(storage, dict) else {}
+        with self._lock:
+            self._storage_checked = (now + STORAGE_TTL, value)
+        return value
 
     def upstream(self, spec: TenantSpec) -> tuple[str, int] | None:
         cfg = self._cfg()
@@ -554,7 +725,7 @@ class AgentRuntime:
     def reset_content(self, spec: TenantSpec, *, admin_username: str, admin_password: str) -> None:
         cfg = self._cfg()
         root = self._existing(cfg, spec.data_dir_name)
-        self._prepare_storage(spec)
+        self._prepare_storage(cfg, spec)
         tenantfs.reset_content(root)
         self._task(spec.data_dir_name, {
             "action": "seed", "username": admin_username, "password": admin_password, "force_password_change": True,
@@ -562,8 +733,9 @@ class AgentRuntime:
         })
 
     def apply_limits(self, spec: TenantSpec) -> None:
-        self._existing(self._cfg(), spec.data_dir_name)
-        self._prepare_storage(spec)
+        cfg = self._cfg()
+        self._existing(cfg, spec.data_dir_name)
+        self._prepare_storage(cfg, spec)
         self._task(spec.data_dir_name, {"action": "apply_policy", **_upload_request(spec)})
 
     # ── Copies and archives ──────────────────────────────────────────────
@@ -585,12 +757,19 @@ class AgentRuntime:
             raise RuntimeFailure("failed", "the tenant task did not report the size and SHA-256 of its database copy")
         return tenant_archives.DatabaseCopy(relative, size, digest)
 
+    @staticmethod
+    def _budget(cfg: HostingConfig, spec: TenantSpec) -> int | None:
+        """What the wiki's archives may hold, as in a platform backup: from ``spec.policy.storage_limit_bytes``
+        (0: none), or the hard limit the agent adopted the wiki at above that plan (UP-1)."""
+        return platform_backup.byte_budget(platform_backup.held_limit(
+            cfg.platform_state_dir, spec.instance_id, spec.policy.storage_limit_bytes or None))
+
     def export_archive(self, spec: TenantSpec, destination_dir: Path) -> Path:
-        """The wiki's portable archive; ``spec.policy.storage_limit_bytes`` (0: none) bounds it like a platform
-        backup bounds the wiki (exports of every wiki share one folder)."""
+        """The wiki's portable archive, bounded like a platform backup bounds the wiki (:meth:`_budget`; exports
+        of every wiki share one folder)."""
         cfg = self._cfg()
         root = self._existing(cfg, spec.data_dir_name)
-        budget = platform_backup.byte_budget(spec.policy.storage_limit_bytes or None)
+        budget = self._budget(cfg, spec)
         copy = self._snapshot(spec.data_dir_name, portable=True)
         try:
             return tenant_archives.export(root, copy, Path(destination_dir), spec.slug.split("--terminated-")[0],
@@ -605,7 +784,7 @@ class AgentRuntime:
             raise RuntimeFailure("data_exists", spec.data_dir_name)
         base = Path(cfg.instances_dir)
         base.mkdir(mode=0o700, parents=True, exist_ok=True)
-        tenantfs.create(root, prepare=lambda: self._prepare_storage(spec))
+        tenantfs.create(root, prepare=lambda: self._prepare_storage(cfg, spec))
         try:
             tenant_archives.unpack(Path(archive), root, cfg.archives)
             tenantfs.ensure_layout(root)
@@ -636,7 +815,7 @@ class AgentRuntime:
         budget = platform_backup.byte_budget(target.policy.storage_limit_bytes or None)
         copy = self._snapshot(source.data_dir_name)
         try:
-            tenantfs.create(target_root, prepare=lambda: self._prepare_storage(target))
+            tenantfs.create(target_root, prepare=lambda: self._prepare_storage(cfg, target))
             # A copy the source wiki changed, or one over the target's byte
             # budget, is refused and leaves no database behind; the portal
             # then destroys the target.
@@ -670,7 +849,7 @@ class AgentRuntime:
         as in a platform backup."""
         root = self._existing(cfg, spec.data_dir_name)
         state = self._state(cfg, spec)
-        budget = platform_backup.byte_budget(spec.policy.storage_limit_bytes or None)
+        budget = self._budget(cfg, spec)
         copy = self._snapshot(spec.data_dir_name)
         state.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         incoming = state.root / f".incoming-{_token()}.db"

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ t('auth.two_step.codes_page_title') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('auth.css', blueprint='auth') }}">{% endblock %}
+{% block content %}
+<header class="page-header"><h1>{{ t('auth.two_step.codes_page_title') }}</h1></header>
+<section class="card stack" aria-labelledby="two-step-codes-help">
+  <p id="two-step-codes-help">{{ t('auth.two_step.codes_body') }}</p>
+  <ul class="two-step-codes mono">{% for code in codes %}<li>{{ code }}</li>{% endfor %}</ul>
+  <p class="btn-row">
+    <button type="button" class="btn" data-copy="{{ codes|join('\n') }}">{{ t('auth.two_step.copy_codes') }}</button>
+    <a class="btn btn--primary" href="{{ url_for('auth.two_step_settings') }}">{{ t('auth.two_step.saved_codes') }}</a>
+  </p>
+</section>
+{% endblock %}

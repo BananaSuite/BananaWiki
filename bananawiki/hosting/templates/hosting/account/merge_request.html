@@ -2,9 +2,9 @@
 {% import "hosting/_macros.html" as ui with context %}
 {% block title %}{{ t('hosting.merges.request_title') }}{% endblock %}
 {% block content %}
-<div class="card card--narrow"><h1>{{ t('hosting.merges.request_title') }}</h1><p>{{ t('hosting.merges.request_body') }}</p>
+<div class="card card--narrow"><nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('account.account') }}#more">{{ t('hosting.nav.account') }}</a></nav><h1>{{ t('hosting.merges.request_title') }}</h1><p>{{ t('hosting.merges.request_body') }}</p>
 <form method="post" class="form">{{ ui.csrf() }}
-  {{ ui.field('target_username', t('hosting.merges.target'), required=true, attrs={'maxlength': 60}) }}
-  {{ ui.textarea('reason', t('hosting.merges.reason'), attrs={'maxlength': 4000, 'rows': 3}, id='f-reason') }}
+  {{ ui.field('target_username', t('hosting.merges.target'), required=true, hint=t('hosting.merges.username_hint'), attrs={'maxlength': 60, 'autocomplete': 'off', 'autocapitalize': 'none', 'spellcheck': 'false'}) }}
+  {{ ui.textarea('reason', t('hosting.merges.reason_optional'), attrs={'maxlength': 4000, 'rows': 3}, id='f-reason') }}
   <button class="btn btn--primary" type="submit">{{ t('hosting.merges.send') }}</button></form></div>
 {% endblock %}

@@ -7,6 +7,8 @@ from typing import Any
 from flask import abort, redirect, request, url_for
 from werkzeug.routing import BuildError
 
+from bananawiki.core.numbers import ascii_int
+
 from .....core.web import safe_next
 from .... import auth
 from ....accounts import AccountError
@@ -45,4 +47,4 @@ def endpoint_url(endpoint: str, **values: Any) -> str | None:
 
 def page_number() -> int:
     page = request.args.get("page", "1")
-    return max(int(page), 1) if page.isdigit() else 1
+    return max(ascii_int(page) or 1, 1)

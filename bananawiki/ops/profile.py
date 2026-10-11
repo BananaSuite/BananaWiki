@@ -35,20 +35,28 @@ class ReleaseFeatures:
     loses Docker access. ``hardened``: the release was written for the 1.6
     sandbox (1.4 releases get the exact units 1.4 wrote, so a rollback runs
     them the way they were tested). ``project_quotas``: its runtime agent
-    starts a wiki only on storage that enforces XFS project quotas.
+    can put wikis under XFS project quotas. ``quota_modes``: it honours
+    ``BW_HOSTING_TENANT_QUOTAS`` (:mod:`.tenant_quotas`); a release with
+    project quotas and without it starts a wiki only on storage that enforces
+    them. ``candidate_preflight``: it ships ``banana preflight``, which an
+    update runs before it stops anything (:meth:`.system.System.candidate_preflight`).
     """
 
     runtime_agent: bool = False
     hardened: bool = False
     hosting_entrypoint: bool = False
     project_quotas: bool = False
+    quota_modes: bool = False
+    candidate_preflight: bool = False
 
     @classmethod
     def of(cls, release: Path) -> ReleaseFeatures:
         ops = release / "bananawiki" / "ops"
         ours = (ops / "runtime_agent.py").is_file()
         return cls(runtime_agent=ours, hardened=ours, hosting_entrypoint=(ops / "hosting_entrypoint.py").is_file(),
-                   project_quotas=ours and (ops / "project_quota.py").is_file())
+                   project_quotas=ours and (ops / "project_quota.py").is_file(),
+                   quota_modes=ours and (ops / "tenant_quotas.py").is_file(),
+                   candidate_preflight=(ops / "preflight.py").is_file())
 
 
 @dataclass(frozen=True)
@@ -237,6 +245,8 @@ def environment(settings: dict[str, Any], previous: dict[str, str] | None = None
             "HOSTING_AGENT_MAX_INODES": "100000",
             "HOSTING_AGENT_STORAGE_RESERVE_BYTES": str(256 * 1024 ** 2),
             "HOSTING_AGENT_PROJECT_ID_START": "1000000",
+            # Hard per-wiki XFS quotas where the storage enforces them; "required" only when the operator asks.
+            "BW_HOSTING_TENANT_QUOTAS": "auto",
             "BW_SOURCE_URL": source_link(settings["source_url"]),
             # Portal helpers import the wiki configuration too; keep its files out of the release tree.
             **wiki_paths(data / "wiki-runtime"),
@@ -282,14 +292,6 @@ def services(settings: dict[str, Any], features: ReleaseFeatures | None = None) 
         for service, mode in zip(output[-2:], ("portal", "maintenance"), strict=True):
             service.command[:] = [python, "-E", "-s", "-m", "bananawiki.ops.hosting_entrypoint", mode]
     return output
-
-
-def service_names(settings: dict[str, Any], features: ReleaseFeatures | None = None) -> list[str]:
-    return [service.name for service in services(settings, features)]
-
-
-def health_urls(settings: dict[str, Any]) -> list[str]:
-    return [f"http://127.0.0.1:{int(settings['port'])}/health"]
 
 
 def new_settings(root: Path, *, mode: str, service: str, domain: str, portal_domain: str, port: int,

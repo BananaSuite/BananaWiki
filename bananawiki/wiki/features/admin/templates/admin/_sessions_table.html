@@ -1,8 +1,9 @@
-{#- Active sessions. Context: sessions, current_session_id, locked (optional), show_user (optional). -#}
+{#- Active sessions. Context: sessions (rows may be ``locked``), current_session_id, locked (optional),
+    show_user (optional). -#}
 {% import "macros/forms.html" as forms with context %}
 {% if sessions %}
 <div class="table-wrap">
-  <table class="table">
+  <table class="table table--stack">
     <thead><tr>
       {% if show_user %}<th scope="col">{{ t('admin.users.col.username') }}</th>{% endif %}
       <th scope="col">{{ t('admin.sessions.device') }}</th>
@@ -14,14 +15,14 @@
     <tbody>
     {% for s in sessions %}
       <tr>
-        {% if show_user %}<td><a href="{{ url_for('admin.user_detail', user_id=s.user_id) }}">{{ s.username }}</a></td>{% endif %}
-        <td class="small">{{ s.user_agent[:80] or '—' }}{% if s.remember_me %} <span class="badge">{{ t('admin.sessions.remembered') }}</span>{% endif %}</td>
-        <td class="mono small">{{ s.last_ip or s.ip_address or '—' }}</td>
-        <td class="nowrap">{{ s.created_at|datetime }}</td>
-        <td class="nowrap">{{ s.last_seen_at|time_ago }}</td>
+        {% if show_user %}<td><a class="text-link" href="{{ url_for('admin.user_detail', user_id=s.user_id) }}">{{ s.username }}</a></td>{% endif %}
+        <td class="small"{% if show_user %} data-label="{{ t('admin.sessions.device') }}"{% endif %}><span title="{{ s.user_agent or '' }}">{{ s.user_agent|device or '—' }}</span>{% if s.remember_me %} <span class="badge">{{ t('admin.sessions.remembered') }}</span>{% endif %}</td>
+        <td class="mono small nowrap" data-label="{{ t('admin.sessions.ip') }}">{% if s.locked %}<span class="muted">{{ t('admin.sessions.ip_hidden') }}</span>{% else %}{{ s.last_ip or s.ip_address or '—' }}{% endif %}</td>
+        <td class="nowrap" data-label="{{ t('admin.sessions.started') }}">{{ s.created_at|datetime }}</td>
+        <td class="nowrap" data-label="{{ t('admin.sessions.last_seen') }}">{{ s.last_seen_at|time_ago }}</td>
         <td class="actions">
           {% if s.id == current_session_id %}<span class="badge badge--success">{{ t('admin.sessions.this_session') }}</span>
-          {% elif not locked %}
+          {% elif not locked and not s.locked %}
             {% if show_user %}
             {{ forms.post_button(url_for('admin.revoke_one_session', session_id=s.id), t('admin.sessions.revoke'), 'btn btn--small') }}
             {% else %}

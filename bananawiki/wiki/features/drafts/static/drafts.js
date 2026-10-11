@@ -122,7 +122,7 @@
       if (transferUrl) {
         var button = document.createElement("button");
         button.type = "submit";
-        button.className = "btn btn--small btn--ghost";
+        button.className = "btn btn--small";
         button.formAction = transferUrl;
         button.formNoValidate = true;
         button.name = "from_user_id";

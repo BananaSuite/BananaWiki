@@ -5,7 +5,7 @@
 <header class="page-header"><h1>{{ t('pages.search.title') }}</h1></header>
 <form method="get" action="{{ url_for('pages.search_page') }}" class="form search-form" role="search">
   <div class="input-group">
-    <input type="search" name="q" value="{{ q }}" maxlength="300" aria-label="{{ t('pages.search.title') }}" autofocus>
+    <input type="search" name="q" value="{{ q }}" maxlength="300" aria-label="{{ t('pages.search.title') }}" placeholder="{{ t('pages.nav.search_placeholder') }}" autofocus>
     <button class="btn btn--primary">{{ t('common.search') }}</button>
   </div>
   <div class="form-grid">

@@ -85,4 +85,8 @@ def test_user_guide_mirrors_english(variant, language):
     english = sorted(path.name for path in (docs.DOCS_ROOT / "en" / variant).glob("*.md"))
     translated = sorted(path.name for path in (docs.DOCS_ROOT / language / variant).glob("*.md"))
     assert english and translated == english
-    assert all(title and content.startswith("# ") for title, _slug, content in docs.pages(variant, language))
+    for name in translated:  # every page starts with its "# Title" line, as in English
+        assert (docs.DOCS_ROOT / language / variant / name).read_text(encoding="utf-8").startswith("# "), name
+    # That line becomes the page title, not part of the content (no duplicate <h1>).
+    assert all(title and not content.lstrip().startswith("# ")
+               for title, _slug, content in docs.pages(variant, language))

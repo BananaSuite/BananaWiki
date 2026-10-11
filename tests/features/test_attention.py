@@ -174,7 +174,8 @@ def test_attention_page_shows_oldest_waiting(app, client, login, people, make_us
     db.execute("UPDATE users SET created_at = '2020-01-01 00:00:00' WHERE id = ?", (user["id"],))
     login(client, people["admin"])
     html = client.get("/attention").data.decode()
-    assert "Oldest waiting since" in html and "years ago" in html
+    # The copy reads "Oldest arrived 6 years ago" (it was "Oldest waiting since …", which clashed with "ago").
+    assert "Oldest arrived" in html and "years ago" in html
 
 
 def test_menu_counts_are_in_italian(app, client, login, people, make_user, db):

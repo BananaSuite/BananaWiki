@@ -40,15 +40,6 @@ ORPHAN_MIN_AGE_SECONDS = 3600
 _UNSAFE_NAME = re.compile(r"[^\w.()' -]+", re.UNICODE)
 
 
-class AttachmentError(ValueError):
-    """A refused attachment action; ``key`` is a translation key."""
-
-    def __init__(self, key: str, **values: Any):
-        super().__init__(key)
-        self.key = key
-        self.values = values
-
-
 # ── Reading ──────────────────────────────────────────────────────────────────
 
 
@@ -93,14 +84,6 @@ def can_delete(attachment: dict[str, Any], page: dict[str, Any], user: dict[str,
     if auth.has_permission("attachment.delete_any", user):
         return True
     return attachment.get("uploaded_by") == user["id"] and auth.has_permission("attachment.delete_own", user)
-
-
-def may_delete_some(page: dict[str, Any], user: dict[str, Any] | None = None) -> bool:
-    """Whether *user* could delete at least their own attachments (shows the delete buttons)."""
-    user = _user(user)
-    return _may_change(page, user) and (
-        auth.has_permission("attachment.delete_any", user) or auth.has_permission("attachment.delete_own", user)
-    )
 
 
 # ── Writing ──────────────────────────────────────────────────────────────────

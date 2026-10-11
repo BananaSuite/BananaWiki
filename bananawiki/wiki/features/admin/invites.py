@@ -4,6 +4,10 @@ Administrators manage every code. Editors who were granted the ``invite.*``
 permissions manage only the codes they created, and may only hand out the
 ``user`` or ``editor`` role (or a custom role, whose base role is at most
 ``editor``) so an invite can never be used to create an administrator.
+Beyond a plain member account, a delegated invite may only grant what the
+inviter holds: no permission they lack, no category they cannot read or
+write (:func:`within_authority`). Sign-up checks this again against the
+creator's rights at that moment.
 Redeeming a code at sign-up is the sign-up feature's job; the stored format
 (``XXXX-XXXX``, compared case-insensitively) is the one 1.4 used.
 """
@@ -17,10 +21,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from bananawiki.core.numbers import ascii_int
+
 from ....core.timeutil import now_sql, to_sql, utcnow
 from ... import auth
+from ... import permissions as perms
 from ...accounts import AccountError
 from ...db import db
+from ..audit.service import record
 
 CODE_ALPHABET = string.ascii_uppercase + string.digits
 CUSTOM_CODE_RE = re.compile(r"^[A-Za-z0-9]{6,32}$")
@@ -43,7 +51,46 @@ def manages_all(user: dict[str, Any]) -> bool:
 
 
 def assignable_roles(user: dict[str, Any]) -> tuple[str, ...]:
-    return ADMIN_ASSIGNABLE if manages_all(user) else EDITOR_ASSIGNABLE
+    if manages_all(user):
+        return ADMIN_ASSIGNABLE
+    return tuple(role for role in EDITOR_ASSIGNABLE if within_authority(user, role, None))
+
+
+def _categories(grants: perms.Grants, access: str) -> frozenset[int] | None:
+    """The categories *grants* may read or write (None: all of them)."""
+    if grants.is_admin:
+        return None
+    write = (grants.write.allowed if grants.write.restricted else None) if grants.role == "editor" else frozenset()
+    if access == "write" or write is None:
+        return write
+    return grants.read.allowed | write if grants.read.restricted else None
+
+
+def _covers(mine: frozenset[int] | None, theirs: frozenset[int] | None) -> bool:
+    return mine is None or (theirs is not None and theirs <= mine)
+
+
+def within_authority(creator: dict[str, Any], role: str | None, custom_role_id: int | None) -> bool:
+    """Whether *creator* may hand out an account with this role (or custom role) by invite.
+
+    Administrators may hand out anything an invite can carry. Others may
+    always invite a plain member; anything more must stay within their own
+    rights: base role, permission keys, and readable and writable categories.
+    """
+    if auth.is_admin(creator) and not auth.account_block(creator):
+        return True
+    role = role or "user"
+    if role not in EDITOR_ASSIGNABLE or auth.account_block(creator):
+        return False
+    if custom_role_id is None and role == "user":
+        return True
+    mine = perms.load_grants(db, creator)
+    theirs = perms.load_grants(db, {"id": "", "role": role, "custom_role_id": custom_role_id})
+    if perms.ROLE_RANK[theirs.role] > perms.ROLE_RANK[mine.role]:
+        return False
+    if not theirs.keys <= mine.keys | perms.defaults("user"):
+        return False
+    return all(_covers(_categories(mine, access), _categories(theirs, access)) for access in ("read", "write"))
 
 
 @dataclass
@@ -84,17 +131,21 @@ def parse_request(form: Any, custom_expiry: datetime | None) -> CodeRequest:
         expires_at=expires_at,
         custom_code=custom_code.upper(),
         assigned_role=(form.get("assigned_role") or "").strip() or None,
-        assigned_custom_role_id=int(custom_role) if custom_role.isdigit() else None,
+        assigned_custom_role_id=ascii_int(custom_role),
     )
 
 
 def generate(actor: dict[str, Any], req: CodeRequest) -> str:
-    if req.assigned_role and req.assigned_role not in assignable_roles(actor):
+    if req.assigned_role and req.assigned_role not in (ADMIN_ASSIGNABLE if manages_all(actor) else EDITOR_ASSIGNABLE):
         raise AccountError("admin.codes.error.role")
+    base_role = req.assigned_role
     if req.assigned_custom_role_id is not None:
-        role = db.one("SELECT id FROM custom_roles WHERE id = ?", (req.assigned_custom_role_id,))
+        role = db.one("SELECT id, base_role FROM custom_roles WHERE id = ?", (req.assigned_custom_role_id,))
         if role is None:
             raise AccountError("admin.codes.error.role")
+        base_role = role["base_role"]  # what sign-up grants (auth.invites.assigned_role)
+    if not within_authority(actor, base_role, req.assigned_custom_role_id):
+        raise AccountError("admin.codes.error.beyond_own")
     with db.transaction():
         if req.custom_code:
             if db.scalar("SELECT 1 FROM invite_codes WHERE code = ? COLLATE NOCASE", (req.custom_code,)):
@@ -104,11 +155,15 @@ def generate(actor: dict[str, Any], req: CodeRequest) -> str:
             code = random_code()
             while db.scalar("SELECT 1 FROM invite_codes WHERE code = ? COLLATE NOCASE", (code,)):
                 code = random_code()
-        db.insert("invite_codes", {
+        code_id = db.insert("invite_codes", {
             "code": code, "created_by": actor["id"], "created_at": now_sql(), "expires_at": req.expires_at,
             "max_uses": req.max_uses, "assigned_role": req.assigned_role,
             "assigned_custom_role_id": req.assigned_custom_role_id,
         })
+    # Never the code itself: it is a credential for whoever reads the log.
+    record("invite.created", actor_id=actor["id"], target_type="invite", target_id=code_id,
+           details={"role": base_role or "user", "custom_role_id": req.assigned_custom_role_id,
+                    "max_uses": req.max_uses, "expires_at": req.expires_at})
     return code
 
 
@@ -160,8 +215,9 @@ def get_for(actor: dict[str, Any], code_id: int) -> dict[str, Any] | None:
 
 
 def deactivate(code: dict[str, Any]) -> None:
-    db.execute("UPDATE invite_codes SET deleted = 1, deleted_at = ? WHERE id = ? AND deleted = 0",
-               (now_sql(), code["id"]))
+    if db.execute("UPDATE invite_codes SET deleted = 1, deleted_at = ? WHERE id = ? AND deleted = 0",
+                  (now_sql(), code["id"])).rowcount:
+        record("invite.deactivated", target_type="invite", target_id=code["id"])
 
 
 def is_active(code: dict[str, Any]) -> bool:
@@ -177,3 +233,4 @@ def purge(code: dict[str, Any]) -> None:
     if is_active(code):
         raise AccountError("admin.codes.error.still_active")
     db.execute("DELETE FROM invite_codes WHERE id = ?", (code["id"],))
+    record("invite.deleted", target_type="invite", target_id=code["id"], details={"uses": code["use_count"]})

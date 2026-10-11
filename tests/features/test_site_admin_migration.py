@@ -41,19 +41,25 @@ def zip_bytes(members: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
-def admin_client_for(app, login, username="boss"):
+def admin_client_for(app, login, username="boss", role="owner"):
+    """A signed-in client of *app*: an owner by default, the only ones (with superusers) who move sites."""
     from bananawiki.wiki import accounts
     from bananawiki.wiki.db import connection_scope
 
     with app.test_request_context(), connection_scope():
-        user = accounts.create(username, PASSWORD, role="admin", emit_event=False)
+        user = accounts.create(username, PASSWORD, role=role, emit_event=False)
     client = app.test_client()
     login(client, user)
     return client
 
 
 @pytest.fixture
-def source(app, admin_client):
+def owner_client(app, login):
+    return admin_client_for(app, login, "site_owner")
+
+
+@pytest.fixture
+def source(app, admin_client, owner_client):
     """A wiki with a page, an uploaded file, a custom icon and a language; returns its archive."""
     make_page(app, "Exported page", "hello from the source")
     folders = app.config["BW"].folders
@@ -62,7 +68,7 @@ def source(app, admin_client):
     Path(folders.favicons).mkdir(parents=True, exist_ok=True)
     (Path(folders.favicons) / "custom_icon.png").write_bytes(b"icon")
     (Path(folders.favicons) / "stray.png").write_bytes(b"stray")
-    response = export(admin_client)
+    response = export(owner_client)
     assert response.status_code == 200, response.data[:300]
     data = response.get_data()
     response.close()
@@ -88,8 +94,8 @@ def modified_db(archive: bytes, tmp_path, sql: str) -> bytes:
     return path.read_bytes()
 
 
-def test_export_needs_the_password(app, admin_client, db):
-    response = export(admin_client, "wrong")
+def test_export_needs_the_password(app, owner_client, db):
+    response = export(owner_client, "wrong")
     assert response.status_code == 302
     assert db.scalar("SELECT COUNT(*) FROM audit_log WHERE action = 'site.export_refused'") == 1
 
@@ -111,11 +117,11 @@ def test_export_contents(app, source, db):
     assert leftovers == []
 
 
-def test_export_leaves_out_stored_api_answers(app, admin_client, admin, db):
+def test_export_leaves_out_stored_api_answers(app, owner_client, admin, db):
     """Idempotency-Key answers are a short-lived retry cache, not site data."""
     db.execute("INSERT INTO api_service__idempotency (user_id, token_id, idempotency_key, request_hash, status_code, "
                "response_body, created_at) VALUES (?, 1, 'k', 'x', 201, '{}', datetime('now'))", (admin["id"],))
-    response = export(admin_client)
+    response = export(owner_client)
     assert response.status_code == 200
     path = Path(app.config["BW"].folders.exports) / "check.db"
     path.write_bytes(raw_db(response.get_data()))
@@ -271,3 +277,50 @@ def test_legacy_json_dump(source, target, tmp_path):
     assert response.status_code == 302
     assert query(other, "SELECT id FROM pages WHERE title = 'Exported page'")
     assert (Path(other.config["BW"].folders.uploads) / "legacy.png").exists()
+
+
+# ── Who moves a site, and what an archive may bring along ─────────────────────
+
+
+def test_plain_administrators_cannot_export_or_import(app, admin_client, source, db):
+    """The archive holds every password hash and private message, and an import replaces every account."""
+    assert export(admin_client).status_code == 403
+    assert do_import(admin_client, source).status_code == 403
+    page = admin_client.get("/admin/migration").get_data(as_text=True)
+    assert "/admin/migration/export" not in page and "/admin/migration/import" not in page
+    assert db.scalar("SELECT COUNT(*) FROM users WHERE username = 'admin_user' AND role = 'admin'") == 1
+
+
+def test_import_drops_triggers_and_views_this_release_does_not_create(source, target, tmp_path):
+    other, client = target
+    archive_db = tmp_path / "evil.db"
+    archive_db.write_bytes(raw_db(source))
+    conn = sqlite3.connect(archive_db, isolation_level=None)
+    conn.execute("CREATE TRIGGER backdoor AFTER UPDATE ON users BEGIN "
+                 "UPDATE users SET role = 'owner', is_superuser = 1 WHERE username = 'admin_user'; END")
+    conn.execute("CREATE VIEW leak AS SELECT username, password FROM users")
+    conn.execute("DROP TRIGGER pages_fts_update")
+    conn.execute("CREATE TRIGGER pages_fts_update AFTER UPDATE ON pages BEGIN "
+                 "UPDATE users SET role = 'owner'; END")
+    conn.close()
+    response = do_import(client, zip_bytes({"manifest.json": b'{"format_version": 1}',
+                                            "bananawiki.db": archive_db.read_bytes()}))
+    assert response.status_code == 302 and "/login" in response.headers["Location"]
+    names = {row["name"]: row["sql"] for row in query(other, "SELECT name, sql FROM sqlite_master "
+                                                             "WHERE type IN ('trigger', 'view')")}
+    assert "backdoor" not in names and "leak" not in names
+    assert {"pages_fts_insert", "pages_fts_delete", "pages_fts_update"} <= set(names)
+    assert "users" not in names["pages_fts_update"]
+
+
+def test_import_keeps_the_live_audit_log(source, target):
+    other, client = target
+    session = Session(other.extensions["bananawiki.database"].connect())
+    session.execute("INSERT INTO audit_log (created_at, action, details) VALUES (datetime('now'), 'live.marker', '{}')")
+    session.conn.close()
+    do_import(client, source)
+    actions = [row["action"] for row in query(other, "SELECT action FROM audit_log ORDER BY id")]
+    assert "live.marker" in actions, "an import must not erase the record of what happened here"
+    assert actions.index("live.marker") < actions.index("site.imported")
+    assert query(other, "SELECT 1 FROM audit_log WHERE action = 'user.login' AND details LIKE '%site_owner%'"), \
+        "the archive's own history is kept too"

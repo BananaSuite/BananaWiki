@@ -16,8 +16,8 @@
     {{ forms.post_button(url_for('api_service.admin_toggle_webhook', webhook_id=hook.id), t('api_service.webhooks.enable'), cls='btn btn--small') }}
   </div></div>
   {% endif %}
-  <p><code class="mono">{{ hook.url }}</code></p>
-  {% if hook.description %}<p class="muted">{{ hook.description }}</p>{% endif %}
+  <p><code class="mono">{{ hook.url }}</code> <span class="badge {{ 'badge--success' if hook.active else '' }}">{{ t('common.enabled') if hook.active else t('common.disabled') }}</span>
+    {% if hook.description %}<br><small class="muted">{{ hook.description }}</small>{% endif %}</p>
   <p>{% for event in events %}<span class="badge">{{ event }}</span> {% endfor %}</p>
   <p class="hint">{{ t('api_service.webhooks.delivery_hint') }}</p>
 </section>

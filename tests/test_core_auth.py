@@ -113,3 +113,14 @@ def test_maintenance_mode(client, make_user, login, db):
     login(client, make_user("bob"))
     db.execute("UPDATE site_settings SET maintenance_mode = 1")
     assert client.get("/_probe/private").headers["Location"].endswith("/maintenance")
+
+
+def test_failed_sign_in_logs_known_accounts_but_not_unknown_names(client, make_user, caplog):
+    make_user("real_user")
+    with caplog.at_level("INFO"):
+        client.post("/login", data={"username": "real_user", "password": "wrong-password-1"})
+        client.post("/login", data={"username": "hunter2-typed-by-mistake", "password": "x"})
+    text = caplog.text
+    assert "Failed sign-in for 'real_user'" in text
+    assert "hunter2-typed-by-mistake" not in text
+    assert "Failed sign-in for an unknown account" in text

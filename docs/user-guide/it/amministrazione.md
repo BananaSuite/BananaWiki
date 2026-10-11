@@ -7,11 +7,12 @@ Un breve giro per i nuovi amministratori. Il riferimento completo è nella
 
 ## Fiducia
 
-Gli amministratori possono fare tutto, anche installare plugin e importare un
-intero sito: ciascuna di queste azioni dà il controllo completo della wiki.
-Assegna il ruolo solo a persone di cui ti fideresti per tutto. Proprietari e
-superutenti sono protetti dagli altri amministratori: solo proprietari e
-superutenti possono modificare un amministratore.
+Installare plugin di terze parti e importare un intero sito danno ciascuno il
+controllo completo della wiki, per questo solo proprietari e superutenti possono
+farlo. Gli altri amministratori gestiscono comunque tutti gli altri account e
+tutti i contenuti: assegna il ruolo solo a persone a cui affideresti tutto
+questo. Proprietari e superutenti sono protetti dagli altri amministratori: solo
+proprietari e superutenti possono modificare un amministratore.
 
 ## L'area di amministrazione
 

@@ -12,9 +12,11 @@ from __future__ import annotations
 import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+from ...core.timeutil import utcnow
 from . import DomainCheck, LogTail, RuntimeFailure, TenantSpec, TenantStatus, WikiUser
 
 
@@ -37,6 +39,7 @@ class FakeRuntime:
         self.domain_results: dict[str, DomainCheck] = {}
         self.upstreams: dict[str, tuple[str, int]] = {}
         self.backup_status: dict[str, Any] = {}
+        self.storage: dict[str, Any] = {}  # what storage_protection() reports ({} = unknown)
         self._failures: dict[str, RuntimeFailure] = {}
 
     # Test helpers ---------------------------------------------------------
@@ -82,7 +85,7 @@ class FakeRuntime:
         if tenant:
             tenant.running = False
 
-    def restart(self, spec: TenantSpec, *, force: bool = False) -> None:
+    def restart(self, spec: TenantSpec, *, force: bool = False, policy_change: bool = False) -> None:
         self._record("restart", spec.data_dir_name)
         self._tenant(spec).running = True
 
@@ -135,7 +138,11 @@ class FakeRuntime:
     def analytics(self, spec: TenantSpec, days: int) -> dict[str, Any]:
         self._record("analytics", spec.data_dir_name)
         self._tenant(spec)
-        daily = [{"day": "2026-01-01", "request": 10, "page_view": 7, "error": 1}]
+        # Like a wiki: every day of the window, ending today (UTC), with the traffic on the last day.
+        today = utcnow().date()
+        daily = [{"day": (today - timedelta(days=ago)).isoformat(), "request": 0, "page_view": 0, "error": 0}
+                 for ago in range(max(1, days) - 1, 0, -1)]
+        daily.append({"day": today.isoformat(), "request": 10, "page_view": 7, "error": 1})
         return {"window_days": days, "totals": {"request": 10, "page_view": 7, "error": 1}, "daily": daily}
 
     # Tenant database ------------------------------------------------------
@@ -262,6 +269,9 @@ class FakeRuntime:
 
     def platform_backup_status(self) -> dict[str, Any]:
         return self.backup_status
+
+    def storage_protection(self) -> dict[str, Any]:
+        return dict(self.storage)
 
     def backup_key(self) -> bytes:
         return b"k" * 32

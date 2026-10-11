@@ -6,6 +6,13 @@ cannot change or remove owners of full access; transfers are always made
 from the current owner (an administrator starting one no longer produced a
 transfer that could never be accepted); the recipient must be an active,
 approved account, and accepting one applies the new owner's privileges.
+
+Changed in 1.6: accepting a transfer no longer leaves the previous owner as
+a full-access collaborator (able to terminate the wiki or reset its
+administrator's password). The recipient chooses: remove them (the default)
+or keep them as a viewer. The recipient's wiki limit applies, and an
+administrator who must use two-step verification but has not turned it on
+holds no administrator rights over other people's wikis.
 """
 
 from __future__ import annotations
@@ -16,12 +23,15 @@ from typing import Any
 
 from ..core.timeutil import now_sql
 from . import accounts, events, instances
+from .auth import admin_mfa_missing
 from .db import db
 from .errors import ServiceError
 
 PERMISSIONS = ("view", "start_stop", "terminate", "reset_password", "reset_wiki", "download", "toggle_mode",
                "manage_collaborators", "use_case", "analytics")
 ROLES = ("full_access", "custom")
+# What the previous owner keeps after a transfer, as the recipient chooses.
+PREVIOUS_OWNER_ACCESS = {"none": None, "view": ["view"]}
 
 
 def _permissions(row: dict[str, Any]) -> set[str]:
@@ -38,9 +48,14 @@ def membership(instance_id: str, account_id: str) -> dict[str, Any] | None:
                   (instance_id, account_id))
 
 
+def acts_as_admin(account: dict[str, Any]) -> bool:
+    """An administrator who may use administrator rights now (two-step verification on when required)."""
+    return bool(account["is_admin"]) and not admin_mfa_missing(account)
+
+
 def permissions_of(inst: dict[str, Any], account: dict[str, Any]) -> set[str]:
     """What *account* may do on *inst*: everything for owners and administrators."""
-    if account["is_admin"] or inst["account_id"] == account["id"]:
+    if inst["account_id"] == account["id"] or acts_as_admin(account):
         return set(PERMISSIONS)
     row = membership(inst["id"], account["id"])
     return _permissions(row) if row else set()
@@ -61,7 +76,7 @@ def _check_grant(inst: dict[str, Any], actor: dict[str, Any], role: str, permiss
         raise ServiceError("hosting.collaborators.invalid_role")
     granted = sorted({p for p in permissions if p in PERMISSIONS})
     held = permissions_of(inst, actor)
-    privileged = actor["is_admin"] or inst["account_id"] == actor["id"]
+    privileged = acts_as_admin(actor) or inst["account_id"] == actor["id"]
     if not privileged and (role == "full_access" or not set(granted) <= held):
         raise ServiceError("hosting.collaborators.cannot_grant")
     return [] if role == "full_access" else granted
@@ -87,7 +102,7 @@ def add(inst: dict[str, Any], actor: dict[str, Any], username: str, role: str, p
 def _editable(inst: dict[str, Any], actor: dict[str, Any], member: dict[str, Any] | None) -> dict[str, Any]:
     if member is None:
         raise ServiceError("hosting.collaborators.not_found")
-    privileged = actor["is_admin"] or inst["account_id"] == actor["id"]
+    privileged = acts_as_admin(actor) or inst["account_id"] == actor["id"]
     if not privileged and member["role"] == "full_access":
         raise ServiceError("hosting.collaborators.cannot_grant")
     return member
@@ -122,6 +137,17 @@ def pending_transfer(instance_id: str) -> dict[str, Any] | None:
     )
 
 
+def outgoing_transfers(account_id: str) -> dict[str, str]:
+    """The account's wikis with a transfer waiting for the receiver: ``{instance_id: receiver's username}``."""
+    rows = db.all(
+        "SELECT t.instance_id, a.username AS to_username FROM instance_ownership_transfers t "
+        "JOIN accounts a ON a.id = t.to_account_id JOIN instances i ON i.id = t.instance_id "
+        "WHERE i.account_id = ? AND t.status = 'pending' AND i.status != 'terminated' ORDER BY t.id",
+        (account_id,),
+    )
+    return {row["instance_id"]: row["to_username"] for row in rows}
+
+
 def incoming_transfers(account_id: str) -> list[dict[str, Any]]:
     return db.all(
         "SELECT t.*, f.username AS from_username, i.subdomain FROM instance_ownership_transfers t "
@@ -149,7 +175,12 @@ def start_transfer(inst: dict[str, Any], actor: dict[str, Any], username: str) -
         events.record("instance", inst["id"], "transfer.started", actor["id"], target["username"])
 
 
-def accept_transfer(transfer_id: int, account: dict[str, Any]) -> str:
+def accept_transfer(transfer_id: int, account: dict[str, Any], *, previous_owner: str = "none") -> str:
+    """Make *account* the owner; *previous_owner* is what the old owner keeps (``none`` or ``view``).
+
+    The recipient's wiki limit is checked before anything changes, so a
+    refused transfer stays pending. Anything but a known choice keeps nothing.
+    """
     row = db.one("SELECT * FROM instance_ownership_transfers WHERE id = ? AND status = 'pending'", (transfer_id,))
     if row is None or row["to_account_id"] != account["id"]:
         raise ServiceError("hosting.transfers.not_found")
@@ -158,15 +189,19 @@ def accept_transfer(transfer_id: int, account: dict[str, Any]) -> str:
         db.update("instance_ownership_transfers", {"status": "cancelled", "resolved_at": now_sql()}, "id = ?",
                   (transfer_id,))
         raise ServiceError("hosting.transfers.stale")
+    instances.move_to_owner(inst, account, actor_id=account["id"], check_capacity=True)
+    kept = PREVIOUS_OWNER_ACCESS.get(previous_owner)
     with db.transaction():
         db.update("instance_ownership_transfers", {"status": "accepted", "resolved_at": now_sql()}, "id = ?",
                   (transfer_id,))
-        db.execute(
-            "INSERT OR IGNORE INTO instance_collaborators (instance_id, account_id, role, permissions, invited_by, "
-            "created_at) VALUES (?, ?, 'full_access', '[]', ?, ?)",
-            (inst["id"], row["from_account_id"], account["id"], now_sql()),
-        )
-    instances.move_to_owner(inst, account, actor_id=account["id"])
+        if kept:
+            db.execute(
+                "INSERT OR IGNORE INTO instance_collaborators (instance_id, account_id, role, permissions, "
+                "invited_by, created_at) VALUES (?, ?, 'custom', ?, ?, ?)",
+                (inst["id"], row["from_account_id"], json.dumps(kept), account["id"], now_sql()),
+            )
+        events.record("instance", inst["id"], "transfer.accepted", account["id"],
+                      f"previous owner: {previous_owner if kept else 'none'}")
     return inst["id"]
 
 

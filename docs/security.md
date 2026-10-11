@@ -5,17 +5,22 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
 
 ## Trust model
 
-* **Administrators are fully trusted.** An administrator can install a
-  third-party plugin (Python code that runs with the wiki's own rights) or
-  import a whole-site archive (which replaces every account). Either gives
-  complete control of the wiki. Give the administrator role only to people
-  you would trust with everything. The admin pages say this where the
-  decision is made, ask for the administrator's password again, and log it.
-* **Owners and superusers** are protected from other administrators in the
-  normal interface: only owners and superusers change administrators, only an
-  owner changes an owner, only a superuser changes a superuser or impersonates
-  an administrator. This protects against a careless or compromised
-  administrator account, not against plugins or site imports.
+* **Owners and superusers are fully trusted.** Only they can install or
+  enable a third-party plugin (Python code that runs with the wiki's own
+  rights), export the whole site (every password hash and private message)
+  or import an archive (which replaces every account). Each gives complete
+  control of the wiki; the pages say so where the decision is made, ask for
+  the password again, and log it.
+* **Administrators** run the wiki: accounts, roles, settings and content.
+  They are kept below owners and superusers everywhere: only owners and
+  superusers change administrators (their role, password, profile,
+  sessions), only an owner changes an owner, only a superuser changes a
+  superuser or impersonates an administrator, and the addresses of
+  accounts an administrator may not change (sign-ins, audit entries, the
+  chat messages they sent) are hidden from them. They cannot
+  switch the audit log off or shorten how long it keeps entries. This
+  protects against a careless or compromised administrator account; give the
+  role only to people you trust with the wiki's content and members.
 * **Everyone else** gets exactly what their role, permissions and category
   access allow, in the web interface and in the REST API alike.
 * **Hosting operators** trust neither tenant wikis nor their administrators;
@@ -30,6 +35,13 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
 
 * Passwords: 8 to 1024 characters, stored as Werkzeug scrypt hashes (PBKDF2
   where scrypt is unavailable, or with `BW_PASSWORD_HASH_METHOD=pbkdf2`).
+  A new password (sign-up, settings, the forced change, administrators
+  creating accounts or setting passwords, the REST API, the command line)
+  may not contain the user name or the part of the account's email address
+  before the `@`, and may not be one of the 10,000 most common passwords
+  (bundled in `bananawiki/core/data/common-passwords.txt`, compared without
+  case). Existing passwords keep working: the policy is checked only when a
+  password is set.
   Sign-in compares against a dummy hash for unknown names so timing does not
   reveal which accounts exist.
 * Every sign-in creates a row in `user_sessions` holding the SHA-256 of a
@@ -61,9 +73,48 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   previous session; the signed-out browser is told why.
 * **Sign-in limits:** at most 20 failed attempts per address, 8 per account
   name from one address, and 100 per account name from all addresses
-  together, in 15 minutes, shared by all workers. Failures from one address
-  do not lock the account for everyone else. A successful sign-in clears
-  only its own account-and-address counter.
+  together, in 15 minutes, shared by all workers; an IPv6 client counts as
+  its whole /64 network. A browser that has signed in to the account before
+  carries a device cookie (`<session cookie name>_device`, `__Host-` on
+  HTTPS, signed with the secret key and the account's device epoch, which a
+  new password and every change to two-step verification retire) and gets
+  its own budget of 8 instead of the shared 100: strangers cannot lock the
+  owner out. A successful sign-in clears only its own account-and-address
+  counter. Passwords stored with an older hash method or cost are re-hashed
+  with the configured one at the next sign-in; the password stays the same,
+  so the account's API tokens and device cookies keep working.
+* **Two-step verification** (**Settings → Two-step verification**, optional
+  for every account): after the password, or after the hosting portal's
+  sign-in, the wiki asks for a 6-digit code from an authenticator app (TOTP,
+  30-second steps, each code accepted once) or one of ten single-use
+  recovery codes. Turning it on takes the password and a code and signs out
+  the account's other sessions; turning it off or making new recovery codes
+  takes the password and a code. The pending sign-in lasts five minutes,
+  lapses when the password changes and ends with **Back to sign-in** on the
+  code page (a form, so the password step is not left passed in the
+  browser). Codes are limited to 10 wrong attempts in 5 minutes and 50 a
+  day: per account for browsers that never signed in to it, and separately
+  for each browser with its device cookie, so someone who knows the password
+  cannot use up the owner's attempts. Turning two-step verification on, off
+  or resetting it retires the account's device cookies (the browser making
+  the change gets a new one), and while it is on a device cookie is issued
+  only after both steps, so cookies collected while it was off cannot
+  multiply the limits. After 10 wrong
+  codes in a day from the same browsers, each further code waits 30
+  seconds, then twice as long each time, up to an hour. The account
+  accepts at most 100 wrong codes a day from all browsers together, more
+  than the browsers without a device cookie can reach on their own. After 5 wrong codes at sign-in in
+  a day (all browsers together) the owner gets a security notice, at most
+  one a day, also by email when the wiki sends decision emails and they have
+  not turned them off: someone else may know their password. Owners and superusers who use it
+  can require it of administrators (**Admin → Settings → Security**):
+  administrators without it are sent to set it up before anything else.
+  Owners and superusers can reset it for an account they may manage
+  (**Admin → Users**; every session of the account ends);
+  `bananawiki reset-two-step NAME` resets any account from the server. On a
+  hosted wiki, the portal's **Reset admin password** turns it off for the
+  account it resets (and records that in the wiki's audit log). API
+  tokens and impersonation do not involve it.
 * **Sign-up:** invite codes, open sign-up (optionally until a date), and
   administrator approval, which is enforced everywhere: pending and denied
   accounts can only see their status page. Bot protection adds a honeypot
@@ -100,8 +151,10 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   (form field `csrf_token` or header `X-CSRF-Token`). Only the REST API with a
   bearer token is exempt, and it refuses requests carrying an `Origin` from
   another site.
-* **Rate limits:** 300 requests per minute per client address and worker,
-  plus per-action limits (editing, uploads, search, chats, the API …).
+* **Rate limits:** 300 requests per minute per client address (IPv6: per
+  /64) and worker,
+  plus per-action limits (editing, uploads, search, chats, the API …), per
+  account or, for visitors and group joins, per address (IPv6: per /64).
   Sign-in and sign-up limits are stored in the database, so they hold across
   all workers.
 * **Body limits:** JSON bodies 2 MiB, form fields 2 MiB in memory; file
@@ -161,9 +214,22 @@ ask editors to upload images instead of linking them.
 * Markdown is rendered with Python-Markdown and sanitised with
   [nh3](https://github.com/messense/nh3) against a strict allow-list: known
   tags only, known classes only, `id` only on headings, `style` limited to a
-  few spacing properties, links get `rel="noopener noreferrer"`. Video,
-  canvas and kanban embeds are generated after sanitising from validated
-  parameters.
+  few spacing properties with bounded, non-negative values (no negative
+  margins, viewport units, `calc()` or `var()` that could lay content over
+  the wiki's own interface), links get `rel="noopener noreferrer"`. Video,
+  canvas and kanban embeds, mentions and task lists are generated after
+  sanitising from validated parameters, and never inside an attribute value
+  (nh3 0.3.7 or later is required).
+* Rendering is bounded: one page highlights at most 64 KB of code (later
+  blocks stay plain code; the blocks of a page-builder page share that
+  allowance, as do the comments of one kanban ticket, which holds at most
+  300, and one listing of them renders at most about 4 MB of HTML, newest
+  first, older ones as plain text; excerpts and plain text highlight
+  nothing), and rendered pages, snippets and PDF exports are cached by the
+  hash of their source (a PDF also by the state of the uploaded images it
+  embeds), so reading a page again costs nothing. The live
+  preview and code highlighting endpoints are for editors only, at most 60
+  requests a minute.
 * Page-builder documents are validated against an allow-list of block types
   and escaped when rendered.
 * Custom pages with author HTML, CSS or JavaScript are served from a
@@ -174,7 +240,9 @@ ask editors to upload images instead of linking them.
 ## Uploaded files
 
 * Stored under random names in the configured folders; the original name is
-  kept only in the database. Uploads are written to a temporary file and
+  kept only in the database, in any script (normalised to NFC, without
+  folders, control or direction-override characters), and offered back with
+  an RFC 5987 `filename*`. Uploads are written to a temporary file and
   renamed into place.
 * Size limits per kind, the administrator's allow/deny lists of extensions,
   the host's blacklist and the storage quota are checked before anything is
@@ -213,11 +281,15 @@ their distribution advisories; see [production validation](production-readiness.
   digests.
 * The GPU speech server token and federation pairing keys are encrypted
   (Fernet, key derived from the secret key).
+* Two-step verification keys are encrypted (Fernet, key derived from the
+  secret key) and recovery codes stored as HMAC-SHA256 digests; codes are
+  shown once.
 * Retired 1.4 secrets (the Telegram bot token, feedback bot settings) are
   erased by the 1.6 upgrade.
 
-Losing or changing the secret key signs everyone out and makes API tokens
-and encrypted settings unusable. Back it up with the database.
+Losing or changing the secret key signs everyone out and makes API tokens,
+encrypted settings and two-step verification unusable (reset it with
+`bananawiki reset-two-step NAME`). Back it up with the database.
 
 ## Outbound connections
 
@@ -233,23 +305,49 @@ or loopback addresses: that network belongs to the host.
 ## Plugins
 
 Third-party plugins run inside the wiki process with its privileges: they
-can read every table, the secret key and the environment. The plugin manager
-asks for the administrator's password, copies the database before enabling a
-plugin, and logs every step. A plugin only loads after a restart.
+can read every table, the secret key and the environment. They are therefore
+off unless the server operator sets `BW_ALLOW_EXTERNAL_PLUGINS=1` (an
+installation upgraded with plugins already installed keeps them while the
+variable is unset, and logs a warning), and only the **owner** and
+**superusers** may install or enable one: an administrator, or an API token,
+cannot turn their access into code on the server. Administrators can still
+switch plugins off and delete them. The plugin manager asks for the acting
+person's password, copies the database before enabling a plugin, and logs
+every step. A plugin only loads after a restart.
 `BW_ALLOW_EXTERNAL_PLUGINS=0` turns them off entirely. See
 [plugins](plugins/README.md).
 
 ## Audit log
 
 **Admin → Audit log** (feature `audit`) records sign-ins, account creation,
-renames, released former user names, deletions, role changes, password
-changes and resets, suspensions, page and category deletions and restores,
-attachment uploads and deletions, site settings, appearance and language
-changes, documentation, bulk Markdown and whole-site exports and imports (and
-refused attempts), and server restarts, with the acting account and address.
-Retention is configurable (0 keeps entries forever; the `audit.prune` job
-applies it). Plugin actions go to the application log (`bananawiki.plugins`),
-and the REST API keeps its own log of every call (**Admin → REST API**).
+renames, released former user names, deletions, role and custom-role
+changes, superuser grants, permission overrides, approvals, suspensions and
+their lifting, impersonation, session revocations and mass sign-outs,
+attribution and role-history clean-up, invite codes (never the code itself),
+password changes and resets, two-step verification turned on or off, reset,
+new recovery codes and sign-ins with a recovery code, page and category
+deletions and restores, bulk
+deletions, protections ended by a demotion, attachment uploads and
+deletions, site settings, appearance and language changes, features and
+plugins switched, installed or removed, documentation, bulk Markdown and
+whole-site exports and imports (and refused attempts), server restarts, and
+administrators opening, exporting, clearing or taking over private
+conversations and groups they are not in (reading a group's messages as
+JSON is recorded once per ten minutes of reading; downloading their
+attachments too) or resolving reported chat messages, with the acting account
+and address.
+
+Only owners and superusers can switch the audit log off (the switch is
+recorded as its last entry), whichever page switches it: the plugin manager
+or the onboarding wizard, which leaves the log out of the features it offers
+a plain administrator. Every feature switch is recorded. Owners and
+superusers also change the retention (0 keeps entries forever; the
+`audit.prune` job applies it and records how many entries it deleted). A
+site import keeps the live log and appends it to the archive's, without the
+entries the archive already holds.
+The plugin manager's own steps also go to the application log
+(`bananawiki.plugins`), and the REST API keeps its own log of every call
+(**Admin → REST API**).
 
 ## Checklist for production
 
@@ -263,7 +361,10 @@ storage quotas, reserve, restore and update/rollback checks.
 * Back up the database, the upload folders and the secret key; test a restore.
 * Keep few administrators; make yourself owner and superuser (the first
   account already is).
-* Review plugins before enabling them, or set `BW_ALLOW_EXTERNAL_PLUGINS=0`.
+* Turn on two-step verification for your account, then require it of
+  administrators (**Admin → Settings → Security**).
+* Leave `BW_ALLOW_EXTERNAL_PLUGINS` unset or `0` unless you need plugins;
+  review every plugin before enabling it.
 * Switch off features you do not use (**Admin → Plugins**).
 * Keep the server and BananaWiki updated (`sudo bananawiki update`).
 * Set `BW_SOURCE_URL` to the source you run if you changed the code (AGPL).

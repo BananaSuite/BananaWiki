@@ -41,8 +41,8 @@ features entirely.
 | [People and profiles](#people-and-profiles) | `users`, `user_profiles` | always on / plugin | on | |
 | [Badges](#badges) | `badges` | plugin | on | |
 | [Leaderboard](#leaderboard) | `leaderboard` | setting `contributor_leaderboard_enabled` | off | |
-| [Personal data export](#personal-data-export) | `user_data_export` | plugin | on | |
 | [Mascot](#mascot) | `mascot` | plugin | on | |
+| [Personal data export](#personal-data-export) | `user_data_export` | plugin | on | |
 | [Custom pages](#custom-pages) | `custom_pages` | plugin | off | yes |
 | [REST API](#rest-api) | `api_service` | plugin + setting `api_service_enabled` | off | |
 | [Federation](#federation) | `federation` | operator `BW_FEDERATION_ENABLED` | off | yes |
@@ -292,15 +292,19 @@ Permissions: `assessment.view`, `assessment.manage`. Settings on
 ## Kanban boards
 
 Boards (`/kanban`) with columns and tickets: descriptions in Markdown,
-labels, priorities, due dates, colours, several assignees, comments,
-attachments and description history. A title shorthand fills fields as you
+labels, priorities, due dates, colours, several assignees, comments (up to
+300 per ticket), attachments and description history. A title shorthand fills fields as you
 type: `Fix login @alice +backend !high color:red due:tomorrow`.
 
 * Changes appear for everyone viewing the board within seconds (the page
   fetches only what changed, and catches up at once after a lost connection).
 * **Planning**: checklists (subtasks, up to 100 per ticket) with progress on
   the card; optional work-in-progress limits per column (a warning, never a
-  block); due-soon (within 2 days) and overdue highlighting.
+  block); due-soon (within 2 days) and overdue highlighting. A column can be
+  marked as a **done column** (the check-mark button among the column tools,
+  *Done column*): its tickets keep their due dates but are never overdue or
+  due soon, on the board, in the due-date filters and on *My tickets*
+  (schema 11).
 * **Filter bar**: search text, `@person`/*Me*/unassigned, label, priority and
   due date range, kept in the address (`?q=&who=&label=&priority=&due=`);
   `/` focuses the search. Keyboard moves skip hidden cards. The board state
@@ -318,8 +322,8 @@ type: `Fix login @alice +backend !high color:red due:tomorrow`.
   list (*Show archived boards* brings it back into view) and is read-only
   until restored.
 * **My tickets** (`/kanban/mine`, JSON at `/api/kanban/my-tickets`): tickets
-  assigned to you on every board you can open, grouped by due date, with a
-  filter form.
+  assigned to you on every board you can open, grouped by due date (tickets
+  in done columns apart, under *In done columns*), with a filter form.
 * **History**: every change stores the board's structure (including WIP
   limits, checklists and archived tickets); each version lists what changed
   since the previous one. Restoring a version never deletes tickets, comments
@@ -440,16 +444,48 @@ visible only to their creator and administrators. Permissions:
   (`/groups`) with invite codes, a global room, owner/moderator/member roles,
   timeouts, bans, ownership transfer, and administrator takeover.
 * File attachments (with a size limit and a daily count), plain-text or ZIP
-  export, clearing a conversation.
+  export, clearing a conversation. **Clearing a direct conversation hides it
+  for you only**: the other participant keeps their copy, and messages both
+  have cleared are erased. Group moderators clear a group for everyone.
+* **Reporting**: participants and group members report another person's
+  message to the administrators, who see a copy of it even if it is deleted
+  later.
+* **Blocking**: a member blocks another from a conversation, a group's member
+  list or **Settings → Blocked people** (where they also unblock). What the
+  blocked member sends them in a conversation they already have is withheld:
+  it looks sent to its sender, is never delivered (not even after an
+  unblock) and is not unread. The blocked member cannot start a conversation
+  with them or add them to a group (refused as for an account that cannot
+  receive messages; a conversation they already have opens as usual, and a
+  current member is reported as one) and is not offered their name; the one
+  who blocked cannot message them either until they unblock. In groups they
+  share, the blocked member's messages are hidden from the one who blocked
+  them (system messages stay) and are not counted as unread. Blocks are
+  private: nobody is notified, the blocked member sees nothing an inactive
+  account would not show (though seeing the other person post in a shared
+  group while a new conversation is refused lets them guess), they are not
+  in the audit log, and only the member who blocked sees
+  them (also in their data export). The administration pages hide nothing
+  and mark withheld messages (`chat__blocks`, `chat_messages.withheld`,
+  schema 10).
 * Pages load the latest messages, then fetch only new ones, and poll less
   while the tab is hidden.
 * **Deleting a message erases its text and attachments for everyone**; a
-  "deleted" marker keeps the conversation readable.
+  "deleted" marker keeps the conversation readable. In a direct conversation
+  the sender can do so for 15 minutes after sending (to take back a
+  mistake); later the message belongs to the other participant's copy too.
+  Deleting an account is the exception: it removes the account's direct
+  conversations for both participants (a reported message keeps its copy in
+  the report).
 * Members may show their groups on their profile
   (`profile_group_badges_enabled`).
 
-Administrators monitor conversations and groups and configure everything at
-**Admin → Chats** (`/admin/chats`): message length, attachments, direct
+Administrators monitor conversations and groups, review reported messages,
+clear a direct conversation for both participants when moderating, and
+configure everything at **Admin → Chats** (`/admin/chats`). Opening a private
+conversation or a group they are not in, downloading its attachments,
+exporting, clearing or taking it over, and resolving a report are recorded in
+the audit log. Settings: message length, attachments, direct
 messages and groups on/off, whether members may start them, and separate
 retention policies for messages and attachments of direct messages and groups
 (applied daily at `chat_cleanup_hour`, every `chat_cleanup_frequency_days`).
@@ -474,8 +510,9 @@ See [read aloud](tts.md) for installation and configuration.
   line and letter spacing, content and sidebar width, contrast, colours,
   background picture, dyslexia-friendly font, reduced motion, the
   [mascot](#mascot)), sessions (list, end one,
-  sign out everywhere, clear history), API tokens, personal data export,
-  account merges, and deleting the account.
+  sign out everywhere, clear history), two-step verification
+  (`/settings/two-step`: authenticator app and recovery codes), API tokens,
+  personal data export, account merges, and deleting the account.
 * **People** (`/users`) lists members; `/users/<username>` shows a profile
   with contributions, badges and custom fields when the owner published it.
 * **User profiles** feature (`user_profiles`): published profile pages,
@@ -507,45 +544,56 @@ job and when the author saves or signs in. Members are notified of new badges.
 characters added and removed, streaks), counting only pages the viewer may
 see, with CSV export. Revision sizes are computed once in the background.
 
+## Mascot
+
+A pixel-art banana in the top bar, in place of the logo, for signed-in people
+only: visitors who are not signed in see the logo. It bobs, blinks and hops
+when clicked, and stands still with reduced motion (the **Reduce motion**
+display preference or the operating system's setting); eleven clicks on the
+same page put sunglasses on it, and they stay on the account until the person
+takes them off. On touch screens its button has the shell's touch size
+(2.75rem square), and quick taps do not zoom the page.
+
+* **Customise** (`/settings/display`): hide or show the mascot, and take its
+  sunglasses off. While it is hidden the logo is back.
+* **Admin → Appearance**: show or hide it, or put its sunglasses on or take
+  them off, for every account at once, after a confirmation. Accounts that
+  already have that choice are left alone, and the others are written in one
+  batch. Each action is recorded in the audit log under its own name
+  (`mascot.everyone.show`, `mascot.everyone.hide`, `mascot.everyone.shades_on`,
+  `mascot.everyone.shades_off`) with the number of accounts it changed;
+  people can change their own choice afterwards under Customise.
+* Switching the plugin off (or listing `mascot` in
+  `BW_MANAGED_PLUGIN_DENYLIST`, on a hosting platform
+  `HOSTING_TENANT_PLUGIN_DENYLIST`) removes the mascot for everyone and brings
+  the logo back. The saved choices stay for when it is switched on again.
+
+Both choices are keys of the account's display preferences
+(`users.accessibility`: `mascot_enabled` and `mascot_shades`), with no table
+of their own. The mascot's switches and the administrator's actions write
+only these two keys, leaving every other saved preference exactly as stored.
+**Reset display preferences** keeps them, as it keeps the language, and
+`/api/accessibility` cannot set them. The top bar reads just these two keys on
+every page, and the script takes its click count and the address it saves to
+from the mascot's own button, never from page content.
+
+Because the mascot takes the logo's place, a click there makes the banana hop
+instead of opening the home page; the site name next to it still links home.
+People who prefer the logo link hide the mascot under Customise, and
+administrators can hide it for everyone or switch the plugin off.
+
 ## Personal data export
 
 **Settings → Your data → Download my data** (`/settings/export`) downloads a ZIP of
 everything the account owns: account, profile, preferences, its own records
 (edits, drafts, proposals, messages, boards, canvases, sessions, tokens …) and
 its uploaded files. It never contains password hashes, tokens or other
-secrets, what administrators keep to themselves (hidden suspension reasons
+secrets (two-step verification appears only as whether it is on, since when
+and how many recovery codes are left), what administrators keep to themselves (hidden suspension reasons
 and end times, impersonation records, internal tags, who changed a role), or
 content the account can no longer read: rows of pages, boards, canvases and
 groups it has lost access to keep only their ids and times. Administrators can
 export any account (`/admin/users/<id>/export`).
-
-## Mascot
-
-A pixel-art banana in the top bar, in place of the logo, for signed-in people
-only: visitors who are not signed in see the logo. It bobs, blinks and hops
-when clicked; eleven clicks on the same page put sunglasses on it, and they
-stay on the account until the person takes them off.
-
-* **Customize** (`/settings/display`): hide or show the mascot, and take its
-  sunglasses off. While it is hidden the logo is back.
-* **Admin → Appearance**: show or hide it, or put its sunglasses on or take
-  them off, for every account at once, after a confirmation. Each action is
-  recorded in the audit log as `mascot.bulk_updated` with the number of
-  accounts it changed; people can change their own choice afterwards under
-  Customize.
-* Switching the plugin off (or listing `mascot` in
-  `BW_MANAGED_PLUGIN_DENYLIST`) removes the mascot for everyone and brings the
-  logo back. The saved choices stay for when it is switched on again.
-
-Both choices are keys of the account's display preferences
-(`users.accessibility`: `mascot_enabled` and `mascot_shades`), with no table
-of their own. **Reset display preferences** keeps them, as it keeps the
-language.
-
-Because the mascot takes the logo's place, a click there makes the banana hop
-instead of opening the home page; the site name next to it still links home.
-People who prefer the logo link hide the mascot under Customize, and
-administrators can hide it for everyone or switch the plugin off.
 
 ## Custom pages
 
@@ -587,7 +635,8 @@ Operator switch `BW_FEDERATION_ENABLED=1`. See [federation](federation.md).
 ## Audit log
 
 **Admin → Audit log** (`/admin/audit`) lists security-relevant actions with
-filters, and sets the retention in days. See [security](security.md#audit-log).
+filters; owners and superusers set the retention in days and are the only
+ones who can switch the log off. See [security](security.md#audit-log).
 
 ## Administration
 
@@ -597,23 +646,31 @@ Everything under **Admin** (`/admin/dashboard`), for administrators:
 * **Users**: create, search and filter accounts; roles, custom roles,
   permissions, category access; suspend, reset passwords, end sessions,
   impersonate, edit attributions, per-account audit (where a former user
-  name reserved for the account can be released). Pending sign-ups are
-  approved or denied here.
+  name reserved for the account can be released), whether the account uses
+  two-step verification (owners and superusers reset it for an account that
+  lost its app and recovery codes). Pending sign-ups are approved or denied
+  here.
 * **Custom roles**, **Invite codes** (with a number of uses, an expiry and an
   assigned role or custom role; editors granted the `invite.*` permissions
-  manage their own codes and can only hand out the user or editor role), **Sessions** (every
-  active session, end one, sign everyone out, daily automatic sign-out at an
-  hour of the site time zone).
+  manage their own codes and can only hand out a plain member account or
+  what they hold themselves: no permission or category beyond their own), **Sessions** (every
+  active session, end one, sign everyone out, daily automatic sign-out of
+  users and editors at an hour of the site time zone). The account
+  hierarchy applies throughout: a plain administrator neither sees the
+  addresses of nor signs out owners, superusers and other administrators,
+  and the automatic sign-out, which any administrator may set, leaves all
+  three signed in.
 * **Site settings** (`/admin/settings`): name, time zone, public mode (with
   end date and message), open sign-up (with end date), approval of sign-ups
   (and how long pending/denied sign-ups are kept), maintenance mode and
   message, one session per account, bot protection, whether suspended users
-  may delete their account, the app chooser after sign-in, the introduction
+  may delete their account, two-step verification required of administrators
+  (owners and superusers only), the app chooser after sign-in, the introduction
   and tour for new members, upload rules and quotas, draft expiry, PDF and
   Markdown export, page builder, profile contribution chart.
 * **Appearance**: dark and light colour themes, default theme, favicon
-  (presets or uploaded), theme export and import, and the
-  [mascot](#mascot) of every account.
+  (the mascot's banana in one of eight colours, or uploaded), theme export
+  and import, and the [mascot](#mascot) of every account.
 * **Languages**: the interface ships in English, Italian and German, all
   three switched on; upload further languages as JSON files (or one for a
   built-in language, which overrides its strings until removed), switch them
@@ -621,19 +678,30 @@ Everything under **Admin** (`/admin/dashboard`), for administrators:
 * **Documentation**: add the built-in user guide (full or simplified,
   English, Italian or German) as a category of pages, or download it as
   Markdown.
-* **Site migration**: export the whole wiki (database and files) as one ZIP,
-  or import one, which **replaces everything**, accounts included. Both ask for
-  your password. Imports accept 1.4 archives, never touch code or the secret
-  key, check the database first, keep a copy of the current site in
+* **Site migration** (owners and superusers): export the whole wiki
+  (database and files) as one ZIP, or import one, which **replaces
+  everything**, accounts included. Both ask for your password. Imports accept
+  1.4 archives, never touch code or the secret key, check the database
+  first, drop triggers and views this release would not create, keep the
+  live audit log (without doubling the entries the archive already holds),
+  keep a copy of the current site in
   `<instance>/backups/pre-import-<time>/` and restore it if anything fails.
   An archive with encrypted files, or with files compressed other than
   stored or deflated (the only methods exports use), is refused unread.
-  Needs `BW_ALLOW_SITE_IMPORT` (on by default except under managed hosting).
+  Two-step verification set up on another wiki cannot be checked without
+  that wiki's secret key, so the import turns it off for those accounts
+  (named in a notice and in the audit log); they sign in with their
+  password and can set it up again. Needs `BW_ALLOW_SITE_IMPORT` (on by
+  default except under managed hosting).
 * **Server**: restart and error log.
 * **Plugins** (`/admin/plugins`): switch features, install third-party
-  plugins (see [plugins](plugins/README.md)), order the sidebar apps.
+  plugins (owner and superusers only, and only with `BW_ALLOW_EXTERNAL_PLUGINS=1`;
+  see [plugins](plugins/README.md)), order the sidebar apps.
 * **Bulk delete** (`/admin/bulk`): delete many categories, pages, canvases or
-  boards at once, with the same checks and events as single deletions.
+  boards at once, with the same checks and events as single deletions. The
+  server asks for a typed confirmation word (`DELETE`, or the interface
+  language's own, such as `ELIMINA` in Italian) and every bulk deletion is
+  recorded in the audit log.
 
 ## Needs your attention and notifications
 
@@ -688,8 +756,10 @@ at most one email, and what each person was last told is kept in
 
 ## Sign-in and onboarding
 
-`/login` (with "remember me"), `/signup` (invite codes, open sign-up,
-approval, bot protection), `/setup` for the first account, account status
+`/login` (with "remember me"), `/login/two-step` (the authenticator or
+recovery code of accounts with two-step verification), `/signup` (invite
+codes, open sign-up, approval, bot protection), `/setup` for the first
+account, account status
 pages for suspended, pending and denied accounts, forced password change, the
 administrator's first-run wizard, an introduction and a guided tour for new
 members (the tour illustrates what each role can do; it never changes what

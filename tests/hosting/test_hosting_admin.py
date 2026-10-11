@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from .hosting_support import PASSWORD
@@ -245,3 +247,10 @@ def test_moderation_log_records_admin_actions(web, make_account, login):
     login(web, admin)
     web.post(f"/admin/accounts/{user['id']}/suspend", data={"suspend_duration": "permanent", "notify_user": "0"})
     assert "account.suspend" in web.get("/admin/moderation").get_data(as_text=True)
+
+
+def test_account_links_beside_the_admin_badge_are_underlined(web, make_account, login):
+    # Next to the badge the link is part of running text and must not rely on color (WCAG 1.4.1).
+    login(web, make_account(admin=True))
+    html = web.get("/admin").get_data(as_text=True)
+    assert re.search(r'<a class="text-link" href="/admin/accounts/[^"]+">', html)

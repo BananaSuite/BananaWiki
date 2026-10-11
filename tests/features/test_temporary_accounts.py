@@ -9,11 +9,12 @@ import pytest
 from bananawiki.core.timeutil import sql_in, utcnow
 from bananawiki.wiki import accounts, registry
 from bananawiki.wiki.db import connection_scope
+from bananawiki.wiki.features.page_governance import protection
 from bananawiki.wiki.features.pages import service as pages
 from bananawiki.wiki.features.temporary_accounts import service
 from bananawiki.wiki.features.temporary_accounts.service import TemporaryError
 
-from .governance_support import as_user, build_app
+from .governance_support import as_user, build_app, set_settings
 
 SOON = utcnow() + timedelta(hours=2)
 
@@ -56,6 +57,38 @@ def test_page_deletion_expires_and_emits(app, ctx, db, people):
     service.run_expiry()
     service.run_expiry()
     assert pages.get(page["id"]) is None and deleted == [page["id"]]
+
+
+def test_scheduled_deletion_respects_page_protection(app_factory, db, people):
+    app = build_app(app_factory, "temporary_accounts", "page_governance")
+    set_settings(app, page_protection_enabled=1)
+    with app.test_request_context(), connection_scope():
+        page = pages.create("Guarded", author_id=people["editor"]["id"])
+        service.schedule_page_deletion(page, SOON, show_countdown=True, actor=people["admin"])
+        protection.protect(page, people["editor"])
+        with pytest.raises(TemporaryError) as refused:
+            service.schedule_page_deletion(page, SOON, show_countdown=True, actor=people["admin"])
+        assert refused.value.key == "page_governance.blocked.protected"
+    _expire(db, "temp_pages")
+    app.extensions["bananawiki.scheduler"].run_due(force=True, only="temporary_accounts.expire")
+    assert db.scalar("SELECT COUNT(*) FROM pages WHERE id = ?", (page["id"],)) == 1
+    assert db.scalar("SELECT COUNT(*) FROM temp_pages WHERE page_id = ?", (page["id"],)) == 1
+    with app.test_request_context(), connection_scope():
+        protection.unprotect(pages.get(page["id"]), people["editor"])
+    app.extensions["bananawiki.scheduler"].run_due(force=True, only="temporary_accounts.expire")
+    assert db.scalar("SELECT COUNT(*) FROM pages WHERE id = ?", (page["id"],)) == 0
+
+
+def test_scheduled_deletion_goes_through_deletion_slowdown(app_factory, db, people):
+    app = build_app(app_factory, "temporary_accounts", "deletion_slowdown")
+    with app.test_request_context(), connection_scope():
+        page = pages.create("Slow goodbye", author_id=None)
+        service.schedule_page_deletion(page, SOON, show_countdown=True, actor=people["admin"])
+    _expire(db, "temp_pages")
+    app.extensions["bananawiki.scheduler"].run_due(force=True, only="temporary_accounts.expire")
+    assert db.scalar("SELECT pending_deletion FROM pages WHERE id = ?", (page["id"],)) == 1
+    assert db.scalar("SELECT pending_deletion_by FROM pages WHERE id = ?", (page["id"],)) == people["admin"]["id"]
+    assert db.scalar("SELECT COUNT(*) FROM temp_pages WHERE page_id = ?", (page["id"],)) == 0
 
 
 def test_visibility_schedule_restores(ctx, db, people):
@@ -165,3 +198,44 @@ def test_revert_emits_role_changed(app, ctx, db, people):
     _expire(db, "temp_roles")
     service.run_expiry()
     assert seen == [("user", None)]
+
+
+def test_revert_scheduled_by_a_plain_admin_skips_a_since_promoted_admin(ctx, db, people):
+    """A promotion while the feature was paused must not be undone by a scheduler who no longer outranks."""
+    editor = people["editor"]
+    service.schedule_role_revert(editor, "user", SOON, show_countdown=True, actor=people["admin"])
+    registry.set_enabled("temporary_accounts", False)
+    db.execute("UPDATE users SET role = 'admin' WHERE id = ?", (editor["id"],))  # no event: the feature is off
+    registry.set_enabled("temporary_accounts", True)
+    _expire(db, "temp_roles")
+    service.run_expiry()
+    assert accounts.by_id(editor["id"])["role"] == "admin"
+    assert service.role_schedule(editor["id"]) is None
+
+
+def test_manual_role_change_while_paused_drops_the_revert(ctx, db, people):
+    from bananawiki.wiki.features.admin import service as admin_service
+
+    editor = people["editor"]
+    service.schedule_role_revert(editor, "user", SOON, show_countdown=True, actor=people["owner"])
+    db.execute("UPDATE temp_roles SET updated_at = ?", (sql_in(minutes=-5),))
+    registry.set_enabled("temporary_accounts", False)
+    admin_service.change_role(people["owner"], accounts.by_id(editor["id"]), "admin")
+    registry.set_enabled("temporary_accounts", True)
+    _expire(db, "temp_roles")
+    service.run_expiry()
+    assert accounts.by_id(editor["id"])["role"] == "admin"
+    assert service.role_schedule(editor["id"]) is None
+
+
+def test_revert_drops_a_custom_role_of_the_higher_base_role(ctx, db, people):
+    editor = people["editor"]
+    role_id = db.insert("custom_roles", {"name": "Helpers", "base_role": "editor", "created_at": sql_in(),
+                                         "updated_at": sql_in()})
+    db.execute("UPDATE users SET custom_role_id = ? WHERE id = ?", (role_id, editor["id"]))
+    service.schedule_role_revert(accounts.by_id(editor["id"]), "user", SOON, show_countdown=True,
+                                 actor=people["admin"])
+    _expire(db, "temp_roles")
+    service.run_expiry()
+    reverted = accounts.by_id(editor["id"])
+    assert reverted["role"] == "user" and reverted["custom_role_id"] is None

@@ -12,7 +12,9 @@ The expiry job runs only while the feature is enabled (1.4 ran it even when
 the plugin was off). Every item is handled in its own transaction after
 re-reading it, so several workers or a re-run never act twice. Deletions go
 through the pages service and :mod:`accounts`, so ``page.deleted`` and
-``user.deleted`` fire as for any other deletion. The last administrator and
+``user.deleted`` fire as for any other deletion. A page deletion first asks
+the ``page.delete`` interceptors (page protection, deletion slowdown) like a
+manual one; a refused deletion keeps its schedule. The last administrator and
 the last owner are never deleted or demoted; their schedule stays until an
 administrator removes it.
 """
@@ -22,12 +24,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from flask import current_app, has_request_context
+
 from ....core.timeutil import now_sql, to_sql, utcnow
 from ... import accounts
 from ...db import db
 from ...permissions import ADMIN_ROLES, ROLE_RANK
-from ...registry import emit
+from ...registry import emit, intercept
 from ..admin import service as admin_service
+from ..pages import access as page_access
 from ..pages import service as pages
 
 REVERTIBLE_ROLES = ("user", "editor", "admin")
@@ -79,6 +84,9 @@ def schedule_page_deletion(page: dict[str, Any], expires: datetime | None, *, sh
                            actor: dict[str, Any]) -> None:
     if page.get("is_home"):
         raise TemporaryError("temporary_accounts.error.home")
+    blocked = page_access.edit_blocked(page, actor)
+    if blocked:
+        raise TemporaryError(blocked)
     _upsert("temp_pages", "page_id", page["id"], {
         "expires_at": _future(expires), "show_countdown": 1 if show_countdown else 0, "set_by": actor["id"]})
 
@@ -171,15 +179,33 @@ def _admins() -> int:
     return int(db.scalar("SELECT COUNT(*) FROM users WHERE role IN ('admin', 'owner')", default=0))
 
 
+def _delete_refused(page: dict[str, Any], user: dict[str, Any] | None) -> bool:
+    """Whether a ``page.delete`` interceptor takes over or refuses deleting *page*."""
+    if has_request_context():
+        return intercept("page.delete", page=page, user=user) is not None
+    # The interceptors answer with flashes and redirects; the job runs with an application context only.
+    with current_app.test_request_context():
+        return intercept("page.delete", page=page, user=user) is not None
+
+
 def _expire_page(page_id: int, now: str) -> None:
     with db.transaction():
-        row = db.one("SELECT expires_at FROM temp_pages WHERE page_id = ?", (page_id,))
+        row = db.one("SELECT * FROM temp_pages WHERE page_id = ?", (page_id,))
         page = pages.get(page_id)
         if row is None or row["expires_at"] > now:
             return
+        # Removed first so this feature's own interceptor does not refuse its own deletion.
         remove("page", page_id)
-        if page is not None and not page["is_home"]:
-            pages.delete(page, actor_id=None)
+        if page is None or page["is_home"]:
+            return
+        setter = accounts.by_id(row["set_by"]) if row.get("set_by") else None
+        if _delete_refused(page, setter):
+            current = pages.get(page_id, with_content=False)
+            # Deletion slowdown now owns the page; anything else (protection, …) is retried next run.
+            if current is not None and not current["pending_deletion"]:
+                db.insert("temp_pages", row)
+            return
+        pages.delete(page, actor_id=None)
 
 
 def _expire_visibility(page_id: int, now: str) -> None:
@@ -214,6 +240,14 @@ def _expire_account(user_id: str, now: str) -> None:
         accounts.delete(user, deleted_by=None)
 
 
+def _changed_by_hand_since(row: dict[str, Any]) -> bool:
+    """Whether someone changed the account's role after the revert was scheduled."""
+    return bool(db.scalar(
+        "SELECT 1 FROM role_history WHERE user_id = ? AND changed_by IS NOT NULL AND changed_at > ? LIMIT 1",
+        (row["user_id"], row["updated_at"] or row["created_at"]),
+    ))
+
+
 def _expire_role(user_id: str, now: str) -> None:
     with db.transaction():
         row = db.one("SELECT * FROM temp_roles WHERE user_id = ?", (user_id,))
@@ -224,11 +258,19 @@ def _expire_role(user_id: str, now: str) -> None:
         if ROLE_RANK.get(current, 0) <= ROLE_RANK.get(original, 0):
             remove("role", user_id)
             return
+        # While the feature was switched off, on_role_changed did not see manual
+        # changes; the role history still does. Either replaces this revert, as
+        # does a scheduler who no longer outranks the account.
+        if _changed_by_hand_since(row) or not _setter_still_may(row, user):
+            remove("role", user_id)
+            return
         if current in ADMIN_ROLES and _admins() <= 1:
             return
         if current == "owner" and accounts.owners_count() <= 1:
             return
-        db.execute("UPDATE users SET role = ? WHERE id = ?", (original, user_id))
+        # As a manual role change: a custom role and overrides belong to the higher role.
+        db.execute("UPDATE users SET role = ?, custom_role_id = NULL WHERE id = ?", (original, user_id))
+        admin_service.clear_overrides(user_id)
         db.insert("role_history", {"user_id": user_id, "old_role": current, "new_role": original,
                                    "changed_by": None, "changed_at": now_sql()})
         remove("role", user_id)

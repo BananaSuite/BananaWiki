@@ -132,7 +132,10 @@
     var list = dragged.parentNode;
     dragged.classList.remove("is-dragging");
     dragged = null;
-    if (list && list.hasAttribute("data-reorder-list")) save(list);
+    if (list && list.hasAttribute("data-reorder-list")) {
+      BW.markMoveEnds(list, "[data-reorder-item]");
+      save(list);
+    }
   });
   document.addEventListener("click", function (e) {
     var button = e.target.closest && e.target.closest("[data-move]");
@@ -146,12 +149,28 @@
     else if (button.getAttribute("data-move") === "down" && index < siblings.length - 1) list.insertBefore(siblings[index + 1], item);
     else return;
     button.focus();
+    BW.markMoveEnds(list, "[data-reorder-item]");
     save(list);
   });
 
+  // Bring the current page's link into view inside the sidebar. scrollIntoView() is not used: it
+  // would also move the browser's sequential focus starting point, so the first Tab would skip the
+  // "Skip to content" link and the topbar. Nothing to do while the phone drawer is closed.
+  function revealCurrent() {
+    var current = document.querySelector(".bw-nav [aria-current='page']");
+    var box = current && current.closest(".sidebar");
+    if (!box || box.scrollHeight <= box.clientHeight || getComputedStyle(box).visibility === "hidden") return;
+    var top = current.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+    if (top < box.scrollTop || top + current.offsetHeight > box.scrollTop + box.clientHeight) {
+      box.scrollTop = Math.max(0, top - box.clientHeight / 3);
+    }
+  }
+
   BW.onReady(function () {
     document.querySelectorAll("form[data-sidebar-search]").forEach(initSearch);
-    var current = document.querySelector(".bw-nav [aria-current='page']");
-    if (current && current.scrollIntoView) current.scrollIntoView({ block: "nearest" });
+    document.querySelectorAll("[data-reorder-list]").forEach(function (list) {
+      BW.markMoveEnds(list, "[data-reorder-item]");
+    });
+    revealCurrent();
   });
 })();

@@ -31,7 +31,7 @@ _PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 class LanguageError(ValueError):
-    def __init__(self, key: str, **values: Any):
+    def __init__(self, key: str, /, **values: Any):
         super().__init__(key)
         self.key = key
         self.values = values

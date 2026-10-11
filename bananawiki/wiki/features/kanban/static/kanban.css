@@ -21,13 +21,20 @@
 
 /* ── Board ──────────────────────────────────────────────────────────────── */
 .kanban-description { margin-bottom: 1rem; }
-.kanban-keys { margin: -.25rem 0 .75rem; width: fit-content; max-width: 100%; }
-.kanban-keys > summary { cursor: pointer; color: var(--muted); font-size: .8rem; }
-.kanban-keys > summary:hover { color: var(--bw-text); }
-.kanban-keys .hint { margin: .4rem 0 0; max-width: 70ch; }
+/* "Keyboard shortcuts" and "Filter tickets" share the disclosure look (chevron, weight, colour). */
+.kanban-keys { margin: 0; border-bottom: 0; }
+.kanban-keys .hint { margin: 0 0 .4rem; max-width: 70ch; }
+/* The disclosures below the header draw the rule under it: the header does not add a second one. */
+.kanban-header { border-bottom: 0; padding-bottom: .25rem; }
+/* scroll-padding matches the inline padding, so the first column's snap point is the start (scrollLeft 0):
+   otherwise the board snaps 2px in on load and its scroll cue fades a left edge with nothing past it. */
 .kanban-board { display: flex; gap: .85rem; align-items: flex-start; overflow-x: auto; padding: .25rem .1rem 1rem;
-  scroll-snap-type: x proximity; min-height: 240px; }
-.kanban-column { flex: 0 0 min(86vw, 290px); scroll-snap-align: start; display: flex; flex-direction: column;
+  scroll-snap-type: x proximity; scroll-padding-inline: .1rem; }
+/* Room to drop a card only while something is being dragged; an empty board has no blank band. */
+.kanban-dragging .kanban-board { min-height: 240px; }
+.kanban-board:focus-visible { outline-offset: 0; }
+/* Columns shrink a little before the board scrolls, so four columns fit on a desktop screen. */
+.kanban-column { flex: 1 0 min(86vw, 250px); max-width: 300px; scroll-snap-align: start; display: flex; flex-direction: column;
   max-height: calc(100vh - 10rem); background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); }
 .kanban-column.is-dragging { opacity: .5; }
@@ -36,16 +43,18 @@
 .kanban-column__title { flex: 1 1 7rem; min-width: 0; margin: 0; font-size: .98rem; font-weight: 650; overflow-wrap: anywhere; }
 .kanban-column__title input { min-height: 1.9rem; padding: .2rem .4rem; }
 .kanban-column__count { font-size: .75rem; color: var(--muted); }
-.kanban-column__tools { flex: 1 0 100%; display: flex; justify-content: flex-end; align-items: center; gap: .1rem; margin: -.2rem -.2rem -.3rem 0; }
+.kanban-column__tools { flex: 1 0 100%; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .1rem; margin: -.2rem -.2rem -.3rem 0; }
 .kanban-column__tools .btn { color: var(--muted); min-height: 1.6rem; }
 .kanban-column__tools .btn:hover { color: var(--bw-text); }
 .kanban-column__delete:hover { color: var(--danger) !important; }
 .kanban-column__cards { list-style: none; margin: 0; padding: .5rem; display: flex; flex-direction: column;
   gap: .5rem; overflow-y: auto; min-height: 3rem; flex: 1; }
 .kanban-column__cards.is-drop-target { background: var(--info-bg); }
+/* An empty column says so instead of showing a blank band. */
+.kanban-column__cards:empty::before { content: attr(data-empty); color: var(--muted); font-size: .82rem; padding: .25rem .2rem; }
 .kanban-column__foot { padding: .5rem; border-top: 1px solid var(--border); }
 .kanban-column__foot form { display: grid; gap: .4rem; }
-.kanban-column--add { background: transparent; border-style: dashed; padding: .6rem; }
+.kanban-column--add { flex: 0 0 min(86vw, 200px); background: transparent; border-style: dashed; padding: .6rem; }
 .kanban-column--add form { display: grid; gap: .4rem; }
 .kanban-grip { cursor: grab; touch-action: none; user-select: none; color: var(--muted); padding: .1rem .3rem;
   border: 0; background: none; font: inherit; border-radius: var(--radius-sm); }
@@ -55,7 +64,6 @@
   border-radius: var(--radius-sm); padding: .5rem .6rem .5rem .8rem; display: flex; gap: .35rem; align-items: flex-start; }
 .kanban-card:focus-within { border-color: var(--bw-accent); }
 .kanban-card.is-selected { outline: 2px solid var(--bw-primary); }
-.kanban-card.is-placeholder { border-style: dashed; background: transparent; min-height: 2.5rem; }
 .kanban-card__color { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
 .kanban-card__main { flex: 1; min-width: 0; }
 .kanban-column__rename { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: text;
@@ -64,8 +72,11 @@
   color: var(--bw-text); font: inherit; font-weight: 550; cursor: pointer; overflow-wrap: anywhere; }
 .kanban-card__meta { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .35rem; }
 .kanban-card__meta .badge { font-weight: 550; }
+.kanban-card__count { display: inline-flex; align-items: center; gap: .2rem; }
 .kanban-card__check { margin-top: .25rem; }
 .kanban-card--static { display: block; margin-bottom: .5rem; }
+.kanban-card--static:last-child { margin-bottom: 0; }
+.kanban-card--static > p { margin: .3rem 0 0; }
 .kanban-ghost { position: fixed; z-index: 300; pointer-events: none; opacity: .9; box-shadow: var(--shadow);
   transform: rotate(2deg); }
 .kanban-dragging, .kanban-dragging * { cursor: grabbing !important; user-select: none; }
@@ -86,9 +97,17 @@
 
 /* Filter bar */
 .kanban-filter { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: flex-end; margin-bottom: .85rem; }
+/* My tickets: the first group heading belongs to its tickets, not to the filter above it. */
+.kanban-filter + :is(.kanban-mine, .alert, .empty-state) { margin-top: 1.5rem; }
+.kanban-mine__heading { margin: 0 0 .6rem; }
 .kanban-filter__field { display: grid; gap: .15rem; font-size: .8rem; min-width: 8.5rem; }
 .kanban-filter__field--search { flex: 1 1 14rem; }
-.kanban-filter__field select, .kanban-filter__field input { min-height: 2.1rem; }
+.kanban-filter__field select, .kanban-filter__field input { height: var(--control-height); min-height: 0; }
+.kanban-filter > .btn { min-height: var(--control-height); }
+@media (max-width: 480px) {
+  .kanban-filter__field { flex: 1 1 100%; }
+  .kanban-filter__field :is(input, select) { width: 100%; }
+}
 .kanban-filter__status { margin: 0; font-size: .85rem; color: var(--muted); flex-basis: 100%; }
 .kanban-filter__status:empty { display: none; }
 .kanban-filter.is-active .kanban-filter__status { color: var(--bw-text); font-weight: 600; }
@@ -120,7 +139,16 @@
 .kanban-archive__main p { margin: .1rem 0 0; }
 .kanban-archive__tools { display: flex; gap: .3rem; }
 .kanban-column__archive { font-size: .72rem; padding: .1rem .35rem; }
-.kanban-card--archived { opacity: .7; border-style: dashed; }
+/* Done columns: an icon toggle for writers (an outlined circle with a check, filled while pressed, so the
+   state does not rest on colour alone), a mark for readers; their cards show no overdue or due-soon badge. */
+.kanban-column__done .icon { display: block; width: 1rem; height: 1rem; }
+.kanban-column__tools .kanban-column__done[aria-pressed="true"] { background: var(--success-bg); color: var(--success); }
+.kanban-column__done[aria-pressed="true"] .icon path:first-child { fill: currentColor; }
+.kanban-column__done[aria-pressed="true"] .icon path + path { stroke: var(--surface); stroke-width: 2; }
+.kanban-column__done-mark::before { content: "✓ "; content: "✓ " / ""; }
+.kanban-column__done-mark { background: var(--success-bg); color: var(--success); font-size: .72rem; }
+.kanban-card--archived { border-style: dashed; background: var(--surface); }
+.kanban-card--archived > strong { color: var(--muted); }
 .kanban-ticket-dialog__archived { margin: 0; border-radius: 0; }
 .kanban-archived-boards { margin-top: 2rem; }
 .kanban-boards__item--archived { opacity: .85; }
@@ -176,7 +204,13 @@
 .kanban-files li, .kanban-history li { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .kanban-files a, .kanban-history button { overflow-wrap: anywhere; }
 .kanban-snapshot { list-style: none; margin: 0; padding: .5rem; }
-.kanban-snapshot__description { white-space: pre-wrap; font-size: .82rem; margin: .35rem 0 0; }
+.kanban-snapshot__description { font-size: .85rem; margin: .35rem 0 0; }
+.kanban-snapshot__description > :last-child { margin-bottom: 0; }
+/* A read-only snapshot shows every column: it wraps instead of scrolling sideways. */
+/* A read-only snapshot: columns share the row and fill it (on phones, one full-width column per row). */
+.kanban-board--static { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
+  align-items: start; overflow: visible; padding-inline: 0; }
+.kanban-board--static .kanban-column { max-width: none; }
 .kanban-mine { margin-bottom: 1.5rem; }
 .kanban-mine__heading { font-size: 1.1rem; display: flex; gap: .5rem; align-items: center; }
 .kanban-mine__heading--overdue { color: var(--danger); }
@@ -195,9 +229,10 @@
 
 /* ── Page embeds ────────────────────────────────────────────────────────── */
 .bw-embed-kanban { border: 1px solid var(--border); border-radius: var(--radius); margin: 1rem 0; background: var(--surface); }
-.bw-embed-kanban__head { display: flex; gap: .5rem; align-items: center; padding: .5rem .75rem; border-bottom: 1px solid var(--border); }
+.bw-embed-kanban__head { display: flex; gap: .5rem; align-items: center; padding: .35rem .6rem; font-size: .9rem; border-bottom: 1px solid var(--border); }
 .bw-embed-kanban__head a { font-weight: 650; flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .bw-embed-kanban__body { display: flex; gap: .6rem; overflow-x: auto; padding: .6rem; }
+.bw-embed-kanban__body:focus-visible { outline-offset: -2px; }
 .bw-embed-kanban__column { flex: 0 0 min(75vw, 220px); background: var(--surface-2); border-radius: var(--radius-sm); padding: .5rem; }
 .bw-embed-kanban__column h3 { font-size: .85rem; margin: 0 0 .4rem; }
 .bw-embed-kanban__column ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem; }
@@ -215,7 +250,8 @@
 
 /* Filter/rows disclosure above the board */
 .kanban-tools { margin-bottom: .85rem; }
-.kanban-tools > summary { cursor: pointer; width: max-content; font-size: .9rem; font-weight: 600; color: var(--muted); margin-bottom: .5rem; }
-.kanban-tools > summary:hover { color: var(--bw-text); }
+.kanban-tools > summary, .kanban-keys > summary { cursor: pointer; width: max-content; max-width: 100%; font-size: .9rem; font-weight: 600; color: var(--muted); margin-bottom: .5rem; }
+.kanban-tools > summary:hover, .kanban-keys > summary:hover { color: var(--bw-text); }
+.kanban-keys:not([open]) > summary { margin-bottom: 0; }
 .kanban-tools:not([open]) > summary { margin-bottom: 0; }
 .kanban-tools .kanban-view { margin-top: 0; }

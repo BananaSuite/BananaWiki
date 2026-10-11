@@ -1,0 +1,23 @@
+{% extends "base_minimal.html" %}
+{% block title %}{{ t('auth.two_step.login_title') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('auth.css', blueprint='auth') }}">{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('auth.two_step.login_title') }}</h1>
+  <p class="muted" id="code-hint">{{ t('auth.two_step.login_hint') }}</p>
+  <form method="post" action="{{ url_for('auth.two_step_login') }}" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field">
+      <label for="code">{{ t('auth.two_step.code') }}</label>
+      <input id="code" name="code" required maxlength="32" autocomplete="one-time-code" autocapitalize="characters"
+        spellcheck="false" autofocus aria-describedby="code-hint">
+    </div>
+    <button class="btn btn--primary" type="submit">{{ t('auth.two_step.verify') }}</button>
+  </form>
+  {#- A form, not a link: going back also forgets the pending sign-in (auth.cancel_two_step_login). -#}
+  <form method="post" action="{{ url_for('auth.cancel_two_step_login') }}" class="two-step-cancel">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn--ghost btn--small" type="submit">{{ t('auth.two_step.cancel') }}</button>
+  </form>
+</div>
+{% endblock %}

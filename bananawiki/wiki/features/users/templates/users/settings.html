@@ -14,8 +14,8 @@
       <span class="muted small">{{ t('users.settings.member_since', when=user.created_at|date) }}</span>
     </p>
     <p class="btn-row">
-      <a class="btn btn--small" href="{{ url_for('users.my_profile') }}">{{ t('users.settings.view_profile') }}</a>
-      <a class="btn btn--small" href="{{ url_for('users.merge_pending') }}">{{ t('users.merge.title') }}</a>
+      <a class="btn" href="{{ url_for('users.my_profile') }}">{{ t('users.settings.view_profile') }}</a>
+      <a class="btn" href="{{ url_for('users.merge_pending') }}">{{ t('users.merge.title') }}</a>
     </p>
   </section>
 
@@ -47,15 +47,23 @@
     <form method="post" action="{{ url_for('users.change_language') }}" class="form">
       {{ forms.csrf() }}
       <input type="hidden" name="next" value="{{ request.path }}">
-      {{ forms.select('language', t('auth.field.language'), [('default', t('users.display.site_default'))] + languages.items()|list, display_prefs.interface_language) }}
-      <div><button class="btn" type="submit">{{ t('common.save') }}</button></div>
+      {#- The section heading already says "Language": the field label is for screen readers only. -#}
+      <div class="input-group input-group--compact">
+        <label class="visually-hidden" for="f-language">{{ t('auth.field.language') }}</label>
+        <select class="select" id="f-language" name="language">
+          {% for value, text in [('default', t('users.display.site_default'))] + languages.items()|list %}
+          <option value="{{ value }}"{% if value|string == display_prefs.interface_language|string %} selected{% endif %}>{{ text }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn" type="submit">{{ t('common.save') }}</button>
+      </div>
     </form>
   </section>
 
   {% if is_admin and (user.role == 'owner' or may_become_owner) %}
   <section class="form-section" aria-labelledby="owner-heading">
     <h2 id="owner-heading">{{ t('users.settings.owner_status') }}</h2>
-    <p>{{ t('users.settings.owner_on' if user.role == 'owner' else 'users.settings.owner_off') }}</p>
+    <p class="hint">{{ t('users.settings.owner_on' if user.role == 'owner' else 'users.settings.owner_off') }}</p>
     <form method="post" action="{{ url_for('users.toggle_owner') }}" class="form">
       {{ forms.csrf() }}
       {{ m.password('owner-password', t('auth.field.current_password')) }}

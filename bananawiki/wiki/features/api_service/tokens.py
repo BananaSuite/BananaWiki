@@ -14,6 +14,12 @@ suspended after it was issued. A token carries its own grant, ``permissions`` JS
 ``{"read": bool, "write": bool, "scopes": [...]}``, which can only narrow
 what the owning account may do: every endpoint still applies the owner's
 role and permissions exactly as the web interface does.
+
+A token issued through the API (``POST /tokens``) records the token that
+issued it (``parent_id``) and never carries the ``tokens`` scope itself:
+revoking a token revokes what it issued, so a leaked token cannot leave
+replacements behind. The ``userbot`` scope belongs to the automation key
+alone (:mod:`.userbot`); ordinary tokens are never given it.
 """
 
 from __future__ import annotations
@@ -36,6 +42,7 @@ from .serialize import iso
 SCOPES = ("pages", "categories", "kanban", "canvas", "users", "settings", "tokens", "admin", "userbot")
 ADMIN_ONLY_SCOPES = frozenset({"admin", "settings", "users"})
 USERBOT_TOKEN_NAME = "userbot"
+USERBOT_SCOPE = "userbot"
 MAX_NAME = 64
 RATE_LIMIT_BOUNDS = (1, 10000)
 MAX_TOKENS_BOUNDS = (1, 100)
@@ -109,8 +116,8 @@ def has_api_access(user: dict[str, Any] | None) -> bool:
 
 
 def scopes_for_role(user: dict[str, Any], scopes: list[str] | tuple[str, ...]) -> list[str]:
-    """Drop the scopes the account's role can never use."""
-    known = [scope for scope in scopes if scope in SCOPES]
+    """Drop the scopes the account's role can never use, and the automation key's own scope."""
+    known = [scope for scope in scopes if scope in SCOPES and scope != USERBOT_SCOPE]
     if is_admin_role(user):
         return sorted(set(known))
     return sorted(set(known) - ADMIN_ONLY_SCOPES)
@@ -130,8 +137,12 @@ def credential_stamp(password_hash: str | None) -> str | None:
     return hashlib.sha256(("bananawiki-api-token:" + password_hash).encode("utf-8")).hexdigest()
 
 
-def create(user_id: str, *, name: str = "", grant: Grant, expires_at: str | None = None) -> tuple[str, int]:
-    """Issue a token; return ``(raw_token, token_id)``. The raw value is never stored."""
+def create(user_id: str, *, name: str = "", grant: Grant, expires_at: str | None = None,
+           parent_id: int | None = None) -> tuple[str, int]:
+    """Issue a token (through *parent_id*, when a token issues it); return ``(raw_token, token_id)``.
+
+    The raw value is never stored.
+    """
     raw = crypto.new_token(32)
     token_id = db.insert("api_service__tokens", {
         "user_id": user_id,
@@ -142,6 +153,7 @@ def create(user_id: str, *, name: str = "", grant: Grant, expires_at: str | None
         "active": 1,
         "created_at": now_sql(),
         "credential_stamp": credential_stamp(db.scalar("SELECT password FROM users WHERE id = ?", (user_id,))),
+        "parent_id": parent_id,
     })
     return raw, token_id
 
@@ -170,6 +182,20 @@ def authenticate(raw: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
     if owner is None:
         return None
     if _outdated(token, owner):
+        # The two reads above are separate: a sign-in re-hashing the same password (which
+        # carries the stamp over in its own transaction) may have committed between them.
+        # Revoke only what one consistent read still finds outdated.
+        with db.transaction():
+            token = db.one("SELECT * FROM api_service__tokens WHERE id = ?", (token["id"],))
+            owner = db.one("SELECT * FROM users WHERE id = ?", (token["user_id"],)) if token else None
+            if token is None or not token["active"] or owner is None:
+                return None
+            if _outdated(token, owner):
+                revoke(token["id"])
+                return None
+    if token.get("parent_id") and not db.scalar(
+            "SELECT active FROM api_service__tokens WHERE id = ?", (token["parent_id"],)):
+        # Revoking cascades; this also covers a parent switched off another way.
         revoke(token["id"])
         return None
     return token, owner
@@ -187,11 +213,22 @@ def get(token_id: int) -> dict[str, Any] | None:
 
 
 def list_for_user(user_id: str) -> list[dict[str, Any]]:
+    """The account's active tokens, newest first, with the token that issued each one (``parent_id``)."""
     return db.all(
-        f"SELECT {_PUBLIC_COLUMNS} FROM api_service__tokens WHERE user_id = ? AND active = 1 "
+        f"SELECT {_PUBLIC_COLUMNS}, parent_id FROM api_service__tokens WHERE user_id = ? AND active = 1 "
         "ORDER BY created_at DESC, id DESC",
         (user_id,),
     )
+
+
+def issued_count(token_id: int) -> int:
+    """How many active tokens revoking *token_id* would revoke with it (what it issued, recursively)."""
+    return int(db.scalar(
+        "WITH RECURSIVE issued(id) AS (SELECT id FROM api_service__tokens WHERE parent_id = ? "
+        "UNION SELECT t.id FROM api_service__tokens t JOIN issued ON t.parent_id = issued.id) "
+        "SELECT COUNT(*) FROM api_service__tokens WHERE active = 1 AND id IN (SELECT id FROM issued)",
+        (token_id,), default=0,
+    ) or 0)
 
 
 def list_all() -> list[dict[str, Any]]:
@@ -210,8 +247,16 @@ def count_active(user_id: str) -> int:
 
 
 def revoke(token_id: int) -> bool:
-    return db.execute("UPDATE api_service__tokens SET active = 0 WHERE id = ? AND active = 1",
-                      (token_id,)).rowcount > 0
+    """Revoke a token and every token issued through it; whether the token itself was active."""
+    revoked = db.execute("UPDATE api_service__tokens SET active = 0 WHERE id = ? AND active = 1",
+                         (token_id,)).rowcount > 0
+    db.execute(
+        "WITH RECURSIVE issued(id) AS (SELECT id FROM api_service__tokens WHERE parent_id = ? "
+        "UNION SELECT t.id FROM api_service__tokens t JOIN issued ON t.parent_id = issued.id) "
+        "UPDATE api_service__tokens SET active = 0 WHERE active = 1 AND id IN (SELECT id FROM issued)",
+        (token_id,),
+    )
+    return revoked
 
 
 def revoke_all_for_user(user_id: str) -> int:
@@ -238,6 +283,12 @@ def public_view(token: dict[str, Any], *, with_owner: bool = False) -> dict[str,
 
 
 # ── Issuing rules ─────────────────────────────────────────────────────────────
+
+
+def check_name(name: str) -> None:
+    """Refuse the userbot key's name for other tokens: it is left out of the limit and the token page."""
+    if name.strip().casefold() == USERBOT_TOKEN_NAME:
+        raise ApiError(400, "token_name_reserved", name=USERBOT_TOKEN_NAME)
 
 
 def check_quota(user_id: str) -> None:
@@ -273,7 +324,8 @@ def child_grant(parent: dict[str, Any], owner: dict[str, Any], permissions: Any,
 
     It can never exceed the issuing token: no flag or scope the parent lacks,
     no later expiry (an omitted expiry inherits the parent's), and no scope
-    the owner's role cannot use.
+    the owner's role cannot use. It can never issue tokens itself, nor
+    carry the automation key's ``userbot`` scope.
     """
     if not isinstance(permissions, dict) or set(permissions) - {"read", "write", "scopes"}:
         raise ApiError(400, "invalid_permissions")
@@ -282,6 +334,10 @@ def child_grant(parent: dict[str, Any], owner: dict[str, Any], permissions: Any,
     if (type(read) is not bool or type(write) is not bool or not isinstance(scopes, list)
             or not all(isinstance(scope, str) and scope in SCOPES for scope in scopes)):
         raise ApiError(400, "invalid_permissions")
+    if "tokens" in scopes:
+        raise ApiError(403, "tokens_scope_forbidden")
+    if USERBOT_SCOPE in scopes:
+        raise ApiError(403, "userbot_scope_reserved")
     parent_grant = parse_grant(parent.get("permissions"))
     if (read and not parent_grant.read) or (write and not parent_grant.write) \
             or not set(scopes) <= set(parent_grant.scopes):

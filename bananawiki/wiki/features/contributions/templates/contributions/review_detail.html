@@ -1,7 +1,11 @@
-{% extends "base.html" %}
+{#- Administrators review proposals inside the administration layout (side menu); editors
+    who review get the plain page. -#}
+{% extends "admin/_layout.html" if is_admin else "base.html" %}
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('contributions.detail_title', id=contribution.id) }}{% endblock %}
-{% block content %}
+{% block content %}{% if is_admin %}{{ super() }}{% else %}{{ self.review_body() }}{% endif %}{% endblock %}
+{% block admin_content %}{{ self.review_body() }}{% endblock %}
+{% block review_body %}
 <header class="page-header">
   <h1>{{ t('contributions.detail_title', id=contribution.id) }}</h1>
   <div class="page-header__meta">
@@ -22,16 +26,16 @@
   <section class="card">
     <h2>{{ t('contributions.changes') }}</h2>
     {% if diff %}
-    <div class="diff" role="table" aria-label="{{ t('contributions.changes') }}">
-      {% for row in diff %}
+    {#- The container keeps line breaks (pre-wrap): the rows must not leave newlines between them. #}
+    <div class="diff" role="group" aria-label="{{ t('contributions.changes') }}">
+      {%- for row in diff %}
       {% if row.op == 'coarse' %}<div class="muted">{{ t('contributions.diff_coarse') }}</div>
-      {% elif row.op == 'more' %}<div class="muted">{{ t('contributions.diff_more', count=row.text) }}</div>
-      {% elif row.op == 'gap' %}<div class="muted">⋯</div>
-      {% elif row.op == 'add' %}<div><ins>+ {{ row.text }}</ins></div>
-      {% elif row.op == 'del' %}<div><del>- {{ row.text }}</del></div>
-      {% else %}<div>&nbsp; {{ row.text }}</div>{% endif %}
-      {% endfor %}
-    </div>
+      {%- elif row.op == 'more' %}<div class="muted">{{ t('contributions.diff_more', count=row.text) }}</div>
+      {%- elif row.op == 'gap' %}<div class="muted">⋯</div>
+      {%- elif row.op == 'add' %}<div class="diff__row diff__row--add"><span class="diff__mark" aria-hidden="true">+</span><ins>{{ row.text }}</ins></div>
+      {%- elif row.op == 'del' %}<div class="diff__row diff__row--del"><span class="diff__mark" aria-hidden="true">-</span><del>{{ row.text }}</del></div>
+      {%- else %}<div class="diff__row"><span class="diff__mark" aria-hidden="true"></span>{{ row.text }}</div>{% endif %}
+      {%- endfor %}</div>
     {% else %}<p class="muted">{{ t('contributions.no_content_change') }}</p>{% endif %}
   </section>
   {% if contribution.status == 'pending' %}
@@ -50,11 +54,16 @@
       </div>
     </form>
     {% if is_admin %}
-    <form method="post" action="{{ url_for('contributions.set_quota', contribution_id=contribution.id) }}" class="inline-fields users-spaced">
+    <form method="post" action="{{ url_for('contributions.set_quota', contribution_id=contribution.id) }}" class="form users-spaced">
       {{ forms.csrf() }}
-      <label for="f-quota">{{ t('contributions.quota.set_for', user=contribution.username) }}</label>
-      <input id="f-quota" name="quota" placeholder="{{ t('contributions.quota.set_hint') }}" size="10">
-      <button class="btn btn--small" type="submit">{{ t('common.save') }}</button>
+      <div class="field">
+        <label for="f-quota">{{ t('contributions.quota.set_for', user=contribution.username) }}</label>
+        <div class="input-group input-group--compact">
+          <input id="f-quota" name="quota" inputmode="numeric" size="10" aria-describedby="f-quota-hint">
+          <button class="btn" type="submit">{{ t('common.save') }}</button>
+        </div>
+        <p class="hint" id="f-quota-hint">{{ t('contributions.quota.set_hint') }}</p>
+      </div>
     </form>
     {% endif %}
   </section>

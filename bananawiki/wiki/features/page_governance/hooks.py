@@ -7,7 +7,10 @@ from typing import Any
 from flask import has_request_context, jsonify, redirect, render_template, request, url_for
 
 from ... import auth
+from ...db import db
 from ...i18n import t
+from ...permissions import EDITOR_ROLES
+from ..audit.service import record
 from . import protection, reservations
 from .errors import GovernanceError
 from .messages import error_text
@@ -31,6 +34,23 @@ def refuse_delete(page: dict[str, Any], user: dict[str, Any] | None) -> Any:
         return jsonify({"error": t(key)}), 423
     auth.flash_t(key, "error")
     return redirect(url_for("pages.view", slug=page["slug"]))
+
+
+def record_lapsed_protections(user: dict[str, Any], old_role: str = "", new_role: str = "",
+                              changed_by: Any = None, **_: Any) -> None:
+    """``user.role_changed``: name the protections a lost editing role ends.
+
+    Protection lapses once its controller is no longer an editor (so a page
+    is never locked by someone who lost their rights). A demotion may thus
+    release a page before the unlock delay; the audit log says which.
+    """
+    if old_role not in EDITOR_ROLES or new_role in EDITOR_ROLES:
+        return
+    slugs = db.column("SELECT slug FROM pages WHERE protected_by = ? AND is_home = 0 ORDER BY slug", (user["id"],))
+    if slugs:
+        record("page_governance.protection_lapsed", actor_id=changed_by, target_type="user", target_id=user["id"],
+               details={"username": user.get("username"), "new_role": new_role, "pages": slugs[:50],
+                        "count": len(slugs)})
 
 
 def reserve_after_save(page: dict[str, Any], user: dict[str, Any] | None) -> None:
