@@ -19,7 +19,9 @@
 
   var BW = window.BW;
   var dataNode = document.querySelector("script#kanban-data");
-  var root = document.getElementById("kanban-board");
+  // The board description comes before the board and keeps the ids of its headings: the board's own
+  // elements are found by tag (content gives ids to headings only) or by a data attribute.
+  var root = document.querySelector("div#kanban-board");
   if (!dataNode || !root || !BW) return;
 
   var data = JSON.parse(dataNode.textContent || "{}");
@@ -61,7 +63,7 @@
   };
 
   K.announce = function (text) {
-    var live = document.getElementById("kanban-live");
+    var live = document.querySelector("p#kanban-live");
     if (live) { live.textContent = ""; setTimeout(function () { live.textContent = text; }, 30); }
   };
 
@@ -215,7 +217,7 @@
     input.dataset.action = "new-ticket";
     input.placeholder = BW.t("kanban.add_ticket_placeholder");
     input.setAttribute("aria-label", BW.t("kanban.add_ticket"));
-    if (document.getElementById("kanban-quick-add-hint")) input.setAttribute("aria-describedby", "kanban-quick-add-hint");
+    if (document.querySelector("p#kanban-quick-add-hint")) input.setAttribute("aria-describedby", "kanban-quick-add-hint");
     var submit = el("button", "btn btn--small", BW.t("kanban.add_ticket"));
     submit.type = "submit";
     form.appendChild(input);
@@ -473,7 +475,7 @@
     }
     renderColumns(columnContainer(), lanes);
     if (lanes) renderLanes();
-    var heading = document.getElementById("kanban-board-title");
+    var heading = document.querySelector("[data-kanban-title]");
     if (heading) heading.textContent = K.state.board.title;
     restoreFocus(snap);
     K.onRefresh.forEach(function (fn) { fn(); });
@@ -582,6 +584,7 @@
   // ── Live sync ────────────────────────────────────────────────────────────
   var syncDelay = 4000;
   var syncTimer = null;
+  var offline = document.querySelector("div#kanban-offline");
 
   function scheduleSync(delay) {
     clearTimeout(syncTimer);
@@ -591,21 +594,21 @@
   function runSync() {
     if (document.hidden || dragging) { scheduleSync(); return; }
     K.api("/" + K.boardId + "/sync?since=" + K.seq).then(function (result) {
-      document.getElementById("kanban-offline").hidden = true;
+      if (offline) offline.hidden = true;
       syncDelay = 4000;
       if (result.reset) return K.reload();
       K.seq = result.seq;
       if (result.events.length) return applyEvents(result.events);
       return null;
     }).catch(function () {
-      document.getElementById("kanban-offline").hidden = false;
+      if (offline) offline.hidden = false;
       syncDelay = Math.min(syncDelay * 2, 60000);
     }).then(function () { scheduleSync(); });
   }
 
   document.addEventListener("visibilitychange", function () { if (!document.hidden) scheduleSync(0); });
   window.addEventListener("online", function () { syncDelay = 4000; scheduleSync(0); });
-  window.addEventListener("offline", function () { document.getElementById("kanban-offline").hidden = false; });
+  window.addEventListener("offline", function () { if (offline) offline.hidden = false; });
 
   // ── Actions ──────────────────────────────────────────────────────────────
   K.moveTicket = function (ticketId, columnId, index) {
@@ -1029,11 +1032,11 @@
   }
 
   // ── Activity panel ───────────────────────────────────────────────────────
-  var activityToggle = document.getElementById("kanban-activity-toggle");
-  var activityPanel = document.getElementById("kanban-activity");
+  var activityToggle = document.querySelector("button#kanban-activity-toggle");
+  var activityPanel = document.querySelector("section#kanban-activity");
 
   function loadActivity() {
-    var list = document.getElementById("kanban-activity-list");
+    var list = activityPanel.querySelector("ol#kanban-activity-list");
     K.api("/" + K.boardId + "/activity").then(function (result) {
       list.textContent = "";
       if (!result.entries.length) list.appendChild(el("li", "muted", BW.t("kanban.no_activity")));

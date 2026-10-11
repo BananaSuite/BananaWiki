@@ -15,8 +15,12 @@
   </ul>
   {% if can_upload %}
   <div class="cluster cluster--baseline">
-    <label class="btn btn--small" for="attachments-editor-input">{{ t('attachments.add') }}</label>
-    <input id="attachments-editor-input" class="visually-hidden" type="file" multiple data-attachments-input>
+    {#- The input sits inside its label: a for= would name the first element with that id, which can be
+        a heading of the preview above. -#}
+    <label class="btn btn--small">
+      <span>{{ t('attachments.add') }}</span>
+      <input id="attachments-editor-input" class="visually-hidden" type="file" multiple data-attachments-input>
+    </label>
     <span class="small muted cluster__text" data-attachments-status aria-live="polite">{{ t('attachments.hint', size=max_bytes|filesize) }}</span>
   </div>
   <noscript><p class="hint"><a href="{{ url_for('pages.view', slug=page.slug) }}#attachments">{{ t('attachments.manage_on_page') }}</a></p></noscript>

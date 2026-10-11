@@ -8,7 +8,7 @@
   <ol><li><a href="{{ url_for('kanban.index') }}">{{ t('kanban.list.title') }}</a></li></ol>
 </nav>
 <header class="page-header kanban-header">
-  <h1 id="kanban-board-title">{{ board.title }}</h1>
+  <h1 id="kanban-board-title" data-kanban-title>{{ board.title }}</h1>
   <div class="page-header__actions">
     {% if can_write %}
     <button type="button" class="btn btn--small" data-dialog-open="kanban-edit-dialog">{{ t('kanban.board.edit') }}</button>
@@ -202,8 +202,12 @@
       <section id="kanban-tab-attachments" role="tabpanel" data-panel="attachments" hidden>
         <ul class="kanban-files" id="kanban-ticket-attachments"></ul>
         <div id="kanban-upload" hidden>
-          <label class="btn btn--small" for="kanban-upload-input">{{ t('kanban.ticket.upload') }}</label>
-          <input type="file" id="kanban-upload-input" class="visually-hidden">
+          {#- The input sits inside its label: a for= would name the first element with that id, which
+              can be a heading of a comment above. -#}
+          <label class="btn btn--small">
+            <span>{{ t('kanban.ticket.upload') }}</span>
+            <input type="file" id="kanban-upload-input" class="visually-hidden">
+          </label>
         </div>
       </section>
       <section id="kanban-tab-history" role="tabpanel" data-panel="history" hidden>

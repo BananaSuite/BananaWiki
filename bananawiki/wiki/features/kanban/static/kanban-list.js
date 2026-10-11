@@ -4,11 +4,11 @@
   "use strict";
 
   var BW = window.BW;
-  var list = document.getElementById("kanban-board-list");
+  var list = document.querySelector("ul#kanban-board-list");
   if (!list || !BW) return;
 
   var version = list.dataset.orderVersion;
-  var live = document.getElementById("kanban-list-live");
+  var live = document.querySelector("p#kanban-list-live");
 
   function announce(item) {
     if (!live || !item) return;

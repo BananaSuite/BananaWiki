@@ -24,7 +24,8 @@
   // User name suggestions for "new conversation" and "add member" -----------
   function setupSuggestions() {
     document.querySelectorAll("input[data-user-suggest]").forEach(function (input) {
-      var list = document.getElementById(input.getAttribute("list"));
+      var listId = input.getAttribute("list");
+      var list = listId && document.querySelector("datalist#" + CSS.escape(listId));
       var timer = null;
       var last = "";
       if (!list) return;
@@ -73,9 +74,9 @@
   // The conversation -------------------------------------------------------
   function Conversation(data) {
     this.data = data;
-    this.log = document.getElementById("chat-log");
-    this.empty = document.getElementById("chat-empty");
-    this.jump = document.getElementById("chat-jump");
+    this.log = document.querySelector("ol#chat-log");
+    this.empty = document.querySelector("p#chat-empty");
+    this.jump = document.querySelector("button#chat-jump");
     this.latestId = data.latestId || 0;
     this.oldestId = data.oldestId || 0;
     this.cursor = data.cursor || "";
@@ -275,7 +276,7 @@
 
   Conversation.prototype.bindComposer = function () {
     var self = this;
-    var form = document.getElementById("chat-composer");
+    var form = document.querySelector("form#chat-composer");
     if (!form) return;
     var input = form.querySelector("textarea");
     var file = form.querySelector('input[type="file"]');
@@ -360,7 +361,7 @@
     setupSuggestions();
     setupCountdown();
     var node = document.querySelector("script#chat-data");
-    if (!node || !document.getElementById("chat-log")) return;
+    if (!node || !document.querySelector("ol#chat-log")) return;
     var data;
     try { data = JSON.parse(node.textContent || "{}"); } catch (e) { return; }
     new Conversation(data).bind();

@@ -3,8 +3,8 @@
 (function () {
   "use strict";
   var dataNode = document.querySelector("script#users-calendar-data");
-  var host = document.getElementById("users-calendar");
-  var details = document.getElementById("users-calendar-details");
+  var host = document.querySelector("div#users-calendar");
+  var details = document.querySelector("div#users-calendar-details");
   if (!dataNode || !host) return;
   var data;
   try { data = JSON.parse(dataNode.textContent || "{}"); } catch (e) { return; }

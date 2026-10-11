@@ -4,7 +4,7 @@
 (function () {
   "use strict";
 
-  var bar = document.getElementById("announcements-bar");
+  var bar = document.querySelector("div#announcements-bar");
   if (!bar) return;
   var storageKey = "dismissed_announcements:" + (bar.getAttribute("data-viewer-id") || "guest");
   var all = Array.prototype.slice.call(bar.querySelectorAll("[data-announcement-id]"));

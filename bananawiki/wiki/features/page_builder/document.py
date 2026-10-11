@@ -525,7 +525,8 @@ def render(document: dict[str, Any], *, page_id: int | None = None) -> Markup:
 
 def _items(document: dict[str, Any], page_id: int | None) -> list[dict[str, Any]]:
     items = []
-    anchors: set[str] = set()
+    # Never an id the interface links to (markdown.RESERVED_IDS): "Main" becomes "main-2".
+    anchors: set[str] = set(markdown.RESERVED_IDS)
     room = MAX_LISTED_PAGES
     for block in document["blocks"]:
         if is_blank(block):

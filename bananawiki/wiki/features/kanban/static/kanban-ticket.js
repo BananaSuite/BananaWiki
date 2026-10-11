@@ -5,13 +5,20 @@
 
   var BW = window.BW;
   var K = window.BWKanban;
-  var dialog = document.getElementById("kanban-ticket-dialog");
+  // Content (the board description, a ticket's description, comments) keeps the ids of its headings
+  // and can come before the dialog and its controls: look them up by tag, and only once, now, while
+  // the dialog holds nothing but its own markup.
+  var dialog = document.querySelector("dialog#kanban-ticket-dialog");
   if (!K || !dialog) return;
 
   var el = K.el;
   var current = null;   // ticket detail from the server
   var color = "";       // "" means no colour
-  function $(id) { return document.getElementById(id); }
+  var controls = {};
+  Array.prototype.forEach.call(dialog.querySelectorAll("[id]"), function (node) {
+    if (!controls[node.id]) controls[node.id] = node;
+  });
+  function $(id) { return controls[id] || null; }
 
   // ── Tabs ─────────────────────────────────────────────────────────────────
   var loaders = { comments: loadComments, attachments: loadAttachments, history: loadHistory };

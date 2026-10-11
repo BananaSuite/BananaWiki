@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from flask import render_template
@@ -11,13 +12,19 @@ from ... import auth, settings
 from ...markdown import render as render_markdown
 from . import service
 
+# The bar comes before every page's own elements, so its headings keep no id: an id there would be
+# the first of its name on the page and could stand in for one of the page's (the sanitiser writes a
+# heading's only attribute as ``<h2 id="…">``).
+_HEADING_ANCHOR = re.compile(r'(<h[1-6]) id="[^"]*"')
+
 
 def _bar_item(row: dict[str, Any], *, can_open: bool) -> dict[str, Any]:
     content = row["content"]
     truncated = len(content) > service.BAR_EXCERPT and can_open
     if truncated:
         content = content[: service.BAR_EXCERPT - 10].rstrip() + "…"
-    return {**row, "html": Markup(render_markdown(content)), "truncated": truncated,
+    html = _HEADING_ANCHOR.sub(r"\1", render_markdown(content))
+    return {**row, "html": Markup(html), "truncated": truncated,
             "style": service.custom_style(row), "expires_iso": service.expires_iso(row)}
 
 

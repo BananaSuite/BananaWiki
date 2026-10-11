@@ -1,8 +1,11 @@
 {#- Load a Markdown file into the editor (script only; the editor form is not multipart). -#}
 <div class="md-import" data-md-import data-url="{{ url_for('page_export.import_markdown', slug=page.slug) }}" hidden>
   <div class="cluster cluster--baseline">
-    <label class="btn btn--small" for="md-import-input">{{ t('page_export.import_file') }}</label>
-    <input id="md-import-input" class="visually-hidden" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" data-md-import-input>
+    {#- Inside its label, like the attachments' "Add files" (attachments/_editor_panel.html). -#}
+    <label class="btn btn--small">
+      <span>{{ t('page_export.import_file') }}</span>
+      <input id="md-import-input" class="visually-hidden" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" data-md-import-input>
+    </label>
     <span class="small muted cluster__text">{{ t('page_export.import_file_hint') }}</span>
   </div>
 </div>

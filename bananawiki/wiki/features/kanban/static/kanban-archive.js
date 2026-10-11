@@ -5,10 +5,11 @@
 
   var BW = window.BW;
   var K = window.BWKanban;
-  var toggle = document.getElementById("kanban-archive-toggle");
-  var panel = document.getElementById("kanban-archive");
-  var list = document.getElementById("kanban-archive-list");
-  var badge = document.getElementById("kanban-archive-count");
+  // By tag: the board description, before the panel, keeps the ids of its headings.
+  var toggle = document.querySelector("button#kanban-archive-toggle");
+  var panel = document.querySelector("section#kanban-archive");
+  var list = panel && panel.querySelector("ul#kanban-archive-list");
+  var badge = toggle && toggle.querySelector("span#kanban-archive-count");
   if (!K || !toggle || !panel || !list) return;
 
   var el = K.el;

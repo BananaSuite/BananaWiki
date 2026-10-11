@@ -7,7 +7,7 @@
   var POLL_MS = 15000;
 
   BW.onReady(function () {
-    var list = document.getElementById("canvas-list");
+    var list = document.querySelector("ul#canvas-list");
     if (!list || !list.dataset.orderUrl) return;
     var version = list.dataset.orderVersion;
     var dragged = null;

@@ -12,7 +12,7 @@
 (function () {
   "use strict";
 
-  var BW = window.BW = window.BW || {};
+  var BW = window.BW = Object.prototype.hasOwnProperty.call(window, "BW") ? window.BW : {};  // see bananawiki.js
   if (BW.Canvas) return;
 
   var SVG_NS = "http://www.w3.org/2000/svg";
