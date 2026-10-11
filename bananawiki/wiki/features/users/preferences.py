@@ -10,8 +10,9 @@ exact shape BananaWiki 1.4 used, so saved choices survive the upgrade:
 * ``custom_*`` colours, ``background_image`` (``backgrounds/<hex>.jpg``);
 * ``semantic_*`` highlighting levels (0-2), ``sidebar_width`` and
   ``content_max_width`` in pixels;
-* ``mascot_enabled`` and ``mascot_shades`` (0/1, new), changed only by the
-  mascot feature (see :data:`OWNED_KEYS`).
+* ``mascot_shades`` (0/1, new), changed only by the mascot feature (see
+  :data:`OWNED_KEYS`). ``mascot_enabled``, saved by earlier builds of 1.7 when
+  someone hid the mascot, is ignored and dropped at the next save.
 
 The page shell reads the coarse switches (``templating.accessibility_prefs``);
 :func:`custom_css` renders everything finer as CSS custom properties.
@@ -47,7 +48,7 @@ SEMANTIC_KEYS = ("semantic_bold", "semantic_italic", "semantic_code", "semantic_
 # Settings the 1.4 editor stored and 1.6 keeps untouched.
 PASSTHROUGH_KEYS = ("editor_pane_width", "editor_height", "sidebar_apps_order")
 # Kept by "reset" and refused by the JSON endpoint: their own feature sets them.
-OWNED_KEYS = ("mascot_enabled", "mascot_shades")
+OWNED_KEYS = ("mascot_shades",)
 
 DEFAULTS: dict[str, Any] = {
     "theme_mode": "default",
@@ -61,7 +62,6 @@ DEFAULTS: dict[str, Any] = {
     "sidebar_width": 0,
     "content_max_width": 0,
     "background_image": "",
-    "mascot_enabled": 1,
     "mascot_shades": 0,
     **{key: "" for key in COLOR_KEYS},
     **{key: 0 for key in SEMANTIC_KEYS},
@@ -128,7 +128,6 @@ def clean(data: dict[str, Any], current: dict[str, Any] | None = None) -> dict[s
         "sidebar_width": _pixels(merged["sidebar_width"], 180, 500),
         "content_max_width": _pixels(merged["content_max_width"], 600, 5000),
         "background_image": background if BACKGROUND_RE.fullmatch(background) else "",
-        "mascot_enabled": _int(merged["mascot_enabled"], (0, 1), default=1),
         "mascot_shades": _int(merged["mascot_shades"], (0, 1)),
     }
     result.update({key: _color(merged[key]) for key in COLOR_KEYS})

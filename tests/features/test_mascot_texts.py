@@ -13,21 +13,15 @@ FOLDER = Path(__file__).resolve().parents[2] / "bananawiki/wiki/features/mascot/
 
 # What each administrator action reports, for one account and for several.
 RESULTS = {
-    "de": {"hide": ("Maskottchen für 1 Konto ausgeblendet.", "Maskottchen für {} Konten ausgeblendet."),
-           "show": ("Maskottchen für 1 Konto angezeigt.", "Maskottchen für {} Konten angezeigt."),
-           "shades_on": ("Sonnenbrille für 1 Konto aufgesetzt.", "Sonnenbrille für {} Konten aufgesetzt."),
+    "de": {"shades_on": ("Sonnenbrille für 1 Konto aufgesetzt.", "Sonnenbrille für {} Konten aufgesetzt."),
            "shades_off": ("Sonnenbrille für 1 Konto abgenommen.", "Sonnenbrille für {} Konten abgenommen.")},
-    "en": {"hide": ("Mascot hidden on 1 account.", "Mascot hidden on {} accounts."),
-           "show": ("Mascot shown on 1 account.", "Mascot shown on {} accounts."),
-           "shades_on": ("Sunglasses put on for 1 account.", "Sunglasses put on for {} accounts."),
+    "en": {"shades_on": ("Sunglasses put on for 1 account.", "Sunglasses put on for {} accounts."),
            "shades_off": ("Sunglasses taken off on 1 account.", "Sunglasses taken off on {} accounts.")},
-    "it": {"hide": ("Mascotte nascosta a 1 account.", "Mascotte nascosta a {} account."),
-           "show": ("Mascotte mostrata a 1 account.", "Mascotte mostrata a {} account."),
-           "shades_on": ("Occhiali messi a 1 account.", "Occhiali messi a {} account."),
+    "it": {"shades_on": ("Occhiali messi a 1 account.", "Occhiali messi a {} account."),
            "shades_off": ("Occhiali tolti a 1 account.", "Occhiali tolti a {} account.")},
 }
 # The action that undoes each one.
-OPPOSITE = {"hide": "show", "show": "hide", "shades_on": "shades_off", "shades_off": "shades_on"}
+OPPOSITE = {"shades_on": "shades_off", "shades_off": "shades_on"}
 
 
 def _bulk(admin_client, action, lang):
@@ -38,7 +32,7 @@ def _bulk(admin_client, action, lang):
 
 
 @pytest.mark.parametrize("lang", sorted(RESULTS))
-@pytest.mark.parametrize("action", ["hide", "show", "shades_on", "shades_off"])
+@pytest.mark.parametrize("action", ["shades_on", "shades_off"])
 def test_bulk_result_counts_one_account_or_many(admin_client, make_user, db, lang, action):
     one, many = RESULTS[lang][action]
     bob = make_user("mascot_count_bob")

@@ -4,7 +4,7 @@
   <h2 id="mascot-admin-heading">{{ t('mascot.admin.title') }}</h2>
   <p class="hint hint--block">{{ t('mascot.admin.hint') }}</p>
   <div class="cluster">
-    {% for action, variant in (('show', 'normal'), ('hide', 'off'), ('shades_on', 'shades'), ('shades_off', 'normal')) %}
+    {% for action, variant in (('shades_on', 'shades'), ('shades_off', 'normal')) %}
     <form class="inline" method="post" action="{{ url_for('mascot.everyone') }}"
           data-confirm="{{ t('mascot.admin.confirm.' ~ action) }}">
       {{ forms.csrf() }}

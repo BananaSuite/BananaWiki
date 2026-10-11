@@ -1,10 +1,12 @@
 """Who sees the mascot, and with or without sunglasses.
 
-Both choices are 0/1 keys in the account's display preferences
-(``users.accessibility``: ``mascot_enabled``, ``mascot_shades``), so they need
-no table of their own and survive "reset display settings". Visitors who are
-not signed in never see the mascot. Only these two keys are read and written
-here: every other saved preference stays exactly as stored.
+Every signed-in person sees it while the feature is on; visitors who are not
+signed in never do. The sunglasses are a 0/1 key in the account's display
+preferences (``users.accessibility``: ``mascot_shades``), so they need no table
+of their own and survive "reset display settings". Only that key is read and
+written here: every other saved preference stays exactly as stored, including
+a ``mascot_enabled`` that earlier builds of 1.7 saved to hide the mascot (it is
+ignored).
 """
 
 from __future__ import annotations
@@ -20,8 +22,6 @@ CLICKS_FOR_SHADES = 11
 
 # Administrator actions: what each one writes on every account.
 BULK_ACTIONS: dict[str, dict[str, int]] = {
-    "show": {"mascot_enabled": 1},
-    "hide": {"mascot_enabled": 0},
     "shades_on": {"mascot_shades": 1},
     "shades_off": {"mascot_shades": 0},
 }
@@ -38,19 +38,10 @@ def _flag(saved: dict[str, Any], key: str) -> int:
 
 
 def state(user: dict[str, Any] | None) -> dict[str, bool]:
-    """Whether *user* sees the mascot, and with sunglasses (on every page, so just the two keys are read)."""
+    """Whether *user* sees the mascot (when signed in), and with sunglasses (on every page, so one key is read)."""
     if user is None:
         return {"enabled": False, "shades": False}
-    saved = preferences.stored(user)
-    return {"enabled": bool(_flag(saved, "mascot_enabled")), "shades": bool(_flag(saved, "mascot_shades"))}
-
-
-def variant(user: dict[str, Any] | None) -> str:
-    """The sprite that shows *user*'s current choice (``normal``, ``shades`` or ``off``)."""
-    current = state(user)
-    if not current["enabled"]:
-        return "off"
-    return "shades" if current["shades"] else "normal"
+    return {"enabled": True, "shades": bool(_flag(preferences.stored(user), "mascot_shades"))}
 
 
 def update(user: dict[str, Any], **values: int) -> None:
