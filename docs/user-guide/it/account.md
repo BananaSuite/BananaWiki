@@ -23,8 +23,9 @@ come sono.
 
 Se la tua wiki ha la mascotte, una banana al posto del logo nella barra
 superiore, un clic la fa saltare; il nome del sito accanto porta alla pagina
-iniziale. Qui in **Personalizza** puoi nasconderla (torna il logo), o
-toglierle gli occhiali da sole se hai scoperto come metterglieli.
+iniziale. Resta nella barra finché gli amministratori la tengono attiva. Se
+hai scoperto come metterle gli occhiali da sole, puoi toglierglieli qui in
+**Personalizza**.
 
 ## Lingua
 

@@ -121,32 +121,35 @@ account merges; AUDIT.md lists where they meet this release's own fixes.
   (`PUT /kanban/columns/<id>` with `done`, columns report `done`), exports
   and imports, and board history (schema 11).
 * **Mascot.** Signed-in people see a pixel-art banana in place of the top
-  bar logo. It bobs, blinks and hops when clicked, so a click there no longer
-  opens the home page (the site name still does). With reduced motion, the
-  display preference or the operating system's, it stands still: the shell
-  now runs any animation once under the system setting instead of
-  restarting it every frame. On touch screens it is a finger-sized target.
-  Eleven clicks put sunglasses on it, saved on the account until taken off
-  under **Customise**, where the mascot can also be hidden (the logo comes
-  back); a failed save says so. Resetting the display preferences keeps both
-  choices (the confirmation says that language and mascot choices are
-  kept), and `/api/accessibility` cannot set them. Administrators can show,
-  hide or dress it for every account at once (**Admin → Appearance**, one
-  audit entry per action; the result counts one account in the singular) or
-  switch it off in **Admin → Plugins** (built-in, on by default). Changing
-  it, for one account or for all, writes only its two choices (every other
-  saved display preference stays as stored, for example a language that is
-  switched off for now), and the change for all accounts is written in one
-  batch. The script reads its click count and where to save from the
+  bar logo, always, while the plugin is on: only switching it off in
+  **Admin → Plugins** (built-in, on by default) removes it, for everyone,
+  and brings the logo back. It cannot be hidden for one account or for all
+  (earlier builds of 1.7 could; accounts hidden there see it again). It
+  bobs, blinks and hops when clicked, so a click there no longer opens the
+  home page (the site name still does). With reduced motion, the display
+  preference or the operating system's, it stands still: the shell now runs
+  any animation once under the system setting instead of restarting it
+  every frame. On touch screens it is a finger-sized target. Eleven clicks
+  put sunglasses on it, saved on the account until taken off under
+  **Customise**, which shows the mascot's section only while they are on; a
+  failed save says so. Resetting the display preferences keeps them (the
+  confirmation says that language and mascot choices are kept), and
+  `/api/accessibility` cannot set them. Administrators can put them on or
+  take them off for every account at once (**Admin → Appearance**, one
+  audit entry per action; the result counts one account in the singular).
+  Changing them, for one account or for all, writes only that key (every
+  other saved display preference stays as stored, for example a language
+  that is switched off for now), and the change for all accounts is written
+  in one batch. The script reads its click count and where to save from the
   mascot's own button, so page content cannot redirect its request. No
-  migration: the two choices are keys of the account's display preferences.
+  migration: the sunglasses are a key of the account's display preferences.
   New template slots: `topbar.brand`, `account.display_sections`,
   `admin.appearance`.
 * **New icons.** Every icon is the mascot's banana with its smile (no
   sunglasses), drawn from its 16x16 pixel art with every pixel a sharp
   square: the eight favicon presets of **Admin → Appearance** (same names,
   colours as bright as the mascot's), the logo that visitors see and that
-  stands in for a hidden or switched-off mascot, the hosting portal's icon, a
+  stands in for a switched-off mascot, the hosting portal's icon, a
   new 180x180 home-screen icon (`apple-touch-icon.png`, on a light square,
   as iOS expects), and the desktop app's window icon (handed to the system
   at 16, 32, 48 and 256 pixels, so it need not scale the pixel art), Windows

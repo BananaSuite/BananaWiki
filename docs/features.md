@@ -509,7 +509,7 @@ See [read aloud](tts.md) for installation and configuration.
   user name, password, language, display preferences (theme, text size,
   line and letter spacing, content and sidebar width, contrast, colours,
   background picture, dyslexia-friendly font, reduced motion, the
-  [mascot](#mascot)), sessions (list, end one,
+  [mascot](#mascot)'s sunglasses), sessions (list, end one,
   sign out everywhere, clear history), two-step verification
   (`/settings/two-step`: authenticator app and recovery codes), API tokens,
   personal data export, account merges, and deleting the account.
@@ -546,41 +546,47 @@ see, with CSV export. Revision sizes are computed once in the background.
 
 ## Mascot
 
-A pixel-art banana in the top bar, in place of the logo, for signed-in people
-only: visitors who are not signed in see the logo. It bobs, blinks and hops
-when clicked, and stands still with reduced motion (the **Reduce motion**
+A pixel-art banana in the top bar, in place of the logo, for every signed-in
+person while the plugin is on; it cannot be hidden for one account or for
+everyone. Visitors who are not signed in see the logo. It bobs, blinks and
+hops when clicked, and stands still with reduced motion (the **Reduce motion**
 display preference or the operating system's setting); eleven clicks on the
 same page put sunglasses on it, and they stay on the account until the person
 takes them off. On touch screens its button has the shell's touch size
 (2.75rem square), and quick taps do not zoom the page.
 
-* **Customise** (`/settings/display`): hide or show the mascot, and take its
-  sunglasses off. While it is hidden the logo is back.
-* **Admin → Appearance**: show or hide it, or put its sunglasses on or take
-  them off, for every account at once, after a confirmation. Accounts that
-  already have that choice are left alone, and the others are written in one
-  batch. Each action is recorded in the audit log under its own name
-  (`mascot.everyone.show`, `mascot.everyone.hide`, `mascot.everyone.shades_on`,
+* **Customise** (`/settings/display`): while its sunglasses are on, a Mascot
+  section offers to take them off. Without them there is no Mascot section.
+* **Admin → Appearance**: put its sunglasses on or take them off for every
+  account at once, after a confirmation. Accounts that already have that
+  choice are left alone, and the others are written in one batch. Each action
+  is recorded in the audit log under its own name (`mascot.everyone.shades_on`,
   `mascot.everyone.shades_off`) with the number of accounts it changed;
-  people can change their own choice afterwards under Customise.
+  people can take the sunglasses off afterwards under Customise. Entries
+  written by earlier builds of 1.7, which could also show or hide the mascot
+  for everyone (`mascot.everyone.show`, `mascot.everyone.hide`), keep their
+  translated names in the log.
 * Switching the plugin off (or listing `mascot` in
   `BW_MANAGED_PLUGIN_DENYLIST`, on a hosting platform
-  `HOSTING_TENANT_PLUGIN_DENYLIST`) removes the mascot for everyone and brings
-  the logo back. The saved choices stay for when it is switched on again.
+  `HOSTING_TENANT_PLUGIN_DENYLIST`) is the only way to remove the mascot: it
+  goes for everyone and the logo comes back, since 1.7 the same banana,
+  standing still and linking home. The sunglasses stay saved for when it is
+  switched on again.
 
-Both choices are keys of the account's display preferences
-(`users.accessibility`: `mascot_enabled` and `mascot_shades`), with no table
-of their own. The mascot's switches and the administrator's actions write
-only these two keys, leaving every other saved preference exactly as stored.
-**Reset display preferences** keeps them, as it keeps the language, and
-`/api/accessibility` cannot set them. The top bar reads just these two keys on
-every page, and the script takes its click count and the address it saves to
-from the mascot's own button, never from page content.
+The sunglasses are a key of the account's display preferences
+(`users.accessibility`: `mascot_shades`), with no table of their own. Taking
+them off and the administrator's actions write only this key, leaving every
+other saved preference exactly as stored. **Reset display preferences** keeps
+it, as it keeps the language, and `/api/accessibility` cannot set it. A
+`mascot_enabled` key that earlier builds of 1.7 saved to hide the mascot is
+ignored, and dropped the next time the display preferences are saved. The top
+bar reads just the sunglasses key on every page, and the script takes its
+click count and the address it saves to from the mascot's own button, never
+from page content.
 
 Because the mascot takes the logo's place, a click there makes the banana hop
 instead of opening the home page; the site name next to it still links home.
-People who prefer the logo link hide the mascot under Customise, and
-administrators can hide it for everyone or switch the plugin off.
+Administrators who prefer the logo link switch the plugin off.
 
 ## Personal data export
 
@@ -670,7 +676,7 @@ Everything under **Admin** (`/admin/dashboard`), for administrators:
   Markdown export, page builder, profile contribution chart.
 * **Appearance**: dark and light colour themes, default theme, favicon
   (the mascot's banana in one of eight colours, or uploaded), theme export
-  and import, and the [mascot](#mascot) of every account.
+  and import, and the [mascot](#mascot)'s sunglasses for every account.
 * **Languages**: the interface ships in English, Italian and German, all
   three switched on; upload further languages as JSON files (or one for a
   built-in language, which overrides its strings until removed), switch them
