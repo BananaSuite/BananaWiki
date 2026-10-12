@@ -11,7 +11,7 @@
 
   var BW = window.BW;
   var K = window.BWKanban;
-  var select = document.getElementById("kanban-lanes");
+  var select = document.querySelector("select#kanban-lanes");  // by tag: see kanban-board.js
   if (!K || !select) return;
 
   var PARAM = "lanes";

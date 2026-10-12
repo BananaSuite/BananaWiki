@@ -38,7 +38,7 @@
   /* Word highlighting ------------------------------------------------------ */
 
   function contentRoot() {
-    return document.getElementById("page-content") || document.querySelector("[data-page-content]") ||
+    return document.querySelector("article#page-content") || document.querySelector("[data-page-content]") ||
       document.querySelector("main .prose");
   }
 

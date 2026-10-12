@@ -11,8 +11,9 @@
 
   var BW = window.BW;
   var K = window.BWKanban;
-  var form = document.getElementById("kanban-filter");
-  var tools = document.getElementById("kanban-tools");
+  // By tag: the board description, before the filter, keeps the ids of its headings.
+  var form = document.querySelector("form#kanban-filter");
+  var tools = document.querySelector("details#kanban-tools");
   function openTools() { if (tools) tools.open = true; }
   if (!K || !form) return;
 
@@ -20,8 +21,8 @@
   var WEEK_DAYS = K.weekDays || 7;
   var controls = {};
   FIELDS.forEach(function (name) { controls[name] = form.elements[name]; });
-  var status = document.getElementById("kanban-filter-status");
-  var clear = document.getElementById("kanban-filter-clear");
+  var status = form.querySelector("p#kanban-filter-status");
+  var clear = form.querySelector("button#kanban-filter-clear");
   var filter = {};
 
   function read() {

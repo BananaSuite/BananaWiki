@@ -1082,7 +1082,7 @@
     if (nodeId && !node) return;
     if (node && node.locked) { this.status("canvas.status.locked"); return; }
     type = node ? node.type : type;
-    var dialog = document.getElementById("canvas-node-dialog");
+    var dialog = this.nodeDialog;
     var form = dialog.querySelector("[data-node-form]");
     var visible = FIELDS[type] || FIELDS.text;
     form.querySelectorAll("[data-field]").forEach(function (field) {
@@ -1131,7 +1131,7 @@
 
   Editor.prototype.searchPages = function (query) {
     var editor = this;
-    var results = document.getElementById("cn-page-results");
+    var results = this.nodeDialog.querySelector("#cn-page-results");
     window.clearTimeout(this.pageTimer);
     if (!query.trim()) { results.textContent = ""; return; }
     this.pageTimer = window.setTimeout(function () {
@@ -1230,7 +1230,7 @@
     var edge = this.scene.edge(edgeId);
     if (!edge) return;
     this.selectEdge(edgeId);
-    var dialog = document.getElementById("canvas-edge-dialog");
+    var dialog = this.edgeDialog;
     var form = dialog.querySelector("[data-edge-form]");
     form.elements.label.value = edge.label || "";
     form.elements.arrow.value = edge.arrow || "end";
@@ -1262,7 +1262,9 @@
 
   Editor.prototype.bindDialogs = function () {
     var editor = this;
-    var nodeDialog = document.getElementById("canvas-node-dialog");
+    // Kept for the open functions: text nodes keep the ids of their headings and come before the
+    // dialogs, so they are found by tag, once, before the canvas is drawn.
+    var nodeDialog = this.nodeDialog = document.querySelector("dialog#canvas-node-dialog");
     var nodeForm = nodeDialog.querySelector("[data-node-form]");
     nodeForm.addEventListener("submit", function (event) {
       event.preventDefault();
@@ -1283,7 +1285,7 @@
     nodeForm.querySelector("#cn-page-search").addEventListener("input", function (event) {
       editor.searchPages(event.target.value);
     });
-    var edgeDialog = document.getElementById("canvas-edge-dialog");
+    var edgeDialog = this.edgeDialog = document.querySelector("dialog#canvas-edge-dialog");
     var edgeForm = edgeDialog.querySelector("[data-edge-form]");
     edgeForm.addEventListener("submit", function (event) {
       event.preventDefault();
@@ -1505,7 +1507,7 @@
   }
 
   BW.onReady(function () {
-    var app = document.getElementById("canvas-app");
+    var app = document.querySelector("div#canvas-app");
     if (app && BW.Canvas) BW.canvasEditor = new Editor(app);
     var toolbar = document.querySelector(".canvas-toolbar");
     if (toolbar) {

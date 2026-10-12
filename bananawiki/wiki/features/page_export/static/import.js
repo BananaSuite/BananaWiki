@@ -3,8 +3,8 @@
   "use strict";
   var box = document.querySelector("[data-md-import]");
   var input = box && box.querySelector("[data-md-import-input]");
-  var content = document.getElementById("editor-content");
-  var title = document.getElementById("editor-title");
+  var content = document.querySelector("textarea#editor-content");
+  var title = document.querySelector("input#editor-title");
   if (!box || !input || !content || !window.BW) return;
   box.hidden = false;
   input.addEventListener("change", function () {

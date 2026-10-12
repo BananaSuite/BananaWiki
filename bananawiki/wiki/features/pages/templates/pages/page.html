@@ -98,8 +98,9 @@
   {% if (toc|length > 1 and not inline_toc) or panel %}
   <aside class="wiki-page__aside no-print{% if not panel %} wiki-page__aside--contents-only{% endif %}">
     {% if toc|length > 1 and not inline_toc %}
-    <nav class="toc-card" aria-labelledby="toc-title">
-      <p class="sidebar__section-title" id="toc-title">{{ t('pages.toc.title') }}</p>
+    {#- Named directly: aria-labelledby takes the first element with its id, which can be a heading above. -#}
+    <nav class="toc-card" aria-label="{{ t('pages.toc.title') }}">
+      <p class="sidebar__section-title">{{ t('pages.toc.title') }}</p>
       {% include "pages/_contents.html" %}
     </nav>
     {% endif %}
@@ -122,13 +123,14 @@
   <h2 id="dlg-move-h">{{ t('pages.actions.move') }}</h2>
   <form method="post" action="{{ url_for('pages.move', slug=page.slug) }}" class="form">
     {{ forms.csrf() }}
-    <div class="field">
-      <label for="move-category">{{ t('pages.field.category') }}</label>
+    {#- The field is its label (no for=): a heading "Move category" in the page above takes that id. -#}
+    <label class="field">
+      <span class="label">{{ t('pages.field.category') }}</span>
       <select id="move-category" name="category_id">
         <option value="">{{ t('pages.nav.uncategorized') }}</option>
         {% for c in category_choices %}<option value="{{ c.id }}"{% if c.id == page.category_id %} selected{% endif %}>{{ c.path }}</option>{% endfor %}
       </select>
-    </div>
+    </label>
     <div class="btn-row btn-row--end"><button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button><button class="btn btn--primary">{{ t('pages.actions.move') }}</button></div>
   </form>
 </dialog>

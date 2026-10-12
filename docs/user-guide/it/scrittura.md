@@ -38,6 +38,12 @@ avvisato e puoi confrontare le versioni invece di sovrascrivere il suo lavoro.
 | righe `| a | b |` | tabella |
 | `@nome` | collegamento al profilo di quella persona |
 
+A ogni titolo si può rimandare con un collegamento: l'indice lo mostra
+(l'indirizzo della pagina, `#` e il testo del titolo in minuscolo con i
+trattini, per esempio `#primi-passi`). Un titolo chiamato Main, Sidebar o
+Attachments riceve `_1` (`#main_1`): quei nomi appartengono a parti della
+pagina stessa.
+
 Su una riga da sola:
 
 * un indirizzo YouTube o Vimeo diventa un lettore video; `[[video url="…"]]`
@@ -84,4 +90,6 @@ Alcune wiki permettono di costruire una pagina con blocchi visivi (titoli,
 testo, immagini, pulsanti, colonne, video) invece di scrivere in Markdown. Se
 la tua wiki lo prevede, la pagina offre il costruttore accanto a
 **Modifica**. La pagina conserva una copia in Markdown, quindi ricerca e
-cronologia continuano a funzionare.
+cronologia continuano a funzionare. Un blocco **Titolo** chiamato Main,
+Sidebar o Attachments riceve `-2` nel suo collegamento (`#main-2`), per lo
+stesso motivo per cui un titolo in Markdown riceve `_1`.

@@ -4,9 +4,9 @@
 (function () {
   "use strict";
   var panel = document.querySelector("[data-drafts]");
-  var form = document.getElementById("page-editor-form");
-  var title = document.getElementById("editor-title");
-  var content = document.getElementById("editor-content");
+  var form = document.querySelector("form#page-editor-form");
+  var title = document.querySelector("input#editor-title");
+  var content = document.querySelector("textarea#editor-content");
   if (!panel || !form || !content || !window.BW) return;
 
   var pageId = parseInt(panel.getAttribute("data-page-id"), 10);

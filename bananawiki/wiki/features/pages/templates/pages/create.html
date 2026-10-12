@@ -22,8 +22,9 @@
       </select></div>
   </div>
   {% with content=form.content, can_upload=true, page=none %}{% include "pages/_editor.html" %}{% endwith %}
-  <div class="field"><label for="edit-message">{{ t('pages.field.summary') }}</label>
-    <input id="edit-message" name="edit_message" maxlength="500" value="{{ form.edit_message or '' }}"></div>
+  {#- The field is its label (no for=): a heading "Edit message" in the preview above takes that id. -#}
+  <label class="field"><span class="label">{{ t('pages.field.summary') }}</span>
+    <input id="edit-message" name="edit_message" maxlength="500" value="{{ form.edit_message or '' }}"></label>
   {{ slot('editor.below_form', page=none) }}
   <div class="btn-row">{{ page_actions(t('pages.create.submit'), url_for('pages.home')) }}</div>
 </form>

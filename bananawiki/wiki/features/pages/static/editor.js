@@ -225,7 +225,8 @@
 
   // Dialogs: link, table, video --------------------------------------------------
   function openDialog(id) {
-    var dialog = document.getElementById(id);
+    // By tag: the preview, before the dialogs, keeps the ids of its headings.
+    var dialog = document.querySelector("dialog#" + CSS.escape(id));
     if (id === "dlg-link") prepareLinkDialog();
     if (dialog && dialog.showModal) dialog.showModal();
   }
@@ -233,7 +234,7 @@
   var linkUrl = document.querySelector("[data-link-url]");
   var linkSearch = document.querySelector("[data-link-search]");
   var linkResults = document.querySelector("[data-link-results]");
-  var linkDialog = document.getElementById("dlg-link");
+  var linkDialog = document.querySelector("dialog#dlg-link");
   var searchTimer = null, searchController = null, searchVersion = 0;
   function cancelLinkSearch() {
     clearTimeout(searchTimer);

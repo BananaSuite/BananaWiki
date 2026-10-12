@@ -11,10 +11,11 @@ The dialect is the one BananaWiki has always stored: Python-Markdown with
 * ``@username`` mentions linked to profiles.
 
 Output is sanitised with nh3 (the ammonia HTML sanitiser) against a strict
-allow-list: only known classes, ids only on headings, ``style`` limited to a
-few spacing properties with bounded, non-negative values (nothing that could
-size a box to the viewport or pull it over the page around it), links forced
-to ``rel="noopener noreferrer"``. Embeds, mentions and task lists are written
+allow-list: only known classes, ids only on headings (never one of
+:data:`RESERVED_IDS`), ``style`` limited to a few spacing properties with
+bounded, non-negative values (nothing that could size a box to the viewport
+or pull it over the page around it), links forced to
+``rel="noopener noreferrer"``. Embeds, mentions and task lists are written
 *after* sanitising, from validated parameters only, and never inside an
 attribute value (see :func:`_escape_attribute_brackets`).
 
@@ -52,6 +53,7 @@ from markdown.extensions.attr_list import get_attrs_and_remainder
 from markdown.extensions.codehilite import CodeHilite, CodeHiliteExtension, HiliteTreeprocessor
 from markdown.extensions.fenced_code import FencedBlockPreprocessor, FencedCodeExtension
 from markdown.extensions.toc import TocExtension, TocTreeprocessor
+from markdown.extensions.toc import slugify as _toc_slugify
 from markdown.inlinepatterns import SimpleTagInlineProcessor
 from markdown.treeprocessors import Treeprocessor
 from pygments import highlight
@@ -167,6 +169,12 @@ _MAX_STYLE_PX = 4000
 _MAX_STYLE_PERCENT = 100
 _URL_SCHEMES = {"http", "https", "mailto", "ftp"}
 _HEADING_ID = re.compile(r"^[A-Za-z0-9_\-.:]{1,120}$")
+#: Ids the interface links to on every page and on the page view: the skip link (``#main``), the
+#: menu button (``aria-controls="sidebar"``) and the attachments panel, where an upload returns
+#: (``#attachments``). Headings come after the first two and before the panel, so a heading with
+#: one of them would be skipped by its own table of contents or catch the interface's link: it gets
+#: ``_1`` added instead, as a second heading with the same text does.
+RESERVED_IDS = frozenset({"main", "sidebar", "attachments"})
 
 _FENCE = re.compile(r"^\s*(```|~~~)")
 _LIST_ITEM = re.compile(r"^(\d+[.)]|[-*+])\s+\S")
@@ -551,7 +559,9 @@ def filter_style(value: str) -> str | None:
 
 def _attribute_filter(tag: str, attribute: str, value: str) -> str | None:
     if attribute == "id":
-        return value if _HEADING_ID.match(value) else None
+        if not _HEADING_ID.match(value):
+            return None
+        return value + "_1" if value in RESERVED_IDS else value
     if attribute == "style":
         return filter_style(value)
     if tag == "img" and attribute in {"width", "height"}:
@@ -939,8 +949,17 @@ class _FirstTocMarker(TocTreeprocessor):
                 return
 
 
+def _heading_slug(value: str, separator: str) -> str:
+    slug = _toc_slugify(value, separator)
+    return slug + "_1" if slug in RESERVED_IDS else slug
+
+
 class _TableOfContents(TocExtension):
     TreeProcessorClass = _FirstTocMarker
+
+    def __init__(self, **kwargs: object) -> None:
+        kwargs.setdefault("slugify", _heading_slug)
+        super().__init__(**kwargs)
 
 
 class _OutputTooLarge(Exception):

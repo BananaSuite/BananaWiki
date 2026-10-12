@@ -14,11 +14,16 @@
  *   data-dialog-open="id"         open <dialog id=...>; data-dialog-close closes the enclosing dialog
  *   data-dismiss                  inside .alert: remove it
  *   data-toggle-target="selector" toggle the hidden attribute of matching elements
+ *
+ * Page content keeps the ids of its headings (anchors) and can come before the interface's own
+ * elements, so scripts never look an element up by its id alone: they name its tag ("dialog#…":
+ * content cannot make one), use a data attribute, or look inside their own container.
  */
 (function () {
   "use strict";
 
-  var BW = window.BW = window.BW || {};
+  // Only a BW that a script set, not an element of the page named "BW" (window's named access).
+  var BW = window.BW = Object.prototype.hasOwnProperty.call(window, "BW") ? window.BW : {};
   var SCROLL_BLOCKS = "pre, .table-wrap, .prose table, .prose .table-wrapper";
   var strings = {};
   try {
@@ -238,7 +243,8 @@
 
     var opener = closest(target, "[data-dialog-open]");
     if (opener) {
-      var dialog = document.getElementById(opener.getAttribute("data-dialog-open"));
+      var dialogId = opener.getAttribute("data-dialog-open");
+      var dialog = dialogId && document.querySelector("dialog#" + CSS.escape(dialogId));
       if (dialog && dialog.showModal) { event.preventDefault(); dialog.showModal(); }
       return;
     }

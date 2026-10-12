@@ -3,10 +3,16 @@
  * is the preview the server rendered (every value in it escaped or sanitised by BananaWiki). */
 (function () {
   "use strict";
-  var root = document.getElementById("page-builder");
+  var root = document.querySelector("div#page-builder");
   if (!root || !window.BW) return;
   var BW = window.BW;
-  var $ = function (id) { return document.getElementById(id); };
+  // The builder's own elements are found once, now, while the preview is empty: the previewed content
+  // keeps the ids of its headings and comes before the checks.
+  var controls = {};
+  Array.prototype.forEach.call(root.querySelectorAll("[id]"), function (node) {
+    if (!controls[node.id]) controls[node.id] = node;
+  });
+  var $ = function (id) { return controls[id] || null; };
   var blocksEl = $("builder-blocks");
   var emptyEl = $("builder-empty");
   var stageEl = $("builder-stage");
@@ -997,7 +1003,10 @@
     }, 200);
   }
 
-  function embedList(input) { return document.getElementById(input.getAttribute("aria-controls")); }
+  function embedList(input) {
+    var id = input.getAttribute("aria-controls");
+    return id ? document.querySelector("ul#" + CSS.escape(id)) : null;
+  }
 
   function showEmbedOptions(input, items) {
     var list = embedList(input);
@@ -1038,7 +1047,9 @@
     var input = event.target;
     var list = embedList(input);
     var options_ = list ? Array.prototype.slice.call(list.querySelectorAll("[data-embed-ref]")) : [];
-    var active = document.getElementById(input.getAttribute("aria-activedescendant") || "");
+    // The active option is one of the list's own: an id lookup could find a heading of the preview.
+    var activeId = input.getAttribute("aria-activedescendant");
+    var active = activeId ? options_.filter(function (option) { return option.id === activeId; })[0] || null : null;
     var index = options_.indexOf(active);
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();

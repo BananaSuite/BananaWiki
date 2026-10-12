@@ -1,8 +1,10 @@
 /* Sidebar and navigation page: live search, "more pages" loading and reordering. */
 (function () {
   "use strict";
-  if (window.BWPagesNav) return;
-  window.BWPagesNav = true;
+  // The sidebar and category pages both load this script: it runs once. The mark is kept on BW: on
+  // window, an element of the page with that id would already answer to its name.
+  if (BW.pagesNav) return;
+  BW.pagesNav = true;
 
   function el(tag, cls, text) {
     var node = document.createElement(tag);

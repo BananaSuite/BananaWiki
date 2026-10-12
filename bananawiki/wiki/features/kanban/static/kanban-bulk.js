@@ -5,14 +5,16 @@
 
   var BW = window.BW;
   var K = window.BWKanban;
-  var toggle = document.getElementById("kanban-bulk-toggle");
-  var panel = document.getElementById("kanban-bulk");
+  // By tag, and the controls inside the panel: the board description, before them, keeps the ids
+  // of its headings.
+  var toggle = document.querySelector("button#kanban-bulk-toggle");
+  var panel = document.querySelector("section#kanban-bulk");
   if (!K || !toggle || !panel) return;
 
   var active = false;
   var tickets = new Set();
   var columns = new Set();
-  function $(id) { return document.getElementById(id); }
+  function $(id) { return panel.querySelector("#" + id); }
 
   function checkbox(kind, id, label, checked) {
     var box = K.el("input", "kanban-card__check");
@@ -90,7 +92,7 @@
     if (!active) decorateColumns();
   });
 
-  document.getElementById("kanban-board").addEventListener("change", function (event) {
+  document.querySelector("div#kanban-board").addEventListener("change", function (event) {
     var box = event.target;
     if (!box.dataset || !box.dataset.select) return;
     var set = box.dataset.select === "ticket" ? tickets : columns;

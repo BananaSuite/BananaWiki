@@ -5,7 +5,9 @@
 
   BW.onReady(function () {
     document.querySelectorAll("[data-canvas-static]").forEach(function (stage) {
-      var source = document.getElementById(stage.getAttribute("data-source"));
+      // A script element: a heading of the page with that id must not stand in for the snapshot.
+      var sourceId = stage.getAttribute("data-source");
+      var source = sourceId && document.querySelector("script#" + CSS.escape(sourceId));
       var snapshot = {};
       try { snapshot = JSON.parse(source ? source.textContent : "{}"); } catch (e) { snapshot = {}; }
       // Like page embeds: the wheel scrolls the page, Ctrl/Cmd + wheel zooms the preview.

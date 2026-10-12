@@ -724,6 +724,25 @@ Italian, with axe-core and a keyboard walk, and fixed what it found:
   documented. Hosting schema 7 turns a stored delay of 0, the 1.4 column
   default that the 1.6 approval form also saved whatever was shown, into one
   day; "never" and other values are kept.
+* Headings in pages, kanban boards, tickets and comments, canvases and
+  announcements carry an anchor (made from their text, or written for them),
+  and a heading named like a control around it could stand in for that
+  control. Now saving a ticket keeps the assignees, priority, due date and
+  labels its side panel shows, comments and checklist items send what was
+  typed, tickets open, the board's search, filters, panels and its Edit,
+  Sharing and Delete dialogs work, and so do the page's Rename, Move and
+  Change address dialogs, the editor's Link, Table and Video dialogs (and
+  Ctrl+K), the canvas's node and connection dialogs and page search, the
+  sidebar's live search and reordering, and the canvas history preview. The
+  interface finds its own elements by their tag, a data attribute or inside
+  its own container, and the editor's **Add files** and **Load Markdown
+  file** buttons, the ticket's **Attach a file** button, the edit summary and
+  the Move dialog's category hold their control instead of naming it.
+  Headings called Main, Sidebar or Attachments get `_1` in their anchor
+  (`#main_1`), so the skip link, the menu button and the return to the
+  attachments panel after an upload reach the page's own parts, and the
+  contents list reaches the heading. Headings in the announcement bar have no
+  anchor.
 
 ### Security
 
