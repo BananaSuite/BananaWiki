@@ -1,4 +1,4 @@
-"""The sunglasses easter egg, the viewer's own switch and the administrator's actions."""
+"""The sunglasses easter egg, taking them off again and the administrator's actions."""
 
 from __future__ import annotations
 
@@ -15,28 +15,18 @@ bp = feature_blueprint("mascot", "mascot", __name__, template_folder="templates"
 
 @bp.post("/mascot/shades")
 def put_on_shades():
-    """Called by the script after the eleventh click on the mascot."""
-    user = auth.current_user()
-    if not service.state(user)["enabled"]:
-        abort(409)
-    service.update(user, mascot_shades=1)
+    """Called by the script after the eleventh click on the mascot (signed in, as every view here)."""
+    service.update(auth.current_user(), mascot_shades=1)
     return jsonify({"ok": True})
 
 
 @bp.post("/settings/mascot")
 def own_choice():
-    """Switch the mascot on or off, or take its sunglasses off, from "Customise"."""
-    user = auth.current_user()
-    action = request.form.get("action", "")
-    if action == "show":
-        service.update(user, mascot_enabled=1)
-    elif action == "hide":
-        service.update(user, mascot_enabled=0)
-    elif action == "shades_off":
-        service.update(user, mascot_shades=0)
-    else:
+    """Take the mascot's sunglasses off, from "Customise"; it cannot be hidden."""
+    if request.form.get("action", "") != "shades_off":
         abort(400)
-    auth.flash_t(f"mascot.flash.{action}", "success")
+    service.update(auth.current_user(), mascot_shades=0)
+    auth.flash_t("mascot.flash.shades_off", "success")
     return redirect(url_for("users.display"))
 
 
@@ -47,7 +37,8 @@ def everyone():
     if action not in service.BULK_ACTIONS:
         abort(400)
     changed = service.apply_to_everyone(action)
-    # One action name per button, so the audit log names it in the reader's language.
+    # One action name per button, so the audit log names it in the reader's language. The catalogues keep
+    # audit.action.mascot.everyone.show and .hide, actions of earlier builds of 1.7, for entries already logged.
     record(f"mascot.everyone.{action}", details={"count": changed})
     auth.flash_t(f"mascot.admin.done.{action}", "success", count=changed)
     return redirect(url_for("site_admin.appearance"))

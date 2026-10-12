@@ -915,14 +915,15 @@ sign-in.
 After the update every signed-in account sees the mascot, a pixel-art banana,
 in place of the top bar logo (feature id `mascot`, a built-in plugin that is
 on by default). A click on it makes it hop instead of opening the home page;
-the site name next to it still links home. To hide it for everyone, use
-**Hide for everyone** under **Admin → Appearance** (people can switch it back
-on under **Customise**), or switch the plugin off under **Admin → Plugins**,
-which brings the logo back. Installations that must never show it add
-`mascot` to `BW_MANAGED_PLUGIN_DENYLIST` (on a hosting platform,
-`HOSTING_TENANT_PLUGIN_DENYLIST`). Its two choices are keys of the account's
-display preferences, so nothing changes in the database; see
-[docs/features.md](docs/features.md#mascot).
+the site name next to it still links home. It cannot be hidden for one account
+or for everyone: the only way to remove it is to switch the plugin off under
+**Admin → Plugins**, which brings back the logo (since 1.7 the same banana,
+standing still). Installations that must never show it add `mascot` to
+`BW_MANAGED_PLUGIN_DENYLIST` (on a hosting platform,
+`HOSTING_TENANT_PLUGIN_DENYLIST`). Its sunglasses are a key of the account's
+display preferences, so nothing changes in the database; a server that ran an
+earlier build of 1.7, where the mascot could be hidden, shows it again to the
+accounts that hid it. See [docs/features.md](docs/features.md#mascot).
 
 ### New and changed settings
 

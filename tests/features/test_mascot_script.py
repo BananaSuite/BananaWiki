@@ -70,10 +70,7 @@ def test_settings_and_script_only_for_people_who_see_the_mascot(app, client, mak
     login(client, make_user("mascot_watcher"))
     html = _home(client)
     assert "data-mascot-url" in _button(html) and len(SCRIPT_TAG.findall(html)) == 1
-    client.post("/settings/mascot", data={"action": "hide"})
-    html = _home(client)
-    assert "data-mascot" not in html and not SCRIPT_TAG.search(html)
-    client.post("/settings/mascot", data={"action": "show"})
+    # Only the plugin switch removes the mascot, and its script with it.
     set_feature(app, "mascot", False)
     html = _home(client)
     assert "data-mascot" not in html and not SCRIPT_TAG.search(html)

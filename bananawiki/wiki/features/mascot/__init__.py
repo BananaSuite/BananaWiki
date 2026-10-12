@@ -1,16 +1,18 @@
 """The mascot: a pixel-art banana in place of the top bar logo.
 
-It bobs, blinks and hops when clicked; the eleventh click puts sunglasses on
-it, and they stay until the person takes them off under "Customise".
-Administrators can show, hide or dress it for everyone at once from
-Appearance. See :mod:`.service` for where the choices are stored.
+Every signed-in person sees it while the feature is on: only switching the
+plugin off brings back the static logo. It bobs, blinks and hops when clicked;
+the eleventh click puts sunglasses on it, and they stay until the person takes
+them off under "Customise". Administrators can put them on or take them off
+for everyone at once from Appearance. See :mod:`.service` for where they are
+stored.
 
 Slots filled here
 -----------------
 * ``topbar.brand`` - the mascot in place of the logo, with its stylesheet and script, for
-  signed-in people who keep it on.
-* ``account.display_sections`` - the viewer's own switch under "Customise".
-* ``admin.appearance`` - the actions for every account.
+  signed-in people.
+* ``account.display_sections`` - "Take the sunglasses off" under "Customise", only while they are on.
+* ``admin.appearance`` - the sunglasses actions for every account.
 """
 
 from __future__ import annotations
@@ -33,11 +35,10 @@ def topbar() -> str:
 
 
 def display_section() -> str:
-    user = auth.current_user()
-    if user is None:
+    # Only the sunglasses can be changed here: without them the section would be empty.
+    if not service.state(auth.current_user())["shades"]:
         return ""
-    return render_template("mascot/_display.html", state=service.state(user), sprite=sprite.svg,
-                           current=service.variant(user))
+    return render_template("mascot/_display.html", sprite=sprite.svg)
 
 
 def admin_section() -> str:

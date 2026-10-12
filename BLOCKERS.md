@@ -245,11 +245,11 @@ run, they are your decisions:
   `--cloudflare` would break visitors' addresses for platforms proxied by
   Cloudflare without that flag. Default: believed everywhere, documented.
 * **The mascot is on by default** (a built-in plugin, pull request #21):
-  servers updating from 1.6 show it to every signed-in account.
-  Administrators can hide it for everyone (**Admin → Appearance**) or switch
-  it off (**Admin → Plugins**). The Italian and German toasts keep the
-  English phrase "Deal with it." (the contributor's choice). Default: as
-  merged.
+  servers updating from 1.6 show it to every signed-in account. At the
+  owner's request it can no longer be hidden, by one person or for everyone;
+  only switching the plugin off (**Admin → Plugins**) removes it and brings
+  the logo back. The Italian and German toasts keep the English phrase "Deal
+  with it." (the contributor's choice). Default: as merged.
 * **The mascot is a 44-pixel target on touch screens** (pull request #25),
   the size platform guidance asks for; the 32-pixel sprite alone already
   meets WCAG 2.2 AA (24 pixels). On a 375-pixel phone the site name then

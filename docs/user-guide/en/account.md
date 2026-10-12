@@ -20,9 +20,9 @@ out. **Reset display preferences** returns to the site's defaults and removes
 your background picture; your language and mascot choices stay as they are.
 
 If your wiki has the mascot, a banana in place of the logo in the topbar, a
-click makes it hop; the site name next to it leads to the home page. Here
-under **Customise** you can hide it (the logo comes back), or take its
-sunglasses off if you found out how to put them on.
+click makes it hop; the site name next to it leads to the home page. It stays
+in the topbar for as long as your administrators keep it on. If you found out
+how to put sunglasses on it, you can take them off here under **Customise**.
 
 ## Language
 
