@@ -119,6 +119,29 @@
   .editor .toolbar { border-bottom: 1px solid var(--border-strong); border-radius: var(--radius); }
   .editor__textarea { border-radius: var(--radius-sm); }
 }
+/* Pictures in the preview open their options (editor.js). */
+.editor__preview img:not(.bw-embed img, .bw-video img) { cursor: pointer; }
+.editor__preview img:not(.bw-embed img, .bw-video img):hover { outline: 2px solid var(--bw-primary); outline-offset: 2px; }
+.image-dialog { width: min(640px, calc(100vw - 2rem)); }
+.image-crop { display: grid; justify-items: center; gap: .5rem; }
+/* The stage takes the picture's size, so the crop box is placed in fractions of it. */
+.image-crop__stage { position: relative; display: inline-block; max-width: 100%; line-height: 0; overflow: hidden;
+  border-radius: var(--radius-sm); background: var(--surface-2); touch-action: none; user-select: none; }
+.image-crop__stage img { display: block; max-width: 100%; max-height: 45vh; width: auto; height: auto; }
+.image-crop__box { position: absolute; box-sizing: border-box; border: 2px solid #fff; outline: 1px solid rgba(0, 0, 0, .6);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55); cursor: move; touch-action: none; }
+.image-crop__box:focus-visible { outline: 3px solid var(--bw-primary); }
+.image-crop__handle { position: absolute; width: 1.1rem; height: 1.1rem; padding: 0; border: 2px solid #fff; border-radius: 50%;
+  background: var(--bw-primary); touch-action: none; }
+.image-crop__handle:focus-visible { outline: 3px solid var(--bw-text); outline-offset: 1px; }
+.image-crop__handle--nw { left: -.6rem; top: -.6rem; cursor: nwse-resize; }
+.image-crop__handle--ne { right: -.6rem; top: -.6rem; cursor: nesw-resize; }
+.image-crop__handle--sw { left: -.6rem; bottom: -.6rem; cursor: nesw-resize; }
+.image-crop__handle--se { right: -.6rem; bottom: -.6rem; cursor: nwse-resize; }
+.image-crop__bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; width: 100%; }
+.image-width { display: flex; gap: .35rem; }
+.image-width input { flex: 1 1 auto; min-width: 0; }
+.image-width select { flex: 0 0 auto; width: auto; }
 .link-results { list-style: none; margin: .35rem 0 0; padding: 0; max-height: 12rem; overflow: auto; }
 .link-results button { width: 100%; text-align: left; background: none; border: 0; color: var(--bw-text); padding: .3rem .4rem; border-radius: var(--radius-sm); cursor: pointer; font: inherit; }
 .link-results button:hover, .link-results button:focus { background: var(--surface-2); }

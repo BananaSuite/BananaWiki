@@ -61,6 +61,17 @@ Trascina o incolla le immagini nell'editor per caricarle: vengono salvate
 nella wiki e inserite nel punto del cursore. Funzionano anche le immagini di
 altri siti, ma caricarle rispetta di più la privacy di chi legge.
 
+Per cambiare un'immagine fai clic su di essa nell'anteprima, oppure metti il
+cursore sull'immagine nel testo e premi **Immagine**. Puoi scrivere il **testo
+alternativo** (lo legge chi usa un lettore di schermo), scegliere la
+larghezza in pixel o in percentuale, la spaziatura intorno e l'allineamento:
+con **A sinistra** o **A destra** il testo che segue scorre accanto
+all'immagine (sui telefoni l'immagine va sopra il testo). Trascinando gli
+angoli la **ritagli**: il ritaglio viene caricato come nuova immagine e
+l'originale resta, perché altre pagine o versioni precedenti potrebbero
+usarlo. Le GIF e le immagini di altri siti non si ritagliano. Un'immagine con
+queste opzioni è scritta nel testo come tag `<img>`.
+
 Se gli allegati sono attivi, l'editor e la pagina hanno una sezione
 **Allegati** per altri file (PDF, documenti, archivi, audio, video). La wiki
 può limitare i tipi di file, le dimensioni e quanto puoi caricare al giorno.
