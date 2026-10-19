@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from bananawiki.wiki import registry
@@ -256,3 +258,13 @@ def test_easy_wiki_hides_canvas(app_factory):
     easy = app_factory(environ={"BW_EASY_WIKI": "1"})
     with easy.test_request_context(), connection_scope():
         assert not registry.is_enabled("canvas")
+
+
+def test_node_dialog_takes_any_whole_pixel_size(client, login, people, app):
+    # Resizing by hand leaves sizes such as 264: a coarser step made the browser refuse the dialog.
+    layout = make_canvas(app, people["admin"])
+    as_(client, login, people["admin"])
+    page = client.get(f"/canvas/{layout['slug']}").get_data(as_text=True)
+    for name in ("width", "height", "text_size"):
+        field = re.search(rf'<input id="cn-[a-z-]+" name="{name}"[^>]*>', page)
+        assert field and 'step="1"' in field.group(0), name

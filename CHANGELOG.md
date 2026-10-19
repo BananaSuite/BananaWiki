@@ -526,6 +526,10 @@ Italian, with axe-core and a keyboard walk, and fixed what it found:
 
 ### Fixed
 
+* Canvas: the edit dialog of an element resized by hand (to a width or height
+  such as 264) can be saved again. Its size fields took only steps of ten and
+  the browser refused the form; they now take any whole pixel, and a size with
+  decimals (from an import or the API) is shown rounded.
 * Speech conversion accepts only local MP3/PCM WAV inputs and the required audio
   decoders, discards metadata and limits decoder/filter/encoder threads.
   Oversized diagnostics and execution time stop and reap the encoder, preserving
