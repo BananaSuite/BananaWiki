@@ -1098,8 +1098,10 @@
     form.elements.shape.value = values.shape || "rectangle";
     form.elements.color.value = values.color || "";
     form.elements.text_size.value = values.text_size || 13;
-    form.elements.width.value = size.w;
-    form.elements.height.value = size.h;
+    /* Whole pixels, as resizing makes them: the fields take any of them (step 1), and an imported size
+     * with decimals would otherwise stop the form from being sent. */
+    form.elements.width.value = Math.round(size.w);
+    form.elements.height.value = Math.round(size.h);
     form.elements.file.value = "";
     var contentLabel = form.querySelector("[data-content-label]");
     contentLabel.textContent = contentLabel.getAttribute(type === "code" ? "data-code-label" : "data-text-label");
