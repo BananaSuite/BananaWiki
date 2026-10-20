@@ -177,6 +177,19 @@ account merges; AUDIT.md lists where they meet this release's own fixes.
   aloud does not follow the interface language: German pages are read in
   German once German is enabled among the read-aloud languages (automatic
   detection of German pages needs `langdetect`).
+* **Image options in the page editor.** Clicking an image in the preview, or
+  pressing **Image** with the cursor on one, opens a dialog for its
+  alternative text, width (pixels or percent), spacing and alignment (left
+  and right let the text that follows flow beside it) and a crop. The dialog
+  rewrites only that image in the Markdown, as an `<img>` tag the existing
+  allow-list already keeps (plain `![alt](src)` again once no option is
+  left); nothing is resized inside the preview, which is rebuilt as you type.
+  A crop is drawn in the browser and uploaded as a new image through the
+  usual upload (permission, daily quota, metadata removal), so the original,
+  which other pages and old versions may show, is never changed; GIFs and
+  images from other sites are not cropped. On screens up to 600 px wide,
+  left- and right-aligned images no longer float beside the text but sit
+  above it.
 
 ### Changed
 

@@ -58,6 +58,16 @@ Drop or paste images into the editor to upload them; they are stored in the
 wiki and inserted where the cursor is. Images from other websites work too,
 but uploading is kinder to readers' privacy.
 
+To change an image, click it in the preview, or put the cursor on it in the
+text and press **Image**. You can write its **alternative text** (read out to
+people using a screen reader), set its width in pixels or as a percentage,
+the spacing around it and its alignment: with **Left** or **Right** the text
+that follows flows beside the image (on phones the image goes above the
+text). Dragging the corners **crops** it: the crop is uploaded as a new image
+and the original stays, as other pages or earlier versions may show it. GIFs
+and images from other websites are not cropped. An image with these options
+is written into the text as an `<img>` tag.
+
 If attachments are enabled, the editor and the page have an **Attachments**
 section for other files (PDF, documents, archives, audio, video). The wiki may
 limit file types, sizes and how much you can upload per day.

@@ -54,6 +54,10 @@ dialog .prose table, .card .prose table { --scroll-cover: var(--surface); }
 .prose .media-right { float: right; margin: 0 0 1rem 1.25rem; max-width: 50%; }
 .prose .media-center { display: block; margin-left: auto; margin-right: auto; }
 .prose .media-full { display: block; width: 100%; }
+/* On a phone the text beside a floated picture would be a few words wide: it goes below. */
+@media (max-width: 600px) {
+  .prose .media-left, .prose .media-right { float: none; display: block; max-width: 100%; margin: 0 auto 1rem; }
+}
 .prose figure { margin: 0 0 1em; }
 .prose figcaption, .prose .media-caption { font-size: .85rem; color: var(--muted); text-align: center; }
 .prose .toc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .75rem 1rem; margin-bottom: 1em; }

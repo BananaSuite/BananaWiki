@@ -24,7 +24,8 @@
     </details>
     <span class="editor__separator" role="separator" aria-orientation="vertical"></span>
     <button type="button" class="btn btn--ghost btn--small" data-dialog-open="dlg-link" data-md-dialog="link">{{ t('pages.editor.link') }}</button>
-    {% if can_upload %}<button type="button" class="btn btn--ghost btn--small" data-md="image">{{ t('pages.editor.image') }}</button>{% endif %}
+    {#- Uploads a picture, or opens the options of the one at the cursor. -#}
+    <button type="button" class="btn btn--ghost btn--small" data-md="image" title="{{ t('pages.editor.image_title' if can_upload else 'pages.editor.image_title_edit') }}">{{ t('pages.editor.image') }}</button>
     <details class="menu">
       <summary class="btn btn--ghost btn--small">{{ t('pages.editor.insert') }} <span aria-hidden="true">▾</span></summary>
       <div class="menu__panel">
@@ -90,6 +91,41 @@
         <select id="video-width" data-video-width><option value="">{{ t('pages.editor.width_full') }}</option>{% for w in [320, 480, 560, 640, 720, 800] %}<option value="{{ w }}">{{ w }} px</option>{% endfor %}</select></div>
     </div>
     {{ dialog_actions('video') }}
+  </div>
+</dialog>
+<dialog id="dlg-image" class="image-dialog" aria-labelledby="dlg-image-h">
+  <h2 id="dlg-image-h">{{ t('pages.editor.image_options') }}</h2>
+  <div class="form">
+    <div class="image-crop">
+      <div class="image-crop__stage" data-crop-stage>
+        <img data-crop-img alt="">
+        <div class="image-crop__box" data-crop-box tabindex="0" role="group" aria-label="{{ t('pages.editor.crop_area') }}" hidden>
+          {% for corner in ['nw', 'ne', 'sw', 'se'] %}<button type="button" class="image-crop__handle image-crop__handle--{{ corner }}" data-crop-handle="{{ corner }}" aria-label="{{ t('pages.editor.crop_corner.' ~ corner) }}"></button>{% endfor %}
+        </div>
+      </div>
+      <div class="image-crop__bar">
+        <p class="hint" data-crop-hint aria-live="polite"></p>
+        <button type="button" class="btn btn--small" data-crop-reset hidden>{{ t('pages.editor.crop_reset') }}</button>
+      </div>
+    </div>
+    <div class="field"><label for="image-alt">{{ t('pages.editor.image_alt') }}</label><input id="image-alt" data-image-alt maxlength="300"><p class="hint">{{ t('pages.editor.image_alt_hint') }}</p></div>
+    <div class="form-grid">
+      <div class="field"><label for="image-width">{{ t('pages.editor.width') }}</label>
+        <div class="image-width">
+          <input id="image-width" type="number" min="1" max="4000" step="1" inputmode="numeric" data-image-width placeholder="{{ t('pages.editor.image_width_auto') }}">
+          <select data-image-unit aria-label="{{ t('pages.editor.image_unit') }}"><option value="px">px</option><option value="%">%</option></select>
+        </div></div>
+      <div class="field"><label for="image-align">{{ t('pages.editor.align') }}</label>
+        <select id="image-align" data-image-align>
+          {% for value in ['none', 'left', 'right', 'center', 'full'] %}<option value="{{ value }}">{{ t('pages.editor.align.' ~ value) }}</option>{% endfor %}
+        </select></div>
+      <div class="field"><label for="image-padding">{{ t('pages.editor.image_padding') }}</label><input id="image-padding" type="number" min="0" max="200" step="1" inputmode="numeric" data-image-padding placeholder="0"></div>
+    </div>
+    <p class="hint">{{ t('pages.editor.image_float_hint') }}</p>
+    <div class="btn-row btn-row--end">
+      <button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button>
+      <button type="button" class="btn btn--primary" data-image-apply>{{ t('pages.editor.apply') }}</button>
+    </div>
   </div>
 </dialog>
 <script type="application/json" id="editor-config">{{ {

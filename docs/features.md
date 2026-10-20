@@ -61,8 +61,9 @@ The wiki itself: Markdown pages in a tree of categories.
   links in sidebar order).
 * **Editing** at `/page/<slug>/edit` and **creating** at `/create`: a Markdown
   editor with a formatting toolbar, live preview, image upload by drag and
-  drop or paste, tables, video embeds, links to other pages, and
-  full screen. Two people saving the same page are told about the conflict
+  drop or paste, image options (alternative text, width, alignment with text
+  flowing beside, spacing, crop to a new upload) from a click in the preview,
+  tables, video embeds, links to other pages, and full screen. Two people saving the same page are told about the conflict
   instead of overwriting each other. Other editors currently on the page are
   shown.
 * **Markdown dialect**: tables, fenced code with highlighting, a table of
