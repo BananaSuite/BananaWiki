@@ -13,6 +13,7 @@ from .errors import ServiceError
 
 DOMAIN_MODES = ("hosting", "apex")
 TERMINATED_MARKER = "--terminated-"
+ARCHIVED_NAME_MAX_LENGTH = 63
 _SLUG = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 _DATA_DIR = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:__apex)?$")
 
@@ -45,8 +46,13 @@ def validate_slug(value: str, *, account_is_admin: bool, domain_mode: str = "hos
         raise ServiceError("hosting.slug.required")
     if len(slug) < cfg.subdomain_min_length:
         raise ServiceError("hosting.slug.too_short", min=cfg.subdomain_min_length)
-    if len(slug) > cfg.subdomain_max_length:
-        raise ServiceError("hosting.slug.too_long", max=cfg.subdomain_max_length)
+    longest = cfg.subdomain_max_length
+    suffix = instance_suffix()
+    if domain_mode != "apex" and suffix:
+        # A DNS label has 63 characters at most, and the host is "<slug>-<suffix>".
+        longest = min(longest, 63 - len(suffix) - 1)
+    if len(slug) > longest:
+        raise ServiceError("hosting.slug.too_long", max=longest)
     if not _SLUG.match(slug) or "--" in slug:
         raise ServiceError("hosting.slug.invalid_chars")
     if slug in reserved():
@@ -63,7 +69,11 @@ def data_dir_name(slug: str, domain_mode: str) -> str:
 
 
 def archived_slug(instance_id: str, slug: str) -> str:
-    return f"{slug.strip().lower()}{TERMINATED_MARKER}{instance_id[:8].lower()}"
+    """``<slug>--terminated-<id8>``, the slug shortened so that the name fits the runtime agent's tenant names
+    (at most :data:`ARCHIVED_NAME_MAX_LENGTH` characters before ``__apex``)."""
+    suffix = f"{TERMINATED_MARKER}{instance_id[:8].lower()}"
+    base = slug.strip().lower()[:ARCHIVED_NAME_MAX_LENGTH - len(suffix)].rstrip("-")
+    return f"{base}{suffix}"
 
 
 def original_slug(archived: str) -> str:
@@ -74,15 +84,18 @@ def format_host(host: str) -> str:
     return f"[{host}]" if ":" in host and not host.startswith("[") else host
 
 
-def platform_host(inst: dict[str, Any]) -> str:
-    """The public host of a wiki in subdomain mode ('' in port mode)."""
+def platform_host(inst: dict[str, Any], *, suffix: str | None = None) -> str:
+    """The public host of a wiki in subdomain mode ('' in port mode).
+
+    *suffix* (``""``: none) stands in for the platform setting.
+    """
     cfg = config()
     if cfg.hosting_mode != "subdomain" or not cfg.base_domain:
         return ""
     slug = inst["subdomain"]
     if (inst.get("domain_mode") or "hosting") == "apex":
         return f"{slug}.{cfg.base_domain}"
-    suffix = instance_suffix()
+    suffix = instance_suffix() if suffix is None else suffix
     return f"{slug}-{suffix}.{cfg.base_domain}" if suffix else f"{slug}.{cfg.base_domain}"
 
 

@@ -61,7 +61,7 @@ def test_default_access_is_admin_only(client, login, people, app, db):
 
 
 def test_single_share_does_not_open_public_canvases(client, login, people, app, db):
-    """1.4 bug: a user with one individual share could read every public canvas."""
+    """A user with one individual share cannot read every public canvas."""
     shared = make_canvas(app, people["admin"], "Shared with me")
     public = make_canvas(app, people["admin"], "Public one", visibility="public")
     share(db, shared, "view", user=people["user"])
@@ -258,6 +258,25 @@ def test_easy_wiki_hides_canvas(app_factory):
     easy = app_factory(environ={"BW_EASY_WIKI": "1"})
     with easy.test_request_context(), connection_scope():
         assert not registry.is_enabled("canvas")
+
+
+def test_canvas_export_hides_pages_the_exporter_cannot_read(app, client, db, login, make_user):
+    from tests.features.pages_support import in_app, make_category, make_page, restrict
+
+    visible, hidden = make_category(app, "Open"), make_category(app, "Hidden")
+    page = make_page(app, "Salaries 2026", "confidential numbers", category_id=hidden["id"])
+    editor = make_user("restricted_ed", role="editor")
+    restrict(db, editor, read=[visible["id"]], write=[visible["id"]])
+    in_app(app, lambda: registry.set_enabled("canvas", True))
+    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'all' WHERE id = 1")
+    layout = in_app(app, lambda: service.create("Mine", "", editor["id"]))
+    login(client, editor)
+    node = {"id": "n1", "type": "wiki_page", "x": 0, "y": 0, "page_id": page["id"]}
+    assert client.post(f"/canvas/{layout['slug']}/ops", json={"ops": [{"op": "upsert_node", "node": node}]}
+                       ).status_code == 200
+    exported = client.get(f"/canvas/{layout['slug']}/export?format=json")
+    assert exported.status_code == 200
+    assert b"Salaries" not in exported.data and b"salaries-2026" not in exported.data
 
 
 def test_node_dialog_takes_any_whole_pixel_size(client, login, people, app):

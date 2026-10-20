@@ -86,10 +86,11 @@ def atomic_write(path: str | os.PathLike[str], content: str | bytes, mode: int =
     fd, temporary = tempfile.mkstemp(prefix=".write-", dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as target:
+            # By descriptor: the service account owning data/ could swap the temporary name for a link.
+            os.fchmod(target.fileno(), mode)
             target.write(content.encode() if isinstance(content, str) else content)
             target.flush()
             os.fsync(target.fileno())
-        os.chmod(temporary, mode)
         os.replace(temporary, path)
         fsync_directory(path.parent)
     finally:
@@ -181,7 +182,7 @@ def read_json(path: str | os.PathLike[str], default: Any = None, *, max_bytes: i
 
 
 def manifest_limit(files: int) -> int:
-    """The largest manifest of a package of *files* files (16 MiB, as in 1.4, plus 1 KiB a file)."""
+    """The largest manifest of a package of *files* files (16 MiB plus 1 KiB a file)."""
     return _JSON_BYTES + 1024 * files
 
 

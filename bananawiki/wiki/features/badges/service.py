@@ -3,7 +3,8 @@
 Automatic triggers are evaluated by a background job for everyone and, for
 the author only, right after they save a page or sign in - never on ordinary
 page views. A badge a trigger awarded is awarded once, even when the type
-allows several manual awards.
+allows several manual awards. A revoked award keeps a trigger from awarding
+the badge again; only a manual award or deleting the award lifts that.
 """
 
 from __future__ import annotations
@@ -32,6 +33,14 @@ DEFAULT_BADGES = (
     ("Diverse Contributor", "Contributed to 5 different categories", "🌈", "#3498db", "category_count", 5),
     ("Veteran", "Member for 365 days", "🎖️", "#2ecc71", "member_days", 365),
 )
+# Icons nobody chose: the defaults above and the form's fallback (🏆). Badges show a mark in their colour instead.
+STOCK_ICONS = frozenset(icon.replace("\ufe0f", "") for *_, icon, _color, _trigger, _threshold in DEFAULT_BADGES) | {"🏆"}
+
+
+def chosen_icon(icon: str | None) -> str:
+    """The icon an administrator typed, or "" for none and for the stock icons."""
+    icon = (icon or "").strip()
+    return "" if icon.replace("\ufe0f", "") in STOCK_ICONS else icon
 
 
 class BadgeError(ValueError):
@@ -41,7 +50,7 @@ class BadgeError(ValueError):
         self.values = values
 
 
-# ── Badge types ──────────────────────────────────────────────────────────────
+# Badge types
 
 
 def list_types() -> list[dict[str, Any]]:
@@ -135,7 +144,7 @@ def add_defaults(created_by: str | None) -> int:
     return added
 
 
-# ── Awards ────────────────────────────────────────────────────────────────────
+# Awards
 
 
 def _notify(user_id: str, type_id: int) -> None:
@@ -155,6 +164,8 @@ def award(user_id: str, badge: dict[str, Any], awarded_by: str | None, *, automa
             return False
         revoked = db.one("SELECT id FROM user_badges WHERE user_id = ? AND badge_type_id = ? AND revoked = 1 "
                          "ORDER BY id DESC LIMIT 1", (user_id, badge["id"]))
+        if revoked and automatic:
+            return False
         if revoked and not active:
             db.execute("UPDATE user_badges SET revoked = 0, revoked_at = NULL, revoked_by = NULL, earned_at = ?, "
                        "awarded_by = ? WHERE id = ?", (now_sql(), awarded_by, revoked["id"]))
@@ -204,7 +215,7 @@ def user_badges(user_id: str) -> list[dict[str, Any]]:
     )
 
 
-# ── Notifications ────────────────────────────────────────────────────────────
+# Notifications
 
 
 def unnotified(user_id: str) -> list[dict[str, Any]]:
@@ -225,7 +236,7 @@ def dismiss(user_id: str) -> None:
     db.execute("UPDATE badge_notifications SET notified = 1 WHERE user_id = ? AND notified = 0", (user_id,))
 
 
-# ── Automatic triggers ───────────────────────────────────────────────────────
+# Automatic triggers
 
 
 def _scoped(sql: str, column: str, user_id: str | None, params: list[Any]) -> str:
@@ -241,9 +252,16 @@ _STAT_SQL = {
     "category_count": ("SELECT ph.edited_by, COUNT(DISTINCT p.category_id) FROM page_history ph "
                        "JOIN pages p ON p.id = ph.page_id WHERE ph.edited_by IS NOT NULL "
                        "AND p.category_id IS NOT NULL{scope} GROUP BY ph.edited_by", "ph.edited_by"),
-    "article_count": ("SELECT h.edited_by, COUNT(*) FROM page_history h JOIN "
-                      "(SELECT MIN(id) AS id FROM page_history GROUP BY page_id) f ON f.id = h.id "
-                      "WHERE h.edited_by IS NOT NULL{scope} GROUP BY h.edited_by", "h.edited_by"),
+    # Pages a user created: the first revision of each page. For one user each of
+    # their revisions is probed by index; for everyone the first revisions are
+    # listed once.
+    "article_count": ("SELECT h.edited_by, COUNT(*) FROM page_history h WHERE h.edited_by IS NOT NULL{scope} "
+                      "AND h.id IN (SELECT MIN(id) FROM page_history GROUP BY page_id) GROUP BY h.edited_by",
+                      "h.edited_by"),
+    "article_count_of_one": ("SELECT h.edited_by, COUNT(*) FROM page_history h "
+                             "WHERE h.edited_by IS NOT NULL{scope} AND NOT EXISTS "
+                             "(SELECT 1 FROM page_history o WHERE o.page_id = h.page_id AND o.id < h.id) "
+                             "GROUP BY h.edited_by", "h.edited_by"),
     "member_days": ("SELECT id, CAST(julianday('now') - julianday(created_at) AS INTEGER) FROM users "
                     "WHERE 1{scope}", "id"),
     "reading_time": ("SELECT user_id, seconds / 60 FROM badge_reading_time WHERE 1{scope}", "user_id"),
@@ -252,6 +270,8 @@ _STAT_SQL = {
 
 def _stats(trigger: str, user_id: str | None) -> dict[str, int]:
     key = "contribution_count" if trigger == "first_edit" else trigger
+    if key == "article_count" and user_id is not None:
+        key = "article_count_of_one"
     sql, column = _STAT_SQL[key]
     params: list[Any] = []
     query = _scoped(sql, column, user_id, params)
@@ -273,9 +293,10 @@ def evaluate(user_id: str | None = None) -> int:
         trigger = badge["trigger_type"]
         if trigger not in TRIGGERS:
             continue
-        stats = cache.setdefault(trigger, _stats(trigger, user_id))
-        holders_now = set(db.column("SELECT user_id FROM user_badges WHERE badge_type_id = ? AND revoked = 0",
-                                    (badge["id"],)))
+        if trigger not in cache:
+            cache[trigger] = _stats(trigger, user_id)
+        stats = cache[trigger]
+        holders_now = set(db.column("SELECT user_id FROM user_badges WHERE badge_type_id = ?", (badge["id"],)))
         for candidate, value in stats.items():
             if candidate not in holders_now and _qualifies(trigger, value, badge["trigger_threshold"]):
                 if award(candidate, badge, None, automatic=True):
@@ -303,7 +324,7 @@ def add_reading_time(user_id: str, seconds: int) -> None:
         )
 
 
-# ── Event handlers ────────────────────────────────────────────────────────────
+# Event handlers
 
 
 def on_page_saved(page: dict[str, Any], author_id: str | None = None, **_: Any) -> None:

@@ -23,7 +23,7 @@ bp = Blueprint("page_export", __name__, template_folder="templates", static_fold
                static_url_path="/static/page_export")
 
 
-# ── Who may export ────────────────────────────────────────────────────────────
+# Who may export
 
 
 def pdf_allowed(user: dict[str, Any] | None = None) -> bool:
@@ -32,7 +32,7 @@ def pdf_allowed(user: dict[str, Any] | None = None) -> bool:
 
 
 def markdown_allowed(page: dict[str, Any], user: dict[str, Any] | None = None) -> bool:
-    """Markdown source downloads are for the page's editors, as in 1.4."""
+    """Markdown source downloads are for the page's editors."""
     user = auth.current_user() if user is None else user
     return bool(user) and bool(settings.get("markdown_export_enabled")) and pages.can_edit(page, user)
 
@@ -60,7 +60,7 @@ def _require_pdf() -> None:
         abort(403)
 
 
-# ── Single page ──────────────────────────────────────────────────────────────
+# Single page
 
 
 @bp.get("/page/<slug>/export-pdf")
@@ -97,11 +97,14 @@ def export_markdown(slug: str):
         abort(404)
     if not markdown_allowed(page):
         abort(403)
-    category = categories.get(page["category_id"]) if page["category_id"] else None
-    text = mdf.document({"title": page["title"], "slug": page["slug"],
-                         "category": category["name"] if category else "",
-                         "exported_at": page.get("last_edited_at") or ""}, page["content"] or "")
-    return send_file(io.BytesIO(text.encode("utf-8")), mimetype="text/markdown; charset=utf-8", as_attachment=True,
+    chain = categories.ancestors(page["category_id"])
+    meta = {"title": page["title"], "slug": page["slug"], "category": chain[-1]["name"] if chain else ""}
+    # As in the breadcrumbs, the file never names a parent category the editor cannot open.
+    if all(auth.can_read_category(c["id"]) for c in chain):
+        meta["category_path"] = bulk.category_path(chain)
+    meta["exported_at"] = page.get("last_edited_at") or ""
+    text = mdf.document(meta, page["content"] or "")
+    return send_file(io.BytesIO(text.encode("utf-8")), mimetype="text/markdown", as_attachment=True,
                      download_name=f"{page['slug']}.md", max_age=0)
 
 
@@ -123,7 +126,7 @@ def import_markdown(slug: str):
     return jsonify({"content": parsed.body, "title": title[:pages.MAX_TITLE] if title else None})
 
 
-# ── Bulk Markdown (administrators) ───────────────────────────────────────────
+# Bulk Markdown (administrators)
 
 
 @bp.get("/admin/bulk-markdown")

@@ -49,8 +49,8 @@ def test_signed_in_without_the_mascot_the_top_bar_shows_the_logo(app, client, ma
 
 
 def test_a_custom_page_in_its_sandbox_links_the_home_screen_icon_too(client, db):
-    # The frame around an author's HTML has a head of its own: it linked the favicon but not the
-    # home-screen icon, so a phone saving the page asked for /apple-touch-icon.png, which no app serves.
+    # The sandbox frame has its own <head>: it links the home-screen icon too, or a phone saving the
+    # page asks for /apple-touch-icon.png.
     db.execute("UPDATE plugins SET enabled = 1 WHERE id = 'custom_pages'")
     db.insert("custom_pages", {"path": "/landing", "title": "T", "content_type": "html", "content": "<h1>Hi</h1>",
                                "is_published": 1})
@@ -88,7 +88,8 @@ def test_the_presets_are_drawn_crisp_and_uploaded_icons_are_not(admin_client):
 
 
 def test_every_banana_logo_is_twice_the_sprite_and_versioned():
-    """Templates of the wiki and the portal: each banana <img> is 32x32 and its URL follows the file."""
+    """Templates of the wiki: each banana <img> is 32x32 and its URL follows the file (the portal shows the
+    mascot instead)."""
     found = []
     for path in sorted((ROOT / "bananawiki").rglob("*.html")):
         text = path.read_text(encoding="utf-8")
@@ -97,8 +98,7 @@ def test_every_banana_logo_is_twice_the_sprite_and_versioned():
     assert {path for path, _tag in found} >= {
         "bananawiki/wiki/templates/base.html", "bananawiki/wiki/templates/base_minimal.html",
         "bananawiki/wiki/features/custom_pages/templates/custom_pages/_page.html",
-        "bananawiki/wiki/features/site_admin/templates/site_admin/appearance.html",
-        "bananawiki/hosting/templates/hosting/base.html"}
+        "bananawiki/wiki/features/site_admin/templates/site_admin/appearance.html"}
     wrong = [(path, tag) for path, tag in found
              if 'width="32" height="32"' not in tag or "asset_url(" not in tag or "url_for('static'" in tag]
     assert wrong == []
@@ -114,16 +114,15 @@ def test_logos_stay_crisp_when_the_browser_scales_them():
 
 
 def test_on_phones_the_logo_leaves_the_site_name_the_room_the_mascot_does():
-    """mascot.css pulls the 32px mascot 5px into the menu button's gap on phones, so the site name starts where
-    it started next to the earlier 23px logo. The 32px logo next to the menu button does the same (its empty
-    column and three more pixels, on either side for right-to-left) and its gap before the name narrows by
-    .25rem: the name starts in the same place whether the mascot or the logo is shown."""
+    """On phones mascot.css pulls the 32px mascot 5px into the menu button's gap. The 32px logo does the same
+    (its empty column and three more pixels, on either side for right-to-left) and its gap before the name
+    narrows by .25rem, so the site name starts in the same place whether the mascot or the logo is shown."""
     css = (ROOT / "bananawiki" / "core" / "static" / "css" / "bananawiki.css").read_text(encoding="utf-8")
     phone = css.split("@media (max-width: 600px) {\n  .topbar { padding-inline: .65rem; gap: .4rem; }")[1].split("\n}")[0]
     # The top bar's gap (.4rem) less the mascot's pull towards the name (.25rem) is the logo's gap.
-    assert ".shell > .topbar > .topbar__brand { flex: 1 1 auto; gap: .4rem; font-size: .9rem; }" in phone
+    assert ".shell > .topbar > .topbar__brand { flex: 1 1 auto; gap: .4rem; font-size: var(--font-size-ui); }" in phone
     assert ".shell > .topbar > .topbar__menu-toggle + .topbar__brand { gap: .15rem; }" in phone
     assert ".shell > .topbar > .topbar__menu-toggle + .topbar__brand img { margin-inline-start: -5px; }" in phone
-    mascot = (ROOT / "bananawiki" / "wiki" / "features" / "mascot" / "static" / "mascot.css").read_text("utf-8")
+    mascot = (ROOT / "bananawiki" / "core" / "static" / "mascot" / "mascot.css").read_text("utf-8")
     assert re.search(r"@media \(max-width: 600px\) \{\s*\.mascot \{ margin-left: -5px; \}", mascot)
     assert ".mascot + .topbar__brand { margin-inline-start: -.25rem; }" in mascot

@@ -1,27 +1,23 @@
-# Sicurezza e Backup
+# Sicurezza e backup
 
-BananaWiki è progettata per conoscenza privata, quindi protegge account e contenuti, registra gli eventi amministrativi e di sicurezza e permette backup e ripristino completi del sito.
+Come la wiki protegge account e contenuti, e come farne il backup.
 
-## Protezione account
+## Protezione degli account
 
-Le password sono salvate come hash, i tentativi di login sono limitati, i token CSRF proteggono form e mutazioni AJAX, e gli admin possono imporre limiti di sessione. Sospensioni, cambio password obbligatorio, codici invito e modalità manutenzione aggiungono altri controlli.
+Le password sono salvate come hash, i tentativi di accesso sono limitati e i moduli sono protetti dalle richieste da altri siti. Gli amministratori possono sospendere account, imporre il cambio password, richiedere codici d'invito, consentire una sola sessione per account e mettere la wiki in manutenzione.
 
 Chiunque può attivare la **verifica in due passaggi** in **Impostazioni → Verifica in due passaggi**: dopo la password, l'accesso chiede anche un codice generato da un'app di autenticazione sul telefono, oppure uno dei dieci codici di recupero monouso mostrati all'attivazione. Proprietari e superutenti possono richiederla a tutti gli amministratori in **Amministrazione → Impostazioni del sito → Sicurezza** e azzerarla in **Amministrazione → Utenti** per chi ha perso sia il telefono sia i codici di recupero.
 
-## Protezione contenuti
+## Protezione dei contenuti
 
-Il Markdown viene sanificato prima della visualizzazione. Gli upload sono validati e i tipi pericolosi vengono bloccati dove opportuno. Gli allegati sono serviti da route autenticate, non come file pubblici. Restrizioni di categoria e permessi tengono le pagine sensibili lontane dagli utenti non autorizzati.
+Il Markdown viene ripulito dall'HTML non sicuro prima di essere mostrato. Gli upload vengono controllati rispetto ai limiti di dimensione e ai tipi di file consentiti e bloccati, e le immagini fisse vengono ricodificate, il che rimuove i dati di posizione. Gli allegati vengono serviti solo a chi può leggere la pagina.
 
-## Sicurezza operativa
+## Annullare le modifiche
 
-Gli audit registrano eventi amministrativi e di sicurezza importanti. Il rallentamento eliminazioni può aggiungere un periodo di grazia prima della rimozione definitiva. Cronologia pagina e backup danno agli admin una via di recupero.
+Il registro di controllo annota accessi, modifiche ad account e ruoli, eliminazioni e modifiche alle impostazioni. La cronologia ripristina le versioni precedenti, e l'eliminazione ritardata conserva le pagine eliminate per 48 ore.
 
 ## Backup
 
-Usa esportazioni complete o backup del server. Un backup è utile solo se il ripristino funziona, quindi prova il restore prima di un'emergenza. Conserva copie fuori dal server della wiki live.
+Fai i backup con l'esportazione completa del sito o con i backup del server, tieni copie su un'altra macchina e prova un ripristino prima di averne bisogno.
 
-Un'esportazione completa contiene l'hash di ogni password, quindi conservala come una password. Esportazione e importazione chiedono di nuovo la password dell'admin e vengono registrate nel log. Importare un backup dà il controllo completo della wiki, account dei proprietari compresi, perché il backup sostituisce tutti gli account. Installare un plugin fa lo stesso, perché il suo codice gira con gli stessi diritti della wiki.
-
-## Produzione
-
-Esegui dietro HTTPS, mantieni l'app aggiornata, limita gli account admin, valuta i plugin prima di abilitarli, monitora lo spazio disco e documenta nella wiki la procedura locale di recupero.
+Un'esportazione completa contiene l'hash di ogni password, quindi conservala come una password. Solo proprietari e superutenti possono esportare o importare l'intero sito; entrambe le operazioni chiedono di nuovo la password e vengono registrate nel log. Importare un backup dà il controllo completo della wiki, account dei proprietari compresi, perché il backup sostituisce tutti gli account. Installare un plugin fa lo stesso, perché il suo codice gira con gli stessi diritti della wiki.

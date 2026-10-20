@@ -25,7 +25,7 @@
 <section class="card">
   <h2>{{ t('tts.admin.actions') }}</h2>
   <div class="btn-row">
-    {{ forms.post_button(url_for('tts.admin_backfill'), t('tts.admin.backfill', count=stats.missing), cls='btn btn--primary') }}
+    {{ forms.post_button(url_for('tts.admin_backfill'), tn('tts.admin.backfill', stats.missing), cls='btn btn--primary') }}
     {{ forms.post_button(url_for('tts.admin_retry_failed'), t('tts.admin.retry_failed'), cls='btn', attrs={} if stats.counts.failed else {'disabled': 'disabled'}) }}
     {{ forms.post_button(url_for('tts.admin_clear'), t('tts.admin.clear'), cls='btn btn--danger', confirm=t('tts.admin.clear_confirm'), attrs={} if stats.bytes else {'disabled': 'disabled'}) }}
   </div>
@@ -54,7 +54,7 @@
           <td>{{ labels.get(row.language, row.language) }}</td>
           <td>
             <span class="badge tts-badge--{{ row.status }}">{{ t('tts.status.' ~ row.status) }}</span>
-            {% if row.retry_count %}<span class="small muted">{{ t('tts.admin.retries', count=row.retry_count) }}</span>{% endif %}
+            {% if row.retry_count %}<span class="small muted">{{ tn('tts.admin.retries', row.retry_count) }}</span>{% endif %}
             {% if row.error_message and row.status in ('failed', 'pending') %}<p class="small text-danger tts-error">{{ row.error_message }}</p>{% endif %}
           </td>
           <td class="nowrap">{{ row.file_size|filesize if row.file_size else '—' }}</td>

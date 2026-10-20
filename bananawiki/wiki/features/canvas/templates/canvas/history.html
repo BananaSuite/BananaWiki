@@ -10,7 +10,7 @@
   <h1>{{ t('canvas.history.title', title=layout.title) }}</h1>
   {% if is_admin and entries %}
   <div class="page-header__actions">
-    {{ forms.post_button(url_for('canvas.clear_history', slug=layout.slug), t('canvas.history.clear'), cls='btn btn--danger btn--small', confirm=t('canvas.history.clear_confirm')) }}
+    {{ forms.post_button(url_for('canvas.clear_history', slug=layout.slug), t('canvas.history.clear'), cls='btn btn--danger-quiet btn--small', confirm=t('canvas.history.clear_confirm')) }}
   </div>
   {% endif %}
 </header>

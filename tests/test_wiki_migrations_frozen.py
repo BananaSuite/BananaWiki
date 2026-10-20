@@ -1,8 +1,8 @@
-"""Wiki schema versions 8 to 11 are frozen in their migration modules.
+"""Wiki schema versions 8 to 12 are frozen in their migration modules.
 
 A migration that called a feature's schema function would change meaning
 whenever that function changed: databases upgraded before and after the edit
-would end up with different schemas. Versions 8-11 therefore carry their own
+would end up with different schemas. Versions 8-12 therefore carry their own
 DDL, and the schema they produce is pinned here (the text SQLite keeps for
 each table and index they create, and the definition of each column they add),
 all of it: anything else they add fails the test too.
@@ -18,8 +18,10 @@ import pytest
 
 from bananawiki.core.sqlite import Database
 from bananawiki.wiki import migrations
+from bananawiki.wiki.templating import THEME_DEFAULTS
 
-FROZEN = ("v8_tokens_and_chat_safety", "v9_two_step", "v10_chat_blocks", "v11_kanban_done_columns")
+FROZEN = ("v8_tokens_and_chat_safety", "v9_two_step", "v10_chat_blocks", "v11_kanban_done_columns",
+          "v12_idempotency_tokens")
 
 CREATED = {
     "chat__reports": (
@@ -45,6 +47,7 @@ CREATED = {
         "PRIMARY KEY (blocker_id, blocked_id), CHECK (blocker_id != blocked_id))"
     ),
     "idx_chat_blocks_blocked": "CREATE INDEX idx_chat_blocks_blocked ON chat__blocks(blocked_id)",
+    "idx_page_history_created": "CREATE INDEX idx_page_history_created ON page_history(created_at)",
 }
 # (table, column) -> (type, not null, default)
 ADDED = {
@@ -57,7 +60,7 @@ ADDED = {
     ("chat_messages", "withheld"): ("INTEGER", 1, "0"),
     ("kanban_columns", "is_done"): ("INTEGER", 1, "0"),
 }
-FROZEN_UPTO = 11
+FROZEN_UPTO = 12
 
 
 def _database(path: Path, upto: int | None = None) -> Database:
@@ -112,7 +115,7 @@ def test_frozen_migrations_do_not_call_feature_code(name):
     assert not [module for module in imported if "features" in module.split(".")], imported
 
 
-def test_versions_8_to_11_create_the_pinned_schema(tmp_path):
+def test_versions_8_to_12_create_the_pinned_schema(tmp_path):
     fresh = _database(tmp_path / "fresh.db")
     fresh.initialize()
     schema = _schema(fresh)
@@ -122,7 +125,7 @@ def test_versions_8_to_11_create_the_pinned_schema(tmp_path):
         assert _column(fresh, table, column) == definition, (table, column)
 
 
-def test_versions_8_to_11_add_nothing_but_the_pinned_schema(tmp_path):
+def test_versions_8_to_12_add_nothing_but_the_pinned_schema(tmp_path):
     _version_3(tmp_path / "old.db")
     _database(tmp_path / "old.db", upto=7).initialize()
     names, columns = _objects_and_columns(_database(tmp_path / "old.db", upto=7))
@@ -162,3 +165,72 @@ def test_upgrading_from_version_7_matches_a_fresh_database(tmp_path):
     for upgrade in migrations.MIGRATIONS[4:]:
         upgrade(conn)
     assert _schema(old) == before
+
+
+def _colours(db: Database) -> dict[str, str]:
+    row = db.connect().execute("SELECT * FROM site_settings WHERE id = 1").fetchone()
+    return {key: value for key, value in row.items() if key.endswith("_color") and "custom" not in key}
+
+
+def test_version_12_gives_untouched_themes_the_new_default_colours(tmp_path):
+    new = {f"{'light_' if mode == 'light' else ''}{name}_color": value
+           for mode, colours in THEME_DEFAULTS.items() for name, value in colours.items()}
+    fresh = _database(tmp_path / "fresh.db")
+    fresh.initialize()
+    assert _colours(fresh) == new
+
+    _version_3(tmp_path / "old.db")
+    assert _database(tmp_path / "old.db", upto=11).initialize() == 8
+    assert _colours(_database(tmp_path / "old.db", upto=11))["primary_color"] == "#8fa0d4"
+    old = _database(tmp_path / "old.db")
+    assert old.initialize() == 1
+    assert _colours(old) == new
+
+
+def test_version_12_keeps_the_colours_an_administrator_chose(tmp_path):
+    _version_3(tmp_path / "old.db")
+    _database(tmp_path / "old.db", upto=11).initialize()
+    conn = sqlite3.connect(tmp_path / "old.db")
+    # A dark theme with one colour of its own; the light theme as installed (saved upper case once).
+    conn.execute("UPDATE site_settings SET primary_color = '#c0392b', light_bg_color = '#F6F7FB'")
+    conn.commit()
+    conn.close()
+    old = _database(tmp_path / "old.db")
+    old.initialize()
+    colours = _colours(old)
+    assert {key: value for key, value in colours.items() if not key.startswith("light_")} == {
+        "primary_color": "#c0392b", "secondary_color": "#1e1e2c", "accent_color": "#7e9ada",
+        "text_color": "#c8ccd8", "sidebar_color": "#1a1a24", "bg_color": "#16161f"}
+    assert {key: value for key, value in colours.items() if key.startswith("light_")} == {
+        "light_primary_color": "#8a6500", "light_secondary_color": "#ffffff", "light_accent_color": "#6f5000",
+        "light_text_color": "#202124", "light_sidebar_color": "#f4f1e8", "light_bg_color": "#faf9f5"}
+    # Running it again changes nothing.
+    migrations.v12_idempotency_tokens.upgrade(old.connect())
+    assert _colours(old) == colours
+
+
+def test_a_database_whose_version_4_lacked_the_idempotency_token_gets_it(tmp_path):
+    """The first 1.6.0 build's version 4 created ``api_service__idempotency`` without ``token_id``."""
+    _version_3(tmp_path / "old.db")
+    assert _database(tmp_path / "old.db", upto=4).initialize() == 1
+    conn = sqlite3.connect(tmp_path / "old.db")
+    conn.executescript("""
+        DROP TABLE api_service__idempotency;
+        CREATE TABLE api_service__idempotency (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, idempotency_key TEXT NOT NULL,
+            request_hash TEXT NOT NULL, status_code INTEGER, response_body TEXT, created_at TEXT NOT NULL,
+            UNIQUE (user_id, idempotency_key));
+        CREATE INDEX idx_api_service_idempotency_created ON api_service__idempotency(created_at);
+        INSERT INTO api_service__idempotency (user_id, idempotency_key, request_hash, created_at)
+            VALUES ('u1', 'retry-1', 'hash', '2026-09-30 18:00:00');
+    """)
+    conn.close()
+    old = _database(tmp_path / "old.db")
+    assert old.initialize() == migrations.LATEST - 4
+    fresh = _database(tmp_path / "fresh.db")
+    fresh.initialize()
+    assert _objects_and_columns(old) == _objects_and_columns(fresh)
+    assert _column(old, "api_service__idempotency", "token_id") == ("INTEGER", 0, None)
+    # The answer it kept belongs to no token: dropped, as version 4 drops such rows.
+    assert old.connect().execute("SELECT COUNT(*) AS rows FROM api_service__idempotency").fetchone() == {"rows": 0}

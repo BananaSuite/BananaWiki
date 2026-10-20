@@ -199,7 +199,36 @@
     return el && el.closest ? el.closest(selector) : null;
   }
 
-  // Confirmation prompts ----------------------------------------------------
+  // The Clipboard API exists only in secure contexts: over plain HTTP the text is copied from a selection.
+  function copyText(text) {
+    var copySelection = function () {
+      var focused = document.activeElement;
+      var area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.top = "0";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.focus();
+      area.select();
+      var copied = false;
+      try { copied = document.execCommand("copy"); } catch (e) { copied = false; }
+      area.remove();
+      if (focused && focused.focus) focused.focus();
+      return copied;
+    };
+    var report = function (copied) {
+      BW.toast(BW.t(copied ? "copied" : "copy_failed"), copied ? "success" : "error");
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { report(true); }, function () { report(copySelection()); });
+    } else {
+      report(copySelection());
+    }
+  }
+
+  // Confirmation prompts
   document.addEventListener("submit", function (event) {
     var form = event.target;
     var submitter = event.submitter;
@@ -234,10 +263,7 @@
 
     var copy = closest(target, "[data-copy]");
     if (copy) {
-      var text = copy.getAttribute("data-copy");
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(text).then(function () { BW.toast(BW.t("copied"), "success"); });
-      }
+      copyText(copy.getAttribute("data-copy"));
       return;
     }
 
@@ -303,7 +329,7 @@
     }
   });
 
-  // Sidebar (mobile drawer) and theme ---------------------------------------
+  // Sidebar (mobile drawer) and theme
   // The phone drawer starts at the topbar's real bottom edge: announcement and other
   // banners above the topbar push it down until the page scrolls.
   var placeDrawer = function () {
@@ -338,7 +364,7 @@
       document.body.appendChild(dialog);
     });
     // The menu button opens the drawer on phones and hides/shows the sidebar on wide
-    // screens (as the 1.4 collapse button did); the wide-screen choice is remembered.
+    // screens; the wide-screen choice is remembered.
     var toggle = document.querySelector("[data-sidebar-toggle]");
     if (toggle) {
       var narrow = window.matchMedia ? window.matchMedia("(max-width: 900px)") : { matches: false };

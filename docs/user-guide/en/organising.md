@@ -3,20 +3,19 @@
 What you can do here depends on your permissions; administrators can do all
 of it.
 
-Use **New page** in the sidebar to start a page. The editor has **Create page** or
-**Save**, plus **Cancel**, at the top and bottom.
-
 ## Categories
 
 Categories are the folders of the sidebar and can contain subcategories.
 
 * **New category** in the sidebar creates one (optionally inside another).
-* Drag pages and categories in the sidebar to reorder or nest them.
-* A category's page (click its name) lets you rename it, switch
-  **sequential navigation** on (previous/next links between its pages, in
-  sidebar order) and delete it. When deleting, choose what happens to its
-  pages: move them to another category, leave them without a category, or
-  delete them. Subcategories move up one level.
+* Drag pages in the sidebar, or pages and categories on **All pages**, to
+  change their order.
+* A category's page (**Open** next to it on **All pages**) lets you rename
+  it, move it into another category, switch **sequential navigation** on
+  (previous/next links between its pages, in sidebar order) and delete it.
+  When deleting, choose what happens to its pages: move them to another
+  category, leave them without a category, or delete them. Subcategories
+  move up one level.
 
 Some people may only read or write in certain categories. If a category you
 expect is missing, you probably do not have access to it.

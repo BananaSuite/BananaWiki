@@ -118,7 +118,7 @@ def test_newer_database_is_refused(tmp_path):
         db.initialize()
 
 
-def test_pre_ledger_database_is_refused(tmp_path):
+def test_unversioned_database_is_refused(tmp_path):
     path = tmp_path / "wiki.db"
     conn = sqlite3.connect(path)
     conn.execute("CREATE TABLE pages (id INTEGER PRIMARY KEY)")
@@ -136,11 +136,11 @@ def test_missing_database_is_not_recreated(tmp_path):
         db.initialize()
 
 
-# R-26: upgrades that outlast a worker, and the copies taken before them ---------------------------
+# Upgrades that outlast a worker, and the copies taken before them
 
 
 def test_the_boot_lock_waits_for_an_upgrade_running_in_another_process(tmp_path, monkeypatch, caplog):
-    """Workers gave up after 120 s, failed to boot and stopped Gunicorn, killing the worker that migrated."""
+    """A worker waits for an upgrade running in another process instead of timing out and stopping Gunicorn."""
     attempts = []
 
     class HeldElsewhere(sqlite_module.FileLock):
@@ -189,7 +189,7 @@ def copies(cfg) -> list[Path]:
 
 
 def test_an_interrupted_pre_upgrade_copy_never_looks_like_a_backup(tmp_path, monkeypatch):
-    """The copy used to be written under its final name: a process killed meanwhile left half a database."""
+    """The copy gets its final name only once complete, so a killed process leaves no half database behind."""
     cfg, path = instance(tmp_path)
     db = make_db(path)
 
@@ -219,7 +219,7 @@ def test_an_interrupted_pre_upgrade_copy_never_looks_like_a_backup(tmp_path, mon
 
 
 def test_failed_upgrades_tried_again_keep_one_copy_until_the_database_changes(tmp_path, monkeypatch):
-    """A restart loop used to write a full copy of the database at every attempt, until the disk was full."""
+    """A restart loop writes the pre-upgrade copy once, not at every attempt."""
     cfg, path = instance(tmp_path)
     stamps = iter(f"20261008-1200{second:02d}" for second in range(60))
     monkeypatch.setattr(takeover, "time", SimpleNamespace(strftime=lambda _format: next(stamps)))

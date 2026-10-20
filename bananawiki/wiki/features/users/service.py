@@ -27,6 +27,7 @@ from ...config import IMAGE_EXTENSIONS, MIB
 from ...db import db
 from ...registry import emit
 from ..pages import service as pages
+from ..pages import summaries
 
 AVATAR_MAX_BYTES = 1 * MIB
 # Avatars are shown small: a larger picture only costs memory to decode.
@@ -51,7 +52,7 @@ class ProfileError(ValueError):
         self.values = values
 
 
-# ── Passwords ─────────────────────────────────────────────────────────────────
+# Passwords
 
 
 def password_ok(user: dict[str, Any], password: str | None) -> bool:
@@ -71,7 +72,7 @@ def password_ok(user: dict[str, Any], password: str | None) -> bool:
     return False
 
 
-# ── Profiles ──────────────────────────────────────────────────────────────────
+# Profiles
 
 
 def get_profile(user_id: str) -> dict[str, Any] | None:
@@ -143,7 +144,7 @@ def can_edit_own_profile(user: dict[str, Any] | None = None) -> bool:
     return auth.has_permission("profile.edit_own", user)
 
 
-# ── Uploaded images (avatars, backgrounds) ────────────────────────────────────
+# Uploaded images (avatars, backgrounds)
 
 
 def upload_url(name: str | None) -> str:
@@ -192,7 +193,7 @@ def remove_avatar(user_id: str) -> None:
         delete_upload(profile["avatar_filename"])
 
 
-# ── Contributions ─────────────────────────────────────────────────────────────
+# Contributions
 
 
 def _visible(viewer: dict[str, Any] | None) -> tuple[str, list[Any]]:
@@ -238,7 +239,7 @@ def contribution_calendar(user_id: str, viewer: dict[str, Any] | None, year: int
             "time": row["created_at"][11:16],
             "title": row["title"],
             "url": url_for("pages.view", slug=row["slug"]),
-            "message": row["edit_message"] or "",
+            "message": summaries.render(row["edit_message"]),
         })
     return {"year": year, "counts": counts, "details": details, "total": sum(counts.values())}
 
@@ -251,7 +252,7 @@ def role_history(user_id: str) -> list[dict[str, Any]]:
     )
 
 
-# ── Member directory ──────────────────────────────────────────────────────────
+# Member directory
 
 
 def _like(text: str) -> str:
@@ -285,7 +286,7 @@ def members(viewer: dict[str, Any], query: str = "", page: int = 1) -> tuple[lis
     return rows, pages_count
 
 
-# ── Account ──────────────────────────────────────────────────────────────────
+# Account
 
 
 def active_admin_count() -> int:
@@ -382,7 +383,7 @@ def set_owner_status(user: dict[str, Any], password: str | None) -> str:
 
 
 def may_reactivate_self(user: dict[str, Any]) -> bool:
-    """Whether a suspended administrator may lift the suspension themselves (1.4 allowed any).
+    """Whether a suspended administrator may lift the suspension themselves.
 
     Not when an owner or superuser imposed it: that suspension is exactly what the
     hierarchy exists for. The rank counts as it was when the suspension was recorded
@@ -416,7 +417,7 @@ def reactivate_self(user: dict[str, Any]) -> None:
                                        "created_at": now_sql()})
 
 
-# ── Housekeeping ──────────────────────────────────────────────────────────────
+# Housekeeping
 
 
 def collect_orphan_images(min_age_seconds: int = 3600) -> int:

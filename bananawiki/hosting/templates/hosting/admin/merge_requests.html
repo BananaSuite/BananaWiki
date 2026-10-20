@@ -12,6 +12,6 @@
 {% if m.status in ('pending', 'approved') %}<div class="btn-row">
   {% if m.status == 'approved' %}{{ ui.post(url_for('admin.execute_merge', merge_id=m.id), t('hosting.merges.execute'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}
   {% else %}{{ ui.post(url_for('admin.approve_merge', merge_id=m.id), t('hosting.merges.force_approve'), 'btn btn--small btn--primary') }}{% endif %}
-  {{ ui.post(url_for('admin.deny_merge', merge_id=m.id), t('hosting.admin.deny')) }}{{ ui.post(url_for('admin.cancel_merge', merge_id=m.id), t('common.cancel')) }}</div>{% endif %}</div>
+  {{ ui.post(url_for('admin.deny_merge', merge_id=m.id), t('hosting.admin.deny'), 'btn btn--small btn--danger-quiet') }}{{ ui.post(url_for('admin.cancel_merge', merge_id=m.id), t('common.cancel')) }}</div>{% endif %}</div>
 {% else %}<p class="muted">{{ t('hosting.common.none') }}</p>{% endfor %}
 {% endblock %}

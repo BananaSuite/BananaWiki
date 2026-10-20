@@ -4,7 +4,8 @@ An editor reserves a page for ``page_reservation_duration_hours``; while the
 reservation lasts other editors cannot edit or delete the page
 (administrators can, with a warning). Releasing a page starts a per-page
 cooldown of ``page_reservation_cooldown_hours`` for that editor. Each editor
-may hold at most their quota of reservations at once (see :mod:`.quota`).
+may hold at most their quota of reservations at once (see :mod:`.quota`). A
+page protected by someone else cannot be reserved (see :mod:`.protection`).
 
 ``page_reservations`` has one row per page (``UNIQUE(page_id)``); a row is
 active while ``released_at`` is NULL, ``expires_at`` is in the future and its
@@ -22,7 +23,7 @@ from ... import auth, settings
 from ...db import db
 from ...registry import is_enabled
 from ..pages import service as pages
-from . import quota
+from . import protection, quota
 from .errors import GovernanceError
 
 HOLDER_ROLES = "('editor', 'admin', 'owner')"
@@ -99,7 +100,14 @@ def blocks(page: dict[str, Any], user: dict[str, Any] | None) -> bool:
 
 def can_reserve(page: dict[str, Any], user: dict[str, Any] | None) -> bool:
     return (bool(user) and active() and not page.get("is_home") and not page.get("pending_deletion")
-            and pages.can_edit(page, user))
+            and pages.can_edit(page, user) and not protection.blocks(page, user))
+
+
+def _refuse_if_protected(page: dict[str, Any], user: dict[str, Any]) -> None:
+    """A reservation must not lock the controller out of a page someone else protects."""
+    guard = protection.state(page, user)
+    if guard is not None and not guard["is_controller"]:
+        raise GovernanceError("page_governance.reservation.error.protected_by", user=guard["controller_name"])
 
 
 def reserve(page: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
@@ -112,6 +120,7 @@ def reserve(page: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
     if not pages.can_edit(page, user):
         raise GovernanceError("page_governance.error.cannot_edit")
     with db.transaction():
+        _refuse_if_protected(page, user)
         existing = current(page["id"])
         if existing is not None:
             if existing["user_id"] == user["id"]:
@@ -173,6 +182,7 @@ def assign(page: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
     if not pages.can_edit(page, target):
         raise GovernanceError("page_governance.reservation.error.target_cannot_edit", user=target["username"])
     with db.transaction():
+        _refuse_if_protected(page, target)
         db.execute("DELETE FROM user_page_cooldowns WHERE page_id = ? AND user_id = ?", (page["id"], target["id"]))
         return _insert(page["id"], target["id"])
 

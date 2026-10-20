@@ -234,7 +234,7 @@ class System:
         self.probe = probe or _http_status
         self.sleep = sleep
 
-    # Commands -------------------------------------------------------------
+    # Commands
 
     def run(self, command: Sequence[Any], *, check: bool = True, timeout: int = 600, cwd: Path | None = None,
             env: dict[str, str] | None = None, tail: int = 0) -> subprocess.CompletedProcess:
@@ -258,7 +258,7 @@ class System:
                                f"(exit {result.returncode}){': ' + cause if cause else ''}.{detail}")
         return result
 
-    # Accounts and permissions ---------------------------------------------
+    # Accounts and permissions
 
     def identity(self, name: str) -> tuple[int, int]:
         entry = pwd.getpwnam(name)
@@ -285,7 +285,7 @@ class System:
             return False
 
     def docker_access(self, settings: dict[str, Any], enabled: bool) -> None:
-        """Grant the portal the Docker group only for 1.4 releases; 1.6 uses the runtime agent."""
+        """Grant the portal the Docker group only for 1.4 releases; later ones use the runtime agent."""
         name = settings["service"]
         if settings["mode"] != "hosting":
             return
@@ -356,7 +356,7 @@ class System:
         finally:
             os.close(descriptor)
 
-    # Releases -------------------------------------------------------------
+    # Releases
 
     def prepare_release(self, settings: dict[str, Any], release: Path, features: ReleaseFeatures) -> list[str]:
         """Build the release's venv as the service user (network: PyPI), then seal the tree read-only.
@@ -385,7 +385,7 @@ class System:
                   *(["--require-hashes", "-r", str(build_lock)] if locked else ["pip>=26.2.1", "setuptools>=83"])],
                  timeout=600, cwd=release)
         print("Installing Python dependencies; this may take several minutes.", file=sys.stderr, flush=True)
-        # 1.6 releases install wheels only: no package build scripts run on the server.
+        # Releases from 1.6 on install wheels only: no package build scripts run on the server.
         binary = ["--only-binary=:all:"] if features.hardened else []
         self.run([*pip, *binary, *(["--require-hashes", "-r", str(lock)] if locked
                                    else ["-r", str(release / "requirements.txt")])], timeout=1800, cwd=release)
@@ -406,22 +406,12 @@ class System:
         release back: the image is then built on the base image already on
         this host, and the returned warning says so.
 
-        A new base image can also break the build: it rebuilds the FFmpeg and
-        ACL stages, and the ACL stage fetches two exact package versions from
-        Debian unstable, which drops them once newer ones replace them. When
-        the build fails on a base image this pull replaced, the previous base
-        image is tagged again (also after a timeout or an interruption, so its
-        cached stages are never lost) and, for a reported failure, the same
-        build, same ``BW_REFRESH``, runs once more on it: its FFmpeg and
-        ACL stages normally come from Docker's build cache, the final stage
-        still upgrades and installs afresh, and the returned warning says so.
-        Only a failure there too is raised. The base image the build no longer
-        needs (the replaced one, or after a fallback the newly pulled one) is
-        removed; the one it fell back to is kept, so the next release build
-        pulls and tries the new base image again.
+        When the build fails on a newly pulled base, it is retried once on the
+        previous base (tagged back for it); the base the build does not need
+        is removed. The returned warnings say when either fallback was used.
         """
         dockerfile = release / "Dockerfile.tenant"
-        # Since 1.7 the Dockerfiles need BuildKit (RUN --mount): without its buildx component Docker would fall
+        # The Dockerfiles need BuildKit (RUN --mount): without its buildx component Docker would fall
         # back to the legacy builder, which fails half way with "the --mount option requires BuildKit". An older
         # release (a rollback) still builds with whichever builder Docker has.
         buildkit = needs_buildkit(dockerfile)
@@ -465,8 +455,8 @@ class System:
                 warnings.append(f"The tenant image did not build on the newly pulled {names}: {error} It was "
                                 "built on the previous base image instead and may lack its latest fixes "
                                 "(distribution updates were still applied). The next release build pulls and "
-                                "tries the new base image again; if it keeps failing, the exact Debian unstable "
-                                "versions the ACL stage fetches may have left the archive.")
+                                "tries the new base image again; if it keeps failing, check that this host "
+                                "reaches ffmpeg.org and snapshot.debian.org.")
                 print(f"Warning: {warnings[-1]}", file=sys.stderr, flush=True)
         finally:
             # Untagged by the pull (or, after a fallback, by the new tag), it would stay on disk for good once the
@@ -517,7 +507,7 @@ class System:
         """When *image* was built (Docker's ``Created``), or None when unknown."""
         return self._image_field(image, "{{.Created}}")
 
-    # Units ----------------------------------------------------------------
+    # Units
 
     def _unit(self, name: str, suffix: str = ".service") -> Path:
         return self.unit_dir / (name + suffix)
@@ -611,7 +601,7 @@ class System:
         if names:
             self.run(["systemctl", "stop", *reversed(names)], timeout=300)
 
-    # Tenant containers (the controller runs as root; the portal uses the runtime agent) --------------
+    # Tenant containers (the controller runs as root; the portal uses the runtime agent)
 
     def check_docker(self, settings: dict[str, Any]) -> None:
         """Fail with :class:`DockerUnavailable` unless Docker answers (hosting only).
@@ -782,7 +772,7 @@ class System:
                       "their next start then admits them.", file=sys.stderr, flush=True)
             return reserved
         except (AgentError, project_quota.QuotaError, OSError) as error:
-            # Not a reason to refuse a backup or an update: the wikis' starts no longer depend on it.
+            # Not a reason to refuse a backup or an update: the wikis' starts do not depend on it.
             try:
                 off = tenant_quotas.setting(read_environment(root / "config/app.env")) == "off"
             except tenant_quotas.InvalidSetting:
@@ -864,7 +854,7 @@ class System:
         return output
 
     def expected_tenant_directories(self, settings: dict[str, Any]) -> set[str]:
-        """Running tenants according to the portal database (C10's query)."""
+        """Running tenants according to the portal database."""
         return set(self._running_tenants(settings, "subdomain"))
 
     def _running_tenants(self, settings: dict[str, Any], column: str) -> dict[str, Any]:
@@ -969,7 +959,7 @@ class System:
         finally:
             os.close(state)
 
-    # Plugin quarantine (R-07) ---------------------------------------------------
+    # Plugin quarantine
 
     def plugin_quarantine_candidates(self, settings: dict[str, Any], directories: Collection[str]) -> dict[str, str]:
         """The wikis of *directories* (data directories) whose own plugins may keep them from serving, by instance id.
@@ -1094,7 +1084,7 @@ class System:
                 removed.append(tag)
         return removed
 
-    # Readiness ------------------------------------------------------------
+    # Readiness
 
     def readiness_timeout(self, settings: dict[str, Any], tenants: int | None = None) -> int:
         """Time for the portal to bring back every running wiki (or *tenants* of them), a few at a time."""
@@ -1212,7 +1202,7 @@ class System:
             }, indent=2) + "\n")
         return Readiness(platform, wikis)
 
-    # Reverse proxy ----------------------------------------------------------
+    # Reverse proxy
 
     def routes_directory(self, settings: dict[str, Any]) -> Path:
         """The runtime agent's ``StateDirectory=<service>-routes``, imported by the managed Caddyfile."""
@@ -1247,7 +1237,7 @@ class System:
             detail = ((result.stderr or "").strip().splitlines() or ["no output"])[-1]
             raise RuntimeError(f"caddy validate failed (exit {result.returncode}): {detail[:500]}")
 
-    # Caddy's own installation (certificate modes) ---------------------------
+    # Caddy's own installation (certificate modes)
 
     @property
     def caddy_environment_file(self) -> Path:
@@ -1342,7 +1332,7 @@ class System:
             return True
         return f"reverse_proxy {item['addresses'][0]}:{item['internal_port']} " in blocks.get(tenant, "")
 
-    # Removal --------------------------------------------------------------
+    # Removal
 
     def uninstall(self, settings: dict[str, Any], names: list[str]) -> None:
         name = settings["service"]

@@ -95,7 +95,7 @@ def local_day(policy: Policy, now: datetime) -> str:
     return now.astimezone(policy.timezone).date().isoformat()
 
 
-# ── Storage ───────────────────────────────────────────────────────────────────
+# Storage
 
 
 def _checked(table: str) -> str:

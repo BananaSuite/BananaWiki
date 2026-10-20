@@ -11,7 +11,7 @@
 </div>
 <p class="muted">{{ t('federation.sharing.intro') }}</p>
 {% if not peer_options %}
-<div class="card empty-state"><p>{{ t('federation.sharing.no_peers') }}</p>
+<div class="empty-state"><p>{{ t('federation.sharing.no_peers') }}</p>
   {% if is_admin %}<p><a class="btn btn--small" href="{{ url_for('federation.admin') }}">{{ t('federation.admin.pair') }}</a></p>{% endif %}</div>
 {% else %}
 <section class="card">

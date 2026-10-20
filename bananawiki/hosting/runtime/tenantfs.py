@@ -7,13 +7,14 @@ opens with ``O_NOFOLLOW | O_NONBLOCK``, checks what it opened and never
 follows a link: a link the tenant planted can neither make the portal read
 the platform database nor write into another tenant.
 
-The directory layout is 1.4's (audit C12): ``INSTANCES_DIR/<slug>[__apex]``
+The directory layout is the one 1.4 used: ``INSTANCES_DIR/<slug>[__apex]``
 with the asset folders under ``storage/<name>`` and relative
 ``<name> -> storage/<name>`` links, which the updater's backup accepts.
 """
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import logging
 import os
@@ -22,6 +23,7 @@ import shutil
 import stat
 import time
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO
 
@@ -62,7 +64,7 @@ def is_tenant_dir(path: Path) -> bool:
     return not path.is_symlink() and path.is_dir()
 
 
-# ── Descriptor-based access ───────────────────────────────────────────────────
+# Descriptor-based access
 
 
 def open_dir(root: Path, relative: str = "") -> int:
@@ -373,7 +375,7 @@ def _enter(parent_fd: int, name: str) -> tuple[int, list[str]] | None:
     return fd, subfolders
 
 
-# ── Layout ────────────────────────────────────────────────────────────────────
+# Layout
 
 
 def create(root: Path, *, prepare=None) -> None:
@@ -533,23 +535,65 @@ def usage(root: Path, *, deadline_seconds: float = 10.0) -> int:
     return total
 
 
-def copy_tree(source_root: Path, relative: str, target: Path) -> None:
-    """Copy the regular files of a tenant folder into a host folder (links and special files skipped)."""
+@dataclass
+class TreeCopy:
+    """What the :func:`copy_tree` calls of one copy share: the bytes copied, within *budget* (None: no bound),
+    and where each file went first, by identity."""
+
+    budget: int | None = None
+    used: int = 0
+    copied: dict[tuple[int, int], Path] = field(default_factory=dict)
+
+
+def copy_tree(source_root: Path, relative: str, target: Path, copy: TreeCopy | None = None) -> None:
+    """Copy the regular files of a tenant folder into a host folder (links and special files skipped).
+
+    A sparse file costs the tenant's quota next to nothing, a further hard
+    link to a file nothing at all: each file is copied once, at its full
+    length, and counted so in *copy*, whose budget stops the copy before the
+    file that would exceed it (``too_large``). Further links to a file
+    become links to its copy. A file whose name is taken, or whose folder is
+    a file in the copy, is skipped. A failed write raises
+    :class:`RuntimeFailure` (``no_space`` for a full disk or quota).
+    """
+    copy = TreeCopy() if copy is None else copy
     try:
         dir_fd = open_dir(source_root, relative)
     except OSError:
         return
+    walk = iter_files(dir_fd)
     try:
-        for name, fd, info in iter_files(dir_fd):
-            destination = target / name
-            destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for name, fd, info in walk:
             with os.fdopen(fd, "rb") as source:
+                destination = target / name
+                try:
+                    destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                except (FileExistsError, NotADirectoryError):
+                    continue
+                identity = (info.st_dev, info.st_ino)
+                first = copy.copied.get(identity)
+                if first is not None:
+                    with contextlib.suppress(FileExistsError):
+                        os.link(first, destination)
+                    continue
                 try:
                     output = open(destination, "xb")  # noqa: SIM115 - closed below
                 except FileExistsError:
                     continue
                 with output:
+                    copy.used += info.st_size
+                    if copy.budget is not None and copy.used > copy.budget:
+                        destination.unlink()
+                        shown = os.fsencode(f"{relative}/{name}").decode("utf-8", "backslashreplace")
+                        raise RuntimeFailure("too_large", f"its files take more than the {copy.budget // 1024 ** 2} "
+                                                          f"MiB its storage limit allows (a sparse file at its full "
+                                                          f"size); stopped at {shown}"[:300])
+                    copy.copied[identity] = destination
                     os.fchmod(output.fileno(), 0o600)
                     copy_observed(source, output, info.st_size)
+    except OSError as error:
+        raise _failure(error, f"could not copy {relative}") from None
     finally:
+        # Closing the walk early closes the folder descriptors os.fwalk holds.
+        walk.close()
         os.close(dir_fd)

@@ -111,7 +111,7 @@ def prune() -> int:
     return removed
 
 
-# ── Activity log ──────────────────────────────────────────────────────────────
+# Activity log
 
 
 def log_activity(board_id: int, user_id: str | None, action: str, details: str) -> None:

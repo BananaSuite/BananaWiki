@@ -1,6 +1,6 @@
 """Install, update, back up, restore, recover and remove one managed deployment.
 
-Safety properties (all inherited from 1.4 and kept):
+Safety properties:
 
 * every operation holds ``config/maintenance.lock`` (``flock``) and first
   finishes any interrupted transaction (``config/transaction.json``);
@@ -11,17 +11,18 @@ Safety properties (all inherited from 1.4 and kept):
 * update sources are fetched with a hardened Git, fast-forward only unless the
   operator explicitly allows otherwise, optionally signature-verified.
 
-New in 1.6: data is captured by an online :class:`~.snapshot.Snapshot` (short
-downtime) and the portable package is written after the service is back, then
-verified as a restore would before it is used;
-``before-update-*`` packages, releases and tenant images are pruned; hosting
-installs get the runtime agent instead of Docker group membership; units
-installed by the 1.4 updater are converged to the hardened 1.6 units.
+Data is captured by an online :class:`~.snapshot.Snapshot` (short downtime);
+the portable package is written after the service is back and verified as a
+restore would before it is used. ``before-update-*`` packages, releases and
+tenant images are pruned. Hosting installs get the runtime agent instead of
+Docker group membership, and units installed by the 1.4 updater are converged
+to the hardened units.
 """
 
 from __future__ import annotations
 
 import ast
+import errno
 import hashlib
 import logging
 import os
@@ -72,7 +73,7 @@ from .system import (
 DEFAULT_POLICY = {"enabled": False, "interval_minutes": 60, "keep_backups": 3}
 UNREADY_POLICIES = ("isolate", "rollback")  # BANANA_UPDATE_UNREADY_WIKIS
 ISOLATION_ATTEMPTS = 3  # stop, verify; again when a start in progress brought one back
-PRUNED_PREFIXES = ("auto", "before-update")
+PRUNED_PREFIXES = ("auto", "before-update", "before-restore", "remote")
 PROXY_ROLLBACK = "Caddyfile.rollback"
 FAILED_REVISION = "failed-revision.json"
 # The units a convergence could not start (see Manager.converge): automatic updates do not install them again.
@@ -184,7 +185,7 @@ class Manager:
         self.product = PRODUCT
         self.last_event: dict[str, Any] = {}  # the last event recorded, for commands whose result is not one
 
-    # Configuration --------------------------------------------------------
+    # Configuration
 
     def settings(self) -> dict[str, Any]:
         data = read_json(self.config_dir / "installation.json")
@@ -231,7 +232,7 @@ class Manager:
         ``BANANA_UPDATE_UNREADY_WIKIS`` in ``app.env``: ``isolate`` (the
         default) keeps the new release when the platform is ready and only a
         few wikis fail (:func:`isolatable`), stops those wikis and reports
-        them; ``rollback`` puts the whole platform back, as before 1.7. An
+        them; ``rollback`` puts the whole platform back. An
         invalid value raises :class:`InvalidUpdatePolicy` before anything stops.
         """
         value = read_environment(self.config_dir / "app.env").get("BANANA_UPDATE_UNREADY_WIKIS", "").strip().lower()
@@ -343,7 +344,7 @@ class Manager:
         for name in ("repo.token", "repo.key", "repo.known_hosts", "git-askpass"):
             (self.config_dir / name).unlink(missing_ok=True)
 
-    # Releases -------------------------------------------------------------
+    # Releases
 
     def release(self, revision: str) -> Path:
         return self.root / "releases" / valid_revision(revision)
@@ -443,7 +444,7 @@ class Manager:
     def install_units(self, settings: dict[str, Any]) -> None:
         self.system.install_units(settings, self.services(settings), self.features(settings["revision"]))
 
-    # Reverse proxy ----------------------------------------------------------
+    # Reverse proxy
 
     def proxy_plan(self, settings: dict[str, Any]) -> tuple[str | None, str | None]:
         """``(new Caddyfile, warning)`` for a hosting release that routes wikis through the runtime agent.
@@ -527,7 +528,7 @@ class Manager:
         if undo.get("routes_created"):
             self.system.remove_routes_directory(Path(undo["routes_created"]))
 
-    # Install --------------------------------------------------------------
+    # Install
 
     def install(self, checkout: Path, *, mode: str, name: str | None = None, domain: str = "",
                 portal_domain: str = "", port: int | None = None, source_options: dict[str, Any] | None = None,
@@ -619,7 +620,7 @@ class Manager:
         print_storage(policy)
         return policy
 
-    # Transactions ---------------------------------------------------------
+    # Transactions
 
     def journal_state(self, settings: dict[str, Any]) -> dict[str, Any]:
         names = self.names(settings)
@@ -656,7 +657,7 @@ class Manager:
         atomic_write(self.root / "data" / MAINTENANCE_MARKER, "Maintenance in progress\n")
         self.tenant_maintenance(settings, True)
         self.system.stop(journal["services"])
-        # Listed only now: until it stopped, the maintenance service could stop or remove wikis (R-13).
+        # Listed once the maintenance service has stopped: until then it could stop or remove wikis.
         journal["containers"] = self.system.containers(settings)
         # Probed with the maintenance markers set: a wiki that does not serve in maintenance mode now is not
         # expected to serve in it after the operation either.
@@ -669,30 +670,27 @@ class Manager:
                isolate: bool = False) -> tuple[list[str], list[str]]:
         """Start *settings*' services, wait for them and the wikis that served before, end the transaction.
 
-        The application must become ready. A wiki that served when the
-        transaction began and does not serve again fails the operation when
-        it is *required* (the operation deployed something and is undone),
-        unless *quarantine* (an update) and quarantining its own plugins
-        brings it back (:meth:`quarantine_plugins`), or *isolate* allows it
-        and only a few still fail (:func:`isolatable`): those are stopped and
-        recorded in ``journal["isolated"]`` (name -> why), so one tenant's own
-        data never keeps every other wiki on the previous release. The
-        quarantine comes first: a wiki it brings back keeps serving, and only
-        what still fails is isolated (its plugins stay quarantined). Otherwise
-        it is only reported, so one broken wiki never keeps the platform in
-        maintenance. Returns ``(the wikis waited for that do not serve, the
-        data directories of those that were running without serving when the
-        transaction began)``: the caller checks the latter with
-        :meth:`check_tenants` once the operation is complete, since nothing
-        may fail between the end of the transaction and its result.
+        The application must become ready. For a wiki that served when the
+        transaction began and does not serve again:
 
-        The tenant containers that quiesce stopped are never started again as
-        they are: the runtime agent starts each wiki behind a mount gate that
-        only its own ``tenant.start`` releases, so ``docker start`` would bring
-        them back inert. Every operation removes them before it gets here,
-        and the portal's maintenance service, started here, starts the wikis
-        running in its database again through the agent.
+        * *required*: the operation fails and is undone;
+        * *quarantine*: first try again with its plugins quarantined
+          (:meth:`quarantine_plugins`);
+        * *isolate*: if only a few still fail (:func:`isolatable`), stop them
+          and record them in ``journal["isolated"]`` (name -> why).
+
+        Without *required* such a wiki is only reported.
+
+        Returns ``(wikis waited for that do not serve, data directories of the
+        wikis running without serving at the start)``. The caller checks the
+        latter with :meth:`check_tenants` once the operation is complete.
         """
+        # Containers that quiesce stopped are never started again as they are:
+        # the agent starts each wiki behind a mount gate that only its own
+        # tenant.start releases, so ``docker start`` would bring them back
+        # inert. Every operation removes them before this point, and the
+        # maintenance service started here restarts the running wikis through
+        # the agent.
         services = self.services(settings)
         names = [service.name for service in services]
         self.system.start(names)
@@ -770,39 +768,30 @@ class Manager:
 
     def quarantine_plugins(self, journal: dict[str, Any], settings: dict[str, Any], services: list[Service],
                            failing: dict[str, str], *, isolate: bool = False) -> dict[str, str] | None:
-        """Quarantine the plugins of the wikis *failing* after an update, when their own code may be why (R-07).
+        """Quarantine the plugins of the wikis *failing* after an update, when their own code may be why.
 
-        With ``HOSTING_ALLOW_TENANT_PLUGINS`` a wiki's administrators run
-        Python code of their own in it, which can serve while the update
-        quiesces and fail once the new release starts it: a rollback would
-        then keep every later release, security fixes included, off the
-        platform. So when every wiki of *failing* holds plugins whose
-        quarantine is not in force yet, each is quarantined as the portal's
-        administrators would (:meth:`.System.quarantine_plugins`) and
-        waited for again. Returns the wikis that still do not serve (data
-        directory -> why; none: the update stands, and the journal's
-        ``quarantined`` lists them), or None when one of them has no plugins
-        to quarantine: whatever keeps it from serving, quarantine cannot
-        change it, and the update is rolled back as before (or, policy
-        ``isolate``, the few failing wikis are isolated). A rollback puts the
-        plugin state back with the data.
+        A wiki's own plugin code can fail under a new release, and rolling the
+        update back for that would keep later releases, security fixes
+        included, off the platform. So when every failing wiki has plugins
+        not yet quarantined, each is quarantined as the portal's
+        administrators would (:meth:`.System.quarantine_plugins`) and waited
+        for again.
 
-        A quarantine that cannot be applied (``hosting-admin`` fails) fails
-        the update, unless *isolate*: the quarantine task upgrades the wiki's
-        database before it switches plugins off, so data the new release
-        cannot migrate, or a full storage quota, fails it as well as the
-        wiki, and that is the wiki's own failure. Such a wiki then still fails
-        (listed in the journal's ``quarantine_failed``), the others are
-        quarantined and waited for, and :meth:`finish` isolates it with the
-        rest or, when more wikis fail than isolation takes, fails the update
-        as without the policy. The portal sets the quarantine marker before
-        that task: a wiki whose marker is then in force keeps its plugin code
-        off with its plugins still switched on in its database (listed in
-        ``quarantine_marked`` too), any other could not be quarantined at all.
+        Returns the wikis that still do not serve (data directory -> why;
+        empty: the update stands), or None when a failing wiki has no plugins
+        to quarantine, so the caller rolls back or, with policy ``isolate``,
+        isolates them. The journal lists ``quarantined``, ``quarantine_failed``
+        and ``quarantine_marked`` (marker in force, plugins still switched on
+        in the wiki's database).
+
+        A quarantine that cannot be applied fails the update, unless
+        *isolate*: that wiki then counts as failing, and :meth:`finish`
+        isolates it with the rest or fails the update when more wikis fail
+        than isolation takes.
         """
         try:
             candidates = self.system.plugin_quarantine_candidates(settings, failing)
-        except Exception as error:  # noqa: BLE001 - the portal database unreadable: rolled back as before
+        except Exception as error:  # noqa: BLE001 - the portal database unreadable: roll back
             log.warning("The wikis' plugins could not be checked for a quarantine: %s", error)
             return None
         if not candidates or candidates.keys() != failing.keys():
@@ -958,12 +947,27 @@ class Manager:
         return self.root / "backups" / f"{prefix}-{stamp}-{secrets.token_hex(3)}.tar.gz"
 
     def _begin(self) -> None:
-        """Every locked operation: finish an interrupted transaction, drop stale snapshots."""
+        """Every locked operation: finish an interrupted transaction, drop stale snapshots and partial trees."""
+        self.remove_partial_trees()
         self.recover()
+        self.remove_partial_trees()
         for path in stale_snapshots(self.root, None):
             shutil.rmtree(path)
 
-    # Backup ---------------------------------------------------------------
+    def remove_partial_trees(self) -> None:
+        """Remove what an interrupted :meth:`apply_tree` left next to ``data/`` and ``site/``.
+
+        Only once that tree is in place: interrupted between its two renames,
+        the leftovers are all there is until a recovery puts it back.
+        """
+        for name in ("data", "site"):
+            if not (self.root / name).is_dir():
+                continue
+            for path in (*self.root.glob(f".restore-{name}-*"), *self.root.glob(f".previous-{name}-*")):
+                if path.is_dir() and not path.is_symlink():
+                    shutil.rmtree(path)
+
+    # Backup
 
     def backup(self, destination: Path | None = None, *, prefix: str = "manual") -> Path:
         with maintenance_lock(self.root):
@@ -985,11 +989,15 @@ class Manager:
             finally:
                 snapshot.remove()
             unready = sorted({*unready, *self.check_tenants(settings, others)})
-            details = {"unready_tenants": unready} if unready else {}
+            details: dict[str, Any] = {"unready_tenants": unready} if unready else {}
+            try:
+                self.prune_backups()
+            except (OSError, ValueError) as error:
+                details["pruning_warning"] = f"Backup pruning failed: {error}"
             self.event("backup", "complete", package=str(result), **details)
             return result
 
-    # Update ---------------------------------------------------------------
+    # Update
 
     def update(self, *, automatic: bool = False, allow_divergent: bool = False,
                retry_failed: bool = False, allow_unpinned: bool = False) -> dict[str, Any]:
@@ -1295,7 +1303,7 @@ class Manager:
         try:
             if units_outdated:
                 self.system.stop(names)
-            # Listed once the maintenance service is stopped: until then it can remove wikis (R-13).
+            # Listed once the maintenance service is stopped: until then it can remove wikis.
             serving = self.system.serving_tenants(self.system.containers(settings))
             if units_outdated:
                 self.write_runtime(settings)
@@ -1324,7 +1332,7 @@ class Manager:
         self.event("converge", "complete", revision=settings["revision"])
         return {"units": units_outdated, **details}
 
-    # Restore and recovery -------------------------------------------------
+    # Restore and recovery
 
     def restored_settings(self, extracted: Path, manifest: dict[str, Any], *, name: str | None = None,
                           domain: str | None = None, port: int | None = None) -> dict[str, Any]:
@@ -1348,15 +1356,29 @@ class Manager:
     def apply_tree(self, tree: Path, old_root: str, settings: dict[str, Any], *,
                    copier: Callable[[str, Path], None] | None = None, copy_source: bool = True,
                    preserve_policy: bool = True, public_changed: bool = False) -> None:
-        """Replace ``data/`` and ``site/`` from an extracted package or a snapshot, then fix the configuration."""
+        """Replace ``data/`` and ``site/`` from an extracted package or a snapshot, then fix the configuration.
+
+        An extracted package's trees are moved into place, not copied: it is
+        staged on the same volume and discarded afterwards.
+        """
         for name in ("data", "site"):
             temporary = self.root / f".restore-{name}-{secrets.token_hex(4)}"
-            if copier is not None:
-                copier(name, temporary)
-            elif (tree / name).exists():
-                shutil.copytree(tree / name, temporary)
-            else:
-                temporary.mkdir(mode=0o700)
+            try:
+                if copier is not None:
+                    copier(name, temporary)
+                elif (tree / name).exists():
+                    try:
+                        os.replace(tree / name, temporary)
+                    except OSError as error:
+                        if error.errno != errno.EXDEV:
+                            raise
+                        shutil.copytree(tree / name, temporary)
+                else:
+                    temporary.mkdir(mode=0o700)
+            except BaseException:
+                # A full disk must not leave a partial copy behind for every later attempt.
+                shutil.rmtree(temporary, ignore_errors=True)
+                raise
             previous = self.root / f".previous-{name}-{secrets.token_hex(4)}"
             if (self.root / name).exists():
                 os.replace(self.root / name, previous)
@@ -1434,7 +1456,12 @@ class Manager:
         self.system.remove_containers(current)
         if from_snapshot:
             snapshot = Snapshot.open(journal["snapshot"], self.root)
-            self.apply_tree(snapshot.path, str(self.root), settings, copier=snapshot.copy_tree,
+            owner = self.system.identity(settings["service"])
+
+            def copier(name: str, destination: Path) -> None:
+                snapshot.copy_tree(name, destination, owner if name == "data" else None)
+
+            self.apply_tree(snapshot.path, str(self.root), settings, copier=copier,
                             copy_source=journal.get("restore_source", False))
             restored = True
         elif from_package:
@@ -1454,6 +1481,12 @@ class Manager:
             self.install_units(settings)
             journal["phase"] = "restored"
             write_json(self.config_dir / "transaction.json", journal)
+        if restored and journal.get("snapshot"):
+            # Nothing is put back from it any more, and nothing may start while it shares the restored files'
+            # inodes (see Snapshot.copy_tree). Not opened: one whose removal was interrupted has lost its index.
+            path = Path(journal["snapshot"])
+            if path.parent == self.root / "staging" and path.name.startswith("snapshot-"):
+                Snapshot(path, self.root).remove()
         self.restore_proxy(journal.get("proxy"))
         try:
             unready, others = self.finish(journal, settings)
@@ -1584,7 +1617,7 @@ class Manager:
                     restored["service"] = existing["service"]
                 # Before anything changes: which code may run here at all.
                 archive = self.restore_source(restored["revision"], extracted, manifest, trust_source=trust_source)
-                # That was decided with this server's update source and signature trust: they stay (OPS2-05).
+                # That was decided with this server's update source and signature trust: they stay.
                 # Only a server without any (a new one) takes the package's, credentials included.
                 details: dict[str, Any] = {}
                 keep_source = (self.config_dir / "source.json").is_file()
@@ -1653,7 +1686,7 @@ class Manager:
         if remote.status()["configured"]:
             self.system.install_backup_timer(settings, remote.set_schedule(False))
 
-    # Policy, pruning, status, removal ---------------------------------------
+    # Policy, pruning, status, removal
 
     def require_signed_updates(self, signing: str, *, allow_unsigned: bool = False) -> None:
         """Refuse automatic updates of revisions nobody signed, unless the operator explicitly accepts them.
@@ -1695,7 +1728,7 @@ class Manager:
                           interval_minutes=policy["interval_minutes"], keep_backups=policy["keep_backups"])
 
     def prune_backups(self) -> list[str]:
-        """Keep the newest ``keep_backups`` automatic and pre-update packages, and the rollback target."""
+        """Keep the newest ``keep_backups`` of each kind of package made automatically, and the rollback target."""
         keep = self.policy()["keep_backups"]
         protected = (read_json(self.config_dir / "last-update.json", {}) or {}).get("backup")
         removed = []

@@ -1,6 +1,4 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
-"""A stall timeout for the responses Gunicorn writes (R-27).
+"""A stall timeout for the responses Gunicorn writes.
 
 Gunicorn has no write timeout: a gthread worker writes a response with
 blocking ``sendall`` and ``sendfile`` calls, so a client that stops reading a

@@ -3,9 +3,6 @@
 Quello che puoi fare dipende dai tuoi permessi; gli amministratori possono
 fare tutto.
 
-Usa **Nuova pagina** nella barra laterale per iniziare una pagina. L'editor
-ha i comandi **Crea pagina** o **Salva**, e **Annulla**, in alto e in fondo.
-
 ## Categorie
 
 Le categorie sono le cartelle della barra laterale e possono contenere
@@ -13,12 +10,13 @@ sottocategorie.
 
 * **Nuova categoria** nella barra laterale ne crea una (anche dentro
   un'altra).
-* Trascina pagine e categorie nella barra laterale per riordinarle o
-  annidarle.
-* La pagina di una categoria (fai clic sul suo nome) permette di rinominarla,
-  attivare la **navigazione sequenziale** (collegamenti precedente/successiva
-  tra le sue pagine, nell'ordine della barra laterale) ed eliminarla. Quando
-  elimini, scegli cosa fare delle sue pagine: spostarle in un'altra categoria,
+* Trascina le pagine nella barra laterale, oppure pagine e categorie in
+  **Tutte le pagine**, per cambiarne l'ordine.
+* La pagina di una categoria (**Apri** accanto al nome in **Tutte le pagine**)
+  permette di rinominarla, spostarla in un'altra categoria, attivare la
+  **navigazione sequenziale** (collegamenti precedente/successiva tra le sue
+  pagine, nell'ordine della barra laterale) ed eliminarla. Quando elimini,
+  scegli cosa fare delle sue pagine: spostarle in un'altra categoria,
   lasciarle senza categoria oppure eliminarle. Le sottocategorie salgono di un
   livello.
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import http.server
+import logging
 import os
 import socket
 import sys
@@ -89,6 +90,20 @@ def test_restart_after_stop(folder, free_port):
         assert fetch(info.local_url + "health") == 200
     finally:
         wiki.stop()
+
+
+def test_the_log_file_follows_the_folder_being_served(folder, tmp_path, free_port):
+    other = DataFolder(tmp_path / "other")
+    for data in (folder, other):
+        wiki = WikiServer(data, port=free_port, backend="waitress")
+        wiki.start()
+        wiki.stop()
+        # Closed once stopped, so the folder can be moved or deleted (Windows locks open files).
+        assert not [h for h in logging.getLogger("bananawiki").handlers if isinstance(h, logging.FileHandler)]
+    first = (folder.logs / "bananawiki.log").read_text(encoding="utf-8")
+    second = (other.logs / "bananawiki.log").read_text(encoding="utf-8")
+    assert f"Serving {folder.root} " in first and str(other.root) not in first
+    assert f"Serving {other.root} " in second
 
 
 def test_health_answers_carry_the_start_nonce(folder, free_port):
@@ -201,6 +216,23 @@ def test_a_broken_database_is_reported(folder, free_port):
     assert caught.value.key == "server_failed"
     with folder.lock():  # the failed start released the folder
         pass
+
+
+@pytest.mark.parametrize("flags, setting", [([], "0"), (["--allow-plugins"], "1")])
+def test_cli_serve_loads_third_party_plugins_only_when_asked(folder, monkeypatch, flags, setting):
+    from bananawiki.desktop import __main__ as cli
+
+    seen = {}
+
+    class Refused(WikiServer):
+        def start(self):
+            seen.update(self._config(5001)[0])
+            raise DesktopError("server_failed")
+
+    folder.prepare()
+    monkeypatch.setattr(cli, "WikiServer", Refused)
+    assert cli.main(["serve", "--data-dir", str(folder.root), *flags]) == 1
+    assert seen["BW_ALLOW_EXTERNAL_PLUGINS"] == setting
 
 
 def test_unknown_backend_is_refused(folder):

@@ -55,7 +55,7 @@ def announce(app, source="admin.signups", object_id="1"):
         attention.created(source, object_id)
 
 
-# ── Immediate mode ────────────────────────────────────────────────────────────
+# Immediate mode
 
 
 def test_first_request_sends_one_email_and_runs_are_idempotent(app, admin, make_user, outbox):
@@ -122,7 +122,7 @@ def test_suspended_administrators_get_nothing(app, admin, make_user, db, outbox)
     assert run(app) == 0
 
 
-# ── Digest and daily modes ────────────────────────────────────────────────────
+# Digest and daily modes
 
 
 def test_digest_waits_for_the_interval(app, admin, make_user, outbox):
@@ -164,7 +164,7 @@ def test_failed_delivery_is_retried_later_not_in_a_loop(app, admin, make_user, m
     assert run(app, NOON + timedelta(minutes=16)) == 1 and len(calls) == 2
 
 
-# ── Who hears about what, and in which language ─────────────────────────────
+# Who hears about what, and in which language
 
 
 def test_reviewers_hear_only_about_reviews(app, admin, make_user, db, outbox):
@@ -205,7 +205,7 @@ def test_no_links_without_a_public_address(app, admin, make_user, outbox):
     assert outbox[0].action_url == "" and outbox[0].unsubscribe_url == ""
 
 
-# ── Decisions ─────────────────────────────────────────────────────────────────
+# Decisions
 
 
 def decide_quota(app, user, approve=True):

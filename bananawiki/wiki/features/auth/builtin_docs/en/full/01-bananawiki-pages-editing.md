@@ -1,16 +1,14 @@
-# Pages & Editing
+# Pages and editing
 
-Pages are the basic unit of BananaWiki. A good page has a clear title, a stable URL slug, a useful category, and content that answers a real question for its readers.
+To create and edit pages you need the editor role, or a custom role that allows it, and write access to the category.
 
 ## Create a page
 
-1. Click **+ New Page** in the sidebar or the page menu.
-2. Enter a short title. BananaWiki suggests a URL slug automatically.
-3. Choose a category, or leave the page uncategorised while drafting.
-4. Write in Markdown on the left and check the preview on the right.
-5. Save when the page is ready to share.
-
-You need editor or admin access to create and edit most pages. Admins can also restrict editing to selected categories.
+1. Click **New page** in the sidebar.
+2. Enter a title. The page address (`/page/<address>`) is made from it; you can change it later.
+3. Choose a category, or none.
+4. Write on the **Write** tab and check the result on **Preview**.
+5. Click **Create page**.
 
 ## Markdown essentials
 
@@ -26,16 +24,16 @@ You need editor or admin access to create and edit most pages. Admins can also r
 | `[label](https://example.com)` | link |
 | `![alt text](image.png)` | image |
 
-Use headings to make long pages scannable. Put the most important answer near the top, then add detail below it.
+Headings appear in the page's contents list.
 
-## Media and rich content
+## Images, videos and files
 
-Images can be uploaded from the editor. Plain YouTube or Vimeo links on their own line are embedded automatically. If the Attachments plugin is enabled, files such as PDFs or ZIP archives can be attached to pages and downloaded by authenticated users.
+Drop or paste images into the editor to upload them. A YouTube or Vimeo address on a line of its own becomes a video player. With **Attachments** on, a page can also carry other files, such as PDFs or ZIP archives, for readers to download.
 
-## Drafts, history, and review
+## Drafts and history
 
-When the Drafts plugin is enabled, your unsaved edits are kept privately while you work. When Page History is enabled, each save records a version so editors can compare, restore, or audit changes later.
+With **Drafts** on, the editor keeps a private copy of what you type, and reopening the editor offers to restore it. With **Page history** on, every save is kept: **History** in the page's menu shows each version, what changed, and lets you restore one.
 
 ## Moving and deleting
 
-Page slugs can be renamed, and internal links are rewritten where possible. Pages can be moved between categories. Deleting a page may be immediate or delayed by the Deletion Slowdown plugin, depending on site settings and whether the page belongs to protected documentation.
+**Page actions** has **Rename**, **Change address** (links in other pages follow) and **Move** to another category. With **Deletion slowdown** on, a deleted page waits 48 hours, and an administrator can restore it during that time.

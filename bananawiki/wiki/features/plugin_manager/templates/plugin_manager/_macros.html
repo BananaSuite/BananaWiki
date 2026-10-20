@@ -25,7 +25,7 @@
 {% endif %}
 {% if entry.lock %}<span class="small muted">{{ t(entry.lock) }}</span>{% endif %}
 {% if entry.kind == 'retired' or (entry.kind == 'external' and not entry.has_files) %}
-  {{ forms.post_button(url_for('plugin_manager.delete', plugin_id=entry.id), t('plugin_manager.action.remove_row'), 'btn btn--small btn--danger', confirm=t('plugin_manager.confirm.remove_row', name=entry.name)) }}
+  {{ forms.post_button(url_for('plugin_manager.delete', plugin_id=entry.id), t('plugin_manager.action.remove_row'), 'btn btn--small btn--danger-quiet', confirm=t('plugin_manager.confirm.remove_row', name=entry.name)) }}
 {% endif %}
 </div>
 {%- endmacro %}

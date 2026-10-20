@@ -83,7 +83,7 @@ def test_disabled_feature_records_nothing(app, client, make_user, login, db):
     assert client.get("/admin/audit").status_code in (403, 404)
 
 
-# ── Account administration, plugins and the audit log itself ─────────────────
+# Account administration, plugins and the audit log itself
 
 
 def test_account_administration_is_recorded(app, owner_client, owner, make_user, login, db):

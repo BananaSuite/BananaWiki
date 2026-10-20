@@ -56,7 +56,7 @@ def _propose(app, page, user):
         return contributions.propose(pages.get(page["id"]), user, title=None, content="changed", reason="please")
 
 
-# ── Counts ────────────────────────────────────────────────────────────────────
+# Counts
 
 
 def test_counts_follow_roles_and_permissions(app, people, page, make_user):
@@ -108,7 +108,7 @@ def test_counts_are_cached_per_request(app, people, make_user, db):
         assert attention.total(people["admin"]) == 0
 
 
-# ── Events ────────────────────────────────────────────────────────────────────
+# Events
 
 
 def test_new_items_emit_attention_created(app, people, page, db):
@@ -132,7 +132,7 @@ def test_automatic_quota_approval_is_not_a_request(app, people, db):
     assert db.scalar("SELECT COUNT(*) FROM attention_events") == 0
 
 
-# ── The red dot, the menu, the dashboard ─────────────────────────────────────
+# The red dot, the menu, the dashboard
 
 
 def test_avatar_dot_and_menu_section(app, client, login, people, make_user, page):
@@ -151,7 +151,7 @@ def test_no_dot_without_pending_work(client, login, people):
     login(client, people["reader"])
     html = client.get("/attention").data.decode()
     assert "attention-dot" not in html
-    assert "All caught up" in html
+    assert "Nothing is waiting for your review right now." in html
 
 
 def test_reviewer_sees_only_reviews(app, client, login, people, page, make_user):
@@ -174,7 +174,7 @@ def test_attention_page_shows_oldest_waiting(app, client, login, people, make_us
     db.execute("UPDATE users SET created_at = '2020-01-01 00:00:00' WHERE id = ?", (user["id"],))
     login(client, people["admin"])
     html = client.get("/attention").data.decode()
-    # The copy reads "Oldest arrived 6 years ago" (it was "Oldest waiting since …", which clashed with "ago").
+    # The copy reads "Oldest arrived 6 years ago", which agrees with "ago".
     assert "Oldest arrived" in html and "years ago" in html
 
 
@@ -187,7 +187,7 @@ def test_menu_counts_are_in_italian(app, client, login, people, make_user, db):
     assert "Menu dell&#39;account, 1 richiesta richiede la tua attenzione" in html
 
 
-# ── The banner after signing in ──────────────────────────────────────────────
+# The banner after signing in
 
 
 def test_login_banner_is_shown_once(client, login, people, make_user):
@@ -203,7 +203,7 @@ def test_no_login_banner_when_nothing_waits(client, login, people):
     assert "banner--attention" not in client.get("/attention").data.decode()
 
 
-# ── Decisions and notices ────────────────────────────────────────────────────
+# Decisions and notices
 
 
 def test_decisions_leave_a_notice(app, client, login, people, page, db):
@@ -256,7 +256,7 @@ def test_dismiss_needs_csrf(app, client, login, people, db):
     assert db.scalar("SELECT dismissed_at FROM user_notices WHERE id = ?", (notice_id,)) is None
 
 
-# ── The account's address and choices ───────────────────────────────────────
+# The account's address and choices
 
 
 def test_account_settings_store_a_valid_address(client, login, people, db):
@@ -310,7 +310,7 @@ def test_unsubscribe_link(app, client, people, db):
     assert client.get(f"/attention/unsubscribe/{token[:-2]}xx").status_code == 404
 
 
-# ── Administration ────────────────────────────────────────────────────────────
+# Administration
 
 
 def test_admin_settings_need_an_administrator(client, login, people):
@@ -354,6 +354,23 @@ def test_mail_secrets_are_encrypted_and_kept(admin_client, db):
     assert b"hunter2-secret" not in admin_client.get("/admin/notifications").data
     admin_client.post("/admin/notifications", data={**form, "mail_smtp_password": "", "clear_mail_smtp_password": "1"})
     assert db.scalar("SELECT mail_smtp_password FROM site_settings") == ""
+
+
+def test_saved_smtp_password_is_dropped_when_the_server_changes(admin_client, db):
+    form = {"section": "mail", "mail_provider": "smtp", "mail_from": "wiki@example.org", "mail_reply_to": "",
+            "mail_smtp_host": "smtp.example.org", "mail_smtp_port": "587", "mail_smtp_security": "starttls",
+            "mail_smtp_username": "wiki", "mail_smtp_password": "hunter2-secret"}
+    admin_client.post("/admin/notifications", data=form)
+    stored = db.scalar("SELECT mail_smtp_password FROM site_settings")
+    admin_client.post("/admin/notifications", data={**form, "mail_smtp_host": "SMTP.example.org",
+                                                    "mail_smtp_password": ""})
+    assert db.scalar("SELECT mail_smtp_password FROM site_settings") == stored
+    response = admin_client.post("/admin/notifications", data={**form, "mail_smtp_host": "mail.elsewhere.example",
+                                                               "mail_smtp_password": ""}, follow_redirects=True)
+    assert db.scalar("SELECT mail_smtp_password FROM site_settings") == ""
+    assert b"saved password was removed" in response.data
+    admin_client.post("/admin/notifications", data={**form, "mail_smtp_host": "mail.other.example"})
+    assert db.scalar("SELECT mail_smtp_password FROM site_settings").startswith("fernet:")
 
 
 def test_mail_settings_refuse_header_injection(admin_client, db):

@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
 """Schema version 9: two-step verification for wiki accounts.
 
 1. ``auth__two_step``: one row per account that turned two-step verification

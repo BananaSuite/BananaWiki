@@ -31,6 +31,17 @@ def test_badge_validation(admin_client, db):
     assert db.scalar("SELECT COUNT(*) FROM badge_types") == 1
 
 
+def test_typed_icons_show_and_stock_icons_become_a_coloured_mark(admin_client, db):
+    typed = _create(admin_client, db, name="Typed", icon="<b>")
+    stock = _create(admin_client, db, name="Stock", icon="🏆", color="#ab1234")
+    page = admin_client.get("/admin/badges").get_data(as_text=True)
+    assert '<span class="badge-glyph" aria-hidden="true">&lt;b&gt;</span>' in page
+    assert '<span class="badge-mark" aria-hidden="true" style="--badge-color: #ab1234"></span>' in page
+    assert db.scalar("SELECT icon FROM badge_types WHERE id = ?", (stock,)) == "🏆"
+    assert 'name="icon" type="text" value=""' in admin_client.get(f"/admin/badges/{stock}/edit").get_data(as_text=True)
+    assert 'name="icon" type="text" value="&lt;b&gt;"' in admin_client.get(f"/admin/badges/{typed}/edit").get_data(as_text=True)
+
+
 def test_badge_admin_is_admin_only(client, make_user, login):
     login(client, make_user("bob"))
     assert client.get("/admin/badges").status_code == 403
@@ -92,6 +103,31 @@ def test_first_edit_and_count_triggers_fire_on_save(app, admin_client, make_user
     assert counts == {"First": 1, "Two edits": 1}
 
 
+def test_revoked_automatic_badge_is_not_awarded_again(app, admin_client, make_user, db):
+    from bananawiki.wiki.features.badges import service
+
+    badge_id = _create(admin_client, db, name="First", auto_trigger="1", trigger_type="first_edit")
+    bob = make_user("bob", role="editor")
+    carol = make_user("carol", role="editor")
+    page = make_page(app, "Doc", "x", author_id=bob["id"])
+    edit_page(app, page["id"], "y", author_id=carol["id"])
+    db.execute("UPDATE badge_notifications SET notified = 1")
+    admin_client.post(f"/admin/badges/{badge_id}/revoke", data={"username": "bob"})
+    in_app(app, service.evaluate_everyone)
+    in_app(app, lambda: service.on_login(bob))
+    edit_page(app, page["id"], "z", author_id=bob["id"])
+    assert db.scalar("SELECT revoked FROM user_badges WHERE user_id = ?", (bob["id"],)) == 1
+    admin_client.post(f"/admin/badges/{badge_id}/revoke-all")
+    assert in_app(app, service.evaluate_everyone) == 0
+    assert db.scalar("SELECT COUNT(*) FROM user_badges WHERE revoked = 0") == 0
+    assert db.scalar("SELECT COUNT(*) FROM badge_notifications WHERE notified = 0") == 0
+    admin_client.post(f"/admin/badges/{badge_id}/award", data={"username": "bob"})
+    assert db.scalar("SELECT revoked FROM user_badges WHERE user_id = ?", (bob["id"],)) == 0
+    admin_client.post(f"/admin/badges/{badge_id}/revoke", data={"username": "carol", "permanent": "1"})
+    assert db.scalar("SELECT COUNT(*) FROM user_badges WHERE user_id = ?", (carol["id"],)) == 0
+    assert in_app(app, service.evaluate_everyone) == 1
+
+
 def test_job_evaluates_category_article_and_membership_triggers(app, admin_client, make_user, db):
     from bananawiki.wiki.features.badges import service
 
@@ -113,6 +149,39 @@ def test_job_evaluates_category_article_and_membership_triggers(app, admin_clien
     assert bob_badges == {"Two categories", "Veteran"}
     assert db.scalar("SELECT COUNT(*) FROM user_badges WHERE user_id = ?", (carol["id"],)) == 0
     assert in_app(app, service.evaluate_everyone) == 0
+
+
+def test_article_trigger_counts_the_pages_a_member_created(app, admin_client, make_user, db):
+    _create(admin_client, db, name="Author", auto_trigger="1", trigger_type="article_count", trigger_threshold="2")
+    bob = make_user("bob", role="editor")
+    carol = make_user("carol", role="editor")
+    make_page(app, "A", "x", author_id=bob["id"])
+    page_b = make_page(app, "B", "x", author_id=carol["id"])
+    edit_page(app, page_b["id"], "y", author_id=bob["id"])
+    edit_page(app, page_b["id"], "z", author_id=bob["id"])
+    assert db.scalar("SELECT COUNT(*) FROM user_badges") == 0
+    make_page(app, "C", "x", author_id=bob["id"])
+    assert db.column("SELECT user_id FROM user_badges") == [bob["id"]]
+
+
+def test_evaluating_one_member_reads_page_history_by_index(app, admin_client, make_user, db):
+    from bananawiki.wiki.db import connection_scope
+    from bananawiki.wiki.features.badges import service
+
+    for trigger in ("first_edit", "contribution_count", "category_count", "article_count"):
+        _create(admin_client, db, name=trigger, auto_trigger="1", trigger_type=trigger, trigger_threshold="5")
+    bob = make_user("bob", role="editor")
+    make_page(app, "A", "x", author_id=bob["id"])
+    statements: list[str] = []
+    with app.test_request_context(), connection_scope() as session:
+        session.conn.set_trace_callback(statements.append)
+        service.evaluate(bob["id"])
+        session.conn.set_trace_callback(None)
+        plans = {sql: [row["detail"] for row in session.all(f"EXPLAIN QUERY PLAN {sql}")]
+                 for sql in statements if "page_history" in sql}
+    assert len(plans) == 3
+    for sql, plan in plans.items():
+        assert not [step for step in plan if step.startswith(("SCAN", "CO-ROUTINE"))], (sql, plan)
 
 
 def test_reading_time_heartbeat(app, admin_client, make_user, login, db):

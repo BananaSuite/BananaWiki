@@ -7,21 +7,21 @@
 {% include "attention/_dashboard_card.html" %}
 
 <div class="admin-stats admin-stats--summary">
-  <a class="stat" href="{{ url_for('admin.users') }}"><span class="stat__value">{{ stats.users }}</span><span class="stat__label">{{ t('admin.dashboard.stat.users') }}</span></a>
-  <a class="stat" href="{{ url_for('admin.users', approval='pending') }}"><span class="stat__value">{{ stats.pending }}</span><span class="stat__label">{{ t('admin.dashboard.stat.pending') }}</span></a>
-  <a class="stat" href="{{ url_for('admin.users', status='suspended') }}"><span class="stat__value">{{ stats.suspended }}</span><span class="stat__label">{{ t('admin.dashboard.stat.suspended') }}</span></a>
-  <a class="stat" href="{{ url_for('admin.sessions') }}"><span class="stat__value">{{ stats.online }}</span><span class="stat__label">{{ t('admin.dashboard.stat.online') }}</span></a>
-  <div class="stat"><span class="stat__value">{{ stats.pages }}</span><span class="stat__label">{{ t('admin.dashboard.stat.pages') }}</span></div>
-  <div class="stat"><span class="stat__value">{{ stats.edits_week }}</span><span class="stat__label">{{ t('admin.dashboard.stat.edits_week') }}</span></div>
-  <div class="stat"><span class="stat__value">{{ stats.signups_week }}</span><span class="stat__label">{{ t('admin.dashboard.stat.signups_week') }}</span></div>
+  <a class="stat" href="{{ url_for('admin.users') }}"><span class="stat__value">{{ stats.users|digits }}</span><span class="stat__label">{{ t('admin.dashboard.stat.users') }}</span></a>
+  <a class="stat" href="{{ url_for('admin.users', approval='pending') }}"><span class="stat__value">{{ stats.pending|digits }}</span><span class="stat__label">{{ t('admin.dashboard.stat.pending') }}</span></a>
+  <a class="stat" href="{{ url_for('admin.users', status='suspended') }}"><span class="stat__value">{{ stats.suspended|digits }}</span><span class="stat__label">{{ t('admin.dashboard.stat.suspended') }}</span></a>
+  <a class="stat" href="{{ url_for('admin.sessions') }}"><span class="stat__value">{{ stats.online|digits }}</span><span class="stat__label">{{ t('admin.dashboard.stat.online') }}</span></a>
+  <div class="stat"><span class="stat__value">{{ stats.pages|digits }}</span><span class="stat__label">{{ t('admin.dashboard.stat.pages') }}</span></div>
+  <div class="stat"><span class="stat__value">{{ stats.edits_week|digits }}</span><span class="stat__label">{{ t('admin.dashboard.stat.edits_week') }}</span></div>
+  <div class="stat"><span class="stat__value">{{ stats.signups_week|digits }}</span><span class="stat__label">{{ t('admin.dashboard.stat.signups_week') }}</span></div>
 </div>
 
 <section class="card" aria-labelledby="traffic-title">
   <div class="card__header"><h2 id="traffic-title">{{ t('admin.dashboard.traffic', days=traffic.days) }}</h2></div>
   <div class="admin-stats">
-    <div class="stat"><span class="stat__value">{{ traffic.totals.request }}</span><span class="stat__label">{{ t('admin.dashboard.kind.request') }}</span></div>
-    <div class="stat"><span class="stat__value">{{ traffic.totals.page_view }}</span><span class="stat__label">{{ t('admin.dashboard.kind.page_view') }}</span></div>
-    <div class="stat"><span class="stat__value">{{ traffic.totals.error }}</span><span class="stat__label">{{ t('admin.dashboard.kind.error') }}</span></div>
+    <div class="stat"><span class="stat__value">{{ traffic.totals.request|digits }}</span><span class="stat__label">{{ t('admin.dashboard.kind.request') }}</span></div>
+    <div class="stat"><span class="stat__value">{{ traffic.totals.page_view|digits }}</span><span class="stat__label">{{ t('admin.dashboard.kind.page_view') }}</span></div>
+    <div class="stat"><span class="stat__value">{{ traffic.totals.error|digits }}</span><span class="stat__label">{{ t('admin.dashboard.kind.error') }}</span></div>
   </div>
   <div class="traffic-chart" role="img" aria-label="{{ t('admin.dashboard.chart_label') }}">
     {% for day in traffic.daily %}
@@ -38,7 +38,7 @@
         <thead><tr><th scope="col">{{ t('admin.dashboard.day') }}</th><th scope="col">{{ t('admin.dashboard.kind.request') }}</th><th scope="col">{{ t('admin.dashboard.kind.page_view') }}</th><th scope="col">{{ t('admin.dashboard.kind.error') }}</th></tr></thead>
         <tbody>
         {% for day in traffic.daily|reverse %}
-          <tr><td class="nowrap">{{ day.day }}</td><td>{{ day.request }}</td><td>{{ day.page_view }}</td><td>{{ day.error }}</td></tr>
+          <tr><td class="nowrap">{{ day.day }}</td><td>{{ day.request|digits }}</td><td>{{ day.page_view|digits }}</td><td>{{ day.error|digits }}</td></tr>
         {% endfor %}
         </tbody>
       </table>
@@ -53,14 +53,14 @@
       {% if stats.pending %}<a class="btn btn--small" href="{{ url_for('admin.users', approval='pending') }}">{{ t('admin.dashboard.see_all') }}</a>{% endif %}
     </div>
     {% if pending %}
-    <ul class="stack small">
+    <ul class="list-plain list-plain--rows small">
       {% for user in pending %}
       <li class="split">
         <span><a href="{{ url_for('admin.user_detail', user_id=user.id) }}">{{ user.username }}</a>
           <span class="muted nowrap">· {{ user.created_at|time_ago }}</span></span>
         <span class="btn-row">
-          {{ forms.post_button(url_for('admin.edit_user', user_id=user.id), t('admin.approval.approve'), 'btn btn--small btn--primary', hidden={'action': 'approve_user', 'next': url_for('admin.dashboard')}) }}
-          {{ forms.post_button(url_for('admin.edit_user', user_id=user.id), t('admin.approval.deny'), 'btn btn--small btn--danger', confirm=t('admin.approval.deny_confirm', username=user.username), hidden={'action': 'deny_user', 'next': url_for('admin.dashboard')}) }}
+          {{ forms.post_button(url_for('admin.edit_user', user_id=user.id), t('admin.approval.approve'), 'btn btn--small', hidden={'action': 'approve_user', 'next': url_for('admin.dashboard')}) }}
+          {{ forms.post_button(url_for('admin.edit_user', user_id=user.id), t('admin.approval.deny'), 'btn btn--small btn--danger-quiet', confirm=t('admin.approval.deny_confirm', username=user.username), hidden={'action': 'deny_user', 'next': url_for('admin.dashboard')}) }}
         </span>
       </li>
       {% endfor %}
@@ -72,7 +72,7 @@
 
   <section class="card" aria-labelledby="signups-title">
     <div class="card__header"><h2 id="signups-title">{{ t('admin.dashboard.signups') }}</h2></div>
-    <ul class="stack small">
+    <ul class="list-plain list-plain--rows small">
       {% for user in signups %}
       <li><a href="{{ url_for('admin.user_detail', user_id=user.id) }}">{{ user.username }}</a>
         <span class="badge">{{ t('admin.role.' ~ user.role) }}</span> <span class="muted nowrap">{{ user.created_at|time_ago }}</span></li>
@@ -84,12 +84,12 @@
 <section class="card" aria-labelledby="edits-title">
   <div class="card__header"><h2 id="edits-title">{{ t('admin.dashboard.edits') }}</h2></div>
   {% if edits %}
-  <ul class="stack small">
+  <ul class="list-plain list-plain--rows small">
     {% for edit in edits %}
     <li>
       {% if edit.url %}<a href="{{ edit.url }}">{{ edit.title }}</a>{% else %}{{ edit.title }}{% endif %}
-      <span class="muted"><span class="nowrap">· {{ edit.username or t('common.unknown_user') }}</span> <span class="nowrap">· {{ edit.created_at|time_ago }}</span></span>
-      {% if edit.edit_message %}<br><span class="muted">{{ edit.edit_message }}</span>{% endif %}
+      <span class="muted"><span class="nowrap">· {% if edit.username %}{{ edit.username }}{% elif edit.edited_by %}{{ t('common.unknown_user') }}{% else %}{{ t('page_history.no_author') }}{% endif %}</span> <span class="nowrap">· {{ edit.created_at|time_ago }}</span></span>
+      {% if edit.edit_message %}<br><span class="muted">{{ page_history_message(edit.edit_message) }}</span>{% endif %}
     </li>
     {% endfor %}
   </ul>

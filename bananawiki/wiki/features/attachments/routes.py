@@ -59,7 +59,7 @@ def _deleted(page: dict[str, Any], attachment: dict[str, Any]) -> None:
            details={"name": attachment["original_name"]})
 
 
-# ── Downloads ────────────────────────────────────────────────────────────────
+# Downloads
 
 
 @bp.get("/page/<slug>/attachments/<int:attachment_id>/download")
@@ -88,7 +88,7 @@ def download_all(slug: str):
                      download_name=f"{page['slug']}-attachments.zip", max_age=0)
 
 
-# ── Upload ───────────────────────────────────────────────────────────────────
+# Upload
 
 
 @bp.post("/page/<slug>/attachments")
@@ -130,7 +130,7 @@ def api_upload(page_id: int):
     return jsonify(serialize(attachment, page)), 201
 
 
-# ── Delete ───────────────────────────────────────────────────────────────────
+# Delete
 
 
 @bp.post("/page/<slug>/attachments/<int:attachment_id>/delete")

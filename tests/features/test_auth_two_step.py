@@ -60,7 +60,7 @@ def audit_actions(db, user) -> list[str]:
                                             (user["id"],))]
 
 
-# ── Enrolment ─────────────────────────────────────────────────────────────────
+# Enrolment
 
 
 def test_enrolment_needs_the_password_and_a_code_and_shows_recovery_codes_once(app, client, db, make_user, login):
@@ -105,7 +105,7 @@ def test_the_settings_page_links_from_the_account_settings(client, make_user, lo
     assert 'href="/settings/two-step"' in html
 
 
-# ── Sign-in ───────────────────────────────────────────────────────────────────
+# Sign-in
 
 
 def test_sign_in_asks_for_a_code_after_the_password(app, db, make_user, login):
@@ -277,7 +277,7 @@ def test_administrator_sign_in_asks_for_the_code_too(app, make_user, login):
     assert response.headers["Location"].endswith("/admin/dashboard")
 
 
-# ── Attempt limits ────────────────────────────────────────────────────────────
+# Attempt limits
 
 
 def test_strangers_with_the_password_cannot_use_up_a_known_browsers_codes(app, make_user, login, monkeypatch):
@@ -332,7 +332,7 @@ def test_wrong_codes_in_the_settings_count_against_the_same_budget(app, db, make
         "a stolen session cannot guess its way past the code"
 
 
-# ── Turning off and new codes ─────────────────────────────────────────────────
+# Turning off and new codes
 
 
 def test_turning_it_off_needs_the_password_and_a_code(app, db, make_user, login):
@@ -392,7 +392,7 @@ def test_account_merges_never_move_two_step_data():
     assert "secret_encrypted" not in exported and "last_counter" not in exported
 
 
-# ── Required for administrators ───────────────────────────────────────────────
+# Required for administrators
 
 
 def _settings_form(**overrides):
@@ -440,7 +440,7 @@ def test_required_two_step_holds_administrators_until_they_turn_it_on(app, db, m
     response = client.get("/_probe/private")
     assert response.status_code == 302 and response.headers["Location"].endswith("/settings/two-step")
     blocked = client.get("/_probe/private", headers={"Accept": "application/json"})
-    assert blocked.status_code == 403 and blocked.get_json()["error"] == "account_step_required"
+    assert blocked.status_code == 403 and blocked.get_json()["code"] == "account_step_required"
     page = client.get("/settings/two-step").get_data(as_text=True)
     assert "must" in page.lower() and 'action="/logout"' in page
     enrol(client)
@@ -480,7 +480,7 @@ def test_impersonation_skips_the_second_step_and_cannot_change_it(app, db, make_
     assert db.scalar("SELECT 1 FROM auth__two_step WHERE user_id = ?", (target["id"],))
 
 
-# ── Reset by an owner or superuser ────────────────────────────────────────────
+# Reset by an owner or superuser
 
 
 def test_an_owner_resets_a_locked_out_administrators_two_step(app, db, make_user, login):
@@ -569,7 +569,7 @@ def test_the_installed_command_passes_the_reset_to_the_application():
     assert args.command == "reset-two-step" and args.arguments == ["alice"]
 
 
-# ── Catalogues ────────────────────────────────────────────────────────────────
+# Catalogues
 
 
 def test_translations_have_the_same_keys_and_placeholders():

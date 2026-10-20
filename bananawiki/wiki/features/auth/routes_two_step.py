@@ -24,7 +24,7 @@ ENROLMENT_SECONDS = 10 * 60
 ACTIONS = ("enable", "disable", "renew")
 
 
-# ── Sign-in ───────────────────────────────────────────────────────────────────
+# Sign-in
 
 
 @bp.route("/login/two-step", methods=["GET", "POST"])
@@ -60,7 +60,7 @@ def cancel_two_step_login():
     return redirect(url_for("auth.login"))
 
 
-# ── Settings ──────────────────────────────────────────────────────────────────
+# Settings
 
 
 def _stored_enrolment_secret() -> str:
@@ -174,7 +174,7 @@ def two_step_settings():
     )
 
 
-# ── Reset by an owner or superuser ────────────────────────────────────────────
+# Reset by an owner or superuser
 
 
 @bp.post("/admin/users/<string:user_id>/two-step/reset")

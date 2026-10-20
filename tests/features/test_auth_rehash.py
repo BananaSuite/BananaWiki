@@ -1,4 +1,4 @@
-"""Re-hashing a password at sign-in keeps everything issued under it (second audit of the 1.7 round).
+"""Re-hashing a password at sign-in keeps everything issued under it.
 
 A password stored with another method or cost than the configured one is
 re-hashed at the next sign-in. The password stays the same, so the account's
@@ -139,8 +139,8 @@ class _ReHashBetweenReads:
 
 
 def test_a_re_hash_between_the_token_and_owner_reads_keeps_the_token(app, db, make_user, monkeypatch):
-    # Second 1.7 audit follow-up: the token's stamp was read before the re-hash committed
-    # and the owner's new hash after it, so the token looked outdated and was revoked for good.
+    # The token's stamp read before the re-hash commits and the owner's new hash read after it
+    # must not make the token look outdated and revoke it for good.
     from bananawiki.wiki.features.api_service import tokens
 
     enable_api(app, db)

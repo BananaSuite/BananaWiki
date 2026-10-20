@@ -14,9 +14,9 @@ category (or none), write the text and save. The address of the page
 
 Open the page and click **Edit**. The editor has two tabs, **Write** and
 **Preview**, a formatting toolbar (headings, bold, italic, lists, quotes,
-code, links, tables, horizontal lines, images and videos) and a full-screen mode. **Ctrl+B** and **Ctrl+I** work as
-usual. Click **Save changes** when done and add a short summary of what you
-changed; it appears in the history.
+code, links, tables, horizontal lines, images and videos) and a full-screen
+mode. **Ctrl+B** and **Ctrl+I** work as usual. Click **Save changes** when
+done and add a short summary of what you changed; it appears in the history.
 
 If other people are editing the same page, the editor says so. If someone
 saves the page while you are editing, saving tells you and lets you compare
@@ -78,13 +78,14 @@ While you type, the editor saves a private **draft**. If you close the tab by
 mistake, reopening the editor offers to restore it. Drafts of other editors
 on the same page are listed, so you know someone has unsaved work. Saving the
 page clears the drafts and credits their authors. **My drafts** in the
-account menu lists yours; you can discard a draft or hand it to someone else.
-Old drafts may expire.
+account menu lists yours, to continue or discard. With the right permission,
+**Take over draft** in the editor makes another editor's draft yours. Old
+drafts may expire.
 
 ## History
 
-**More → History** lists every saved version: who, when, the summary and the
-size of the change. Open a version to see it as it was, its Markdown, or
+**Page actions → History** lists every saved version: who, when, the summary
+and the size of the change. Open a version to see it as it was, its Markdown, or
 what changed compared with the version before. With the right permission you
 can **Restore this version** (the current text stays in the history), delete
 entries, or credit an entry to someone else.

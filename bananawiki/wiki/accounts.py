@@ -124,8 +124,8 @@ def release_name(user: dict[str, Any], username: str, *,
     The account's renames away from that name leave ``username_history``, as if
     it had never held it: old ``@mentions`` and ``/users/<name>`` stop leading
     to it. Returns the name as it was recorded, and the account it is still
-    reserved for when another account gave it up before (wikis upgraded from
-    1.4 did not reserve names); otherwise any account can now take it.
+    reserved for when another account gave it up before (names given up
+    under 1.4 were not reserved); otherwise any account can take it.
     """
     wanted = (username or "").strip().translate(_ASCII_LOWER)
     with db.transaction():

@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
 """Canvas: work, memory and storage stay bounded for large canvases, imports, exports and history."""
 
 from __future__ import annotations
@@ -67,7 +65,7 @@ def counted(monkeypatch):
     return calls
 
 
-# ── Rendering (R-18) ──────────────────────────────────────────────────────────
+# Rendering
 
 
 def test_reading_a_large_canvas_again_renders_nothing(app, counted):
@@ -140,7 +138,7 @@ def test_the_rendering_cache_counts_bytes_not_characters(monkeypatch):
     assert len(cache._items) == 2
 
 
-# ── Imports (R-20) ────────────────────────────────────────────────────────────
+# Imports
 
 
 def upload(data, name="c.canvas.json"):
@@ -249,7 +247,7 @@ def test_an_export_too_large_to_indent_is_written_compactly(app, monkeypatch):
     assert json.loads(text)["data"] == doc
 
 
-# ── Exports (R-21) ────────────────────────────────────────────────────────────
+# Exports
 
 
 def png_bytes():
@@ -294,7 +292,7 @@ def test_export_leaves_out_files_beyond_the_cap_and_says_why(monkeypatch, editor
     assert json.loads(bundle.read("canvas.json"))["data"]["nodes"][0]["url"].endswith(image_name)
 
 
-# ── History (R-22) ────────────────────────────────────────────────────────────
+# History
 
 
 def history(db, canvas):
@@ -333,8 +331,7 @@ def test_people_editing_together_share_one_entry(app, canvas, db, owner, make_us
 
 
 def test_history_keeps_only_as_many_snapshots_as_fit_in_the_byte_cap(app, canvas, db, owner, monkeypatch):
-    # raising=False: the test also runs against code without the cap, where it must fail.
-    monkeypatch.setattr(service, "HISTORY_MAX_BYTES", 50_000, raising=False)
+    monkeypatch.setattr(service, "HISTORY_MAX_BYTES", 50_000)
     for round_ in range(8):
         db.execute("UPDATE canvas__history SET created_at = '2000-01-01 00:00:00' WHERE layout_id = ?",
                    (canvas["id"],))

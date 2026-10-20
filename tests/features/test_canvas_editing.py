@@ -130,7 +130,7 @@ def test_history_coalesces_and_restores(editor, canvas, db):
     assert response.status_code == 302
     assert stored(db, canvas)["nodes"] == []
     assert service_history(db, canvas)[-1]["is_revert"] == 1
-    # The op log keeps growing (1.4 deleted it, so open editors lost their place).
+    # Restoring keeps the op log, so open editors keep their place in it.
     assert db.scalar("SELECT MAX(seq) FROM canvas__events WHERE layout_id = ?", (canvas["id"],)) == 3
     page = editor.get(f"/canvas/{canvas['slug']}/history")
     assert page.status_code == 200 and b"Restored revision" in page.data

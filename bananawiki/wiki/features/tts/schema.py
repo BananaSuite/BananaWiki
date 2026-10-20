@@ -1,4 +1,4 @@
-"""Schema additions for read-aloud audio (1.6).
+"""Schema additions for read-aloud audio.
 
 ``tts_generations`` is the 1.4 table. Two nullable columns make the queue
 durable across processes:

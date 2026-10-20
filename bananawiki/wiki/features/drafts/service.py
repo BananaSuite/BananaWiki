@@ -3,7 +3,7 @@
 The editor script saves the title and text while someone types. When they
 save the page, their draft is cleared and the other editors whose drafts
 were open on that page are credited in the edit summary (their drafts are
-cleared too, as in 1.4). ``draft_expiration_hours`` (site setting, 0 = never)
+cleared too). ``draft_expiration_hours`` (site setting, 0 = never)
 removes drafts nobody touched for that long.
 
 Visual page-builder drafts (``page_builder_drafts``) belong to the page
@@ -35,7 +35,7 @@ class DraftError(ValueError):
         self.values = values
 
 
-# ── Reading ──────────────────────────────────────────────────────────────────
+# Reading
 
 
 def get(page_id: int, user_id: str) -> dict[str, Any] | None:
@@ -63,7 +63,7 @@ def count_of_user(user_id: str) -> int:
     return int(db.scalar("SELECT COUNT(*) FROM drafts WHERE user_id = ?", (user_id,), default=0))
 
 
-# ── Permissions ──────────────────────────────────────────────────────────────
+# Permissions
 
 
 def _user(user: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -86,7 +86,7 @@ def can_transfer(page: dict[str, Any], user: dict[str, Any] | None = None) -> bo
     return can_edit(page, user) and auth.has_permission("draft.transfer", user)
 
 
-# ── Writing ──────────────────────────────────────────────────────────────────
+# Writing
 
 
 def _text(value: Any, limit: int, key: str) -> str:
@@ -148,7 +148,7 @@ def transfer(page_id: int, from_user_id: str, to_user_id: str) -> None:
                    (to_user_id, now_sql(), page_id, from_user_id))
 
 
-# ── Page saved: clear drafts and credit contributors ─────────────────────────
+# Page saved: clear drafts and credit contributors
 
 
 def _credit(page: dict[str, Any], user: dict[str, Any], names: list[str]) -> None:
@@ -185,7 +185,7 @@ def on_page_saved(page: dict[str, Any], user: dict[str, Any], **_: Any) -> None:
             db.execute("DELETE FROM drafts WHERE page_id = ?", (page["id"],))
 
 
-# ── Expiry ───────────────────────────────────────────────────────────────────
+# Expiry
 
 
 def expire() -> int:

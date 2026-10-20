@@ -1,6 +1,6 @@
 """Page governance: page protection and page reservations (check-outs).
 
-The ``page_governance`` row in ``plugins`` switches the feature (as in 1.4);
+The ``page_governance`` row in ``plugins`` switches the feature;
 ``page_protection_enabled`` and ``page_reservations_enabled`` switch its two
 parts. Integration with the pages feature goes through the
 ``page.edit_blocked``, ``page.delete`` and ``page.saved`` interceptors and

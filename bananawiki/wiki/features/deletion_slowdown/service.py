@@ -7,7 +7,7 @@ page for good through the pages service (so ``page.deleted`` fires for every
 purge); until then it can be restored.
 
 With ``docs_bypass_deletion_slowdown`` set, pages in the documentation
-category (``docs_category_id``) are deleted at once, as in 1.4.
+category (``docs_category_id``) are deleted at once.
 
 When the feature is switched off nothing is purged (its job does not run)
 and deleting a page deletes it immediately. Pages that were already waiting

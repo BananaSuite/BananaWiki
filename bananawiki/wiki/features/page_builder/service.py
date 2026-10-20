@@ -11,8 +11,7 @@ system: a user may build a page only when
   editing it (``page.edit_blocked``: protection, reservations, pending
   deletion).
 
-1.4 let plain users publish builder edits to any page they could read; that
-is gone. Publishing goes through ``pages.service.update``, so history,
+Publishing goes through ``pages.service.update``, so history,
 events and edit-conflict detection are the same as for the Markdown editor.
 """
 
@@ -50,7 +49,7 @@ def may_publish_public(user: dict[str, Any]) -> bool:
     return auth.is_admin(user) and not current_app.config["BW"].forbid_public_builder_pages
 
 
-# ── Documents ─────────────────────────────────────────────────────────────────
+# Documents
 
 
 def page_document(page: dict[str, Any]) -> dict[str, Any]:
@@ -80,7 +79,7 @@ def render_page(page: dict[str, Any]) -> Any:
     return document.render(loaded, page_id=page.get("id"))
 
 
-# ── Drafts ────────────────────────────────────────────────────────────────────
+# Drafts
 
 
 def get_draft(page_id: int, user_id: str) -> dict[str, Any] | None:
@@ -107,7 +106,7 @@ def delete_draft(page_id: int, user_id: str) -> None:
     db.execute("DELETE FROM page_builder_drafts WHERE page_id = ? AND user_id = ?", (page_id, user_id))
 
 
-# ── Publishing ────────────────────────────────────────────────────────────────
+# Publishing
 
 
 def publish(page: dict[str, Any], user: dict[str, Any], payload: Any, *, title: str | None,
@@ -134,7 +133,7 @@ def publish(page: dict[str, Any], user: dict[str, Any], payload: Any, *, title: 
     return updated
 
 
-# ── Saved sections ────────────────────────────────────────────────────────────
+# Saved sections
 #
 # Administrators save a run of blocks under a name; everyone who may use the
 # builder can then insert it on any page. A section is an ordinary document

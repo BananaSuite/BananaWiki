@@ -1,4 +1,4 @@
-"""The mascot's pixel art, drawn as inline SVG.
+"""The mascot's pixel art, drawn as inline SVG for the wiki and the hosting portal.
 
 The banana is a 16x16 grid. Each layer is a set of pixels; the SVG merges
 horizontal runs of one colour into a single ``<rect>``. The face, the sunglasses
@@ -13,6 +13,8 @@ from functools import cache
 from markupsafe import Markup
 
 SIZE = 16
+# Clicking the mascot this many times puts its sunglasses on, as many again take them off.
+CLICKS_FOR_SHADES = 11
 
 # K outline, Y light yellow, y shaded yellow, B stem tip.
 BODY = (

@@ -1,11 +1,9 @@
 """Board history and activity messages that every reader sees in their own language.
 
-Until 1.7 a message was translated into the language of the person who made
-the change and stored as text, so an Italian reader saw "added the ticket …"
-written by an English-speaking colleague. Messages are now stored as their
-catalogue key plus values (``{"k": "kanban.log.ticket_created", "v": {...}}``)
-and translated when they are shown. Rows written by older versions are plain
-text and are shown unchanged.
+A message is stored as its catalogue key plus values
+(``{"k": "kanban.log.ticket_created", "v": {...}}``) and translated when it is
+shown. Rows written before 1.7 hold text already translated into the language
+of the person who made the change; they are shown unchanged.
 """
 
 from __future__ import annotations

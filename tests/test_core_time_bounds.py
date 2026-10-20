@@ -1,4 +1,4 @@
-"""Timestamps at the ends of datetime's range can no longer break the pages that show them."""
+"""Timestamps at the ends of datetime's range do not break the pages that show them."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def api_app(rome, db):
     return rome
 
 
-# ── timeutil ──────────────────────────────────────────────────────────────────
+# timeutil
 
 
 @pytest.mark.parametrize("value", [
@@ -85,7 +85,7 @@ def test_to_sql_and_in_zone_never_overflow():
     assert timeutil.in_zone(datetime(9999, 12, 31, 12, tzinfo=UTC), PLUS_ONE).hour == 13
 
 
-# ── Template filters ──────────────────────────────────────────────────────────
+# Template filters
 
 
 def test_filters_show_far_dates_in_the_site_time_zone_or_utc(rome):
@@ -116,11 +116,11 @@ def test_local_inputs_outside_the_range_are_invalid(rome):
     assert read("2030-05-01T10:00") == "2030-05-01 08:00:00"
 
 
-# ── API tokens (the reported case) ────────────────────────────────────────────
+# API tokens
 
 
 def test_token_expiring_in_9999_keeps_the_token_pages_working(api_app, client, db, login, admin):
-    """A 9999-12-31 expiry turned /admin/api-service and /settings/api-tokens into a 400 for good."""
+    """A token expiring 9999-12-31 keeps /admin/api-service and /settings/api-tokens working."""
     raw = issue(api_app, admin, ["tokens", "pages"], expires_at=FOREVER)
     login(client, admin)
     admin_page = client.get("/admin/api-service")
@@ -181,7 +181,7 @@ def test_token_page_refuses_expiries_more_than_ten_years_ahead(api_app, client, 
     assert tokens.MAX_EXPIRY_YEARS == 10
 
 
-# ── Chat ──────────────────────────────────────────────────────────────────────
+# Chat
 
 
 def test_chat_polling_ignores_a_since_cursor_outside_the_range(client, login, make_user):

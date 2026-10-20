@@ -1,12 +1,10 @@
 """``banana`` / the installed ``bananawiki`` command: one entry point for server maintenance.
 
-Same subcommands and options as 1.4 (C13). Additions: ``agent serve|status``
-(hosting runtime agent), ``proxy --email``, ``preflight`` (what an update asks
-the new release before it stops anything), ``config get|set tenant-quotas``
-(hosting) and pass-through of application administration commands
-(``create-admin``, ``reset-password``, ``reset-two-step``, ``db …``,
-``jobs …``, ``config check``, ``setup-token``) to the release's own
-``bananawiki`` command, run as the service account with ``app.env`` loaded.
+The 1.4 subcommands keep working. It adds ``agent``, ``proxy --email``,
+``preflight`` and ``config get|set tenant-quotas`` (hosting), and passes
+application commands (``create-admin``, ``reset-password``, ``db …`` and
+others) to the release's own ``bananawiki`` command as the service account,
+with ``app.env`` loaded.
 """
 
 from __future__ import annotations
@@ -19,8 +17,10 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from secrets import token_hex
 from typing import Any
 
+from ..core import cloudflare
 from . import DEFAULT_ROOT, PRODUCT, caddy, caddy_blocks, profile, tenant_quotas
 from .files import (
     atomic_write,
@@ -148,7 +148,8 @@ def parser() -> argparse.ArgumentParser:
                             "Cloudflare Origin CA certificate). Remembered for later updates.")
     proxy.add_argument("--cloudflare", action=argparse.BooleanOptionalAction, default=None,
                        help="The DNS records are proxied by Cloudflare (orange cloud): skip the ACME challenge "
-                            "that cannot pass Cloudflare's proxy. Remembered for later updates.")
+                            "that cannot pass Cloudflare's proxy. Without it or --no-cloudflare, "
+                            "proxied records are detected through DNS. Remembered for later updates.")
     proxy.add_argument("--cloudflare-token-file", type=Path, metavar="FILE",
                        help="Cloudflare API token (Zone:DNS:Edit) for --tls cloudflare-dns; stored root-only for Caddy")
     proxy.add_argument("--origin-cert", type=Path, metavar="PEM", help="Origin CA certificate for --tls origin-cert")
@@ -172,12 +173,28 @@ def parser() -> argparse.ArgumentParser:
 _TOKEN = re.compile(r"[A-Za-z0-9_-]{20,200}")
 
 
+def _proxied_by_cloudflare(settings: dict[str, Any]) -> bool:
+    """Whether the platform's names resolve to Cloudflare's edge only (the base domain, the portal, a random wiki)."""
+    domain = settings.get("domain")
+    if not domain:
+        return False
+    names = [domain, settings.get("portal_domain") or ""]
+    if settings["mode"] == "hosting":
+        names.append(f"{token_hex(6)}.{domain}")
+    return cloudflare.proxied([name for name in names if name])
+
+
 def _proxy_options(manager: Manager, args: argparse.Namespace, record: dict[str, Any],
-                   version: tuple[int, int, int] | None) -> tuple[caddy.ProxyOptions, dict[str, str]]:
+                   version: tuple[int, int, int] | None,
+                   settings: dict[str, Any]) -> tuple[caddy.ProxyOptions, dict[str, str]]:
     """The certificate mode for this run (arguments over ``proxy.json``) and Caddy secrets to install."""
     previous = caddy.options_for(record, version)
     mode = args.tls or previous.tls
-    cloudflare = previous.cloudflare if args.cloudflare is None else args.cloudflare
+    behind = previous.cloudflare if args.cloudflare is None else args.cloudflare
+    if args.cloudflare is None and mode == "acme" and not behind and _proxied_by_cloudflare(settings):
+        behind = True
+        print(f"{settings['domain']} resolves to Cloudflare's proxy: configuring for proxied (orange-cloud) records.",
+              file=sys.stderr)
     secrets: dict[str, str] = {}
     cert, key = (previous.origin_cert, previous.origin_key) if previous.tls == "origin-cert" else ("", "")
     if mode == "origin-cert":
@@ -210,7 +227,7 @@ def _proxy_options(manager: Manager, args: argparse.Namespace, record: dict[str,
                              "permission for the domain's zone).")
     elif args.cloudflare_token_file:
         raise ValueError("--cloudflare-token-file is only used with --tls cloudflare-dns.")
-    options = caddy.ProxyOptions(tls=mode, cloudflare=cloudflare, origin_cert=cert, origin_key=key,
+    options = caddy.ProxyOptions(tls=mode, cloudflare=behind, origin_cert=cert, origin_key=key,
                                  client_ip=caddy_blocks.supports_client_ip(version))
     return options, secrets
 
@@ -232,10 +249,15 @@ def configure_proxy(manager: Manager, args: argparse.Namespace) -> dict[str, Any
     routes = manager.system.routes_directory(settings) if hosting else None
     record = read_json(manager.config_dir / "proxy.json", {}) or {}
     version = manager.system.caddy_version()
-    options, secrets = _proxy_options(manager, args, record, version)
+    options, secrets = _proxy_options(manager, args, record, version, settings)
     email = args.email or str(record.get("email") or "")
     text = caddy.render(settings, email=email, routes=str(routes) if routes else None, options=options)
     warnings = proxy_warnings(manager, settings)
+    if options.tls == "acme" and options.cloudflare:
+        warnings.append("Behind Cloudflare, --tls acme orders a certificate per host over HTTP-01: prefer --tls "
+                        "cloudflare-dns (one wildcard certificate, nothing to order for a new wiki) or --tls "
+                        "origin-cert. Otherwise turn Cloudflare's Always Use HTTPS off, or add a rule that skips "
+                        "/.well-known/acme-challenge/.")
     if not args.install:
         print(text, end="")
         for warning in warnings:
@@ -360,8 +382,8 @@ def config_command(manager: Manager, arguments: list[str]) -> dict[str, Any] | N
     The new setting is checked against the storage first: ``required`` on
     storage that cannot enforce them would keep every wiki from starting, so
     it is refused and nothing changes. ``auto`` and ``off`` are never
-    refused; the note says which limits then apply (loudly when quotas
-    enforced here before were lost).
+    refused; the note says which limits then apply (as a warning when
+    quotas enforced here before were lost).
     """
     if len(arguments) < 2 or arguments[0] not in ("get", "set") or arguments[1] != "tenant-quotas":
         return None

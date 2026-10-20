@@ -75,7 +75,7 @@ def test_nft_accepts_the_rules():
     assert result.returncode == 0, result.stderr
 
 
-# DNS: only to the resolvers this host uses (OPS2-07) -----------------------------------------------------
+# DNS: only to the resolvers this host uses
 
 
 def test_dns_is_allowed_only_to_the_resolvers_listed_not_to_every_private_address():

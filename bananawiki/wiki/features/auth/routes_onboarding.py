@@ -32,6 +32,12 @@ def onboarding_wizard():
     first_run = bool(user.get("onboarding_required"))
     if not first_run and not _replay_allowed():
         return redirect("/")
+    # Exempt from the gate only so the wizard can be its own step; any other step still comes first.
+    step = auth.pending_account_step(user)
+    if step and step != "auth.onboarding":
+        if request.method != "GET":
+            return auth.deny(403)
+        return redirect(url_for(step))
     error = None
     if request.method == "POST":
         try:

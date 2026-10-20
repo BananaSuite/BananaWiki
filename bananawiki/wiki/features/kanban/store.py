@@ -114,7 +114,7 @@ def write_ticket_order(column_id: int, ordered: list[int]) -> None:
     )
 
 
-# ── Assignees ─────────────────────────────────────────────────────────────────
+# Assignees
 
 
 def set_assignees(ticket_id: int, user_ids: Iterable[str]) -> list[str]:
@@ -195,7 +195,7 @@ def board_state(board: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# ── Archive ───────────────────────────────────────────────────────────────────
+# Archive
 
 
 def archived_count(board_id: int) -> int:
@@ -224,7 +224,7 @@ def archived_tickets(board_id: int, limit: int) -> list[dict[str, Any]]:
     ]
 
 
-# ── Checklists ────────────────────────────────────────────────────────────────
+# Checklists
 
 
 def checklist(ticket_id: int) -> list[dict[str, Any]]:
@@ -271,7 +271,7 @@ def replace_checklist(ticket_id: int, items: Iterable[dict[str, Any]]) -> None:
     )
 
 
-# ── Attachment files ──────────────────────────────────────────────────────────
+# Attachment files
 
 
 def attachment_refs(where: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:

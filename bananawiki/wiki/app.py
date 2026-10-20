@@ -200,28 +200,49 @@ def _apply_resource_limits(cfg: Config) -> None:
 
 
 def _configure_logging(cfg: Config) -> None:
+    """Apply the level, format and log file of *cfg* to the ``bananawiki`` loggers.
+
+    A process may build more than one app (the desktop launcher builds one at
+    every start, possibly for another data folder): each follows its own
+    configuration, and the log file moves with it.
+    """
     root = logging.getLogger("bananawiki")
-    if getattr(root, "_bw_configured", False):
-        return
     level = {"off": logging.CRITICAL + 1, "minimal": logging.WARNING, "medium": logging.INFO,
              "verbose": logging.INFO, "debug": logging.DEBUG}[cfg.log_level]
     root.setLevel(level)
-    formatter = logformat.formatter(cfg.log_format)
-    stream = logging.StreamHandler()
-    stream.setFormatter(formatter)
-    root.addHandler(stream)
-    if cfg.log_level != "off" and not cfg.testing:
+    if not getattr(root, "_bw_configured", False):
+        stream = logging.StreamHandler()
+        stream._bw_handler = True  # type: ignore[attr-defined]
+        root.addHandler(stream)
+        root.propagate = False
+        root._bw_configured = True  # type: ignore[attr-defined]
+    log_file = os.path.abspath(cfg.log_file) if cfg.log_level != "off" and not cfg.testing else None
+    current = next((h for h in root.handlers if getattr(h, "_bw_log_file", False)), None)
+    if current is not None and current.baseFilename != log_file:  # type: ignore[attr-defined]
+        close_log_file()
+        current = None
+    if current is None and log_file:
         from logging.handlers import RotatingFileHandler
 
         try:
-            Path(cfg.log_file).parent.mkdir(parents=True, exist_ok=True)
-            handler = RotatingFileHandler(cfg.log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
-            handler.setFormatter(formatter)
+            Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+            handler = RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
+            handler._bw_handler = handler._bw_log_file = True  # type: ignore[attr-defined]
             root.addHandler(handler)
         except OSError as error:
             root.warning("Cannot write the log file %s: %s", cfg.log_file, error)
-    root.propagate = False
-    root._bw_configured = True  # type: ignore[attr-defined]
+    formatter = logformat.formatter(cfg.log_format)
+    for handler in root.handlers:
+        if getattr(handler, "_bw_handler", False):
+            handler.setFormatter(formatter)
+
+
+def close_log_file() -> None:
+    """Detach and close the log file, for a server that stopped inside a longer-lived process."""
+    root = logging.getLogger("bananawiki")
+    for handler in [h for h in root.handlers if getattr(h, "_bw_log_file", False)]:
+        root.removeHandler(handler)
+        handler.close()
 
 
 def open_database(cfg: Config) -> Database:
@@ -286,18 +307,19 @@ def create_app(config: Config | None = None, **overrides: Any) -> Flask:
     app.session_interface = _SessionInterface(_host_cookie_since(cfg))
     app.jinja_env.trim_blocks = True
     app.jinja_env.lstrip_blocks = True
+    app.wsgi_app = web.HeadAsGet(app.wsgi_app)  # type: ignore[method-assign]
     if cfg.proxy_mode:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[method-assign]
     if cfg.maintenance_file:
         app.wsgi_app = _MaintenanceGate(app.wsgi_app, cfg.maintenance_file)  # type: ignore[method-assign]
 
-    # Storage and schema ------------------------------------------------
+    # Storage and schema
     from . import takeover
 
     database = takeover.prepare_storage(cfg)
     app.extensions["bananawiki.database"] = database
 
-    # Translations and features ----------------------------------------
+    # Translations and features
     catalog = Catalog([PACKAGE_ROOT / "translations"], custom_dir=os.path.join(cfg.instance_dir, "translations"))
     app.extensions["bananawiki.i18n"] = catalog
     reg = registry.Registry()
@@ -345,7 +367,7 @@ def _seed_feature_rows(reg: registry.Registry) -> None:
             )
 
 
-# ── Request pipeline ─────────────────────────────────────────────────────────
+# Request pipeline
 
 
 def _view() -> Any:
@@ -420,20 +442,21 @@ def _install_request_pipeline(app: Flask, cfg: Config) -> None:
         block = auth.account_block(user)
         if block and not auth.view_exempt(view, "approval") and access != "public":
             if auth.wants_json():
-                return jsonify({"error": block}), 403
+                return jsonify({"error": i18n.t(f"auth.status.{block}.body"), "code": block}), 403
             return redirect(url_for("auth.account_status"))
 
         if settings.maintenance_active() and not auth.view_exempt(view, "maintenance"):
             if not auth.is_admin(auth.real_user()) and access != "public":
                 if auth.wants_json():
-                    return jsonify({"error": "maintenance"}), 503
+                    return jsonify({"error": i18n.t("auth.maintenance.body"), "code": "maintenance"}), 503
                 return redirect(url_for("auth.maintenance"))
 
         if not auth.view_exempt(view, "account_steps") and access != "public":
-            step = _pending_account_step(user)
+            step = auth.pending_account_step(user)
             if step:
                 if auth.wants_json():
-                    return jsonify({"error": "account_step_required", "step": step}), 403
+                    return jsonify({"error": i18n.t("error.account_step"), "code": "account_step_required",
+                                    "step": step}), 403
                 if request.method != "GET":
                     return auth.deny(403)
                 return redirect(url_for(step))
@@ -443,30 +466,24 @@ def _install_request_pipeline(app: Flask, cfg: Config) -> None:
     def _after(response: Response) -> Response:
         policy: web.SecurityPolicy = app.extensions.setdefault("bananawiki.csp", web.SecurityPolicy())
         web.apply_security_headers(response, policy, hsts=cfg.is_production)
-        if g.get("user") and "Cache-Control" not in response.headers and request.endpoint != "static":
+        # send_file's own "no-cache" (also with max_age=0) still lets caches keep a copy.
+        cache = response.headers.get("Cache-Control", "")
+        static = request.endpoint == "static" or (request.endpoint or "").endswith(".static")
+        signed_in = g.get("user") or g.get("real_user")
+        if signed_in and not static and not any(word in cache for word in ("private", "no-store", "public")):
             response.headers["Cache-Control"] = "private, no-store"
+            response.headers.pop("Expires", None)
         response.headers.setdefault("X-Request-ID", g.get("request_id", ""))
         return response
 
 
-def _pending_account_step(user: dict[str, Any]) -> str | None:
-    if auth.is_impersonating():
-        return None
-    if user.get("force_password_change"):
-        return "auth.force_password_change"
-    if user.get("onboarding_required"):
-        return "auth.onboarding"
-    # Steps features add, such as two-step verification required of administrators.
-    return registry.intercept("account.pending_step", user=user)
-
-
 def _too_many_requests():
     if auth.wants_json():
-        return jsonify({"error": "Too many requests. Slow down and try again shortly."}), 429
+        return jsonify({"error": i18n.t("error.429.body")}), 429
     return render_template("errors/error.html", code=429), 429
 
 
-# ── Templates ─────────────────────────────────────────────────────────────────
+# Templates
 
 
 def _install_template_globals(app: Flask) -> None:
@@ -475,7 +492,7 @@ def _install_template_globals(app: Flask) -> None:
     templating.install(app)
 
 
-# ── Core routes ───────────────────────────────────────────────────────────────
+# Core routes
 
 
 def _install_core_routes(app: Flask) -> None:
@@ -552,6 +569,31 @@ def _install_error_handlers(app: Flask) -> None:
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    def load_page_user() -> None:
+        # Hooks that run before the pipeline (CSRF, body size) and routing errors
+        # fail before it signs the account in, and public views (the custom page
+        # catch-all answering unknown addresses among them) skip its gates. The page
+        # still uses the account's language, but only an account the pipeline would
+        # let in gets the navigation.
+        try:
+            if "user" not in g:
+                g.pop("lang", None)
+                auth.load_request_user()
+            i18n.current_language()
+            user = auth.current_user()
+            if user is not None and (auth.account_block(user) or auth.pending_account_step(user) or (
+                    settings.maintenance_active() and not auth.is_admin(auth.real_user()))):
+                g.user = None
+        except Exception:  # noqa: BLE001 - the error page itself must never fail
+            g.user = None
+
+    def describe(error: HTTPException) -> str | None:
+        """The text a view chose for *error*, or None to use the catalogue's text for the status."""
+        if isinstance(error, web.CsrfRejected):
+            return i18n.t("error.csrf_expired")
+        # Werkzeug's stock descriptions are English.
+        return None if error.description == type(error).description else error.description
+
     @app.errorhandler(HTTPException)
     def _http_error(error: HTTPException):
         code = error.code or 500
@@ -562,10 +604,15 @@ def _install_error_handlers(app: Flask) -> None:
                 if header.lower() not in {"content-type", "content-length"}:
                     response.headers.add(header, value)
             return response
+        load_page_user()
         if auth.wants_json():
-            return jsonify({"error": error.description or error.name}), code
+            try:
+                message = describe(error) or i18n.t(f"error.{code}.body", i18n.t("error.generic.body"))
+            except Exception:  # noqa: BLE001 - translations read settings, which may be what failed
+                message = error.description or error.name
+            return jsonify({"error": message}), code
         try:
-            return render_template("errors/error.html", code=code, description=error.description), code
+            return render_template("errors/error.html", code=code, description=describe(error)), code
         except Exception:  # noqa: BLE001 - the error page itself must never fail
             return Response(f"{code} {error.name}", status=code, mimetype="text/plain")
 
@@ -585,9 +632,13 @@ def _install_error_handlers(app: Flask) -> None:
         if request.path == "/api/v1" or request.path.startswith("/api/v1/"):
             return api_failure(code, "storage_unavailable" if code == 503 else "internal_error", message)
         if auth.wants_json():
-            return jsonify({"error": message, "request_id": g.get("request_id")}), code
+            try:
+                text = i18n.t(f"error.{code}.body")
+            except Exception:  # noqa: BLE001 - translations read settings, which may be what failed
+                text = message
+            return jsonify({"error": text, "request_id": g.get("request_id")}), code
         try:
-            return render_template("errors/error.html", code=code, description=message), code
+            return render_template("errors/error.html", code=code), code
         except Exception:  # noqa: BLE001
             return Response(message, status=code, mimetype="text/plain")
 

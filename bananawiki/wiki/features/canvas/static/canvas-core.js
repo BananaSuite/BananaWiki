@@ -84,7 +84,7 @@
     return (a.layer || 0) - (b.layer || 0) || String(a.id).localeCompare(String(b.id));
   }
 
-  /* ── Scene ──────────────────────────────────────────────────────────────── */
+  /* Scene */
 
   function Scene(stage, options) {
     this.options = options || {};
@@ -163,7 +163,7 @@
     return key === null ? null : this.cache[node.type + "\u0000" + key] || null;
   };
 
-  /* ── Nodes ──────────────────────────────────────────────────────────────── */
+  /* Nodes */
 
   Scene.prototype.render = function () {
     var seen = {};
@@ -368,7 +368,7 @@
     }
   };
 
-  /* ── Edges ──────────────────────────────────────────────────────────────── */
+  /* Edges */
 
   /* Outward direction of each side of a node box. */
   var SIDE_DIRECTIONS = { top: [0, -1], right: [1, 0], bottom: [0, 1], left: [-1, 0] };
@@ -580,7 +580,7 @@
     this.edgeGroup.appendChild(this.previewEl);
   };
 
-  /* ── Viewport ───────────────────────────────────────────────────────────── */
+  /* Viewport */
 
   Scene.prototype.applyViewport = function () {
     var v = this.viewport;
@@ -642,9 +642,9 @@
     this.viewport = { zoom: zoom, x: (rect.width - (maxX - minX) * zoom) / 2 - minX * zoom,
                       y: pad + (height - (maxY - minY) * zoom) / 2 - minY * zoom };
     // On a phone a whole board would often shrink to unreadable text. When its full width still
-    // fits at a legible zoom, show the whole width from the top (cropping the sides cut a mindmap's
-    // hub in half); otherwise start readable at the content's top-left corner. Panning and
-    // "Fit to screen" still show everything.
+    // fits at a legible zoom, show the whole width from the top (cropping the sides would cut a
+    // mindmap's hub in half); otherwise start readable at the content's top-left corner. Panning
+    // and "Fit to screen" still show everything.
     if (this.readableStart && rect.width < 600 && zoom < READABLE_ZOOM) {
       var across = (rect.width - pad * 2) / (maxX - minX);
       if (across >= OVERVIEW_ZOOM) {

@@ -1,4 +1,4 @@
-"""``python -m hosting.admin_cli``: the 1.4 operator command; see :mod:`bananawiki.hosting.admin`."""
+"""``python -m hosting.admin_cli``, the same as ``bananawiki hosting-admin``; see :mod:`bananawiki.hosting.admin`."""
 
 from bananawiki.hosting.admin import main
 

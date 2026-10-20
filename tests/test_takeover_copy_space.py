@@ -1,11 +1,11 @@
-"""The copy of the database saved before a schema upgrade never keeps a hosted wiki from starting (UP-2).
+"""The copy of the database saved before a schema upgrade never keeps a hosted wiki from starting.
 
 A hosted wiki's container sees only its own data directory, which is under
 the hard storage quota of its plan, and the platform's update already keeps a
 package of every wiki from before the update. A copy written there would only
 take the owner's room, permanently, and fail the start of a wiki with less
 room left than its database. Hosted wikis therefore write none. A standalone
-wiki still writes one; when it cannot (a full disk), the start is refused
+wiki writes one; when it cannot (a full disk), the start is refused
 with a message that says where and why, and nothing is upgraded.
 """
 

@@ -1,4 +1,4 @@
-"""Trusted allocation semantics; native XFS behavior has a separate live witness."""
+"""Quota allocations against a simulated XFS volume (no real quotas needed)."""
 
 from __future__ import annotations
 

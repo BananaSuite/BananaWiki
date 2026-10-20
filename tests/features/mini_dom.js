@@ -94,7 +94,7 @@ class Element extends EventTargetish {
     }
   }
 
-  // Attributes ------------------------------------------------------------
+  // Attributes
   getAttribute(name) { name = name.toLowerCase(); return this.attrs.has(name) ? this.attrs.get(name) : null; }
   setAttribute(name, value) { this.attrs.set(name.toLowerCase(), String(value)); }
   removeAttribute(name) { this.attrs.delete(name.toLowerCase()); }
@@ -117,7 +117,7 @@ class Element extends EventTargetish {
   get tabIndex() { return Number(this.getAttribute("tabindex") || -1); }
   set tabIndex(value) { this.setAttribute("tabindex", value); }
 
-  // Tree --------------------------------------------------------------------
+  // Tree
   get children() { return this.childNodes.filter(function (node) { return node.nodeType === 1; }); }
   get firstChild() { return this.childNodes[0] || null; }
   get firstElementChild() { return this.children[0] || null; }
@@ -170,7 +170,7 @@ class Element extends EventTargetish {
   get innerHTML() { return this.childNodes.map(serialize).join(""); }
   get outerHTML() { return serialize(this); }
 
-  // Selectors ---------------------------------------------------------------
+  // Selectors
   *descendants() {
     for (const child of this.childNodes) {
       if (child.nodeType !== 1) continue;
@@ -188,7 +188,7 @@ class Element extends EventTargetish {
   matches(selector) { const self = this; return parseSelector(selector).some(function (g) { return matchComplex(self, g); }); }
   closest(selector) { for (let n = this; n && n.nodeType === 1; n = n.parentNode) if (n.matches(selector)) return n; return null; }
 
-  // Events and focus ----------------------------------------------------------
+  // Events and focus
   dispatchEvent(event) {
     event.target = event.target || this;
     const path = [];
@@ -343,7 +343,7 @@ function installControl(element) {
   }
 }
 
-// Selectors -----------------------------------------------------------------
+// Selectors
 
 function parseSelector(text) {
   return text.split(",").map(function (part) {
@@ -422,7 +422,7 @@ function matchComplex(node, steps) {
   return true;
 }
 
-// HTML ----------------------------------------------------------------------
+// HTML
 
 function parseAttributes(text) {
   const attrs = [];
@@ -490,7 +490,7 @@ function serialize(node) {
   return "<" + node.localName + attrs + ">" + node.childNodes.map(serialize).join("") + "</" + node.localName + ">";
 }
 
-// Document and window ---------------------------------------------------------
+// Document and window
 
 class Document extends EventTargetish {
   constructor(html) {

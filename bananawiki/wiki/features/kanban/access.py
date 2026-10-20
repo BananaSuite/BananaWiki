@@ -1,6 +1,6 @@
 """Who may see, change and manage kanban boards.
 
-Two layers decide access, as in 1.4:
+Two layers decide access:
 
 * Site settings. ``kanban_access`` and ``kanban_write_access`` hold the
   weakest role with *global* view or write access (``admin``, ``editor`` or
@@ -181,7 +181,7 @@ def shareable_roles() -> list[str]:
     return [role for role in SHAREABLE_ROLES if role in allowed]
 
 
-# ── Board lists ───────────────────────────────────────────────────────────────
+# Board lists
 
 _BOARD_SELECT = (
     "SELECT b.*, COALESCE(u.username, '') AS creator_username FROM kanban_boards b "
@@ -214,7 +214,7 @@ def visible_boards(user: User) -> list[dict[str, Any]]:
     return db.all(f"{_BOARD_SELECT} WHERE {condition}{order}", {"uid": user["id"], "role": user["role"]})
 
 
-# ── Assignees ─────────────────────────────────────────────────────────────────
+# Assignees
 
 
 def assignable_users(board: Board) -> list[dict[str, Any]]:

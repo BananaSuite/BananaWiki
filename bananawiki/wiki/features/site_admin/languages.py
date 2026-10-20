@@ -105,7 +105,7 @@ def set_default(code: str, fallback: str) -> None:
     settings.update({"interface_language": code, "interface_language_fallback": fallback})
 
 
-# ── Language files ───────────────────────────────────────────────────────────
+# Language files
 
 
 def placeholders(text: str) -> set[str]:

@@ -53,7 +53,7 @@ class PluginState:
         self.snapshot_dir = self.root / "plugin_snapshots"
         self.index_path = self.snapshot_dir / "index.json"
 
-    # Quarantine -------------------------------------------------------------
+    # Quarantine
 
     def quarantined(self) -> bool:
         return self.marker.is_file() and not self.marker.is_symlink()
@@ -66,7 +66,7 @@ class PluginState:
         self.marker.write_text(datetime.now(UTC).isoformat() + "\n", encoding="utf-8")
         os.chmod(self.marker, 0o600)
 
-    # Snapshots --------------------------------------------------------------
+    # Snapshots
 
     def _lock(self) -> FileLock:
         self.snapshot_dir.mkdir(mode=0o700, parents=True, exist_ok=True)

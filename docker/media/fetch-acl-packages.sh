@@ -1,21 +1,27 @@
 #!/bin/sh
 # Fetch only the compatible, fixed ACL library and tar from signed Debian indexes.
 # The runtime keeps its trixie repositories and all existing coreutils programs.
+# Unstable is read at a fixed snapshot.debian.org timestamp: its signed indexes
+# keep listing these exact versions after newer ones replace them in sid.
 set -eu
 destination=/usr/local/share/bananawiki/acl
 packages=/build/acl-packages
 acl_version=2.4.0-1
 tar_version=1.35+dfsg-6
+snapshot=20261001T000000Z
 fingerprint=259B3792B3D6D319212CC4DCD5BF9FEB0313653A
 mkdir -p "$destination/sources" "$packages" /build/acl-unpacked
 
-cat > /etc/apt/sources.list.d/acl-update.sources <<'SOURCES'
+cat > /etc/apt/sources.list.d/acl-update.sources <<SOURCES
 Types: deb deb-src
-URIs: https://deb.debian.org/debian
+URIs: https://snapshot.debian.org/archive/debian/$snapshot/
 Suites: sid
 Components: main
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+Check-Valid-Until: no
 SOURCES
+# snapshot.debian.org is slower and rate-limited; this only affects the builder stage.
+echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80-acl-update-retries
 apt-get -o APT::Get::AllowUnauthenticated=false \
     -o Acquire::AllowInsecureRepositories=false update
 cp /var/lib/apt/lists/*_sid_InRelease "$destination/"
@@ -71,8 +77,8 @@ cp /build/acl/fetch-acl-packages.sh /build/acl/ACL-README.txt \
 find /build/acl-unpacked -type f \( -name 'libacl.so.*' -o -path '*/bin/tar' \) \
     -exec sha256sum {} + > "$destination/binary-SHA256SUMS"
 dpkg-query -W coreutils libc6 > "$destination/build-base-packages.txt"
-# Record the actual retained coreutils consumers. GNU timeout is intentionally
-# kept; unlike cp/mv/install, its ELF imports do not include libacl.
+# Record which coreutils programs link libacl. GNU timeout stays in the image;
+# unlike cp/mv/install, it does not import libacl.
 dpkg-query -L coreutils | while IFS= read -r program; do
     if [ -f "$program" ] && [ -x "$program" ] \
         && readelf --dynamic "$program" 2>/dev/null | grep -q '\[libacl\.so\.1\]'; then

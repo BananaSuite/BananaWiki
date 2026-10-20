@@ -11,7 +11,7 @@ Whatever the combination, the account must land on one page that resolves
 the first state in ``auth.GATES`` order, that page must work (for POST too),
 and no combination may bounce between two pages ("too many redirects"):
 every combination is checked against every page of the portal in memory,
-and the combinations that used to loop are walked through over HTTP.
+and the combinations most likely to loop are walked through over HTTP.
 Leaving (signing out, deleting the account) and revoking credentials (API
 tokens, wiki sign-in tokens) always work.
 """
@@ -164,7 +164,7 @@ def test_no_combination_of_states_sends_any_page_round_in_circles(strict):
 
 
 @pytest.mark.parametrize("state", [
-    # The combinations the audit found looping, then one of each state on its own.
+    # Combinations most likely to loop, then one of each state on its own.
     {"mail": "missing", "admin_mfa": True}, {"mail": "unverified", "admin_mfa": True},
     {"mail": "flagged", "admin_mfa": True}, {"mail": "missing", "terms": True}, {"mail": "unverified", "terms": True},
     {"mail": "flagged", "terms": True}, {"mail": "verified", "admin_mfa": True, "terms": True},
@@ -241,7 +241,7 @@ def test_a_blocked_account_can_always_sign_out_or_delete_itself(strict, state):
         assert db.scalar("SELECT deleted_at FROM accounts WHERE id = ?", (account["id"],))
 
 
-# ── Credentials outside the portal: API tokens and wiki sign-in tokens ───────
+# Credentials outside the portal: API tokens and wiki sign-in tokens
 
 
 def _api_token(portal, account: dict) -> tuple[int, str]:

@@ -1,8 +1,7 @@
 """User profiles: published profile pages, custom profile fields and custom tags.
 
 While this feature is off nobody holds ``profile.view`` or ``profile.edit_own``,
-so profiles are visible only to their owners and administrators (as in 1.4,
-where the plugin switch hid ``/users``).
+so profiles are visible only to their owners and administrators.
 """
 
 from __future__ import annotations

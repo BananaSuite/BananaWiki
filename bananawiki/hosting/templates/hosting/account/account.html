@@ -68,9 +68,8 @@
       <td class="actions">{{ ui.post(url_for('account.revoke_session', session_id=row.id), t('hosting.account.sessions.end')) }}</td></tr>
     {% else %}<tr><td colspan="4" class="muted">{{ t('hosting.common.none') }}</td></tr>{% endfor %}
     </tbody></table></div>
-  {#- "Sign out other devices" only when there are other devices. -#}
-  {% if sessions|length > 1 or history %}<div class="btn-row">
-    {% if sessions|length > 1 %}{{ ui.post(url_for('account.logout_everywhere'), t('hosting.account.sessions.everywhere_button'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}{% endif %}
+  {%- if sessions|length > 1 or history %}<div class="btn-row">
+    {% if sessions|length > 1 %}{{ ui.post(url_for('account.logout_everywhere'), t('hosting.account.sessions.everywhere_button'), 'btn btn--small btn--danger-quiet', confirm=t('hosting.common.are_you_sure')) }}{% endif %}
     {% if history %}{{ ui.post(url_for('account.clear_session_history'), t('hosting.account.sessions.clear_history')) }}{% endif %}
   </div>{% endif %}
 </details>
@@ -97,7 +96,7 @@
   {% for token in tokens %}
     <tr><td>{{ token.name }}{% if token.expired %} <span class="badge badge--warning">{{ t('hosting.api_tokens.expired') }}</span>{% endif %} <span class="mono small muted token-prefix">{{ token.prefix }}…</span></td>
       <td class="small" data-label="{{ t('hosting.api_tokens.scopes') }}">{% for scope in token.scopes %}<span class="token-scope" title="{{ scope }}">{{ t('hosting.api_tokens.scope.' ~ scope|replace(':', '_'), scope) }}</span>{% endfor %}</td><td class="nowrap" data-label="{{ t('hosting.api_tokens.expires') }}">{{ token.expires_at|date if token.expires_at else t('hosting.api_tokens.never') }}</td>
-      <td class="actions">{{ ui.post(url_for('account.revoke_api_token', token_id=token.id), t('hosting.api_tokens.revoke'), 'btn btn--small btn--danger') }}</td></tr>
+      <td class="actions">{{ ui.post(url_for('account.revoke_api_token', token_id=token.id), t('hosting.api_tokens.revoke'), 'btn btn--small btn--danger-quiet') }}</td></tr>
   {% else %}<tr><td colspan="4" class="muted">{{ t('hosting.common.none') }}</td></tr>{% endfor %}
   </tbody></table></div>
   {% if token_nonce and can_create_token %}

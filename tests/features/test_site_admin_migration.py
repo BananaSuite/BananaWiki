@@ -1,4 +1,4 @@
-"""Whole-site export and import (1.4 audit C2: imports never write code or keys)."""
+"""Whole-site export and import: imports never write code or keys."""
 
 from __future__ import annotations
 
@@ -252,6 +252,54 @@ def test_members_zipfile_cannot_read_safely_are_refused(source, target, build):
     assert not [p for p in exports.iterdir() if p.name.startswith("bw-site-import-")]
 
 
+def _damaged(archive: bytes, member: str) -> bytes:
+    """*archive* with bytes in the middle of *member*'s data flipped (an interrupted or bit-rotted download)."""
+    info = zipfile.ZipFile(io.BytesIO(archive)).getinfo(member)
+    raw = bytearray(archive)
+    header = info.header_offset
+    start = header + 30 + int.from_bytes(raw[header + 26:header + 28], "little") + int.from_bytes(
+        raw[header + 28:header + 30], "little")
+    middle = start + info.compress_size // 2
+    for position in range(middle, middle + 64):
+        raw[position] ^= 0x5A
+    return bytes(raw)
+
+
+def _json_dump(source: bytes, tmp_path, **settings_row) -> bytes:
+    path = tmp_path / "legacy.db"
+    path.write_bytes(raw_db(source))
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    dump = {table: [dict(row) for row in conn.execute(f"SELECT * FROM {table}")] for table in ("users", "pages")}
+    conn.close()
+    dump["site_settings"] = [{"id": 1, "setup_done": 1, **settings_row}]
+    return zip_bytes({"site_export.json": json.dumps(dump, default=str).encode()})
+
+
+@pytest.mark.parametrize("build,reason", [
+    (lambda source, _tmp: _damaged(_packed(source, zipfile.ZIP_DEFLATED), "bananawiki.db"), "corrupt"),
+    (lambda source, _tmp: _damaged(_packed(source, zipfile.ZIP_STORED), "bananawiki.db"), "corrupt"),
+    (lambda source, _tmp: zip_bytes({"bananawiki.db": raw_db(source), "uploads/a": b"x", "uploads/a/b": b"y"}),
+     "corrupt"),
+    (lambda source, _tmp: zip_bytes({"bananawiki.db": raw_db(source), "uploads/a/b": b"y", "uploads/a": b"x"}),
+     "corrupt"),
+    (lambda source, tmp: _json_dump(source, tmp, site_name={"__b64__": "abc"}), "json"),
+    (lambda source, tmp: _json_dump(source, tmp, site_name={"__b64__": 5}), "json"),
+    (lambda source, tmp: _json_dump(source, tmp, site_name=2 ** 70), "json"),
+], ids=["bad-deflate-data", "bad-crc", "file-then-folder", "folder-then-file", "bad-base64", "base64-not-text",
+        "huge-number"])
+def test_damaged_archives_are_refused_with_a_message(source, target, tmp_path, build, reason):
+    other, client = target
+    response = do_import(client, build(source, tmp_path))
+    assert response.status_code == 302
+    refused = query(other, "SELECT details FROM audit_log WHERE action = 'site.import_refused'")
+    assert len(refused) == 1 and reason in refused[0]["details"]
+    assert query(other, "SELECT id FROM users WHERE username = 'target_admin'")
+    assert not query(other, "SELECT id FROM pages WHERE title = 'Exported page'")
+    exports = Path(other.config["BW"].folders.exports)
+    assert not [p for p in exports.iterdir() if p.name.startswith("bw-site-import-")]
+
+
 def test_legacy_hosting_layout(source, target):
     other, client = target
     archive = zip_bytes({"mywiki/bananawiki.db": raw_db(source), "mywiki/uploads/old.png": b"old",
@@ -279,7 +327,7 @@ def test_legacy_json_dump(source, target, tmp_path):
     assert (Path(other.config["BW"].folders.uploads) / "legacy.png").exists()
 
 
-# ── Who moves a site, and what an archive may bring along ─────────────────────
+# Who moves a site, and what an archive may bring along
 
 
 def test_plain_administrators_cannot_export_or_import(app, admin_client, source, db):
@@ -311,6 +359,29 @@ def test_import_drops_triggers_and_views_this_release_does_not_create(source, ta
     assert "backdoor" not in names and "leak" not in names
     assert {"pages_fts_insert", "pages_fts_delete", "pages_fts_update"} <= set(names)
     assert "users" not in names["pages_fts_update"]
+
+
+def test_import_of_a_wiki_without_a_search_index_builds_one(source, target, tmp_path):
+    """A wiki upgraded where SQLite lacked FTS5 has no pages_fts; its triggers must not come back without it."""
+    other, client = target
+    archive_db = tmp_path / "no_fts.db"
+    archive_db.write_bytes(raw_db(source))
+    conn = sqlite3.connect(archive_db, isolation_level=None)
+    for trigger in ("pages_fts_insert", "pages_fts_delete", "pages_fts_update"):
+        conn.execute(f"DROP TRIGGER {trigger}")
+    conn.execute("DROP TABLE pages_fts")
+    conn.close()
+    response = do_import(client, zip_bytes({"manifest.json": b'{"format_version": 1}',
+                                            "bananawiki.db": archive_db.read_bytes()}))
+    assert response.status_code == 302 and "/login" in response.headers["Location"]
+    session = Session(other.extensions["bananawiki.database"].connect())
+    try:
+        assert session.all("SELECT rowid FROM pages_fts WHERE pages_fts MATCH 'source'")
+        session.execute("UPDATE pages SET content = 'rewritten after the import' WHERE title = 'Exported page'")
+        assert session.all("SELECT rowid FROM pages_fts WHERE pages_fts MATCH 'rewritten'")
+        session.execute("DELETE FROM pages WHERE title = 'Exported page'")
+    finally:
+        session.conn.close()
 
 
 def test_import_keeps_the_live_audit_log(source, target):

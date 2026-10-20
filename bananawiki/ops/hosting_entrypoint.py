@@ -1,9 +1,9 @@
-"""Install the hosting service's quota boundary before loading the application.
+"""Start the hosting portal or maintenance service behind an ioctl filter.
 
-The portal owns tenant files on the host, so it must not issue XFS project
-setters. Python itself requires descriptor and socket ioctls; a syscall-wide
-systemd denial would prevent ordinary files, sockets and Gunicorn from working.
-This inherited native seccomp filter permits only those three safe commands.
+The portal owns tenant files on the host, so it must not be able to set XFS
+project quotas. systemd can only deny ioctl as a whole, which would break
+Python and Gunicorn, so this seccomp filter allows only FIONBIO, FIOCLEX and
+FIONCLEX and refuses every other ioctl. Child processes inherit the filter.
 """
 
 from __future__ import annotations

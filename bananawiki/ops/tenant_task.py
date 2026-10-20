@@ -3,7 +3,7 @@
 The hosting portal never opens a tenant's SQLite database on the host: the
 file is written by the tenant (and by the plugins it runs), so parsing it or
 running migrations against it host-side would hand the tenant a way into the
-portal (1.4 audit). Instead the runtime agent runs this module in the tenant's
+portal. Instead the runtime agent runs this module in the tenant's
 own sandbox, with ``docker exec -i`` while the container runs or in a one-shot
 container (same image, user, mount and hardening, no network) while it is
 stopped::
@@ -56,7 +56,7 @@ class TaskError(Exception):
         self.detail = detail
 
 
-# ── Plumbing ──────────────────────────────────────────────────────────────────
+# Plumbing
 
 
 def _config():
@@ -174,7 +174,7 @@ def _audit(db: Any, action: str, user: dict[str, Any], details: dict[str, Any]) 
                             "details": json.dumps(details, ensure_ascii=False, sort_keys=True)})
 
 
-def _reset_two_step(db: Any, users: list[dict[str, Any]]) -> list[str]:
+def _reset_two_step(db: Any, users: list[dict[str, Any]], via: str = "hosting portal") -> list[str]:
     """Turn off two-step verification of *users*; returns the names of those that had it on.
 
     The portal's password reset is a hosted owner's way back in when the
@@ -189,8 +189,29 @@ def _reset_two_step(db: Any, users: list[dict[str, Any]]) -> list[str]:
     for user in users:
         if db.execute("DELETE FROM auth__two_step WHERE user_id = ?", (user["id"],)).rowcount:
             reset.append(user["username"])
-            _audit(db, "user.two_step_reset", user, {"username": user["username"], "via": "hosting portal"})
+            _audit(db, "user.two_step_reset", user, {"username": user["username"], "via": via})
     return reset
+
+
+def _reset_unreadable_two_step(cfg: Any, db: Any, via: str) -> list[str]:
+    """Turn off the two-step set-ups this wiki cannot check; returns the names of those accounts.
+
+    Authenticator secrets and recovery codes are bound to the secret key of
+    the wiki that stored them, which neither an archive nor a copied wiki
+    brings along: those accounts could never pass the code step here. They
+    sign in with their password instead and can set it up again, as after a
+    site import. Set-ups readable under this wiki's key are kept.
+    """
+    from bananawiki.core.sqlite import table_exists
+    from bananawiki.wiki.features.auth import two_step
+
+    if not table_exists(db.conn, "auth__two_step"):
+        return []
+    rows = db.all("SELECT t.user_id, t.secret_encrypted, u.username FROM auth__two_step t "
+                  "LEFT JOIN users u ON u.id = t.user_id")
+    unreadable = [{"id": row["user_id"], "username": str(row["username"] or row["user_id"])} for row in rows
+                  if not two_step.decrypt_secret(row["secret_encrypted"], cfg.secret_key)]
+    return sorted(_reset_two_step(db, unreadable, via))
 
 
 def _exchange_file(cfg: Any, request: dict[str, Any]) -> Path:
@@ -212,7 +233,7 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-# ── Policy written into the wiki database ─────────────────────────────────────
+# Policy written into the wiki database
 
 
 def _apply_policy(db: Any, request: dict[str, Any]) -> None:
@@ -234,7 +255,7 @@ def _apply_policy(db: Any, request: dict[str, Any]) -> None:
                "WHERE id = 1 AND (tts_gpu_url != '' OR tts_gpu_auth_token != '')")
 
 
-# ── Actions ───────────────────────────────────────────────────────────────────
+# Actions
 
 
 def seed(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
@@ -270,13 +291,16 @@ def migrate(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
     An import may bring only 1.4's ``site_export.json``; the host leaves it in
     the exchange folder and it is turned into a database first. Imported
     databases must carry BananaWiki's application id, pass an integrity check
-    and hold a finished setup, an administrator and a home page.
+    and hold a finished setup, an administrator and a home page. An import or
+    a copy turns off the two-step set-ups sealed with another wiki's secret
+    key and returns those accounts' names (``two_step_off``).
     """
     from bananawiki.core.sqlite import DatabaseUnavailable, dict_row
     from bananawiki.wiki.features.site_admin import migration
 
     path = _db_path(cfg)
     dump = Path(cfg.instance_dir) / EXCHANGE / "site_export.json"
+    two_step_off: list[str] = []
     try:
         if not path.exists() and dump.is_file() and not dump.is_symlink():
             if dump.stat().st_size > migration.MAX_JSON_BYTES:
@@ -296,6 +320,10 @@ def migrate(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
                 db.execute(f"DELETE FROM {table}")  # noqa: S608 - fixed table names
             if request.get("revoke_credentials"):
                 _revoke(db, db.column("SELECT id FROM users"))
+            if request.get("imported") or request.get("revoke_credentials"):
+                with db.transaction():
+                    two_step_off = _reset_unreadable_two_step(
+                        cfg, db, "hosting import" if request.get("imported") else "hosting copy")
             if isinstance(request.get("policy"), dict):
                 _apply_policy(db, request["policy"])
     except migration.MigrationError as error:
@@ -305,7 +333,7 @@ def migrate(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
     finally:
         if dump.is_file() and not dump.is_symlink():
             dump.unlink()
-    return {}
+    return {"two_step_off": two_step_off} if two_step_off else {}
 
 
 def list_users(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:

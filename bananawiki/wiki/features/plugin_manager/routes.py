@@ -60,7 +60,7 @@ def _audit(action: str, plugin_id: str, **details: object) -> None:
     log.info("%s plugin=%s user=%s %s", action, plugin_id, user.get("username"), extra)
 
 
-# ── Pages ────────────────────────────────────────────────────────────────────
+# Pages
 
 
 @bp.get("/admin/plugins")
@@ -96,7 +96,7 @@ def detail(plugin_id: str):
     )
 
 
-# ── Switching ────────────────────────────────────────────────────────────────
+# Switching
 
 
 @bp.post("/admin/plugins/<plugin_id>/enable")
@@ -174,7 +174,7 @@ def disable(plugin_id: str):
     return _back()
 
 
-# ── Installing and removing ──────────────────────────────────────────────────
+# Installing and removing
 
 
 @bp.post("/admin/plugins/import")
@@ -256,7 +256,7 @@ def sdk_download():
                     headers={"Content-Disposition": 'attachment; filename="bananawiki-plugin-kit.zip"'})
 
 
-# ── Sidebar order and restart ────────────────────────────────────────────────
+# Sidebar order and restart
 
 
 @bp.post("/admin/plugins/order")
@@ -284,8 +284,12 @@ def restart():
     if service.request_restart():
         _audit("server_restart", "-")
         auth.flash_t("plugin_manager.flash.restarting", "success")
+    elif (mode := service.restart_mode()) == "gunicorn":
+        from ..site_admin import server
+
+        auth.flash_t("site_admin.server.cooldown", "warning", seconds=max(1, server.cooldown_remaining()))
     else:
-        auth.flash_t(f"plugin_manager.restart.{service.restart_mode()}", "warning")
+        auth.flash_t(f"plugin_manager.restart.{mode}", "warning")
     return _back()
 
 

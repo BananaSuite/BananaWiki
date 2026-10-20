@@ -55,7 +55,7 @@ def payloads(db, event):
             db.all("SELECT payload FROM api_service__webhook_deliveries WHERE event = ? ORDER BY id", (event,))]
 
 
-# ── Kanban and canvas events ──────────────────────────────────────────────────
+# Kanban and canvas events
 
 
 def test_kanban_and_canvas_events_carry_ids_and_names_only(api_app, client, db, boss):
@@ -132,7 +132,7 @@ def test_canvas_changes_through_the_api_name_the_token_owner(api_app, client, db
     assert [row["actor_id"] for row in updated + payloads(db, "canvas.deleted")] == [boss["id"]] * (len(updated) + 1)
 
 
-# ── Prompt delivery ───────────────────────────────────────────────────────────
+# Prompt delivery
 
 
 def wait_for(predicate, timeout=5.0):
@@ -190,7 +190,7 @@ def test_deliver_now_claims_and_leaves_failing_webhooks_to_the_job(api_app, clie
                                                         transport=receiver)) == 0
 
 
-# ── Automatic switch-off ──────────────────────────────────────────────────────
+# Automatic switch-off
 
 
 def fail_pings(app, client, db, token, hook_id, count):

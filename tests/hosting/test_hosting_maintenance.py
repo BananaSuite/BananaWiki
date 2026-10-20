@@ -219,12 +219,34 @@ def test_recover_starts_running_wikis_then_publishes_their_routes(portal, make_a
     make_wiki(make_account(), "comeback")
     maintenance.recover(portal)
     names = [name for name, _ in runtime.calls]
-    # The updater's readiness check waits for routed wikis (C10): routes go out right after recovery.
+    # The updater's readiness check waits for routed wikis: routes go out right after recovery.
     assert names[-2:] == ["recover", "sync_routes"]
     assert [spec.slug for spec in runtime.routes] == ["comeback"]
 
 
-# ── hosting/ (the paths the 1.4 updater and systemd units use) ─────────
+def test_a_pass_starts_a_wiki_whose_container_went_away(portal, ctx, make_account, make_wiki, runtime):
+    wiki = make_wiki(make_account(), "crashed")
+    runtime.stop(instances.spec(instances.get(wiki["id"])))
+    maintenance.run_once(portal)
+    assert runtime.status(instances.spec(instances.get(wiki["id"]))).state == "running"
+    assert [spec.slug for spec in runtime.routes] == ["crashed"]
+
+
+def test_a_pass_leaves_stopped_and_suspended_wikis_down(portal, ctx, make_account, make_wiki, query, runtime):
+    owner = make_account()
+    stopped = make_wiki(owner, "parked")
+    suspended = make_wiki(owner, "paused")
+    for wiki in (stopped, suspended):
+        runtime.stop(instances.spec(instances.get(wiki["id"])))
+    query("UPDATE instances SET status = 'stopped' WHERE id = ?", (stopped["id"],))
+    query("UPDATE instances SET status = 'suspended', suspended_at = '2000-01-01 00:00:00' WHERE id = ?",
+          (suspended["id"],))
+    maintenance.run_once(portal)
+    for wiki in (stopped, suspended):
+        assert runtime.status(instances.spec(instances.get(wiki["id"]))).state == "stopped"
+
+
+# hosting/ (the paths the 1.4 updater and systemd units use)
 
 
 def _load(name: str, path: Path):

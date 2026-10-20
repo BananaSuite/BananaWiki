@@ -89,7 +89,7 @@ ATTENTION_SOURCE = "api_service.webhooks_disabled"
 Transport = Callable[..., http.HttpResponse]
 
 
-# ── Event payloads (only identifiers and names) ───────────────────────────────
+# Event payloads (only identifiers and names)
 
 
 def _page(page: dict[str, Any] | None) -> dict[str, Any]:
@@ -189,7 +189,7 @@ def event_handlers() -> dict[str, list[Callable[..., None]]]:
     return {event: [handler_for(event)] for event in EVENTS}
 
 
-# ── Secrets and signatures ────────────────────────────────────────────────────
+# Secrets and signatures
 
 
 def _secret_key() -> str:
@@ -210,7 +210,7 @@ def secret_of(hook: dict[str, Any]) -> str:
     return crypto.decrypt(_secret_key(), hook.get("secret"))
 
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# Configuration
 
 
 def private_network_offered() -> bool:
@@ -354,7 +354,7 @@ def public_view(hook: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# ── Queue ─────────────────────────────────────────────────────────────────────
+# Queue
 
 
 def _queue(hook_id: int, event: str, data: dict[str, Any]) -> int:
@@ -428,7 +428,7 @@ def delivery_view(row: dict[str, Any], *, with_payload: bool = False) -> dict[st
     return view
 
 
-# ── Sending ───────────────────────────────────────────────────────────────────
+# Sending
 
 
 def _claim(delivery_id: int) -> bool:
@@ -575,7 +575,7 @@ def deliver_due(*, transport: Transport | None = None, budget_seconds: float = R
     return attempted
 
 
-# ── Prompt delivery ───────────────────────────────────────────────────────────
+# Prompt delivery
 
 _prompt_slots = threading.BoundedSemaphore(PROMPT_THREADS)
 

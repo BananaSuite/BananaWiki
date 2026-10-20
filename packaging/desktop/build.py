@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Build BananaWiki Desktop with PyInstaller and package it for distribution.
 
-Run on each target system (PyInstaller does not cross-compile)::
+Run on each target system (PyInstaller does not cross-compile), after
+installing the hash-pinned dependencies (see docs/desktop.md)::
 
-    python -m pip install . waitress pyinstaller
+    python -m pip install --only-binary=:all: --require-hashes -r requirements-desktop.lock
+    python -m pip install --no-deps --no-build-isolation .
     python packaging/desktop/build.py
 
 Output in ``packaging/desktop/dist/``:

@@ -136,7 +136,7 @@ def common_urls() -> dict[str, str]:
     }
 
 
-# ── Editor ────────────────────────────────────────────────────────────────────
+# Editor
 
 
 def header_action(page: dict[str, Any]) -> str:
@@ -242,7 +242,7 @@ def upload_image(slug: str):
     return store_image(user)
 
 
-# ── Page-independent helpers: embeds, clipboard, saved sections ───────────────
+# Page-independent helpers: embeds, clipboard, saved sections
 
 
 @bp.get("/api/page-builder/embeddables")
@@ -316,7 +316,7 @@ def delete_section(section_id: int):
     return jsonify({"ok": True})
 
 
-# ── Settings ──────────────────────────────────────────────────────────────────
+# Settings
 
 
 @bp.route("/admin/page-builder", methods=["GET", "POST"])

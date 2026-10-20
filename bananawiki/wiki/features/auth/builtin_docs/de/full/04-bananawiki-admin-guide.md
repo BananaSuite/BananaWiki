@@ -1,24 +1,24 @@
-# Anleitung für Administratoren
+# Verwaltung
 
-Administratoren verwalten Website-Einstellungen, Konten, die integrierte Dokumentation, Inhalte und Plugins.
+Administratoren verwalten Website-Einstellungen, Konten, die integrierte Dokumentation, Inhalte und Funktionen.
 
 ## Grundeinstellungen der Website
 
-Unter **Verwaltung → Website-Einstellungen** kannst du den Namen der Website, die Farben des Designs, das Standarddesign, das Website-Symbol, die Zeitzone, die Oberflächensprache, die Regeln für die Registrierung, den Wartungsmodus und viele Standardwerte für Funktionen ändern. Die meisten Änderungen gelten sofort.
+Unter **Verwaltung → Website-Einstellungen** legst du den Namen der Website, die Zeitzone, Registrierung und Freigabe, den Wartungsmodus, eine einzige Sitzung pro Konto, Uploads und weitere Standardwerte fest. Die meisten Änderungen gelten sofort.
 
 ## Konten und Zugriff
 
-Unter **Verwaltung → Benutzer** kannst du Konten erstellen, Passwörter zurücksetzen, Rollen ändern, Konten sperren, eigene Rollen zuweisen und Berechtigungen für einzelne Konten anpassen. Mit Einladungscodes kannst du einschränken, wer sich registrieren darf. Sitzungslimits können verhindern, dass ein Konto gleichzeitig an mehreren Orten genutzt wird. Eigentümer und Superuser können die Bestätigung in zwei Schritten für Administratoren verlangen und sie für ein Konto zurücksetzen, das seine Authenticator-App und seine Wiederherstellungscodes verloren hat.
+Unter **Verwaltung → Benutzer** kannst du Konten erstellen, Passwörter zurücksetzen, Rollen ändern, Konten sperren, eigene Rollen zuweisen und Berechtigungen für einzelne Konten festlegen. Mit Einladungscodes schränkst du ein, wer sich registrieren darf. Eigentümer und Superuser können die Bestätigung in zwei Schritten für Administratoren verlangen und sie für ein Konto zurücksetzen, das seine Authenticator-App und seine Wiederherstellungscodes verloren hat.
 
-## Lebenszyklus der Dokumentation
+## Dokumentation
 
-Die integrierte Dokumentation kann unter **Verwaltung → Dokumentation** als BananaWiki-Kategorie angelegt werden. Du kannst zwischen der ausführlichen Anleitung und der Kurzanleitung wählen, jeweils auf Deutsch, Englisch oder Italienisch. Wenn du die Dokumentation als ZIP-Archiv herunterlädst, erhältst du Markdown-Dateien, die du lokal bearbeiten und über den Markdown-Massenimport wieder einspielen kannst.
+**Verwaltung → Dokumentation** fügt diese Anleitung als Kategorie zum Wiki hinzu, ausführlich oder als Kurzanleitung, auf Deutsch, Englisch oder Italienisch. Du kannst sie auch als ZIP mit Markdown-Dateien herunterladen, bearbeiten und mit dem Markdown-Massenimport wieder einspielen.
 
 ## Arbeiten mit Inhalten
 
-Administratoren können Kategorien verwalten, Seiten mit verzögerter Löschung wiederherstellen oder endgültig löschen, Markdown-Massenimporte durchführen, Seiten exportieren, PDFs erzeugen und mit den Werkzeugen für den Website-Umzug die gesamte Website sichern und wiederherstellen.
+Administratoren können Kategorien verwalten, Seiten in der Löschverzögerung wiederherstellen oder endgültig entfernen, Markdown-Massenimporte durchführen sowie Seiten und PDFs exportieren.
 
-Ein vollständiger Export der Website enthält den Passwort-Hash jedes Kontos, und ein vollständiger Import ersetzt alle Konten. Deshalb können nur Eigentümer und Superuser sie ausführen; bei beiden musst du dein Passwort erneut eingeben, und beide werden im Protokoll festgehalten. Bei Massenlöschungen musst du zur Bestätigung LÖSCHEN eingeben.
+Nur Eigentümer und Superuser können die gesamte Website exportieren oder importieren; bei Massenlöschungen musst du LÖSCHEN eingeben.
 
 ## Eigentümer und Vertrauen
 
@@ -26,12 +26,11 @@ Der Eigentümerstatus verhindert, dass andere Administratoren ein Konto über di
 
 ## Plugins
 
-Plugins steuern optionale Funktionen. Aktiviere nur, was dein Wiki tatsächlich nutzt, und überprüfe die Liste erneut, wenn das Team wächst. Wenn du ein Plugin deaktivierst, wird seine Funktion ausgeblendet oder angehalten, ohne dass gespeicherte Daten zwangsläufig gelöscht werden.
+**Verwaltung → Plugins** schaltet Funktionen ein und aus. Eine ausgeschaltete Funktion ist verborgen; ihre Daten und Einstellungen bleiben erhalten und kommen zurück, wenn du sie wieder einschaltest.
 
-## Empfohlene Routine
+## Eine gute Routine
 
-- neue Konten und Administratorkonten überprüfen
-- die letzten Einträge im Audit-Protokoll auf ungewöhnliche Aktionen prüfen
-- Backups aktuell halten und die Wiederherstellung gelegentlich testen
-- alte Seiten aufräumen oder veraltete Inhalte deutlich kennzeichnen
-- diese Dokumentation anpassen, wenn die Abläufe in deinem Wiki vom Standard abweichen
+- neue Konten und die Liste der Administratoren überprüfen
+- im Audit-Protokoll nach ungewöhnlichen Aktionen schauen
+- prüfen, ob die Backups laufen, und ab und zu eine Wiederherstellung testen
+- Funktionen ausschalten, die dein Wiki nicht nutzt

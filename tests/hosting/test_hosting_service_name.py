@@ -137,8 +137,8 @@ def test_a_wiki_s_status_page_carries_the_name(tmp_path):
 
 
 def test_a_wiki_s_status_page_puts_the_portal_link_on_its_own_line(tmp_path):
-    """The name and the link did not fit on one line on a phone (or with a long name), and the wrapped
-    line then started with the "·" between them: the link has its own line, without a separator."""
+    """The portal link sits on its own line under the name, so a wrapped line never starts with the
+    separator dot."""
     page = _portal(tmp_path).test_client().get("/", headers={"Host": "nobody-hosting.wiki.test"}).get_data(as_text=True)
     footer = re.search(r"<footer[^>]*>(.*?)</footer>", page, re.S).group(1)
     line = re.search(r'<p><span class="brand">(.*?)</p>', footer, re.S).group(1)
@@ -167,6 +167,6 @@ def test_the_name_is_a_short_single_line_without_placeholders(tmp_path, value):
     assert "HOSTING_SERVICE_NAME" in str(caught.value)
 
 
-@pytest.mark.parametrize("value", ["x" * 60, "Wiki della Scuola", "L'Atelier: wikis", "Ünïcødé Wikis 🍌"])
+@pytest.mark.parametrize("value", ["x" * 60, "Wiki della Scuola", "Anna's: wikis", "Ünïcødé Wikis 🍌"])
 def test_ordinary_names_are_accepted(tmp_path, value):
     assert load_config(portal_environ(tmp_path, HOSTING_SERVICE_NAME=value), secret_key="k" * 40).service_name == value

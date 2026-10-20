@@ -145,7 +145,7 @@ def serve(page: dict[str, Any]) -> Response:
     abort(404)
 
 
-# ── Sandboxed author documents ────────────────────────────────────────────────
+# Sandboxed author documents
 
 
 def sandbox_flags(scripts: bool) -> str:

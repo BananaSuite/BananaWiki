@@ -20,7 +20,7 @@
       <td data-label="{{ t('page_governance.col.holder') }}">{{ r.username }}</td>
       <td class="nowrap" data-label="{{ t('page_governance.col.expires') }}">{{ r.expires_at|datetime }}</td>
       <td class="actions"><div class="cluster">
-        {{ forms.post_button(url_for('page_governance.force_release', page_id=r.page_id), t('page_governance.admin.release'), cls='btn btn--small btn--danger', confirm=t('page_governance.admin.release_confirm', title=r.title)) }}
+        {{ forms.post_button(url_for('page_governance.force_release', page_id=r.page_id), t('page_governance.admin.release'), cls='btn btn--small btn--danger-quiet', confirm=t('page_governance.admin.release_confirm', title=r.title)) }}
         <form class="inline-fields" method="post" action="{{ url_for('page_governance.assign', page_id=r.page_id) }}">
           {{ forms.csrf() }}
           <label class="visually-hidden" for="assign-{{ r.page_id }}">{{ t('page_governance.admin.assign_to') }}</label>
@@ -86,7 +86,7 @@
       <td>{{ q.reason }}</td>
       <td class="actions"><div class="cluster">
         {{ forms.post_button(url_for('page_governance.user_quota', user_id=q.user_id), t('page_governance.quota.approve'), cls='btn btn--small btn--primary', hidden={'action': 'approve_request', 'request_id': q.id, 'next': url_for('page_governance.checkouts')}) }}
-        {{ forms.post_button(url_for('page_governance.user_quota', user_id=q.user_id), t('page_governance.quota.deny'), cls='btn btn--small btn--danger', hidden={'action': 'deny_request', 'request_id': q.id, 'next': url_for('page_governance.checkouts')}) }}
+        {{ forms.post_button(url_for('page_governance.user_quota', user_id=q.user_id), t('page_governance.quota.deny'), cls='btn btn--small btn--danger-quiet', hidden={'action': 'deny_request', 'request_id': q.id, 'next': url_for('page_governance.checkouts')}) }}
       </div></td>
     </tr>
     {% endfor %}

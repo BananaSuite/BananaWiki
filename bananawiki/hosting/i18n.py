@@ -46,6 +46,21 @@ def t(key: str, default: str | None = None, /, **values: Any) -> str:
     return catalog().translate(current_language(), key, default, **{"service": service_name(), **values})
 
 
+def tn(key: str, count: Any, /, **values: Any) -> str:
+    """Count-dependent text: ``<key>_one`` when *count* is 1 and the catalogue has it, else *key*.
+
+    The plain key holds the general (plural) form.
+    """
+    values.setdefault("count", count)
+    try:
+        single = int(count) == 1
+    except (TypeError, ValueError):
+        single = False
+    if single and f"{key}_one" in catalog().strings(current_language()):
+        return t(f"{key}_one", **values)
+    return t(key, **values)
+
+
 def t_lang(lang: str, key: str, default: str | None = None, /, **values: Any) -> str:
     return catalog().translate(lang if lang in LANGUAGES else FALLBACK, key, default,
                                **{"service": service_name(), **values})

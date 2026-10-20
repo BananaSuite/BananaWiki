@@ -64,7 +64,7 @@ def _finish(user: dict[str, Any], next_url: str):
     return signin.finish(user, remember=False, next_url=next_url, method="platform_oauth")
 
 
-# ── Sign in ───────────────────────────────────────────────────────────────────
+# Sign in
 
 
 @bp.get("/platform-oauth/login")
@@ -241,7 +241,7 @@ def platform_oauth_signup():
     return _finish(user, pending.get("next") or "")
 
 
-# ── Linking from the account settings ─────────────────────────────────────────
+# Linking from the account settings
 
 
 @bp.route("/settings/link-platform-account", methods=["GET", "POST"])

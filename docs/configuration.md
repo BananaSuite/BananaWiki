@@ -10,9 +10,10 @@ BananaWiki has two kinds of settings:
   pages). They apply at once. See [features](features.md) for the settings of
   each feature.
 
-Every `BW_*` variable that BananaWiki 1.4 honoured is still honoured with the
-same meaning, so an existing systemd unit, container environment or `.env`
-file keeps working. Defaults that changed are marked below.
+Every `BW_*` variable that BananaWiki 1.4 honoured keeps its meaning, except
+the few listed under [Removed variables](#removed-variables), so an existing
+systemd unit, container environment or `.env` file keeps working. Defaults
+that changed are marked below.
 
 ## How values are read
 
@@ -56,7 +57,7 @@ The instance directory also holds `.secret_key`, uploaded interface languages
 (`translations/`), automatic database copies (`backups/`) and plugin safety
 snapshots (`plugin_safety_snapshots/`).
 
-When a 1.4 installation starts 1.6 and one of the folder variables above is
+When a 1.4 installation is upgraded and one of the folder variables above is
 **not** set, the files found at the 1.4 default location are moved into the
 instance directory (never overwriting anything). See [UPGRADING](../UPGRADING.md).
 
@@ -107,9 +108,7 @@ without it the cookie ends with the browser session).
 | `BW_DB_BUSY_TIMEOUT_MS` | 5000 (100–30000) | How long a connection waits for SQLite's write lock. |
 | `BW_DB_CACHE_KIB` | 4096 (256–65536) | Page cache per connection. |
 | `BW_DB_SYNCHRONOUS` | `full` | `full` or `normal`. `normal` is faster; a power loss may lose the last transactions (never corrupt the file) in WAL mode. |
-| `BW_DB_INTEGRITY_CHECK_INTERVAL_SECONDS` | 3600 | Accepted for compatibility; 1.6 does not run periodic integrity checks. Use `bananawiki db check`. |
-
-`BW_DB_OBSERVABILITY` from 1.4 is no longer read.
+| `BW_DB_INTEGRITY_CHECK_INTERVAL_SECONDS` | 3600 | Accepted for compatibility; no periodic integrity checks run. Use `bananawiki db check`. |
 
 ## Features and plugins
 
@@ -129,7 +128,8 @@ The wiki sends email only for notifications (requests waiting for
 administrators and reviewers, decisions on someone's own request), and only
 after an administrator switches them on in **Admin → Notifications**. The mail
 server can be configured there (the SMTP password and API key are stored
-encrypted with the secret key) or with these variables. **When
+encrypted with the secret key; the saved SMTP password is removed when the
+SMTP server name changes) or with these variables. **When
 `BW_MAIL_PROVIDER` or `BW_SMTP_HOST` is set, the environment wins** and the
 administrator's server form is locked. Under managed hosting
 (`BW_MANAGED_HOSTING=1`) only the environment counts: the host decides whether
@@ -179,7 +179,7 @@ values are clamped.
 | `BW_WORKERS` | 2 (1–16) | Worker processes. SQLite serialises writes, so a few workers with threads work better than many processes. |
 | `BW_THREADS` | 4 (1–32) | Threads per worker. |
 | `BW_WORKER_TIMEOUT` | 120 (10–600) | Seconds before a stuck worker is replaced. |
-| `BW_WRITE_TIMEOUT` | 300 (0–3600) | Whole seconds a response write may wait for the client before the connection is closed, so a client that stops reading a download holds a worker thread no longer than that. Measured, a slow reader was kept while it took in about 256 KiB per period, or up to 4 MiB once its receive buffer had grown after a fast start (about 1 and 14 KiB/s with 300; see [deployment](deployment.md#reverse-proxy)); raise the value to serve slower links. `0` waits forever. |
+| `BW_WRITE_TIMEOUT` | 300 (0–3600) | Whole seconds a response write may wait for the client before the connection is closed, so a client that stops reading holds a worker thread no longer than that (see [deployment](deployment.md#reverse-proxy)). Raise it to serve very slow links; `0` waits forever. |
 | `BW_ACCESS_LOG` | `-` | Access log: `-` for standard output, `off`, or a file path. |
 
 The application is not preloaded in the Gunicorn master: every worker runs its
@@ -238,19 +238,21 @@ which you add, sets how many files a backup or update package may hold (see
 `rollback`) sets what an update does when wikis that served before do not
 serve under the new release: stop and report a few of them and keep the
 release, or roll the whole platform back (see
-[operations](operations.md#managed-servers)). On hosting servers the
-controller also writes `BW_HOSTING_TENANT_QUOTAS` (`auto`, also on a new
-platform, unless `install --tenant-quotas` says otherwise; XFS is never
-required). The portal's in-process runtime follows it too: a portal without
+[operations](operations.md#wikis-that-fail-under-a-new-release-hosting)).
+
+On hosting servers the controller also writes `BW_HOSTING_TENANT_QUOTAS`
+(`auto` unless `install --tenant-quotas` says otherwise). A portal without
 `BW_RUNTIME_AGENT_SOCKET` (a release the 1.4 updater installed, until its
-units converge) runs as its own account and can never use hard quotas, so
-under `auto` it starts wikis without them and under `required` it refuses.
+units are rewritten) can never use hard quotas: under `auto` it starts wikis
+without them and under `required` it refuses.
 
 ## Hosting portal
 
-The portal reads its own variables. Every variable of BananaWiki Hosting 1.4
-is honoured with the same default. Paths default to `<source tree>/hosting/data`
-like 1.4; managed installations set them to `<root>/data`.
+The portal reads its own variables. Those of BananaWiki Hosting 1.4 keep
+their meaning, except the ones under [Removed variables](#removed-variables),
+and `HOSTING_CONTAINER_IMAGE` defaults to `bananawiki-tenant:latest`.
+Paths default to `<source tree>/hosting/data` like 1.4; managed
+installations set them to `<root>/data`.
 
 ### Server and storage
 
@@ -270,7 +272,7 @@ like 1.4; managed installations set them to `<root>/data`.
 | `HOSTING_DB_BUSY_TIMEOUT_MS` | 5000 (100–30000) | SQLite write-lock wait. |
 | `HOSTING_LOG_LEVEL` | `info` | `debug`, `info`, `warning` or `error`. |
 | `HOSTING_LOG_FORMAT` | `text` | `text` or `json`, as `BW_LOG_FORMAT`. |
-| `HOSTING_EVENT_RETENTION_DAYS` | 3650 (0 = keep forever, at most 36500) | Days the moderation log (`hosting_events`: decisions on accounts and wikis, who took them and why) keeps an entry; the maintenance service deletes older ones. The published privacy policy promises deletion at the latest 10 years after the decision: change both together. |
+| `HOSTING_EVENT_RETENTION_DAYS` | 3650 (0 = keep forever, at most 36500) | Days the moderation log (`hosting_events`: decisions on accounts and wikis, who took them and why) keeps an entry; the maintenance service deletes older ones. If your privacy notice states how long these records are kept, keep this value in line with it. |
 | `BANANA_MAINTENANCE_FILE` (alias `BW_MAINTENANCE_FILE`) | none | 503 for everything but `/health` while it exists. |
 | `BW_SOURCE_URL` | `https://github.com/BananaSuite/BananaWiki` | Source link shown by the portal (managed installs set it to the update source). |
 | `HOSTING_WORKERS`, `HOSTING_THREADS`, `HOSTING_WORKER_TIMEOUT`, `HOSTING_WRITE_TIMEOUT`, `HOSTING_ACCESS_LOG` | 2, 4, 120, 300, `-` | Read by `hosting/gunicorn.conf.py`; the same meaning as the `BW_` variables of the [web server](#web-server-gunicorn). |
@@ -284,14 +286,14 @@ like 1.4; managed installations set them to `<root>/data`.
 | `INSTANCE_URL_SUFFIX` | `hosting` | Wikis live at `<slug>-<suffix>.<BASE_DOMAIN>`. Set it to an empty value for `<slug>.<BASE_DOMAIN>`. |
 | `HOSTING_AUTO_FLATTEN_DOMAIN_LAYOUT` | on | With only `BASE_DOMAIN=hosting.example.com` set, read it as base `example.com`, portal `hosting.example.com`, suffix `hosting` (single-level wiki hosts, as in 1.4). |
 | `HOSTING_MODE` | detected | `subdomain`, `port` or `onion`. Detected as `subdomain` when `BASE_DOMAIN` is a domain name, otherwise `port`. |
-| `HOSTING_PUBLIC_HOST` | base domain, or the outbound interface address | Host name used in port mode links. 1.4 asked public IP-echo services; 1.6 never does. |
+| `HOSTING_PUBLIC_HOST` | base domain, or the outbound interface address | Host name used in port mode links. The portal never asks public IP-echo services. |
 | `HOSTING_PUBLIC_SCHEME` | `https` | Scheme of wiki links. |
 | `INSTANCE_PORT_START`, `INSTANCE_PORT_END` | 6001, 7000 | Port range in port mode. |
 | `SUBDOMAIN_MIN_LENGTH`, `SUBDOMAIN_MAX_LENGTH` | 3, 40 | Wiki name length. |
 | `HOSTING_CUSTOM_DOMAIN_TARGET` | none | Host name customers point their CNAME at. |
 | `HOSTING_CUSTOM_DOMAIN_IPS` | none | Addresses accepted for A/AAAA records of custom domains. |
 | `HOSTING_CUSTOM_DOMAIN_ALLOW_PROXIED` | on | Accept a custom domain whose A/AAAA records are all Cloudflare edge addresses (a record proxied by the customer's Cloudflare account); the TXT proof still proves ownership. `0` requires the CNAME or the addresses above. |
-| `HOSTING_SERVICE_NAME` | `BananaWiki Hosting` | The name your platform goes by: page titles and the top bar, emails, the maintenance page, wikis' status pages and the label authenticator apps show for new enrolments (enrolled authenticators keep their label and keep working). At most 60 characters on one line, without braces; a colon shows as a space in authenticator apps. Always write it in double quotes in `config/app.env` (`HOSTING_SERVICE_NAME="L'Atelier Wikis"`): the platform's commands read that file as a shell would, and refuse an unquoted apostrophe. The footer still names the software and its version. |
+| `HOSTING_SERVICE_NAME` | `BananaWiki Hosting` | The name your platform goes by: page titles and the top bar, emails, the maintenance page, wikis' status pages and the label authenticator apps show for new enrolments (enrolled authenticators keep their label and keep working). At most 60 characters on one line, without braces; a colon shows as a space in authenticator apps. Always write it in double quotes in `config/app.env` (`HOSTING_SERVICE_NAME="Anna's Wikis"`): the platform's commands read that file as a shell would, and refuse an unquoted apostrophe. The footer still names the software and its version. |
 | `HOSTING_CONTACT_EMAIL` | reply-to address, else `contact@<BASE_DOMAIN>` | Shown in the help centre and emails. |
 | `HOSTING_STATUS_URL` | none | Link to a status page. |
 
@@ -307,7 +309,7 @@ like 1.4; managed installations set them to `<root>/data`.
 | `HOSTING_TENANT_NETWORK` | `isolated` in subdomain mode, else `outbound` | `isolated`: a Docker internal bridge for each tenant, blocking traffic beyond its subnet. Host gateway listeners still require host firewall INPUT rules; bind host-only services to loopback. Port and onion mode need `outbound`. |
 | `HOSTING_ALLOW_TENANT_PLUGINS` | `0` | Operator opt-in for third-party Python plugins in hosted wikis. Built-in features remain available. Existing plugin files and settings are retained while disabled; set `1` only for tenants whose code you trust, with host filesystem quotas and tested container isolation. Quarantine still overrides this setting. Subdomain mode only: refused in port and onion mode, where the portal and the wikis share cookies. |
 | `HOSTING_TENANT_PLUGIN_DENYLIST` | none | Plugin ids tenants may never load. |
-| `HOSTING_TTS_GPU_TENANT_TOKENS` | `1` | Give each wiki its own GPU speech token derived from the master token instead of the master token itself. Needs the GPU server from this release; set `0` only while an older GPU server is still running. |
+| `HOSTING_TTS_GPU_TENANT_TOKENS` | `1` | Give each wiki its own GPU speech token derived from the master token instead of the master token itself. Needs the 1.7 GPU speech server or later; set `0` only while an older GPU server is still running. |
 | `HOSTING_FEDERATION_INSTANCES` | none | Wiki ids (from the portal) whose tenants get `BW_FEDERATION_ENABLED=1`; `*` for every wiki. |
 | `MAX_INSTANCES_PER_ACCOUNT` | 5 | Wikis per customer (suspended ones count; checked again when a customer accepts a transfer). |
 | `INSTANCE_DURATION_DAYS` | 14 (0 = never expire) | Lifetime of a new, restored or renewed wiki. |
@@ -320,11 +322,11 @@ like 1.4; managed installations set them to `<root>/data`.
 | `INSTANCE_NOFILE_LIMIT` | 1024 (at least 128) | Container open files. |
 | `INSTANCE_STARTUP_TIMEOUT_SECONDS` | 120 (30–600) | How long a starting wiki may take. |
 | `HOSTING_AGENT_MAX_MEMORY_MB`, `HOSTING_AGENT_MAX_CPUS`, `HOSTING_AGENT_MAX_PIDS`, `HOSTING_AGENT_MAX_NOFILE` | 4096, 4, 4096, 65536 | Ceilings the runtime agent enforces whatever the portal asks. |
-| `BW_HOSTING_TENANT_QUOTAS` | `auto` (also on a new platform) | Hard per-wiki XFS project quotas: `auto` uses them where `INSTANCES_DIR` enforces them and otherwise starts wikis without them (with a loud warning when they were enforced here before and are no longer available), `required` (an explicit opt-in) starts wikis only under them, `off` never uses them. Without them each wiki is held to its plan only by its own upload check and the portal's storage check every 5 minutes. Change it with `bananawiki config set tenant-quotas`, which checks the storage first. See [hard storage quotas](operations.md#hard-storage-quotas-hosting). |
+| `BW_HOSTING_TENANT_QUOTAS` | `auto` | Hard per-wiki XFS project quotas: `auto` uses them where `INSTANCES_DIR` enforces them and otherwise starts wikis without them, `required` starts wikis only under them, `off` never uses them. Change it with `bananawiki config set tenant-quotas`, which checks the storage first. See [hard storage quotas](operations.md#hard-storage-quotas-hosting). |
 | `HOSTING_AGENT_MAX_STORAGE_BYTES` | 10737418240 | Finite per-tenant hard byte ceiling on dedicated enforced XFS; positive and divisible by 512. A zero portal plan uses this ceiling (without hard quotas, as the wiki's own storage limit). |
 | `HOSTING_AGENT_MAX_INODES` | 100000 | Finite hard inode limit per tenant (1–10000000). |
 | `HOSTING_AGENT_PROJECT_ID_START` | 1000000 | First private project ID (1–2147483647); dedicate the range and filesystem to this installation. IDs are not reused. |
-| `HOSTING_AGENT_STORAGE_RESERVE_BYTES` | 268435456 | Positive reserve in both total-budget and free-space quota admission (a new wiki or a raised limit), plus conservative inode headroom; does not budget independent operator writes or every metadata allocation. Update and backup snapshots staged on the same volume also leave the admitted reservations plus this reserve free. |
+| `HOSTING_AGENT_STORAGE_RESERVE_BYTES` | 268435456 | Space kept free on the wikis' volume. A new wiki or a higher limit is admitted only if this much stays free, both in the total budget and on the disk, and some inodes are held back as well. Update and backup snapshots staged on the volume leave the admitted limits plus this reserve free. It does not account for files you write to the volume yourself or for all filesystem metadata. |
 
 `HOSTING_BACKUP_ENCRYPTION_KEY` (URL-safe base64 of 32 bytes) may replace the
 key file at `HOSTING_BACKUP_KEY_PATH`. `BW_HOSTING_RECOVERY_MAX_WORKERS`
@@ -334,15 +336,17 @@ updater derives from it how long it waits for all of them to become healthy.
 Both read it the same way: values outside 1–16 are clamped, and anything that
 is not a whole number counts as 2 (the portal logs a warning). Raising it
 speeds up recovery on large platforms, but the agent still serializes part
-of each start, so measure before going past 4. `HOSTING_ROUTES_DIR` is only a placeholder in the example
-`deploy/Caddyfile.hosting` (default `/var/lib/bananawiki-routes`): the
-directory where the agent writes the per-wiki Caddy routes.
+of each start, so measure before going past 4.
+
+`HOSTING_ROUTES_DIR` (default `/var/lib/bananawiki-routes`) is the directory
+where the agent writes the per-wiki Caddy routes. It appears only as a
+placeholder in the example `deploy/Caddyfile.hosting`.
 
 Inside a tenant container: `BW_INSTANCE_GUNICORN_WORKERS` (1),
 `BW_INSTANCE_GUNICORN_THREADS` (4), `BW_INSTANCE_STARTUP_TIMEOUT_SECONDS`
 (120) and `BW_HOSTING_TTS_WORKER_POLL_INTERVAL_SECONDS` (30) tune the tenant
-entry point; the runtime also passes `BW_MANAGED_PLUGIN_QUARANTINE` when an
-administrator quarantined a wiki's plugins.
+entry point. When an administrator quarantined a wiki's plugins, the runtime
+passes it `BW_ALLOW_EXTERNAL_PLUGINS=0`.
 
 ### Sign-up and email
 

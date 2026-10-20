@@ -45,6 +45,30 @@ def test_onboarding_validates_site_name(client, owner, login, db):
     assert db.scalar("SELECT onboarding_required FROM users WHERE id = ?", (owner["id"],)) == 1
 
 
+def test_onboarding_puts_the_untouched_home_page_into_the_chosen_language(client, owner, login, db):
+    login(client, owner)
+    assert _wizard(client, language="de").status_code == 302
+    home = db.one("SELECT title, slug, content FROM pages WHERE is_home = 1")
+    assert home == {"title": "Startseite", "slug": "home",
+                    "content": "# Willkommen in deinem Wiki\n\nBearbeite diese Seite, um loszulegen."}
+
+
+def test_english_home_page_text_is_the_one_new_databases_start_with(app):
+    from bananawiki.wiki import i18n, migrations
+
+    with app.app_context():
+        assert i18n.t_lang("en", "auth.onboarding.home_body") == migrations.DEFAULT_HOME
+        assert i18n.t_lang("en", "auth.onboarding.home_title") == "Home"
+
+
+def test_onboarding_leaves_an_edited_home_page_alone(client, owner, login, db):
+    db.execute("UPDATE pages SET content = 'Our handbook' WHERE is_home = 1")
+    login(client, owner)
+    assert _wizard(client, language="it").status_code == 302
+    assert db.one("SELECT title, content FROM pages WHERE is_home = 1") == {"title": "Home",
+                                                                           "content": "Our handbook"}
+
+
 def test_onboarding_advanced_mode_switches_features(app, client, owner, login):
     login(client, owner)
     with app.app_context():
@@ -92,6 +116,30 @@ def test_onboarding_is_admin_only_and_replay_can_be_disabled(client, make_user, 
     assert client.get("/onboarding").status_code == 302
 
 
+def test_onboarding_replay_waits_for_other_account_steps(client, make_user, login, db):
+    db.execute("UPDATE site_settings SET two_step_required_for_admins = 1")
+    login(client, make_user("chief", role="admin"))
+    assert client.get("/onboarding").headers["Location"].endswith("/settings/two-step")
+    assert _wizard(client, site_name="Renamed", new_username=["sneaky"], new_password=[PASSWORD],
+                   new_role=["editor"]).status_code == 403
+    assert db.scalar("SELECT site_name FROM site_settings") != "Renamed"
+    assert db.scalar("SELECT COUNT(*) FROM users WHERE username = 'sneaky'") == 0
+    client.post("/logout")
+    db.execute("UPDATE site_settings SET two_step_required_for_admins = 0")
+    login(client, make_user("deputy", role="admin", force_password_change=1))
+    assert client.get("/onboarding").headers["Location"].endswith("/force-change-password")
+    assert _wizard(client, site_name="Renamed").status_code == 403
+    assert db.scalar("SELECT site_name FROM site_settings") != "Renamed"
+
+
+def test_first_run_onboarding_comes_after_a_forced_password_change(client, make_user, login, db):
+    owner = make_user("owner_user", role="owner", onboarding_required=1, force_password_change=1)
+    login(client, owner)
+    assert client.get("/onboarding").headers["Location"].endswith("/force-change-password")
+    assert _wizard(client).status_code == 403
+    assert db.scalar("SELECT onboarding_required FROM users WHERE id = ?", (owner["id"],)) == 1
+
+
 def test_onboarding_spawns_builtin_docs(client, owner, login, db):
     login(client, owner)
     response = _wizard(client, spawn_docs="1", docs_variant="simplified", docs_language="it")
@@ -107,6 +155,10 @@ def test_onboarding_spawns_builtin_docs(client, owner, login, db):
                          (category_id,)).startswith("#")
     assert db.scalar("SELECT COUNT(*) FROM page_history ph JOIN pages p ON p.id = ph.page_id "
                      "WHERE p.category_id = ?", (category_id,)) == count
+    # The stored summary is shown in the reader's language.
+    for language, summary in (("it", "Documentazione integrata"), ("de", "Mitgelieferte Dokumentation")):
+        history = client.get(f"/page/bananawiki-welcome/history?lang={language}").get_data(as_text=True)
+        assert summary in history and "Built-in documentation" not in history
 
 
 def test_onboarding_offers_and_spawns_german_docs(client, owner, login, db):
@@ -160,9 +212,8 @@ def _shape(content: str) -> dict[str, int]:
     ("de", "Deshalb können das nur Eigentümer und Superuser."),
 ])
 def test_the_admin_guide_says_who_can_import_a_site_or_install_a_plugin(language, restricted):
-    # Since 1.7 only owners and superusers can run a full-site import or install a third-party plugin (the
-    # migration tools and plugin_manager's lock): "Owners and trust" still said owner status did not stop an
-    # admin who did either, against the paragraph above it.
+    # Only owners and superusers can run a full-site import or install a third-party plugin (the migration
+    # tools and plugin_manager's lock), and "Owners and trust" says so in every language.
     [guide] = [content for _title, slug, content in docs.pages("full", language) if slug.endswith("admin-guide")]
     [trust] = [section for section in guide.split("\n## ")
                if section.split("\n", 1)[0] in ("Owners and trust", "Proprietari e fiducia", "Eigentümer und Vertrauen")]
@@ -180,7 +231,7 @@ def test_builtin_docs_keep_the_english_structure_in_every_language(variant, lang
         {slug: _shape(content) for _t, slug, content in english}
 
 
-# ── Introduction and tour ─────────────────────────────────────────────────────
+# Introduction and tour
 
 
 def test_new_accounts_get_the_intro_when_enabled(client, db, make_user, login):
@@ -219,7 +270,7 @@ def test_tour_walkthrough_and_finish(client, db, make_user, login):
 
 
 def test_admin_perspective_is_illustration_only(client, db, make_user, login):
-    """Audit H1: previewing the admin tour must not grant any access."""
+    """Previewing the admin tour does not grant any access."""
     db.execute("INSERT INTO categories (name) VALUES ('SecretHR')")
     category_id = db.scalar("SELECT id FROM categories WHERE name = 'SecretHR'")
     db.execute("INSERT INTO pages (title, slug, content, category_id) VALUES ('Salaries 2026', 'salaries', 'x', ?)",

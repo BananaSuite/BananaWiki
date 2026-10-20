@@ -11,34 +11,35 @@ it.
 
 ## Display preferences
 
-Open **Customise** in the topbar for your **Display preferences**. These change
-how the wiki looks for you only: light or dark
-theme, text size, line and letter spacing, content and sidebar width,
-contrast, your own colours, a background picture, a dyslexia-friendly font,
-reduced motion, and how strongly bold text, links, headings and code stand
-out. **Reset display preferences** returns to the site's defaults and removes
-your background picture; your language and mascot choices stay as they are.
+Open **Customise** in the top bar for your **Display preferences**. These change
+how the wiki looks for you only: light or dark theme, text size, line and
+letter spacing, content and sidebar width, contrast, your own colours, a
+background picture, a dyslexia-friendly font, reduced motion, and how
+strongly bold text, links, headings and code stand out. **Reset display
+preferences** returns to the site's defaults and removes your background
+picture; your language and mascot choices stay as they are.
 
-If your wiki has the mascot, a banana in place of the logo in the topbar, a
-click makes it hop; the site name next to it leads to the home page. It stays
-in the topbar for as long as your administrators keep it on. If you found out
-how to put sunglasses on it, you can take them off here under **Customise**.
+Some wikis show a mascot, a banana, in place of the logo in the top bar.
+Clicking it makes it hop; the site name next to it leads to the home page. It
+stays in the top bar for as long as your administrators keep it on. If you
+found out how to put sunglasses on it, you can take them off here under
+**Customise**.
 
 ## Language
 
-Choose the interface language from the account menu or in Settings: English,
-Italian, German and any language the administrators added, as long as they
-have not switched it off. Pages themselves are not translated.
+Choose the interface language in Settings: English, Italian, German and any
+language the administrators added, as long as they have not switched it off.
+Pages themselves are not translated.
 
 ## Password and user name
 
 Change your password in Settings. Doing so signs out your other sessions (the
 current one stays) and stops your API tokens. A new password needs at least 8
 characters, must not contain your user name or the part of your email address
-before the @, and must not be one of the most common passwords. Changing your user name
-leaves pages as they are: `@mentions` of your old name still lead to your
-profile, and nobody else can take that name unless an administrator releases
-it. You can change it three times a day.
+before the @, and must not be one of the most common passwords. Changing your
+user name leaves pages as they are: `@mentions` of your old name still lead to
+your profile, and nobody else can take that name unless an administrator
+releases it. You can change it three times a day.
 
 ## Sessions
 
@@ -62,8 +63,8 @@ use.
 ## Merging accounts
 
 If you have two accounts, the account merge page in Settings
-(`/settings/merge-request`) asks to merge one into the other. Both accounts confirm with their passwords, then an administrator
-approves.
+(`/settings/merge-request`) asks to merge one into the other. Both accounts
+confirm with their passwords, then an administrator approves.
 
 ## Deleting your account
 

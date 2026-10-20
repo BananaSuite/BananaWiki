@@ -1,8 +1,9 @@
 """Static assets shared by the wiki and hosting portal.
 
-The design system has one source in ``core/static``. Its public URL stays
-``/static/css/bananawiki.css``; application and plugin assets keep their
-own static folders and Flask endpoints.
+The design system and the mascot's script and stylesheet have one source in
+``core/static``, served at ``/static/css/bananawiki.css`` and
+``/static/mascot/``; application and plugin assets keep their own static
+folders and Flask endpoints.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from flask import Flask, Response, current_app, send_from_directory, url_for
 from .. import __version__
 
 SHARED_STATIC_ROOT = Path(__file__).parent / "static"
-SHARED_FILENAMES = frozenset({"css/bananawiki.css"})
+SHARED_FILENAMES = frozenset({"css/bananawiki.css", "mascot/mascot.css", "mascot/mascot.js"})
 
 
 class SharedAssetsFlask(Flask):

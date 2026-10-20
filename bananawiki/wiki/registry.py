@@ -139,7 +139,7 @@ def registry() -> Registry:
     return current_app.extensions["bananawiki.registry"]
 
 
-# ── Feature switches ──────────────────────────────────────────────────────────
+# Feature switches
 
 
 def _plugin_states() -> dict[str, bool]:
@@ -241,8 +241,12 @@ def require_feature(feature_id: str) -> Callable[[], Any]:
 
     def check():
         if not is_enabled(feature_id):
-            if request.path.startswith("/api/"):
+            if request.path.startswith("/api/v1/"):
                 return jsonify({"error": "This feature is not enabled."}), 404
+            if request.path.startswith("/api/"):
+                from . import i18n
+
+                return jsonify({"error": i18n.t("error.feature_disabled")}), 404
             abort(404)
         return None
 
@@ -256,7 +260,7 @@ def feature_blueprint(feature_id: str, name: str, import_name: str, **kwargs: An
     return bp
 
 
-# ── Events ────────────────────────────────────────────────────────────────────
+# Events
 
 
 def emit(event: str, **payload: Any) -> None:
@@ -339,7 +343,7 @@ def render_slot(slot: str, **context: Any) -> str:
     return Markup("".join(parts))
 
 
-# ── Background jobs ───────────────────────────────────────────────────────────
+# Background jobs
 
 
 class Scheduler:

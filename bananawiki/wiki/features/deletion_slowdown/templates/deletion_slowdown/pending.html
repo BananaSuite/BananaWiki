@@ -18,7 +18,7 @@
       <td class="nowrap" data-label="{{ t('deletion_slowdown.col.purge_at') }}">{{ p.purge_at|datetime if p.purge_at else '—' }}</td>
       <td class="actions"><div class="cluster">
         {{ forms.post_button(url_for('deletion_slowdown.restore', page_id=p.id), t('deletion_slowdown.restore'), cls='btn btn--small btn--primary') }}
-        {{ forms.post_button(url_for('deletion_slowdown.purge', page_id=p.id), t('deletion_slowdown.purge'), cls='btn btn--small btn--danger', confirm=t('deletion_slowdown.purge_confirm', title=p.title)) }}
+        {{ forms.post_button(url_for('deletion_slowdown.purge', page_id=p.id), t('deletion_slowdown.purge'), cls='btn btn--small btn--danger-quiet', confirm=t('deletion_slowdown.purge_confirm', title=p.title)) }}
       </div></td>
     </tr>
     {% endfor %}

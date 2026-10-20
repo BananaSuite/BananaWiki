@@ -46,7 +46,7 @@ def _visible_page(page_id: int | None) -> dict[str, Any] | None:
     return page if page is not None and pages.can_view(page) else None
 
 
-# ── JSON API (1.4 URLs) ──────────────────────────────────────────────────────
+# JSON API (1.4 URLs)
 
 
 @bp.post("/api/draft/save")
@@ -146,7 +146,7 @@ def api_mine():
     ])
 
 
-# ── "My drafts" page and form fallbacks ──────────────────────────────────────
+# "My drafts" page and form fallbacks
 
 
 def _my_drafts() -> list[dict[str, Any]]:

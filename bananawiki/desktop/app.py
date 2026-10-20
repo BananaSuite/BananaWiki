@@ -30,7 +30,15 @@ ICON = Path(__file__).resolve().parent / "static" / "icon.png"
 WINDOW_ICON_SIZES = (256, 48, 32, 16)
 POLL_MS = 100
 HEALTH_POLL_MS = 1000
-WRAP = 460
+PAD = 16  # around the window's contents
+SECTION_PAD = 12  # inside each titled box
+SECTION_GAP = 12  # between the boxes
+GAP = 8  # between the rows and buttons of a box
+WRAP = 480  # width of the text inside a box, in pixels
+# The start button on Linux (clam theme): BananaChat's primary colour, its accent when hovered or pressed.
+ACCENT = "#e6be32"
+ACCENT_ACTIVE = "#cda624"
+ACCENT_BORDER = "#9a7b14"
 
 
 def window_icons(photo_image: Callable[..., Any], path: Path = ICON) -> list[Any]:
@@ -42,6 +50,21 @@ def window_icons(photo_image: Callable[..., Any], path: Path = ICON) -> list[Any
     full = photo_image(file=str(path))
     art = full.subsample(full.width() // 16)
     return [full, *(art.zoom(size // 16) for size in WINDOW_ICON_SIZES[1:])]
+
+
+def accent_button(style: Any) -> str:
+    """A button style in the suite's yellow for the main action on the clam theme, named for ``style=``.
+
+    Disabled, it looks like any other disabled button: it takes the theme's colours for that state.
+    """
+    name = "Accent.TButton"
+    style.configure(name, background=ACCENT, lightcolor=ACCENT, darkcolor=ACCENT, bordercolor=ACCENT_BORDER,
+                    foreground="#000000")
+    for option, active in (("background", ACCENT_ACTIVE), ("lightcolor", ACCENT_ACTIVE), ("darkcolor", ACCENT_ACTIVE),
+                           ("bordercolor", ACCENT_BORDER), ("foreground", "#000000")):
+        disabled = style.lookup("TButton", option, ("disabled",))
+        style.map(name, **{option: [("disabled", disabled), ("pressed", active), ("active", active)]})
+    return name
 
 
 def open_in_file_manager(path: Path) -> None:
@@ -69,10 +92,10 @@ class LauncherWindow:
         self.qr_url: str | None = None
         self._results: queue.Queue[tuple[Callable[..., None], Any, BaseException | None]] = queue.Queue()
         self._texts: list[tuple[Any, str]] = []
+        self._sections: list[Any] = []
 
         _enable_high_dpi()
         self.window = tk.Tk()
-        self.window.minsize(520, 560)
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         if ICON.is_file():
             self._icons = window_icons(tk.PhotoImage)
@@ -90,10 +113,11 @@ class LauncherWindow:
         self.window.after(POLL_MS, self._drain_results)
         self.window.after(HEALTH_POLL_MS, self._watch_server)
 
-    # ── Layout ────────────────────────────────────────────────────────────
+    # Layout
 
     def _label(self, parent: Any, key: str, **options: Any) -> Any:
-        widget = self.ttk.Label(parent, wraplength=WRAP, justify="left", **options)
+        options.setdefault("wraplength", WRAP)
+        widget = self.ttk.Label(parent, justify="left", **options)
         self._texts.append((widget, key))
         return widget
 
@@ -103,24 +127,31 @@ class LauncherWindow:
         return widget
 
     def _section(self, parent: Any, key: str, *, optional: bool = False) -> Any:
-        """A titled box; an optional one sits in an always-packed holder so it keeps its place."""
-        if optional:
-            parent = self.ttk.Frame(parent)
-            parent.pack(fill="x")
-        frame = self.ttk.LabelFrame(parent, padding=10)
+        """A titled box; :meth:`_show` packs an optional one back in its place."""
+        frame = self.ttk.LabelFrame(parent, padding=SECTION_PAD)
         self._texts.append((frame, key))
+        self._sections.append(frame)
         if not optional:
-            frame.pack(fill="x", pady=(10, 0))
+            frame.pack(fill="x", pady=(SECTION_GAP, 0))
         return frame
 
     def _build(self) -> None:
+        from tkinter import font
+
         ttk = self.ttk
         style = ttk.Style(self.window)
-        style.configure("Title.TLabel", font=("TkDefaultFont", 18, "bold"))
-        style.configure("Status.TLabel", font=("TkDefaultFont", 11, "bold"))
-        style.configure("Mono.TEntry", font=("TkFixedFont", 10))
+        start_style = "TButton"
+        if style.theme_use() == "default":  # Tk's plain X11 theme; Windows and macOS have native ones
+            style.theme_use("clam")
+            start_style = accent_button(style)
+        self.title_font = font.nametofont("TkDefaultFont").copy()
+        self.title_font.configure(size=round(self.title_font.actual("size") * 1.6), weight="bold")
+        style.configure("Title.TLabel", font=self.title_font)
+        style.configure("Status.TLabel", font="TkHeadingFont")
+        # ttk checkbuttons wrap only through their style; the indicator takes some of the width.
+        style.configure("Wrapped.TCheckbutton", wraplength=WRAP - 3 * GAP)
 
-        outer = ttk.Frame(self.window, padding=16)
+        outer = ttk.Frame(self.window, padding=PAD)
         outer.pack(fill="both", expand=True)
 
         header = ttk.Frame(outer)
@@ -130,42 +161,45 @@ class LauncherWindow:
         self.language_box.set(i18n.LANGUAGES[self.t.language])
         self.language_box.bind("<<ComboboxSelected>>", self._language_changed)
         self.language_box.pack(side="right")
-        self._label(outer, "app.subtitle").pack(fill="x", pady=(4, 0))
+        outer_wrap = WRAP + 2 * SECTION_PAD
+        self._label(outer, "app.subtitle", wraplength=outer_wrap).pack(fill="x", pady=(GAP // 2, 0))
 
         folder = self._section(outer, "folder.title")
         ttk.Label(folder, textvariable=self.folder_var, wraplength=WRAP).pack(fill="x")
         row = ttk.Frame(folder)
-        row.pack(fill="x", pady=(8, 0))
+        row.pack(fill="x", pady=(GAP, 0))
         self.change_button = self._button(row, "folder.change", self.change_folder)
         self.change_button.pack(side="left")
-        self._button(row, "folder.open", self.open_folder).pack(side="left", padx=(8, 0))
+        self._button(row, "folder.open", self.open_folder).pack(side="left", padx=(GAP, 0))
 
         control = self._section(outer, "server.title")
-        self.share_check = ttk.Checkbutton(control, variable=self.share_var, command=self._share_toggled)
+        self.share_check = ttk.Checkbutton(control, variable=self.share_var, command=self._share_toggled,
+                                           style="Wrapped.TCheckbutton")
         self._texts.append((self.share_check, "server.share"))
         self.share_check.pack(anchor="w")
         row = ttk.Frame(control)
-        row.pack(fill="x", pady=(10, 0))
-        self.start_button = self._button(row, "server.start", self.start)
+        row.pack(fill="x", pady=(GAP, 0))
+        self.start_button = self._button(row, "server.start", self.start, style=start_style)
         self.start_button.pack(side="left")
         self.stop_button = self._button(row, "server.stop", self.stop)
-        self.stop_button.pack(side="left", padx=(8, 0))
+        self.stop_button.pack(side="left", padx=(GAP, 0))
         self.open_button = self._button(row, "server.open", self.open_browser)
-        self.open_button.pack(side="left", padx=(8, 0))
+        self.open_button.pack(side="left", padx=(GAP, 0))
         ttk.Label(control, textvariable=self.status_var, style="Status.TLabel", wraplength=WRAP).pack(
-            fill="x", pady=(10, 0))
+            fill="x", pady=(GAP, 0))
 
         self.address_frame = self._section(outer, "address.title", optional=True)
-        self._address_row(self.address_frame, "address.local", self.local_var)
-        lan_holder = ttk.Frame(self.address_frame)
-        lan_holder.pack(fill="x")
-        self.lan_row = self._address_row(lan_holder, "address.lan", self.lan_var)
+        self.address_frame.columnconfigure(1, weight=1)
+        self._copy_row(self.address_frame, 0, "address.local", self.local_var)
+        self.lan_row = self._copy_row(self.address_frame, 1, "address.lan", self.lan_var)
         self.qr_label = ttk.Label(self.address_frame)
-        self.qr_label.pack(anchor="w", pady=(6, 0))
+        self.qr_label.grid(row=2, column=0, columnspan=3, sticky="w", pady=(GAP, 0))
+        self.qr_label.grid_remove()
 
         self.setup_frame = self._section(outer, "setup.title", optional=True)
-        self._label(self.setup_frame, "setup.explain").pack(fill="x")
-        self._address_row(self.setup_frame, None, self.token_var)
+        self.setup_frame.columnconfigure(1, weight=1)
+        self._label(self.setup_frame, "setup.explain").grid(row=0, column=0, columnspan=3, sticky="ew")
+        self._copy_row(self.setup_frame, 1, None, self.token_var, font="TkFixedFont")
 
         data = self._section(outer, "data.title")
         row = ttk.Frame(data)
@@ -173,32 +207,42 @@ class LauncherWindow:
         self.backup_button = self._button(row, "data.backup", self.backup)
         self.backup_button.pack(side="left")
         self.restore_button = self._button(row, "data.restore", self.restore)
-        self.restore_button.pack(side="left", padx=(8, 0))
+        self.restore_button.pack(side="left", padx=(GAP, 0))
         self.reset_button = self._button(row, "data.reset", self.reset)
-        self.reset_button.pack(side="left", padx=(8, 0))
+        self.reset_button.pack(side="right", padx=(GAP, 0))
 
-        ttk.Label(outer, textvariable=self.message_var, wraplength=WRAP, justify="left").pack(
-            fill="x", pady=(10, 0))
+        ttk.Label(outer, textvariable=self.message_var, wraplength=outer_wrap, justify="left").pack(
+            fill="x", pady=(SECTION_GAP, 0))
 
-    def _address_row(self, parent: Any, key: str | None, variable: Any) -> Any:
-        row = self.ttk.Frame(parent)
-        row.pack(fill="x", pady=(4, 0))
+    def _copy_row(self, parent: Any, row: int, key: str | None, variable: Any, **entry: Any) -> list[Any]:
+        """A read-only field with a Copy button on grid *row* of *parent*, labelled when *key* is given."""
+        top = (GAP, 0) if row else 0
+        widgets = []
         if key:
-            label = self.ttk.Label(row, width=16)
+            label = self.ttk.Label(parent)
             self._texts.append((label, key))
-            label.pack(side="left")
-        entry = self.ttk.Entry(row, textvariable=variable, state="readonly", style="Mono.TEntry")
-        entry.pack(side="left", fill="x", expand=True)
-        self._button(row, "action.copy", lambda: self.copy(variable.get())).pack(side="left", padx=(8, 0))
-        return row
+            label.grid(row=row, column=0, sticky="w", padx=(0, GAP), pady=top)
+            widgets.append(label)
+        field = self.ttk.Entry(parent, textvariable=variable, state="readonly", **entry)
+        field.grid(row=row, column=1 if key else 0, columnspan=1 if key else 2, sticky="ew", pady=top)
+        button = self._button(parent, "action.copy", lambda: self.copy(variable.get()))
+        button.grid(row=row, column=2, padx=(GAP, 0), pady=top)
+        return [*widgets, field, button]
 
     def _retranslate(self) -> None:
         self.window.title(self.t("app.title"))
         for widget, key in self._texts:
             widget.configure(text=self.t(key))
         self._refresh()
+        self._fit_min_size()
 
-    # ── State ─────────────────────────────────────────────────────────────
+    def _fit_min_size(self) -> None:
+        """Never let the window clip its text; the height is the stopped window's, which has fewest boxes."""
+        self.window.update_idletasks()
+        height = self.window.minsize()[1] if self.running else self.window.winfo_reqheight()
+        self.window.minsize(self.window.winfo_reqwidth(), height)
+
+    # State
 
     @property
     def running(self) -> bool:
@@ -231,7 +275,7 @@ class LauncherWindow:
             self.lan_var.set("")
         self._refresh_setup()
         self._show(self.address_frame, running)
-        self._show(self.lan_row, running and bool(self.info and self.info.shared))
+        self._show_row(self.lan_row, running and bool(self.info and self.info.shared))
         self._update_qr()
 
     def _refresh_setup(self) -> None:
@@ -240,12 +284,22 @@ class LauncherWindow:
         self.token_var.set(self.info.setup_token if show and self.info else "")
         self._show(self.setup_frame, show)
 
+    def _show(self, section: Any, visible: bool) -> None:
+        """Pack an optional box before the next box that is shown, or take it out."""
+        if visible and not section.winfo_manager():
+            following = self._sections[self._sections.index(section) + 1:]
+            before = next(box for box in following if box.winfo_manager())
+            section.pack(fill="x", pady=(SECTION_GAP, 0), before=before)
+        elif not visible and section.winfo_manager():
+            section.pack_forget()
+
     @staticmethod
-    def _show(widget: Any, visible: bool) -> None:
-        if visible and not widget.winfo_manager():
-            widget.pack(fill="x", pady=(10, 0))
-        elif not visible and widget.winfo_manager():
-            widget.pack_forget()
+    def _show_row(widgets: list[Any], visible: bool) -> None:
+        for widget in widgets:
+            if visible:
+                widget.grid()
+            else:
+                widget.grid_remove()
 
     def _update_qr(self) -> None:
         url = self.info.lan_url if self.running and self.info else None
@@ -254,6 +308,7 @@ class LauncherWindow:
         self.qr_url = url
         self.qr_image = _qr_photo(url) if url else None
         self.qr_label.configure(image=self.qr_image or "")
+        self._show_row([self.qr_label], self.qr_image is not None)
 
     def folder(self) -> DataFolder:
         return DataFolder(self.folder_var.get())
@@ -264,7 +319,7 @@ class LauncherWindow:
         except OSError as error:
             self.message_var.set(self.t.error(error))
 
-    # ── Background work ───────────────────────────────────────────────────
+    # Background work
 
     def _in_background(self, status_key: str, work: Callable[[], Any], done: Callable[[Any], None]) -> None:
         self.busy = True
@@ -307,7 +362,7 @@ class LauncherWindow:
                 self.status_var.set(self.t("status.crashed"))
         self.window.after(HEALTH_POLL_MS, self._watch_server)
 
-    # ── Actions ───────────────────────────────────────────────────────────
+    # Actions
 
     def _language_changed(self, _event: Any = None) -> None:
         names = {name: code for code, name in i18n.LANGUAGES.items()}
@@ -357,7 +412,7 @@ class LauncherWindow:
 
     def start(self) -> None:
         server = WikiServer(self.folder(), share_on_lan=bool(self.share_var.get()), port=self.prefs.port,
-                            language=self.t.language)
+                            language=self.t.language, allow_plugins=self.prefs.allow_plugins)
 
         def started(info: ServerInfo) -> None:
             self.server, self.info = server, info

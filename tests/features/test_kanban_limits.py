@@ -37,7 +37,7 @@ class _Counted:
         return 1
 
 
-# ── Bulk selections ──────────────────────────────────────────────────────────
+# Bulk selections
 
 
 def test_bulk_selection_over_the_limit_is_refused_before_reading_it():
@@ -88,7 +88,7 @@ def test_repeated_assignees_count_once_in_the_order_sent(monkeypatch):
         service._assignees({"id": 1}, sent, strict=True)
 
 
-# ── Orderings ────────────────────────────────────────────────────────────────
+# Orderings
 
 
 def test_reorder_reads_a_bounded_part_of_the_wanted_order():
@@ -130,7 +130,7 @@ def test_reorder_endpoint_ignores_a_padded_order(admin_client, board):
     assert response.get_json()["order"] == [second, first]
 
 
-# ── Export ───────────────────────────────────────────────────────────────────
+# Export
 
 
 def _attach(client, ticket_id, name, data):
@@ -174,7 +174,7 @@ def test_zip_export_the_import_would_refuse_is_not_built(admin_client, board, mo
     assert admin_client.get(f"/kanban/{board}/export").status_code == 302
 
 
-# ── Import ───────────────────────────────────────────────────────────────────
+# Import
 
 
 def _zip(*members: tuple, comment: bytes = b"") -> bytes:
@@ -422,7 +422,7 @@ def test_entries_placed_before_the_archive_make_it_invalid(app, admin_client, db
     assert (set(folder.iterdir()) if folder.is_dir() else set()) == before
 
 
-# ── History ──────────────────────────────────────────────────────────────────
+# History
 
 
 def _entries(db, board_id: int) -> list[dict]:

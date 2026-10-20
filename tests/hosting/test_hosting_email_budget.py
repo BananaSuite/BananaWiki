@@ -90,7 +90,7 @@ def test_password_resets_use_the_reserve_and_the_budget_is_shared_by_every_worke
     assert [message.to for message in outbox] == ["owner@example.org"]
 
 
-def test_an_address_left_unverified_no_longer_blocks_its_owner(tmp_path):
+def test_an_address_left_unverified_does_not_block_its_owner(tmp_path):
     portal = _portal(tmp_path)
     _query(portal, "UPDATE hosting_settings SET email_verification_required = 1, ask_email_new_signup = 1 WHERE id = 1")
     _make_account(portal, "root")
@@ -121,7 +121,7 @@ def test_a_verified_address_is_never_released(tmp_path):
     assert _query(portal, "SELECT email FROM accounts WHERE username = 'other'") == [{"email": ""}]
 
 
-# ── Holding an unverified address: no renewal by flipping it ─────────────────
+# Holding an unverified address: no renewal by flipping it
 
 
 def _verification_portal(tmp_path, **environ):
@@ -167,7 +167,7 @@ def test_flipping_an_address_away_and_back_does_not_renew_the_hold_on_it(tmp_pat
     client = _login(portal, squatter)
     with email.capture_outbox():
         _change_address(client, squatter, "ceo@victim.example")
-        # Every day, the address is changed and changed back: each change used to restart the claim.
+        # Every day, the address is changed and changed back: a change does not restart the claim.
         for _day in range(3):
             _age(portal, squatter["id"], 23)
             _change_address(client, squatter, "decoy@squatter.example")
@@ -234,8 +234,8 @@ def test_signing_up_fixing_a_typo_and_moving_once_keep_each_address_held(tmp_pat
 
 
 def test_confirming_an_address_of_ones_own_does_not_renew_the_hold_on_another(tmp_path):
-    # Second 1.7 audit (WH-2 follow-up): confirming an address ended the series of changes,
-    # so a squatter confirmed one of its own each day and took the victim's back, fresh.
+    # Confirming an address does not end the series of changes, or a squatter could confirm one
+    # of its own each day and take the victim's back, fresh.
     portal = _verification_portal(tmp_path)
     squatter = _make_account(portal, "squatter")
     client = _login(portal, squatter)
@@ -254,7 +254,7 @@ def test_confirming_an_address_of_ones_own_does_not_renew_the_hold_on_another(tm
     assert _row(portal, "ceo")["email"] == "ceo@victim.example" and _row(portal, "squatter")["email"] == ""
 
 
-# ── Account recovery: per network, per address, and only from its reserve ─────
+# Account recovery: per network, per address, and only from its reserve
 
 
 def _verified_accounts(portal, count, prefix="member"):
@@ -302,8 +302,8 @@ def test_one_address_gets_a_few_recovery_messages_of_each_kind_a_day(tmp_path):
 
 
 def test_user_name_reminders_cannot_block_ones_password_reset(tmp_path):
-    # Second 1.7 audit (WH-3 follow-up): three anonymous user-name reminders used up the
-    # address's recovery messages for the day, so its owner's own reset silently never came.
+    # Anonymous user-name reminders do not use up the address's recovery messages for the day,
+    # so its owner's own reset still arrives.
     portal = _portal(tmp_path)
     (victim,) = _verified_accounts(portal, 1)
     attacker = portal.test_client()

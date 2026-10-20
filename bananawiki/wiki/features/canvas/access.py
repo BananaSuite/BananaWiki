@@ -15,8 +15,8 @@ The rules follow the kanban boards so both features behave the same way:
   ``none`` (an explicit refusal); a user row wins over a role row. Users
   with global access also see ``public`` canvases and canvases shared with
   their role. Users without global access only see the canvases they created
-  or were individually shared on, so a single share no longer opens every
-  public canvas (a 1.4 bug). Archived canvases are only visible to their
+  or were individually shared on; a single share does not open every
+  public canvas. Archived canvases are only visible to their
   creator and administrators.
 
 Settings, sharing, ownership transfer and deletion belong to the creator and
@@ -176,7 +176,7 @@ def shareable_roles() -> list[str]:
     return [role for role in SHAREABLE_ROLES if role in allowed]
 
 
-# ── Lists ─────────────────────────────────────────────────────────────────────
+# Lists
 
 LAYOUT_SELECT = (
     "SELECT l.id, l.slug, l.title, l.description, l.category_id, l.creator_id, l.created_at, l.updated_at, "

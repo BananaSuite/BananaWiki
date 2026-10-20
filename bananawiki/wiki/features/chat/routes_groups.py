@@ -1,8 +1,7 @@
 """Group chats: /groups…
 
 Every view, moderation actions included, first checks that the user may use
-group chats at all (``chat.group`` permission and ``chat_group_enabled``);
-1.4 skipped that check on the moderation routes.
+group chats at all (``chat.group`` permission and ``chat_group_enabled``).
 """
 
 from __future__ import annotations
@@ -177,7 +176,7 @@ def _throttled() -> bool:
     return not throttle("action", ACTIONS_PER_MINUTE)
 
 
-# ── Lists, creating and joining ─────────────────────────────────────────────
+# Lists, creating and joining
 
 
 @bp.route("/groups")
@@ -259,7 +258,7 @@ def group_global():
     return render_template("chat/group_global.html")
 
 
-# ── The room ─────────────────────────────────────────────────────────────────
+# The room
 
 
 @bp.route("/groups/<int:group_id>")
@@ -419,7 +418,7 @@ def group_export(group_id: int):
                           include_ip=actor.admin)
 
 
-# ── Membership ──────────────────────────────────────────────────────────────
+# Membership
 
 
 @bp.route("/groups/<int:group_id>/members/add", methods=["POST"])
@@ -623,7 +622,7 @@ def group_untimeout(group_id: int):
     return succeed(back, "chat.groups.timeout_removed", values={"user": target["username"]})
 
 
-# ── Group administration ────────────────────────────────────────────────────
+# Group administration
 
 
 @bp.route("/groups/<int:group_id>/regenerate_code", methods=["POST"])

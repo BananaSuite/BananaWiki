@@ -12,7 +12,7 @@ from . import service
 
 
 def refuse_scheduled_delete(page: dict[str, Any], user: dict[str, Any] | None) -> Any:
-    """``page.delete``: a page with an automatic deletion keeps it until the schedule is removed (as in 1.4)."""
+    """``page.delete``: a page with an automatic deletion keeps it until the schedule is removed."""
     if service.page_schedule(page["id"]) is None:
         return None
     key = "temporary_accounts.error.page_scheduled"

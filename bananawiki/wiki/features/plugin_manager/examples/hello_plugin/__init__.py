@@ -1,4 +1,4 @@
-"""Hello Plugin: a minimal BananaWiki 1.6 plugin.
+"""Hello Plugin: a minimal BananaWiki plugin.
 
 It shows the pieces a plugin usually needs: a page (``routes.py``), a
 sidebar entry, a table of its own (``schema.py``) and an event handler that

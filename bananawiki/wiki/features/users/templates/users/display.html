@@ -1,8 +1,7 @@
 {% extends "base.html" %}
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('users.display.title') }}{% endblock %}
-{% block content %}
-{#- Inside the settings tabs the heading stays "Settings", like the other tabs. -#}
+{% block content -%}
 <header class="page-header"><h1>{{ t('users.settings.title') if current_user else t('users.display.title') }}</h1></header>
 {% if current_user %}{% include "users/_tabs.html" %}{% endif %}
 <form method="post" action="{{ url_for('users.display') }}" class="section-stack users-display">

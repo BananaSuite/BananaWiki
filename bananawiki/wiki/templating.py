@@ -22,10 +22,10 @@ HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 FAVICON_PRESETS = ("yellow", "green", "red", "blue", "purple", "orange", "cyan", "lime")
 
 THEME_DEFAULTS = {
-    "dark": {"primary": "#8fa0d4", "secondary": "#1e1e2c", "accent": "#7e9ada", "text": "#c8ccd8",
-             "sidebar": "#1a1a24", "bg": "#16161f"},
-    "light": {"primary": "#4b63b6", "secondary": "#ffffff", "accent": "#3553c7", "text": "#202534",
-              "sidebar": "#e9edf5", "bg": "#f6f7fb"},
+    "dark": {"primary": "#e6be32", "secondary": "#1d1d1d", "accent": "#cda624", "text": "#ededed",
+             "sidebar": "#181818", "bg": "#141414"},
+    "light": {"primary": "#8a6500", "secondary": "#ffffff", "accent": "#6f5000", "text": "#202124",
+              "sidebar": "#f4f1e8", "bg": "#faf9f5"},
 }
 
 
@@ -173,9 +173,9 @@ def theme_css() -> Markup:
         props = ";".join(
             f"--bw-{name}:{color(f'{prefix}{name}_color', fallback)}" for name, fallback in defaults.items()
         )
-        # Text on primary buttons follows the chosen colour (0.19 is where white and near-black
-        # give the same contrast), so a dark or a light primary both keep readable labels.
-        on_primary = "#10131c" if _luminance(color(f"{prefix}primary_color", defaults["primary"])) > 0.19 else "#ffffff"
+        # Text on primary buttons follows the chosen colour (0.179 is where white and black give the
+        # same contrast), so a dark or a light primary both keep readable labels.
+        on_primary = "#000000" if _luminance(color(f"{prefix}primary_color", defaults["primary"])) > 0.179 else "#ffffff"
         blocks.append(f"{selector}{{{props};--on-primary:{on_primary}}}")
     return Markup("".join(blocks))
 

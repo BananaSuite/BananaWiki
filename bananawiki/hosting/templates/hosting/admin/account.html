@@ -23,13 +23,12 @@
   {% if not target.is_admin and not target.suspended and target.approval_status == 'approved' %}{{ ui.post(url_for('admin.impersonate', account_id=target.id), t('hosting.admin.impersonate')) }}{% endif %}
   {% endif %}
   {% if target.approval_status != 'approved' %}{{ ui.post(url_for('admin.approve_account', account_id=target.id), t('hosting.admin.approve'), 'btn btn--small btn--primary') }}{% endif %}
-  {% if target.approval_status == 'pending' %}{{ ui.post(url_for('admin.deny_account', account_id=target.id), t('hosting.admin.deny'), 'btn btn--small btn--danger') }}{% endif %}
+  {% if target.approval_status == 'pending' %}{{ ui.post(url_for('admin.deny_account', account_id=target.id), t('hosting.admin.deny'), 'btn btn--small btn--danger-quiet') }}{% endif %}
   {% if target.suspended %}{{ ui.post(url_for('admin.unsuspend_account', account_id=target.id), t('hosting.admin.unsuspend'), 'btn btn--small btn--primary', hidden={'unsuspend_instances': '1'}) }}{% endif %}
   {% if target.email_flagged_invalid %}{{ ui.post(url_for('admin.unflag_email', account_id=target.id), t('hosting.admin.unflag_email')) }}{% endif %}
   {% if target.pending_deletion %}{{ ui.post(url_for('admin.cancel_deletion', account_id=target.id), t('hosting.admin.cancel_deletion')) }}{% endif %}
 </div>
-{#- Deleting the account is irreversible: on a row of its own, away from the everyday decisions. -#}
-<div class="btn-row btn-row--danger"><a class="btn btn--small btn--danger" href="{{ url_for('admin.delete_account', account_id=target.id) }}">{{ t('hosting.admin.delete_account') }}</a></div></section>
+<div class="btn-row btn-row--danger"><a class="btn btn--small btn--danger-quiet" href="{{ url_for('admin.delete_account', account_id=target.id) }}">{{ t('hosting.admin.delete_account') }}</a></div></section>
 <div class="panel-list">
 <details class="card" id="panel-1" data-remember><summary>{{ t('hosting.admin.edit_account') }}</summary>
 <form method="post" action="{{ url_for('admin.edit_account', account_id=target.id) }}" class="form" autocomplete="off">{{ ui.csrf() }}
@@ -57,7 +56,7 @@
 {% endif %}
 </div>
 {% endif %}
-<section class="card"><h2>{{ t('hosting.admin.instances') }}</h2><ul class="plain-list">{% for inst in owned %}<li><a href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ inst.subdomain }}</a> {{ ui.status(inst.status) }}</li>{% else %}<li class="muted">{{ t('hosting.admin.no_wikis') }}</li>{% endfor %}</ul></section>
+<section class="card"><h2>{{ t('hosting.admin.instances') }}</h2><ul class="plain-list">{% for inst in owned %}<li><a href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ inst.original_slug }}</a> {{ ui.status(inst.status) }}</li>{% else %}<li class="muted">{{ t('hosting.admin.no_wikis') }}</li>{% endfor %}</ul></section>
 <details class="card" id="panel-5" data-remember><summary>{{ t('hosting.admin.history') }}</summary>
 {{ ui.history(history, events, 'account') }}</details>
 {% endblock %}

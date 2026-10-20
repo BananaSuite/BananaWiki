@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
 """Schema version 8: issued tokens and accountable conversations.
 
 1. ``api_service__tokens.parent_id``: the token that issued a token through

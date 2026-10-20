@@ -40,7 +40,7 @@ ORPHAN_MIN_AGE_SECONDS = 3600
 _UNSAFE_NAME = re.compile(r"[^\w.()' -]+", re.UNICODE)
 
 
-# ── Reading ──────────────────────────────────────────────────────────────────
+# Reading
 
 
 def for_page(page_id: int) -> list[dict[str, Any]]:
@@ -56,7 +56,7 @@ def get(attachment_id: int) -> dict[str, Any] | None:
     return db.one("SELECT * FROM page_attachments WHERE id = ?", (attachment_id,))
 
 
-# ── Permissions ──────────────────────────────────────────────────────────────
+# Permissions
 
 
 def _user(user: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -86,7 +86,7 @@ def can_delete(attachment: dict[str, Any], page: dict[str, Any], user: dict[str,
     return attachment.get("uploaded_by") == user["id"] and auth.has_permission("attachment.delete_own", user)
 
 
-# ── Writing ──────────────────────────────────────────────────────────────────
+# Writing
 
 
 def max_bytes() -> int:
@@ -133,7 +133,7 @@ def delete(attachment: dict[str, Any]) -> None:
     storage.delete(FOLDER, attachment["filename"])
 
 
-# ── Downloads ────────────────────────────────────────────────────────────────
+# Downloads
 
 
 def safe_name(name: str | None, fallback: str) -> str:
@@ -189,7 +189,7 @@ def _work_dir() -> str:
     return folder
 
 
-# ── Clean-up ─────────────────────────────────────────────────────────────────
+# Clean-up
 
 
 def _blob_reference_columns() -> list[tuple[str, str]]:
@@ -204,7 +204,7 @@ def _blob_reference_columns() -> list[tuple[str, str]]:
 
 
 def delete_orphan_blobs() -> int:
-    """Delete ``file_blobs`` rows that no table references any more (1.4 left many behind)."""
+    """Delete ``file_blobs`` rows that no table references any more."""
     if not db.scalar("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'file_blobs'"):
         return 0
     conditions = " AND ".join(

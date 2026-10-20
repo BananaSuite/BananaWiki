@@ -1,8 +1,8 @@
 """Difficulty tags: a level (or a custom label and colour) shown on a page.
 
 Stored in ``pages.difficulty_tag`` (``""`` or one of :data:`LEVELS` or
-``"custom"``), ``tag_custom_label`` and ``tag_custom_color`` (``#rrggbb``),
-exactly as 1.4 did. The custom fields are only kept for the custom tag.
+``"custom"``), ``tag_custom_label`` and ``tag_custom_color`` (``#rrggbb``).
+The custom fields are only kept for the custom tag.
 
 ``tag.edit_difficulty`` sets or clears a level; ``tag.edit_custom`` sets a
 custom tag (and may clear one). Both also need edit rights on the page.

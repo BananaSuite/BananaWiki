@@ -54,7 +54,7 @@ def snapshot():
     return response
 
 
-# ── Administration ────────────────────────────────────────────────────────────
+# Administration
 
 
 @bp.route("/admin/federation", methods=["GET", "POST"])
@@ -95,7 +95,7 @@ def sync_now(remote_id: str):
     return redirect(url_for("federation.admin"))
 
 
-# ── Sharing ───────────────────────────────────────────────────────────────────
+# Sharing
 
 
 @bp.route("/federation/sharing", methods=["GET", "POST"])
@@ -125,7 +125,7 @@ def sharing():
     return render_template("federation/sharing.html", peer_options=options, grants=store.shares(user))
 
 
-# ── Received copies ───────────────────────────────────────────────────────────
+# Received copies
 
 
 @bp.get("/federation")

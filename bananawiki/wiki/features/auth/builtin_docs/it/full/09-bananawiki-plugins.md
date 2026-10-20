@@ -1,23 +1,15 @@
-# Plugin ed Estensioni
+# Plugin
 
-I plugin permettono a BananaWiki di crescere senza obbligare ogni wiki a usare ogni funzione. I plugin integrati coprono collaborazione, governance dei contenuti, automazione, integrazioni e strumenti sperimentali.
+La maggior parte delle funzioni di BananaWiki sono plugin che un amministratore attiva o disattiva.
 
 ## Gestire i plugin
 
 Apri **Amministrazione → Plugin** per attivare, disattivare, ispezionare, importare o rimuovere pacchetti plugin. I plugin integrati sono distribuiti con BananaWiki. I pacchetti esterni `.bwplugin` vengono eseguiti con tutti i diritti della wiki: sono disattivati finché chi gestisce il server non li consente (`BW_ALLOW_EXTERNAL_PLUGINS=1`) e solo il proprietario o un superutente può importarli o attivarli. Gli altri amministratori possono comunque disattivare e rimuovere i plugin.
 
-## Cosa possono aggiungere
+## Disattivare un plugin
 
-Un plugin può aggiungere route, template, file statici, permessi, hook, tabelle database, slot template, API o lavori in background. Alcuni plugin sono piccole funzioni UI; altri sono sottosistemi completi.
-
-## Attiva con intenzione
-
-Attiva gli strumenti che il team è pronto a usare. Ogni funzione aggiunge superficie, permessi e domande di supporto. Parti con pochi plugin e aggiungine altri quando i workflow sono chiari.
-
-## Dati e disattivazione
-
-Disattivare un plugin di solito nasconde o ferma la funzione, ma non garantisce la cancellazione dei dati. Riattivandolo, i dati potrebbero tornare visibili. Cancella o migra dati con una decisione esplicita quando ritiri una funzione.
+Disattivare un plugin ne nasconde pagine e menu. I suoi dati e le sue impostazioni restano e tornano quando lo riattivi.
 
 ## Sviluppare plugin
 
-Gli sviluppatori possono usare il BananaWiki SDK per registrare hook, permessi, slot template e helper database. Mantieni i plugin circoscritti, documentati e reversibili così gli admin capiscono l'impatto prima di abilitarli.
+Un plugin dichiara una funzione come quelle integrate; vedi `docs/plugins/README.md` nel codice sorgente. I plugin scritti per la 1.4 con `bananawiki_sdk` si caricano ancora.

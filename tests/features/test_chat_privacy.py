@@ -1,4 +1,4 @@
-"""Privacy and accountability of chats (second 1.7 audit).
+"""Privacy and accountability of chats.
 
 * A member someone blocked is not told: what they send in a conversation they
   already have is withheld from the one who blocked them, never refused, and
@@ -55,7 +55,7 @@ def _audit(db, action):
     return db.all("SELECT * FROM audit_log WHERE action = ? ORDER BY id", (action,))
 
 
-# ── Blocks stay private ──────────────────────────────────────────────────────
+# Blocks stay private
 
 
 def test_a_blocked_member_is_not_told_in_a_conversation_they_already_have(client, login, people, db, admin):
@@ -122,7 +122,7 @@ def test_people_who_blocked_you_are_not_suggested_and_answer_like_inactive_accou
     assert client.get("/chats/users?q=ali").json == {"users": ["alice"]}
 
 
-# ── Taking back a direct message ─────────────────────────────────────────────
+# Taking back a direct message
 
 
 def test_a_sender_takes_back_a_direct_message_only_shortly_after_sending_it(client, login, people, db):
@@ -152,7 +152,7 @@ def test_a_sender_takes_back_a_direct_message_only_shortly_after_sending_it(clie
 
 
 def test_deleting_an_account_removes_its_conversations_but_not_reported_copies(client, login, people, db):
-    # Second 1.7 audit (WCA-3 follow-up): the documented exception to the delete window.
+    # The documented exception to the delete window.
     # chats.user1_id/user2_id cascade, so the recipient loses the conversation; what she
     # reported stays with the administrators (chat__reports.reported_user_id is SET NULL).
     alice, bob, _carol = people
@@ -171,7 +171,7 @@ def test_deleting_an_account_removes_its_conversations_but_not_reported_copies(c
         {"content": "you will regret this", "reported_user_id": None}]
 
 
-# ── Addresses in moderation views ────────────────────────────────────────────
+# Addresses in moderation views
 
 
 def test_moderation_views_hide_addresses_of_accounts_the_administrator_may_not_manage(client, login, make_user,
@@ -209,7 +209,7 @@ def test_moderation_views_hide_addresses_of_accounts_the_administrator_may_not_m
     assert "192.0.2.9" in client.get(f"/admin/chats/{peer}").get_data(as_text=True)
 
 
-# ── Administrators reading groups ────────────────────────────────────────────
+# Administrators reading groups
 
 
 def test_reading_a_private_group_as_json_is_audited_once_per_window(app, client, login, people, admin, db):

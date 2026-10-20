@@ -90,3 +90,9 @@ def test_user_guide_mirrors_english(variant, language):
     # That line becomes the page title, not part of the content (no duplicate <h1>).
     assert all(title and not content.lstrip().startswith("# ")
                for title, _slug, content in docs.pages(variant, language))
+
+
+def test_every_error_status_with_a_title_has_an_explanation():
+    english = _load(PACKAGE / "wiki" / "translations" / "en.json")
+    statuses = {key.removesuffix(".title") for key in english if re.fullmatch(r"error\.\d{3}\.title", key)}
+    assert statuses and sorted(status for status in statuses if f"{status}.body" not in english) == []

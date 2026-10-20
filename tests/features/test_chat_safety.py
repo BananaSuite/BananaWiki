@@ -1,4 +1,4 @@
-"""Direct messages stay accountable (2.x release audit).
+"""Direct messages stay accountable.
 
 * Clearing a conversation hides it for the participant who cleared it; the
   other keeps their copy. Messages both have cleared are erased, and an
@@ -40,7 +40,7 @@ def _audit(db, action):
     return db.all("SELECT * FROM audit_log WHERE action = ? ORDER BY id", (action,))
 
 
-# ── Clearing ─────────────────────────────────────────────────────────────────
+# Clearing
 
 
 def test_clearing_hides_the_conversation_for_the_participant_who_cleared_it(client, login, dm, people, db):
@@ -107,7 +107,7 @@ def test_clearing_needs_post_and_participation(client, login, dm, people, db):
     assert db.scalar("SELECT COUNT(*) FROM chat_messages") == 2
 
 
-# ── Reports ──────────────────────────────────────────────────────────────────
+# Reports
 
 
 def test_a_participant_reports_a_message_and_the_report_outlives_it(client, login, dm, people, admin, db):
@@ -156,7 +156,7 @@ def test_a_group_member_reports_a_message(client, login, people, db, admin):
         "kind": "group", "reporter_id": alice["id"], "content": "rude words"}
 
 
-# ── Administrators reading ───────────────────────────────────────────────────
+# Administrators reading
 
 
 def test_administrators_reading_private_conversations_is_audited(client, login, dm, people, admin, db):

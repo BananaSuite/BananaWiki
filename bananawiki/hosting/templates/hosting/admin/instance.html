@@ -31,7 +31,7 @@
   <a class="btn btn--small" href="{{ url_for('admin.download_instance', instance_id=inst.id) }}">{{ t('hosting.instance.download') }}</a>
   {{ ui.post(url_for('admin.grace_unsuspend' if inst.grace_period_suspended else 'admin.grace_suspend', instance_id=inst.id), t('hosting.admin.grace_unsuspend') if inst.grace_period_suspended else t('hosting.admin.grace_suspend')) }}
   {% endif %}
-  {{ ui.post(url_for('admin.delete_terminated', instance_id=inst.id), t('hosting.admin.delete_permanently'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}
+  {{ ui.post(url_for('admin.delete_terminated', instance_id=inst.id), t('hosting.admin.delete_permanently'), 'btn btn--small btn--danger-quiet', confirm=t('hosting.common.are_you_sure')) }}
 </div>
 {% if inst.grace_active %}<p class="hint" id="f-restore-days-hint">{{ t('hosting.admin.restore_days_hint') }}</p>
 <p class="small muted">{{ t('hosting.admin.grace_paused_note') if inst.grace_period_suspended else t('hosting.admin.grace_pause_hint') }}</p>{% endif %}
@@ -41,7 +41,6 @@
 {{ ui.post(url_for('admin.terminate_instance', instance_id=inst.id), t('hosting.instance.terminate'), 'btn btn--small btn--danger', confirm=t('hosting.instance.terminate_confirm')) }}</section>
 {% else %}
 <section class="card"><h2>{{ t('hosting.admin.lifecycle') }}</h2>
-{#- Everyday actions first, then pages to open, then the destructive actions on a row of their own. -#}
 <div class="btn-row">
   {% if inst.status == 'running' %}{{ ui.post(url_for('admin.stop_instance', instance_id=inst.id), t('hosting.instance.stop')) }}{{ ui.post(url_for('admin.force_restart', instance_id=inst.id), t('hosting.admin.force_restart')) }}
   {% elif inst.status == 'stopped' %}{{ ui.post(url_for('admin.restart_instance', instance_id=inst.id), t('hosting.instance.start'), 'btn btn--small btn--primary') }}{% endif %}
@@ -55,8 +54,8 @@
   <a class="btn btn--small" href="{{ url_for('dashboard.instance_domain', instance_id=inst.id) }}">{{ t('hosting.domains.title') }}</a>
 </div>
 <div class="btn-row btn-row--danger">
-  {{ ui.post(url_for('admin.reset_wiki', instance_id=inst.id), t('hosting.instance.reset_wiki'), 'btn btn--small btn--danger', confirm=t('hosting.instance.reset_wiki_confirm')) }}
-  {{ ui.post(url_for('admin.terminate_instance', instance_id=inst.id), t('hosting.instance.terminate'), 'btn btn--small btn--danger', confirm=t('hosting.instance.terminate_confirm'), hidden={'notify_user': '1'}) }}
+  {{ ui.post(url_for('admin.reset_wiki', instance_id=inst.id), t('hosting.instance.reset_wiki'), 'btn btn--small btn--danger-quiet', confirm=t('hosting.instance.reset_wiki_confirm')) }}
+  {{ ui.post(url_for('admin.terminate_instance', instance_id=inst.id), t('hosting.instance.terminate'), 'btn btn--small btn--danger-quiet', confirm=t('hosting.instance.terminate_confirm'), hidden={'notify_user': '1'}) }}
 </div>
 {% if inst.storage_suspended %}<p class="small muted">{{ t('hosting.admin.storage_suspended_note') }}</p>{% endif %}
 </section>
@@ -102,7 +101,7 @@
   <form method="post" action="{{ url_for('admin.remove_user', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}{{ ui.field('username', t('hosting.field.username'), required=true) }}<p><button class="btn btn--danger">{{ t('hosting.admin.remove_user') }}</button></p></form></details>
 <details class="card" id="panel-7" data-remember><summary>{{ t('hosting.admin.plugin_safety') }}</summary>
   <p>{{ t('hosting.admin.quarantined') if quarantined else t('hosting.admin.not_quarantined') }}</p>
-  <div class="btn-row">{{ ui.post(url_for('admin.lift_quarantine' if quarantined else 'admin.quarantine_plugins', instance_id=inst.id), t('hosting.admin.lift_quarantine') if quarantined else t('hosting.admin.quarantine'), 'btn btn--small btn--danger', confirm=t('hosting.common.are_you_sure')) }}
+  <div class="btn-row">{{ ui.post(url_for('admin.lift_quarantine' if quarantined else 'admin.quarantine_plugins', instance_id=inst.id), t('hosting.admin.lift_quarantine') if quarantined else t('hosting.admin.quarantine'), 'btn btn--small' if quarantined else 'btn btn--small btn--danger-quiet', confirm=t('hosting.common.are_you_sure')) }}
   {{ ui.post(url_for('admin.capture_snapshot', instance_id=inst.id), t('hosting.admin.capture_snapshot')) }}</div>
   {% if snapshots %}<form method="post" action="{{ url_for('admin.restore_snapshot', instance_id=inst.id) }}" class="cluster" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ ui.csrf() }}
     <select name="snapshot" aria-label="{{ t('hosting.admin.snapshot') }}">{% for s in snapshots %}<option value="{{ s.name }}">{{ s.created_at }} · {{ s.label }}</option>{% endfor %}</select>

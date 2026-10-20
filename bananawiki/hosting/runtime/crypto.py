@@ -1,10 +1,9 @@
-"""The ``BWBACKUP1`` platform backup format (1.4 ``hosting/backup_crypto.py``, still readable).
+"""The ``BWBACKUP1`` platform backup format, also used by 1.4.
 
 Layout: ``b"BWBACKUP1"`` + 12-byte nonce + AES-256-GCM ciphertext + 16-byte
-tag. 1.4 first wrote the whole plaintext ZIP (portal secret key and every
-tenant's data) to the default temporary directory and encrypted it
-afterwards; :class:`EncryptedOutput` is a write-only stream, so the ZIP is
-encrypted while it is produced and no plaintext copy ever reaches the disk.
+tag. :class:`EncryptedOutput` is a write-only stream, so the ZIP (portal
+secret key and every tenant's data) is encrypted while it is produced and no
+plaintext copy ever reaches the disk.
 Decryption authenticates the whole file before its output is published.
 """
 

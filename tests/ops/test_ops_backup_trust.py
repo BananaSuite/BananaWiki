@@ -92,7 +92,7 @@ def unknown_revision(root: Path, manifest: dict, value: str = FORGED) -> None:
     (root / "config/installation.json").write_text(json.dumps({**settings, "revision": value}))
 
 
-# The source a restore deploys ---------------------------------------------------------------
+# The source a restore deploys
 
 
 def test_restore_never_deploys_bundled_source_it_cannot_verify(installed, tmp_path):
@@ -168,7 +168,7 @@ def test_the_commands_pass_the_confirmation_through(installed, monkeypatch):
                                                      "--trust-source", FORGED]))
 
 
-# Only BananaWiki's own databases are databases ------------------------------------------------
+# Only BananaWiki's own databases are databases
 
 
 def uploads(data: Path) -> dict[str, bytes]:
@@ -182,7 +182,7 @@ def uploads(data: Path) -> dict[str, bytes]:
 
 
 def test_uploads_named_like_databases_do_not_break_backups(installed):
-    """Before: 'A packaged database failed its integrity check' for every backup, update package and remote backup."""
+    """Uploads named like databases are packaged as opaque files: the backup and its restore succeed."""
     manager, _ = installed
     data = manager.root / "data"
     files = uploads(data)
@@ -245,7 +245,7 @@ def test_hosting_checks_the_portal_database_and_treats_tenant_files_as_files(tmp
         manager.backup()
 
 
-# Remote series: append-only, separate pruning, loud opt-in ------------------------------------
+# Remote series: append-only, separate pruning, loud opt-in
 
 
 @pytest.fixture

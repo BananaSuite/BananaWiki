@@ -53,7 +53,7 @@ def _image_upload_allowed(user: dict[str, Any], upload: Any) -> bool:
     return limiter.hit(f"users:image-upload:{user['id']}", IMAGE_UPLOADS, IMAGE_UPLOAD_WINDOW)
 
 
-# ── Account ──────────────────────────────────────────────────────────────────
+# Account
 
 
 @bp.get("/settings", endpoint="settings")
@@ -156,7 +156,7 @@ def change_language():
     return response
 
 
-# ── Profile editing ──────────────────────────────────────────────────────────
+# Profile editing
 
 
 def _require_profile_edit() -> dict[str, Any]:
@@ -194,7 +194,7 @@ def remove_avatar():
     return redirect(url_for("users.edit_profile"))
 
 
-# ── Display preferences ──────────────────────────────────────────────────────
+# Display preferences
 
 
 @bp.route("/settings/display", methods=["GET", "POST"])
@@ -303,7 +303,7 @@ def api_background():
     return jsonify({"ok": True, "background_image": name, "url": service.upload_url(name)})
 
 
-# ── Sessions ─────────────────────────────────────────────────────────────────
+# Sessions
 
 
 @bp.get("/settings/sessions")
@@ -349,7 +349,7 @@ def clear_session_history():
     return redirect(url_for("users.sessions_page"))
 
 
-# ── Members and profiles ─────────────────────────────────────────────────────
+# Members and profiles
 
 
 @bp.get("/users")

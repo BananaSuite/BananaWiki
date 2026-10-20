@@ -1,4 +1,4 @@
-"""Page builder document version 2: new blocks, layout options, upgrades, checks and starters."""
+"""Page builder document version 2: its blocks, layout options, upgrade from version 1, checks and starters."""
 
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ def fresh(db, page):
     return db.one("SELECT * FROM pages WHERE id = ?", (page["id"],))
 
 
-# ── Schema ────────────────────────────────────────────────────────────────────
+# Schema
 
 
 def test_version_1_documents_are_upgraded_with_the_same_markdown(app):
@@ -173,7 +173,7 @@ def test_drafts_accept_unfinished_new_blocks(app):
         document.validate(unfinished)
 
 
-# ── Rendering ─────────────────────────────────────────────────────────────────
+# Rendering
 
 
 def test_new_blocks_render_safely(app):
@@ -216,7 +216,7 @@ def test_markdown_twin_of_new_blocks(app):
     assert "**Why?**\n\nBecause" in text
     assert "| Item | Price |\n| --- | --- |\n| Pipe \\| char | <i>3</i> |" in text
     assert "````python\nprint('<hi>')\n```\n````" in text
-    assert "- [home](/page/home)\n- [guide](/page/guide)" in text
+    assert "[home]" not in text and "/page/guide" not in text
     assert '[[kanban board="7"]]' in text
 
 
@@ -277,7 +277,7 @@ def test_from_markdown_keeps_long_pages_whole(app):
     assert document.from_markdown("") == document.empty()
 
 
-# ── Page lists respect the reader's permissions ──────────────────────────────
+# Page lists respect the reader's permissions
 
 
 def _restricted_reader(db, make_user, category_id):
@@ -310,6 +310,19 @@ def test_page_lists_only_show_pages_the_reader_may_open(builder_on, app, db, adm
     as_reader = reader.get("/page/portal").get_data(as_text=True)
     assert "Visible guide" in as_reader
     assert "Hidden plans" not in as_reader and "Hidden body" not in as_reader
+    # nor through the Markdown version that search, history and exports read
+    assert "hidden-plans" not in db.scalar("SELECT content FROM pages WHERE id = ?", (landing["id"],))
+
+
+def test_builder_pages_whose_twin_lists_selected_pages_stay_current(app):
+    from bananawiki.wiki.features.page_builder import document
+
+    doc = document.validate({"version": 2, "blocks": [
+        {"type": "text", "format": "markdown", "text": "Intro"},
+        {"type": "pages", "source": "selected", "slugs": ["home", "guide"]}]})
+    assert document.to_markdown(doc) == "Intro"
+    assert document.is_current({"content": "Intro\n\n- [home](/page/home)\n- [guide](/page/guide)"}, doc)
+    assert not document.is_current({"content": "Intro\n\n- [home](/page/home)"}, doc)
 
 
 def test_page_lists_share_a_bounded_number_of_entries_and_excerpts(builder_on, app, admin_client, page,
@@ -343,7 +356,7 @@ def test_page_lists_share_a_bounded_number_of_entries_and_excerpts(builder_on, a
     assert "<p>Opening words. More text follows. More text follows." in html
 
 
-# ── Editor and API ────────────────────────────────────────────────────────────
+# Editor and API
 
 
 def test_publish_and_view_new_blocks(builder_on, admin_client, db, page):

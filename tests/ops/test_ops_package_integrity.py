@@ -72,15 +72,15 @@ def swap_after_walk(monkeypatch, change) -> None:
     monkeypatch.setattr(Snapshot, "_sources", listed_then_changed)
 
 
-# Finding: a tenant could make every package unrestorable -----------------------------
+# Tenants writing while the package is made
 
 
 def test_a_tenant_rewriting_its_file_while_the_package_is_written_cannot_spoil_it(hosting, fake_system,
                                                                                   monkeypatch):
-    """The package is written after tenants resume; the snapshot used to hard-link their files."""
+    """The package is written after tenants resume, from staged copies rather than links to their files."""
     root, _settings, tenant = hosting
     big = tenant / "storage/uploads/big.bin"
-    big.write_bytes(b"A" * 1_000_000)  # above the size that used to be hard-linked
+    big.write_bytes(b"A" * 1_000_000)  # a large file: staged as a copy, never linked
 
     def tenant_writes_meanwhile(real):
         def wrapper(name, *args):
@@ -91,7 +91,7 @@ def test_a_tenant_rewriting_its_file_while_the_package_is_written_cannot_spoil_i
             return result
         return wrapper
 
-    # Hashing (1.6.0: a first pass) and opening for the archive: the tenant writes in between.
+    # Hashing and opening for the archive: the tenant writes in between.
     monkeypatch.setattr(files_module, "digest_file", tenant_writes_meanwhile(files_module.digest_file))
     monkeypatch.setattr(files_module, "open_regular",
                         tenant_writes_meanwhile(getattr(files_module, "open_regular", None)), raising=False)
@@ -211,7 +211,7 @@ def test_an_update_never_records_an_unrestorable_rollback_package(tmp_path, fake
     assert not list((root / "backups").glob("*.tar.gz"))
 
 
-# Finding: tenant paths opened by name while tenants run --------------------------------
+# Tenant paths opened by name while tenants run
 
 
 def test_a_directory_swapped_for_a_link_after_the_walk_is_not_followed(tmp_path, monkeypatch):
@@ -234,7 +234,7 @@ def test_a_directory_swapped_for_a_link_after_the_walk_is_not_followed(tmp_path,
 
 
 def test_fifos_and_links_swapped_in_after_the_walk_neither_block_nor_leak(tmp_path, monkeypatch):
-    """SQLite opened tenant databases by name: a FIFO put there blocked root under the maintenance lock."""
+    """A FIFO or link a tenant swaps in for its database after the walk neither blocks root nor is followed."""
     root, tenant = tenant_root(tmp_path)
     database = sqlite3.connect(tenant / "bananawiki.db")
     database.execute("CREATE TABLE pages (title TEXT)")

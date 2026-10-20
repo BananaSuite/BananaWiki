@@ -1,4 +1,4 @@
-"""A wiki the runtime agent adopted above its plan starts, and the operator and its owner hear about it once (UP-1).
+"""A wiki the runtime agent adopted above its plan starts, and the operator and its owner hear about it once.
 
 1.6 let wikis hold more than their plan. When 1.7 puts such a wiki under hard
 storage quotas, the agent adopts it at what it holds plus a small headroom

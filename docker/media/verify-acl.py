@@ -1,9 +1,9 @@
-"""Exercise the actual ACL ABI and retained GNU copy/archive programs in an image.
+"""Test the ACL library and the GNU copy and archive programs inside an image.
 
-Run as an arbitrary non-root UID with no capabilities, no network, a read-only
-root and writable tmpfs /tmp. Tests operate only on their private temporary tree.
-Legacy pathname APIs deliberately retain symlink following; this verifies the
-new safe APIs and compatibility without claiming those legacy calls became safe.
+Run as any non-root UID with no capabilities, no network, a read-only root and
+a writable tmpfs /tmp. The tests touch only their own temporary tree. They
+check the descriptor-based ACL calls and compatibility; the older pathname
+calls still follow symlinks, as upstream defines them.
 """
 
 from __future__ import annotations
@@ -94,8 +94,7 @@ def descriptor_tests(root: Path) -> dict:
         assert library.acl_extended_file_at(descriptor, b"file", NOFOLLOW) == 1
         assert acl_text(victim_descriptor, b"file", NOFOLLOW) == victim_file_before
 
-        # The upstream compatibility contract deliberately remains unchanged:
-        # a legacy path getter follows the replaced ancestor to the other ACL.
+        # Upstream behaviour: a pathname getter follows the replaced ancestor to the other ACL.
         legacy_acl = library.acl_get_file(os.fsencode(parent / "file"), ACCESS)
         assert legacy_acl
         try:

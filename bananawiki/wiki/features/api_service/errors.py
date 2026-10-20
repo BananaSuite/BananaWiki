@@ -6,7 +6,7 @@ Every error the API returns has the same shape::
 
 ``code`` is meant for programs and never changes; ``error`` is for people
 and follows the caller's language. Some errors add fields (``invalid``,
-``refused``, ``scope``…), documented in API.md.
+``refused``, ``scope``…), documented in docs/api.md.
 """
 
 from __future__ import annotations

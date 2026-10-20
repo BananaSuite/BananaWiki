@@ -1,4 +1,5 @@
-"""Inherited kernel enforcement and benign hosting interpreter compatibility."""
+"""The hosting entrypoint's seccomp filter: only FIONBIO, FIOCLEX and FIONCLEX pass, quota-setting
+ioctls are refused, files and sockets still work, and the portal never starts without the filter."""
 from __future__ import annotations
 
 import json

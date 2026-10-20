@@ -13,6 +13,9 @@
   .mascot:hover .mascot-sprite { transform: rotate(-8deg); }
 }
 .mascot--hop .mascot__body { animation: mascot-hop .4s steps(4, end); }
+.mascot--eager.mascot--hop .mascot__body { animation-name: mascot-hop-high; }
+/* The Konami code with less motion asked: one still lean instead of the shower. */
+.mascot--lean .mascot-sprite { transform: rotate(-8deg); }
 /* Narrow screens: the sprite's two empty left columns and one more pixel go under the menu button's gap,
    so the site name is not cut sooner than beside the logo (left, not inline-start: the pixel art is not
    mirrored right to left). Less than the gap, so the touch-sized box below never covers the button. */
@@ -27,13 +30,41 @@
 
 .mascot-sprite .mascot__eyes { animation: mascot-blink 5s steps(1, end) infinite; }
 .mascot-sprite:not(.mascot-sprite--shades) .mascot__shades { visibility: hidden; }
-.mascot--shades-drop .mascot__shades { animation: mascot-shades-drop .6s steps(6, end); }
+.mascot--shades-drop .mascot__shades { animation: mascot-shades-drop .5s steps(1, end); }
+/* Added by the script when the sunglasses land; seen only while it runs across the lenses. */
+.mascot__glint { opacity: 0; }
+.mascot--shades-drop .mascot__glint { animation: mascot-glint .32s steps(1, end) .5s; }
 
 @keyframes mascot-bob { 0% { transform: translateY(0); } 50% { transform: translateY(2px); } }
 @keyframes mascot-blink { 0%, 100% { opacity: 1; } 94% { opacity: 0; } 97% { opacity: 1; } }
 @keyframes mascot-hop { 0% { transform: translateY(0); } 40% { transform: translateY(-8px); }
   70% { transform: translateY(-4px); } 100% { transform: translateY(0); } }
-@keyframes mascot-shades-drop { from { transform: translateY(-6px); } to { transform: translateY(0); } }
+@keyframes mascot-hop-high { 0% { transform: translateY(0); } 40% { transform: translateY(-12px); }
+  70% { transform: translateY(-6px); } 100% { transform: translateY(0); } }
+/* Whole art pixels, falling faster each frame, with one pixel of bounce. */
+@keyframes mascot-shades-drop { 0% { transform: translateY(-8px); } 14% { transform: translateY(-7px); }
+  28% { transform: translateY(-5px); } 42% { transform: translateY(-2px); } 56% { transform: translateY(0); }
+  70% { transform: translateY(-1px); } 84%, 100% { transform: translateY(0); } }
+/* Lens columns 4, 5, 7 and 8: the bridge between them is skipped. */
+@keyframes mascot-glint { 0% { opacity: 1; transform: translateX(0); } 25% { transform: translateX(1px); }
+  50% { transform: translateX(3px); } 75% { transform: translateX(4px); } 100% { opacity: 0; transform: translateX(4px); } }
+
+/* The Konami code: small copies of the sprite falling past the page for about three seconds. */
+.mascot-shower { position: fixed; inset: 0; z-index: 150; overflow: hidden; pointer-events: none; }
+.mascot-shower__banana { position: absolute; top: -40px; margin-left: -16px; animation: mascot-fall 2s linear both; }
+.mascot-shower__banana .mascot-sprite { display: block; width: 16px; height: 16px; }
+.mascot-shower__banana--big .mascot-sprite { width: 32px; height: 32px; }
+@keyframes mascot-fall { from { transform: translateY(0) rotate(-12deg); }
+  to { transform: translateY(calc(100vh + 80px)) rotate(12deg); } }
+
+/* Not found: the mascot peeks in from the card's right edge, once: eleven of its sixteen columns, face first. */
+.error-page { position: relative; }
+.mascot-peek { position: absolute; right: 0; bottom: 1rem; width: 44px; height: 64px; overflow: hidden;
+  pointer-events: none; }
+.mascot-peek .mascot-sprite { display: block; width: 64px; height: 64px;
+  animation: mascot-peek 1.2s steps(1, end) .6s both; }
+@keyframes mascot-peek { 0% { transform: translateX(44px); } 10% { transform: translateX(36px); }
+  20% { transform: translateX(24px); } 30% { transform: translateX(8px); } 40%, 100% { transform: translateX(0); } }
 
 /* The same sprites as button icons under "Customise" and in Appearance: twice the grid, as in the top bar,
    so every art pixel stays square; the stem and the empty bottom row reach into the button's padding. */
@@ -44,7 +75,9 @@
    the banana; it stands still instead, the button icons' blink included (clicks still put the sunglasses
    on). After the rules it switches off, as it uses the same selectors. */
 @media (prefers-reduced-motion: reduce) {
-  .mascot__body, .mascot--hop .mascot__body, .mascot-sprite .mascot__eyes,
-  .mascot--shades-drop .mascot__shades { animation: none; }
+  .mascot__body, .mascot--hop .mascot__body, .mascot--eager.mascot--hop .mascot__body, .mascot-sprite .mascot__eyes,
+  .mascot--shades-drop .mascot__shades, .mascot--shades-drop .mascot__glint, .mascot-shower__banana,
+  .mascot-peek .mascot-sprite { animation: none; }
+  .mascot-shower { display: none; }
   .mascot .mascot-sprite { transition: none; }
 }

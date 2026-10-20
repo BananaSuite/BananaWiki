@@ -1,19 +1,19 @@
-# Layout Canvas
+# Canvas
 
-I Canvas sono mappe visive per idee che non entrano bene in una pagina lineare. Usali per architetture, mappe concettuali, lezioni, dipendenze e spazi di pianificazione.
+Un canvas è una lavagna libera di note, forme, immagini, video, codice e link a pagine della wiki, collegati da frecce. I canvas sono sotto **App → Canvas**.
 
-## Nodi e collegamenti
+## Elementi e collegamenti
 
-Un canvas è fatto di nodi collegati da linee. I nodi possono contenere testo, riferimenti o informazioni strutturate a seconda delle funzioni abilitate. Collega pagine wiki correlate perché il canvas diventi una porta d'ingresso alla documentazione.
+Aggiungi elementi dalla barra degli strumenti e collegali con le frecce; i collegamenti seguono gli elementi quando li sposti. Più persone possono modificare lo stesso canvas insieme. Quando crei un canvas puoi partire da un modello: un diagramma di flusso, una mappa mentale, una retrospettiva o un'analisi SWOT.
 
-## Quando usare Canvas
+## Pagina o canvas
 
-Usa una pagina quando il lettore ha bisogno di una spiegazione dall'inizio alla fine. Usa un canvas quando servono relazioni: sistemi, persone, dipendenze, passaggi o alternative.
+Una pagina va bene per un testo da leggere dall'alto in basso. Un canvas va bene per le relazioni: sistemi, persone, dipendenze, passaggi o alternative.
 
 ## Permessi
 
-L'accesso Canvas può essere configurato globalmente e condiviso per singolo layout. Lettura e modifica possono avere regole diverse. Gli admin dovrebbero proteggere i diagrammi sensibili come le pagine che descrivono.
+Gli amministratori decidono quali ruoli possono usare i canvas. Chi ha creato il canvas lo condivide con persone o ruoli, in lettura o in modifica.
 
-## Manutenzione
+## Cronologia ed esportazione
 
-Le mappe visive invecchiano rapidamente. Aggiungi date, proprietari o link alle pagine sorgente così i lettori capiscono se il diagramma è ancora attuale.
+**Cronologia** conserva le versioni precedenti e le ripristina. **Esporta** scarica il canvas per importarlo in un'altra wiki, e **Scarica immagine** lo salva come PNG o SVG.

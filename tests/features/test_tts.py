@@ -90,7 +90,7 @@ def tts_files(app):
     return sorted(p.name for p in folder.iterdir()) if folder.is_dir() else []
 
 
-# ── Text ──────────────────────────────────────────────────────────────────────
+# Text
 
 
 def test_normalisation_and_hash_match_1x():
@@ -111,7 +111,7 @@ def test_language_detection_stays_in_enabled_set():
     assert text.normalize_speed("1,25") == 1.25 and text.normalize_speed("9") == 1.0
 
 
-# ── Main flow ─────────────────────────────────────────────────────────────────
+# Main flow
 
 
 def test_generate_work_play_and_download(client, make_user, login, make_page, work, db, app, synth):
@@ -195,7 +195,7 @@ def test_unsupported_language_is_refused(client, make_user, login, make_page, db
     assert db.scalar("SELECT language FROM tts_generations") == "it"
 
 
-# ── Invalidation and cleanup ──────────────────────────────────────────────────
+# Invalidation and cleanup
 
 
 def _complete(ctx, page, synth_app_work):
@@ -265,7 +265,7 @@ def test_stale_audio_is_not_served(app, client, admin_client, ctx, make_page, wo
     assert client.get("/page/guide/tts/status").get_json()["can_generate"] is True
 
 
-# ── Retries ───────────────────────────────────────────────────────────────────
+# Retries
 
 
 def test_retryable_failure_backs_off_then_fails(app, ctx, make_page, work, synth, db):
@@ -423,7 +423,7 @@ def test_default_backend_is_local_piper(app, ctx):
         assert (backend.problem() is None) == backends.piper_installed()
 
 
-# ── Permissions ───────────────────────────────────────────────────────────────
+# Permissions
 
 
 def test_restricted_page_is_invisible(app, client, make_user, login, make_page, ctx, work, db):
@@ -495,7 +495,7 @@ def test_panel_slot(app, client, make_user, login, make_page, ctx, db):
         assert render_panel(page=page) == ""  # visitors see the player only when audio exists
 
 
-# ── Speed downloads ───────────────────────────────────────────────────────────
+# Speed downloads
 
 
 def test_speed_download_uses_cached_variant(app, client, make_user, login, make_page, ctx, work, monkeypatch):
@@ -518,7 +518,7 @@ def test_speed_download_uses_cached_variant(app, client, make_user, login, make_
     assert client.get("/page/guide/tts/download?speed=7").data == AUDIO
 
 
-# ── Admin ─────────────────────────────────────────────────────────────────────
+# Admin
 
 
 def test_admin_page_and_actions(app, client, admin_client, make_user, make_page, ctx, work, synth, db):
@@ -557,6 +557,27 @@ def test_admin_settings_encrypt_token_and_validate_url(admin_client, db):
     assert db.scalar("SELECT tts_gpu_url FROM site_settings") == "http://100.64.0.2:8787"
     admin_client.post("/admin/tts/settings", data={"tts_gpu_url": "http://100.64.0.2:8787"})
     assert db.scalar("SELECT tts_gpu_auth_token FROM site_settings").startswith("fernet:")  # kept
+
+
+def test_saved_gpu_token_is_never_sent_to_a_new_server_address(admin_client, db, monkeypatch):
+    form = {"tts_gpu_enabled": "1", "tts_gpu_url": "http://100.64.0.2:8787", "tts_gpu_auth_token": "s3cret-token"}
+    admin_client.post("/admin/tts/settings", data=form)
+    for same_server in ("http://100.64.0.2:8787/", "http://100.64.0.2:8787/tts"):
+        response = admin_client.post("/admin/tts/settings", data={**form, "tts_gpu_url": same_server,
+                                                                   "tts_gpu_auth_token": ""}, follow_redirects=True)
+        assert db.scalar("SELECT tts_gpu_auth_token FROM site_settings").startswith("fernet:")
+        assert b"token was removed" not in response.data
+    response = admin_client.post("/admin/tts/settings", data={**form, "tts_gpu_url": "http://100.64.0.3:8787",
+                                                               "tts_gpu_auth_token": ""}, follow_redirects=True)
+    row = db.one("SELECT tts_gpu_url, tts_gpu_auth_token FROM site_settings WHERE id = 1")
+    assert row["tts_gpu_url"] == "http://100.64.0.3:8787" and row["tts_gpu_auth_token"] == ""
+    assert b"token was removed" in response.data
+    sent = []
+    monkeypatch.setattr(backends.http, "request", lambda *args, **kwargs: sent.append((args, kwargs)))
+    admin_client.post("/admin/tts/gpu-test")
+    assert sent == []
+    admin_client.post("/admin/tts/settings", data={**form, "tts_gpu_url": "http://100.64.0.4:8787"})
+    assert db.scalar("SELECT tts_gpu_auth_token FROM site_settings").startswith("fernet:")  # typed again
 
 
 def test_admin_requires_admin(client, make_user, login):

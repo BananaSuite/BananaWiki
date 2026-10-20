@@ -5,14 +5,13 @@ agent writes those routes). A wiki host still ends up here when that route is
 missing: the Caddyfile was written by hand without the routes import, the
 server still uses the 1.4 proxy configuration that sends every host to the
 portal, the agent cannot publish routes, or the container has only just
-(re)started. Without this middleware the portal answered such requests as if
-they were its own, so opening a wiki showed the portal's sign-in page or
-dashboard instead.
+(re)started. Without this middleware the portal would answer such requests as
+its own, and opening a wiki would show the portal's sign-in page or dashboard.
 
 For a wiki host this middleware never lets the portal application run:
 
-* a running, healthy wiki is proxied (as 1.4's portal did), so it works even
-  without per-wiki routes;
+* a running, healthy wiki is proxied, so it works even without per-wiki
+  routes;
 * anything else gets a small status page on the wiki's own address: no wiki
   here, paused, suspended, expired, or starting (refreshes by itself).
 
@@ -182,7 +181,7 @@ class WikiHosts:
         _state, name, address, port = decision
         return self._proxy(environ, start_response, host, name, address, port)
 
-    # ── Which wiki, in which state ────────────────────────────────────────
+    # Which wiki, in which state
 
     def _decide(self, host: str) -> tuple | None:
         """None: not a wiki host (the portal answers). Otherwise a page to show or a proxy target."""
@@ -236,7 +235,7 @@ class WikiHosts:
 
         cfg = self.app.config["HOSTING"]
         # Never 502 or 504: Cloudflare replaces those with its own "Bad gateway" page,
-        # hiding this one and its automatic refresh (1.4 avoided them for the same reason).
+        # hiding this one and its automatic refresh.
         codes = {"missing": 404, "suspended": 403, "unavailable": 503, "expired": 503, "paused": 503,
                  "starting": 503, "busy": 503, "timeout": 503, "bad_gateway": 503}
         status = code or codes.get(state, 503)
@@ -273,7 +272,7 @@ class WikiHosts:
         start_response(status, headers)
         return [body]
 
-    # ── Proxying ──────────────────────────────────────────────────────────
+    # Proxying
 
     def _proxy(self, environ: dict[str, Any], start_response: Any, host: str, name: str, address: str,
                port: int) -> Iterable[bytes]:

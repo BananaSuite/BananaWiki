@@ -1,6 +1,6 @@
 /* Site administration: theme preview and icon grid. */
 .theme-preview {
-  display: flex; min-height: 8rem; border-radius: .5rem; overflow: hidden;
+  display: flex; min-height: 8rem; border-radius: var(--radius); overflow: hidden;
   /* The frame uses the page's own border token, not the previewed palette (it would blend in). */
   border: 1px solid var(--border-strong); background: var(--bw-bg); color: var(--bw-text);
 }
@@ -8,8 +8,8 @@
 .theme-preview__main { flex: 1; padding: .75rem; display: flex; flex-direction: column; gap: .4rem; align-items: flex-start; }
 .theme-preview__title { color: var(--bw-primary); }
 .theme-preview__link { color: var(--bw-accent); }
-.theme-preview__card { padding: .3rem .6rem; border-radius: .3rem; background: var(--bw-secondary); }
-.theme-preview__button { padding: .3rem .6rem; border-radius: .3rem; background: var(--bw-primary); color: var(--bw-bg); }
+.theme-preview__card { padding: .3rem .6rem; border-radius: var(--radius-sm); background: var(--bw-secondary); }
+.theme-preview__button { padding: .3rem .6rem; border-radius: var(--radius-sm); background: var(--bw-primary); color: var(--bw-bg); }
 .theme-color { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
 .theme-color input[type=color] { inline-size: 3rem; block-size: 2rem; padding: 0; }
 .favicon-grid { list-style: none; padding: 0; display: grid;
@@ -19,4 +19,4 @@
 .favicon-tile > .cluster { grid-column: 2 / -1; }
 .favicon-tile__preset { image-rendering: pixelated; }
 .favicon-tile--selected { border-bottom-color: var(--bw-accent); }
-.log-view { max-height: 70vh; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: .8rem; }
+.log-view { max-height: 70vh; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: var(--font-size-sm); }

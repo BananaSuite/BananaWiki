@@ -50,7 +50,7 @@
     {{ forms.textarea('review_reason', t('page_governance.quota.review_reason'), rows=2) }}
     <div class="btn-row">
       <button class="btn btn--primary" type="submit" name="action" value="approve_request">{{ t('page_governance.quota.approve') }}</button>
-      <button class="btn btn--danger" type="submit" name="action" value="deny_request">{{ t('page_governance.quota.deny') }}</button>
+      <button class="btn btn--danger-quiet" type="submit" name="action" value="deny_request">{{ t('page_governance.quota.deny') }}</button>
     </div>
   </form>
   {% else %}

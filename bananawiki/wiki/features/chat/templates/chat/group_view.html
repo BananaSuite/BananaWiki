@@ -11,13 +11,15 @@
 </form>
 {%- endmacro %}
 {% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('chat.group_list') }}">{{ t('chat.groups.title') }}</a></li><li aria-current="page">{{ name }}</li>
+</ol></nav>
 <header class="page-header">
   <h1>{{ name }}</h1>
   <div class="page-header__actions">
-    <a class="btn btn--small" href="{{ url_for('chat.group_list') }}">{{ t('common.back') }}</a>
     {% if actor.can_manage %}<a class="btn btn--small" href="{{ url_for('chat.group_export', group_id=group.id) }}">{{ t('chat.export.button') }}</a>{% endif %}
     {% if actor.admin or actor.is_moderator %}
-    {{ action('chat.group_clear', t('chat.clear.button'), None, 'btn btn--small btn--danger',
+    {{ action('chat.group_clear', t('chat.clear.button'), None, 'btn btn--small btn--danger-quiet',
               t('chat.clear.group_confirm', messages=counts[0], attachments=counts[1])) }}
     {% endif %}
   </div>
@@ -74,9 +76,9 @@
       {% if group.is_global and actor.admin %}
       {{ action('chat.group_toggle_active', t('chat.groups.reactivate') if not group.is_active else t('chat.groups.deactivate'), None) }}
       {% endif %}
-      {% if not group.is_global and actor.can_manage %}{{ action('chat.group_delete', t('chat.groups.delete'), None, 'btn btn--small btn--danger', t('chat.groups.delete_confirm', name=group.name)) }}{% endif %}
+      {% if not group.is_global and actor.can_manage %}{{ action('chat.group_delete', t('chat.groups.delete'), None, 'btn btn--small btn--danger-quiet', t('chat.groups.delete_confirm', name=group.name)) }}{% endif %}
       {% if actor.role == 'moderator' %}{{ action('chat.group_self_downgrade', t('chat.groups.step_down'), None, 'btn btn--small', t('chat.groups.step_down_confirm')) }}{% endif %}
-      {% if actor.is_member and not (actor.is_owner and not group.is_global) %}{{ action('chat.group_leave', t('chat.groups.leave'), None, 'btn btn--small btn--danger', t('chat.groups.leave_confirm')) }}{% endif %}
+      {% if actor.is_member and not (actor.is_owner and not group.is_global) %}{{ action('chat.group_leave', t('chat.groups.leave'), None, 'btn btn--small btn--danger-quiet', t('chat.groups.leave_confirm')) }}{% endif %}
     </div>
 
     {% if actor.can_moderate %}<p class="small muted">{{ t('chat.groups.moderation_help') }}</p>{% endif %}
@@ -111,7 +113,7 @@
                 </form>
                 {% endif %}
                 {{ action('chat.group_kick', t('chat.groups.remove'), m.user_id, confirm=t('chat.groups.remove_confirm', user=m.username)) }}
-                {{ action('chat.group_kick', t('chat.groups.ban'), m.user_id, 'btn btn--small btn--danger', t('chat.groups.ban_confirm', user=m.username), {'permanent': '1'}) }}
+                {{ action('chat.group_kick', t('chat.groups.ban'), m.user_id, 'btn btn--small btn--danger-quiet', t('chat.groups.ban_confirm', user=m.username), {'permanent': '1'}) }}
               {% endif %}
               {% if m.user_id in blocked %}{{ ui.unblock_button(m, request.path) }}{% else %}{{ ui.block_button(m, request.path) }}{% endif %}
             </div>{% endif %}

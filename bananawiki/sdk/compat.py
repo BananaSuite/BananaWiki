@@ -1,4 +1,4 @@
-"""Run BananaWiki 1.4 plugins (``bananawiki_sdk``) on BananaWiki 2.
+"""Run BananaWiki 1.4 plugins (``bananawiki_sdk``) on the current plugin API.
 
 A 1.4 plugin's ``__init__.py`` creates ``plugin = Plugin("<id>")``, registers
 hooks and template slots with decorators, and adds routes in
@@ -62,7 +62,7 @@ class PluginAPIVersionError(PluginError):
     """A plugin requires an SDK API version this wiki does not provide."""
 
 
-# ── Registration during loading ──────────────────────────────────────────────
+# Registration during loading
 
 
 @dataclass
@@ -174,7 +174,7 @@ class Plugin:
         return hook(hook_name)
 
 
-# ── Adapter ──────────────────────────────────────────────────────────────────
+# Adapter
 
 
 def _user(user_id: Any) -> dict[str, Any] | None:
@@ -183,7 +183,7 @@ def _user(user_id: Any) -> dict[str, Any] | None:
     return accounts.by_id(str(user_id)) if user_id else None
 
 
-# 1.4 hook -> (1.6 event, payload translation)
+# 1.4 hook -> (current event, payload translation)
 _HOOK_EVENTS: dict[str, tuple[str, Callable[..., dict[str, Any]]]] = {
     "after_page_create": ("page.created", lambda page, author_id=None, **_: {"page": page, "user": _user(author_id)}),
     "after_page_update": ("page.updated", lambda page, author_id=None, **_: {"page": page, "user": _user(author_id)}),
@@ -283,7 +283,7 @@ def _combine(first: Callable[..., Any] | None, second: Callable[..., Any]) -> Ca
     return render
 
 
-# ── Database helpers ─────────────────────────────────────────────────────────
+# Database helpers
 
 
 class Row(dict):
@@ -350,7 +350,7 @@ def db_execute(sql: str, params: Any = None) -> int | None:
         return conn.execute(sql, params or []).lastrowid
 
 
-# ── Core re-exports ──────────────────────────────────────────────────────────
+# Core re-exports
 
 
 def get_current_user() -> dict[str, Any] | None:

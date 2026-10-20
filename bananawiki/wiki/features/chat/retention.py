@@ -8,8 +8,7 @@ group chats have separate policies for messages and for attachments.
 ``chat.housekeeping`` runs daily. It erases what 1.4 kept of deleted
 messages, and removes attachment files (and their legacy blob copies) that no
 message points at any more, for example after an account was deleted.
-
-Unlike 1.4, removing an attachment always removes its ``file_blobs`` copy too.
+Removing an attachment always removes its ``file_blobs`` copy too.
 """
 
 from __future__ import annotations

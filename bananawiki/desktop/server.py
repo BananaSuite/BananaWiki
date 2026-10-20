@@ -162,7 +162,7 @@ def wait_until_ready(port: int, runner: _Runner, timeout: float, nonce: str) -> 
     raise DesktopError("server_timeout")
 
 
-# ── waitress (in process) ────────────────────────────────────────────────────
+# waitress (in process)
 
 
 class _WaitressRunner:
@@ -222,9 +222,12 @@ class _WaitressRunner:
             job_thread = getattr(scheduler, "_thread", None)
             if job_thread is not None:
                 job_thread.join(STOP_TIMEOUT)
+        from ..wiki.app import close_log_file
+
+        close_log_file()  # Windows keeps open files locked: the folder can be moved once stopped
 
 
-# ── gunicorn (child process) ─────────────────────────────────────────────────
+# gunicorn (child process)
 
 
 class _GunicornRunner:
@@ -265,19 +268,20 @@ class _GunicornRunner:
         self._log.close()
 
 
-# ── The server ───────────────────────────────────────────────────────────────
+# The server
 
 
 class WikiServer:
     """The wiki of one data folder, started and stopped on request."""
 
     def __init__(self, folder: DataFolder, *, share_on_lan: bool = False, port: int | None = None,
-                 language: str = "en", backend: str | None = None):
+                 language: str = "en", backend: str | None = None, allow_plugins: bool = False):
         self.folder = folder
         self.share_on_lan = share_on_lan
         self.port = port
         self.language = language
         self.backend = backend
+        self.allow_plugins = allow_plugins
         self.info: ServerInfo | None = None
         self._runner: _Runner | None = None
         self._hold: contextlib.ExitStack | None = None
@@ -340,7 +344,8 @@ class WikiServer:
     def _config(self, port: int):
         from ..wiki.config import load_config
 
-        environ = self.folder.environ(host=self._host(), port=port, language=self.language)
+        environ = self.folder.environ(host=self._host(), port=port, language=self.language,
+                                      allow_plugins=self.allow_plugins)
         return environ, load_config(environ, secret_key=self.folder.secret_key())
 
     def _launch(self, backend: str, nonce: str) -> tuple[_Runner, str]:

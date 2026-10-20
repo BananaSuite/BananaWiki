@@ -312,7 +312,7 @@ def test_the_in_process_fallback_follows_the_quota_setting(tmp_path, setting, re
 
 
 def test_unexpected_errors_still_get_an_answer(runtime):
-    """A container label Docker reports as garbage used to kill the handler thread without a response."""
+    """A container label Docker reports as garbage does not kill the handler thread without a response."""
     def inspect(command, **_):
         labels = {"org.bananawiki.role": "tenant", "org.bananawiki.data-dir": str(Path(runtime.config["instances_dir"]).resolve() / "acme"),
                   "org.bananawiki.internal-port": "not-a-port"}

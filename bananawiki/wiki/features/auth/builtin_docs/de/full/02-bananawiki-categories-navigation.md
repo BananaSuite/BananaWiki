@@ -1,26 +1,26 @@
 # Kategorien und Navigation
 
-Kategorien bilden die Ordnerstruktur des Wikis: Nach ihnen richtet sich der Aufbau der Seitenleiste, sie fassen zusammengehörige Seiten zusammen und helfen den Lesenden zu verstehen, wohin eine Information gehört.
+Kategorien sind die Ordner der Seitenleiste und können Unterkategorien enthalten.
 
 ## Die Seitenleiste nutzen
 
-- Klicke auf eine Kategorie, um sie aus- oder einzuklappen.
+- Klicke auf eine Kategorie, um sie auf- oder zuzuklappen.
 - Klicke auf einen Seitentitel, um die Seite zu öffnen.
-- Nutze das Suchfeld in der Seitenleiste, um Seiten und Kategorien schnell zu filtern.
-- Ziehe Seiten und Kategorien an eine andere Stelle, wenn du die Berechtigung hast, sie neu anzuordnen.
+- Tippe in das Feld oben, um Seiten- und Kategorietitel zu filtern.
+- Zieh Seiten, um ihre Reihenfolge zu ändern, wenn du das darfst. Kategorien ordnest du unter **Alle Seiten**.
 
-## Sinnvolle Kategorien anlegen
+## Eine Kategorie anlegen
 
-Wähle Kategorienamen, die dazu passen, wie andere nach Informationen suchen: **Betrieb**, **Produkt**, **Personal**, **Unterrichtsnotizen**, **Veröffentlichungsprozess** oder **Kundensupport**. Vermeide tiefe Verschachtelungen, es sei denn, die Hierarchie erleichtert die Navigation.
+Klicke in der Seitenleiste auf **Neue Kategorie**. Benenne sie danach, was Leute suchen, etwa **Handbuch**, **Kursnotizen** oder **Release-Ablauf**. Eine flache Struktur ist leichter zu durchsuchen als eine tiefe Verschachtelung.
 
 ## Fortlaufende Navigation
 
-Die fortlaufende Navigation ergänzt die Seiten einer Kategorie um Links zur vorherigen und nächsten Seite. Das ist praktisch für Tutorials, Lernpfade, Handbücher und Kurskapitel. Die Reihenfolge folgt der manuellen Sortierung in der Seitenleiste.
+Auf der Seite einer Kategorie kannst du die fortlaufende Navigation einschalten. Die Seiten der Kategorie erhalten dann Links zur vorherigen und nächsten Seite in der Reihenfolge der Seitenleiste, was sich für Kurse und Tutorials eignet.
 
 ## Berechtigungen für Kategorien
 
-Administratoren können festlegen, wer eine Kategorie sehen und bearbeiten darf. Leseeinschränkungen blenden Kategorien und Seiten für alle aus, die sie nicht sehen dürfen. Schreibeinschränkungen sorgen dafür, dass ein Redakteur nur in ausgewählten Bereichen arbeiten, aber – falls erlaubt – weiterhin andere Inhalte lesen kann.
+Administratoren können einschränken, wer in einer Kategorie liest und wer schreibt. Wer keinen Lesezugriff hat, sieht die Kategorie und ihre Seiten nicht. Wer keinen Schreibzugriff hat, kann sie trotzdem lesen.
 
-## Kategorie löschen
+## Eine Kategorie löschen
 
-Wenn du eine Kategorie löschst, entscheide, was mit ihren Seiten passieren soll: an eine andere Stelle verschieben, ohne Kategorie lassen oder ebenfalls löschen. Verschiebe wichtige Inhalte zuerst und lösche erst, wenn du das Ergebnis geprüft hast.
+Wenn du eine Kategorie löschst, wählst du, was mit ihren Seiten passiert: in eine andere Kategorie verschieben, ohne Kategorie lassen oder löschen. Unterkategorien rücken eine Ebene nach oben.

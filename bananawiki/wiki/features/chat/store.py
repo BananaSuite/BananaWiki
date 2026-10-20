@@ -74,7 +74,7 @@ class AttachmentLimitExceeded(ValueError):
         self.limit = limit
 
 
-# ── System messages ──────────────────────────────────────────────────────────
+# System messages
 
 
 def encode_system(key: str, **values: Any) -> str:
@@ -96,7 +96,7 @@ def system_text(content: str) -> str:
     return content
 
 
-# ── Reading ──────────────────────────────────────────────────────────────────
+# Reading
 
 
 def _withheld(store: Store, alias: str = "m") -> str:
@@ -262,7 +262,7 @@ def attachments_sent_since(user_id: str, since: str) -> int:
     ) or 0)
 
 
-# ── Presentation ─────────────────────────────────────────────────────────────
+# Presentation
 
 
 def serialize(
@@ -314,7 +314,7 @@ def serialize(
     return item
 
 
-# ── Writing ──────────────────────────────────────────────────────────────────
+# Writing
 
 
 def insert(

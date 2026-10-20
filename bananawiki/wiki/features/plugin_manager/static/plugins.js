@@ -31,7 +31,7 @@
       }
       searching = !!query;
       status.hidden = !query;
-      status.textContent = BW.t("plugin_manager.filter.matches", {count: count});
+      status.textContent = BW.tn("plugin_manager.filter.matches", count);
     });
   }
   var form = document.querySelector("[data-sidebar-order]");

@@ -33,7 +33,7 @@ def _to_board(board_id: int):
     return redirect(url_for("kanban.board", board_id=board_id))
 
 
-# ── Board list ────────────────────────────────────────────────────────────────
+# Board list
 
 
 @bp.get("/kanban")
@@ -147,7 +147,7 @@ def import_board():
     return _to_board(board["id"])
 
 
-# ── Board ─────────────────────────────────────────────────────────────────────
+# Board
 
 
 def board_page_data(board: dict[str, Any], user: dict[str, Any] | None) -> dict[str, Any]:
@@ -271,7 +271,7 @@ def export(board_id: int):
     return send_file(archive, mimetype="application/zip", as_attachment=True, download_name=f"{name}.kanban.zip")
 
 
-# ── History ───────────────────────────────────────────────────────────────────
+# History
 
 
 @bp.app_template_global("kanban_log_message")

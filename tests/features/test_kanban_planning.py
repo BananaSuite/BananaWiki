@@ -30,7 +30,7 @@ def add_item(client, ticket_id, text="Step"):
     return response.get_json()
 
 
-# ── WIP limits ───────────────────────────────────────────────────────────────
+# WIP limits
 
 
 def test_wip_limit_is_saved_validated_and_synced(admin_client, board, db):
@@ -71,7 +71,7 @@ def test_wip_limit_field_parsing():
     assert fields.stored_wip_limit("nonsense") is None and fields.stored_wip_limit(7) == 7
 
 
-# ── Checklists ───────────────────────────────────────────────────────────────
+# Checklists
 
 
 def test_checklist_lifecycle_updates_the_card(admin_client, board, db):
@@ -155,7 +155,7 @@ def test_checklist_permissions_and_idor(app, admin_client, db, board, make_user,
                          headers={"Accept": "application/json"}).status_code in (401, 302, 403)
 
 
-# ── History, revert, export and import ───────────────────────────────────────
+# History, revert, export and import
 
 
 def test_revert_restores_limits_and_checklists(admin_client, board, db):
@@ -218,7 +218,7 @@ def test_export_import_keeps_limits_and_checklists(admin_client, board, db):
     assert [(i["text"], i["done"]) for i in items] == [("One", True), ("Two", False)]
 
 
-# ── My tickets ───────────────────────────────────────────────────────────────
+# My tickets
 
 
 def test_my_tickets_lists_assigned_tickets_on_visible_boards(app, admin_client, db, board, make_user, login):
@@ -261,7 +261,7 @@ def test_my_tickets_access(app, admin_client, board):
     assert admin_client.get("/api/kanban/my-tickets").status_code == 404
 
 
-# ── Pages and schema ─────────────────────────────────────────────────────────
+# Pages and schema
 
 
 def test_board_page_has_filter_bar_and_checklist(admin_client, board):

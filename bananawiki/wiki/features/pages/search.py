@@ -1,6 +1,6 @@
 """The search page: a small query language over the full-text index.
 
-Syntax (as in 1.4): plain words must all match; ``"exact phrase"``;
+Syntax: plain words must all match; ``"exact phrase"``;
 ``title:``, ``content:``, ``category:``, ``slug:`` and ``type:page|category``
 fields; ``-word`` excludes. Results are filtered by visibility in SQL
 (:func:`service.visible_filter`), so pages the reader cannot open are never

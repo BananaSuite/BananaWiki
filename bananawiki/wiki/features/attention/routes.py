@@ -36,7 +36,7 @@ def _flash_error(error: NotificationError) -> None:
     auth.flash_t(error.key, "error", **error.values)
 
 
-# ── The attention page and notices ───────────────────────────────────────────
+# The attention page and notices
 
 
 @bp.get("/attention")
@@ -62,7 +62,7 @@ def dismiss_all():
     return _back(url_for("attention.index"))
 
 
-# ── The account's own choices ────────────────────────────────────────────────
+# The account's own choices
 
 
 @bp.post("/settings/notifications")
@@ -114,7 +114,7 @@ def unsubscribe(token: str):
     return render_template("attention/unsubscribe.html", kind=kind, done=False, token=token)
 
 
-# ── Administration ────────────────────────────────────────────────────────────
+# Administration
 
 
 def _admin_context() -> dict[str, Any]:
@@ -163,7 +163,11 @@ def _notification_values() -> dict[str, Any]:
 
 
 def _mail_values() -> dict[str, Any]:
-    """The mail-server form; secrets are only replaced when a new value is typed."""
+    """The mail-server form; secrets are only replaced when a new value is typed.
+
+    The saved SMTP password is dropped when the server name changes, so it
+    is never sent to a server it was not entered for.
+    """
     provider = request.form.get("mail_provider", "")
     security = request.form.get("mail_smtp_security", "starttls")
     if provider not in PROVIDER_CHOICES or security not in mail.SMTP_SECURITY:
@@ -185,6 +189,10 @@ def _mail_values() -> dict[str, Any]:
         typed = request.form.get(secret, "")
         if typed or request.form.get(f"clear_{secret}"):
             values[secret] = typed.strip()[:500] if secret == "mail_api_key" else typed[:500]
+    if ("mail_smtp_password" not in values and settings.get("mail_smtp_password")
+            and host.lower() != str(settings.get("mail_smtp_host") or "").lower()):
+        values["mail_smtp_password"] = ""
+        auth.flash_t("attention.admin.smtp_password_removed", "warning")
     return values
 
 

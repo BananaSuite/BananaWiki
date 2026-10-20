@@ -1,19 +1,19 @@
-# Canvas-Layouts
+# Canvas
 
-Canvas-Layouts sind visuelle Übersichten für Ideen, die sich nicht gut in eine lineare Seite fügen. Nutze sie für Architekturskizzen, Concept-Maps, Unterrichtsplanungen, Abhängigkeitsdiagramme und Planungsflächen.
+Ein Canvas ist eine freie Fläche mit Notizen, Formen, Bildern, Videos, Code und Links zu Wiki-Seiten, die durch Pfeile verbunden sind. Canvas findest du unter **Apps → Canvas**.
 
 ## Elemente und Verbindungen
 
-Ein Canvas besteht aus Elementen und den Verbindungen zwischen ihnen. Je nach aktivierten Funktionen können Elemente Text, Verweise oder strukturierte Informationen enthalten. Verlinke passende Wiki-Seiten, damit das Canvas zum Einstieg in ausführlichere Dokumentation wird.
+Füge Elemente über die Werkzeugleiste hinzu und verbinde sie mit Pfeilen; die Verbindungen folgen den Elementen, wenn du sie verschiebst. Mehrere Personen können denselben Canvas gleichzeitig bearbeiten. Beim Erstellen kannst du mit einer Vorlage beginnen: einem Flussdiagramm, einer Mindmap, einer Retrospektive oder einer SWOT-Analyse.
 
-## Wann ein Canvas sinnvoll ist
+## Seite oder Canvas
 
-Nutze eine Seite, wenn die Lesenden eine klare Erklärung von oben nach unten brauchen. Nutze ein Canvas, wenn es um Zusammenhänge geht: Systeme, Personen, Abhängigkeiten, Schritte oder Alternativen.
+Eine Seite passt zu Text, der von oben nach unten gelesen wird. Ein Canvas passt zu Beziehungen: Systeme, Personen, Abhängigkeiten, Schritte oder Alternativen.
 
 ## Berechtigungen
 
-Der Zugriff auf Canvas lässt sich global einstellen, und jedes Layout kann einzeln geteilt werden. Ansehen und Bearbeiten können unterschiedlich geregelt sein. Administratoren sollten vertrauliche Diagramme genauso nach Kategorie oder Person einschränken wie die Seiten, um die es darin geht.
+Administratoren legen fest, welche Rollen Canvas nutzen dürfen. Wer den Canvas erstellt hat, teilt ihn mit Personen oder Rollen, zum Ansehen oder Bearbeiten.
 
-## Pflege
+## Verlauf und Export
 
-Visuelle Übersichten veralten schnell. Ergänze Datumsangaben, Eigentümer oder Links zu den Quellseiten, damit die Lesenden erkennen, ob ein Diagramm noch aktuell ist.
+**Verlauf** bewahrt frühere Versionen auf und stellt sie wieder her. **Exportieren** lädt den Canvas zum Import in ein anderes Wiki herunter, und **Bild herunterladen** speichert ihn als PNG oder SVG.

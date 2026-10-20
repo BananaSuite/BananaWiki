@@ -1,4 +1,4 @@
-"""Kanban registry events (the Round 2 contract) and the server-side ticket filters."""
+"""Kanban registry events and the server-side ticket filters."""
 
 from __future__ import annotations
 
@@ -165,7 +165,7 @@ def test_service_calls_outside_views_emit_with_their_actor(app, admin, received)
     assert received[2][1]["board"]["archived_at"] and received[-1][1]["actor_id"] is None
 
 
-# ── Server-side filters ──────────────────────────────────────────────────────
+# Server-side filters
 
 
 @pytest.fixture

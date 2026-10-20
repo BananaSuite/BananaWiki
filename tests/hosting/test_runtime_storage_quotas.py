@@ -61,8 +61,8 @@ def test_platform_quota_refusal_removes_only_new_restore_roots(tmp_path):
             raise RuntimeFailure("not_configured", "capacity exhausted")
     with pytest.raises(RuntimeFailure):
         platform_backup._install_tenants(staged, runtime._cfg(), prepare_tenant=quota,
-                                         storage_limits={"acme": 4096, "beta": 8192})
-    assert prepared == [("acme", 4096), ("beta", 8192)]
+                                         storage_limits={"acme": 4 * 1024 ** 2, "beta": 8 * 1024 ** 2})
+    assert prepared == [("acme", 4 * 1024 ** 2), ("beta", 8 * 1024 ** 2)]
     assert list(Path(runtime._cfg().instances_dir).iterdir()) == []
 
 

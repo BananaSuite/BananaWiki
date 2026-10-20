@@ -132,7 +132,7 @@ def test_every_builtin_language_can_be_the_documentation_language(admin_client, 
         assert settings_rules.RULES["interface_language_fallback"].parse(f" {code.upper()} ") == code
 
 
-# ── German, built in ──────────────────────────────────────────────────────────
+# German, built in
 
 GERMAN_PACK = {"_meta": {"code": "de", "name": "Deutsch (Schule)", "author": "Ana"},
                "common.save": "Jetzt speichern"}
@@ -212,7 +212,7 @@ def test_a_switch_saved_for_an_uploaded_german_still_applies(app, admin_client, 
     assert switches(db)["de"] == {"name": "Deutsch (Schule)", "enabled": True} and "de" in enabled(app)
 
 
-def test_uploading_german_now_adds_an_override_without_a_switch(app, admin_client, db):
+def test_uploading_german_adds_an_override_without_a_switch(app, admin_client, db):
     upload(admin_client, GERMAN_PACK, name="de.json")
     assert "de" not in switches(db) and "de" in enabled(app)
     assert "Jetzt speichern" in admin_client.get("/admin/interface-languages?lang=de").get_data(as_text=True)

@@ -82,7 +82,7 @@ def parse_grant(raw: str | None) -> Grant:
     return Grant(data.get("read") is True, data.get("write") is True, tuple(sorted(set(scopes))))
 
 
-# ── Service settings ──────────────────────────────────────────────────────────
+# Service settings
 
 
 def _bounded(value: Any, default: int, bounds: tuple[int, int]) -> int:
@@ -123,7 +123,7 @@ def scopes_for_role(user: dict[str, Any], scopes: list[str] | tuple[str, ...]) -
     return sorted(set(known) - ADMIN_ONLY_SCOPES)
 
 
-# ── Storage ───────────────────────────────────────────────────────────────────
+# Storage
 
 
 def digest(raw: str) -> str:
@@ -282,7 +282,7 @@ def public_view(token: dict[str, Any], *, with_owner: bool = False) -> dict[str,
     return view
 
 
-# ── Issuing rules ─────────────────────────────────────────────────────────────
+# Issuing rules
 
 
 def check_name(name: str) -> None:

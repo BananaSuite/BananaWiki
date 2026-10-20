@@ -17,7 +17,7 @@ from typing import Any
 from flask import abort, current_app, redirect, render_template, request, session, url_for
 
 from ....core import passwords
-from ....core.timeutil import now_sql, parse
+from ....core.timeutil import parse
 from ....core.web import safe_next
 from ... import accounts, auth, settings
 from ...db import db
@@ -31,7 +31,7 @@ from .blueprint import ALL_GATES, SIGN_IN_GATES, bp
 
 
 def _setup_token_ok() -> bool:
-    """The installation token, accepted only from a POSTed form (never from the URL)."""
+    """The setup token, accepted only from a POSTed form (never from the URL)."""
     expected = current_app.config["BW"].setup_token
     marker = hashlib.sha256(expected.encode()).hexdigest()
     if hmac.compare_digest(str(session.get("_setup_authorized", "")), marker):
@@ -47,7 +47,7 @@ def _setup_token_ok() -> bool:
 @auth.public
 @auth.exempt(*ALL_GATES)
 def setup():
-    """Create the first administrator. Requires the installation token."""
+    """Create the first administrator. Requires the setup token."""
     if settings.setup_done():
         return redirect(url_for("auth.login"))
     if not _setup_token_ok():
@@ -81,7 +81,7 @@ def setup():
                            builtin_languages=BUILTIN_LANGUAGES)
 
 
-# ── Sign-in ───────────────────────────────────────────────────────────────────
+# Sign-in
 
 
 def _credentials() -> tuple[str, str, bool, str]:
@@ -179,7 +179,7 @@ def app_selector():
     return render_template("auth/app_selector.html", apps=apps)
 
 
-# ── Account status ────────────────────────────────────────────────────────────
+# Account status
 
 
 def _suspended_deletion_allowed(user: dict[str, Any]) -> bool:
@@ -269,7 +269,7 @@ def lockdown_legacy():
     return redirect(url_for("auth.maintenance"))
 
 
-# ── Forced steps ──────────────────────────────────────────────────────────────
+# Forced steps
 
 
 @bp.route("/force-change-password", methods=["GET", "POST"])
@@ -318,10 +318,6 @@ def stop_impersonation():
         return redirect("/")
     target = auth.current_user()
     auth.stop_impersonation()
-    db.execute(
-        "UPDATE impersonation_logs SET ended_at = ? WHERE admin_id = ? AND target_user_id = ? AND ended_at IS NULL",
-        (now_sql(), auth.real_user()["id"], target["id"]),
-    )
     record("user.impersonation_ended", target_type="user", target_id=target["id"],
            details={"username": target["username"]})
     auth.flash_t("auth.impersonation_ended", "success")

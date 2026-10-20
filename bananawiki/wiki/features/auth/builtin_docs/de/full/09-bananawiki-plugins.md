@@ -1,23 +1,15 @@
-# Plugins und Erweiterungen
+# Plugins
 
-Mit Plugins kann BananaWiki wachsen, ohne dass jedes Wiki jede Funktion nutzen muss. Integrierte Plugins decken Zusammenarbeit, Regeln für Inhalte, Automatisierung, Integrationen und experimentelle Werkzeuge ab.
+Die meisten Funktionen von BananaWiki sind Plugins, die ein Administrator ein- oder ausschaltet.
 
 ## Plugins verwalten
 
 Öffne **Verwaltung → Plugins**, um Plugin-Pakete zu aktivieren, zu deaktivieren, zu prüfen, zu importieren oder zu entfernen. Integrierte Plugins werden mit BananaWiki ausgeliefert. Externe `.bwplugin`-Pakete laufen mit allen Rechten des Wikis. Deshalb sind sie ausgeschaltet, solange der Betreiber des Servers sie nicht erlaubt (`BW_ALLOW_EXTERNAL_PLUGINS=1`), und nur der Eigentümer oder ein Superuser kann eines importieren oder aktivieren. Andere Administratoren können Plugins trotzdem ausschalten und entfernen.
 
-## Was Plugins hinzufügen können
+## Ein Plugin deaktivieren
 
-Ein Plugin kann Routen, Templates, statische Dateien, Berechtigungen, Hooks, Datenbanktabellen, Template-Slots, API-Verhalten oder Hintergrundaufträge hinzufügen. Manche Plugins sind einfache Funktionen der Oberfläche, andere sind umfangreiche Subsysteme.
-
-## Mit Bedacht aktivieren
-
-Aktiviere nur die Werkzeuge, für die dein Team bereit ist. Jede Funktion macht das System umfangreicher und bringt zusätzliche Berechtigungen und Supportfragen mit sich. Beginne klein und füge Plugins hinzu, sobald die Arbeitsabläufe klar sind.
-
-## Daten und Deaktivierung
-
-Wenn du ein Plugin deaktivierst, wird die Funktion in der Regel ausgeblendet oder angehalten, ihre gespeicherten Daten werden aber nicht zwingend gelöscht. Wenn du das Plugin wieder aktivierst, können die Daten wieder erscheinen. Lösche oder migriere Daten bewusst, wenn du eine Funktion einstellst.
+Ein deaktiviertes Plugin blendet seine Seiten und Menüs aus. Seine Daten und Einstellungen bleiben erhalten und kommen zurück, wenn du es wieder aktivierst.
 
 ## Plugins entwickeln
 
-Wer Plugins entwickelt, kann mit dem BananaWiki-SDK Hooks, Berechtigungen, Template-Slots und Datenbank-Hilfsfunktionen registrieren. Halte das Verhalten eines Plugins eng begrenzt, dokumentiert und umkehrbar, damit Administratoren die Auswirkungen verstehen, bevor sie das Plugin aktivieren.
+Ein Plugin meldet eine Funktion genauso an wie die integrierten; siehe `docs/plugins/README.md` im Quellcode. Plugins, die für 1.4 mit `bananawiki_sdk` geschrieben wurden, werden weiterhin geladen.

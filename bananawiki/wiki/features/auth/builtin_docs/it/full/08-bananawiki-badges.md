@@ -1,19 +1,19 @@
-# Badge e Traguardi
+# Distintivi
 
-I badge riconoscono la partecipazione. Possono essere assegnati manualmente dagli admin o automaticamente da regole come numero di contributi, anzianità dell'account o altri trigger.
+I distintivi compaiono nei profili dei membri. Gli amministratori li creano e gestiscono in **Amministrazione → Distintivi**.
 
-## Perché usarli
+## Distintivi automatici
 
-I badge funzionano meglio come incoraggiamento leggero: dare il benvenuto a nuovi contributori, riconoscere modifiche utili o evidenziare responsabilità speciali.
+Un distintivo automatico viene assegnato quando un membro raggiunge una soglia: prima modifica, numero di modifiche, pagine create, categorie modificate, giorni di iscrizione o minuti di lettura.
 
-## Assegnazioni manuali
+## Distintivi manuali
 
-Gli admin possono assegnare direttamente un badge a un utente. Usa i badge manuali per milestone, completamento di formazione, riconoscimenti o ruoli che devono essere visibili nel profilo.
+Un distintivo manuale lo assegna un amministratore, per esempio per aver finito un corso o per un incarico.
 
-## Assegnazioni automatiche
+## Revoca
 
-I badge automatici sono guidati da regole. Mantieni le regole comprensibili così gli utenti sanno cosa significa un badge. Rivedile dopo cambiamenti a plugin o workflow di contribuzione.
+Un amministratore può revocare un distintivo a un membro o a tutti. Un distintivo automatico revocato non viene riassegnato, a meno che l'assegnazione non venga eliminata.
 
-## Notifiche e cronologia
+## Notifiche
 
-Le notifiche avvisano gli utenti quando ricevono un badge. La cronologia aiuta gli admin a controllare quando e perché i badge sono stati assegnati.
+I membri ricevono una notifica quando ottengono un distintivo.

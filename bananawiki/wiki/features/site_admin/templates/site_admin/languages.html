@@ -32,9 +32,8 @@
             {{ forms.post_button(url_for('site_admin.toggle_language', code=lang.code), t('site_admin.languages.disable') if lang.enabled else t('site_admin.languages.enable'), 'btn btn--small', hidden={'enabled': '0' if lang.enabled else '1'}) }}
             {% endif %}
             {% if lang.custom_file %}
-            {{ forms.post_button(url_for('site_admin.delete_language', code=lang.code), t('site_admin.languages.remove_override') if lang.builtin else t('common.delete'), 'btn btn--small btn--danger', confirm=t('site_admin.languages.delete_confirm', code=lang.code)) }}
-            {% endif %}
-            {#- Last, so the button lines up in every row of the right-aligned column. -#}
+            {{ forms.post_button(url_for('site_admin.delete_language', code=lang.code), t('site_admin.languages.remove_override') if lang.builtin else t('common.delete'), 'btn btn--small btn--danger-quiet', confirm=t('site_admin.languages.delete_confirm', code=lang.code)) }}
+            {% endif -%}
             <a class="btn btn--small" href="{{ url_for('site_admin.download_language', code=lang.code) }}">{{ t('site_admin.languages.download') }}</a>
           </div></td>
         </tr>

@@ -10,7 +10,7 @@
 .cp-gallery { display: grid; gap: 1.25rem; justify-items: center; }
 .cp-gallery figure { margin: 0; text-align: center; }
 .cp-gallery img { max-width: 100%; height: auto; border-radius: var(--radius); }
-.cp-gallery figcaption { color: var(--muted); font-size: .85rem; margin-top: .35rem; }
+.cp-gallery figcaption { color: var(--muted); font-size: var(--font-size-ui); margin-top: .35rem; }
 .cp-links { list-style: none; padding: 0; margin: 0; display: grid; border-top: 1px solid var(--border); }
 /* The stack's gap plus this margin: the same distance from the header rule as a wiki page. */
 article.stack > .page-header { margin-bottom: .5rem; }

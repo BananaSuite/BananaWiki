@@ -34,7 +34,7 @@ def _fields_form(target: dict[str, Any], action: str, back: str, *, admin_view: 
     )
 
 
-# ── Account owners ───────────────────────────────────────────────────────────
+# Account owners
 
 
 @bp.route("/settings/profile-fields", methods=["GET", "POST"])
@@ -73,7 +73,7 @@ def delete_own():
     return redirect(url_for("users.settings"))
 
 
-# ── Administrators: one account ──────────────────────────────────────────────
+# Administrators: one account
 
 
 @bp.route("/admin/users/<user_id>/profile", methods=["GET", "POST"])
@@ -145,7 +145,7 @@ def admin_tags(user_id: str):
     return redirect(url_for("user_profiles.admin_profile", user_id=target["id"]))
 
 
-# ── Administrators: field definitions ────────────────────────────────────────
+# Administrators: field definitions
 
 
 @bp.route("/admin/profile-fields", methods=["GET", "POST"])

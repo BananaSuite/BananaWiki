@@ -3,12 +3,10 @@
 Every change stores a snapshot of the board's structure (title, description,
 columns with their WIP limit, tickets with their fields, assignees,
 checklist and ``"archived": true`` for archived tickets, which follow the
-active ones of their column) in
-``kanban_board_history``. 1.6 snapshots carry column and ticket ids; 1.4
-snapshots only titles.
+active ones of their column) in ``kanban_board_history``. Snapshots carry
+column and ticket ids; those written by 1.4 carry only titles.
 
-Reverting (unlike 1.4, which deleted every column and rebuilt the board, so
-comments, attachments and description history were lost):
+Reverting keeps comments, attachments and description history:
 
 * columns and tickets are matched to the snapshot by id, or by title for 1.4
   snapshots, and get the snapshot's titles, fields, assignees and positions
@@ -203,7 +201,7 @@ def previous_state(board_id: int, entry_id: int) -> dict[str, Any] | None:
     return None if raw is None else decode(raw)
 
 
-# ── Differences between two snapshots ─────────────────────────────────────────
+# Differences between two snapshots
 
 Change = tuple[str, dict[str, Any]]  # translation key and its values
 _TICKET_FIELDS = ("title", "description", "priority", "due_date", "color", "labels", "assignee_usernames")
@@ -289,7 +287,7 @@ def clear(board_id: int) -> int:
     return db.execute("DELETE FROM kanban_board_history WHERE board_id = ?", (board_id,)).rowcount
 
 
-# ── Revert ────────────────────────────────────────────────────────────────────
+# Revert
 
 
 class _Matcher:

@@ -43,7 +43,7 @@ def set_settings(db, **values):
         db.execute(f"UPDATE site_settings SET {name} = ? WHERE id = 1", (value,))
 
 
-# ── Global access ────────────────────────────────────────────────────────────
+# Global access
 
 
 def test_default_access_is_admin_only(app, admin_client, board, make_user, login):
@@ -132,6 +132,40 @@ def test_access_change_revokes_role_shares_and_assignees(app, admin_client, db, 
     assert db.scalar("SELECT assigned_to FROM kanban_tickets WHERE id = ?", (ticket["id"],)) is None
 
 
+def test_revert_drops_assignees_who_lost_access(app, admin_client, db, board, make_user, login):
+    set_settings(db, kanban_access="all")
+    bob = make_user("bob")
+    admin_client.post(f"/kanban/{board}/share", data={"action": "set_visibility", "visibility": "private"})
+    admin_client.post(f"/kanban/{board}/share", data={"action": "add_user", "user_id": bob["id"],
+                                                        "access_level": "write"})
+    ticket = new_ticket(admin_client, columns(admin_client, board)[0]["id"], assignees=[bob["id"]])
+    assert [a["id"] for a in ticket["assignees"]] == [bob["id"]]
+    target = db.scalar("SELECT MAX(id) FROM kanban_board_history WHERE board_id = ?", (board,))
+    admin_client.post(f"/kanban/{board}/share", data={"action": "remove_user", "user_id": bob["id"]})
+    assert admin_client.post(f"/kanban/{board}/revert/{target}").status_code == 302
+    assert as_client(app, login, bob).get(f"/kanban/{board}").status_code == 404
+    assert db.scalar("SELECT COUNT(*) FROM kanban_ticket_assignees WHERE ticket_id = ?", (ticket["id"],)) == 0
+    assert db.scalar("SELECT assigned_to FROM kanban_tickets WHERE id = ?", (ticket["id"],)) is None
+
+
+def test_transfer_unassigns_a_former_owner_who_lost_access(app, db, make_user, login):
+    set_settings(db, kanban_access="all", kanban_write_access="all")
+    alice_user = make_user("alice", role="editor")
+    carol = make_user("carol", role="editor")
+    alice = as_client(app, login, alice_user)
+    kept = board_id_from(alice.post("/kanban/create", data={"title": "Public"}))
+    hidden = board_id_from(alice.post("/kanban/create", data={"title": "Private"}))
+    alice.post(f"/kanban/{hidden}/share", data={"action": "set_visibility", "visibility": "private"})
+    tickets = {board_id: new_ticket(alice, columns(alice, board_id)[0]["id"], assignees=[alice_user["id"]])
+               for board_id in (kept, hidden)}
+    for board_id in (kept, hidden):
+        alice.post(f"/kanban/{board_id}/share", data={"action": "transfer_ownership", "user_id": carol["id"]})
+    assert alice.get(f"/kanban/{hidden}").status_code == 404
+    assigned = {board_id: db.column("SELECT user_id FROM kanban_ticket_assignees WHERE ticket_id = ?",
+                                    (ticket["id"],)) for board_id, ticket in tickets.items()}
+    assert assigned == {kept: [alice_user["id"]], hidden: []}
+
+
 def test_feature_switch_hides_everything(app, admin_client, board):
     with app.test_request_context(), connection_scope():
         registry.set_enabled("kanban", False)
@@ -154,7 +188,7 @@ def test_public_mode_visitors_read_public_boards(app, admin_client, db, board):
     assert visitor.get(f"/kanban/{board}").status_code == 302
 
 
-# ── Boards, columns, tickets ─────────────────────────────────────────────────
+# Boards, columns, tickets
 
 
 def test_board_crud_and_validation(admin_client, board, db):
@@ -214,7 +248,7 @@ def test_description_history_and_diff(admin_client, board):
 
 
 def test_description_diff_is_bounded(admin_client, board):
-    """R-04: ndiff took about a minute on a description of one line repeated."""
+    """A description of one line repeated diffs within the work budget."""
     column_id = columns(admin_client, board)[0]["id"]
     ticket = new_ticket(admin_client, column_id)
     admin_client.put(f"/api/kanban/tickets/{ticket['id']}", json={"description": "ab\n" * 3333})
@@ -286,7 +320,7 @@ def test_board_order_is_per_user_and_validated(app, admin_client, db, board):
     assert db.scalar("SELECT list_order_version FROM site_settings") == 0  # not shared with canvas
 
 
-# ── IDOR ─────────────────────────────────────────────────────────────────────
+# IDOR
 
 
 def test_objects_of_hidden_boards_are_unreachable(app, admin_client, db, make_user, login):

@@ -32,7 +32,7 @@ def _touch_card(board_id: int, ticket_id: int, user_id: str | None) -> None:
         events.append(board_id, "ticket_upsert", {"ticket": card, "columns": {}}, user_id)
 
 
-# ── Comments ──────────────────────────────────────────────────────────────────
+# Comments
 
 _COMMENT_SELECT = (
     "SELECT c.*, u.username AS author_name FROM kanban_ticket_comments c LEFT JOIN users u ON u.id = c.user_id"
@@ -118,7 +118,7 @@ def delete_comment(ticket: dict[str, Any], comment: dict[str, Any], user: dict[s
         _touch_card(ticket["board_id"], ticket["id"], user["id"])
 
 
-# ── Attachments ───────────────────────────────────────────────────────────────
+# Attachments
 
 
 def attachments(ticket_id: int) -> list[dict[str, Any]]:
@@ -185,7 +185,7 @@ def sweep_orphan_files(min_age_seconds: int = 3600) -> int:
     return removed
 
 
-# ── Description history ───────────────────────────────────────────────────────
+# Description history
 
 
 def description_history(ticket_id: int) -> list[dict[str, Any]]:

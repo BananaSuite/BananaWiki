@@ -84,7 +84,7 @@ class PageAudio:
     in_flight: bool
 
 
-# ── Reading ───────────────────────────────────────────────────────────────────
+# Reading
 
 
 def generation(page_id: int) -> dict[str, Any] | None:
@@ -131,7 +131,7 @@ def serialize(row: dict[str, Any] | None, *, usable: bool = False) -> dict[str, 
     }
 
 
-# ── Queueing ──────────────────────────────────────────────────────────────────
+# Queueing
 
 
 def _chosen_language(language: str | None) -> str | None:
@@ -242,7 +242,7 @@ def queue_state(user: dict[str, Any] | None) -> str | None:
     return _limit_reason(manual_limits(), user["id"] if user else None)
 
 
-# ── Removing ──────────────────────────────────────────────────────────────────
+# Removing
 
 
 def folder() -> Path:
@@ -302,7 +302,7 @@ def clear_all() -> int:
     return int(count)
 
 
-# ── Page events ───────────────────────────────────────────────────────────────
+# Page events
 
 
 def on_page_created(page: dict[str, Any], author_id: str | None = None, **_: Any) -> None:
@@ -343,7 +343,7 @@ def _queue_quietly(page: dict[str, Any] | None, requested_by: str | None) -> boo
         return False
 
 
-# ── Admin ─────────────────────────────────────────────────────────────────────
+# Admin
 
 _CANDIDATES = (
     "FROM pages p LEFT JOIN tts_generations g ON g.page_id = p.id "
@@ -422,7 +422,7 @@ def retry_failed(requested_by: str | None) -> int:
     return sum(1 for row in rows if retry(row, requested_by))
 
 
-# ── Worker side ───────────────────────────────────────────────────────────────
+# Worker side
 
 
 _RUNNABLE = "g.status = 'pending' AND (g.not_before IS NULL OR g.not_before <= ?)"
@@ -604,7 +604,7 @@ def process(job: Job, synthesizer: backends.Synthesizer) -> str:
     return "completed"
 
 
-# ── Maintenance ───────────────────────────────────────────────────────────────
+# Maintenance
 
 
 def sweep() -> dict[str, int]:

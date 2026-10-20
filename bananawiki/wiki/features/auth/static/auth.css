@@ -2,7 +2,7 @@
 .auth-apps { list-style: none; margin: 0; padding: 0; display: grid; gap: .75rem;
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); grid-auto-rows: 1fr; }
 .auth-apps > li { display: flex; }
-.auth-apps__item { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: .25rem; padding: 1rem; border-radius: .5rem;
+.auth-apps__item { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: .25rem; padding: 1rem; border-radius: var(--radius);
   border: 1px solid color-mix(in srgb, var(--bw-text) 18%, transparent); text-decoration: none; color: inherit; }
 .auth-apps__name { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
 .auth-apps__icon { display: inline-flex; color: var(--muted); }
@@ -13,8 +13,8 @@
 .auth-apps__item:hover, .auth-apps__item:focus-visible { border-color: var(--bw-accent); }
 
 .tour-figure { margin: 0; }
-.tour-mock { border: 1px solid color-mix(in srgb, var(--bw-text) 20%, transparent); border-radius: .5rem;
-  overflow: hidden; font-size: .85rem; background: var(--bw-bg); user-select: none; }
+.tour-mock { border: 1px solid color-mix(in srgb, var(--bw-text) 20%, transparent); border-radius: var(--radius);
+  overflow: hidden; font-size: var(--font-size-ui); background: var(--bw-bg); user-select: none; }
 .tour-mock__topbar { display: flex; gap: .5rem; padding: .5rem .75rem; background: var(--bw-secondary); }
 .tour-mock__spacer { flex: 1; }
 .tour-mock__body { display: flex; min-height: 11rem; }
@@ -22,22 +22,25 @@
   display: flex; flex-direction: column; gap: .35rem; }
 /* On a phone the mock's main column has room to spare: the sidebar takes half, so its labels fit. */
 @media (max-width: 30rem) { .tour-mock__sidebar { width: 50%; } }
-.tour-mock__search, .tour-mock__row, .tour-mock__button, .tour-mock__box { padding: .3rem .5rem; border-radius: .3rem;
+.tour-mock__search, .tour-mock__row, .tour-mock__button, .tour-mock__box { padding: .3rem .5rem; border-radius: var(--radius-sm);
   border: 1px solid color-mix(in srgb, var(--bw-text) 15%, transparent); }
 /* Sidebar rows: padded like the other mock rows (a highlight never touches the text). A label that does
    not fit wraps instead of being cut: the highlighted row is the very thing a step points at. */
-.tour-mock__item { padding: .15rem .5rem; border-radius: .3rem; overflow-wrap: break-word; }
+.tour-mock__item { padding: .15rem .5rem; border-radius: var(--radius-sm); overflow-wrap: break-word; }
 .tour-mock__item--child { padding-left: 1.5rem; }
-.tour-mock__apps { margin-top: auto; display: flex; flex-direction: column; gap: .15rem; padding: .25rem 0; border-radius: .3rem; }
+.tour-mock__item--folder { display: flex; align-items: center; gap: .4rem; }
+.tour-mock__item--folder::before { content: ""; width: .3rem; height: .3rem; flex: 0 0 auto; border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor; opacity: .7; transform: rotate(45deg); }
+.tour-mock__apps { margin-top: auto; display: flex; flex-direction: column; gap: .15rem; padding: .25rem 0; border-radius: var(--radius-sm); }
 .tour-mock__label { padding: 0 .5rem; font-size: .8em; color: var(--muted); }
 .tour-mock__main { flex: 1; padding: .75rem; display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
 .tour-mock__title { font-weight: 600; }
-.tour-mock__line { height: .5rem; border-radius: .25rem; background: color-mix(in srgb, var(--bw-text) 15%, transparent); }
+.tour-mock__line { height: .5rem; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--bw-text) 15%, transparent); }
 .tour-mock__line--short { width: 60%; }
 .tour-mock__box { min-height: 3rem; font-family: monospace; }
 .tour-mock__button { align-self: flex-start; }
 .tour-mock__hl { outline: 2px solid var(--bw-accent); outline-offset: 1px; }
-.tour-mock__topbar > span { padding: .05rem .35rem; border-radius: .25rem; display: inline-flex; align-items: center; gap: .35rem; }
+.tour-mock__topbar > span { padding: .05rem .35rem; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: .35rem; }
 .tour-mock__avatar { width: .9rem; height: .9rem; border-radius: 50%; background: var(--bw-primary); }
 .tour-figure figcaption { margin-top: .5rem; }
 .tour .progress { margin: 0; }
@@ -49,19 +52,19 @@
 /* Two-step verification: set-up steps, QR code (white quiet zone included), key and recovery codes. */
 .two-step-steps { margin: 0; padding-left: 1.25rem; display: grid; gap: 1rem; }
 .two-step-qr { display: block; width: 13rem; max-width: 100%; height: auto; image-rendering: pixelated;
-  border-radius: .25rem; margin-bottom: .75rem; }
+  border-radius: var(--radius-sm); margin-bottom: .75rem; }
 .two-step-code { max-width: 14rem; }
-/* The way back from the code step is a ghost button whose text lines up with the field label above it. */
-.two-step-cancel .btn { margin-inline-start: calc(-.625rem - 1px); }
 .form-section > .hint + .form { margin-top: .75rem; }
-.two-step-key { font-size: 1.05rem; letter-spacing: .05em; word-spacing: .2em; }
-.two-step-codes { list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem 1.5rem; font-size: 1.1rem;
+.two-step-key { font-size: var(--font-size-lg); letter-spacing: .05em; word-spacing: .2em; }
+.two-step-codes { list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem 1.5rem; font-size: var(--font-size-lg);
   grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); }
 
 /* Onboarding wizard: one box per first account; the guide options follow their checkbox. */
-.onboarding-account legend { font-size: .9rem; }
+.onboarding-account legend { font-size: var(--font-size-ui); }
 /* A section's intro hint keeps the same gap from what follows as the other blocks of the wizard. */
 [data-onboarding] .card > h2 + p.hint { margin-bottom: 1.1rem; }
 .onboarding-docs { border: 0; padding: 0; margin: 0; min-width: 0; }
 .onboarding-docs:disabled { opacity: .6; }
 fieldset[data-feature-list]:disabled { opacity: .7; }
+/* "Recommended" ignores the feature list: it is shown only for "Choose the features". */
+form[data-onboarding]:has(input[name="mode"][value="easy"]:checked) [data-feature-list] { display: none; }

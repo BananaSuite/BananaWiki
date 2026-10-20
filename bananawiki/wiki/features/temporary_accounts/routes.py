@@ -58,8 +58,13 @@ def _run(action, success_key: str, **values: Any):
 @bp.get("/admin/temporary")
 @auth.admin_required
 def overview():
+    items = service.overview()
+    me = auth.current_user()
+    for row in items["users"] + items["roles"]:
+        target = accounts.by_id(row["user_id"])
+        row["removable"] = target is None or service.removal_error(target, me) is None
     return render_template(
-        "temporary_accounts/admin.html", items=service.overview(),
+        "temporary_accounts/admin.html", items=items,
         page_choices=db.all("SELECT slug, title FROM pages WHERE is_home = 0 ORDER BY title COLLATE NOCASE LIMIT ?",
                             (PICKER_LIMIT,)),
         user_choices=db.all("SELECT username, role FROM users WHERE role != 'owner' ORDER BY username COLLATE NOCASE "
@@ -110,7 +115,12 @@ def schedule_role():
 
 
 def _removed(kind: str, key: Any):
-    if not service.remove(kind, key):
+    try:
+        removed = service.remove(kind, key, actor=auth.current_user())
+    except TemporaryError as exc:
+        flash(t(exc.key, **exc.values), "error")
+        return _back()
+    if not removed:
         abort(404)
     auth.flash_t("temporary_accounts.removed", "success")
     return _back()

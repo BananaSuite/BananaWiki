@@ -35,7 +35,7 @@
       <td class="actions"><div class="cluster">
         <a class="btn btn--small" href="{{ url_for('custom_pages.admin_edit', page_id=p.id) }}">{{ t('common.edit') }}</a>
         {% if builder_page and builder_available %}<a class="btn btn--small" href="{{ url_for('page_builder.custom_editor', page_id=p.id) }}">{{ t('custom_pages.admin.open_builder') }}</a>{% endif %}
-        {{ forms.post_button(url_for('custom_pages.admin_delete', page_id=p.id), t('common.delete'), cls='btn btn--small btn--danger', confirm=t('custom_pages.admin.delete_confirm')) }}
+        {{ forms.post_button(url_for('custom_pages.admin_delete', page_id=p.id), t('common.delete'), cls='btn btn--small btn--danger-quiet', confirm=t('custom_pages.admin.delete_confirm')) }}
       </div></td>
     </tr>
     {% endfor %}

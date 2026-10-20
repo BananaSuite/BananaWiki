@@ -9,7 +9,7 @@
     <button type="button" class="btn btn--ghost btn--small" data-md="h2">{{ t('pages.editor.heading2') }}</button>
     <button type="button" class="btn btn--ghost btn--small" data-md="ul">{{ t('pages.editor.bullets') }}</button>
     <details class="menu">
-      <summary class="btn btn--ghost btn--small">{{ t('pages.editor.more_formatting') }} <span aria-hidden="true">▾</span></summary>
+      <summary class="btn btn--ghost btn--small menu__toggle">{{ t('pages.editor.more_formatting') }}</summary>
       <div class="menu__panel">
         {% for action, label in [
           ('h3', 'pages.editor.heading3'), ('ol', 'pages.editor.numbers'), ('task', 'pages.editor.tasks'),
@@ -27,7 +27,7 @@
     {#- Uploads a picture, or opens the options of the one at the cursor. -#}
     <button type="button" class="btn btn--ghost btn--small" data-md="image" title="{{ t('pages.editor.image_title' if can_upload else 'pages.editor.image_title_edit') }}">{{ t('pages.editor.image') }}</button>
     <details class="menu">
-      <summary class="btn btn--ghost btn--small">{{ t('pages.editor.insert') }} <span aria-hidden="true">▾</span></summary>
+      <summary class="btn btn--ghost btn--small menu__toggle">{{ t('pages.editor.insert') }}</summary>
       <div class="menu__panel">
         <button type="button" data-dialog-open="dlg-table" data-md-dialog="table">{{ t('pages.editor.table') }}</button>
         <button type="button" data-dialog-open="dlg-video" data-md-dialog="video">{{ t('pages.editor.video') }}</button>

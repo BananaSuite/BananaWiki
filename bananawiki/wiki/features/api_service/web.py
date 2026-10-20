@@ -42,7 +42,7 @@ def _offered_scopes(user: dict[str, Any]) -> list[str]:
             and (scope not in FEATURE_SCOPES or is_enabled(FEATURE_SCOPES[scope]))]
 
 
-# ── Personal tokens ───────────────────────────────────────────────────────────
+# Personal tokens
 
 
 def _with_issuers(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -176,7 +176,7 @@ def account_settings_section() -> str:
                            has_access=tokens.has_api_access(user), token_count=tokens.count_active(user["id"]))
 
 
-# ── Administration ────────────────────────────────────────────────────────────
+# Administration
 
 
 def _admin_redirect(anchor: str | None = None):
@@ -192,7 +192,7 @@ def _admin_page(*, new_secret: dict[str, Any] | None = None, status: int = 200):
         service=tokens.service_settings(),
         tokens=token_rows,
         users=users,
-        entries=audit.entries(limit=AUDIT_PAGE_SIZE),
+        entries=audit.entries_for(auth.real_user(), limit=AUDIT_PAGE_SIZE),
         total_entries=audit.count(),
         bounds={"rate": tokens.RATE_LIMIT_BOUNDS, "tokens": tokens.MAX_TOKENS_BOUNDS,
                 "failures": webhooks.MAX_FAILURES_BOUNDS},
@@ -316,7 +316,7 @@ def admin_clear_audit():
     return _admin_redirect("audit")
 
 
-# ── Webhooks ──────────────────────────────────────────────────────────────────
+# Webhooks
 
 
 def _webhook_or_none(webhook_id: int) -> dict[str, Any] | None:
@@ -411,7 +411,7 @@ def admin_redeliver(webhook_id: int, delivery_id: int):
     return redirect(url_for("api_service.admin_webhook", webhook_id=webhook_id))
 
 
-# ── Guide ─────────────────────────────────────────────────────────────────────
+# Guide
 
 
 @bp.get("/api-docs")

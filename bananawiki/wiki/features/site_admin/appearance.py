@@ -1,7 +1,7 @@
 """Colours, default theme, theme files and the site icon.
 
 Custom icons are stored in the ``favicons`` folder under names starting with
-``custom_`` (``templating.favicon_url`` only serves those). As in 1.4,
+``custom_`` (``templating.favicon_url`` only serves those).
 ``favicon_order`` lists the uploaded icons in display order,
 ``favicon_type``/``favicon_custom`` hold the selection and
 ``favicon_enabled`` decides whether the selection is used at all.
@@ -81,7 +81,7 @@ def default_colors() -> dict[str, str]:
     return {color_column(mode, name): value for mode in MODES for name, value in THEME_DEFAULTS[mode].items()}
 
 
-# ── Theme files (1.4 .bwtheme format) ────────────────────────────────────────
+# Theme files (1.4 .bwtheme format)
 
 
 def theme_payload() -> dict[str, Any]:
@@ -124,7 +124,7 @@ def parse_theme_file(upload: FileStorage | None) -> dict[str, str]:
     return parse_colors(form)
 
 
-# ── Site icon ────────────────────────────────────────────────────────────────
+# Site icon
 
 
 def _stored_order() -> list[str]:

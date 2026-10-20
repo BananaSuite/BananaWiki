@@ -6,7 +6,8 @@ administrators included, is blocked from editing or deleting it. An
 administrator who needs the page back files an unlock request; once
 :data:`UNLOCK_DELAY` has passed the administrator may remove the protection.
 The controller sees the pending request on the page and can release the page
-earlier.
+earlier. Nobody can protect a page that someone else has reserved; an
+administrator releases the reservation first.
 
 Protection lapses on its own when the controller's account is deleted
 (``ON DELETE SET NULL``) or no longer holds an editing role, and it never
@@ -24,6 +25,7 @@ from ...db import db
 from ...permissions import EDITOR_ROLES
 from ...registry import is_enabled
 from ..pages import service as pages
+from . import reservations
 from .errors import GovernanceError
 
 UNLOCK_DELAY = timedelta(hours=72)
@@ -77,8 +79,14 @@ def blocks(page: dict[str, Any], user: dict[str, Any] | None) -> bool:
     return bool(current and not current["is_controller"])
 
 
+def _reserved_by_other(page: dict[str, Any], user: dict[str, Any] | None) -> dict[str, Any] | None:
+    status = reservations.status(page, user)
+    return status["reservation"] if status and status["by_other"] else None
+
+
 def can_protect(page: dict[str, Any], user: dict[str, Any] | None) -> bool:
-    return bool(user) and active() and not page.get("is_home") and pages.can_edit(page, user)
+    return (bool(user) and active() and not page.get("is_home") and pages.can_edit(page, user)
+            and _reserved_by_other(page, user) is None)
 
 
 def protect(page: dict[str, Any], user: dict[str, Any]) -> None:
@@ -94,6 +102,10 @@ def protect(page: dict[str, Any], user: dict[str, Any]) -> None:
             if current["is_controller"]:
                 raise GovernanceError("page_governance.protection.error.already_yours")
             raise GovernanceError("page_governance.protection.error.protected_by", user=current["controller_name"])
+        # administrators too: the holder would otherwise be locked out until the unlock delay ends
+        reservation = _reserved_by_other(page, user)
+        if reservation is not None:
+            raise GovernanceError("page_governance.protection.error.reserved_by", user=reservation["username"])
         pages.set_fields(page["id"], **{**_CLEARED, "protected_by": user["id"], "protected_at": now_sql()})
 
 

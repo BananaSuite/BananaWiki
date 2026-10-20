@@ -53,7 +53,7 @@ def test_without_a_base_domain_the_links_fall_back_to_the_help_centre(tmp_path):
     assert response.status_code == 302 and response.headers["Location"].endswith("/help")
 
 
-# ── An operator's own legal pages (HOSTING_TERMS_URL, HOSTING_PRIVACY_URL) ───
+# An operator's own legal pages (HOSTING_TERMS_URL, HOSTING_PRIVACY_URL)
 
 OWN = {"HOSTING_TERMS_URL": "https://legal.example.org/terms", "HOSTING_PRIVACY_URL": "https://legal.example.org/privacy"}
 OWN_PAGES = {"/terms": OWN["HOSTING_TERMS_URL"], "/privacy": OWN["HOSTING_PRIVACY_URL"],

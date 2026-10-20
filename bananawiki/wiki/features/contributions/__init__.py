@@ -1,8 +1,7 @@
 """Contributions: edits proposed by people who may read a page but not edit it.
 
-The feature is switched by the ``contribution_approval_enabled`` setting (in
-1.4 it also needed the page_governance plugin; migration 4 carries that
-over, see :mod:`.schema`). It hooks into the pages feature through the
+The feature is switched by the ``contribution_approval_enabled`` setting (see
+:mod:`.schema` for how a 1.4 wiki's choice carries over). It hooks into the pages feature through the
 ``page.edit_denied`` interceptor and the page slots.
 """
 

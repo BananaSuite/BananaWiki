@@ -82,6 +82,21 @@ def is_descendant(category_id: int, ancestor_id: int) -> bool:
     return any(c["id"] == ancestor_id for c in ancestors(category_id)[:-1]) or category_id == ancestor_id
 
 
+def subtree_ids(category_id: int) -> set[int]:
+    """*category_id* and every category below it (one query)."""
+    children: dict[int, list[int]] = {}
+    for row in db.all("SELECT id, parent_id FROM categories WHERE parent_id IS NOT NULL"):
+        children.setdefault(row["parent_id"], []).append(row["id"])
+    found = {category_id}
+    pending = [category_id]
+    while pending:
+        for child in children.get(pending.pop(), ()):
+            if child not in found:
+                found.add(child)
+                pending.append(child)
+    return found
+
+
 def listed(category_id: int | None, user: dict[str, Any] | None = None) -> bool:
     """Whether *user* sees *category_id* where categories are listed.
 

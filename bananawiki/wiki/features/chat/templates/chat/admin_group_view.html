@@ -3,10 +3,12 @@
 {% block title %}{{ name }} · {{ t('chat.admin.title') }}{% endblock %}
 {% block admin_head %}<link rel="stylesheet" href="{{ asset_url('chat.css', blueprint='chat') }}">{% endblock %}
 {% block admin_content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('chat.admin_groups') }}">{{ t('chat.admin.title') }}</a></li><li aria-current="page">{{ name }}</li>
+</ol></nav>
 <header class="page-header">
   <h1>{{ name }}</h1>
   <div class="page-header__actions">
-    <a class="btn btn--small" href="{{ url_for('chat.admin_groups') }}">{{ t('common.back') }}</a>
     <a class="btn btn--small" href="{{ url_for('chat.group_view', group_id=group.id) }}">{{ t('chat.admin.moderate') }}</a>
   </div>
 </header>

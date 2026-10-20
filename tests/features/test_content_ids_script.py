@@ -202,7 +202,7 @@ def _sent(result, method, path):
     return [call["body"] for call in result["calls"] if call["method"] == method and call["path"] == path]
 
 
-# ── Kanban ────────────────────────────────────────────────────────────────────
+# Kanban
 
 TICKET_SCRIPT = "features/kanban/static/kanban-ticket.js"
 
@@ -293,7 +293,7 @@ def test_a_board_description_does_not_stop_the_search(app, admin_client, db, mak
     assert result["errors"] == []
 
 
-# ── Core: dialogs and the BW object ───────────────────────────────────────────
+# Core: dialogs and the BW object
 
 
 def test_page_dialogs_open_and_the_core_object_is_the_scripts(client, make_user, login, tmp_path):
@@ -321,7 +321,7 @@ def test_board_menu_dialogs_open_past_the_description(app, admin_client, db, mak
     assert result["errors"] == []
 
 
-# ── Sidebar navigation ────────────────────────────────────────────────────────
+# Sidebar navigation
 
 
 def test_sidebar_navigation_sets_itself_up_once_whatever_the_page_names(client, make_user, login, tmp_path):
@@ -333,7 +333,7 @@ def test_sidebar_navigation_sets_itself_up_once_whatever_the_page_names(client, 
     assert first[0] >= 3 and first[1] == 1 and second == first and result["mark"]
 
 
-# ── Canvas history preview ────────────────────────────────────────────────────
+# Canvas history preview
 
 
 def test_canvas_history_preview_reads_its_own_snapshot(tmp_path):

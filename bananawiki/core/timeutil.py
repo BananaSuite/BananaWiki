@@ -2,8 +2,8 @@
 
 BananaWiki stores timestamps as TEXT in UTC. 1.4 wrote two shapes into the
 same columns: SQLite's ``YYYY-MM-DD HH:MM:SS`` and Python's ISO form
-``YYYY-MM-DDTHH:MM:SS.ffffff+00:00``. 1.6 normalises stored values to the
-SQLite shape (migration 4) and always writes that shape, which sorts and
+``YYYY-MM-DDTHH:MM:SS.ffffff+00:00``. Migration 4 normalises stored values to the
+SQLite shape, and BananaWiki always writes that shape, which sorts and
 compares correctly as text and matches ``datetime('now')`` column defaults.
 
 ``datetime`` ends at the years 1 and 9999, so a value near either end cannot

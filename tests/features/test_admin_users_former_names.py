@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
 """Former user names stay reserved for their account until an administrator releases them."""
 
 from __future__ import annotations

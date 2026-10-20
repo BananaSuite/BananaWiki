@@ -57,6 +57,7 @@
   "federation.error.share_limit": "This wiki's shared-page limit has been reached.",
   "federation.error.share_missing": "Share not found.",
   "federation.error.snapshot": "The other wiki sent an invalid snapshot.",
+  "federation.error.snapshot_full": "The pages already shared with this wiki fill the 8 MiB that one synchronisation can carry.",
   "federation.error.sync_failed": "Synchronisation failed; check the pairing, clocks, network and the other wiki.",
   "federation.error.too_large": "Shared pages are limited to 128 KiB and titles to 300 characters.",
   "federation.error.wiki_id": "Use the wiki ID shown on the other wiki's federation page.",

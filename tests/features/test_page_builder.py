@@ -48,7 +48,7 @@ def fresh(db, page):
     return db.one("SELECT * FROM pages WHERE id = ?", (page["id"],))
 
 
-# ── Validation ────────────────────────────────────────────────────────────────
+# Validation
 
 
 def test_validation_rejects_active_content(app):
@@ -111,7 +111,7 @@ def test_markdown_twin(app):
     assert "https://www.youtube.com/watch?v=dQw4w9WgXcQ" in text
 
 
-# ── Access (audit #7: the builder is not a second, weaker edit path) ─────────
+# Access (the builder is not a second, weaker edit path)
 
 
 def test_disabled_by_default(admin_client, page):
@@ -178,7 +178,7 @@ def test_edit_blocked_interceptor_honoured(builder_on, admin_client, db, page):
     assert fresh(db, page)["builder_json"] == ""
 
 
-# ── Editor, drafts, publishing ────────────────────────────────────────────────
+# Editor, drafts, publishing
 
 
 def test_editor_renders_existing_markdown_as_text_block(builder_on, admin_client, page):
@@ -294,7 +294,7 @@ def test_image_upload(builder_on, admin_client, page):
     assert bad.status_code == 400
 
 
-# ── Rendering on the page (page.render interceptor) ───────────────────────────
+# Rendering on the page (page.render interceptor)
 
 
 def test_page_render_interceptor(builder_on, admin_client, app, db, page):
@@ -352,7 +352,7 @@ def test_settings_page_admin_only(builder_on, client, make_user, login):
     assert client.get("/admin/page-builder").status_code == 403
 
 
-# ── Links to a renamed page, mentions of a merged account ─────────────────────
+# Links to a renamed page, mentions of a merged account
 
 LINKING = {"version": 2, "blocks": [
     {"type": "hero", "title": "Start here", "button_label": "Read the guide", "button_url": "/page/guide"},
@@ -433,3 +433,20 @@ def test_merged_mentions_keep_builder_pages_current(builder_on, admin_client, ap
         assert service.rewrite_mentions("src", "@target") == 1
     assert json.loads(fresh(db, page)["builder_json"])["blocks"][1]["text"] == "Ask @target, not @srcbot."
     assert b"builder-section--hero" in admin_client.get(f"/page/{page['slug']}").data
+
+
+def test_publishing_cannot_rename_without_edit_metadata(app, client, db, make_user, login):
+    from bananawiki.wiki import permissions
+    from tests.features.pages_support import make_page, restrict
+
+    db.execute("UPDATE site_settings SET page_builder_enabled = 1, page_builder_access = 'editor' WHERE id = 1")
+    page = make_page(app, "Landing", "text")
+    editor = make_user("builder_ed", role="editor")
+    restrict(db, editor, keys=permissions.defaults("editor") - {"page.edit_metadata"})
+    login(client, editor)
+    body = {"document": {"version": 1, "blocks": [{"type": "text", "text": "new"}]},
+            "base_revision": page["revision"], "title": "Renamed"}
+    response = client.post(f"/api/page/{page['slug']}/builder/publish", json=body)
+    assert response.status_code == 200, response.data
+    row = db.one("SELECT title, content FROM pages WHERE id = ?", (page["id"],))
+    assert row["title"] == "Landing" and "new" in row["content"]

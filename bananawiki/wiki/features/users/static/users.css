@@ -4,7 +4,7 @@
   padding: .25rem 0 1.5rem; border-bottom: 1px solid var(--border); }
 .users-profile__meta { flex: 1 1 16rem; min-width: 0; }
 .users-profile__meta h1 { margin: 0 0 .15rem; overflow-wrap: anywhere; }
-.users-profile__name { margin: 0 0 .5rem; color: var(--muted); font-size: 1.05rem; }
+.users-profile__name { margin: 0 0 .5rem; color: var(--muted); font-size: var(--font-size-lg); }
 .users-profile__bio { white-space: pre-line; overflow-wrap: anywhere; }
 .users-profile > section { padding: 1.25rem 0; border-bottom: 1px solid var(--border); }
 /* The footer draws the last rule. */
@@ -17,7 +17,7 @@
 .users-contributions li:last-child { border-bottom: 0; }
 .users-contributions__body { display: grid; gap: .15rem; min-width: 0; }
 .users-contributions__body > a { font-weight: 500; }
-.users-contributions__body > .muted { font-size: .87rem; }
+.users-contributions__body > .muted { font-size: var(--font-size-ui); }
 .users-contributions__date { flex: 0 0 auto; text-align: right; }
 @media (max-width: 600px) {
   .users-contributions li { flex-direction: column; }
@@ -39,7 +39,11 @@
 .users-display > section > .check { margin-top: 0; }
 .users-display > .users-display__save { border-bottom: 0; }
 .users-display__advanced { border-top: 0; }
+/* An override that is switched off shows its swatch dimmed: the grey placeholder is not a chosen colour. */
+.users-display .field:has(input[type="checkbox"]:not(:checked)) input[type="color"] { opacity: .4; }
 .users-display__advanced > summary .hint { display: block; margin: .2rem 0 0; font-weight: 400; }
+/* The chevron stays on the title line, not between the title and its hint. */
+.users-display__advanced > summary::before { align-self: flex-start; margin-top: calc((var(--line-height) * 1em - .375rem) / 2); }
 .users-display__advanced > section:last-child { border-bottom: 0; padding-bottom: .25rem; }
 .users-display__background > form { max-width: 38rem; }
 @media (max-width: 700px) {
@@ -85,7 +89,7 @@ a.users-member__identity:hover strong, a.users-member__identity:focus-visible st
 
 /* Custom profile fields (user_profiles feature). */
 .profiles-fields { display: grid; gap: .6rem 1.5rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); margin: 0; }
-.profiles-fields dt { font-size: .8rem; color: var(--muted); font-weight: 600; }
+.profiles-fields dt { font-size: var(--font-size-sm); color: var(--muted); font-weight: 600; }
 .profiles-fields dd { margin: 0; overflow-wrap: anywhere; }
 .profiles-value { white-space: pre-line; }
 /* Session facts read as a list: "Signed in … · Active … · IP … · Method …". */

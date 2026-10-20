@@ -96,7 +96,7 @@ class DatabaseCopy:
     sha256: str
 
 
-# ── Member names ──────────────────────────────────────────────────────────────
+# Member names
 
 
 def unsafe_name(name: str) -> bool:
@@ -120,7 +120,7 @@ def storable_name(name: str) -> bool:
     return 0 < size <= MAX_NAME_BYTES and not unsafe_name(name)
 
 
-# ── Writing ───────────────────────────────────────────────────────────────────
+# Writing
 
 
 def zip_time(mtime: float) -> tuple[int, int, int, int, int, int]:
@@ -274,45 +274,30 @@ def member_cost(member: str, size: int) -> int:
 def add_tenant_tree(archive: zipfile.ZipFile, root: Path, prefix: str, settings: ArchiveSettings, *,
                     portable: bool, reserved: Iterable[str] = (), directories: Iterable[str] = (),
                     budget: int | None = None, links: list[str] | None = None) -> list[str]:
-    """Add a tenant's files below *prefix*; returns the files it left out.
+    """Add a tenant's files below *prefix*; return the tenant paths of the files left out.
 
-    *portable* (exports): the asset folders (:data:`tenantfs.ASSET_FOLDERS`)
-    are flattened from ``storage/<name>`` to ``<name>``; anything else below
-    ``storage/`` keeps its path. ``storage/`` is walked first, so where a
-    top-level asset folder (a tenant can replace the ``<name>`` link with a
-    folder of its own) holds a file ``storage/<name>`` holds too, the
-    ``storage/`` copy is the one exported, as :meth:`duplicate` prefers it.
-    Hidden folders and secrets are left out. Otherwise (platform backups)
-    the tree is kept as it is, including the tenant's ``.secret_key`` so
-    sessions survive a restore.
+    * *portable* (exports): the asset folders (:data:`tenantfs.ASSET_FOLDERS`)
+      are flattened from ``storage/<name>`` to ``<name>``, and hidden folders
+      and secrets are left out. ``storage/`` is walked first, so its copy wins
+      when a top-level asset folder holds the same file. Platform backups
+      (not portable) keep the tree as it is, ``.secret_key`` included, so
+      sessions survive a restore.
+    * *reserved* names the members the caller writes itself (the database
+      copy, the manifest); *directories* the member paths a reader needs as
+      folders.
+    * One member an import or restore refuses fails all of it, so these
+      files are left out: names :func:`storable_name` rejects; duplicates;
+      a file where a folder or reserved member goes, or the reverse; files
+      in a folder named like the database or its journals; and, in exports,
+      paths an import would map onto the wiki's own files
+      (:data:`ALIAS_PREFIXES`).
+    * *links*, when given, collects the further hard links to a file already
+      archived, which are left out. *budget* bounds what the files add to the
+      archive, each at its apparent size (:func:`member_cost`): the walk
+      stops before a file that would exceed it with a ``too_large``
+      :class:`RuntimeFailure`.
 
-    *reserved* names the members the caller writes itself (the database
-    copy, the manifest), *directories* the member paths a reader needs as
-    folders (the layout a restore prepares). A tenant can create any file
-    name, and one member that an import or restore refuses fails all of
-    it, so a file is left out when its name an archive cannot hold or a
-    reader would refuse (see :func:`storable_name`), when it would turn up
-    twice or as both a file and a folder, a reserved member or directory
-    included, or when it lies in a folder named like the database or its
-    journals (a wiki that swapped its database for a folder once the copy
-    was taken). An export also leaves out the files an import would take
-    for the wiki's own: below a top-level ``assets/`` folder, or below
-    ``storage/`` but outside its asset folders, such as
-    ``storage/translations/xx.json`` or ``storage/favicons/custom_*`` (see
-    :data:`ALIAS_PREFIXES`): next to the file it names it would turn up
-    twice, or as both a file and a folder, once imported. Such paths no
-    import maps (``storage/storage/...``) are kept, and ignored by imports.
-    The tenant paths of the files left out are returned, as text a page can
-    show; the caller decides what an archive without them is worth.
-
-    A tenant's files can cost an archive far more than they cost the
-    tenant's storage quota: a sparse file takes its full length, every hard
-    link to a file a full copy. *links*, when given, collects the further
-    links to a file already archived, which are left out: each file goes in
-    once, whatever number of names it has. *budget* bounds what the files
-    add to the archive (see :func:`member_cost`, each file at its apparent
-    size): the walk stops before a file that would exceed it, with a
-    ``too_large`` :class:`RuntimeFailure`.
+    The caller decides what an archive without the left-out files is worth.
     """
     refused: list[str] = []
     files = set(reserved)
@@ -393,7 +378,7 @@ def export(root: Path, snapshot: DatabaseCopy, destination_dir: Path, slug: str,
     manifest = {"format_version": FORMAT_VERSION, "source": "hosting", "exported_at": datetime.now(UTC).isoformat(),
                 "has_raw_db": True, "has_site_export_json": False, "original_subdomain": slug,
                 "bananawiki_version": __version__}
-    # Opening before the cleanup scope ensures a name collision cannot delete
+    # Opening before the cleanup scope means a name collision cannot delete
     # someone else's completed export.
     archive = zipfile.ZipFile(path, "x", zipfile.ZIP_DEFLATED, compresslevel=settings.export_compress_level,
                               allowZip64=True)
@@ -424,7 +409,7 @@ def export(root: Path, snapshot: DatabaseCopy, destination_dir: Path, slug: str,
     return path
 
 
-# ── Reading ───────────────────────────────────────────────────────────────────
+# Reading
 
 
 def _layout_prefix(names: set[str]) -> str:

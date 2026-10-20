@@ -3,12 +3,13 @@
 ::
 
     python -m bananawiki.desktop                          open the window
-    python -m bananawiki.desktop serve --data-dir DIR [--port N] [--lan] [--language it]
+    python -m bananawiki.desktop serve --data-dir DIR [--port N] [--lan] [--language it] [--allow-plugins]
     python -m bananawiki.desktop backup --data-dir DIR --output FILE.zip
     python -m bananawiki.desktop restore --data-dir DIR FILE.zip
 
-``serve`` listens on this computer only unless ``--lan`` is given. The
-packaged app accepts the same commands (the CI smoke test uses ``serve``).
+``serve`` listens on this computer only unless ``--lan`` is given, and loads
+no third-party plugin unless ``--allow-plugins`` is given. The packaged app
+accepts the same commands (the CI smoke test uses ``serve``).
 """
 
 from __future__ import annotations
@@ -38,6 +39,8 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("--lan", action="store_true", help="let other devices on the local network connect")
     serve.add_argument("--language", choices=sorted(i18n.LANGUAGES), default=i18n.DEFAULT_LANGUAGE)
     serve.add_argument("--backend", choices=("waitress", "gunicorn"), default=None)
+    serve.add_argument("--allow-plugins", action="store_true",
+                       help="load the third-party plugins the wiki has enabled (they run with your rights)")
     save = commands.add_parser("backup", help="write a ZIP backup of a data folder")
     save.add_argument("--data-dir", required=True)
     save.add_argument("--output", required=True)
@@ -49,7 +52,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def _serve(args: argparse.Namespace) -> int:
     server = WikiServer(DataFolder(args.data_dir), share_on_lan=args.lan, port=args.port,
-                        language=args.language, backend=args.backend)
+                        language=args.language, backend=args.backend, allow_plugins=args.allow_plugins)
     info = server.start()
     stop = threading.Event()
     for name in ("SIGINT", "SIGTERM"):

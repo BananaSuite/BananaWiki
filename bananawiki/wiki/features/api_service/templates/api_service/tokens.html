@@ -74,8 +74,8 @@
       <td data-label="{{ t('api_service.tokens.access') }}">{{ t('api_service.tokens.read_write') if token.grant.write else t('api_service.tokens.read_only_badge') }}</td>
       <td class="nowrap" data-label="{{ t('api_service.tokens.last_used') }}">{{ token.last_used_at|time_ago if token.last_used_at else t('common.never') }}</td>
       <td class="nowrap" data-label="{{ t('api_service.tokens.expires') }}">{{ token.expires_at|datetime if token.expires_at else t('common.never') }}</td>
-      {% set revoke_confirm = t('api_service.tokens.revoke_confirm_issued', count=token.issued) if token.issued else t('api_service.tokens.revoke_confirm') %}
-      <td class="actions">{{ forms.post_button(url_for('api_service.revoke_token', token_id=token.id), t('api_service.tokens.revoke'), cls='btn btn--small btn--danger', confirm=revoke_confirm) }}</td>
+      {% set revoke_confirm = tn('api_service.tokens.revoke_confirm_issued', token.issued) if token.issued else t('api_service.tokens.revoke_confirm') %}
+      <td class="actions">{{ forms.post_button(url_for('api_service.revoke_token', token_id=token.id), t('api_service.tokens.revoke'), cls='btn btn--small btn--danger-quiet', confirm=revoke_confirm) }}</td>
     </tr>
     {% endfor %}
     </tbody>
@@ -95,8 +95,7 @@
   {% endif %}
   {% set lock = user.userbot_mode_lock or 'unlocked' %}
   {% if lock == 'force_enabled' %}<p class="hint">{{ t('api_service.userbot.locked_on') }}</p>{% endif %}
-  {% if lock == 'force_disabled' %}<p class="hint">{{ t('api_service.userbot.locked_off') }}</p>{% endif %}
-  {#- The state as a badge, like two-step verification; a gap from the hint above. -#}
+  {% if lock == 'force_disabled' %}<p class="hint">{{ t('api_service.userbot.locked_off') }}</p>{% endif -%}
   <p class="users-spaced">{% if user.userbot_enabled %}<span class="badge badge--success">{{ t('api_service.userbot.state_on') }}</span>{% else %}<span class="badge">{{ t('api_service.userbot.state_off') }}</span>{% endif %}
     {% if userbot_token %}<span class="small muted">{{ t('api_service.tokens.last_used') }}: {{ userbot_token.last_used_at|time_ago if userbot_token.last_used_at else t('common.never') }}</span>{% endif %}</p>
   <div class="btn-row">
@@ -104,7 +103,7 @@
     {{ forms.post_button(url_for('api_service.userbot_mode'), t('api_service.userbot.new_key') if user.userbot_enabled else t('api_service.userbot.enable'), cls='btn btn--primary', hidden={'enable': '1'}) }}
     {% endif %}
     {% if user.userbot_enabled and lock != 'force_enabled' %}
-    {{ forms.post_button(url_for('api_service.userbot_mode'), t('api_service.userbot.disable'), cls='btn btn--danger', hidden={'enable': '0'}) }}
+    {{ forms.post_button(url_for('api_service.userbot_mode'), t('api_service.userbot.disable'), cls='btn btn--danger-quiet', hidden={'enable': '0'}) }}
     {% endif %}
   </div>
 </section>

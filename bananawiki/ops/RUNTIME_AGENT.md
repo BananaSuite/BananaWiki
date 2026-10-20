@@ -1,12 +1,11 @@
 # Hosting runtime agent: interface for the hosting portal
 
-In 1.4 the hosting portal's service account was in the `docker` group, so any
-bug in the internet-facing portal (uploads, ZIP imports, OAuth, the tenant
-proxy) was a root compromise of the host. In 1.6 only a small privileged
-helper, `<service>-agent.service`, talks to Docker. The portal runs without
-Docker access and asks the agent to run tenant containers over a local UNIX
-socket. This file is the contract between `bananawiki/ops` (which installs
-and runs the agent) and `bananawiki/hosting` (which calls it).
+The runtime agent, `<service>-agent.service`, is the only part of a hosting
+platform that talks to Docker. The portal faces the internet and handles
+uploads, ZIP imports and OAuth, so it runs without Docker access (which would
+amount to root) and asks the agent to run tenant containers over a local UNIX
+socket. This file is the contract between `bananawiki/ops` (which installs and
+runs the agent) and `bananawiki/hosting` (which calls it).
 
 ## Deployment
 
@@ -20,17 +19,18 @@ and runs the agent) and `bananawiki/hosting` (which calls it).
 | Callers | only uid 0 and the service account (checked with `SO_PEERCRED`) |
 | Configuration | read by the agent from `config/installation.json` and `config/app.env` for every request; the portal cannot change it |
 
-Operator-only settings in `app.env` (ceilings for what the portal may ask for):
-`HOSTING_CONTAINER_IMAGE` (set by the updater to `bananawiki-tenant:<revision>`),
-`INSTANCES_DIR`, `HOSTING_AGENT_MAX_MEMORY_MB` (4096), `HOSTING_AGENT_MAX_CPUS` (4),
+Operator-only settings in `app.env` (ceilings for what the portal may ask
+for): `HOSTING_CONTAINER_IMAGE` (set by the updater to
+`bananawiki-tenant:<revision>`), `INSTANCES_DIR`,
+`HOSTING_AGENT_MAX_MEMORY_MB` (4096), `HOSTING_AGENT_MAX_CPUS` (4),
 `HOSTING_AGENT_MAX_PIDS` (4096), `HOSTING_AGENT_MAX_NOFILE` (65536),
-`HOSTING_AGENT_MAX_STORAGE_BYTES` (10 GiB), `HOSTING_AGENT_MAX_INODES` (100,000),
-`HOSTING_AGENT_PROJECT_ID_START` (1,000,000), and
+`HOSTING_AGENT_MAX_STORAGE_BYTES` (10 GiB), `HOSTING_AGENT_MAX_INODES`
+(100,000), `HOSTING_AGENT_PROJECT_ID_START` (1,000,000), and
 `HOSTING_AGENT_STORAGE_RESERVE_BYTES` (256 MiB). Hard per-wiki quotas need a
 dedicated XFS filesystem with project accounting/enforcement enabled and an
 unassigned, non-inheriting instances parent; XFS is optional (see "Storage
-policy" below). Custom instances paths need a matching unit
-write-path override. See [hosting](../../docs/hosting.md) for host prerequisites.
+policy" below). Custom instances paths need a matching unit write-path
+override. See [hosting](../../docs/hosting.md) for host prerequisites.
 
 `sudo bananawiki agent status` pings the agent.
 
@@ -46,19 +46,18 @@ except AgentError as error:
     error.code, error.message
 ```
 
-Transition: when `BW_RUNTIME_AGENT_SOCKET` is not set, the release was
-installed by the 1.4 updater and its portal unit still has
-`SupplementaryGroups=docker`. `connect()` then returns an in-process
-`TenantRuntime` with the same `call()` and the same validation, running
-Docker as the portal. This legacy fallback is not root, so it can never use
-hard quotas: it follows `BW_HOSTING_TENANT_QUOTAS` like the agent, so under
-`auto` (the default for existing platforms) it starts wikis without them, as
-1.6 did, and under `required` it refuses launches and tasks
-(`quota_unavailable`) until convergence. It has no quota registry, so it
-never reports hard quotas as lost. The next `bananawiki update` (also when no new
-revision exists) or `bananawiki restart` converges the units: the agent is
-installed, the portal leaves the `docker` group and the socket variable
-appears. The portal must not call `docker` any other way.
+Without `BW_RUNTIME_AGENT_SOCKET`, the release was installed by the 1.4
+updater and its portal unit still has `SupplementaryGroups=docker`.
+`connect()` then returns an in-process `TenantRuntime` with the same `call()`
+and the same validation, running Docker as the portal. This fallback is not
+root, so it can never use hard quotas. It follows `BW_HOSTING_TENANT_QUOTAS`
+like the agent: under `auto` it starts wikis without them, and under
+`required` it refuses launches and tasks (`quota_unavailable`) until the units
+are converged. It has no quota registry, so it never reports hard quotas as
+lost. The next `bananawiki update` (also when no new revision exists) or
+`bananawiki restart` converges the units: the agent is installed, the portal
+leaves the `docker` group and the socket variable appears. The portal must not
+call `docker` any other way.
 
 ## Wire protocol
 
@@ -114,22 +113,23 @@ The agent always adds, and the portal cannot override: `--read-only`,
 mount `<tenant dir> → /data`, the operator's image, `json-file` logs rotated
 at 3 × 10 MB, `--restart no`, and these variables: `BW_HOST=0.0.0.0`,
 `BW_PROXY_MODE=1`, `BW_MANAGED_HOSTING=1`, `BW_PLUGIN_ISOLATION=container`,
-`BW_ENV=production`, `BW_INSTANCE_DIR=/data`, `BW_DATABASE_PATH=/data/bananawiki.db`,
+`BW_ENV=production`, `BW_INSTANCE_DIR=/data`,
+`BW_DATABASE_PATH=/data/bananawiki.db`,
 `BW_MAINTENANCE_FILE=/data/.banana-maintenance`,
 `BW_EXTERNAL_PLUGINS_DIR=/data/external_plugins`. Variables are passed with a
-0600 `--env-file` in the agent's private runtime directory, never on argv
-(1.4 leaked the OAuth client secret and GPU token through `ps`).
+0600 `--env-file` in the agent's private runtime directory, never on argv, so
+secrets such as the OAuth client secret and the GPU token never show in `ps`.
 
-Container names, labels and networks are identical to 1.4
+Container names, labels and networks follow the 1.4 scheme
 (`bananawiki-<slug>-<sha256(realpath)[:12]>`, network `<name>-net`, labels
 `org.bananawiki.role=tenant`, `org.bananawiki.data-dir=<realpath>`,
-`org.bananawiki.internal-port=<port>`), so containers created by either
-version are recognised and the updater's readiness check (C10) keeps working.
-Since 1.7 each tenant network's host bridge is named `bwt<sha256(network)[:12]>`
+`org.bananawiki.internal-port=<port>`), so containers created by 1.4 are
+recognised and the updater's readiness check keeps working. Each tenant
+network's host bridge is named `bwt<sha256(network)[:12]>`
 (`com.docker.network.bridge.name`), so the host firewall
 (`deploy/nftables/bananawiki-tenants.nft`) matches every tenant bridge and
-nothing else; a network created earlier is replaced, like one with an older
-policy, when its tenant next starts.
+nothing else; a network with another bridge name or an older policy is
+replaced when its tenant next starts.
 
 `tenant.task` runs `python -m bananawiki.ops.tenant_task` inside the tenant's
 sandbox: `docker exec -i` in its container while it runs, otherwise a
@@ -151,47 +151,47 @@ cannot leave an exec process running indefinitely. One-shot tasks have unique
 container names and are forcibly removed after the request, including timeout
 and failure paths.
 
-`proxy.routes` stores the wanted table (`hosts`: 1–16 lowercase DNS names
-per tenant, each hostname once) in `routes.json` and renders
+`proxy.routes` stores the wanted table (`hosts`: 1–16 lowercase DNS names per
+tenant, each hostname once) in `routes.json` and renders
 `/var/lib/<service>-routes/tenants.caddy`: one site block per *running*
-tenant, proxying its hostnames to the container address that Docker
-reports (private, non-loopback addresses only), with on-demand TLS, HSTS
-and `X-Forwarded-Prefix` stripped. Each block also answers plain HTTP
-(redirected to HTTPS except for Cloudflare "Flexible" requests), passes
+tenant, proxying its hostnames to the container address that Docker reports
+(private, non-loopback addresses only), with on-demand TLS, HSTS and
+`X-Forwarded-Prefix` stripped. Each block also answers plain HTTP (redirected
+to HTTPS except for Cloudflare "Flexible" requests), passes
 `X-Forwarded-For: {client_ip}` (Caddy 2.7+, detected with `caddy version`),
-retries a container that is still starting for 5 s and then hands the
-request to the portal (`127.0.0.1:<HOSTING_PORT>`), which shows the wiki's
-status page. The portal cannot choose upstreams or write Caddy directives. When the file changes the agent runs `systemctl
-reload caddy`. A root-owned checksum records the last successfully reloaded
-table; failed reloads are retried on the next sync, including after an agent
-restart. It re-renders after every `tenant.start` and `tenant.stop`,
-so a recreated container is routed at once; rendering reads the containers'
-addresses only, without verifying every tenant's storage again (that is
-`tenant.list`'s and each start's job). The Caddyfile written by
-`bananawiki proxy` imports `/var/lib/<service>-routes/*.caddy`; without the
-routes directory (in-process fallback) the operation answers
-`not_configured`.
+retries a container that is still starting for 5 s and then hands the request
+to the portal (`127.0.0.1:<HOSTING_PORT>`), which shows the wiki's status
+page. The portal cannot choose upstreams or write Caddy directives. When the
+file changes the agent runs `systemctl reload caddy`. A root-owned checksum
+records the last successfully reloaded table; failed reloads are retried on
+the next sync, including after an agent restart. It re-renders after every
+`tenant.start` and `tenant.stop`, so a recreated container is routed at once;
+rendering reads the containers' addresses only, without verifying every
+tenant's storage again (that is `tenant.list`'s and each start's job). The
+Caddyfile written by `bananawiki proxy` imports
+`/var/lib/<service>-routes/*.caddy`; without the routes directory (in-process
+fallback) the operation answers `not_configured`.
 
 A stopped tenant's bridge is kept until Caddy acknowledges the table without
-its old upstream. This prevents Docker from reallocating a still-routed IP
-to another tenant during a reload outage. Retired bridges are tracked in
+its old upstream. This prevents Docker from reallocating a still-routed IP to
+another tenant during a reload outage. Retired bridges are tracked in
 `retired-networks.json` and cleaned after a successful sync, including after
 an agent restart. Cleanup attempts at most four bridges per sync and rotates
 failed removals to the end, so restarted tenants cannot indefinitely block
-cleanup of later stopped bridges. A change between isolated and outbound networking also
-waits for that acknowledgement before releasing the former bridge.
+cleanup of later stopped bridges. A change between isolated and outbound
+networking also waits for that acknowledgement before releasing the former
+bridge.
 
 The controller keeps both ends in step on every `update` (including the
 convergence of a release the 1.4 updater installed) and `restart`: it creates
 the routes directory, re-renders a Caddyfile it installed (digest in
-`config/proxy.json`; the `--email`, `--tls` and `--cloudflare` given to `proxy`
-are kept), validates it and
-reloads Caddy only when it changed, and puts the previous file back when the
-readiness check fails. For hosting releases with the agent in subdomain mode
-that check also requires the published table and, for every wiki that served
-before the operation and that the portal publishes, a site block pointing at
-its current container; the maintenance service publishes the table right
-after recovering the wikis.
+`config/proxy.json`; the `--email`, `--tls` and `--cloudflare` given to
+`proxy` are kept), validates it and reloads Caddy only when it changed, and
+puts the previous file back when the readiness check fails. For hosting
+releases with the agent in subdomain mode that check also requires the
+published table and, for every wiki that served before the operation and that
+the portal publishes, a site block pointing at its current container; the
+maintenance service publishes the table right after recovering the wikis.
 
 ## Storage policy
 
@@ -202,13 +202,12 @@ validated by `load_config`: anything but `auto`, `required` or `off` is
 
 * `auto` (the default, also on new platforms): when `INSTANCES_DIR` enforces
   project quotas for this agent (`project_quota.check_storage`: XFS,
-  accounting and enforcement on, and an agent unit that allows
-  `quotactl_fd`), everything below applies. Otherwise wikis run without hard
-  quotas (`unenforced`), as before 1.7, and the agent logs a notice at every
-  start. When its quota registry
-  (`/var/lib/<service>-quotas/allocations.sqlite3`) exists, quotas were
-  enforced here before: storage that stopped enforcing them still runs the
-  wikis `unenforced`, but `ping` says `lost: true` and the agent logs a
+  accounting and enforcement on, and an agent unit that allows `quotactl_fd`),
+  everything below applies. Otherwise wikis run without hard quotas
+  (`unenforced`) and the agent logs a notice at every start. When its quota
+  registry (`/var/lib/<service>-quotas/allocations.sqlite3`) exists, quotas
+  were enforced here before: storage that stopped enforcing them still runs
+  the wikis `unenforced`, but `ping` says `lost: true` and the agent logs a
   warning ("Hard quotas were enforced on this platform before and are no
   longer available: <reason>") at its start and whenever it finds them lost
   while it runs.
@@ -222,14 +221,13 @@ Without hard quotas (`unenforced`), `tenant.quota`, `tenant.start` and
 (`O_NOFOLLOW`), refuse live mounts of its inode under another name, and
 release the mount gate only once the started container's
 `/proc/<pid>/root/data` is that inode: a directory replaced between the
-agent's checks and `docker run` (by a symbolic link to another host
-directory, say) is refused with `invalid_tenant`. An agent unit written by an
-updater from before 1.7 has no `CAP_SYS_PTRACE` (nor `quotactl_fd`): such an
-agent cannot compare (`EACCES`), logs that once, and starts the wiki
-unverified, as 1.6 did, so a release installed by such an updater still
-starts every wiki; installing the release's own units (`update` or
-`restart`) restores the check. `tenant.stop` does not look for other
-containers by inode. A wiki's own storage check
+agent's checks and `docker run` (by a symbolic link to another host directory,
+say) is refused with `invalid_tenant`. An agent unit written by an updater
+from before 1.7 has no `CAP_SYS_PTRACE` (nor `quotactl_fd`): such an agent
+cannot compare (`EACCES`), logs that once, and starts the wiki unverified, so
+a release installed by such an updater still starts every wiki; installing the
+release's own units (`update` or `restart`) restores the check. `tenant.stop`
+does not look for other containers by inode. A wiki's own storage check
 (`BW_STORAGE_LIMIT_BYTES`) gets the limit a hard quota would have had: its
 plan, or `HOSTING_AGENT_MAX_STORAGE_BYTES` for a plan of zero (apex and
 administrators' wikis). The portal keeps measuring every wiki and suspends one
@@ -241,61 +239,64 @@ restarts such a container, unless its sandbox is outdated (no
 Replacing a tenant network (one from before 1.7, or with another policy)
 waits for Caddy to drop the old upstream only when Caddy can hold it: routes
 are published (`routes.json`, subdomain mode) and `caddy.service` is active.
-On a host whose reverse proxy is another one (Traefik sending wikis to the
-portal) or in port and onion mode the network is replaced at once, and
-retired networks are released after each routing change.
+On a host where another reverse proxy sends the wikis to the portal, and in
+port and onion mode, the network is replaced at once, and retired networks
+are released after each routing change.
 
 ## Storage launch gate
 
 `tenant.quota` allocates a persistent private project ID and finite byte/inode
 limits before the portal creates content. Kernel project accounting,
 enforcement, inheritance, filesystem UUID, inode number/generation and exact
-limits must match the registry. Uncertain Docker state never authorizes repair;
-adoption of restored/legacy trees requires a confirmed stopped container.
+limits must match the registry. The agent repairs nothing while Docker's
+state is uncertain, and adopts a restored or older tree only once its
+container is confirmed stopped.
 
-A stopped wiki that already holds more than its plan (1.6 suspended wikis only
-above 110% of it and never limited administrators' or apex wikis; a plan can
-also be lowered below what a wiki holds) is not refused: its hard limits
-become what it holds plus a small headroom (64 MiB, 1,024 files), its plan is
-recorded beside them, and later starts never add room. It serves, cannot grow
-past those limits, and returns to its plan once enough data is removed. Data
-a directory held before it had any allocation (a wiki from before 1.7) is
-adopted without capacity admission, as it is already on the volume; it is
-recorded as not admitted (the registry's `admitted` column) until a later
-start finds room for every limit, and the snapshot reserve
-(`ProjectQuota.reserved_bytes`) counts only its adoption headroom meanwhile
-(`overcommitted_bytes` reports the shortfall). A stopped
-repair examines at most twice `HOSTING_AGENT_MAX_INODES` files (at least
-200,000).
+A stopped wiki that already holds more than its plan (data written before the
+plan was enforced, or a plan lowered below what the wiki holds) is not
+refused: its hard limits become what it holds plus a small headroom (64 MiB,
+1,024 files), its plan is recorded beside them, and later starts never add
+room. It serves, cannot grow past those limits, and returns to its plan once
+enough data is removed. Data a directory held before it had any allocation (a
+wiki from before 1.7) is adopted without capacity admission, as it is already
+on the volume; it is recorded as not admitted (the registry's `admitted`
+column) until a later start finds room for every limit, and the snapshot
+reserve (`ProjectQuota.reserved_bytes`) counts only its adoption headroom
+meanwhile (`overcommitted_bytes` reports the shortfall). A stopped repair
+examines at most twice `HOSTING_AGENT_MAX_INODES` files (at least 200,000).
 
-Docker mounts the normal tenant path and starts only the fixed stdlib inert
-`tenant_guard`. Before release or a task, the root agent opens the actual
-`/proc/<Docker State.Pid>/root/data` descriptor and verifies it against the
-prepared witness. A substituted directory is destroyed before tenant-controlled
-code or data is accessed. The server release socket uses Linux’s abstract UNIX namespace within the
-container network namespace; no filesystem marker can release it. The inert
-guard disables process dumping and tracing before waiting. Hosting portal and
-maintenance units cannot access `/proc`, including the bootstrap startup window,
-and start through a trusted stdlib entrypoint that restricts `ioctl` arguments
-before loading the application. It permits Python's descriptor/socket setup
-requests while denying filesystem project/flag setters, so the service account
-cannot change quota assignments outside a tenant's container policy. The root agent
-retains the filesystem ioctls needed for quota assignment and verification.
-Server gates expire after 120 seconds; task gates
-have a bounded lifetime covering the requested task deadline. Running container
-status and administrative exec also verify the actual mounted directory.
-`CAP_SYS_PTRACE` permits this cross-UID proc descriptor check; ptrace and
-process-vm syscalls remain denied. Before stopped repair, restart, stop or a
-new one-shot task, the agent removes and confirms absence of that tenant’s
-tasks left by an interrupted agent generation. It compares actual mounted
-device/inode identities across live servers and tasks, so renaming a folder
-cannot hide a writer. A live server using the folder under another name refuses
-admission until it is stopped. A held root descriptor binds this inventory to
-the inode the quota provisioner subsequently opens; replacing the pathname
-refuses before quota mutation. Guard admission is serialized across tenant
-names, while unrelated admitted tasks execute concurrently.
-The agent accepts no caller-provided PID,
-descriptor, quota device or project ID.
+Docker mounts the tenant path and starts only `tenant_guard`, a small
+stdlib program that runs no tenant code. Before the agent releases the guard
+or runs a task in the container, it opens `/proc/<Docker State.Pid>/root/data`
+and checks that it is the directory it prepared. A substituted directory is
+destroyed before any tenant code or data is touched. `CAP_SYS_PTRACE` allows
+this check across UIDs; ptrace and process-vm syscalls stay denied.
+
+The agent also:
+
+* removes the tenant's tasks left by an interrupted agent, and confirms they
+  are gone, before a stopped repair, a restart, a stop or a new one-shot task;
+* compares the device and inode of every live server and task, so renaming a
+  folder cannot hide a writer (a live server that uses the folder under
+  another name blocks admission until it stops);
+* holds a descriptor of the tenant root, so the quota code works on the same
+  inode, and refuses a replaced path before any quota change.
+
+The guard is released through an abstract UNIX socket inside the container's
+network namespace, so no file can release it. The guard turns off core
+dumps and tracing before it waits. Server gates expire after 120 seconds;
+task gates last as long as the requested task deadline. Admission is
+serialized across tenants, while tasks already admitted run in parallel.
+The agent accepts no PID, descriptor, quota device or project ID from the
+caller.
+
+The portal and maintenance units cannot read `/proc`, also during start-up.
+They start through a stdlib entrypoint that filters `ioctl` before loading
+the application: Python's descriptor and socket requests are allowed, the
+filesystem project and flag setters are not, so the service account cannot
+change quota assignments. Only the root agent keeps those ioctls. Status
+of a running container and administrative exec also check the mounted
+directory.
 
 ## What the portal still owns
 
@@ -309,7 +310,7 @@ descriptor, quota device or project ID.
   every other database operation goes through `tenant.task`; the portal
   never opens a tenant database host-side.
 
-## Not in this version
+## Limits
 
 * Per-tenant UIDs: containers run as the owner of the tenant directory,
   which is the service account, because the portal reads tenant files for
@@ -320,10 +321,11 @@ descriptor, quota device or project ID.
   the tenant directories). What this means for operators and how to limit it:
   `docs/hosting.md`, "One UID for every wiki".
 * Managed tenant networking is IPv4-only: bridge creation requests IPv6 off
-  and inspects the actual result, refusing enabled or uninspectable networks.
-  The `all` and `default` `disable_ipv6=1` container sysctls also prevent
-  link-local traffic. Starting/recovering a tenant replaces missing sandbox
-  settings even if its image/application policy matches; administrative exec
-  refuses an outdated running sandbox. Host Caddy IPv6 clients are unaffected.
-  A derived IPv6 runtime needs independent IPv6 INPUT/neighbor-discovery checks;
-  IPv4 INPUT rules cannot protect IPv6 traffic.
+  and inspects the result, refusing enabled or uninspectable networks. The
+  `all` and `default` `disable_ipv6=1` container sysctls also prevent
+  link-local traffic. Starting or recovering a tenant that runs with older
+  sandbox settings recreates its container with the current ones, even when
+  its image and application policy match; administrative exec refuses such a
+  container until then. Clients reaching Caddy over IPv6 are not affected.
+  IPv6 inside tenants would need its own firewall and neighbour-discovery
+  rules, since the IPv4 rules do not cover it.

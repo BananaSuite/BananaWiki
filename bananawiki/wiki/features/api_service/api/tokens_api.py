@@ -84,7 +84,7 @@ def admin_audit_log():
     require_admin()
     limit = query_int("limit", 100, 1, 500)
     offset = query_int("offset", 0, 0, 2**31 - 1)
-    rows = audit.entries(limit=limit + 1, offset=offset)
+    rows = audit.entries_for(caller(), limit=limit + 1, offset=offset)
     return ok(entries=[{**row, "created_at": serialize.iso(row["created_at"])} for row in rows[:limit]],
               total=audit.count(), **window_fields(limit, offset, len(rows)))
 

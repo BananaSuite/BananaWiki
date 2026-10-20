@@ -4,12 +4,14 @@
 {% block title %}{{ title }}{% endblock %}
 {% block admin_head %}<link rel="stylesheet" href="{{ asset_url('custom_pages.css', blueprint='custom_pages') }}">{% endblock %}
 {% block admin_content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('custom_pages.admin_list') }}">{{ t('custom_pages.admin.title') }}</a></li><li aria-current="page">{{ title }}</li>
+</ol></nav>
 <header class="page-header">
   <h1>{{ title }}</h1>
   <div class="page-header__actions">
     {% if is_builder and builder_available %}<a class="btn btn--primary btn--small" href="{{ url_for('page_builder.custom_editor', page_id=page.id) }}">{{ t('custom_pages.admin.open_builder') }}</a>{% endif %}
     {% if page %}<a class="btn btn--small" href="{{ page.path }}" target="_blank" rel="noopener">{{ t('custom_pages.admin.open') }}</a>{% endif %}
-    <a class="btn btn--small" href="{{ url_for('custom_pages.admin_list') }}">{{ t('common.back') }}</a>
   </div>
 </header>
 
@@ -140,7 +142,7 @@
         <td><code>{{ f.mime_type }}</code></td>
         <td class="actions">
           <a class="btn btn--small" href="{{ url_for('custom_pages.file_download', file_id=f.id, filename=f.original_name) }}" target="_blank" rel="noopener">{{ t('custom_pages.admin.view_file') }}</a>
-          {{ forms.post_button(url_for('custom_pages.admin_file_delete', file_id=f.id), t('common.delete'), cls='btn btn--small btn--danger', confirm=t('custom_pages.admin.delete_file_confirm')) }}
+          {{ forms.post_button(url_for('custom_pages.admin_file_delete', file_id=f.id), t('common.delete'), cls='btn btn--small btn--danger-quiet', confirm=t('custom_pages.admin.delete_file_confirm')) }}
         </td>
       </tr>
       {% endfor %}

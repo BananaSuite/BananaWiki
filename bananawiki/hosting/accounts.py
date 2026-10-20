@@ -41,7 +41,7 @@ MAX_SCHEDULE_SECONDS = 10 * 365 * 86400
 _ID_ALPHABET = string.ascii_lowercase + string.digits
 
 
-# ── Lookups ───────────────────────────────────────────────────────────────────
+# Lookups
 
 
 def get(account_id: str | None) -> dict[str, Any] | None:
@@ -94,7 +94,7 @@ def set_language(account_id: str, language: str) -> None:
     db.execute("UPDATE accounts SET language = ? WHERE id = ? AND language != ?", (language, account_id, language))
 
 
-# ── Validation and passwords ──────────────────────────────────────────────────
+# Validation and passwords
 
 
 def check_username(username: str) -> str:
@@ -224,7 +224,7 @@ def _new_id() -> str:
             return candidate
 
 
-# ── Creation ──────────────────────────────────────────────────────────────────
+# Creation
 
 
 def create(username: str, password: str, *, is_admin: bool = False, email: str = "") -> dict[str, Any]:
@@ -286,7 +286,7 @@ def signup(username: str, password: str, *, email: str = "", invite_code: str = 
     return get(account_id)  # type: ignore[return-value]
 
 
-# ── Terms of service ──────────────────────────────────────────────────────────
+# Terms of service
 
 
 def terms_version() -> str:
@@ -325,7 +325,7 @@ def accept_terms(account: dict[str, Any]) -> None:
         events.record("account", account["id"], "account.terms_accepted", account["id"], version)
 
 
-# ── Identity and credentials ──────────────────────────────────────────────────
+# Identity and credentials
 
 
 # A reset link sent to the old address must not start working again once a new one is verified.
@@ -389,7 +389,7 @@ def set_admin(account_id: str, is_admin: bool) -> None:
     db.execute("UPDATE accounts SET is_admin = ? WHERE id = ?", (1 if is_admin else 0, account_id))
 
 
-# ── Email tokens ──────────────────────────────────────────────────────────────
+# Email tokens
 
 
 def cooldown_remaining(account: dict[str, Any]) -> int:
@@ -465,7 +465,7 @@ def consume_password_reset(raw: str, password: str) -> bool:
     return True
 
 
-# ── Email flag ────────────────────────────────────────────────────────────────
+# Email flag
 
 
 def flag_email(account: dict[str, Any], *, reason: str, reason_visible: bool, replacement: str = "",
@@ -502,7 +502,7 @@ def replace_flagged_email(account: dict[str, Any], address: str) -> None:
         clear_email_flag(account["id"])
 
 
-# ── Approval ──────────────────────────────────────────────────────────────────
+# Approval
 
 
 def _decision(reason: str) -> str:
@@ -555,7 +555,7 @@ def approve_all_pending(admin_id: str) -> int:
     return len(ids)
 
 
-# ── Suspension ────────────────────────────────────────────────────────────────
+# Suspension
 
 
 def is_suspended(account: dict[str, Any]) -> bool:
@@ -617,7 +617,7 @@ def expired_suspensions() -> list[str]:
                      "AND suspended_until <= ? AND deleted_at IS NULL ORDER BY suspended_until, id", (now_sql(),))
 
 
-# ── Deletion ──────────────────────────────────────────────────────────────────
+# Deletion
 
 
 def tombstone_name(account_id: str) -> str:
@@ -721,7 +721,7 @@ def purge_tombstones() -> int:
     ).rowcount
 
 
-# ── Impersonation log and data export ─────────────────────────────────────────
+# Impersonation log and data export
 
 
 def log_impersonation_start(admin_id: str, target_id: str) -> int:

@@ -25,7 +25,7 @@
       },
       {
         "heading": "Versionsverlauf und Prüfung",
-        "html": "<p>Jede gespeicherte Version bleibt erhalten. Der Versionsverlauf einer Seite zeigt, was sich zwischen zwei Versionen geändert hat, und lässt dich eine frühere Version wiederherstellen.</p><p>Mit <strong>Seitenschutz und Reservierungen</strong> kann ein Redakteur eine Seite während der Bearbeitung reservieren oder sie so schützen, dass nur diese Person sie bearbeiten kann. Änderungen, die Personen ohne Bearbeitungsberechtigung vorschlagen, müssen erst angenommen werden. Ein anderer Administrator kann einen Schutz nach einer Wartezeit von 72 Stunden aufheben. Das Plugin <strong>Löschverzögerung</strong> bewahrt eine gelöschte Seite 48 Stunden lang auf, damit ein Administrator sie zurückholen kann.</p>"
+        "html": "<p>Jede gespeicherte Version bleibt erhalten. Der Versionsverlauf einer Seite zeigt, was sich zwischen zwei Versionen geändert hat, und lässt dich eine frühere Version wiederherstellen.</p><p>Mit <strong>Seitenschutz und Reservierungen</strong> kann ein Redakteur eine Seite während der Bearbeitung reservieren oder sie so schützen, dass nur diese Person sie bearbeiten kann; ein Administrator kann einen Schutz 72 Stunden nach seiner Anfrage aufheben. Mit <strong>Beitragsprüfung</strong> warten Änderungen, die Personen ohne Bearbeitungsberechtigung vorschlagen, auf eine Prüfung. Das Plugin <strong>Löschverzögerung</strong> bewahrt eine gelöschte Seite 48 Stunden lang auf, damit ein Administrator sie zurückholen kann.</p>"
       },
       {
         "heading": "Personen und Zugriff",
@@ -37,7 +37,7 @@
       },
       {
         "heading": "Lesen und Lernen",
-        "html": "<ul><li>Die <strong>Vorlesefunktion</strong> liest Seiten auf Englisch und Italienisch vor, mit Piper-Stimmen, die statt bei einem Drittanbieter auf dem Server selbst laufen, sobald sie dort installiert sind.</li><li><strong>Lernkontrollen</strong> fügen einer Seite Umfragen und Quiz hinzu, mit Punkten und einer Begrenzung der Versuche.</li><li><strong>Abzeichen</strong> werden von Hand oder automatisch verliehen, zum Beispiel nach einer bestimmten Zahl von Beiträgen.</li><li><strong>Schwierigkeitsgrade</strong> kennzeichnen Seiten nach ihrem Niveau.</li></ul>"
+        "html": "<ul><li>Die <strong>Vorlesefunktion</strong> liest Seiten auf Englisch und Italienisch vor (auf Deutsch, sobald ein Administrator es einschaltet), mit Piper-Stimmen auf dem Server.</li><li><strong>Lernkontrollen</strong> fügen einer Seite Umfragen und Quiz hinzu, mit Punkten und einer Begrenzung der Versuche.</li><li><strong>Abzeichen</strong> werden von Hand oder automatisch verliehen, zum Beispiel nach einer bestimmten Zahl von Beiträgen.</li><li><strong>Schwierigkeitsgrade</strong> kennzeichnen Seiten nach ihrem Niveau.</li></ul>"
       },
       {
         "heading": "Verwaltung",
@@ -50,47 +50,21 @@
     ]
   },
   {
-    "slug": "inviting-users",
-    "title": "Personen einladen und Rollen verwalten",
-    "description": "Lege fest, wer dein Wiki lesen und bearbeiten darf.",
+    "slug": "running-your-wiki",
+    "title": "Dein Wiki verwalten",
+    "description": "Mitglieder, Einstellungen und Seiten im Wiki.",
     "sections": [
       {
-        "heading": "Konten und Einladungen",
-        "html": "<p>Im Wiki verwaltest du Registrierung, Einladungen und Benutzer auf den Verwaltungsseiten. Gib jeder Person nur die Rolle und die Berechtigungen, die sie braucht. Ein Teammitglied im Hosting-Portal und ein Redakteur im Wiki haben unterschiedliche Aufgaben und Berechtigungen.</p>"
+        "heading": "Mitglieder und Rollen",
+        "html": "<p>Öffne im Wiki die <strong>Verwaltung</strong>. Unter <strong>Benutzer</strong> legst du Konten an und änderst Rollen, unter <strong>Einladungscodes</strong> erstellst du Codes für die Registrierungsseite, und in den <strong>Website-Einstellungen</strong> legst du fest, ob sich Personen selbst registrieren können und ob Registrierungen auf eine Freischaltung warten. Die Rollen sind Benutzer, Redakteur, Administrator und Eigentümer; <strong>Eigene Rollen</strong> und der Zugriff auf Kategorien schränken sie weiter ein. Konten im Wiki sind von Konten in diesem Portal getrennt.</p>"
       },
       {
-        "heading": "Zugriff auf Seiten",
-        "html": "<p>Prüfe die Berechtigungen von Kategorien und Seiten, bevor du Inhalte teilst. Teste das Ergebnis mit einem Konto, das nur die Rolle „Benutzer“ hat. Wenn du einer Person die Bearbeitungsberechtigung entziehst, werden bereits öffentliche Inhalte dadurch nicht automatisch privat.</p>"
-      }
-    ]
-  },
-  {
-    "slug": "wiki-settings",
-    "title": "Wiki-Einstellungen und Privatsphäre",
-    "description": "Lege Namen, Erscheinungsbild und Zugriffsregeln des Wikis fest.",
-    "sections": [
-      {
-        "heading": "Website-Einstellungen",
-        "html": "<p>Die Administratoren eines Wikis können den Namen der Website, das Erscheinungsbild, die Sprache, die aktivierten Funktionen und die Einstellungen zur Registrierung ändern. Hosting-Limits und Berechtigungen für Domains verwalten die Administratoren der Plattform getrennt davon.</p>"
+        "heading": "Einstellungen und Privatsphäre",
+        "html": "<p>In den <strong>Website-Einstellungen</strong> stehen auch Name und Zeitzone des Wikis, unter <strong>Erscheinungsbild</strong> seine Farben. Ein Wiki ist privat: Nur angemeldete Mitglieder können es lesen. Öffentlicher Lesezugriff muss für dein Wiki bei diesem Dienst erlaubt sein, bevor er eingeschaltet werden kann. Die Betreiber dieses Dienstes können für Betrieb und Support auf die Daten auf dem Server zugreifen; lies dazu die <a href=\"/privacy\">Datenschutzerklärung</a>.</p>"
       },
       {
-        "heading": "Private Inhalte",
-        "html": "<p>Lege die gewünschte Sichtbarkeit für Seiten und Kategorien fest und prüfe Links, bevor du sie teilst. Die Administratoren des Hosting-Dienstes können für Betrieb und Support auf die Daten auf dem Server zugreifen; lies dazu die <a href=\"/privacy\">Datenschutzerklärung</a>.</p>"
-      }
-    ]
-  },
-  {
-    "slug": "writing-pages",
-    "title": "Seiten erstellen und bearbeiten",
-    "description": "Schreibe Seiten, ordne Kategorien und füge Dateien hinzu.",
-    "sections": [
-      {
-        "heading": "Seiten und Versionsverlauf",
-        "html": "<p>Erstelle eine Seite in einer Kategorie, die du bearbeiten darfst. Im Editor schreibst du den Inhalt, siehst dir die Vorschau an und speicherst. Im Versionsverlauf kannst du frühere Versionen ansehen und, wenn deine Berechtigungen es erlauben, eine davon wiederherstellen.</p>"
-      },
-      {
-        "heading": "Dateien hochladen",
-        "html": "<p>Lade Bilder und Anhänge über die Upload-Schaltflächen des Editors hoch. Das Wiki zeigt die erlaubten Formate und Größenlimits an. Der Hosting-Dienst begrenzt außerdem den gesamten Speicherplatz. Bewahre die Originaldateien außerhalb des Wikis auf, wenn du eine unabhängige Kopie brauchst.</p>"
+        "heading": "Seiten und Dateien",
+        "html": "<p>Klicke in der Seitenleiste auf <strong>Neue Seite</strong>, um eine Seite in Markdown zu schreiben. Bilder und Anhänge zählen zum Speicherlimit des Wikis, das das Portal auf der Seite des Wikis anzeigt. Für eine vollständige Anleitung im Wiki öffne die <strong>Verwaltung</strong> und dann <strong>Dokumentation</strong>; dort wird sie als Kategorie von Seiten hinzugefügt.</p>"
       }
     ]
   },
@@ -101,26 +75,26 @@
     "sections": [
       {
         "heading": "Wo du sie findest",
-        "html": "<p>Öffne im Wiki das Kontomenü, wähle <strong>Verwaltung</strong> und dann unter <strong>Wiki-Einstellungen</strong> den Eintrag <strong>Plugins</strong>. Wenn du ein Plugin deaktivierst, werden seine Seiten und Menüs ausgeblendet und seine Inhalte bleiben erhalten. Dabei werden aber auch die eigenen Einstellungen des Plugins ausgeschaltet, bei Chats und Gruppen zum Beispiel Direktnachrichten, Gruppenchats und Anhänge im Chat. Wenn du das Plugin wieder aktivierst, werden sie nicht automatisch wieder eingeschaltet, prüfe also danach die Einstellungen des Plugins. Wenn du die Vorlesefunktion deaktivierst, wird auch das erzeugte Audio gelöscht.</p>"
+        "html": "<p>Öffne im Wiki das Kontomenü, wähle <strong>Verwaltung</strong> und dann unter <strong>Wiki-Einstellungen</strong> den Eintrag <strong>Plugins</strong>. Wenn du ein Plugin deaktivierst, werden seine Seiten und Menüs ausgeblendet. Seine Inhalte und Einstellungen bleiben erhalten und kommen zurück, wenn du es wieder aktivierst.</p>"
       },
       {
         "heading": "Die integrierten Plugins",
-        "html": "<p>Diese Plugins sind in jedem Wiki enthalten, unter den Namen, die die Seite Plugins anzeigt. Die mit <em>aktiv</em> markierten sind eingeschaltet, wenn ein Wiki erstellt wird.</p><ul><li><strong>Abzeichen</strong> <em>(aktiv)</em>: von Hand oder automatisch verliehene Anerkennungen.</li><li><strong>Anhänge</strong> <em>(aktiv)</em>: an Seiten angehängte Dateien.</li><li><strong>Ankündigungen</strong> <em>(aktiv)</em>: Banner, die auf der ganzen Website erscheinen.</li><li><strong>Audit-Protokoll</strong> <em>(aktiv)</em>: eine Aufzeichnung von Rollenänderungen, eigenen Labels für Personen und Beiträgen.</li><li><strong>Befristete Konten und Seiten</strong>: Konten, Seiten und Rollen, die zu einem festgelegten Zeitpunkt ablaufen.</li><li><strong>Benutzerdefinierte Seiten</strong>: Inhalte, die unter einer Adresse deiner Wahl veröffentlicht werden.</li><li><strong>Benutzerprofile</strong> <em>(aktiv)</em>: Profilseiten mit Infotext, Profilbild und einer Übersicht der Beiträge.</li><li><strong>Canvas</strong> <em>(aktiv)</em>: Diagramme mit Text, Bildern, Videos und Links zu Seiten.</li><li><strong>Chats und Gruppen</strong> <em>(aktiv)</em>: Direktnachrichten und Gruppenunterhaltungen.</li><li><strong>Entwürfe</strong> <em>(aktiv)</em>: Entwürfe, die beim Bearbeiten gespeichert werden.</li><li><strong>Export persönlicher Daten</strong> <em>(aktiv)</em>: Jedes Mitglied kann die eigenen Daten herunterladen.</li><li><strong>Kanban-Boards</strong> <em>(aktiv)</em>: Boards, Karten, Kommentare und Anhänge.</li><li><strong>Lernkontrollen</strong> <em>(aktiv)</em>: Umfragen und Quiz auf einer Seite, mit Punkten und einer Begrenzung der Versuche.</li><li><strong>Löschverzögerung</strong>: Gelöschte Seiten werden 48 Stunden lang aufbewahrt, bevor sie endgültig verschwinden.</li><li><strong>Maskottchen</strong> <em>(aktiv)</em>: eine Banane in Pixel-Art in der oberen Leiste, mit einer kleinen Überraschung für Neugierige.</li><li><strong>REST-API</strong>: persönliche Tokens, die jeweils auf ausgewählte Bereiche beschränkt sind, mit einem Protokoll ihrer Nutzung.</li><li><strong>Schwierigkeitsgrade</strong> <em>(aktiv)</em>: Labels für das Niveau einer Seite.</li><li><strong>Seitenschutz und Reservierungen</strong>: Reservierungen, Schutz und das Annehmen von Änderungsvorschlägen.</li><li><strong>Versionsverlauf</strong> <em>(aktiv)</em>: Versionen, Unterschiede und das Wiederherstellen einer früheren Version.</li><li><strong>Vorlesefunktion</strong> <em>(aktiv)</em>: Seiten, die von Stimmen auf dem Server vorgelesen werden.</li></ul>"
+        "html": "<p>Diese Plugins sind in jedem Wiki enthalten, unter den Namen, die die Seite Plugins anzeigt. Die mit <em>aktiv</em> markierten sind eingeschaltet, wenn ein Wiki erstellt wird.</p><ul><li><strong>Abzeichen</strong> <em>(aktiv)</em>: von Hand oder automatisch verliehene Anerkennungen.</li><li><strong>Anhänge</strong> <em>(aktiv)</em>: an Seiten angehängte Dateien.</li><li><strong>Ankündigungen</strong> <em>(aktiv)</em>: Banner, die auf der ganzen Website erscheinen.</li><li><strong>Audit-Protokoll</strong> <em>(aktiv)</em>: eine Aufzeichnung von Anmeldungen, Änderungen an Konten und Rollen, Löschungen und Änderungen an Einstellungen.</li><li><strong>Befristete Konten und Seiten</strong>: Konten, Seiten und Rollen, die zu einem festgelegten Zeitpunkt ablaufen.</li><li><strong>Benutzerdefinierte Seiten</strong>: Inhalte, die unter einer Adresse deiner Wahl veröffentlicht werden.</li><li><strong>Benutzerprofile</strong> <em>(aktiv)</em>: Profilseiten mit Infotext, Profilbild und einer Übersicht der Beiträge.</li><li><strong>Canvas</strong> <em>(aktiv)</em>: Diagramme mit Text, Bildern, Videos und Links zu Seiten.</li><li><strong>Chats und Gruppen</strong> <em>(aktiv)</em>: Direktnachrichten und Gruppenunterhaltungen.</li><li><strong>Entwürfe</strong> <em>(aktiv)</em>: Entwürfe, die beim Bearbeiten gespeichert werden.</li><li><strong>Export persönlicher Daten</strong> <em>(aktiv)</em>: Jedes Mitglied kann die eigenen Daten herunterladen.</li><li><strong>Kanban-Boards</strong> <em>(aktiv)</em>: Boards, Karten, Kommentare und Anhänge.</li><li><strong>Lernkontrollen</strong> <em>(aktiv)</em>: Umfragen und Quiz auf einer Seite, mit Punkten und einer Begrenzung der Versuche.</li><li><strong>Löschverzögerung</strong>: Gelöschte Seiten werden 48 Stunden lang aufbewahrt, bevor sie endgültig verschwinden.</li><li><strong>Maskottchen</strong> <em>(aktiv)</em>: eine Banane in Pixel-Art in der oberen Leiste.</li><li><strong>REST-API</strong>: persönliche Tokens, die jeweils auf ausgewählte Bereiche beschränkt sind, mit einem Protokoll ihrer Nutzung.</li><li><strong>Schwierigkeitsgrade</strong> <em>(aktiv)</em>: Labels für das Niveau einer Seite.</li><li><strong>Seitenschutz und Reservierungen</strong>: Reservierung und Schutz von Seiten.</li><li><strong>Versionsverlauf</strong> <em>(aktiv)</em>: Versionen, Unterschiede und das Wiederherstellen einer früheren Version.</li><li><strong>Vorlesefunktion</strong> <em>(aktiv)</em>: Seiten, die von Stimmen auf dem Server vorgelesen werden.</li></ul>"
       },
       {
         "heading": "Plugins aus anderen Quellen",
-        "html": "<p>Auf der Plugin-Seite kannst du auch eine <code>.bwplugin</code>-Datei importieren, die jemand anderes geschrieben hat. Ein Plugin ist Python-Code und hat denselben Zugriff auf Daten und Netzwerk wie das Wiki selbst, installiere also nur Code, dem du vertraust. Bei diesem Dienst läuft jedes Wiki in einem eigenen Container, und der Betreiber kann alle nachträglich installierten Plugins eines Wikis auf einmal ausschalten, wenn eines davon Probleme macht.</p>"
+        "html": "<p>Wenn der Betreiber dieses Dienstes es erlaubt, kannst du auf der Plugin-Seite auch eine <code>.bwplugin</code>-Datei importieren, die jemand anderes geschrieben hat. Ein Plugin ist Python-Code und hat denselben Zugriff auf Daten und Netzwerk wie das Wiki selbst, installiere also nur Code, dem du vertraust. Bei diesem Dienst läuft jedes Wiki in einem eigenen Container, und der Betreiber kann alle Drittanbieter-Plugins eines Wikis auf einmal ausschalten, wenn eines davon Probleme macht.</p>"
       }
     ]
   },
   {
     "slug": "exports-backups",
     "title": "Exporte und Backups",
-    "description": "Bewahre Kopien deiner Inhalte auf und erfahre, wie die Wiederherstellung funktioniert.",
+    "description": "Das Wiki exportieren und was die Plattform sichert.",
     "sections": [
       {
         "heading": "Dein Wiki exportieren",
-        "html": "<p>Öffne im Wiki <strong>Verwaltung</strong>, dann unter <strong>System</strong> den Eintrag <strong>Website-Umzug</strong>, und wähle unter <strong>Gesamte Website exportieren</strong> die Schaltfläche <strong>Exportieren</strong>. So erhältst du ein vollständiges Archiv des Wikis: Inhalte, Konten, Dateien und Einstellungen. Das kann nur der Eigentümer des Wikis. Diese Kopie solltest du aufbewahren, und du brauchst sie auch, wenn du <a href=\"/help/move-to-your-own-server\">das Wiki auf deinen eigenen Server umziehst</a>. Wenn du nur die Seiten brauchst, exportierst du sie unter <strong>Markdown-Import und -Export</strong> als Markdown-Dateien, und jede einzelne Seite lässt sich über ihr eigenes Menü als Markdown oder PDF exportieren. Mitglieder können ihre persönlichen Daten in ihren Einstellungen herunterladen.</p>"
+        "html": "<p>Öffne im Wiki <strong>Verwaltung</strong>, dann unter <strong>System</strong> den Eintrag <strong>Website-Umzug</strong>, und wähle unter <strong>Gesamte Website exportieren</strong> die Schaltfläche <strong>Exportieren</strong>. So erhältst du ein vollständiges Archiv des Wikis: Inhalte, Konten, Dateien und Einstellungen. Das können nur die Eigentümer und Superuser des Wikis. Diese Kopie solltest du aufbewahren, und du brauchst sie auch, wenn du <a href=\"/help/move-to-your-own-server\">das Wiki auf deinen eigenen Server umziehst</a>. Wenn du nur die Seiten brauchst, exportierst du sie unter <strong>Markdown-Import und -Export</strong> als Markdown-Dateien, und jede einzelne Seite lässt sich über ihr eigenes Menü als Markdown oder PDF exportieren. Mitglieder können ihre persönlichen Daten in ihren Einstellungen herunterladen.</p>"
       },
       {
         "heading": "Backups der Plattform",
@@ -177,7 +151,7 @@
     "sections": [
       {
         "heading": "Konten und Inhalte",
-        "html": "<p>Verwende ein Passwort, das du nirgendwo sonst nutzt, und schalte die Bestätigung in zwei Schritten für dein Hosting-Konto ein. Überprüfe regelmäßig die Teammitglieder und die Rollen im Wiki. Prüfe die Sichtbarkeit, bevor du private Inhalte veröffentlichst, und bewahre unabhängige Exporte wichtiger Inhalte auf. Installiere nur Plugins, denen du vertraust; siehe <a href=\"/help/plugins\">Plugins verwalten</a>.</p>"
+        "html": "<p>Verwende ein Passwort, das du nirgendwo sonst nutzt, und schalte die Bestätigung in zwei Schritten für dein Hosting-Konto ein. Entferne auf der Seite des Wikis Teammitglieder, die keinen Zugang mehr brauchen. Installiere nur Plugins, denen du vertraust; siehe <a href=\"/help/plugins\">Plugins verwalten</a>.</p>"
       },
       {
         "heading": "Problem melden",
@@ -218,11 +192,11 @@
   {
     "slug": "instance-expiry",
     "title": "Ablauf und Erneuerung von Wikis",
-    "description": "Erfahre mehr über Laufzeiten im Hosting, die Erneuerung und Fristen für die Wiederherstellung.",
+    "description": "Wann ein Wiki abläuft, wie du es verlängerst und wie lange die Daten bleiben.",
     "sections": [
       {
         "heading": "Ablauf des Dienstes",
-        "html": "<p><strong>Deine Wikis</strong> zeigt, wie viel Zeit jedem Wiki noch bleibt. In den letzten Tagen vor dem Ablauf bietet die Seite eines Wikis die Schaltfläche <strong>Für … Tage erneuern</strong> an, die es um den dort genannten Zeitraum verlängert. Wenn die Schaltfläche nicht angeboten wird, frag beim Support nach einer Verlängerung. Diese Hosting-Limits sind unabhängig von der AGPL-Lizenz der Software, die den Betrieb auf einem eigenen Server für private und kommerzielle Zwecke erlaubt.</p>"
+        "html": "<p><strong>Deine Wikis</strong> zeigt, wie viel Zeit jedem Wiki noch bleibt. In den letzten Tagen vor dem Ablauf bietet die Seite eines Wikis die Schaltfläche <strong>Für … Tage erneuern</strong> an, die ihm die dort genannte Zahl von Tagen gibt, gezählt ab dem Tag der Erneuerung. Erneuern können der Eigentümer und Teammitglieder, die das Wiki starten und stoppen dürfen. Wenn die Schaltfläche nicht angeboten wird, frag beim Support nach einer Verlängerung. Diese Hosting-Limits sind unabhängig von der AGPL-Lizenz der Software, die den Betrieb auf einem eigenen Server für private und kommerzielle Zwecke erlaubt.</p>"
       },
       {
         "heading": "Wiederherstellung",

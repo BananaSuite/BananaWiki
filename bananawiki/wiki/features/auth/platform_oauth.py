@@ -1,8 +1,6 @@
 """Single sign-on with the hosting portal (OAuth 2.0 authorization code + PKCE).
 
-Configured by ``BW_PLATFORM_OAUTH_*`` (see ``config.platform_oauth``).
-
-Differences from 1.4, which fix the audit findings:
+Configured by ``BW_PLATFORM_OAUTH_*`` (see ``config.platform_oauth``). The rules:
 
 * Wiki accounts are found through ``platform_oauth_links`` (the portal's
   stable account id), not by matching usernames. Links made by 1.4, which
@@ -17,9 +15,8 @@ Differences from 1.4, which fix the audit findings:
   ``client_id:client_secret`` (the portal requires it on ``link-status``;
   the secret is never sent in a form or JSON body) and go through
   :mod:`bananawiki.core.http` (timeouts, no redirects, bounded bodies) to
-  the portal's origin only; private
-  addresses (and plain HTTP) are allowed only when the configured portal
-  itself is on a private network.
+  the portal's origin only; private addresses (and plain HTTP) are allowed
+  only when the configured portal itself is on a private network.
 * Errors shown to people are translated messages; details go to the log.
 """
 
@@ -71,7 +68,7 @@ def instance_id() -> str:
     return current_app.config["BW"].platform_instance_id
 
 
-# ── State and PKCE ────────────────────────────────────────────────────────────
+# State and PKCE
 
 
 def _verifier(state: str) -> str:
@@ -122,7 +119,7 @@ def consume_state(state: str, purpose: str) -> dict[str, Any]:
     return entry
 
 
-# ── Talking to the portal ─────────────────────────────────────────────────────
+# Talking to the portal
 
 
 def _origin(url: str) -> tuple[str, str, int | None]:
@@ -234,7 +231,7 @@ def _portal_post(key: str, payload: dict[str, Any]) -> None:
                          f"{key} answered {status}")
 
 
-# ── Links ─────────────────────────────────────────────────────────────────────
+# Links
 
 
 def link_of(user_id: str) -> dict[str, Any] | None:
@@ -257,7 +254,7 @@ def _store_link(user: dict[str, Any], account_id: str, portal_username: str) -> 
 
 def adopt_portal_link(user: dict[str, Any], account_id: str, portal_username: str) -> bool | None:
     """For an account without a local link: True if the portal already links it to *account_id*
-    (a 1.4 link, now stored locally), False if the portal links it to someone else, None if unlinked."""
+    (a 1.4 link, which is then stored locally), False if the portal links it to someone else, None if unlinked."""
     status = _portal_link_status(user["id"])
     if not status:
         return None

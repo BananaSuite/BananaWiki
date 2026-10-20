@@ -9,7 +9,7 @@ an expired proof stops routing. Unverified claims expire after an hour so a
 claim cannot reserve a name.
 
 A proof that lapsed more than ``LAPSED_DAYS`` ago (the DNS moved away, the
-domain changed hands) no longer holds the domain against another wiki: that
+domain changed hands) does not hold the domain against another wiki: that
 wiki may claim it (``instance_domain_claims``, with a token of its own) and
 take it over once it proves the domain with that token. Until then the old
 binding stays, so its owner keeps it if their own proof comes back first
@@ -28,7 +28,7 @@ from typing import Any
 from flask import current_app
 
 from ..core.timeutil import now_sql, sql_in
-from . import events, urls
+from . import certwarm, events, urls
 from .db import db
 from .errors import ServiceError
 from .runtime import RuntimeFailure
@@ -163,6 +163,7 @@ def verify(inst: dict[str, Any], actor_id: str | None) -> dict[str, Any]:
     if record.get("takeover"):
         _take_over(inst, record, actor_id)
         instances.sync_routes()
+        certwarm.schedule(record["domain"])
         return {**binding(inst["id"]), "proxied": check.proxied}  # type: ignore[dict-item]
     with db.transaction():
         changed = db.execute(
@@ -177,6 +178,8 @@ def verify(inst: dict[str, Any], actor_id: str | None) -> dict[str, Any]:
         if not record["verified_at"]:
             events.record("instance", inst["id"], "domain.verified", actor_id, record["domain"])
     instances.sync_routes()
+    if not record["verified_at"]:
+        certwarm.schedule(record["domain"])
     # ``proxied``: accepted because the record is proxied by Cloudflare (not stored).
     return {**binding(inst["id"]), "proxied": check.proxied}  # type: ignore[dict-item]
 
@@ -232,7 +235,7 @@ def refresh(limit: int = 10) -> int:
     return renewed
 
 
-# ── Routing decisions ─────────────────────────────────────────────────────────
+# Routing decisions
 
 
 def _serving_row(where: str, params: tuple) -> dict[str, Any] | None:
@@ -269,7 +272,11 @@ def resolve(host: str) -> dict[str, Any] | None:
 
 
 def platform_slug(host: str) -> tuple[str, str] | None:
-    """``(slug, domain_mode)`` for a platform wiki host, or None."""
+    """``(slug, domain_mode)`` for a platform wiki host, or None.
+
+    A label that reads as a hosting address (any label without a suffix, or
+    ``team-hosting``) stays the address of the live apex wiki of that name.
+    """
     cfg = current_app.config["HOSTING"]
     base = cfg.base_domain
     host = host.lower().rstrip(".")
@@ -279,9 +286,12 @@ def platform_slug(host: str) -> tuple[str, str] | None:
     if not label or "." in label:
         return None
     suffix = urls.instance_suffix()
-    if suffix and label.endswith("-" + suffix):
-        return label[: -len(suffix) - 1], "hosting"
-    return label, "apex" if suffix else "hosting"
+    if suffix and not label.endswith("-" + suffix):
+        return label, "apex"
+    if db.scalar("SELECT 1 FROM instances WHERE subdomain = ? COLLATE NOCASE AND domain_mode = 'apex' "
+                 "AND status != 'terminated'", (label,)):
+        return label, "apex"
+    return (label[: -len(suffix) - 1] if suffix else label), "hosting"
 
 
 def certificate_allowed(host: str) -> bool:

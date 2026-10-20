@@ -19,7 +19,7 @@
   <form method="post" action="{{ url_for('dashboard.update_collaborator', instance_id=instance.id, collab_account_id=c.account_id) }}" class="form">{{ ui.csrf() }}
     {{ perms_fields(c.granted, c.role) }}
     <div class="btn-row"><button class="btn btn--small btn--primary" type="submit">{{ t('common.save') }}</button>
-      <button class="btn btn--small btn--danger" type="submit" form="remove-collab-{{ c.account_id }}">{{ t('hosting.collaborators.remove') }}</button></div></form>
+      <button class="btn btn--small btn--danger-quiet" type="submit" form="remove-collab-{{ c.account_id }}">{{ t('hosting.collaborators.remove') }}</button></div></form>
 </details>
 {% else %}<p class="muted">{{ t('hosting.collaborators.empty') }}</p>{% endfor %}
 {% if collaborators %}</div>{% endif %}

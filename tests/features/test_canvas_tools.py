@@ -1,4 +1,4 @@
-"""Canvas: groups, locks, edge paths, new shapes, templates and the text outline."""
+"""Canvas: groups, locks, edge paths, shapes, templates and the text outline."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ def apply(app, canvas, owner, *items):
     return run(app, lambda: service.apply(canvas, list(items), user_id=owner["id"], session_id=""))
 
 
-# ── Model ─────────────────────────────────────────────────────────────────────
+# Model
 
 
 def test_groups_locks_routes_and_shapes_are_whitelisted():
@@ -92,7 +92,7 @@ def test_new_fields_survive_ops_and_reach_other_sessions(editor, canvas, db):
     assert payloads[0]["node"]["locked"] is True and payloads[2]["edge"]["route"] == "straight"
 
 
-# ── Templates ─────────────────────────────────────────────────────────────────
+# Templates
 
 
 @pytest.mark.parametrize("name", presets.names())
@@ -142,7 +142,7 @@ def test_creating_from_a_template_needs_create_rights(client, login, make_user, 
     assert db.scalar("SELECT COUNT(*) FROM canvas__layouts") == 0
 
 
-# ── Text outline ──────────────────────────────────────────────────────────────
+# Text outline
 
 
 def build_outline_canvas(app, canvas, owner):
@@ -220,10 +220,10 @@ def test_empty_outline(editor, canvas):
     assert b"This canvas is empty." in editor.get(f"/canvas/{canvas['slug']}/outline").data
 
 
-# ── Editor page ───────────────────────────────────────────────────────────────
+# Editor page
 
 
-def test_editor_page_offers_the_new_tools(app, editor, canvas, make_user, login, client, db):
+def test_editor_page_offers_the_layout_and_export_tools(app, editor, canvas, make_user, login, client, db):
     html = editor.get(f"/canvas/{canvas['slug']}").get_data(as_text=True)
     for marker in ('data-action="align-left"', 'data-action="distribute-h" data-min="3"',
                    'data-action="group" data-min="2"', 'data-action="snap" aria-pressed="false"',

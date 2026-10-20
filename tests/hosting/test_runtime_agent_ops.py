@@ -1,4 +1,4 @@
-"""The agent operations added for the hosting runtime: tenant tasks and Caddy routes."""
+"""Runtime agent operations: tenant tasks and Caddy routes."""
 
 from __future__ import annotations
 
@@ -742,7 +742,7 @@ def legacy_network_agent(tmp_path, host):
     return agent
 
 
-def test_a_pre_17_network_is_replaced_on_a_host_without_caddy(tmp_path):
+def test_a_network_from_before_1_7_is_replaced_on_a_host_without_caddy(tmp_path):
     """No Caddy (another proxy routes the wikis): nothing can still send traffic to the old bridge, so it goes."""
     host = LegacyNetworkHost(caddy=False)
     agent = legacy_network_agent(tmp_path, host)
@@ -750,14 +750,14 @@ def test_a_pre_17_network_is_replaced_on_a_host_without_caddy(tmp_path):
     assert host.replaced() and host.ran()
 
 
-def test_a_pre_17_network_is_replaced_once_caddy_reloaded(tmp_path):
+def test_a_network_from_before_1_7_is_replaced_once_caddy_reloaded(tmp_path):
     host = LegacyNetworkHost(caddy=True)
     agent = legacy_network_agent(tmp_path, host)
     agent.call("tenant.start", {"tenant": "acme__apex", "network": "isolated"})
     assert host.replaced() and host.ran()
 
 
-def test_a_pre_17_network_is_replaced_in_port_mode_where_no_routes_are_published(tmp_path):
+def test_a_network_from_before_1_7_is_replaced_in_port_mode_where_no_routes_are_published(tmp_path):
     """Port and onion mode publish no routes, so Caddy can never acknowledge them, whether it runs or not."""
     for with_caddy in (True, False):
         host = LegacyNetworkHost(caddy=with_caddy)

@@ -1,28 +1,30 @@
-# Ruoli e Permessi
+# Ruoli e permessi
 
-I permessi decidono cosa può vedere e fare ogni persona. BananaWiki parte da ruoli semplici e permette agli admin di aggiungere precisione quando serve.
+Ogni account ha un ruolo. Gli amministratori possono aggiungere ruoli personalizzati, permessi per singolo account e restrizioni di categoria.
 
 ## Ruoli integrati
 
-| Ruolo | Accesso tipico |
+| Ruolo | Accesso |
 |---|---|
-| **Utente** | leggere pagine, cercare, usare strumenti collaborativi consentiti |
+| **Utente** | leggere pagine, cercare, usare gli strumenti consentiti |
 | **Editor** | creare e modificare pagine e categorie |
-| **Admin** | gestire utenti, impostazioni, plugin e comportamento del sito |
-| **Admin protetto** | accesso admin non modificabile dagli admin normali |
+| **Amministratore** | gestire account, impostazioni, funzioni e tutti i contenuti |
+| **Proprietario** | amministratore che gli altri amministratori non possono modificare |
+
+Un superutente è un account che solo altri superutenti possono modificare. L'account creato durante l'installazione della wiki è proprietario e superutente.
 
 ## Ruoli personalizzati
 
-I ruoli personalizzati combinano un ruolo base con permessi specifici e regole sulle categorie. Usali quando un ruolo integrato è troppo ampio, per esempio **Editor supporto**, **Assistente corso** o **Consulente sola lettura**.
+Un ruolo personalizzato aggiunge permessi e regole di categoria a un ruolo base, per esempio **Editor supporto** o **Assistente del corso**. Si creano in **Amministrazione → Ruoli personalizzati**.
 
-## Override per utente
+## Permessi per utente
 
-Gli admin possono sovrascrivere i permessi di un singolo account. È comodo per eccezioni temporanee, ma i ruoli personalizzati sono più facili da mantenere quando più persone hanno bisogno dello stesso accesso.
+Gli amministratori possono cambiare singoli permessi di un account. Quando più persone hanno bisogno dello stesso accesso, un ruolo personalizzato è più facile da tenere sotto controllo.
 
 ## Restrizioni di categoria
 
-I permessi rispondono a *cosa può fare questa persona?* Le restrizioni di categoria rispondono a *dove può farlo?* Combinandoli puoi permettere a un utente di modificare un'area e leggere soltanto un'altra.
+I permessi dicono *cosa* può fare una persona; le restrizioni di categoria dicono *dove*. Insieme permettono di modificare una categoria e soltanto leggerne un'altra.
 
-## Consiglio pratico
+## Controllare gli accessi
 
-Parti dal ruolo più piccolo che funziona. Aumenta l'accesso quando c'è una responsabilità reale. Rivedi periodicamente admin e admin protetti. Per accessi brevi, preferisci account o ruoli temporanei quando il plugin è attivo.
+Dai a ogni persona il ruolo più piccolo che basta e controlla ogni tanto l'elenco di proprietari e superutenti.

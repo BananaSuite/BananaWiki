@@ -1,4 +1,4 @@
-"""Sign-in throttling: known-device budgets, IPv6 grouping and hash upgrades (AUDIT #29 for the wiki)."""
+"""Sign-in throttling: known-device budgets, IPv6 grouping and hash upgrades."""
 
 from __future__ import annotations
 

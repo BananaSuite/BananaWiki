@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -269,7 +270,8 @@ def test_portal_failure_is_reported_without_details(oauth_client, portal):
     response = _callback(oauth_client, _start(oauth_client))
     assert response.headers["Location"].endswith("/login")
     page = oauth_client.get("/login")
-    assert b"500" not in page.data
+    # The theme's colours are in the page's <style> (#8a6500 has "500" in it); the message is what counts.
+    assert b"500" not in re.sub(rb"<style\b.*?</style>", b"", page.data, flags=re.DOTALL)
 
 
 def test_link_and_unlink_from_settings(oauth_app, oauth_client, oauth_db, portal, make_user, login):

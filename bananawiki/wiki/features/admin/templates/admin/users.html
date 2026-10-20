@@ -6,7 +6,7 @@
   <h1>{{ t('admin.users.title') }}</h1>
   <div class="page-header__actions">
     <a class="btn btn--primary" href="{{ url_for('admin.create_user') }}">{{ t('admin.users.create') }}</a>
-    {{ forms.post_button(url_for('admin.mass_logout'), t('admin.sessions.mass_logout'), 'btn btn--danger', confirm=t('admin.sessions.mass_logout_confirm'), hidden={'next': url_for('admin.users')}) }}
+    {{ forms.post_button(url_for('admin.mass_logout'), t('admin.sessions.mass_logout'), 'btn btn--danger-quiet', confirm=t('admin.sessions.mass_logout_confirm'), hidden={'next': url_for('admin.users')}) }}
   </div>
 </header>
 

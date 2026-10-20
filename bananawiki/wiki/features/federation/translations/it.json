@@ -57,6 +57,7 @@
   "federation.error.share_limit": "È stato raggiunto il limite di pagine condivise per questa wiki.",
   "federation.error.share_missing": "Condivisione non trovata.",
   "federation.error.snapshot": "L'altra wiki ha inviato un'istantanea non valida.",
+  "federation.error.snapshot_full": "Le pagine già condivise con questa wiki occupano gli 8 MiB che una sincronizzazione può trasferire.",
   "federation.error.sync_failed": "Sincronizzazione non riuscita; controlla collegamento, orologi, rete e l'altra wiki.",
   "federation.error.too_large": "Le pagine condivise sono limitate a 128 KiB e i titoli a 300 caratteri.",
   "federation.error.wiki_id": "Usa l'ID mostrato nella pagina federazione dell'altra wiki.",

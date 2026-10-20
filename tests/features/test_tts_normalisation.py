@@ -17,7 +17,7 @@ from bananawiki.wiki.db import db as wiki_db
 from bananawiki.wiki.features.pages import service as pages
 from bananawiki.wiki.features.tts import backends, service, text
 
-# ── The 1.4 normalisation, kept as the reference ─────────────────────────────
+# The 1.4 normalisation, kept as the reference
 
 _LEGACY = [
     (re.compile(r"```(?:\w*\n?)?(.*?)```", re.DOTALL), " "),
@@ -127,7 +127,7 @@ PATHOLOGICAL = {
 
 @pytest.mark.parametrize("content", PATHOLOGICAL.values(), ids=PATHOLOGICAL.keys())
 def test_pathological_text_normalises_in_linear_time(content):
-    # 1.4 spent tens of seconds to minutes on each of these; linear work takes milliseconds.
+    # Linear work takes milliseconds; the bound leaves room for a slow machine.
     started = time.perf_counter()
     text.normalize_text("Title", content)
     assert time.perf_counter() - started < 3.0
@@ -153,7 +153,7 @@ def test_spoken_text_is_remembered_per_content(monkeypatch):
     assert len(text._spoken_cache) == text.SPOKEN_CACHE_SIZE
 
 
-# ── Where the text is normalised ──────────────────────────────────────────────
+# Where the text is normalised
 
 
 @pytest.fixture

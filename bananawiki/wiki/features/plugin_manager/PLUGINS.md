@@ -1,5 +1,8 @@
 # BananaWiki plugins
 
+This file ships in the plugin kit. The same guide, with links, is
+`docs/plugins/README.md` in the BananaWiki source.
+
 BananaWiki is built from *features*: one package per feature under
 `bananawiki/wiki/features/`, each declaring a `Feature` (see
 `ARCHITECTURE.md`). A third-party plugin is exactly that, installed outside
@@ -37,11 +40,29 @@ Operators decide whether third-party code may run at all:
 
 | Variable | Effect |
 |---|---|
-| `BW_ALLOW_EXTERNAL_PLUGINS` | `1` allows plugins, `0` turns uploads off and loads no plugin. Unset (the default): off, except that an installation whose plugins folder already holds plugins (one upgraded from 1.6.x or earlier) keeps them allowed and logs a warning at every start until the variable is set. |
+| `BW_ALLOW_EXTERNAL_PLUGINS` | `1` allows plugins, `0` turns uploads off and loads no plugin. Unset (the default): off, except that an installation whose plugins folder already holds plugins (an upgraded one) keeps them allowed and logs a warning at every start until the variable is set. |
 | `BW_MANAGED_HOSTING` | Under managed hosting plugins are off unless `BW_PLUGIN_ISOLATION=container`. |
 | `BW_MANAGED_PLUGIN_DENYLIST` | Comma-separated ids that never load (features and plugins alike). |
 | `BW_EXTERNAL_PLUGINS_DIR` | Where plugins live; default `<instance>/plugins`. |
 | `BW_EASY_WIKI` | Features and plugins with `easy_wiki=False` are hidden and stay off. |
+
+## Quick start
+
+1. Copy `hello_plugin/` (in the plugin kit; in the source tree it is
+   `bananawiki/wiki/features/plugin_manager/examples/hello_plugin/`) to a new
+   folder named after your plugin id and rename the id in `plugin.json`,
+   `__init__.py`, the blueprint, the translation keys and the table names.
+2. Develop against a local wiki (`bananawiki serve`): put the folder into
+   `<instance>/plugins/`, restart, enable it under **Admin → Plugins**, and
+   restart again (plugins load at start-up).
+3. Use the extension points of `ARCHITECTURE.md`:
+   events (`page.created`, `user.login` …), template slots
+   (`page.below_content`, `sidebar.bottom` …), interceptors, background jobs
+   and navigation entries.
+4. Write tests with the fixtures in `tests/conftest.py` if you keep the plugin
+   in a fork, or with Flask's test client against `create_app()`.
+5. Package it as a `.bwplugin` (see [packaging](#packaging)) and install it on
+   other wikis through the upload form.
 
 ## Layout
 
@@ -56,8 +77,9 @@ Operators decide whether third-party code may run at all:
 └── translations/en.json, it.json, de.json
 ```
 
-A complete example is in `examples/hello_plugin/`; administrators can also
-download it with this guide from **Admin → Plugins → Download the plugin kit**.
+A complete example is in `examples/hello_plugin/` next to this file (in the
+plugin kit: `hello_plugin/`); administrators can also download it with this
+guide from **Admin → Plugins → Download the plugin kit**.
 
 ### plugin.json
 
@@ -133,8 +155,8 @@ id owns.
 ## Lifecycle
 
 Plugins are loaded once, when the wiki starts. There is no hot loading or
-unloading: Python cannot really unload code, and 1.4's attempt to fake it
-was over a thousand lines that still left threads and patches behind.
+unloading: Python cannot reliably unload code, so enabling or removing code
+takes effect at the next restart.
 
 | Action | Effect |
 |---|---|
@@ -184,11 +206,12 @@ folders a crash left behind are removed at the next start.
 
 1.4 plugins (`from bananawiki_sdk import Plugin, hook, template_slot,
 db_query, db_execute`) still load. The loader makes `bananawiki_sdk` resolve
-to `bananawiki.sdk.compat` (a copy of the package is available as
-the top-level `bananawiki_sdk` package for plugin authors' own tests), imports the plugin,
-runs `on_load(app)` once at start-up and turns the result into a `Feature`:
+to `bananawiki.sdk.compat` (a copy of the package is available as the
+top-level `bananawiki_sdk` package for plugin authors' own tests), imports the
+plugin, runs `on_load(app)` once at start-up and turns the result into a
+`Feature`:
 
-| 1.4 | 1.6 |
+| 1.4 | Current BananaWiki |
 |---|---|
 | `plugin.json` with `bananawiki_api_version` 1.4 | accepted; `extends` means `requires` |
 | `@plugin.on_load` | runs once at start-up; routes added with `@app.route` or `app.register_blueprint` answer 404 while the plugin is off |
@@ -196,10 +219,10 @@ runs `on_load(app)` once at start-up and turns the result into a `Feature`:
 | `@hook("after_login")`, `@hook("after_user_create")` | `user.login`, `user.created` |
 | `@hook("<anything else>")`, `emit_hook(...)` | an event of the same name |
 | `@template_slot(name)` renderers `fn(context)` | slots of the same name; the context has `user`, `csp_nonce` and the slot's own values (`page` …). Several renderers are concatenated. |
-| `db_query`, `db_execute` | one statement each; `db_query` is read-only, `db_execute` may only write tables named `<plugin_id>__…` of an installed plugin (1.4 allowed any non-core table). Rows are dictionaries that also accept integer indexes. |
+| `db_query`, `db_execute` | one statement each; `db_query` is read-only, `db_execute` may only write tables named `<plugin_id>__…` of an installed plugin. Rows are dictionaries that also accept integer indexes. |
 | `add_admin_menu_item(label, endpoint)` | an admin menu entry |
 | `register_permission(key, …)` | `has_permission(user, key)` answers from the declared role defaults (administrators always) |
-| `get_current_user`, `has_permission`, `is_plugin_enabled`, `get_setting`, `flash`, `redirect`, `url_for`, `render_template`, `rate_limit`, `login_required`, `admin_required`, `editor_required`, `log_action`, `encrypt_value`, `decrypt_value` | the 1.6 equivalents |
+| `get_current_user`, `has_permission`, `is_plugin_enabled`, `get_setting`, `flash`, `redirect`, `url_for`, `render_template`, `rate_limit`, `login_required`, `admin_required`, `editor_required`, `log_action`, `encrypt_value`, `decrypt_value` | the current equivalents |
 | `@plugin.on_disable` | runs in the worker that handles the administrator's click |
 
 Not supported:
@@ -221,12 +244,12 @@ The 1.4 examples in `docs/plugins/examples/` (`hello_world`,
 
 ## Retired 1.4 plugins
 
-Rows of plugins that no longer exist (`banana_ai`, `feedback`, `meetings`,
-`beta_testers`, `git_override`, `oauth_login`, `bw_oauth_provider`,
-`file_manager`, `banana_cad`, `ea_mode`, `lab_camera`, `easter_egg`, and any
-1.4 built-in without a 1.6 feature) are listed as *retired (inert)*. Nothing
-under those ids is ever loaded, their data stays in the database, and
-**Remove** deletes the row.
+Rows of 1.4 plugins that BananaWiki does not ship (`banana_ai`, `feedback`,
+`meetings`, `beta_testers`, `git_override`, `oauth_login`,
+`bw_oauth_provider`, `file_manager`, `banana_cad`, `ea_mode`, `lab_camera`,
+`easter_egg`, and any 1.4 built-in without a current feature) are listed as
+*retired (inert)*. Nothing under those ids is ever loaded, their data stays in
+the database, and **Remove** deletes the row.
 
 ## Sidebar order
 

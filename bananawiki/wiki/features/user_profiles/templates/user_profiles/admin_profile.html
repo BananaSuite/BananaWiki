@@ -23,13 +23,12 @@
     {{ forms.csrf() }}
     {% if not profile.page_disabled_by_admin %}
       {% if profile.page_published %}<button class="btn" name="action" value="unpublish_profile">{{ t('profiles.admin.unpublish') }}</button>
-      {% else %}<button class="btn" name="action" value="publish_profile">{{ t('profiles.admin.publish') }}</button>{% endif %}
-      {#- Only deleting is a filled danger button; disabling can be undone. -#}
-      <button class="btn text-danger" name="action" value="disable_profile" data-confirm="{{ t('profiles.admin.disable_confirm') }}">{{ t('profiles.admin.disable') }}</button>
+      {% else %}<button class="btn" name="action" value="publish_profile">{{ t('profiles.admin.publish') }}</button>{% endif -%}
+      <button class="btn btn--danger-quiet" name="action" value="disable_profile" data-confirm="{{ t('profiles.admin.disable_confirm') }}">{{ t('profiles.admin.disable') }}</button>
     {% else %}
       <button class="btn" name="action" value="enable_profile">{{ t('profiles.admin.enable') }}</button>
     {% endif %}
-    {% if profile %}<button class="btn btn--danger" name="action" value="delete_profile" data-confirm="{{ t('profiles.page.delete_confirm') }}">{{ t('profiles.page.delete') }}</button>{% endif %}
+    {% if profile %}<button class="btn btn--danger-quiet" name="action" value="delete_profile" data-confirm="{{ t('profiles.page.delete_confirm') }}">{{ t('profiles.page.delete') }}</button>{% endif %}
   </form>
 </section>
 
@@ -71,15 +70,14 @@
         <button class="btn btn--small" name="action" value="update_tag">{{ t('common.save') }}</button>
         {% if not loop.first %}<button class="btn btn--small" name="action" value="move_up" aria-label="{{ t('profiles.move_up') }}">↑</button>{% endif %}
         {% if not loop.last %}<button class="btn btn--small" name="action" value="move_down" aria-label="{{ t('profiles.move_down') }}">↓</button>{% endif %}
-        <button class="btn btn--small btn--danger" name="action" value="delete_tag" data-confirm="{{ t('common.are_you_sure') }}">{{ t('common.delete') }}</button>
+        <button class="btn btn--small btn--danger-quiet" name="action" value="delete_tag" data-confirm="{{ t('common.are_you_sure') }}">{{ t('common.delete') }}</button>
       </form>
     </li>
     {% endfor %}
   </ul>
   {% endif %}
   <form method="post" action="{{ url_for('user_profiles.admin_tags', user_id=target.id) }}" class="inline-fields users-spaced">
-    {{ forms.csrf() }}
-    {#- Labels above their controls, like the other forms; the colour picker keeps its own size. -#}
+    {{ forms.csrf() -}}
     <div class="field">
       <label for="new-tag-label">{{ t('profiles.tags.label') }}</label>
       <input id="new-tag-label" name="tag_label" maxlength="50" required>

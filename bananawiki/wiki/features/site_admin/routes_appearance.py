@@ -89,11 +89,11 @@ def theme_import():
     return _answer(message="site_admin.appearance.theme_imported")
 
 
-# ── Site icon ────────────────────────────────────────────────────────────────
+# Site icon
 
 
 def _legacy(rule: str, name: str):
-    """Register a view under its 1.6 URL and both 1.4 URLs."""
+    """Register a view under its own URL and both 1.4 URLs."""
 
     def decorate(view):
         bp.add_url_rule(f"/admin/appearance/favicon/{rule}", name, view, methods=["POST"])
@@ -180,7 +180,7 @@ def favicon_enabled():
 @bp.post("/global-settings/restore-favicon/<string:preset>", endpoint="restore_favicon_legacy")
 @auth.admin_required
 def restore_favicon(preset: str):
-    """1.4 regenerated a preset's image; 1.6 ships them read-only, so this selects it."""
+    """Select a preset icon (the 1.4 "restore" action; presets are read-only)."""
     if preset not in FAVICON_PRESETS:
         return _answer(AppearanceError("site_admin.favicon.error.unknown"))
     appearance.select(preset)

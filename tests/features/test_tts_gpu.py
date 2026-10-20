@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import http.client
 import importlib.util
+import io
 import json
 import os
 import sys
 import threading
+import wave
 from pathlib import Path
 
 import pytest
@@ -15,7 +17,7 @@ import pytest
 from bananawiki.core import http as core_http
 from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.pages import service as pages
-from bananawiki.wiki.features.tts import backends, options, service, worker
+from bananawiki.wiki.features.tts import backends, options, service, text, worker
 
 ROOT = Path(__file__).resolve().parents[2]
 MP3 = b"ID3" + b"\x01" * 300
@@ -143,7 +145,7 @@ def test_gpu_settings_never_send_the_environment_token_to_a_saved_url(app, db):
         assert options.gpu_settings()[:2] == ("http://gpu.internal:8787", "tenant-token")
 
 
-# ── Standalone GPU server ─────────────────────────────────────────────────────
+# Standalone GPU server
 
 
 def load_server():
@@ -186,6 +188,49 @@ def test_piper_privacy_default_precedes_import_and_preserves_operator_setting(ap
         with pytest.raises(ImportError, match="native engine"):
             backend._load("en_US-lessac-medium")
     assert observed == [operator_setting if operator_setting is not None else "1"]
+
+
+LONG_LIST = ", ".join(f"item{number:04d}" for number in range(2_000))[:20_000]
+
+
+@pytest.mark.parametrize("spoken", [
+    LONG_LIST,
+    ("This sentence about bananas is long enough to count for something. " * 40).strip(),
+    "汉" * 1_234,
+    "Hello there.",
+])
+def test_gpu_server_cuts_text_like_the_wiki(spoken):
+    assert load_server().speech_chunks(spoken) == text.speech_chunks(spoken)
+
+
+class PieceVoice:
+    """Refuses pieces longer than the wiki's chunk size, as a real voice would run out of memory."""
+
+    def __init__(self):
+        self.pieces = []
+
+    def synthesize_wav(self, chunk, wav_file, syn_config=None):
+        if len(chunk) > text.CHUNK_CHARS:
+            raise MemoryError("a sentence this long exhausts the GPU")
+        self.pieces.append(chunk)
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(16000)
+        wav_file.writeframes(b"\x01\x00" * len(chunk))
+
+
+def test_gpu_server_synthesises_a_long_page_in_pieces(monkeypatch):
+    module = load_server()
+    engine = module.PiperEngine(module.Settings(token="x" * 32, output_format="wav"))
+    voice = PieceVoice()
+    monkeypatch.setattr(engine, "voice", lambda _language: voice)
+    monkeypatch.setattr(engine, "_config", lambda: None)
+    audio, content_type = engine.synthesize(LONG_LIST.replace(", ", ",\n  "), "en")
+    assert content_type == "audio/wav" and len(voice.pieces) > 1
+    assert voice.pieces == text.speech_chunks(LONG_LIST)
+    with wave.open(io.BytesIO(audio), "rb") as wav:
+        assert wav.getframerate() == 16000
+        assert wav.getnframes() == sum(len(piece) for piece in voice.pieces)
 
 
 class FakeEngine:
@@ -249,9 +294,9 @@ def test_gpu_server_limits_and_validation(gpu_server):
 
 
 def test_gpu_server_health_hides_details_without_token(gpu_server):
-    port, _engine, _module = gpu_server
+    port, _engine, module = gpu_server
     status, data = call(port, "GET", "/health", token=None)
-    assert status == 200 and json.loads(data) == {"status": "ok", "version": "1.7.0"}
+    assert status == 200 and json.loads(data) == {"status": "ok", "version": module.VERSION}
     assert json.loads(call(port, "GET", "/health")[1])["gpu_available"] is True
 
 
@@ -330,7 +375,7 @@ def test_gpu_server_refuses_to_start_without_token():
         module.Settings.from_env({"TTS_AUTH_TOKEN": "short"})
 
 
-# ── Worker command ────────────────────────────────────────────────────────────
+# Worker command
 
 
 def test_worker_main_processes_queue_once(app, tmp_path, monkeypatch, db):

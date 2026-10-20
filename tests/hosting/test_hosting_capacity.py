@@ -55,8 +55,8 @@ def test_overlapping_http_creation_cannot_exceed_capacity(tmp_path, monkeypatch,
 
     def overlapping_password():
         password = generate_password()
-        # Control only request scheduling, leaving the real admission checks,
-        # SQLite write transactions and route behavior unchanged.
+        # Only the timing is forced: both requests reach admission together;
+        # the checks and transactions are the real ones.
         barrier.wait(timeout=10)
         return password
 
@@ -129,9 +129,8 @@ def test_operator_only_creation_allows_staged_transfer_of_existing_wiki(tmp_path
         inst = instances.by_slug("capacity-staged", "hosting")
     assert operator.post(f"/instances/{inst['id']}/stop").status_code == 302
     assert _rows(portal)[0]["status"] == "stopped"
-    # Operators provision and verify real host quotas at this stopped, still
-    # trusted-owned point. This test covers the control-plane gate and handoff;
-    # FakeRuntime does not claim a filesystem quota or firewall acceptance.
+    # FakeRuntime has no real quotas: this checks only that a stopped wiki can
+    # be transferred and restarted by its new owner.
     assert operator.post(f"/admin/instances/{inst['id']}/transfer", data={
         "username": owners[0]["username"],
     }).status_code == 302

@@ -1,13 +1,15 @@
 # Static home page
 
-`index.html` is an optional placeholder for a hosting service's root domain.
-Copy it to a directory outside the application checkout and edit it there.
-Serve that directory with your web server. BananaWiki does not manage its content.
+`index.html` is a placeholder home page for a hosting service's base domain.
 
-Keep your site's terms, privacy notice and contact details in that separate
-directory or repository. You do not need to write a help centre: the hosting
-portal has one built in at `/help`, in English, Italian and German, and its
-Help link points there.
+A managed hosting install serves `/opt/bananawiki/site/` on the base domain
+and never overwrites it. The first install copies this directory there if it
+is empty; after that the content is yours. Put your home page and your legal
+pages there: `terms/index.html` and `privacy/index.html`, plus
+`index.it.html` in each for Italian. See
+[Help centre and legal pages](../docs/hosting.md#help-centre-and-legal-pages).
 
-The bananawiki.com marketing website is maintained separately by its operator
-and is not included in this repository.
+You do not need to write a help centre: the hosting portal has one at `/help`,
+in English, Italian and German.
+
+The BananaWiki project website is not part of this repository.

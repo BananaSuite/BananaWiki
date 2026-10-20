@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import errno
 import logging
+import os
 import sqlite3
 import threading
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -103,6 +106,58 @@ def test_interruption_never_invents_credentials_or_recovers_partial_data(portal,
         assert instances.get(pending["id"])["status"] == "terminated"
         assert instances.get(pending["id"])["data_retained_until"] is None
     assert "interrupted" not in runtime.called("start")
+
+
+@pytest.mark.parametrize("operation", ["create", "duplicate", "import"])
+def test_an_unexpected_runtime_error_counts_as_a_failed_creation(portal, runtime, make_account, make_wiki,
+                                                                 monkeypatch, operation):
+    """Any other runtime exception counts as "failed": the new wiki's name, data and capacity are released."""
+    owner = make_account()
+    source = make_wiki(owner) if operation == "duplicate" else None
+
+    def broken(*_args, **_kwargs):
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+    method = {"create": "provision", "duplicate": "duplicate", "import": "import_archive"}[operation]
+    monkeypatch.setattr(runtime, method, broken)
+    with portal.test_request_context("/"), connection_scope():
+        with pytest.raises(ServiceError) as error:
+            if operation == "create":
+                instances.create(owner, "broken")
+            elif operation == "duplicate":
+                instances.duplicate(source, owner, "broken", "hosting", actor_id=owner["id"])
+            else:
+                instances.import_archive(owner, "broken", "hosting", None, actor_id=owner["id"])
+        assert error.value.key == "hosting.runtime.failed"
+        assert instances.by_slug("broken", "hosting") is None, "the name is free again"
+        row = db.one("SELECT status, provisioning_state, terminated_reason FROM instances WHERE subdomain LIKE "
+                     "'broken--terminated-%'")
+    assert row == {"status": "terminated", "provisioning_state": "failed", "terminated_reason": "provisioning_failed"}
+    assert runtime.called("destroy") == ["broken"]
+
+
+@pytest.mark.parametrize("operation", ["duplicate", "import"])
+def test_a_runtime_that_names_no_accounts_still_creates_the_wiki(portal, runtime, make_account, make_wiki,
+                                                                 monkeypatch, tmp_path, operation):
+    owner = make_account()
+    source = make_wiki(owner)
+    archive = tmp_path / "site.zip"
+    with zipfile.ZipFile(archive, "w") as handle:
+        handle.writestr("bananawiki.json", '{"format": "bananawiki-site"}')
+    method = "duplicate" if operation == "duplicate" else "import_archive"
+    create = getattr(runtime, method)
+
+    def names_nothing(*args):
+        create(*args)
+
+    monkeypatch.setattr(runtime, method, names_nothing)
+    with portal.test_request_context("/"), connection_scope():
+        if operation == "duplicate":
+            inst = instances.duplicate(source, owner, "quiet", "hosting", actor_id=owner["id"])
+        else:
+            inst = instances.import_archive(owner, "quiet", "hosting", archive, actor_id=owner["id"])
+    assert (inst["status"], inst["provisioning_state"], inst["two_step_off"]) == ("running", "ready", [])
+    assert runtime.called("destroy") == []
 
 
 @pytest.mark.parametrize("mutator", [

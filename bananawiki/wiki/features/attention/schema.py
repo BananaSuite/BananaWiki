@@ -18,8 +18,7 @@ _QUEUE_INDEXES = {
 
 
 def upgrade_v4(conn: sqlite3.Connection) -> None:
-    # An optional address for notifications (1.4 had no email at all) and the
-    # person's own choices about which emails they want.
+    # An optional address for notifications and the person's own choices about which emails they want.
     add_columns(conn, "users", {
         "email": "TEXT",
         "attention_emails": "INTEGER NOT NULL DEFAULT 1",

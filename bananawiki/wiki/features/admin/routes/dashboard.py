@@ -50,8 +50,8 @@ def _stats() -> dict[str, int]:
 
 def _recent_edits() -> list[dict[str, Any]]:
     rows = db.all(
-        "SELECT ph.id, ph.created_at, ph.edit_message, p.title, p.slug, u.username FROM page_history ph "
-        "JOIN pages p ON p.id = ph.page_id LEFT JOIN users u ON u.id = ph.edited_by "
+        "SELECT ph.id, ph.created_at, ph.edit_message, ph.edited_by, p.title, p.slug, u.username "
+        "FROM page_history ph JOIN pages p ON p.id = ph.page_id LEFT JOIN users u ON u.id = ph.edited_by "
         "ORDER BY ph.created_at DESC, ph.id DESC LIMIT ?",
         (RECENT_EDITS,),
     )

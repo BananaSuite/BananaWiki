@@ -24,7 +24,7 @@
   {% if peer.last_error %}<p class="text-danger" role="status">{{ t(peer.last_error) }} {{ t('federation.admin.retry', when=peer.next_attempt|datetime) }}</p>{% endif %}
   <div class="btn-row">
     {{ forms.post_button(url_for('federation.sync_now', remote_id=peer.wiki_id), t('federation.admin.sync')) }}
-    {{ forms.post_button(url_for('federation.disconnect', remote_id=peer.wiki_id), t('federation.admin.disconnect'), cls='btn btn--danger', confirm=t('federation.admin.disconnect_confirm')) }}
+    {{ forms.post_button(url_for('federation.disconnect', remote_id=peer.wiki_id), t('federation.admin.disconnect'), cls='btn btn--danger-quiet', confirm=t('federation.admin.disconnect_confirm')) }}
   </div>
 </article>
 {% endfor %}

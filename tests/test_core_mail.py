@@ -49,7 +49,7 @@ def smtp(monkeypatch):
     return FakeSMTP
 
 
-# ── Validation ────────────────────────────────────────────────────────────────
+# Validation
 
 
 @pytest.mark.parametrize("address,ok", [
@@ -87,7 +87,7 @@ def test_secrets_are_not_in_repr():
     assert "pw" not in repr(SMTP) and "pw" not in repr(mail.MailSettings(api_key="pw"))
 
 
-# ── Environment ───────────────────────────────────────────────────────────────
+# Environment
 
 
 def test_settings_from_env():
@@ -111,7 +111,7 @@ def test_settings_from_env_refuses_bad_values(environ):
         mail.settings_from_env(Env(environ), "BW_")
 
 
-# ── SMTP ──────────────────────────────────────────────────────────────────────
+# SMTP
 
 
 def test_smtp_starttls(smtp):
@@ -153,7 +153,7 @@ def test_not_configured_sends_nothing(smtp):
     assert smtp.instances == []
 
 
-# ── HTTP providers ────────────────────────────────────────────────────────────
+# HTTP providers
 
 
 class FakeResponse:
@@ -214,7 +214,7 @@ def test_provider_errors(monkeypatch):
     assert mail.send(settings, MESSAGE) == (False, "provider_unreachable")
 
 
-# ── Quotas, outbox, HTML ─────────────────────────────────────────────────────
+# Quotas, outbox, HTML
 
 
 def test_daily_limiter():

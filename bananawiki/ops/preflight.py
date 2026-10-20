@@ -1,6 +1,6 @@
 """``banana preflight``: whether this release can run on this server, checked before an update stops anything.
 
-An update (from 1.7 on) runs the *new* release's own copy of this command
+An update (by a 1.7 or later controller) runs the *new* release's own copy of this command
 once it has prepared that release and before it stops anything, because the
 installed controller cannot know what a newer release refuses once it runs:
 storage without the quotas it needs, a setting it no longer accepts. It runs

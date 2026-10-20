@@ -1,6 +1,6 @@
 {% if impersonating %}
 <div class="banner banner--warning" role="status">
-  {{ t('banner.impersonating', user=current_user.username) }}
+  <span class="banner__text">{{ t('banner.impersonating', user=current_user.username) }}</span>
   <form class="inline" method="post" action="{{ url_for('auth.stop_impersonation') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button class="btn btn--small" type="submit">{{ t('banner.stop_impersonating') }}</button>
@@ -8,6 +8,6 @@
 </div>
 {% endif %}
 {% if site().maintenance_mode and is_admin %}
-<div class="banner banner--danger" role="status">{{ t('banner.maintenance_admin') }}</div>
+<div class="banner banner--danger" role="status"><span class="banner__text">{{ t('banner.maintenance_admin') }}</span></div>
 {% endif %}
 {{ slot('page.banners') }}

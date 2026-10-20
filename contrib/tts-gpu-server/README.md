@@ -5,15 +5,15 @@ NVIDIA GPU for one or more BananaWiki wikis. The wiki sends a page's text, the s
 with MP3 (or WAV) audio. If the server cannot be reached, the wiki falls back to Piper on its
 own machine.
 
-It replaces the 1.4 `banana-tts-gpu/` service and speaks the same protocol, so an existing
-wiki configuration keeps working.
+It speaks the protocol of the 1.4 `banana-tts-gpu/` service, so an existing wiki configuration
+keeps working.
 
 ## Install
 
 On the GPU machine (Ubuntu/Debian with the NVIDIA driver, CUDA and cuDNN installed):
 
 ```sh
-sudo ./install.sh                      # listens on the Tailscale address, or 127.0.0.1
+sudo ./install.sh                      # a Tailscale address if Tailscale is installed, otherwise 127.0.0.1
 sudo ./install.sh --host 192.168.1.50  # a specific private address
 sudo ./install.sh --cpu                # no GPU: CPU onnxruntime
 sudo ./install.sh --uninstall
@@ -31,14 +31,7 @@ Tailscale or WireGuard) and firewall the port.
 
 ## Connect a wiki
 
-In the wiki: **Admin → Read aloud → Remote GPU server**. Enter the address
-(`http://192.168.1.50:8787`) and the token, tick *Use the GPU server*, save, and press
-*Test the GPU server*. Alternatively set `BW_TTS_REMOTE_GPU_URL`,
-`BW_TTS_REMOTE_GPU_AUTH_TOKEN` and optionally `BW_TTS_REMOTE_GPU_TIMEOUT` (seconds) in the
-wiki's environment; they take precedence (and on managed hosting they are the only source).
-
-The wiki only connects to loopback, private, and shared (100.64.0.0/10) or public addresses;
-link-local and metadata addresses are refused, and redirects are never followed.
+See [Connect a wiki](../../docs/tts.md#connect-a-wiki) in the read-aloud documentation.
 
 ## Configuration
 
@@ -55,7 +48,7 @@ link-local and metadata addresses are refused, and redirects are never followed.
 | `TTS_MAX_LOADED_VOICES` | `8` | Voices kept in (GPU) memory |
 | `TTS_MAX_CONCURRENT` | `1` | Simultaneous syntheses |
 | `TTS_QUEUE_TIMEOUT` | `30` | Seconds a request waits for a free slot before `503` |
-| `TTS_MAX_INPUT_CHARS` | `20000` | Longer text is refused with `413` (the wiki sends at most 20000) |
+| `TTS_MAX_INPUT_CHARS` | `20000` | Longer text is refused with `413` (the wiki sends at most 20000). Accepted text is synthesised in pieces of at most 500 characters, so a page without full stops cannot exhaust the GPU memory |
 | `TTS_MAX_BODY_BYTES` | `262144` | Larger request bodies are refused with `413` |
 | `TTS_SOCKET_TIMEOUT` | `30` | Seconds a client may stay silent while sending a request (or between keep-alive requests) before it is disconnected |
 | `TTS_MAX_CONNECTIONS` | `64` | Open connections at once; further ones are closed straight away |
@@ -66,17 +59,14 @@ link-local and metadata addresses are refused, and redirects are never followed.
 
 ## API
 
-* `GET /health` → `{"status": "ok", "version": "1.7.0"}`. With the bearer token it also
-  reports `gpu_available`, `cuda_enabled`, `loaded_voices` and `output_format`.
+* `GET /health` → `{"status": "ok", "version": "1.7.2"}`. Without a token it reports nothing
+  else; with the bearer token it also reports `gpu_available`, `cuda_enabled`, `loaded_voices`
+  and `output_format`.
 * `POST /synthesize` with `Authorization: Bearer <token>`, `Content-Type: application/json`
   and `{"text": "...", "language": "en"}` → `200` with `audio/mpeg` (or `audio/wav`).
   Errors: `401`/`403` token, `400` bad input or no voice for the language, `411` missing
   length, `413` too large, `415` not JSON, `503` busy (with `Retry-After`), `500` synthesis
   failed. The wiki retries `5xx` answers with backoff and postpones on `429`.
 
-## Changes from 1.4
-
-* Standard-library HTTP server (no FastAPI/uvicorn); synthesis runs in request threads with a
-  concurrency limit instead of blocking an event loop, so `/health` always answers.
-* Over-long text is refused instead of silently cut.
-* `/health` without a token no longer discloses the voice directory or loaded voices.
+The server uses only the standard library's HTTP server. Synthesis runs in request threads
+under the `TTS_MAX_CONCURRENT` limit, so `/health` answers while voices are speaking.

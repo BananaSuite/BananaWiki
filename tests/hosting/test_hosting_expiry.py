@@ -1,5 +1,6 @@
 """Wiki lifetimes: no expiry when configured, warnings before expiry, a notice
-at expiry and renewal by owners when the platform allows it."""
+at expiry and renewal by owners and collaborators allowed to start and stop
+the wiki, when the platform allows it."""
 
 from __future__ import annotations
 
@@ -118,19 +119,48 @@ def _signed_in(portal, username):
     return client
 
 
-def test_only_the_owner_renews_not_a_collaborator_who_may_start_and_stop_it(portal, query):
-    owner, wiki = _renewing_portal(portal, query)
+def _collaborator(portal, owner, wiki, username, permissions):
     with portal.test_request_context("/"), _scope(portal):
         from bananawiki.hosting import accounts, collaborators, instances
 
-        accounts.create("helper", PASSWORD)
-        collaborators.add(instances.get(wiki["id"]), owner, "helper", "custom", ["start_stop"])
+        helper = accounts.create(username, PASSWORD)
+        collaborators.add(instances.get(wiki["id"]), owner, username, "custom", permissions)
+    return helper
+
+
+def test_a_collaborator_who_may_start_and_stop_the_wiki_renews_it(portal, query):
+    owner, wiki = _renewing_portal(portal, query)
+    helper = _collaborator(portal, owner, wiki, "helper", ["start_stop"])
+    client = _signed_in(portal, "helper")
+    assert "/renew" in client.get(f"/instances/{wiki['id']}").get_data(as_text=True)
+    assert client.post(f"/instances/{wiki['id']}/renew").status_code == 302
+    renewed = parse(query("SELECT expires_at FROM instances", one=True)["expires_at"])
+    assert abs(renewed - (utcnow() + timedelta(days=14))) < timedelta(minutes=5)
+    event = query("SELECT actor_id FROM hosting_events WHERE action = 'instance.renewed'", one=True)
+    assert event["actor_id"] == helper["id"]
+
+
+def test_a_collaborator_without_start_and_stop_does_not_renew(portal, query):
+    owner, wiki = _renewing_portal(portal, query)
+    _collaborator(portal, owner, wiki, "viewer", ["download"])
     before = query("SELECT expires_at FROM instances", one=True)["expires_at"]
-    helper = _signed_in(portal, "helper")
-    assert "/renew" not in helper.get(f"/instances/{wiki['id']}").get_data(as_text=True)
-    helper.post(f"/instances/{wiki['id']}/renew")
+    client = _signed_in(portal, "viewer")
+    assert "/renew" not in client.get(f"/instances/{wiki['id']}").get_data(as_text=True)
+    assert client.post(f"/instances/{wiki['id']}/renew").status_code == 403
     assert query("SELECT expires_at FROM instances", one=True)["expires_at"] == before
-    assert "/renew" in _signed_in(portal, "owner").get(f"/instances/{wiki['id']}").get_data(as_text=True)
+    assert query("SELECT 1 FROM hosting_events WHERE action = 'instance.renewed'", one=True) is None
+
+
+def test_collaborators_renew_only_when_the_platform_lets_owners_renew(portal, query):
+    owner, wiki = _renewing_portal(portal, query)
+    _collaborator(portal, owner, wiki, "helper", ["start_stop"])
+    query("UPDATE hosting_settings SET owner_renewal_enabled = 0 WHERE id = 1")
+    before = query("SELECT expires_at FROM instances", one=True)["expires_at"]
+    for username in ("helper", "owner"):
+        client = _signed_in(portal, username)
+        assert "/renew" not in client.get(f"/instances/{wiki['id']}").get_data(as_text=True)
+        client.post(f"/instances/{wiki['id']}/renew")
+        assert query("SELECT expires_at FROM instances", one=True)["expires_at"] == before
 
 
 def test_an_end_date_an_administrator_brought_forward_is_not_renewed_away(portal, query):

@@ -6,7 +6,7 @@ suspension windows, grace periods, names, quotas, entitlements) and calls the
 tenant itself. Refusals raise :class:`~bananawiki.hosting.errors.ServiceError`
 with a translation key; runtime failures become ``hosting.runtime.<code>``.
 
-Statuses are those of 1.4: ``running``, ``stopped`` (paused by the owner),
+Statuses are those of 1.4: ``running``, ``stopped`` (paused, or not started yet),
 ``suspended`` (by an administrator; the expiry clock is frozen while
 ``suspended_at`` is set and the owner cannot act) and ``terminated`` (row
 kept, name archived as ``<slug>--terminated-<id8>``; data retained until
@@ -24,7 +24,9 @@ import secrets
 import socket
 import sqlite3
 import string
+from collections import Counter
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -36,7 +38,7 @@ from flask import current_app
 from ..core.i18n import FALLBACK
 from ..core.timeutil import MAX_YEAR, is_past, now_sql, parse, sql_in, to_sql, utcnow
 from ..core.web import one_line
-from . import accounts, events, oauth, settings, urls
+from . import accounts, certwarm, events, oauth, settings, urls
 from .config import HostingConfig
 from .db import db
 from .errors import ServiceError
@@ -51,6 +53,9 @@ ADMIN_EXPIRY_DAYS = 365 * 100
 RENEWAL_WINDOW_DAYS = 7
 MAX_EXTENSION_SECONDS = 10 * 365 * 86400
 LOG_NAMES = ("error.log", "access.log")
+# Wiki lists ask several wikis for their health at once and accept storage measured up to a minute ago.
+PROBE_WORKERS = 16
+LISTED_USAGE_AGE = 60.0
 _ID_ALPHABET = string.ascii_lowercase + string.digits
 _PASSWORD_ALPHABET = string.ascii_letters + string.digits
 _MARKER_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
@@ -152,6 +157,12 @@ def _provision(inst: dict[str, Any], operation: Callable[[TenantSpec], None]) ->
         except RuntimeFailure as error:
             _discard_failed(inst, error)
             raise _fail(error) from error
+        except Exception as error:
+            # The runtime contract counts any other exception as "failed".
+            log.exception("Creating wiki %s failed unexpectedly", inst["id"])
+            failure = RuntimeFailure("failed", str(error)[:300])
+            _discard_failed(inst, failure)
+            raise _fail(failure) from error
         try:
             # Global settings or the account's privileges may have changed
             # while the slow seed/copy ran. Complete with the current policy.
@@ -213,6 +224,19 @@ def name_holder(slug: str, domain_mode: str) -> dict[str, Any] | None:
         if urls.platform_host(row) == host:
             return row
     return None
+
+
+def address_conflicts(suffix: str) -> list[dict[str, Any]]:
+    """The live wikis that would lose their address with *suffix* (``""``: none) as the instance suffix.
+
+    Their host would also be another wiki's, or their name would be the
+    suffix, which is reserved.
+    """
+    rows = db.all("SELECT * FROM instances WHERE status != 'terminated' ORDER BY created_at, id")
+    hosts = {row["id"]: urls.platform_host(row, suffix=suffix) for row in rows}
+    taken = Counter(hosts.values())
+    return [row for row in rows if hosts[row["id"]]
+            and (taken[hosts[row["id"]]] > 1 or (suffix and row["subdomain"].lower() == suffix))]
 
 
 def owned_by(account_id: str) -> list[dict[str, Any]]:
@@ -313,7 +337,7 @@ def maintenance_result(subject_type: str, subject_id: str, step: str, failures: 
         log.exception("Could not record the maintenance result of %s %s", subject_type, subject_id)
 
 
-# ── Policy and specs ──────────────────────────────────────────────────────────
+# Policy and specs
 
 
 def owner_is_admin(inst: dict[str, Any]) -> bool:
@@ -447,12 +471,15 @@ def sync_routes() -> None:
 
     try:
         rows = db.all("SELECT * FROM instances WHERE status = 'running' AND provisioning_state = 'ready'")
-        runtime().sync_routes([spec(row, with_policy=False) for row in rows if domains.may_serve(row["id"])])
+        result = runtime().sync_routes([spec(row, with_policy=False) for row in rows if domains.may_serve(row["id"])])
     except (RuntimeFailure, sqlite3.Error, ValueError) as error:
         log.warning("Could not publish tenant routes: %s", error)
+        return
+    if isinstance(result, dict) and result.get("changed") and not result.get("reloaded"):
+        log.warning("Tenant routes were written but Caddy did not reload; new wikis stay unrouted until it does.")
 
 
-# ── Creation ──────────────────────────────────────────────────────────────────
+# Creation
 
 
 def _port_free(port: int) -> bool:
@@ -633,47 +660,36 @@ def create(account: dict[str, Any], slug: str, *, domain_mode: str = "hosting", 
                                                        force_password_change=not custom))
     events.record("instance", inst["id"], "instance.created", account["id"], slug)
     sync_routes()
+    certwarm.schedule(urls.platform_host(inst))
     return get(inst["id"]), username, password  # type: ignore[return-value]
 
 
 def _discard_failed(inst: dict[str, Any], error: RuntimeFailure | None = None) -> None:
     """Remove a wiki whose provisioning failed: terminate the row, drop the data it created.
 
-    *error* is the failure the runtime operation itself raised (None when the
-    creation was cancelled, its owner lost the right to it or a step after
-    the operation failed). Data under the wiki's name is destroyed only when
-    it can be this wiki's own:
+    *error* is the failure the runtime operation raised, or None when the
+    creation was cancelled, its owner lost the right to it or a later step
+    failed. Data under the wiki's name is destroyed only when it can be this
+    wiki's own:
 
-    * ``data_exists`` means the runtime refused before writing or starting
-      anything: the directory is someone else's (data a failed move left
-      behind, a manual copy). Before any database statement the refusal is
-      written to a marker file (see :func:`_refusal_marker`), then recorded
-      as an event. Either record is enough for a later cancellation or
-      expiry to leave the directory alone, so neither a failing event nor a
-      failing row update below turns the refusal into a deletion. A worker
-      killed outright between handing the creation to the runtime and
-      recording its answer leaves neither record: that creation is then
-      treated as one the runtime worked on (an accepted residual).
-    * Without ``instance.provisioning_started`` the runtime was never asked
-      to create anything (the creator gave up on a busy lock or was
-      interrupted after the reservation), so whatever sits under the name is
-      not this wiki's either. Unfinished wikis left by a build without that
-      event are treated the same way: their partial data is left behind
-      rather than risking data they did not create.
+    * ``data_exists``: the runtime refused because the directory belongs to
+      someone else.
+    * Never started (no ``instance.provisioning_started`` event): the runtime
+      was never asked to create anything.
 
-    In both cases the directory is left untouched for an administrator to
-    look at; this wiki holds no runtime resources, so its row is terminated
-    at once, in one update, and gives up its name, port and capacity (only
-    the directory keeps the name taken). Otherwise the runtime may have left
-    a directory or a container of this wiki behind, and while they cannot be
-    destroyed the row keeps its reservation (terminating it retries the
-    cleanup).
+    In both cases the directory is left alone and the row is terminated at
+    once, giving up its name, port and capacity. Otherwise the runtime may
+    have left a directory or container behind; while they cannot be
+    destroyed, the row keeps its reservation.
     """
     terminated = {"status": "terminated", "terminated_at": now_sql(), "port": None,
                   "subdomain": urls.archived_slug(inst["id"], inst["subdomain"]),
                   "terminated_reason": "provisioning_failed", "data_retained_until": None}
     refused = error is not None and error.code == "data_exists"
     if refused:
+        # Marker file first, then the event: either one keeps a later
+        # cancellation or expiry from deleting the directory, so a failing
+        # event or row update cannot turn the refusal into a deletion.
         _mark_refused(inst, error.code)
         events.record("instance", inst["id"], PROVISIONING_REFUSED, None, error.code)
     if refused or not _runtime_may_own_data(inst["id"]):
@@ -742,6 +758,11 @@ def _settle_data(instance_id: str, moved_to: str) -> None:
 def _undo_move(inst: dict[str, Any], moved_to: str, was_running: bool) -> None:
     """Put a wiki back as it was when its row could not take the name its data moved to."""
     _settle_data(inst["id"], moved_to)
+    _start_again(inst, was_running)
+
+
+def _start_again(inst: dict[str, Any], was_running: bool) -> None:
+    """Start a wiki a failed rename stopped under its old name; one that does not start is recorded as stopped."""
     if not was_running:
         return
     try:
@@ -749,9 +770,10 @@ def _undo_move(inst: dict[str, Any], moved_to: str, was_running: bool) -> None:
     except RuntimeFailure as error:
         log.warning("Wiki %s stays stopped: %s", inst["id"], error)
         db.update("instances", {"status": "stopped", "stopped_at": now_sql()}, "id = ?", (inst["id"],))
+        sync_routes()
 
 
-# ── Pause, resume, restart ────────────────────────────────────────────────────
+# Pause, resume, restart
 
 
 def _cas(instance_id: str, allowed: tuple[str, ...], values: dict[str, Any]) -> bool:
@@ -842,7 +864,7 @@ def apply_policy(inst: dict[str, Any], *, actor_id: str | None) -> bool:
     return True
 
 
-# ── Suspension ────────────────────────────────────────────────────────────────
+# Suspension
 
 
 def suspend(inst: dict[str, Any], *, actor_id: str | None, until: str | None = None, reason: str = "",
@@ -913,7 +935,63 @@ def suspension_history(instance_id: str) -> list[dict[str, Any]]:
     )
 
 
-# ── Termination, restore, deletion ────────────────────────────────────────────
+# The duration label of a wiki suspended together with its owner's account.
+ACCOUNT_LABEL = "account"
+
+
+def suspended_with_account(inst: dict[str, Any]) -> bool:
+    """Whether the wiki's latest suspension is the one that came with its owner's account."""
+    if inst["status"] != "suspended":
+        return False
+    latest = db.one("SELECT action, duration FROM instance_suspension_audit WHERE instance_id = ? "
+                    "ORDER BY id DESC LIMIT 1", (inst["id"],))
+    return latest is not None and latest["action"] == "suspend" and latest["duration"] == ACCOUNT_LABEL
+
+
+def suspend_with_account(account_id: str, *, actor_id: str | None, until: str | None, reason: str,
+                         reason_visible: bool, time_visible: bool) -> int:
+    """Suspend an account's wikis with the account itself, until the same end date.
+
+    A wiki already suspended on its own keeps that suspension; one suspended
+    with an earlier account suspension takes the new end date.
+    """
+    count = 0
+    for inst in owned_by(account_id):
+        if not provisioning_ready(inst):
+            continue
+        if inst["status"] in ("running", "stopped") or suspended_with_account(inst):
+            suspend(inst, actor_id=actor_id, until=until, reason=reason, reason_visible=reason_visible,
+                    time_visible=time_visible, duration_label=ACCOUNT_LABEL)
+            count += 1
+    return count
+
+
+def unsuspend_with_account(account_id: str, *, actor_id: str | None) -> tuple[int, int, int]:
+    """Reopen the wikis suspended with the account: ``(restarted, still suspended, held for storage)``.
+
+    Wikis an administrator suspended on their own stay suspended. Those the
+    storage protection holds stay too, and reopen by themselves once they fit
+    within their limit.
+    """
+    restarted = kept = held = 0
+    for inst in owned_by(account_id):
+        if inst["status"] != "suspended":
+            continue
+        if storage_suspended(inst):
+            held += 1
+            continue
+        if not suspended_with_account(inst):
+            kept += 1
+            continue
+        try:
+            unsuspend(inst, actor_id=actor_id)
+        except ServiceError:
+            continue
+        restarted += 1
+    return restarted, kept, held
+
+
+# Termination, restore, deletion
 
 
 def terminate(inst: dict[str, Any], *, actor_id: str | None, reason: str = "manual") -> None:
@@ -1041,7 +1119,10 @@ def restore(inst: dict[str, Any], *, actor_id: str, extend_days: int | None = No
         target = f"{original[:30]}-r{secrets.token_hex(2)}"
     else:
         raise ServiceError("hosting.instances.name_taken")
-    expires = sql_in(days=extend_days) if extend_days and extend_days > 0 else default_expiry()
+    if extend_days and extend_days > 0:
+        expires = sql_in(days=extend_days)
+    else:
+        expires = sql_in(days=ADMIN_EXPIRY_DAYS) if owner_is_admin(inst) else default_expiry()
     old_dir = urls.data_dir_name(inst["subdomain"], mode)
     new_dir = urls.data_dir_name(target, mode)
     try:
@@ -1157,7 +1238,7 @@ def grace_active(inst: dict[str, Any]) -> bool:
     return bool(inst.get("grace_period_suspended")) or not is_past(until)
 
 
-# ── Expiry ────────────────────────────────────────────────────────────────────
+# Expiry
 
 
 def set_expiry(inst: dict[str, Any], expires_at: str | None, *, actor_id: str) -> None:
@@ -1165,7 +1246,7 @@ def set_expiry(inst: dict[str, Any], expires_at: str | None, *, actor_id: str) -
 
     An administrator's decision (the portal and the command line come here).
     An end date brought forward, or set on a wiki that had none, is kept in
-    ``admin_expiry``: while the wiki still ends then, its owner cannot renew
+    ``admin_expiry``: while the wiki still ends then, nobody can renew
     it (:func:`renewal_locked`). A later date, or none, gives renewal back.
     """
     require_ready(inst)
@@ -1301,7 +1382,7 @@ def warn_expiring() -> int:
 
 
 def renewal_offered() -> bool:
-    """Owners may renew their wikis themselves (platform setting, and wikis expire at all)."""
+    """Owners, and collaborators who may start and stop a wiki, can renew it (platform setting, and wikis expire at all)."""
     return settings.flag("owner_renewal_enabled") and cfg().limits.duration_days > 0
 
 
@@ -1311,7 +1392,7 @@ def renewal_locked(inst: dict[str, Any]) -> bool:
 
 
 def renewable(inst: dict[str, Any]) -> bool:
-    """The wiki may be renewed by its owner now: it expires within ``RENEWAL_WINDOW_DAYS``."""
+    """The wiki may be renewed now: it expires within ``RENEWAL_WINDOW_DAYS``."""
     expires = parse(inst.get("expires_at"))
     return (renewal_offered() and expires is not None and provisioning_ready(inst)
             and inst["status"] in ("running", "stopped") and not renewal_locked(inst)
@@ -1319,14 +1400,14 @@ def renewable(inst: dict[str, Any]) -> bool:
 
 
 def may_renew(inst: dict[str, Any], account: dict[str, Any]) -> bool:
-    """Renewing is the owner's decision (administrators set any date anyway), not a collaborator's."""
-    from .collaborators import acts_as_admin
+    """The owner, an administrator, or a collaborator allowed to start and stop the wiki."""
+    from .collaborators import can
 
-    return inst["account_id"] == account["id"] or acts_as_admin(account)
+    return can(inst, account, "start_stop")
 
 
 def renew(inst: dict[str, Any], *, actor_id: str) -> None:
-    """Give the wiki a fresh ``INSTANCE_DURATION_DAYS`` from now (owners, when the platform allows it).
+    """Give the wiki a fresh ``INSTANCE_DURATION_DAYS`` from now (when the platform allows owners to).
 
     Only in the last ``RENEWAL_WINDOW_DAYS`` before expiry: a wiki stays
     alive while someone looks after it, and an abandoned one still expires.
@@ -1399,7 +1480,7 @@ def storage_suspended(inst: dict[str, Any]) -> bool:
     That is its latest suspension record: made by no one, labelled
     ``storage`` (or, from 1.4, giving the storage reason), with no end date.
     Any later suspension (by an administrator, of the owner's account) takes
-    its place, and is never lifted automatically.
+    its place, and is never lifted by the storage check.
     """
     if inst["status"] != "suspended" or inst.get("suspended_until"):
         return False
@@ -1445,7 +1526,7 @@ def lift_storage_suspensions() -> int:
     return _each(rows, lift_storage_suspension, "Storage suspension of %s not lifted: %s", "lift_storage_suspension")
 
 
-# ── Names, owners and quotas ──────────────────────────────────────────────────
+# Names, owners and quotas
 
 
 def rename(inst: dict[str, Any], slug: str, domain_mode: str, *, actor_id: str, auto_suffix: bool = False) -> dict[str, Any]:
@@ -1473,8 +1554,12 @@ def rename(inst: dict[str, Any], slug: str, domain_mode: str, *, actor_id: str, 
     try:
         if was_running:
             runtime().stop(old_spec)
+    except RuntimeFailure as error:
+        raise _fail(error) from error
+    try:
         runtime().relocate(inst["id"], old_spec.data_dir_name, new_dir)
     except RuntimeFailure as error:
+        _start_again(inst, was_running)
         raise _fail(error) from error
     values: dict[str, Any] = {"subdomain": slug, "domain_mode": domain_mode}
     if domain_mode == "apex":
@@ -1519,6 +1604,22 @@ def apply_owner_quota(inst: dict[str, Any], admin_owner: bool) -> None:
     }, "id = ?", (inst["id"],))
 
 
+def apply_owner_role(account_id: str, admin_owner: bool, *, actor_id: str | None) -> int:
+    """After an account gains or loses administrator rights: its wikis' quotas and policies.
+
+    Apex names are for administrators, so a former administrator's apex
+    wikis move to hosting mode first. Returns how many moved.
+    """
+    renamed = 0
+    for inst in owned_by(account_id):
+        if not admin_owner and (inst.get("domain_mode") or "hosting") == "apex":
+            inst = rename_for_non_admin(inst, actor_id=actor_id)
+            renamed += 1
+        apply_owner_quota(inst, admin_owner)
+        apply_policy(inst, actor_id=actor_id)
+    return renamed
+
+
 def move_to_owner(inst: dict[str, Any], target: dict[str, Any], *, actor_id: str,
                   check_capacity: bool = False) -> list[str]:
     """Give a wiki to another account, applying that account's privileges.
@@ -1552,7 +1653,7 @@ def move_to_owner(inst: dict[str, Any], target: dict[str, Any], *, actor_id: str
     return notes
 
 
-def rename_for_non_admin(inst: dict[str, Any], *, actor_id: str) -> dict[str, Any]:
+def rename_for_non_admin(inst: dict[str, Any], *, actor_id: str | None) -> dict[str, Any]:
     """Move an apex wiki to hosting mode (apex names are for administrators)."""
     require_ready(inst)
     base = inst["subdomain"]
@@ -1565,8 +1666,12 @@ def rename_for_non_admin(inst: dict[str, Any], *, actor_id: str) -> dict[str, An
     try:
         if inst["status"] == "running":
             runtime().stop(old_spec)
+    except RuntimeFailure as error:
+        raise _fail(error) from error
+    try:
         runtime().relocate(inst["id"], old_spec.data_dir_name, new_dir)
     except RuntimeFailure as error:
+        _start_again(inst, inst["status"] == "running")
         raise _fail(error) from error
     try:
         db.update("instances", {"subdomain": slug, "domain_mode": "hosting",
@@ -1624,7 +1729,7 @@ def set_use_case(inst: dict[str, Any], text: str) -> None:
               (inst["id"],))
 
 
-# ── Wiki recovery tools ───────────────────────────────────────────────────────
+# Wiki recovery tools
 
 
 def _live(inst: dict[str, Any]) -> None:
@@ -1682,33 +1787,87 @@ def take_legacy_password(inst: dict[str, Any]) -> str:
 
 
 def duplicate(inst: dict[str, Any], owner: dict[str, Any], slug: str, domain_mode: str, *, actor_id: str) -> dict[str, Any]:
+    """The copy's row, with ``two_step_off``: the accounts whose two-step verification the copy turned off."""
     _live(inst)
     slug = urls.validate_slug(slug, account_is_admin=bool(owner["is_admin"]), domain_mode=domain_mode)
     copy = _insert(owner, slug, domain_mode, admin_username=inst.get("admin_username") or "admin",
                    custom_credentials=bool(inst.get("custom_credentials")), easy_wiki=bool(inst.get("easy_wiki")),
                    use_case=inst.get("declared_use_case") or "")
-    _provision(copy, lambda target: runtime().duplicate(spec(inst, with_policy=False), target))
+    two_step_off: list[str] = []
+    _provision(copy, lambda target: two_step_off.extend(
+        runtime().duplicate(spec(inst, with_policy=False), target) or ()))
     events.record("instance", copy["id"], "instance.duplicated", actor_id, inst["id"])
     sync_routes()
-    return get(copy["id"])  # type: ignore[return-value]
+    return {**get(copy["id"]), "two_step_off": two_step_off}  # type: ignore[dict-item]
 
 
 def import_archive(owner: dict[str, Any], slug: str, domain_mode: str, archive_path: Any, *,
                    actor_id: str) -> dict[str, Any]:
+    """The new wiki's row, with ``two_step_off`` as for :func:`duplicate`."""
     slug = urls.validate_slug(slug, account_is_admin=bool(owner["is_admin"]), domain_mode=domain_mode)
     inst = _insert(owner, slug, domain_mode, admin_username="admin", custom_credentials=True, easy_wiki=False,
                    use_case="")
-    _provision(inst, lambda target: runtime().import_archive(target, archive_path))
+    two_step_off: list[str] = []
+    _provision(inst, lambda target: two_step_off.extend(runtime().import_archive(target, archive_path) or ()))
     events.record("instance", inst["id"], "instance.imported", actor_id)
     sync_routes()
-    return get(inst["id"])  # type: ignore[return-value]
+    return {**get(inst["id"]), "two_step_off": two_step_off}  # type: ignore[dict-item]
 
 
-# ── Views for dashboards ──────────────────────────────────────────────────────
+# Views for dashboards
 
 
-def describe(inst: dict[str, Any], *, admin_owner: bool | None = None, with_status: bool = True) -> dict[str, Any]:
-    """The row plus URL, time left, grace information, health and storage."""
+def _runtime_spec(inst: dict[str, Any]) -> TenantSpec | None:
+    try:
+        return spec(inst, with_policy=False)
+    except ValueError:
+        return None
+
+
+def _used(runtime_spec: TenantSpec | None, max_age: float | None = None) -> int:
+    if runtime_spec is None:
+        return 0
+    try:
+        return int(runtime().usage(runtime_spec, max_age=max_age))
+    except (RuntimeFailure, ValueError):
+        return 0
+
+
+def _health(inst: dict[str, Any], runtime_spec: TenantSpec | None) -> str:
+    """The runtime's state of a running wiki; ``unknown`` for any other."""
+    if runtime_spec is None or inst["status"] != "running":
+        return "unknown"
+    try:
+        return runtime().status(runtime_spec).state
+    except (RuntimeFailure, ValueError):
+        return "unknown"
+
+
+def _describe_all(rows: list[dict[str, Any]], admin_owner: Callable[[dict[str, Any]], bool]) -> list[dict[str, Any]]:
+    """:func:`describe` of each row, asking up to ``PROBE_WORKERS`` wikis for their health at once.
+
+    An unresponsive wiki holds up its health probe for the whole timeout: one
+    after another, a few of them would add up to more than a request may take.
+    Storage is measured meanwhile, one wiki after another (walking files gains
+    nothing from threads), and may be up to ``LISTED_USAGE_AGE`` seconds old.
+    """
+    app = current_app._get_current_object()  # type: ignore[attr-defined]
+    specs = [_runtime_spec(row) for row in rows]
+
+    def health(row: dict[str, Any], runtime_spec: TenantSpec | None) -> str:
+        with app.app_context():
+            return _health(row, runtime_spec)
+
+    with ThreadPoolExecutor(max_workers=PROBE_WORKERS, thread_name_prefix="probe") as pool:
+        states = [pool.submit(health, row, runtime_spec) for row, runtime_spec in zip(rows, specs, strict=True)]
+        used = [_used(runtime_spec, LISTED_USAGE_AGE) for runtime_spec in specs]
+        return [describe(row, admin_owner=admin_owner(row), observed=(size, state.result()))
+                for row, size, state in zip(rows, used, states, strict=True)]
+
+
+def describe(inst: dict[str, Any], *, admin_owner: bool | None = None, with_status: bool = True,
+             observed: tuple[int, str] | None = None) -> dict[str, Any]:
+    """The row plus URL, time left, grace information, health and storage (*observed*: already measured)."""
     item = dict(inst)
     if inst["status"] != "terminated" and not provisioning_ready(inst):
         item["status"] = "provisioning" if inst["provisioning_state"] == "pending" else "provisioning_failed"
@@ -1731,14 +1890,11 @@ def describe(inst: dict[str, Any], *, admin_owner: bool | None = None, with_stat
     item["storage_limit_effective_mb"] = limit
     item["health"] = "unknown"
     item["storage_bytes"] = 0
-    if with_status:
-        try:
-            runtime_spec = spec(inst, with_policy=False)
-            item["storage_bytes"] = int(runtime().usage(runtime_spec))
-            if inst["status"] == "running":
-                item["health"] = runtime().status(runtime_spec).state
-        except (RuntimeFailure, ValueError):
-            item["health"] = "unknown"
+    if observed is not None:
+        item["storage_bytes"], item["health"] = observed
+    elif with_status:
+        runtime_spec = _runtime_spec(inst)
+        item["storage_bytes"], item["health"] = _used(runtime_spec), _health(inst, runtime_spec)
     item["storage_mb"] = round(item["storage_bytes"] / 1048576, 1)
     item["storage_pct"] = min(100, round(item["storage_bytes"] / (limit * 1048576) * 100, 1)) if limit else 0
     return item
@@ -1752,21 +1908,21 @@ def dashboard_list(account: dict[str, Any]) -> list[dict[str, Any]]:
         "(data_retained_until > ? OR (data_retained_until IS NOT NULL AND grace_period_suspended = 1)))) "
         "ORDER BY created_at DESC", (account["id"], 1 if show_retained else 0, now_sql()),
     )
-    items = [{**describe(row, admin_owner=bool(account["is_admin"])), "role": "owner"} for row in rows]
+    items = [{**item, "role": "owner"} for item in _describe_all(rows, lambda _row: bool(account["is_admin"]))]
     shared = db.all(
         "SELECT i.*, c.role AS collab_role, c.permissions AS collab_permissions, a.username AS owner_username, "
         "a.is_admin AS owner_admin FROM instance_collaborators c JOIN instances i ON i.id = c.instance_id "
         "JOIN accounts a ON a.id = i.account_id WHERE c.account_id = ? AND i.status != 'terminated' "
         "ORDER BY i.created_at DESC", (account["id"],),
     )
-    items += [{**describe(row, admin_owner=bool(row["owner_admin"])), "role": "collaborator"} for row in shared]
+    items += [{**item, "role": "collaborator"} for item in _describe_all(shared, lambda row: bool(row["owner_admin"]))]
     return items
 
 
 def admin_list() -> list[dict[str, Any]]:
     rows = db.all("SELECT i.*, a.username AS owner_username, a.is_admin AS owner_admin FROM instances i "
                   "JOIN accounts a ON a.id = i.account_id ORDER BY i.created_at DESC")
-    return [describe(row, admin_owner=bool(row["owner_admin"])) for row in rows]
+    return _describe_all(rows, lambda row: bool(row["owner_admin"]))
 
 
 def platform_stats() -> dict[str, Any]:

@@ -19,7 +19,7 @@
     <button type="button" class="btn btn--small" id="kanban-activity-toggle" aria-expanded="false" aria-controls="kanban-activity">{{ t('kanban.board.activity') }}</button>
     {#- Less frequent actions live in a menu, like the page view's "More". -#}
     <details class="menu">
-      <summary class="btn btn--small">{{ t('pages.actions.more') }}</summary>
+      <summary class="btn btn--small menu__toggle">{{ t('pages.actions.more') }}</summary>
       <div class="menu__panel" role="menu">
         <a role="menuitem" href="{{ url_for('kanban.board_history', board_id=board.id) }}">{{ t('kanban.board.history') }}</a>
         {% if can_export %}<a role="menuitem" href="{{ url_for('kanban.export', board_id=board.id, format='json') }}">{{ t('kanban.board.export_json') }}</a>{% endif %}
@@ -87,8 +87,8 @@
     <button type="button" class="btn btn--small" data-bulk="color">{{ t('kanban.bulk.apply') }}</button>
     <button type="button" class="btn btn--small" data-bulk="clear_color">{{ t('kanban.bulk.clear_color') }}</button>
     <button type="button" class="btn btn--small" data-bulk="archive">{{ t('kanban.bulk.archive') }}</button>
-    <button type="button" class="btn btn--small btn--danger" data-bulk="delete">{{ t('kanban.bulk.delete') }}</button>
-    <button type="button" class="btn btn--small btn--danger" data-bulk="delete_columns">{{ t('kanban.bulk.delete_columns') }}</button>
+    <button type="button" class="btn btn--small btn--danger-quiet" data-bulk="delete">{{ t('kanban.bulk.delete') }}</button>
+    <button type="button" class="btn btn--small btn--danger-quiet" data-bulk="delete_columns">{{ t('kanban.bulk.delete_columns') }}</button>
   </div>
 </section>
 {% endif %}
@@ -234,7 +234,7 @@
         <button type="button" class="btn btn--primary btn--small" id="kanban-ticket-save">{{ t('common.save') }}</button>
         <button type="button" class="btn btn--small" id="kanban-ticket-archive" hidden>{{ t('kanban.ticket.archive') }}</button>
         <button type="button" class="btn btn--small" id="kanban-ticket-restore" hidden>{{ t('kanban.ticket.restore') }}</button>
-        <button type="button" class="btn btn--danger btn--small" id="kanban-ticket-delete">{{ t('common.delete') }}</button>
+        <button type="button" class="btn btn--danger-quiet btn--small" id="kanban-ticket-delete">{{ t('common.delete') }}</button>
       </div>
     </aside>
   </div>

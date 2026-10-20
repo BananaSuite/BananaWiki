@@ -1,43 +1,37 @@
 BananaWiki
 Copyright (c) 2026 Luca Zani and contributors.
 
-Originally started by Luca Zani (OverloadedTech) on 20 February 2026.
 Contributors retain copyright in their respective contributions.
 
-BananaWiki is maintained by Luca Zani and contributors. It was a private
-project until September 2026, when this source release made it free
-software.
+Started by Luca Zani (OverloadedTech) on 20 February 2026.
+First recorded commit: 1a7c1e99847a5145429b4033293a497a118d85fc
+(2026-02-20T01:16:43+01:00).
+The development history before the public release is not published; this
+repository starts from a clean export of the source.
 
-First recorded project commit: 1a7c1e99847a5145429b4033293a497a118d85fc
-Author and committer timestamp: 2026-02-20T01:16:43+01:00
-
-These dates come from the private development history. That history (3,072
-commits) is not published: it contains deployment credentials, access tokens
-and infrastructure details, and there is no reliable way to remove all of them
-from that many commits. The public repository therefore starts from a single
-commit, a clean export of the source.
-
-Licensed under the GNU Affero General Public License, version 3.
-See LICENSE. Third-party components retain their respective licenses and notices.
+Licensed under the GNU Affero General Public License, version 3 only
+(AGPL-3.0-only). See LICENSE. Third-party components keep their own licences
+and notices, listed below.
 
 The tenant seccomp allowlist derives from Docker/Moby 29.8.2 and
 github.com/moby/profiles/seccomp v0.2.3, licensed under Apache License 2.0.
-The unmodified profile, matching license, source pin and the quota-protection
-modifications are included in bananawiki/ops/seccomp.
+The unmodified profile, its licence, the source pin and the quota-protection
+changes are in bananawiki/ops/seccomp.
 
 The container images include FFmpeg 9.0.2, licensed under LGPL 2.1 or later,
 and Debian's LAME library, licensed under LGPL 2.0 or later. Their source,
-configuration, licenses and redistribution instructions are included in each
+configuration, licences and redistribution instructions are included in each
 image at /usr/local/share/bananawiki/media. The FFmpeg build recipe and release
 verification files are in docker/media in the source repository.
 
 The container images also update the LGPL 2.1-or-later ACL library using
 authenticated Debian packages, with a compatible GPL 3-or-later GNU tar.
-Their source, license and publisher-verification records, and corresponding
-GNU coreutils source, are included at /usr/local/share/bananawiki/acl.
+Their source, licence and publisher-verification records, and the
+corresponding GNU coreutils source, are included at
+/usr/local/share/bananawiki/acl.
 
 The list of common passwords that BananaWiki refuses as new passwords
 (bananawiki/core/data/common-passwords.txt) is a subset of the UK NCSC's
 PwnedPasswordsTop100k list (from Have I Been Pwned) as distributed in
-SecLists, Copyright (c) 2018 Daniel Miessler, MIT License. The license is
+SecLists, Copyright (c) 2018 Daniel Miessler, MIT License. The licence is
 included in bananawiki/core/data/common-passwords.LICENSE.

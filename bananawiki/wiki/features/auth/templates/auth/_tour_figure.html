@@ -2,7 +2,7 @@
 {% macro _sidebar(highlight='', apps=[]) -%}
 <div class="tour-mock__sidebar">
   <div class="tour-mock__search{% if highlight == 'search' %} tour-mock__hl{% endif %}">{{ t('auth.tour.mock.search') }}</div>
-  <div class="tour-mock__item">▸ {{ t('auth.tour.mock.category') }}</div>
+  <div class="tour-mock__item tour-mock__item--folder">{{ t('auth.tour.mock.category') }}</div>
   <div class="tour-mock__item tour-mock__item--child">{{ t('auth.tour.mock.page') }}</div>
   <div class="tour-mock__item tour-mock__item--child">{{ t('auth.tour.mock.page') }}</div>
   {% if highlight == 'editor' %}<div class="tour-mock__item tour-mock__hl">+ {{ t('auth.tour.mock.new_page') }}</div>{% endif %}

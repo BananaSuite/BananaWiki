@@ -21,7 +21,8 @@ containers and waits for them to return). Then, every *interval* seconds,
   their own requests; purge deleted-account tombstones and old notices;
 * prune expired sessions, rate-limit hits, OAuth grants, the email log and stale uploads,
   and moderation log entries older than ``HOSTING_EVENT_RETENTION_DAYS`` (10 years);
-* publish the routing table.
+* start again the wikis marked running whose container is gone or stuck (the
+  Docker daemon restarted, or the wiki crashed), then publish the routing table.
 
 Each wiki or account is handled on its own: one that fails is logged and
 retried on a later pass, and after three failures in a row it waits between
@@ -135,6 +136,7 @@ def _steps(app: Flask) -> list[tuple[str, Callable[[], Any]]]:
         ("moderation log", lambda: events.prune(app.config["HOSTING"].event_retention_days)),
         ("notices", attention.prune),
         ("uploads", lambda: _prune_uploads(app)),
+        ("downed wikis", lambda: _restart_downed(app)),
         ("routes", instances.sync_routes),
     ]
 
@@ -160,23 +162,35 @@ def run_once(app: Flask) -> dict[str, Any]:
     return results
 
 
+def _start_running(app: Flask) -> int:
+    specs = []
+    # A wiki whose creation never finished is never launched; it waits for cancellation.
+    for row in db.all("SELECT * FROM instances WHERE status = 'running' AND provisioning_state = 'ready' "
+                      "ORDER BY created_at, id"):
+        try:
+            specs.append(instances.spec(row))
+        except Exception:  # noqa: BLE001 - one wiki must not keep the others down
+            log.exception("Not recovering wiki %s", row["id"])
+    return app.extensions["bananawiki.hosting.runtime"].recover(specs)
+
+
+def _restart_downed(app: Flask) -> int:
+    """The recovery of a pass: containers run with ``--restart no``, so nothing else brings a crashed wiki back."""
+    started = _start_running(app)
+    if started:
+        log.info("Started %d wiki(s) that were not running", started)
+    return started
+
+
 def recover(app: Flask) -> int:
     """Start every wiki marked running (after an update or a host reboot), then publish their routes.
 
-    The updater's readiness check waits for both (audit C10): each running
+    The updater's readiness check waits for both: each running
     wiki healthy on its container address and routed by Caddy, so the routes
     go out now rather than at the end of the first, slower pass.
     """
     with app.test_request_context("/"), connection_scope(app.extensions["bananawiki.hosting.database"]):
-        specs = []
-        # A wiki whose creation never finished is never launched; it waits for cancellation.
-        for row in db.all("SELECT * FROM instances WHERE status = 'running' AND provisioning_state = 'ready' "
-                          "ORDER BY created_at, id"):
-            try:
-                specs.append(instances.spec(row))
-            except Exception:  # noqa: BLE001 - one wiki must not keep the others down
-                log.exception("Not recovering wiki %s", row["id"])
-        started = app.extensions["bananawiki.hosting.runtime"].recover(specs)
+        started = _start_running(app)
         instances.sync_routes()
         return started
 

@@ -1,4 +1,4 @@
-"""Two-step code limits cannot be multiplied with device cookies (second audit of the 1.7 round).
+"""Two-step code limits cannot be multiplied with device cookies.
 
 A device cookie gives a browser its own budget of sign-in failures and of
 wrong codes. Codes are only worth a budget of their own when the cookie was

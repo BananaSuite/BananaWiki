@@ -20,6 +20,10 @@ Version history
      (``chat_messages.withheld``). See :mod:`.v10_chat_blocks`.
 11   Kanban columns that count as done (``kanban_columns.is_done``): their
      tickets are never overdue. See :mod:`.v11_kanban_done_columns`.
+12   ``api_service__idempotency.token_id`` on databases whose version 4 ran
+     without it, an index of page history by date, and the new default
+     colours for themes that still have the old ones. See
+     :mod:`.v12_idempotency_tokens`.
 
 A 1.4 database at version 3 upgrades in place. New databases are created from
 ``baseline_v3.sql`` followed by every later migration, so fresh and upgraded
@@ -42,6 +46,7 @@ from . import (
     v9_two_step,
     v10_chat_blocks,
     v11_kanban_done_columns,
+    v12_idempotency_tokens,
 )
 
 APPLICATION_ID = 0x42574B49  # "BWKI", unchanged from 1.4
@@ -55,6 +60,7 @@ MIGRATIONS = (
     v9_two_step.upgrade,  # 8 -> 9
     v10_chat_blocks.upgrade,  # 9 -> 10
     v11_kanban_done_columns.upgrade,  # 10 -> 11
+    v12_idempotency_tokens.upgrade,  # 11 -> 12
 )
 LATEST = BASELINE + len(MIGRATIONS)
 

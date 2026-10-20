@@ -13,7 +13,7 @@ Model
   Pages without a category are hidden from restricted readers/writers.
 * A permission that belongs to a disabled feature is never granted.
 
-Unlike 1.4, every key in the catalogue is enforced by the routes that need it.
+Every key in the catalogue is enforced by the routes that need it.
 """
 
 from __future__ import annotations
@@ -82,7 +82,7 @@ GROUPS: dict[str, tuple[str, tuple[Permission, ...]]] = {
            editor_only=True),
         _p("draft.delete_own", "Delete own drafts", "Delete your own drafts", True, False, feature="drafts",
            editor_only=True),
-        _p("draft.transfer", "Transfer drafts", "Hand a draft to another user", False, False, feature="drafts",
+        _p("draft.transfer", "Transfer drafts", "Take over another user's draft", False, False, feature="drafts",
            editor_only=True),
     )),
     "attachments": ("Attachments", (

@@ -3,9 +3,8 @@
 Each wiki is a confidential client. Its secret is stored twice: as the 1.4
 salted digest ``<salt>$sha256(salt + secret)`` (used to authenticate the wiki)
 and encrypted with the platform key (so the runtime can hand it to the wiki
-on every start; 1.4 only passed it on the first start, so a restarted wiki
-lost platform sign-in). A wiki whose secret is unknown (1.4 rows) gets a new
-one on its next start.
+on every start). A wiki whose secret is unknown (rows written by 1.4) gets a
+new one on its next start.
 
 Authorisation codes live five minutes, are single use, are stored as SHA-256
 digests and may carry a PKCE S256 challenge, which the token request must

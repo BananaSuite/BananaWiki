@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from flask import (
     Blueprint,
     abort,
@@ -15,12 +17,16 @@ from flask import (
     url_for,
 )
 
+from ...core.ratelimit import MemoryLimiter
 from ...core.web import is_safe_redirect
 from .. import accounts, auth, domains, help
 from ..i18n import LANGUAGES, current_language
 from ..limits import rate_limit
 
+log = logging.getLogger("bananawiki.hosting.public")
 bp = Blueprint("public", __name__)
+# One log line per refused name and minute: scanners ask for every name they can think of.
+_denials = MemoryLimiter(max_keys=1000)
 
 
 def _back_to_referrer(default: str):
@@ -152,5 +158,8 @@ def authorize_certificate():
     """Caddy on-demand TLS "ask" endpoint; answers loopback callers only."""
     if request.remote_addr not in ("127.0.0.1", "::1"):
         abort(404)
-    allowed = domains.certificate_allowed(request.args.get("domain", ""))
+    name = request.args.get("domain", "")
+    allowed = domains.certificate_allowed(name)
+    if not allowed and _denials.hit(name[:100], 1, 60):
+        log.info("Certificate refused for %s", ascii(name[:100]))
     return "", 200 if allowed else 403, {"Cache-Control": "no-store"}

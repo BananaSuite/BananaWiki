@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
 """Personal data export: no database read stays open while the archive downloads."""
 
 from __future__ import annotations

@@ -10,10 +10,9 @@ import re
 from pathlib import Path
 
 from bananawiki.core import assets
-from bananawiki.wiki.features import mascot
 
 SHELL_CSS = assets.SHARED_STATIC_ROOT / "css" / "bananawiki.css"
-MASCOT_CSS = Path(mascot.__file__).parent / "static" / "mascot.css"
+MASCOT_CSS = assets.SHARED_STATIC_ROOT / "mascot" / "mascot.css"
 REDUCED = "@media (prefers-reduced-motion: reduce)"
 TILT = "rotate(-8deg)"
 
@@ -78,11 +77,11 @@ def _declared(rules: list[tuple[str, str]], selector: str, name: str) -> str | N
     return value
 
 
-# ── Less motion ──────────────────────────────────────────────────────────────
+# Less motion
 
 
 def test_system_preference_runs_every_animation_once_in_the_shell():
-    # A shortened infinite animation keeps looping every frame: the mascot jittered.
+    # A shortened infinite animation would loop every frame and make the mascot jitter.
     shell = _media(_css(SHELL_CSS), "prefers-reduced-motion: reduce")
     for selector in ("*", "*::before", "*::after"):
         assert _declared(shell, selector, "animation-iteration-count") == "1 !important", selector
@@ -115,7 +114,7 @@ def test_system_preference_keeps_the_mascot_still():
     assert [prelude for prelude, _ in top].index(REDUCED) > last_moving
 
 
-# ── Touch screens ────────────────────────────────────────────────────────────
+# Touch screens
 
 
 def test_touch_screens_get_a_finger_sized_mascot_clear_of_the_home_link():
@@ -134,7 +133,7 @@ def test_touch_screens_get_a_finger_sized_mascot_clear_of_the_home_link():
 
 def test_hover_tilt_needs_a_real_hover_and_keyboard_focus_keeps_it():
     css = _css(MASCOT_CSS)
-    # Touch screens keep :hover after a tap, which left the banana tilted.
+    # Touch screens keep :hover after a tap, so the tilt applies only under (hover: hover).
     assert not [prelude for prelude, _ in _style_rules(css, skip=("@media (hover: hover)",)) if ":hover" in prelude]
     assert _declared(_media(css, "hover: hover"), ".mascot:hover .mascot-sprite", "transform") == TILT
     assert _declared(_top(css), ".mascot:focus-visible .mascot-sprite", "transform") == TILT

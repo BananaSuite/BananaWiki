@@ -1,10 +1,7 @@
 """The guided tour: an illustrative walkthrough of the wiki for each role.
 
-1.4 ran the tour on real pages and, for "role previews", swapped the
-visitor's role for the preview role while those pages rendered, which let
-any user read administration pages and restricted categories (audit H1).
-Here every step is a static illustration rendered by the tour itself:
-choosing another role changes which explanations are shown, never what the
+Every step is a static illustration rendered by the tour itself, never a
+real page rendered under another role: choosing another role changes which explanations are shown, never what the
 account can see or do.
 """
 

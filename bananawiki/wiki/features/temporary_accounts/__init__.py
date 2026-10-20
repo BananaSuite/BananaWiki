@@ -1,7 +1,7 @@
 """Temporary accounts and pages: scheduled page deletion, timed hide/show,
 account deletion and role reverts.
 
-Switched by the ``temporary_accounts`` row in ``plugins`` (as in 1.4). The
+Switched by the ``temporary_accounts`` row in ``plugins``. The
 expiry job only runs while the feature is on; switching it off pauses every
 schedule without deleting it.
 """

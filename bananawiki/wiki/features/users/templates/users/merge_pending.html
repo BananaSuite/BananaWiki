@@ -33,12 +33,12 @@
       {% if req.created_by == current_user.id or req.source_user_id == current_user.id %}
       {{ forms.post_button(url_for('users.merge_cancel', merge_id=req.id), t('users.merge.cancel'), cls='btn btn--small', confirm=t('common.are_you_sure')) }}
       {% else %}
-      {{ forms.post_button(url_for('users.merge_deny', merge_id=req.id), t('users.merge.deny'), cls='btn btn--small btn--danger', confirm=t('common.are_you_sure')) }}
+      {{ forms.post_button(url_for('users.merge_deny', merge_id=req.id), t('users.merge.deny'), cls='btn btn--small btn--danger-quiet', confirm=t('common.are_you_sure')) }}
       {% endif %}
     </p>
   </section>
 {% else %}
-  <div class="card empty-state"><p>{{ t('users.merge.none') }}</p></div>
+  <div class="empty-state"><p>{{ t('users.merge.none') }}</p></div>
 {% endfor %}
 {% if finished %}
   <section class="card">

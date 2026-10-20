@@ -52,7 +52,7 @@ class MergeError(ValueError):
         self.values = values
 
 
-# ── Requests ──────────────────────────────────────────────────────────────────
+# Requests
 
 
 def get(merge_id: int) -> dict[str, Any] | None:
@@ -186,7 +186,7 @@ def approve(merge_id: int, admin: dict[str, Any], *, delete_source: bool) -> dic
     return execute(source, target, admin, delete_source=delete_source, merge_id=merge_id)
 
 
-# ── Execution ─────────────────────────────────────────────────────────────────
+# Execution
 
 
 def _user_columns() -> list[tuple[str, str]]:

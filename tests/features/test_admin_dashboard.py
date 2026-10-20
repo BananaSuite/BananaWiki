@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from bananawiki.core.timeutil import utcnow
 
 
@@ -10,6 +12,38 @@ def test_dashboard_shows_stats_and_pending(admin_client, make_user):
     page = admin_client.get("/admin/dashboard").data.decode()
     assert "waiting_one" in page
     assert "Awaiting approval" in page and "Traffic, last 30 days" in page
+
+
+def test_recent_edits_tell_system_edits_from_deleted_accounts(admin_client, db):
+    page_id = db.scalar("SELECT id FROM pages LIMIT 1")
+    db.execute("PRAGMA foreign_keys = OFF")
+    db.execute("INSERT INTO page_history (page_id, title, content, edited_by, edit_message) "
+               "VALUES (?, 't', 'c', NULL, 'by the system'), (?, 't', 'c', 'gone-account', 'by a deleted account')",
+               (page_id, page_id))
+    page = admin_client.get("/admin/dashboard").data.decode()
+    items = re.findall(r"<li>(.*?)</li>", page, re.DOTALL)
+    system = next(item for item in items if "by the system" in item)
+    deleted = next(item for item in items if "by a deleted account" in item)
+    assert "No author" in system and "Deleted account" not in system
+    assert "Deleted account" in deleted
+
+
+def test_recent_and_weekly_edits_read_page_history_by_date_index(app):
+    from bananawiki.wiki.db import connection_scope
+    from bananawiki.wiki.features.admin.routes import dashboard
+
+    statements: list[str] = []
+    with app.test_request_context(), connection_scope() as session:
+        session.conn.set_trace_callback(statements.append)
+        dashboard._stats()
+        dashboard._recent_edits()
+        session.conn.set_trace_callback(None)
+        plans = {sql: [row["detail"] for row in session.all(f"EXPLAIN QUERY PLAN {sql}")]
+                 for sql in statements if "page_history" in sql}
+    assert len(plans) == 2
+    for sql, plan in plans.items():
+        assert any("idx_page_history_created" in step for step in plan), (sql, plan)
+        assert not any("TEMP B-TREE" in step for step in plan), (sql, plan)
 
 
 def test_admin_menu_lists_admin_nav_items(admin_client):

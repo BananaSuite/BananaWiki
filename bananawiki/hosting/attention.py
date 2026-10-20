@@ -111,7 +111,7 @@ def created(source_id: str, object_id: Any = "") -> None:
     store().record_event(source_id, "" if object_id is None else object_id)
 
 
-# ── Notices to owners ────────────────────────────────────────────────────────
+# Notices to owners
 
 
 def decided(account_id: str | None, source_id: str, outcome: str, *, object_id: Any = "", detail: str = "",

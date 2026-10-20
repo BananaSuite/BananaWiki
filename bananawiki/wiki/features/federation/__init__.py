@@ -1,7 +1,7 @@
 """Federation: pair with other BananaWiki installations and share individual pages read only.
 
 Off unless the operator sets ``BW_FEDERATION_ENABLED=1`` (there is no
-administrator switch, as in 1.4). See FEDERATION.md.
+administrator switch). See docs/federation.md.
 """
 
 from ...auth import is_admin

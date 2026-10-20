@@ -47,7 +47,7 @@ def _page(page_id):
     return pages.get(page_id)
 
 
-# ── Protection ───────────────────────────────────────────────────────────────
+# Protection
 
 
 def test_protection_blocks_everyone_but_the_controller(ctx, people, page):
@@ -116,7 +116,7 @@ def test_protection_off_when_setting_or_feature_off(app, ctx, people, page):
     assert registry.intercept("page.edit_blocked", page=_page(page["id"]), user=people["ed2"]) is None
 
 
-# ── Reservations ─────────────────────────────────────────────────────────────
+# Reservations
 
 
 def test_reserve_blocks_other_editors_but_not_admins(ctx, people, page):
@@ -204,7 +204,51 @@ def test_reserve_after_save(app, people, page):
         assert reservations.current(page["id"])["user_id"] == people["ed1"]["id"]
 
 
-# ── Quota requests ───────────────────────────────────────────────────────────
+def test_page_protected_by_someone_else_cannot_be_reserved(ctx, people, page):
+    protection.protect(page, people["ed1"])
+    current = _page(page["id"])
+    assert not reservations.can_reserve(current, people["ed2"])
+    with pytest.raises(GovernanceError) as err:
+        reservations.reserve(current, people["ed2"])
+    assert err.value.key == "page_governance.reservation.error.protected_by"
+    with pytest.raises(GovernanceError):
+        reservations.assign(current, people["ed2"])
+    assert reservations.current(page["id"]) is None
+    assert registry.intercept("page.edit_blocked", page=current, user=people["ed1"]) is None
+    # the controller may still reserve their own page
+    assert reservations.can_reserve(current, people["ed1"])
+    reservations.reserve(current, people["ed1"])
+
+
+def test_page_reserved_by_someone_else_cannot_be_protected(ctx, people, page):
+    reservations.reserve(page, people["ed1"])
+    for other in (people["ed2"], people["admin"]):
+        assert not protection.can_protect(page, other)
+        with pytest.raises(GovernanceError) as err:
+            protection.protect(page, other)
+        assert err.value.key == "page_governance.protection.error.reserved_by"
+    assert _page(page["id"])["protected_by"] is None
+    assert registry.intercept("page.edit_blocked", page=_page(page["id"]), user=people["ed1"]) is None
+    assert protection.can_protect(page, people["ed1"])
+    reservations.force_release(page["id"])
+    protection.protect(page, people["admin"])
+
+
+def test_header_offers_no_lock_over_another_editors_lock(app, people, page):
+    with app.test_request_context(f"/page/{page['slug']}"), connection_scope():
+        protection.protect(page, people["ed1"])
+        as_user(people["ed2"])
+        actions = registry.render_slot("page.header_actions", page=pages.get(page["id"]))
+        assert f"/page/{page['slug']}/reserve" not in actions
+        below_form = registry.render_slot("editor.below_form", page=pages.get(page["id"]))
+        assert "reserve_after_save" not in below_form
+        other = pages.create("Held", author_id=None)
+        reservations.reserve(other, people["ed1"])
+        actions = registry.render_slot("page.header_actions", page=pages.get(other["id"]))
+        assert 'value="protect"' not in actions
+
+
+# Quota requests
 
 
 def test_quota_requests_auto_approve_cooldown_and_review(app, ctx, db, people):
@@ -232,7 +276,7 @@ def test_quota_requests_auto_approve_cooldown_and_review(app, ctx, db, people):
         quota.review(pending["id"], people["admin"]["id"], approve=False)
 
 
-# ── Routes ───────────────────────────────────────────────────────────────────
+# Routes
 
 
 def test_reserve_and_release_routes(client, login, people, page):

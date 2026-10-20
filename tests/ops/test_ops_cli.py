@@ -26,7 +26,7 @@ def compat(relative: str) -> Path:
     return REPO / relative
 
 
-# Controller CLI -------------------------------------------------------------------
+# Controller CLI
 
 
 @pytest.mark.parametrize("argv", [
@@ -79,7 +79,7 @@ def test_banana_entry_point_is_stdlib_only():
     assert "install" in result.stdout and "rollback" in result.stdout
 
 
-# Admin CLI ------------------------------------------------------------------------
+# Admin CLI
 
 
 @pytest.fixture
@@ -185,13 +185,27 @@ def test_export_import_round_trip(wiki_env, capsys, monkeypatch):
     assert code == 1  # never into a non-empty instance
 
 
+def test_import_into_an_empty_directory_keeps_the_exported_key(wiki_env, capsys, monkeypatch):
+    monkeypatch.delenv("SECRET_KEY")
+    run_admin(capsys, "create-admin", "bob", "--password-file", str(wiki_env / "password"))
+    key = (wiki_env / "instance/.secret_key").read_text()
+    code, _ = run_admin(capsys, "export", "--output", str(wiki_env / "export.tar.gz"))
+    assert code == 0
+    (wiki_env / "empty").mkdir()
+    for target in ("missing", "empty"):
+        monkeypatch.setenv("BW_INSTANCE_DIR", str(wiki_env / target))
+        code, output = run_admin(capsys, "import", str(wiki_env / "export.tar.gz"))
+        assert code == 0, output
+        assert (wiki_env / target / ".secret_key").read_text() == key
+
+
 def test_serve_refuses_the_debugger_off_loopback(wiki_env, capsys):
     code, output = run_admin(capsys, "serve", "--host", "0.0.0.0", "--debug")  # noqa: S104
     assert code == 1 and "loopback" in output
     assert admin._is_loopback("127.0.0.1") and admin._is_loopback("::1") and not admin._is_loopback("10.0.0.1")
 
 
-# Runtime shims ----------------------------------------------------------------------
+# Runtime shims
 
 
 def test_gunicorn_settings(monkeypatch):
@@ -208,7 +222,7 @@ def test_gunicorn_settings(monkeypatch):
 
 
 def test_gunicorn_workers_give_up_on_stalled_downloads(monkeypatch):
-    """Gunicorn has no write timeout of its own: the workers' application sets one (R-27)."""
+    """Gunicorn has no write timeout of its own: the workers' application sets one."""
     import bananawiki.ops.gunicorn_conf as conf
 
     monkeypatch.setenv("BW_WRITE_TIMEOUT", "15")
@@ -224,7 +238,7 @@ def test_gunicorn_workers_give_up_on_stalled_downloads(monkeypatch):
 
 
 def test_the_gunicorn_master_upgrades_the_database_before_any_worker_starts(wiki_env, caplog):
-    """A worker that upgraded a large database was killed by its timeout, rolling the upgrade back (R-26)."""
+    """A worker upgrading a large database could be killed by its timeout, rolling the upgrade back."""
     from bananawiki.wiki import migrations
 
     path = wiki_env / "instance" / "bananawiki.db"

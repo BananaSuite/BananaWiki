@@ -10,10 +10,9 @@ service account and splits the work three ways:
 * **Tenant databases** only inside the tenant's own sandbox, through the
   agent's ``tenant.task`` operation (:mod:`bananawiki.ops.tenant_task`):
   seeding, migrations, user management, analytics, policy and plugin
-  quarantine run as the tenant, never host-side. Decision and reason: the
-  database file is written by the tenant and its plugins, so opening it in
-  the portal (1.4 did, and migrated it host-side with the portal's
-  environment) would let a tenant attack the portal through SQLite; in the
+  quarantine run as the tenant, never host-side. The database file is
+  written by the tenant and its plugins, so opening it in the portal would
+  let a tenant attack the portal through SQLite; in the
   sandbox a hostile database can only hurt itself. Running tenants get a
   ``docker exec``, stopped ones a one-shot container, so every tool works in
   both states and never races the wiki's own writes outside SQLite's locking.
@@ -23,9 +22,8 @@ service account and splits the work three ways:
 
 Routing: the agent turns the portal's hostname table into Caddy site blocks
 that proxy each wiki's hostnames straight to its container (and refreshes
-them whenever a container starts or stops), so tenant traffic no longer
-passes through the portal (1.4's in-portal proxy had 8 slots for the whole
-platform). In port mode the agent publishes each wiki on
+them whenever a container starts or stops), so tenant traffic does not pass
+through the portal. In port mode the agent publishes each wiki on
 ``127.0.0.1:<port>``.
 """
 
@@ -177,7 +175,6 @@ def tenant_environment(spec: TenantSpec, cfg: HostingConfig, *, quarantined: boo
         "BW_NOFILE_LIMIT": str(policy.nofile_limit),
         "BW_INSTANCE_STARTUP_TIMEOUT_SECONDS": str(cfg.limits.startup_timeout_seconds),
         "BW_ALLOW_EXTERNAL_PLUGINS": _flag(cfg.allow_tenant_plugins and not quarantined),
-        "BW_MANAGED_PLUGIN_QUARANTINE": _flag(quarantined),
         "BW_PLATFORM_OAUTH_ENABLED": "0",
     }
     if policy.expires_at:
@@ -214,6 +211,12 @@ def _limits(spec: TenantSpec) -> dict[str, Any]:
 def _upload_request(spec: TenantSpec) -> dict[str, Any]:
     return {"upload_max_mb": max(1, min(2048, spec.policy.upload_max_bytes // MIB)),
             "blocked_extensions": [item for item in spec.policy.blocked_extensions if item.isalnum()]}
+
+
+def _two_step_off(result: dict[str, Any]) -> list[str]:
+    """The account names a ``migrate`` task reports as having lost two-step verification."""
+    names = result.get("two_step_off")
+    return [str(name)[:200] for name in names if isinstance(name, str)] if isinstance(names, list) else []
 
 
 def _token() -> str:
@@ -258,12 +261,14 @@ class AgentRuntime:
         self._probe = probe or http_health
         self._lock = threading.Lock()
         self._status: dict[str, tuple[float, TenantStatus]] = {}
-        self._usage: dict[str, tuple[float, int]] = {}
+        self._usage: dict[str, tuple[float, int]] = {}  # name -> (measured at, bytes)
         self._containers: tuple[float, dict[str, dict[str, Any]]] | None = None
+        self._listing = threading.Lock()
+        self._listing_failed: tuple[float, RuntimeFailure] | None = None
         self._routes_warned = False
         self._storage_checked: tuple[float, dict[str, Any]] | None = None
 
-    # ── Plumbing ─────────────────────────────────────────────────────────
+    # Plumbing
 
     def _cfg(self) -> HostingConfig:
         return self._config or current_app.config["HOSTING"]
@@ -313,10 +318,10 @@ class AgentRuntime:
             reports.append((spec, result))
 
     def _note_plan(self, cfg: HostingConfig, spec: TenantSpec, result: dict[str, Any]) -> None:
-        """Tell the operator and the owner, once, that a wiki holds more than its storage plan (UP-1).
+        """Tell the operator and the owner, once, that a wiki holds more than its storage plan.
 
-        The agent adopts such a wiki (one 1.6 left above its plan, or whose
-        plan was lowered) at what it holds plus a small headroom rather than
+        The agent adopts such a wiki (one that grew past its plan before it was
+        enforced, or whose plan was lowered) at what it holds plus a small headroom rather than
         keeping it down, and says ``over_plan``: it serves, but cannot store
         anything new. A hosting event and an email to the owner say so the
         first time, and again only after it was back within its plan. Best
@@ -368,21 +373,36 @@ class AgentRuntime:
             self._containers = None
 
     def _container_map(self, *, fresh: bool = False) -> dict[str, dict[str, Any]]:
-        now = time.monotonic()
+        asked = time.monotonic()
         with self._lock:
             cached = self._containers
-        if cached and not fresh and now - cached[0] < CONTAINERS_TTL:
+        if cached and not fresh and asked - cached[0] < CONTAINERS_TTL:
             return cached[1]
-        listing = self._call("tenant.list", {})
-        found = {item["tenant"]: item for item in listing.get("tenants", []) if isinstance(item, dict)}
-        with self._lock:
-            self._containers = (now, found)
-        return found
+        # One listing at a time: wikis probed side by side share its answer, or its failure, instead of each
+        # taking one of the agent's few request slots for the same listing.
+        with self._listing:
+            with self._lock:
+                cached, failed = self._containers, self._listing_failed
+            if cached and (cached[0] > asked or not fresh and time.monotonic() - cached[0] < CONTAINERS_TTL):
+                return cached[1]
+            if failed and failed[0] > asked:
+                raise RuntimeFailure(failed[1].code, failed[1].detail)
+            now = time.monotonic()
+            try:
+                listing = self._call("tenant.list", {})
+            except RuntimeFailure as error:
+                with self._lock:
+                    self._listing_failed = (time.monotonic(), error)
+                raise
+            found = {item["tenant"]: item for item in listing.get("tenants", []) if isinstance(item, dict)}
+            with self._lock:
+                self._containers = (now, found)
+            return found
 
     def _record_path(self, cfg: HostingConfig, spec: TenantSpec) -> Path:
         return self._state(cfg, spec).root / "runtime.json"
 
-    # ── Lifecycle ────────────────────────────────────────────────────────
+    # Lifecycle
 
     def provision(self, spec: TenantSpec, *, admin_username: str, admin_password: str,
                   force_password_change: bool) -> None:
@@ -501,6 +521,9 @@ class AgentRuntime:
         self._forget(spec.data_dir_name)
         if not tenantfs.is_tenant_dir(self._root(cfg, spec.data_dir_name)):
             return
+        if not AGENT_TENANT.fullmatch(spec.data_dir_name):
+            # The agent never runs a container under a name it refuses, such as a long archived name.
+            return
         try:
             self._call("tenant.stop", {"tenant": spec.data_dir_name, "timeout": 15}, "stop_failed")
         except RuntimeFailure as error:
@@ -523,7 +546,7 @@ class AgentRuntime:
         self._start(cfg, spec)
 
     def recover(self, specs: Sequence[TenantSpec]) -> int:
-        """Start the wikis whose containers are missing or stuck, a few at a time (audit C10).
+        """Start the wikis whose containers are missing or stuck, a few at a time.
 
         Every wiki is tried on its own: whatever one of them raises is logged
         and the others still start.
@@ -587,7 +610,7 @@ class AgentRuntime:
         tenantfs.remove_tree(self._root(cfg, spec.data_dir_name))
         tenantfs.remove_tree(self._state(cfg, spec).root)
 
-    # ── Observation ──────────────────────────────────────────────────────
+    # Observation
 
     def _judge(self, cfg: HostingConfig, item: dict[str, Any]) -> TenantStatus:
         address, port = item.get("address"), int(item.get("internal_port") or cfg.container_internal_port)
@@ -664,18 +687,18 @@ class AgentRuntime:
             return None
         return str(address), int(item.get("internal_port") or cfg.container_internal_port)
 
-    def usage(self, spec: TenantSpec) -> int:
+    def usage(self, spec: TenantSpec, *, max_age: float | None = None) -> int:
         cfg = self._cfg()
         name = spec.data_dir_name
         now = time.monotonic()
         with self._lock:
             cached = self._usage.get(name)
-        if cached and cached[0] > now:
+        if cached and now - cached[0] < (USAGE_TTL if max_age is None else max_age):
             return cached[1]
         root = self._root(cfg, name)
         total = tenantfs.usage(root) if tenantfs.is_tenant_dir(root) else 0
         with self._lock:
-            self._usage[name] = (now + USAGE_TTL, total)
+            self._usage[name] = (now, total)
         return total
 
     def logs(self, spec: TenantSpec, name: str, max_bytes: int = 256 * 1024) -> LogTail:
@@ -695,7 +718,7 @@ class AgentRuntime:
         result = self._task(spec.data_dir_name, {"action": "analytics", "days": max(1, min(365, int(days)))})
         return {key: result.get(key) for key in ("window_days", "totals", "daily")}
 
-    # ── Tenant database operations ───────────────────────────────────────
+    # Tenant database operations
 
     def list_users(self, spec: TenantSpec, *, limit: int = 200, offset: int = 0) -> tuple[list[WikiUser], int]:
         self._existing(self._cfg(), spec.data_dir_name)
@@ -738,7 +761,7 @@ class AgentRuntime:
         self._prepare_storage(cfg, spec)
         self._task(spec.data_dir_name, {"action": "apply_policy", **_upload_request(spec)})
 
-    # ── Copies and archives ──────────────────────────────────────────────
+    # Copies and archives
 
     def _snapshot(self, name: str, *, portable: bool = False) -> tenant_archives.DatabaseCopy:
         """A fresh database copy inside the tenant directory, with the size and SHA-256 its task reported.
@@ -760,7 +783,7 @@ class AgentRuntime:
     @staticmethod
     def _budget(cfg: HostingConfig, spec: TenantSpec) -> int | None:
         """What the wiki's archives may hold, as in a platform backup: from ``spec.policy.storage_limit_bytes``
-        (0: none), or the hard limit the agent adopted the wiki at above that plan (UP-1)."""
+        (0: none), or the hard limit the agent adopted the wiki at above that plan."""
         return platform_backup.byte_budget(platform_backup.held_limit(
             cfg.platform_state_dir, spec.instance_id, spec.policy.storage_limit_bytes or None))
 
@@ -774,10 +797,13 @@ class AgentRuntime:
         try:
             return tenant_archives.export(root, copy, Path(destination_dir), spec.slug.split("--terminated-")[0],
                                           cfg.archives, budget=budget)
+        except OSError as error:
+            code = "no_space" if error.errno in (errno.ENOSPC, errno.EDQUOT) else "failed"
+            raise RuntimeFailure(code, f"{spec.data_dir_name}: {error.strerror or error}") from None
         finally:
             tenantfs.unlink(root, copy.path)
 
-    def import_archive(self, spec: TenantSpec, archive: Path) -> None:
+    def import_archive(self, spec: TenantSpec, archive: Path) -> list[str]:
         cfg = self._cfg()
         root = self._root(cfg, spec.data_dir_name)
         if os.path.lexists(root):
@@ -801,10 +827,12 @@ class AgentRuntime:
                 code = "no_space" if error.errno in (errno.ENOSPC, errno.EDQUOT) else "failed"
                 raise RuntimeFailure(code, f"{spec.data_dir_name}: {error.strerror or error}") from None
             raise
-        self._task(spec.data_dir_name, {"action": "migrate", "imported": True, "policy": _upload_request(spec)})
+        result = self._task(spec.data_dir_name, {"action": "migrate", "imported": True,
+                                                 "policy": _upload_request(spec)})
         self._start(cfg, spec)
+        return _two_step_off(result)
 
-    def duplicate(self, source: TenantSpec, target: TenantSpec) -> None:
+    def duplicate(self, source: TenantSpec, target: TenantSpec) -> list[str]:
         cfg = self._cfg()
         # The target first: whatever else fails, the portal then cleans up a
         # directory this call may have made, never one that was already there.
@@ -822,16 +850,19 @@ class AgentRuntime:
             tenant_archives.save_copy(source_root, copy, target_root / "bananawiki.db", max_bytes=budget)
         finally:
             tenantfs.unlink(source_root, copy.path)
+        # The files get the same budget as the database copy, as in an export.
+        files = tenantfs.TreeCopy(budget)
         for folder in tenantfs.ASSET_FOLDERS:
             for origin in (f"storage/{folder}", folder):
-                tenantfs.copy_tree(source_root, origin, target_root / "storage" / folder)
+                tenantfs.copy_tree(source_root, origin, target_root / "storage" / folder, files)
         for folder in ("favicons", "translations"):
-            tenantfs.copy_tree(source_root, folder, target_root / folder)
-        self._task(target.data_dir_name, {"action": "migrate", "revoke_credentials": True,
-                                          "policy": _upload_request(target)})
+            tenantfs.copy_tree(source_root, folder, target_root / folder, files)
+        result = self._task(target.data_dir_name, {"action": "migrate", "revoke_credentials": True,
+                                                   "policy": _upload_request(target)})
         self._start(cfg, target)
+        return _two_step_off(result)
 
-    # ── Plugin safety ────────────────────────────────────────────────────
+    # Plugin safety
 
     def plugins_quarantined(self, spec: TenantSpec) -> bool:
         try:
@@ -927,19 +958,19 @@ class AgentRuntime:
             self._start(cfg, spec)
         return f"Snapshot {chosen} restored; external plugins stay quarantined until the quarantine is lifted."
 
-    # ── Routing and custom domains ───────────────────────────────────────
+    # Routing and custom domains
 
     def check_domain(self, domain: str, token: str) -> DomainCheck:
         cfg = self._cfg()
         return dnscheck.check(domain, token, cfg.custom_domain_target, cfg.custom_domain_ips,
                               allow_proxied=cfg.custom_domain_allow_proxied)
 
-    def sync_routes(self, specs: Sequence[TenantSpec]) -> None:
+    def sync_routes(self, specs: Sequence[TenantSpec]) -> dict[str, Any] | None:
         if self._cfg().hosting_mode != "subdomain":
-            return
+            return None
         routes = routing_table(specs)
         try:
-            self._call("proxy.routes", {"routes": routes})
+            return self._call("proxy.routes", {"routes": routes})
         except RuntimeFailure as error:
             if error.code != "not_configured":
                 raise
@@ -947,8 +978,9 @@ class AgentRuntime:
                 log.warning("The runtime agent cannot publish tenant routes (%s); run 'bananawiki update' so the "
                             "agent and the Caddy configuration are installed.", error.detail)
                 self._routes_warned = True
+        return None
 
-    # ── Platform backups ─────────────────────────────────────────────────
+    # Platform backups
 
     def backup_key(self) -> bytes:
         return crypto.load_key(os.environ.get("HOSTING_BACKUP_ENCRYPTION_KEY", ""), self._cfg().backup_key_path)
@@ -1025,7 +1057,7 @@ class AgentRuntime:
         platform_backup.restore(cfg, [Path(item) for item in archives], self.backup_key, secret_path,
                                 prepare_tenant=self._prepare_restored_storage)
 
-    # ── Google Drive ─────────────────────────────────────────────────────
+    # Google Drive
 
     def _drive_settings(self) -> gdrive.DriveSettings:
         from .. import settings
@@ -1117,7 +1149,7 @@ class AgentRuntime:
         except RuntimeFailure as error:
             log.error("Scheduled Google Drive backup failed: %s", error)
 
-    # ── Maintenance ──────────────────────────────────────────────────────
+    # Maintenance
 
     def maintenance_tick(self) -> None:
         """Periodic runtime work: leftovers, legacy 1.4 logs, scheduled Drive backups."""
@@ -1141,7 +1173,7 @@ class AgentRuntime:
 
     @staticmethod
     def _prune_tenant(root: Path, now: float) -> None:
-        """1.4 logs nothing writes any more (1.6 logs to Docker) and stale exchange copies."""
+        """Remove old log files left by 1.4 (wikis log to Docker) and stale exchange copies."""
         for name in LEGACY_LOGS:
             path = root / name
             if path.is_file() and not path.is_symlink() and now - path.lstat().st_mtime > LEGACY_LOG_SECONDS:

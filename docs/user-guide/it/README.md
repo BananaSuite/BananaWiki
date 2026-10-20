@@ -1,7 +1,8 @@
 # Guida utente di BananaWiki
 
 Per chi legge e scrive in una BananaWiki. Gli amministratori trovano la
-documentazione tecnica (in inglese) nell'[indice della documentazione](../../README.md).
+documentazione tecnica (in inglese) nell'[indice della
+documentazione](../../README.md).
 
 Quello che vedi dipende dal tuo ruolo e dalle funzioni attivate nella tua
 wiki. Se manca qualcosa di quanto descritto qui, chiedi a un amministratore.

@@ -7,8 +7,8 @@ and :mod:`bananawiki.ops.runtime_agent` (which cannot import each other).
 * **Real client address:** Caddy trusts ``CF-Connecting-IP`` only from
   Cloudflare's edge ranges (``trusted_proxies``) and hands the application
   ``X-Forwarded-For: {client_ip}``, one hop, as ``ProxyFix(x_for=1)`` expects.
-  Without it every visitor behind Cloudflare shared the edge address, and with
-  it the rate limits.
+  Without it every visitor behind Cloudflare would share the edge address, and
+  with it the rate limits.
 * **Plain HTTP:** every site answers on port 80 too. Caddy serves ACME HTTP-01
   challenges before any route; other requests are redirected to HTTPS, except
   requests from Cloudflare's edge whose visitor already used HTTPS
@@ -33,6 +33,9 @@ HSTS = '\theader Strict-Transport-Security "max-age=31536000"\n'
 # Above Cloudflare's 900 s reuse of idle origin connections: a shorter idle
 # timeout makes Cloudflare reuse a connection Caddy just closed (HTTP 520).
 IDLE_TIMEOUT = "16m"
+# Go also uses the shortest read timeout as the TLS handshake deadline, and a wiki's first visitor waits in the
+# handshake while its certificate is ordered, which takes 5 to 20 seconds.
+READ_HEADER_TIMEOUT = "60s"
 # No ``write`` timeout: Caddy applies it to the whole response, so it would cut
 # off large downloads on slow links. A download the client stopped reading is
 # dropped by Caddy 2.11.6 and newer after a minute without progress
@@ -59,7 +62,7 @@ def cloudflare_ranges() -> str:
 
 def servers_options(*, client_ip: bool = True) -> str:
     """The global ``servers`` block (inside the global options braces)."""
-    body = f"\t\ttimeouts {{\n\t\t\tread_header 10s\n\t\t\tread_body 5m\n\t\t\tidle {IDLE_TIMEOUT}\n\t\t}}\n"
+    body = f"\t\ttimeouts {{\n\t\t\tread_header {READ_HEADER_TIMEOUT}\n\t\t\tread_body 5m\n\t\t\tidle {IDLE_TIMEOUT}\n\t\t}}\n"
     if client_ip:
         body += f"\t\ttrusted_proxies static {cloudflare_ranges()}\n\t\tclient_ip_headers CF-Connecting-IP\n"
     return f"\tservers {{\n{body}\t}}\n"

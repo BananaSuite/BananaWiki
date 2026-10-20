@@ -17,6 +17,7 @@ from ops_fakes import FakeSystem, Upstream, git  # type: ignore[import-not-found
 
 from bananawiki.ops import MANAGED_MARKER, caddy, profile, units
 from bananawiki.ops.files import (
+    Refused,
     absolute_path,
     extract_archive,
     read_environment,
@@ -50,7 +51,7 @@ def shipped(relative: str) -> Path:
     return REPO / relative
 
 
-# Snapshots -----------------------------------------------------------------------
+# Snapshots
 
 
 def make_root(tmp_path: Path) -> Path:
@@ -183,13 +184,45 @@ def test_tenant_file_names_never_start_a_log_line_of_their_own(tmp_path, monkeyp
     assert not [message for message in messages if "\n" in message or "\r" in message]
 
 
+def test_a_rollback_links_the_wikis_files_back_and_copies_only_databases(tmp_path):
+    """A hosting snapshot copies every tenant file; putting them back must not need room for a third copy."""
+    root, allowed = tenant_root(tmp_path)
+    (root / "data/instances/acme/bananawiki.db").write_bytes(b"tenant database")
+    snapshot = Snapshot.create(root, allowed)
+    snapshot.refresh()
+    assert {entry["method"] for entry in snapshot.index().values()} == {"copy"}
+    owner = os.getuid(), os.getgid()
+    snapshot.copy_tree("data", tmp_path / "rollback", owner)
+    page, database = (tmp_path / "rollback/instances/acme" / name for name in ("page.txt", "bananawiki.db"))
+    assert page.stat().st_ino == (snapshot.path / "data/instances/acme/page.txt").stat().st_ino
+    assert (page.stat().st_uid, page.stat().st_gid) == owner and page.stat().st_mode & 0o777 == 0o600
+    assert database.stat().st_ino != (snapshot.path / "data/instances/acme/bananawiki.db").stat().st_ino
+    assert database.read_bytes() == b"tenant database"
+    # Without an owner (a package, or site/), every copied file is copied.
+    snapshot.copy_tree("data", tmp_path / "copied")
+    assert (tmp_path / "copied/instances/acme/page.txt").stat().st_ino != page.stat().st_ino
+
+
+def test_a_snapshot_reserves_room_for_the_databases_a_rollback_copies_back(tmp_path, monkeypatch):
+    root, allowed = tenant_root(tmp_path)
+    (root / "data/instances/acme/bananawiki.db").write_bytes(b"d" * 4 * 2**20)
+    (root / "data/instances/acme/upload.bin").write_bytes(b"u" * 4 * 2**20)
+    free = 128 * 2**20 + 10 * 2**20  # the margin and one copy of each file, not the database's second
+    real = shutil.disk_usage
+    monkeypatch.setattr(shutil, "disk_usage", lambda path: real(path)._replace(free=free))
+    with pytest.raises(Refused, match="Not enough free space"):
+        Snapshot.create(root, allowed)
+    (root / "data/instances/acme/upload.bin").unlink()
+    Snapshot.create(root, allowed).remove()
+
+
 def test_snapshot_open_rejects_foreign_paths(tmp_path):
     root = make_root(tmp_path)
     with pytest.raises(ValueError):
         Snapshot.open(tmp_path / "elsewhere", root)
 
 
-# Packages and files --------------------------------------------------------------
+# Packages and files
 
 
 def test_package_round_trip_and_tamper_detection(tmp_path):
@@ -300,17 +333,39 @@ def test_extract_rejects_traversal_and_links(tmp_path):
             extract_archive(archive_path, target)
 
 
+def test_atomic_write_does_not_follow_a_link_swapped_in_for_its_temporary_file(tmp_path, monkeypatch):
+    """Root writes the maintenance marker into data/, which the service account owns and can rename entries in."""
+    from bananawiki.ops.files import atomic_write
+
+    data = tmp_path / "data"
+    data.mkdir()
+    outside = tmp_path / "outside"
+    outside.write_text("keep this")
+    outside.chmod(0o644)
+    original_fsync = os.fsync
+
+    def swapped_fsync(descriptor: int) -> None:
+        original_fsync(descriptor)
+        for temporary in data.glob(".write-*"):
+            temporary.unlink()
+            temporary.symlink_to(outside)
+
+    monkeypatch.setattr(os, "fsync", swapped_fsync)
+    atomic_write(data / ".banana-maintenance", "Updating\n")
+    assert outside.stat().st_mode & 0o777 == 0o644 and outside.read_text() == "keep this"
+
+
 def test_an_unbalanced_quote_in_the_environment_file_names_the_file_and_line(tmp_path):
-    """systemd reads `NAME=L'Atelier` literally, but the platform's commands parse app.env like a shell:
+    """systemd reads `NAME=Anna's` literally, but the platform's commands parse app.env like a shell:
     the error says where the value is and how to write it, instead of a bare "No closing quotation"."""
     environment = tmp_path / "app.env"
-    environment.write_text("# settings\nHOSTING_MODE=subdomain\nHOSTING_SERVICE_NAME=L'Atelier Wikis\n")
+    environment.write_text("# settings\nHOSTING_MODE=subdomain\nHOSTING_SERVICE_NAME=Anna's Wikis\n")
     with pytest.raises(ValueError) as caught:
         read_environment(environment)
     assert str(environment) in str(caught.value) and "line 3" in str(caught.value)
     assert "HOSTING_SERVICE_NAME" in str(caught.value) and "double quotes" in str(caught.value)
-    environment.write_text("HOSTING_SERVICE_NAME=\"L'Atelier Wikis\"\n")
-    assert read_environment(environment) == {"HOSTING_SERVICE_NAME": "L'Atelier Wikis"}
+    environment.write_text("HOSTING_SERVICE_NAME=\"Anna's Wikis\"\n")
+    assert read_environment(environment) == {"HOSTING_SERVICE_NAME": "Anna's Wikis"}
 
 
 def test_environment_files_and_paths(tmp_path):
@@ -327,7 +382,7 @@ def test_environment_files_and_paths(tmp_path):
     assert list(regular_files(tmp_path / "missing")) == []
 
 
-# Profile, units and Caddy ----------------------------------------------------------
+# Profile, units and Caddy
 
 
 def settings_for(mode: str) -> dict:
@@ -438,7 +493,7 @@ def test_caddyfile_hardening():
         caddy.render({**settings_for("wiki"), "domain": ""})
 
 
-# Tenant image --------------------------------------------------------------------
+# Tenant image
 
 
 def test_base_images_of_a_dockerfile(tmp_path):
@@ -474,6 +529,18 @@ def test_shipped_images_install_only_hash_pinned_wheels(name):
     for lock in ("requirements-build.lock", "requirements.lock"):
         command = next(line for line in text.replace("\\\n", " ").splitlines() if f"--requirement {lock}" in line)
         assert "--require-hashes" in command and "--only-binary=:all:" in command
+
+
+def test_acl_stage_reads_unstable_at_a_fixed_snapshot():
+    """A moving suite lists only its newest versions, so the exact ones the stage pins would vanish from it."""
+    script = shipped("docker/media/fetch-acl-packages.sh").read_text()
+    sources = script.split("<<SOURCES\n", 1)[1].split("\nSOURCES\n", 1)[0].splitlines()
+    snapshot = re.search(r"^snapshot=(\d{8}T\d{6}Z)$", script, re.M)
+    assert snapshot and "URIs: https://snapshot.debian.org/archive/debian/$snapshot/" in sources
+    assert "Check-Valid-Until: no" in sources and "Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg" in sources
+    assert "deb.debian.org" not in script and "AllowUnauthenticated=false" in script
+    for name in ("Dockerfile", "Dockerfile.tenant"):
+        assert "RUN sh /build/acl/fetch-acl-packages.sh" in shipped(name).read_text()
 
 
 def test_tenant_image_is_built_on_a_freshly_pulled_base_with_fresh_updates(tmp_path, capsys):
@@ -535,8 +602,8 @@ def test_tenant_image_is_built_on_a_freshly_pulled_base_with_fresh_updates(tmp_p
 
 
 def test_a_build_failing_on_a_newly_pulled_base_falls_back_to_the_previous_one(tmp_path, capsys):
-    """The ACL stage fetches two exact Debian unstable versions; a new base image rebuilds it, and fails once
-    unstable has moved past them. The update then still brings the final stage's fresh packages."""
+    """A new base image rebuilds the FFmpeg and ACL stages, which can fail where the cached ones would not (a
+    download that does not answer). The update then still brings the final stage's fresh packages."""
     release = tmp_path / "release"
     release.mkdir()
     shutil.copyfile(shipped("Dockerfile.tenant"), release / "Dockerfile.tenant")
@@ -562,7 +629,7 @@ def test_a_build_failing_on_a_newly_pulled_base_falls_back_to_the_previous_one(t
             if tags[base] in host.get("timeouts", ()):
                 raise subprocess.TimeoutExpired(command, 1800)
             if tags[base] in host["failing"]:
-                return subprocess.CompletedProcess(command, 100, "", "E: Version '2.4.0-1' for 'libacl1' was not found")
+                return subprocess.CompletedProcess(command, 100, "", "E: Failed to fetch https://snapshot.debian.org/ 503")
             host.setdefault("built", set()).add(command[command.index("-t") + 1])
         elif command[:3] == ["docker", "image", "rm"]:  # deleting a tagged image drops its tag too
             host["tags"] = {name: value for name, value in tags.items() if value != command[3]}
@@ -588,10 +655,10 @@ def test_a_build_failing_on_a_newly_pulled_base_falls_back_to_the_previous_one(t
         assert host["built_on"] == ["sha256:new", "sha256:old"] and host["tags"] == {base: "sha256:old"}
         assert len(warnings) == 1
         assert warnings[0].startswith(f"The tenant image did not build on the newly pulled {base}: "
-                                      "docker build failed (exit 100): E: Version '2.4.0-1' for 'libacl1' was not "
-                                      f"found. Details are in the private log {log}.")
+                                      "docker build failed (exit 100): E: Failed to fetch "
+                                      f"https://snapshot.debian.org/ 503. Details are in the private log {log}.")
         assert "built on the previous base image instead" in warnings[0]
-        assert "libacl1" in log.read_text()  # the unchecked tag kept the first build's output
+        assert "snapshot.debian.org" in log.read_text()  # the unchecked tag kept the first build's output
         stderr = capsys.readouterr().err
         assert "retrying once on the previous base image" in stderr and f"Warning: {warnings[0]}" in stderr
     # The previous base fails too: raised, and the previous base stays tagged so that a retry falls back again.
@@ -630,7 +697,7 @@ def test_a_build_failing_on_a_newly_pulled_base_falls_back_to_the_previous_one(t
     assert docker()[-1] == ["docker", "image", "rm", "sha256:old"]
 
 
-# Git sources ----------------------------------------------------------------------
+# Git sources
 
 
 def test_token_credentials_use_askpass_and_strict_permissions(tmp_path):
@@ -651,6 +718,21 @@ def test_token_credentials_use_askpass_and_strict_permissions(tmp_path):
     output = subprocess.run([helper, "Password for https://example.org"], env={**environment}, capture_output=True,
                             text=True, check=True).stdout.strip()
     assert output == "secret-token"
+
+
+@pytest.mark.parametrize(("url", "hint"), [
+    ("https://github.com/OverloadedTech/BananaWiki.git", True),  # the default until 1.6
+    ("https://github.com/overloadedtech/BananaWiki/", True),
+    ("https://example.org/fork/BananaWiki.git", False),
+])
+def test_a_git_failure_on_the_retired_default_source_says_how_to_switch(tmp_path, url, hint):
+    root = tmp_path / "root"
+    (root / "config").mkdir(parents=True)
+    with pytest.raises(RuntimeError) as failure:
+        GitSource(root, {"url": url, "branch": "main"}).git("rev-parse", "--verify", "refs/heads/main")
+    message = str(failure.value)
+    assert message.startswith("Git rev-parse failed. Check repository access")
+    assert ("source set --repo https://github.com/BananaSuite/BananaWiki.git --branch main" in message) is hint
 
 
 def test_configure_source_moves_and_clears_credentials(tmp_path):
@@ -702,7 +784,7 @@ def test_fallback_branch_and_missing_branch(tmp_path, upstream):
         GitSource(root, {"url": str(upstream.bare), "branch": "gone"}).resolve(first)
 
 
-# Fresh install ---------------------------------------------------------------------
+# Fresh install
 
 
 def test_fresh_install_from_checkout(tmp_path, upstream, fake_system):
@@ -734,7 +816,7 @@ def test_preflight_refuses_foreign_units(tmp_path, fake_system):
         fake_system.preflight(settings_for("wiki"), profile.services(settings_for("wiki")))
 
 
-# Host layer with a recording runner --------------------------------------------------
+# Host layer with a recording runner
 
 
 def test_readiness_probes_the_wikis_that_served_and_still_run(tmp_path):

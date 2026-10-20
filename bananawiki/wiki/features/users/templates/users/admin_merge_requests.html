@@ -30,7 +30,7 @@
       </form>
       {% endif %}
       {% if req.status in ('pending', 'approved_by_both') %}
-      {{ forms.post_button(url_for('users.admin_merge_deny', merge_id=req.id), t('users.merge.deny'), cls='btn btn--small btn--danger') }}
+      {{ forms.post_button(url_for('users.admin_merge_deny', merge_id=req.id), t('users.merge.deny'), cls='btn btn--small btn--danger-quiet') }}
       {% endif %}
     </td>
   </tr>
@@ -38,6 +38,6 @@
   </tbody>
 </table></div>
 {% else %}
-<div class="card empty-state"><p>{{ t('users.admin.no_requests') }}</p></div>
+<div class="empty-state"><p>{{ t('users.admin.no_requests') }}</p></div>
 {% endif %}
 {% endblock %}

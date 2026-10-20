@@ -2,10 +2,10 @@
 
 One renderer produces both the file ``banana proxy`` installs and the
 ``deploy/Caddyfile.*`` examples (with ``{$VARIABLE}`` placeholders), so the two
-can no longer drift apart. The tests compare the shipped examples with
+cannot drift apart. The tests compare the shipped examples with
 :func:`example`.
 
-Hardening compared with 1.4: HSTS on every site, request timeouts,
+Hardening: HSTS on every site, request timeouts,
 ``X-Forwarded-Prefix`` stripped before it reaches the application, and the
 portal's ``/internal/*`` endpoints (the on-demand TLS ``ask`` hook) answered
 404 from the public listeners; Caddy calls ``ask`` on loopback directly.
@@ -16,10 +16,13 @@ address to the application (see :mod:`bananawiki.ops.caddy_blocks`). Three
 certificate modes (:class:`ProxyOptions`, ``bananawiki proxy --tls``):
 
 * ``acme`` (default): Let's Encrypt, per host, on demand for wikis. With
-  ``--cloudflare`` the TLS-ALPN-01 challenge, which can never pass through
-  Cloudflare's proxy, is disabled so it does not burn the CA's failed
-  validation allowance; HTTP-01 must reach port 80 (no forced HTTPS for
-  ``/.well-known/acme-challenge/`` at Cloudflare).
+  ``--cloudflare``, and always on a hosting platform (which needs port 80
+  anyway), the TLS-ALPN-01 challenge is disabled: it can never pass through
+  Cloudflare's proxy, and Caddy picks challenges at random, so it would burn
+  the CA's failed validation allowance. HTTP-01 must reach port 80 (no forced
+  HTTPS for ``/.well-known/acme-challenge/`` at Cloudflare). An explicit
+  ``cert_issuer`` replaces Caddy's default issuers (Let's Encrypt and ZeroSSL)
+  with Let's Encrypt alone; ZeroSSL needs an API key, so it cannot stay.
 * ``cloudflare-dns``: one wildcard certificate ``*.<domain>`` (plus the base
   domain) through the DNS-01 challenge with a Cloudflare API token; needs a
   Caddy build with the ``dns.providers.cloudflare`` module. Every platform
@@ -61,7 +64,7 @@ class ProxyOptions:
     cloudflare: bool = False
     origin_cert: str = ""
     origin_key: str = ""
-    # Caddy 2.7+ (``client_ip_headers``, ``{client_ip}``); older Caddy keeps the 1.6.0 behaviour.
+    # Caddy 2.7+ (``client_ip_headers``, ``{client_ip}``); off for older Caddy, which keeps its default headers.
     client_ip: bool = True
 
     def __post_init__(self) -> None:
@@ -105,7 +108,7 @@ def _global(email: str, ask: str | None, options: ProxyOptions) -> str:
     lines = ["{\n"]
     if email:
         lines.append(f"\temail {email}\n")
-    if options.behind_cloudflare:
+    if options.behind_cloudflare or ask:
         lines.append("\tcert_issuer acme {\n\t\tdisable_tlsalpn_challenge\n\t}\n")
     lines.append(servers_options(client_ip=options.client_ip))
     if ask:
@@ -210,7 +213,7 @@ def example(mode: str) -> str:
     return render_wiki("{$WIKI_DOMAIN}", "127.0.0.1:{$BW_PORT:5001}", email="{$ACME_EMAIL}", header=header)
 
 
-# ── Cloudflare Universal SSL depth ────────────────────────────────────────────
+# Cloudflare Universal SSL depth
 
 
 def zone_of(host: str) -> str:

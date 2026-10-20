@@ -1,4 +1,4 @@
-"""The federation wire protocol, version 1 (unchanged from BananaWiki 1.4, so 1.4 and 1.6 wikis pair).
+"""The federation wire protocol, version 1 (unchanged since BananaWiki 1.4, so wikis of 1.4 and later pair).
 
 A peer fetches ``GET /federation/v1/snapshot`` with four headers: its wiki id
 (``BW-Wiki``), a Unix timestamp (``BW-Time``), a random 128-bit nonce
@@ -128,6 +128,20 @@ def revision(title: str, content: str, source_path: str) -> str:
 
 def page_fits(title: str, content: str) -> bool:
     return 1 <= len(title) <= MAX_TITLE and len(content.encode()) <= MAX_CONTENT
+
+
+def snapshot_room(source: str) -> int:
+    """Bytes left for pages in an encoded snapshot from *source* within :data:`MAX_RESPONSE`."""
+    return MAX_RESPONSE - len(encode({"version": 1, "wiki_id": source, "sequence": 2**63 - 1, "pages": []}))
+
+
+def encoded_size(page: dict[str, Any]) -> int:
+    """What *page* adds to an encoded snapshot, separator included.
+
+    Escaping makes this up to six times the UTF-8 length, so pages that each
+    fit can still fill a snapshot together.
+    """
+    return len(encode(page)) + 1
 
 
 def validate_snapshot(payload: Any, source: str) -> dict[str, Any]:

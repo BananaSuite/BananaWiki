@@ -7,7 +7,7 @@
 <h1>{{ t('hosting.admin.delete_account') }}: {{ target.username }}</h1>
 <section class="page-form card--danger">
 <div class="alert alert--error"><div class="alert__body">{{ t('hosting.admin.delete_account_warning') }}</div></div>
-<p>{{ t('hosting.admin.delete_account_body', count=owned|length) }}</p>
+<p>{{ tn('hosting.admin.delete_account_body', owned|length) }}</p>
 <ul class="plain-list">{% for inst in owned %}<li>{{ inst.subdomain }}</li>{% endfor %}</ul>
 <form method="post" class="form" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ ui.csrf() }}
   <fieldset class="plain"><legend>{{ t('hosting.admin.wikis_action_legend') }}</legend>

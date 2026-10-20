@@ -59,7 +59,7 @@ def test_propose_and_approve_credits_proposer(ctx, people, page):
     assert service.get(contribution_id)["status"] == "approved"
     with pytest.raises(ContributionError):
         service.approve(contribution_id, people["admin"])  # only once
-    # a second proposal on the same page reuses the resolved row (1.4 refused it)
+    # a second proposal on the same page reuses the resolved row
     again = service.propose(pages.get(page["id"]), people["reader"], title=None, content="three", reason="more")
     assert again == contribution_id and service.get(again)["status"] == "pending"
 
@@ -122,7 +122,7 @@ def test_diff_lines():
 
 
 def test_diff_lines_of_huge_or_repetitive_proposals_is_bounded():
-    """R-04: a million empty lines, or one line repeated, made the review page unusable."""
+    """A million empty lines, or one line repeated, still give a review page of bounded size."""
     rows = service.diff_lines("line one\nline two\n", "\n" * 999_999)
     assert len(rows) == service.MAX_DIFF_ROWS + 1
     assert rows[:2] == [{"op": "del", "text": "line one"}, {"op": "del", "text": "line two"}]
@@ -134,7 +134,7 @@ def test_diff_lines_of_huge_or_repetitive_proposals_is_bounded():
 
 
 def test_approval_refuses_a_proposal_edited_after_review(ctx, people, page):
-    """S-04: the proposer swaps the content while the reviewer looks at the old diff."""
+    """The proposer cannot swap the content while the reviewer looks at the old diff."""
     cid = service.propose(page, people["reader"], title="Article", content="typo fixed\n", reason="typo")
     seen = service.review_version(service.get(cid))
     service.update_own(service.get(cid), people["reader"], title="Article", content="DEFACED\n", reason="typo")
@@ -200,7 +200,7 @@ def _review_form(client, contribution_id):
 
 
 def test_review_form_binds_the_approval_to_what_was_shown(client, login, people, page):
-    """S-04: edits to the proposal or the page after the review page was opened are not approved blindly."""
+    """Edits to the proposal or the page after the review page was opened are not approved blindly."""
     app = client.application
     with app.test_request_context(), connection_scope():
         cid = service.propose(page, people["reader"], title="Article", content="typo fixed\n", reason="typo")

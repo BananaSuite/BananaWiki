@@ -14,7 +14,7 @@
 {% if nav.categories or nav.uncategorized.count %}
 {% include "pages/_tree.html" %}
 {% else %}
-<div class="card empty-state"><p>{{ t('pages.welcome.empty_body') }}</p></div>
+<div class="empty-state"><p>{{ t('pages.welcome.empty_body') }}</p></div>
 {% endif %}
 {% if can_create_category %}
 <section class="card" id="new-category">

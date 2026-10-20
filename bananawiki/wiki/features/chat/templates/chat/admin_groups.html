@@ -20,7 +20,7 @@
       <a class="btn btn--small" href="{{ url_for('chat.admin_group_view', group_id=g.id) }}">{{ t('chat.admin.read') }}</a>
       <a class="btn btn--small" href="{{ url_for('chat.group_view', group_id=g.id) }}">{{ t('chat.admin.moderate') }}</a>
       {% if not g.is_global %}
-      {{ forms.post_button(url_for('chat.admin_group_delete', group_id=g.id), t('common.delete'), 'btn btn--small btn--danger', t('chat.groups.delete_confirm', name=g.name)) }}
+      {{ forms.post_button(url_for('chat.admin_group_delete', group_id=g.id), t('common.delete'), 'btn btn--small btn--danger-quiet', t('chat.groups.delete_confirm', name=g.name)) }}
       {% else %}{# keeps Read and Moderate in line with the rows that can be deleted #}
       <span class="btn btn--small btn-placeholder" aria-hidden="true">{{ t('common.delete') }}</span>
       {% endif %}

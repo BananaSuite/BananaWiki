@@ -15,7 +15,7 @@ def _fail(error: merge.MergeError, endpoint: str):
     return redirect(url_for(endpoint))
 
 
-# ── Account owners ───────────────────────────────────────────────────────────
+# Account owners
 
 
 @bp.route("/settings/merge-request", methods=["GET", "POST"])
@@ -75,7 +75,7 @@ def merge_deny(merge_id: int):
     return _close_own(merge_id, "denied")
 
 
-# ── Administrators ───────────────────────────────────────────────────────────
+# Administrators
 
 
 @bp.get("/admin/merge-requests")

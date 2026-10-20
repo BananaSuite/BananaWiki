@@ -12,7 +12,7 @@
 # /etc/nftables.d/bananawiki-tenants.nft") and include that copy from
 # /etc/nftables.conf; save it again after changing the host's resolvers.
 #
-# The runtime agent (1.7 and later) names every tenant bridge bwt<12 hex>, so
+# The runtime agent names every tenant bridge bwt<12 hex>, so
 # these rules cover the bridges that exist now and those created later, and no
 # other interface of the host:
 #

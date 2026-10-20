@@ -57,14 +57,12 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   sibling subdomain cannot plant a session (its own account, or a half-done
   portal sign-in) for another wiki. Plain HTTP keeps the plain name (desktop
   app, local use) and has no such protection.
-* After the upgrade to this naming, a session under the plain name is moved
-  to the prefixed name on its first HTTPS request, so nobody is signed out,
-  and the plain cookie is expired; signing out clears both. Only a cookie
-  signed before the wiki first started with this naming moves (the time is
-  kept in `.host_cookie_since` in the instance folder): the wiki never issues
-  the plain name over HTTPS after that, so a newer one can only have been
-  planted, and it is ignored. A request with two plain-name cookies is never
-  moved either.
+* A plain-name session cookie signed before the wiki first used the
+  prefixed name (the time is kept in `.host_cookie_since` in the instance
+  folder) moves to the prefixed name on its first HTTPS request, so nobody
+  is signed out; signing out clears both. The wiki never issues the plain
+  name over HTTPS, so a newer plain-name cookie can only have been planted
+  and is ignored, as is a request with two of them.
 * Sessions are revoked when the password changes (other sessions), when an
   administrator resets the password or suspends the account, on "sign out
   everywhere" (**Settings → Sessions**), on **Admin → Sessions** (one session
@@ -83,38 +81,36 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   counter. Passwords stored with an older hash method or cost are re-hashed
   with the configured one at the next sign-in; the password stays the same,
   so the account's API tokens and device cookies keep working.
-* **Two-step verification** (**Settings → Two-step verification**, optional
-  for every account): after the password, or after the hosting portal's
-  sign-in, the wiki asks for a 6-digit code from an authenticator app (TOTP,
-  30-second steps, each code accepted once) or one of ten single-use
-  recovery codes. Turning it on takes the password and a code and signs out
-  the account's other sessions; turning it off or making new recovery codes
-  takes the password and a code. The pending sign-in lasts five minutes,
-  lapses when the password changes and ends with **Back to sign-in** on the
-  code page (a form, so the password step is not left passed in the
-  browser). Codes are limited to 10 wrong attempts in 5 minutes and 50 a
-  day: per account for browsers that never signed in to it, and separately
-  for each browser with its device cookie, so someone who knows the password
-  cannot use up the owner's attempts. Turning two-step verification on, off
-  or resetting it retires the account's device cookies (the browser making
-  the change gets a new one), and while it is on a device cookie is issued
-  only after both steps, so cookies collected while it was off cannot
-  multiply the limits. After 10 wrong
-  codes in a day from the same browsers, each further code waits 30
-  seconds, then twice as long each time, up to an hour. The account
-  accepts at most 100 wrong codes a day from all browsers together, more
-  than the browsers without a device cookie can reach on their own. After 5 wrong codes at sign-in in
-  a day (all browsers together) the owner gets a security notice, at most
-  one a day, also by email when the wiki sends decision emails and they have
-  not turned them off: someone else may know their password. Owners and superusers who use it
-  can require it of administrators (**Admin → Settings → Security**):
-  administrators without it are sent to set it up before anything else.
-  Owners and superusers can reset it for an account they may manage
-  (**Admin → Users**; every session of the account ends);
-  `bananawiki reset-two-step NAME` resets any account from the server. On a
-  hosted wiki, the portal's **Reset admin password** turns it off for the
-  account it resets (and records that in the wiki's audit log). API
-  tokens and impersonation do not involve it.
+* **Two-step verification** (**Settings → Two-step verification**), optional
+  for every account. API tokens and impersonation do not involve it.
+  * **Codes:** after the password, or after the hosting portal's sign-in,
+    the wiki asks for a 6-digit code from an authenticator app (TOTP,
+    30-second steps, each code accepted once) or one of ten single-use
+    recovery codes. The pending sign-in lasts five minutes and lapses when
+    the password changes. **Back to sign-in** on the code page is a form,
+    so it clears the password step.
+  * **Changes:** turning it on, turning it off and making new recovery codes
+    take the password and a code. Turning it on signs out the account's
+    other sessions. Turning it on, off or resetting it retires the account's
+    device cookies; the browser making the change gets a new one.
+  * **Limits:** 10 wrong codes in 5 minutes and 50 a day, counted per
+    account for browsers that never signed in to it and separately for each
+    browser with a device cookie, so someone who knows the password cannot
+    use up the owner's attempts. While it is on, a device cookie is issued
+    only after both steps. After 10 wrong codes in a day each further code
+    waits 30 seconds, doubling up to an hour. The account accepts at most 100
+    wrong codes a day from all browsers together.
+  * **Notice:** after 5 wrong codes at sign-in in a day the owner gets a
+    security notice (at most one a day, also by email if the wiki sends
+    decision emails and they have not turned them off).
+  * **Requiring it:** owners and superusers who use it can require it of
+    administrators (**Admin → Site settings → Security**). Administrators
+    without it are sent to set it up before anything else.
+  * **Recovery:** owners and superusers can reset it for an account they may
+    manage (**Admin → Users**; every session of the account ends).
+    `bananawiki reset-two-step NAME` resets any account from the server. On a
+    hosted wiki, the portal's **Reset admin password** also turns it off and
+    records that in the wiki's audit log.
 * **Sign-up:** invite codes, open sign-up (optionally until a date), and
   administrator approval, which is enforced everywhere: pending and denied
   accounts can only see their status page. Bot protection adds a honeypot
@@ -152,9 +148,9 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   bearer token is exempt, and it refuses requests carrying an `Origin` from
   another site.
 * **Rate limits:** 300 requests per minute per client address (IPv6: per
-  /64) and worker,
-  plus per-action limits (editing, uploads, search, chats, the API …), per
-  account or, for visitors and group joins, per address (IPv6: per /64).
+  /64) and worker, plus per-action limits (editing, uploads, search, chats,
+  the API …), per account or, for visitors and group joins, per address
+  (IPv6: per /64).
   Sign-in and sign-up limits are stored in the database, so they hold across
   all workers.
 * **Body limits:** JSON bodies 2 MiB, form fields 2 MiB in memory; file
@@ -164,13 +160,9 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   and `-Host` is trusted; `X-Forwarded-Prefix` never.
 * **Slow clients:** the shipped Caddy configuration allows 10 s for request
   headers and 5 minutes for a request body. A response is abandoned once a
-  write to the client has waited `BW_WRITE_TIMEOUT` seconds (300), so clients
-  that stop reading downloads cannot tie up the worker threads for longer;
-  readers that kept taking in 256 KiB to 4 MiB per period, depending on their
-  buffers, were not cut off in tests (see
-  [deployment](deployment.md#reverse-proxy)). A client that reads slowly on
-  purpose still holds a thread for the whole download: a proxy's minimum
-  rate (Caddy's `write_idle <duration> <min_rate>`) covers that.
+  write has waited `BW_WRITE_TIMEOUT` seconds (300); a proxy minimum rate
+  (Caddy's `write_idle <duration> <min_rate>`) covers clients that read
+  slowly on purpose (see [deployment](deployment.md#reverse-proxy)).
 
 ## Response headers
 
@@ -220,16 +212,17 @@ ask editors to upload images instead of linking them.
   canvas and kanban embeds, mentions and task lists are generated after
   sanitising from validated parameters, and never inside an attribute value
   (nh3 0.3.7 or later is required).
-* Rendering is bounded: one page highlights at most 64 KB of code (later
-  blocks stay plain code; the blocks of a page-builder page share that
-  allowance, as do the comments of one kanban ticket, which holds at most
-  300, and one listing of them renders at most about 4 MB of HTML, newest
-  first, older ones as plain text; excerpts and plain text highlight
-  nothing), and rendered pages, snippets and PDF exports are cached by the
-  hash of their source (a PDF also by the state of the uploaded images it
-  embeds), so reading a page again costs nothing. The live
-  preview and code highlighting endpoints are for editors only, at most 60
-  requests a minute.
+* Rendering is bounded:
+  * One page highlights at most 64 KB of code; later blocks stay plain code.
+    The blocks of a page-builder page share that allowance, and so do the
+    comments of one kanban ticket. Excerpts and plain text highlight
+    nothing.
+  * A kanban ticket holds at most 300 comments. One listing renders at most
+    about 4 MB of HTML, newest first; older comments show as plain text.
+  * Rendered pages, snippets and PDF exports are cached by the hash of their
+    source (a PDF also by the state of the uploaded images it embeds).
+  * The live preview and code highlighting endpoints are for editors only,
+    at most 60 requests a minute.
 * Page-builder documents are validated against an allow-list of block types
   and escaped when rendered.
 * Custom pages with author HTML, CSS or JavaScript are served from a
@@ -262,16 +255,17 @@ ask editors to upload images instead of linking them.
 
 ## Speech conversion
 
-The speech encoder accepts local MP3 and PCM WAV inputs. It explicitly selects
-the audio demuxer and allows only PCM/MP3 decoders and the local-file protocol;
+The speech encoder accepts local MP3 and PCM WAV inputs. It selects the
+audio demuxer and allows only PCM/MP3 decoders and the local-file protocol;
 video, subtitles, playlists and network protocols are not used. Encoding and
-tempo changes each use one decoder, filter and encoder thread. Embedded metadata
-is discarded. Diagnostics are capped at 64 KiB, execution is limited to five
-minutes, and failed or timed-out encoders are stopped and reaped.
+tempo changes each use one decoder, filter and encoder thread. Embedded
+metadata is discarded. Diagnostics are capped at 64 KiB, a run is limited to
+five minutes, and failed or timed-out encoders are stopped and reaped.
 
-These application restrictions reduce exposure to unnecessary multimedia
-parsers. They do not remove libraries installed in the container or resolve
-their distribution advisories; see [production validation](production-readiness.md#image-advisories).
+The container images ship FFmpeg built from source with only these
+components (`docker/media/README.txt`). Libraries installed from Debian still
+get their fixes from Debian: rebuild the images regularly (see
+[deployment](deployment.md#docker-and-docker-compose)).
 
 ## Secrets at rest
 
@@ -284,8 +278,8 @@ their distribution advisories; see [production validation](production-readiness.
 * Two-step verification keys are encrypted (Fernet, key derived from the
   secret key) and recovery codes stored as HMAC-SHA256 digests; codes are
   shown once.
-* Retired 1.4 secrets (the Telegram bot token, feedback bot settings) are
-  erased by the 1.6 upgrade.
+* Upgrading from 1.4 erases the secrets of retired 1.4 features (the
+  Telegram bot token, feedback bot settings).
 
 Losing or changing the secret key signs everyone out and makes API tokens,
 encrypted settings and two-step verification unusable (reset it with
@@ -319,23 +313,28 @@ every step. A plugin only loads after a restart.
 
 ## Audit log
 
-**Admin → Audit log** (feature `audit`) records sign-ins, account creation,
-renames, released former user names, deletions, role and custom-role
-changes, superuser grants, permission overrides, approvals, suspensions and
-their lifting, impersonation, session revocations and mass sign-outs,
-attribution and role-history clean-up, invite codes (never the code itself),
-password changes and resets, two-step verification turned on or off, reset,
-new recovery codes and sign-ins with a recovery code, page and category
-deletions and restores, bulk
-deletions, protections ended by a demotion, attachment uploads and
-deletions, site settings, appearance and language changes, features and
-plugins switched, installed or removed, documentation, bulk Markdown and
-whole-site exports and imports (and refused attempts), server restarts, and
-administrators opening, exporting, clearing or taking over private
-conversations and groups they are not in (reading a group's messages as
-JSON is recorded once per ten minutes of reading; downloading their
-attachments too) or resolving reported chat messages, with the acting account
-and address.
+**Admin → Audit log** (feature `audit`) records each entry with the acting
+account and address:
+
+* **Accounts:** sign-ins, creation, renames, released former user names,
+  deletions, approvals, suspensions and their lifting, invite codes (never
+  the code itself).
+* **Roles and access:** role and custom-role changes, superuser grants,
+  permission overrides, protections ended by a demotion, impersonation,
+  attribution and role-history clean-up.
+* **Credentials and sessions:** password changes and resets, two-step
+  verification turned on, off or reset, new recovery codes, sign-ins with a
+  recovery code, session revocations and mass sign-outs.
+* **Content:** page and category deletions and restores, bulk deletions,
+  attachment uploads and deletions.
+* **Site:** site settings, appearance and language changes, features and
+  plugins switched, installed or removed, documentation, server restarts.
+* **Exports and imports:** bulk Markdown and whole-site exports and imports,
+  and refused attempts.
+* **Chat moderation:** administrators opening, exporting, clearing or taking
+  over private conversations and groups they are not in, and resolving
+  reported messages. Reading a group's messages as JSON, or downloading its
+  attachments, is recorded once per ten minutes.
 
 Only owners and superusers can switch the audit log off (the switch is
 recorded as its last entry), whichever page switches it: the plugin manager
@@ -351,9 +350,8 @@ The plugin manager's own steps also go to the application log
 
 ## Checklist for production
 
-For public hosting, also follow the [release assessment](production-readiness.md),
-including unfixed tenant-image advisories and the required host firewall,
-storage quotas, reserve, restore and update/rollback checks.
+For a hosting platform, also go through
+[before opening it to the public](deployment.md#before-opening-it-to-the-public).
 
 * Serve over HTTPS only; set `BW_PROXY_MODE=1` only when the port is reachable
   through your proxy alone.
@@ -362,9 +360,9 @@ storage quotas, reserve, restore and update/rollback checks.
 * Keep few administrators; make yourself owner and superuser (the first
   account already is).
 * Turn on two-step verification for your account, then require it of
-  administrators (**Admin → Settings → Security**).
-* Leave `BW_ALLOW_EXTERNAL_PLUGINS` unset or `0` unless you need plugins;
-  review every plugin before enabling it.
+  administrators (**Admin → Site settings → Security**).
+* Set `BW_ALLOW_EXTERNAL_PLUGINS=0` unless you need plugins (unset keeps the
+  plugins an upgraded wiki already has). Review a plugin before enabling it.
 * Switch off features you do not use (**Admin → Plugins**).
 * Keep the server and BananaWiki updated (`sudo bananawiki update`).
 * Set `BW_SOURCE_URL` to the source you run if you changed the code (AGPL).

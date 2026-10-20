@@ -18,13 +18,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: python -m pip install ruff==0.16.9
+      - run: python -m pip install ruff==0.17.1
       - name: Ruff (pyproject.toml rules)
         run: python -m ruff check bananawiki tests banana wsgi.py gunicorn.conf.py scripts/tts_worker.py scripts/lock_requirements.py
       - name: ShellCheck
@@ -40,10 +40,10 @@ jobs:
       matrix:
         python: ["3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -52,6 +52,15 @@ jobs:
         run: |
           sudo apt-get -o Acquire::Retries=3 update
           sudo apt-get -o Acquire::Retries=3 install -y age openssh-client nftables
+      - name: Caddy, to validate the generated Caddyfiles with the real server
+        run: |
+          curl --fail --silent --show-error --location \
+            https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.tar.gz \
+            --output "$RUNNER_TEMP/caddy.tar.gz"
+          printf '%s  %s\n' 727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b "$RUNNER_TEMP/caddy.tar.gz" | sha256sum --check
+          mkdir "$RUNNER_TEMP/caddy"
+          tar --extract --gzip --file "$RUNNER_TEMP/caddy.tar.gz" --directory "$RUNNER_TEMP/caddy" caddy
+          echo "CADDY_BINARY=$RUNNER_TEMP/caddy/caddy" >> "$GITHUB_ENV"
       - name: Install (hash-pinned wheels only, as on a managed server)
         run: |
           python -m pip install --only-binary=:all: --no-deps --require-hashes --upgrade -r requirements-build.lock
@@ -92,10 +101,10 @@ jobs:
       matrix:
         install: [requirements, package]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - run: python -m pip install pip-audit
@@ -128,7 +137,7 @@ jobs:
       matrix:
         dockerfile: [Dockerfile, Dockerfile.tenant]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Build
@@ -136,9 +145,9 @@ jobs:
       - name: Check image for high and critical vulnerabilities with available fixes
         run: |
           curl --fail --silent --show-error --location \
-            https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz \
+            https://github.com/aquasecurity/trivy/releases/download/v0.76.0/trivy_0.76.0_Linux-64bit.tar.gz \
             --output "$RUNNER_TEMP/trivy.tar.gz"
-          printf '%s  %s\n' 2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a "$RUNNER_TEMP/trivy.tar.gz" | sha256sum --check
+          printf '%s  %s\n' e24b1c51293c1b15e4ba8d45bbc7891ba053f90278ec2698f3562c993e145fe7 "$RUNNER_TEMP/trivy.tar.gz" | sha256sum --check
           tar --extract --gzip --file "$RUNNER_TEMP/trivy.tar.gz" --directory "$RUNNER_TEMP" trivy
           "$RUNNER_TEMP/trivy" image --scanners vuln --severity HIGH,CRITICAL \
             --ignore-unfixed --exit-code 1 --timeout 5m bananawiki-ci:${{ strategy.job-index }}

@@ -12,6 +12,7 @@ review rules. This page is a map of the repository around it.
 |---|---|
 | `bananawiki/core/` | Shared infrastructure: typed environment, SQLite connections and migrations, crypto, passwords, timestamps, CSRF/CSP/headers, rate limiters, translations, static assets, the outbound HTTP client, outgoing email and the notification schedule. |
 | `bananawiki/core/static/css/bananawiki.css` | The wiki and portal's shared design system, served by both at `/static/css/bananawiki.css`. |
+| `bananawiki/core/mascot.py`, `bananawiki/core/static/mascot/` | The mascot's pixel art, script and stylesheet, used by the wiki's mascot plugin and the portal's top bar (served at `/static/mascot/`). |
 | `bananawiki/wiki/` | The wiki application (`create_app()`), with one package per feature in `features/`. |
 | `bananawiki/hosting/` | The hosting portal, its maintenance service and the runtime boundary. |
 | `bananawiki/ops/` | The `banana` lifecycle controller (standard library only), the runtime agent, Gunicorn settings, the tenant entry point. |
@@ -22,7 +23,7 @@ review rules. This page is a map of the repository around it.
 | `wsgi.py`, `gunicorn.conf.py` | `gunicorn -c gunicorn.conf.py wsgi:app`, the command every deployment runs. |
 | `hosting/wsgi.py`, `hosting/gunicorn.conf.py`, `hosting/maintenance.py` | The portal's entry points (the names 1.4 systemd units use). |
 | `scripts/tts_worker.py` | The read-aloud worker process. |
-| `scripts/make_icons.py` | Draws every icon (favicon presets, home-screen icons, the portal's and the desktop app's icons) from the mascot's pixel art; the tests run it with `--check`. |
+| `scripts/make_icons.py` | Draws every icon (favicon presets, home-screen icons, the portal's and the desktop app's icons) from the mascot's pixel art and checks that BananaChat's and the website's ports of the mascot follow `bananawiki/core/mascot.py` and `core/static/mascot/`; the tests run it with `--check`. |
 | `bananawiki_sdk/`, `bananawiki_userbot_sdk/` | 1.4 import names, forwarding to `bananawiki.sdk`. |
 | `Dockerfile`, `compose.yaml` | Single-wiki image and Compose setup. |
 | `Dockerfile.tenant` | Tenant image of the hosting platform. |
@@ -34,11 +35,10 @@ review rules. This page is a map of the repository around it.
 The root entry points stay where 1.4 had them because the 1.4 updater writes
 those exact commands into the systemd units of servers it updates.
 
-Shared presentation rules live in the core stylesheet. Within each application,
-use small template helpers for repeated controls: editor action rows live in
-`wiki/features/pages/templates/pages/_editor_actions.html`, while hosting fields
-live in `hosting/templates/hosting/_macros.html`. Keep permissions, form actions
-and page-specific fields visible in the templates that own them.
+Shared styles live in `bananawiki/core/static/css/bananawiki.css`. Repeated
+controls use template macros: editor action rows in
+`bananawiki/wiki/features/pages/templates/pages/_editor_actions.html`, hosting
+form fields in `bananawiki/hosting/templates/hosting/_macros.html`.
 
 ## In one paragraph
 
@@ -51,17 +51,15 @@ transactions, and emit events after commit; other features react to events
 and fill template slots, so features do not import each other's internals
 except the shared services (pages, categories, accounts, auth, settings,
 storage, markdown). The schema is versioned (`PRAGMA user_version`): 1.4
-databases are version 3, version 4 is the 1.6 takeover migration plus
-each feature's `schema.py`, version 5 adds the durable chat upload usage
-ledger, version 6 records who imposed a suspension and version 7 counts
-read-aloud claims lost with their worker. Later changes use
-numbered migrations so already upgraded databases
-receive them too.
+databases are version 3, version 4 is the takeover migration from 1.4 plus
+each feature's `schema.py`, and later versions are the numbered migrations
+in `bananawiki/wiki/migrations/`, so upgraded and new databases end up with
+the same schema.
 
 ## Why things are the way they are
 
-* [1.4 review](1.4-review.md): what was wrong in 1.4 and how 1.6 addresses
-  each item.
 * [Security](security.md): the trust model and the mechanisms.
-* `bananawiki/ops/RUNTIME_AGENT.md`: the privilege split of the hosting
-  platform.
+* [`bananawiki/ops/RUNTIME_AGENT.md`](../bananawiki/ops/RUNTIME_AGENT.md):
+  the privilege split of the hosting platform.
+* [UPGRADING](../UPGRADING.md): what changes for existing installations in
+  each release.

@@ -24,7 +24,7 @@ def _client(portal, address: str):
     return client
 
 
-# ── Ownership transfer ────────────────────────────────────────────────────────
+# Ownership transfer
 
 
 def _transfer(portal, make_account, make_wiki, login, query, **accept):
@@ -77,7 +77,7 @@ def test_the_transfer_offer_says_what_happens_to_the_previous_owner(portal, make
     assert 'name="previous_owner"' in page and 'value="view"' in page
 
 
-# ── Administrators without two-step verification ──────────────────────────────
+# Administrators without two-step verification
 
 
 def test_an_admin_without_required_mfa_has_no_power_over_tenant_wikis(portal, make_account, make_wiki, login,
@@ -101,7 +101,7 @@ def test_an_admin_without_required_mfa_has_no_power_over_tenant_wikis(portal, ma
         assert collaborators.permissions_of(instances.get(wiki["id"]), admin_row) == set()
 
 
-# ── Lapsed custom domains ─────────────────────────────────────────────────────
+# Lapsed custom domains
 
 
 @pytest.fixture
@@ -190,7 +190,7 @@ def test_an_owner_whose_dns_came_back_keeps_the_domain(domain_portal):
         assert domains.binding(old["id"]) is not None and domains.binding(new["id"]) is None
 
 
-# ── Second-factor throttling ──────────────────────────────────────────────────
+# Second-factor throttling
 
 
 def _enrol(portal, client) -> list[str]:

@@ -51,7 +51,7 @@ _TICKET_FIELDS = {"title": str, "description": str, "priority": str, "color": st
                   "labels": list, "assignees": list}
 
 
-# ── Loading with the board check ──────────────────────────────────────────────
+# Loading with the board check
 
 
 def _board(board_id: Any, need: str = "view") -> dict[str, Any]:
@@ -124,7 +124,7 @@ def _ticket_payload(ticket_id: int) -> dict[str, Any]:
     return serialize.ticket(card, row)
 
 
-# ── Boards ────────────────────────────────────────────────────────────────────
+# Boards
 
 
 def _filter() -> filters.TicketFilter:
@@ -232,7 +232,7 @@ def restore_board(board_id: int):
     return ok(board=_board_payload(_run(service.restore_board, board, caller())))
 
 
-# ── Archived tickets ──────────────────────────────────────────────────────────
+# Archived tickets
 
 
 @bp.get("/kanban/boards/<int:board_id>/archived-tickets")
@@ -264,7 +264,7 @@ def restore_board_tickets(board_id: int):
     return ok(restored=_run(service.restore_tickets, board, tickets, caller()))
 
 
-# ── Columns ───────────────────────────────────────────────────────────────────
+# Columns
 
 
 @bp.post("/kanban/boards/<int:board_id>/columns")
@@ -325,7 +325,7 @@ def archive_column(column_id: int):
     return ok(archived=_run(service.archive_column, board, column, caller()))
 
 
-# ── Tickets ───────────────────────────────────────────────────────────────────
+# Tickets
 
 
 @bp.post("/kanban/columns/<int:column_id>/tickets")
@@ -397,7 +397,7 @@ def restore_ticket(ticket_id: int):
     return ok(ticket=_ticket_payload(ticket_id), changed=bool(changed))
 
 
-# ── Checklists ────────────────────────────────────────────────────────────────
+# Checklists
 
 
 def _checklist_answer(result: dict[str, Any], ticket_id: int, status: int = 200):
@@ -471,7 +471,7 @@ def delete_checklist_item(item_id: int):
     return ok(deleted=True, id=item_id, checklist=result["checklist"], ticket=_ticket_payload(item["ticket_id"]))
 
 
-# ── My tickets ────────────────────────────────────────────────────────────────
+# My tickets
 
 
 @bp.get("/kanban/my-tickets")
@@ -489,7 +489,7 @@ def my_tickets():
     return ok(tickets=tickets, **window_fields(limit, offset, len(rows)))
 
 
-# ── Comments ──────────────────────────────────────────────────────────────────
+# Comments
 
 
 def _content(data: dict[str, Any]) -> str:
@@ -542,7 +542,7 @@ def delete_comment(comment_id: int):
     return ok(deleted=True, id=comment_id)
 
 
-# ── Attachments ───────────────────────────────────────────────────────────────
+# Attachments
 
 
 def _ticket_attachment(attachment_id: int, need: str) -> dict[str, Any]:

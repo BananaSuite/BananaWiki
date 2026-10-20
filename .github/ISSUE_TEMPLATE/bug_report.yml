@@ -1,0 +1,45 @@
+name: Bug report
+description: Something in BananaWiki does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Report security vulnerabilities privately, as SECURITY.md describes, not here.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release tag or commit (`sudo bananawiki status` on a managed server).
+    validations:
+      required: true
+  - type: dropdown
+    id: setup
+    attributes:
+      label: Setup
+      options:
+        - Managed server (wiki)
+        - Managed server (hosting platform)
+        - Docker
+        - Desktop app
+        - Source checkout
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected and what happened
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Remove passwords, tokens and other people's data first.
+      render: text

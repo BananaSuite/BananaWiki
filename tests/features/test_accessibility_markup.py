@@ -1,4 +1,4 @@
-"""Markup rules that axe reported as WCAG AA failures."""
+"""WCAG AA markup: no controls inside <summary>, named focus stops, labelled regions, underlined links."""
 
 import re
 from html.parser import HTMLParser

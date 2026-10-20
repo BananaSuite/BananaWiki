@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
 import subprocess
 from pathlib import Path
 
@@ -23,6 +24,7 @@ HOSTING = {"schema": 1, "product": "BananaWiki", "mode": "hosting", "root": "/op
 WIKI = {**HOSTING, "mode": "wiki", "domain": "wiki.example.org", "portal_domain": "", "port": 5001}
 TOKEN = "aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE3fG5hJ7k"  # noqa: S105 - test fixture
 RANGES = " ".join(cloudflare.RANGES)
+lookup = cloudflare.addresses
 
 
 def blocks(text: str) -> dict[str, str]:
@@ -40,7 +42,7 @@ def blocks(text: str) -> dict[str, str]:
     return output
 
 
-# Cloudflare ranges ---------------------------------------------------------------
+# Cloudflare ranges
 
 
 def test_cloudflare_addresses():
@@ -59,7 +61,13 @@ def test_caddy_versions():
     assert not caddy_blocks.supports_client_ip((2, 6, 2))
 
 
-# Rendered Caddyfiles -------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def no_dns(monkeypatch):
+    """`proxy` looks the domain up to detect Cloudflare; these tests never leave the machine."""
+    monkeypatch.setattr(cloudflare, "addresses", lambda host: [])
+
+
+# Rendered Caddyfiles
 
 
 def test_every_site_answers_http_without_a_cloudflare_redirect_loop():
@@ -87,7 +95,7 @@ def test_real_client_addresses_come_from_cloudflare_only():
 
 
 def test_downloads_have_no_total_time_limit():
-    """Caddy's `write` timeout covers a whole response, and `write_idle` breaks Caddy before 2.11.6 (R-27):
+    """Caddy's `write` timeout covers a whole response, and `write_idle` breaks Caddy before 2.11.6:
     stalled downloads are dropped by the application server and by recent Caddy's default."""
     for text in (caddy.render(HOSTING), caddy.render(WIKI), *map(caddy.example, ("wiki", "hosting", "compose"))):
         timeouts = text[text.index("\t\ttimeouts {\n"):]
@@ -103,7 +111,7 @@ def test_www_redirects_to_the_base_domain():
 
 
 def test_acme_behind_cloudflare_skips_tls_alpn():
-    assert "cert_issuer" not in caddy.render(HOSTING)
+    assert "cert_issuer" not in caddy.render(WIKI)
     for settings in (HOSTING, WIKI):
         text = caddy.render(settings, options=ProxyOptions(cloudflare=True))
         assert "\tcert_issuer acme {\n\t\tdisable_tlsalpn_challenge\n\t}\n" in text
@@ -168,7 +176,7 @@ def test_universal_ssl_depth_warnings():
     assert caddy.layout_warnings({**HOSTING, "domain": ""}) == []
 
 
-# Real Caddy (set CADDY_BINARY, or have caddy on PATH) ------------------------------
+# Real Caddy (set CADDY_BINARY, or have caddy on PATH)
 
 
 def _caddy() -> str | None:
@@ -201,7 +209,7 @@ def test_rendered_caddyfiles_validate(tmp_path, mode, settings, monkeypatch):
     assert formatted.stdout == config.read_text(), "the rendered file is already `caddy fmt` clean"
 
 
-# `bananawiki proxy` ----------------------------------------------------------------
+# `bananawiki proxy`
 
 
 class CaddyHost(FakeSystem):
@@ -249,7 +257,7 @@ def test_proxy_install_remembers_the_certificate_mode(installed):
     assert read_json(manager.config_dir / "proxy.json")["tls"]["cloudflare"] is True
     assert read_json(manager.config_dir / "proxy.json")["email"] == "ops@example.org", "kept without --email"
     proxy(manager, "--install", "--no-cloudflare")
-    assert "cert_issuer" not in system.proxy_file.read_text()
+    assert read_json(manager.config_dir / "proxy.json")["tls"]["cloudflare"] is False
 
 
 def test_proxy_cloudflare_dns_needs_the_module_and_a_token(installed, tmp_path):
@@ -335,3 +343,81 @@ def test_updates_re_render_the_saved_mode(installed):
     finally:
         manager.features = features  # type: ignore[method-assign]
     assert warning is None and text is None, "the saved mode renders the same file"
+
+
+# Detecting proxied records
+
+
+def fake_dns(monkeypatch, answers: dict[str, list[str]]) -> list[str]:
+    """Answer lookups from *answers* (nothing for other names); returns the names asked."""
+    asked: list[str] = []
+
+    def answer(host: str) -> list[str]:
+        asked.append(host)
+        return answers.get(host, [])
+
+    monkeypatch.setattr(cloudflare, "addresses", answer)
+    return asked
+
+
+def test_proxied_needs_every_address_on_cloudflare(monkeypatch):
+    fake_dns(monkeypatch, {"a.test": ["104.16.1.1", "2606:4700::1"], "b.test": ["172.67.2.2"],
+                           "c.test": ["203.0.113.5"]})
+    assert cloudflare.proxied(["a.test", "b.test", "nowhere.test"])
+    assert not cloudflare.proxied(["a.test", "c.test"])
+    assert not cloudflare.proxied(["nowhere.test"]) and not cloudflare.proxied([])
+
+
+def test_addresses_come_from_the_resolver(monkeypatch):
+    def getaddrinfo(host, port, **kwargs):
+        if host == "gone.test":
+            raise socket.gaierror(-2, "Name or service not known")
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("104.16.1.1", 0)),
+                (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2606:4700::1", 0, 0, 0)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("104.16.1.1", 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+    assert lookup("a.test") == ["104.16.1.1", "2606:4700::1"]
+    assert lookup("gone.test") == []
+
+
+def test_proxy_detects_cloudflare_and_says_so(installed, monkeypatch, capsys):
+    manager, system = installed
+    asked = fake_dns(monkeypatch, {"example.org": ["104.16.1.1"], "portal.example.org": ["104.16.1.2"]})
+    result = proxy(manager, "--install")
+    assert result["cloudflare"] is True
+    assert "example.org resolves to Cloudflare's proxy" in capsys.readouterr().err
+    assert asked[:2] == ["example.org", "portal.example.org"]
+    assert len(asked) == 3 and asked[2].endswith(".example.org") and asked[2] not in asked[:2], "a random wiki name"
+    assert read_json(manager.config_dir / "proxy.json")["tls"]["cloudflare"] is True
+    assert any("--tls cloudflare-dns" in warning and "/.well-known/acme-challenge/" in warning
+               for warning in result["warnings"])
+
+
+def test_proxy_keeps_the_default_when_dns_says_nothing_clear(installed, monkeypatch, capsys):
+    manager, system = installed
+    for answers in ({}, {"example.org": ["104.16.1.1"], "portal.example.org": ["203.0.113.5"]},
+                    {"example.org": ["203.0.113.5"]}):
+        fake_dns(monkeypatch, answers)
+        result = proxy(manager, "--install")
+        assert result["cloudflare"] is False and "warnings" not in result
+        assert capsys.readouterr().err == ""
+
+
+def test_proxy_only_looks_up_when_nothing_was_chosen(installed, monkeypatch):
+    manager, system = installed
+    asked = fake_dns(monkeypatch, {"example.org": ["104.16.1.1"], "portal.example.org": ["104.16.1.2"]})
+    assert proxy(manager, "--install", "--no-cloudflare")["cloudflare"] is False
+    proxy(manager, "--install", "--cloudflare")
+    proxy(manager, "--install")  # remembered
+    assert asked == []
+
+
+def test_proxy_looks_up_the_single_wiki_domain_only(tmp_path, monkeypatch):
+    root = tmp_path / "opt"
+    (root / "config").mkdir(parents=True)
+    write_json(root / "config/installation.json", {**WIKI, "root": str(root)})
+    manager = Manager(root, system=CaddyHost(tmp_path / "host"))
+    asked = fake_dns(monkeypatch, {"wiki.example.org": ["104.16.1.1"]})
+    assert proxy(manager, "--install")["cloudflare"] is True
+    assert asked == ["wiki.example.org"]

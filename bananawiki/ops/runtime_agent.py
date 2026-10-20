@@ -1,12 +1,11 @@
 """The hosting runtime agent: the only component allowed to drive Docker.
 
-1.4 put the portal's service account in the ``docker`` group, which made any
-bug in the internet-facing portal a root compromise of the host. In 1.6 the
-portal is unprivileged and asks this small agent (``<name>-agent.service``,
-root, no network, sandboxed) to start and stop tenant containers over a local
-UNIX socket. The command set is narrow and every argument is validated: the
-portal cannot choose the image, mounts, capabilities, user or network mode
-of a container, only which tenant directory to run and within which limits.
+Docker access amounts to root, so the internet-facing portal does not have
+it. It asks this small agent (``<name>-agent.service``, root, no network,
+sandboxed) to start and stop tenant containers over a local UNIX socket.
+The command set is narrow and every argument is validated: the portal
+cannot choose the image, mounts, capabilities, user or network mode of a
+container, only which tenant directory to run and within which limits.
 
 The protocol is documented in ``RUNTIME_AGENT.md`` next to this file. The
 same :class:`TenantRuntime` also runs in-process for a portal that still has
@@ -251,8 +250,9 @@ class TenantRuntime:
     def _stop_task_containers(self, data_dir: Path) -> None:
         """Remove this tenant's bounded tasks left by an interrupted agent.
 
-        A process-local lock cannot cover a previous agent generation. Prove
-        these containers absent before treating a tree as stopped for repair.
+        Task containers left by an earlier agent process are not covered by
+        this process's lock: remove them, and check that Docker no longer lists
+        them, before the directory counts as stopped.
         """
         pattern = f"name=^/{container_name(str(data_dir))}-task-[0-9a-f]{{12}}$"
         query = ("ps", "--all", "--filter", "label=" + LABEL_TASK, "--filter", pattern, "--format", "{{.ID}}")
@@ -333,7 +333,7 @@ class TenantRuntime:
                     tasks.append(item["id"])
         if tasks:
             self.docker("rm", "--force", *tasks, timeout=30)
-            # Successful removal must be independently confirmed by the daemon.
+            # Check that Docker no longer lists them; a successful rm alone is not enough.
             listed = self.docker("ps", "--all", "--no-trunc", "--filter", "label=org.bananawiki.role",
                                  "--format", "{{.ID}}", timeout=30).stdout
             remaining = listed.split()
@@ -342,7 +342,7 @@ class TenantRuntime:
                     or any(value in remaining for value in tasks)):
                 raise AgentError("docker_failed", "The aliased tenant tasks could not be confirmed removed.")
 
-    # Storage policy (BW_HOSTING_TENANT_QUOTAS, see tenant_quotas) ----------------------------------------------
+    # Storage policy (BW_HOSTING_TENANT_QUOTAS, see tenant_quotas)
 
     def _storage_problem(self) -> str | None:
         """Why the instances directory does not enforce XFS project quotas for this agent (None: it does).
@@ -530,7 +530,7 @@ class TenantRuntime:
         (:meth:`_verify_started_identity`), and live mounts of the inode under
         another name are refused as under hard quotas. An agent whose unit
         cannot look into other processes (:class:`MountUninspectable`)
-        cannot compare: it logs that once and starts the wiki as 1.6 did.
+        cannot compare: it logs that once and starts the wiki unverified.
         """
         descriptor = os.open(data_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
         try:
@@ -621,7 +621,7 @@ class TenantRuntime:
                 **self._plan_report(data_dir, args if prepare or "limits" in args else None, witness)}
 
     def _plan_report(self, data_dir: Path, args: dict[str, Any] | None, witness: dict[str, Any]) -> dict[str, Any]:
-        """``over_plan`` (and the plan) when the wiki's hard limits exceed the limits asked for (UP-1).
+        """``over_plan`` (and the plan) when the wiki's hard limits exceed the limits asked for.
 
         A wiki that already held more than its plan when it was put under
         hard quotas is adopted at what it holds plus a small headroom instead
@@ -638,7 +638,7 @@ class TenantRuntime:
                     data_dir.name, byte_limit, inode_limit, witness["byte_limit"], witness["inode_limit"])
         return {"over_plan": True, "plan": {"storage_bytes": byte_limit, "inodes": inode_limit}}
 
-    # Plumbing -------------------------------------------------------------
+    # Plumbing
 
     def _caddy_client_ip(self) -> bool:
         """Whether the installed Caddy understands ``{client_ip}`` (2.7+; unknown: yes)."""
@@ -667,7 +667,7 @@ class TenantRuntime:
             raise AgentError("invalid_tenant", "Tenant directories must be direct children of the instances directory.")
         return real
 
-    # Commands -------------------------------------------------------------
+    # Commands
 
     def ping(self, args: dict[str, Any]) -> dict[str, Any]:
         available = self.docker("version", "--format", "{{.Server.Version}}", timeout=10, check=False)
@@ -705,8 +705,7 @@ class TenantRuntime:
                 mode = "enforced"  # an invalid setting: nothing is verified, so nothing passes as verified
         result = self.docker("inspect", "--type", "container", *names, timeout=timeout, check=False)
         if strict and result.returncode:
-            # Inspect errors do not prove that the named container is stopped.
-            # Confirm absence with a successful independent daemon query.
+            # A failed inspect does not mean the container is gone: ask Docker to list it.
             absent = self.docker("ps", "--all", "--filter", f"name=^/{names[0]}$",
                                  "--format", "{{.ID}}", timeout=timeout, check=False)
             if absent.returncode or absent.stdout.strip():
@@ -1025,9 +1024,9 @@ class TenantRuntime:
                 launch_attempted = False
                 with ExitStack() as contexts:
                     try:
-                        # Serialize mount inventory, guard launch and actual-FD
-                        # admission across names, but let unrelated tasks run in
-                        # parallel after their mounts have been verified.
+                        # One tenant at a time while mounts are checked and the guard
+                        # container starts; tasks of other tenants run in parallel
+                        # once their mounts are verified.
                         with self.lock:
                             self._stop_task_containers(data_dir)
                             mount_source, witness = contexts.enter_context(
@@ -1224,8 +1223,8 @@ class TenantRuntime:
         Its subnet becomes free for another tenant's network, so Caddy must
         have reloaded the current routes first, unless it holds none: the
         portal publishes no routes (port and onion mode), or Caddy does not run
-        on this host (another reverse proxy, such as Traefik, sends the wikis'
-        traffic to the portal, which looks up each container's current address).
+        on this host (another reverse proxy sends the wikis' traffic to the
+        portal, which looks up each container's current address).
         """
         directory = self.config.get("routes_dir")
         if not directory or not (Path(directory) / ROUTES_WANTED).is_file():
@@ -1236,7 +1235,7 @@ class TenantRuntime:
         """Publish the routes; whether Caddy acknowledged the current table.
 
         Never acknowledged is not an error: on a host without Caddy (another
-        reverse proxy, such as Traefik, sends the wikis' traffic to the portal)
+        reverse proxy sends the wikis' traffic to the portal)
         no acknowledgement is ever written.
         """
         if not self.config.get("routes_dir"):
@@ -1269,7 +1268,7 @@ class TenantRuntime:
         return getattr(self, method)(args or {})
 
 
-# Routes ----------------------------------------------------------------------
+# Routes
 
 
 def render_routes(routes: dict[str, tuple[list[str], str]], *, portal: str | None = None,
@@ -1314,7 +1313,7 @@ def _write_file(target: Path, text: str, mode: int) -> None:
         Path(pending).unlink(missing_ok=True)
 
 
-# Configuration ---------------------------------------------------------------
+# Configuration
 
 
 def routes_dir(service: str) -> str:
@@ -1388,7 +1387,7 @@ def load_config(root: Path) -> dict[str, Any]:
     }
 
 
-# Socket server ---------------------------------------------------------------
+# Socket server
 
 
 def peer_uid(connection: socket.socket) -> int:
@@ -1521,7 +1520,7 @@ def log_storage_policy(runtime: TenantRuntime) -> None:
 
     An error when wikis cannot start (``required``), a warning when quotas
     enforced here before were lost (logged by :meth:`TenantRuntime.storage_policy`),
-    a calm notice when the storage never had them or they are off.
+    a notice when the storage never had them or they are off.
     """
     try:
         policy = runtime.storage_policy()

@@ -1,7 +1,7 @@
 # BananaWiki documentation
 
-Documentation for BananaWiki 1.7. The [project README](../README.md) is the
-short introduction; upgrading from 1.6 or 1.4 is in [UPGRADING](../UPGRADING.md).
+The [project README](../README.md) is the short introduction; upgrading
+from 1.6 or 1.4 is in [UPGRADING](../UPGRADING.md).
 
 ## Install and run
 
@@ -26,8 +26,6 @@ short introduction; upgrading from 1.6 or 1.4 is in [UPGRADING](../UPGRADING.md)
   permissions.
 * [Architecture](architecture.md): a map of the repository, pointing to
   [ARCHITECTURE.md](../ARCHITECTURE.md).
-* [1.4 review](1.4-review.md): everything the audits found wrong in 1.4 and
-  what 1.6 does about each item.
 
 ## Extend and integrate
 

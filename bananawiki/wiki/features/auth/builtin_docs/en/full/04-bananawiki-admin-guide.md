@@ -1,37 +1,36 @@
-# Admin Guide
+# Administration
 
-Admins manage site settings, users, the built-in documentation, content operations, and plugins.
+Administrators manage site settings, accounts, the built-in documentation, content and features.
 
 ## Site basics
 
-In **Administration → Site settings** you can change the site name, theme colours, default theme, favicon, timezone, interface language, signup behaviour, maintenance mode, and many feature defaults. Most changes apply immediately.
+In **Administration → Site settings** you set the site name, time zone, sign-up and approval, maintenance mode, single session per account, uploads and other defaults. Most changes apply immediately.
 
 ## Users and access
 
-Use **Administration → Users** to create accounts, reset passwords, change roles, suspend users, assign custom roles, and tune per-user permissions. Invite codes can limit who signs up. Session limits can prevent one account from being used in multiple places at the same time. Owners and superusers can require two-step verification for administrators and reset it for an account that lost its authenticator app and recovery codes.
+Use **Administration → Users** to create accounts, reset passwords, change roles, suspend users, assign custom roles and set per-user permissions. Invite codes limit who can sign up. Owners and superusers can require two-step verification for administrators and reset it for an account that lost its authenticator app and recovery codes.
 
-## Documentation lifecycle
+## Documentation
 
-The built-in documentation can be created as a BananaWiki category from **Administration → Documentation**. You can choose full or simplified docs, and English, Italian or German. Downloading the docs as a ZIP gives you Markdown files that you can edit locally and bring back with the bulk Markdown import.
+**Administration → Documentation** adds this guide to the wiki as a category, full or simplified, in English, Italian or German. You can also download it as a ZIP of Markdown files, edit them and bring them back with the bulk Markdown import.
 
 ## Content operations
 
-Admins can manage categories, restore or permanently remove slowed deletions, run bulk Markdown imports, export pages, generate PDFs, and use migration tools for full-site backup and restore.
+Administrators can manage categories, restore or remove pages waiting in deletion slowdown, run bulk Markdown imports, and export pages and PDFs.
 
-A full-site export contains every account's password hash, and a full-site import replaces every account. That is why only owners and superusers can run them; both ask for your password again and are recorded in the log. Bulk deletions ask you to type DELETE to confirm.
+Only owners and superusers can export or import the whole site; bulk deletions ask you to type DELETE.
 
 ## Owners and trust
 
-Owner status stops other admins from demoting or deleting an account through the normal admin pages. Importing a full-site backup or installing a third-party plugin gives complete control of the wiki, including every account, so only owners and superusers can do either. Other admins still manage every other account and all content: give the admin role only to people you trust with that, and make someone an owner or a superuser only if you trust them with everything.
+Owner status stops other administrators from demoting or deleting an account through the normal admin pages. Importing a full-site backup or installing a third-party plugin gives complete control of the wiki, including every account, so only owners and superusers can do either. Other administrators still manage every other account and all content: give the administrator role only to people you trust with that, and make someone an owner or a superuser only if you trust them with everything.
 
 ## Plugins
 
-Plugins control optional features. Enable only what your wiki will use, then revisit the list as the team grows. Disabling a plugin hides or stops its feature without necessarily deleting stored data.
+**Administration → Plugins** switches features on and off. Switching one off hides it; its data and settings stay and come back when you switch it on again.
 
-## Recommended routine
+## A good routine
 
-- review new users and admin accounts
-- check recent audit entries for unusual actions
-- keep backups current and occasionally test restore
-- prune old pages or mark outdated content clearly
-- update this documentation when your local workflow differs from the default
+- review new accounts and the list of administrators
+- look at the audit log for unusual actions
+- check that backups run, and try a restore now and then
+- switch off features your wiki does not use

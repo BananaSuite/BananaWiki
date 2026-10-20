@@ -51,6 +51,100 @@ def test_admin_suspends_and_reactivates_an_account(portal, make_account, make_wi
     assert user_client.post("/login", data={"username": user["username"], "password": PASSWORD}).status_code == 302
 
 
+def test_wikis_suspended_with_a_timed_account_suspension_reopen_with_it(portal, web, make_account, make_wiki, login,
+                                                                         query):
+    from bananawiki.hosting import maintenance
+
+    admin, user = make_account(admin=True), make_account()
+    wiki = make_wiki(user, "together")
+    login(web, admin)
+    web.post(f"/admin/accounts/{user['id']}/suspend", data={
+        "suspend_duration": "24", "suspend_reason": "spam", "suspend_reason_visible": "1",
+        "suspend_time_visible": "1", "suspend_instances": "1", "notify_user": "0"})
+    until = query("SELECT suspended_until FROM accounts WHERE id = ?", (user["id"],), one=True)["suspended_until"]
+    row = query("SELECT status, suspended_until, suspend_reason_visible, suspend_time_visible FROM instances",
+                one=True)
+    assert until and row["status"] == "suspended" and row["suspended_until"] == until
+    assert row["suspend_reason_visible"] == 1 and row["suspend_time_visible"] == 1
+
+    query("UPDATE accounts SET suspended_until = '2000-01-01 00:00:00' WHERE id = ?", (user["id"],))
+    query("UPDATE instances SET suspended_until = '2000-01-01 00:00:00' WHERE id = ?", (wiki["id"],))
+    maintenance.run_once(portal)
+    assert query("SELECT suspended FROM accounts WHERE id = ?", (user["id"],), one=True)["suspended"] == 0
+    assert query("SELECT status FROM instances", one=True)["status"] == "running"
+
+
+def test_lifting_an_account_reopens_only_the_wikis_suspended_with_it(web, make_account, make_wiki, login, query):
+    admin, user = make_account(admin=True), make_account()
+    together, abuse, timed = make_wiki(user, "together"), make_wiki(user, "abuse"), make_wiki(user, "timed")
+    login(web, admin)
+    web.post(f"/admin/instances/{abuse['id']}/suspend", data={"suspend_duration": "permanent",
+                                                              "suspend_reason": "abuse"})
+    web.post(f"/admin/instances/{timed['id']}/suspend", data={"suspend_duration": "48"})
+    timed_until = query("SELECT suspended_until FROM instances WHERE id = ?", (timed["id"],), one=True)
+    web.post(f"/admin/accounts/{user['id']}/suspend", data={
+        "suspend_duration": "permanent", "suspend_instances": "1", "notify_user": "0"})
+
+    response = web.post(f"/admin/accounts/{user['id']}/unsuspend",
+                        data={"unsuspend_instances": "1", "notify_user": "0"}, follow_redirects=True)
+    page = response.get_data(as_text=True)
+    assert "1 wiki restarted" in page and "2 wikis stay suspended" in page
+    status = {row["id"]: row for row in query("SELECT id, status, suspended_until FROM instances")}
+    assert status[together["id"]]["status"] == "running"
+    assert status[abuse["id"]]["status"] == "suspended"
+    assert status[timed["id"]]["status"] == "suspended"
+    assert status[timed["id"]]["suspended_until"] == timed_until["suspended_until"]
+
+
+def test_lifting_an_account_says_its_wikis_held_for_storage_reopen_by_themselves(portal, web, runtime, make_account,
+                                                                                  make_wiki, login, query):
+    from bananawiki.hosting import instances
+    from bananawiki.hosting.db import connection_scope
+
+    admin, user = make_account(admin=True), make_account()
+    together, full = make_wiki(user, "together"), make_wiki(user, "full")
+    query("UPDATE instances SET storage_limit_mb = 100 WHERE id = ?", (full["id"],))
+    runtime.tenants[full["subdomain"]].usage = 130 * 1024 * 1024
+    with portal.app_context(), connection_scope(portal.extensions["bananawiki.hosting.database"]):
+        assert instances.enforce_storage_quotas() == 1
+    login(web, admin)
+    web.post(f"/admin/accounts/{user['id']}/suspend", data={
+        "suspend_duration": "permanent", "suspend_instances": "1", "notify_user": "0"})
+
+    page = web.post(f"/admin/accounts/{user['id']}/unsuspend", data={"unsuspend_instances": "1", "notify_user": "0"},
+                    follow_redirects=True).get_data(as_text=True)
+    assert "1 wiki restarted" in page
+    assert "1 wiki stays suspended because it uses more storage than its limit allows" in page
+    assert "suspended on its own" not in page
+    status = {row["id"]: row["status"] for row in query("SELECT id, status FROM instances")}
+    assert status == {together["id"]: "running", full["id"]: "suspended"}
+
+
+def test_an_instance_suffix_that_would_merge_two_addresses_is_refused(web, make_account, make_wiki, login, query):
+    admin, user = make_account(admin=True), make_account()
+    make_wiki(admin, "team", domain_mode="apex")
+    make_wiki(user, "team")
+    make_wiki(admin, "docs-wiki", domain_mode="apex")
+    make_wiki(user, "docs")
+    login(web, admin)
+
+    def save(**fields):
+        page = web.post("/admin/settings", data={"action": "save_instance_url_suffix", **fields},
+                        follow_redirects=True).get_data(as_text=True)
+        row = query("SELECT instance_url_suffix, instance_suffix_disabled FROM hosting_settings", one=True)
+        return page, (row["instance_url_suffix"], row["instance_suffix_disabled"])
+
+    page, stored = save(instance_url_suffix="hosting", instance_suffix_disabled="1")
+    assert "Not saved" in page and "team-hosting.wiki.test, team.wiki.test" in page
+    assert stored == (None, 0)
+    page, stored = save(instance_url_suffix="wiki")
+    assert "docs-hosting.wiki.test, docs-wiki.wiki.test" in page and stored == (None, 0)
+    page, stored = save(instance_url_suffix="team")
+    assert "Not saved" in page and stored == (None, 0), "a wiki named after the suffix loses its address"
+    page, stored = save(instance_url_suffix="sites")
+    assert "Not saved" not in page and stored == ("sites", 0)
+
+
 def test_last_admin_cannot_lose_admin_rights(web, make_account, login, query):
     admin = make_account(admin=True)
     login(web, admin)
@@ -84,6 +178,8 @@ def test_deleting_an_account_terminates_its_wikis(web, make_account, make_wiki, 
     admin, user = make_account(admin=True), make_account()
     make_wiki(user, "doomed")
     login(web, admin)
+    assert "This account owns 1 wiki. Choose what happens to it." in \
+        web.get(f"/admin/accounts/{user['id']}/delete").get_data(as_text=True)
     web.post(f"/admin/accounts/{user['id']}/delete", data={"instance_action": "terminate"})
     assert query("SELECT deleted_at FROM accounts WHERE id = ?", (user["id"],), one=True)["deleted_at"]
     assert query("SELECT status FROM instances", one=True)["status"] == "terminated"
@@ -117,7 +213,7 @@ def test_bulk_wiki_actions_report_an_unexpected_error_and_go_on(web, make_accoun
     response = web.post("/admin/instances/bulk-stop", data={"instance_ids": [broken["id"], fine["id"]]})
     assert response.status_code == 302
     page = web.get(response.headers["Location"]).get_data(as_text=True)
-    assert "Stopped 1, skipped 0." in page and "1 could not be handled because of an unexpected error" in page
+    assert "Stopped 1, skipped 0." in page and "1 wiki could not be handled because of an unexpected error" in page
     statuses = {row["id"]: row["status"] for row in query("SELECT id, status FROM instances")}
     assert statuses == {broken["id"]: "running", fine["id"]: "stopped"}
 
@@ -140,7 +236,7 @@ def test_bulk_account_deletion_reports_failures_and_goes_on(web, make_account, l
     response = web.post("/admin/accounts/bulk-delete", data={"account_ids": [first["id"], second["id"]]})
     assert response.status_code == 302
     page = web.get(response.headers["Location"]).get_data(as_text=True)
-    assert "1 accounts deleted." in page and "1 accounts could not be deleted" in page
+    assert "1 account deleted." in page and "1 account could not be deleted. Delete it on its own" in page
     deleted = {row["id"]: row["deleted_at"] for row in query("SELECT id, deleted_at FROM accounts")}
     assert deleted[first["id"]] is None and deleted[second["id"]]
 
@@ -157,6 +253,16 @@ def test_admin_wiki_lifecycle_and_restore(web, make_account, make_wiki, login, r
     web.post(f"/admin/instances/{wiki['id']}/restore", data={"extend_days": "7"})
     row = query("SELECT status, subdomain FROM instances", one=True)
     assert row["subdomain"] == "managed" and row["status"] in ("running", "stopped")
+
+
+def test_account_page_names_terminated_wikis_by_their_address(web, make_account, make_wiki, login, query, runtime):
+    admin, user = make_account(admin=True), make_account()
+    wiki = make_wiki(user, "old-intranet")
+    login(web, admin)
+    web.post(f"/admin/instances/{wiki['id']}/terminate")
+    assert "--terminated-" in query("SELECT subdomain FROM instances", one=True)["subdomain"]
+    page = web.get(f"/admin/accounts/{user['id']}").get_data(as_text=True)
+    assert ">old-intranet</a>" in page and "--terminated-" not in page
 
 
 def test_paused_deletion_countdown_blocks_owner_downloads_and_says_so(portal, make_account, make_wiki, login, query,
@@ -185,6 +291,40 @@ def test_paused_deletion_countdown_blocks_owner_downloads_and_says_so(portal, ma
     assert "The deletion countdown was not paused." in again.get_data(as_text=True)
 
 
+def test_a_copy_names_the_accounts_whose_two_step_verification_it_turned_off(web, make_account, make_wiki, login,
+                                                                           runtime):
+    admin, owner = make_account(admin=True), make_account()
+    wiki = make_wiki(owner, "source")
+    runtime.tenants[wiki["subdomain"]].two_step = {"owner1", "member"}
+    login(web, admin)
+    page = web.post(f"/admin/instances/{wiki['id']}/duplicate", data={"subdomain": "copied"},
+                    follow_redirects=True).get_data(as_text=True)
+    assert "Copy copied created." in page
+    assert "Two-step verification is off on copied for 2 accounts" in page and "member, owner1" in page
+
+    runtime.tenants[wiki["subdomain"]].two_step = set()
+    page = web.post(f"/admin/instances/{wiki['id']}/duplicate", data={"subdomain": "plain"},
+                    follow_redirects=True).get_data(as_text=True)
+    assert "Copy plain created." in page and "Two-step verification is off" not in page
+
+
+def test_an_import_names_the_accounts_whose_two_step_verification_it_turned_off(web, make_account, login, runtime):
+    import io
+    import zipfile
+
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as handle:
+        handle.writestr("bananawiki.json", '{"format": "bananawiki-site"}')
+    archive.seek(0)
+    runtime.archive_two_step = [f"user{number:02}" for number in range(25)]
+    login(web, make_account(admin=True))
+    page = web.post("/admin/instances/import", data={"subdomain": "imported", "archive": (archive, "site.zip")},
+                    content_type="multipart/form-data", follow_redirects=True).get_data(as_text=True)
+    assert "Wiki imported" in page
+    assert "Two-step verification is off on imported for 25 accounts" in page
+    assert "user00, user01" in page and "user19 …" in page and "user20" not in page, "a long list is cut short"
+
+
 def test_admin_suspends_a_wiki_with_an_expiry(web, make_account, make_wiki, login, query):
     admin, user = make_account(admin=True), make_account()
     wiki = make_wiki(user, "paused")
@@ -211,6 +351,18 @@ def test_settings_save_and_gpu_token_is_encrypted(web, make_account, login, quer
     assert "top-secret-token" not in page
     web.post("/admin/settings", data={"action": "save_tts_gpu", "global_tts_gpu_url": "ftp://nope"})
     assert query("SELECT global_tts_gpu_url FROM hosting_settings", one=True)["global_tts_gpu_url"] == "https://gpu.example.org"
+
+
+def test_hosted_wikis_never_receive_the_gpu_master_token(ctx, make_account, make_wiki):
+    from bananawiki.hosting import instances, settings
+
+    master = "master-token-" + "x" * 20
+    settings.update(global_tts_gpu_enabled=1, global_tts_gpu_url="https://gpu.example.org",
+                    global_tts_gpu_auth_token=master)
+    inst = make_wiki(make_account(), "team")
+    gpu = instances.policy(instances.get(inst["id"])).tts_gpu
+    assert gpu is not None and gpu.token != master
+    assert gpu.token == instances.tenant_tts_token(master, inst["id"])
 
 
 def test_admin_mfa_requirement_needs_the_admins_own_mfa(web, make_account, login, query):

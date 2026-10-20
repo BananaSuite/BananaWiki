@@ -3,9 +3,11 @@
 {% block title %}{{ badge.name }}{% endblock %}
 {% block admin_head %}<link rel="stylesheet" href="{{ asset_url('badges.css', blueprint='badges') }}">{% endblock %}
 {% block admin_content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('badges.admin_list') }}">{{ t('badges.admin.title') }}</a></li><li aria-current="page">{{ badge.name }}</li>
+</ol></nav>
 <header class="page-header">
-  <h1><span aria-hidden="true">{{ badge.icon }}</span> {{ badge.name }}</h1>
-  <div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('badges.admin_list') }}">{{ t('common.back') }}</a></div>
+  <h1 class="badge-name">{{ badge_mark(badge) }}{{ badge.name }}</h1>
 </header>
 <div class="section-stack">
 <section class="card">
@@ -14,7 +16,7 @@
     {% with values = badge %}{% include "badges/_form.html" %}{% endwith %}
     <div class="btn-row">
       <button class="btn btn--primary" type="submit" name="action" value="save">{{ t('common.save') }}</button>
-      <button class="btn btn--danger" type="submit" name="action" value="delete" formnovalidate data-confirm="{{ t('badges.admin.delete_confirm') }}">{{ t('common.delete') }}</button>
+      <button class="btn btn--danger-quiet" type="submit" name="action" value="delete" formnovalidate data-confirm="{{ t('badges.admin.delete_confirm') }}">{{ t('common.delete') }}</button>
     </div>
   </form>
 </section>

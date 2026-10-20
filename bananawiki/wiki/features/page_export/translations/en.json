@@ -25,6 +25,7 @@
   "page_export.import.done": "Import finished: {created} created, {updated} updated, {skipped} skipped, {categories} new categories.",
   "page_export.import.file_too_large": "{name} is larger than a page may be.",
   "page_export.import.more_problems": "…and {count} more problems.",
+  "page_export.import.more_problems_one": "…and 1 more problem.",
   "page_export.import.nothing": "No pages were created or changed ({skipped} skipped).",
   "page_export.import.page_failed": "{name} was not imported: {reason}",
   "page_export.import.skip.blocked": "the existing page is protected or reserved by someone else",

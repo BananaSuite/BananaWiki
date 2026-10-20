@@ -11,19 +11,20 @@ amministratore. Alcune wiki sono in **modalità pubblica**: in quel caso puoi
 leggere anche senza account.
 
 Al primo accesso potrebbe esserti chiesto di cambiare la password e potresti
-vedere una breve introduzione. Puoi rivedere il tour più tardi dal menu
-dell'account.
+vedere una breve introduzione. Puoi rivedere il tour più tardi dalle
+Impostazioni (**Apri il tour guidato**).
 
 ## Orientarsi
 
 * **La barra laterale** elenca le categorie e le loro pagine. Fai clic su una
   categoria per aprirla o chiuderla; le categorie lunghe mostrano *Altre
   pagine…*. Il campo in alto filtra i titoli di pagine e categorie mentre
-  scrivi; spunta *Cerca anche nel testo* per cercare anche nel contenuto.
+  scrivi; spunta *Includi il testo delle pagine* per cercare anche nel
+  contenuto.
 * **Home** è la pagina iniziale della wiki. **Tutte le pagine**
   (`/navigation`) mostra l'albero completo.
-* **App** in fondo alla barra laterale elenca gli strumenti attivati nella tua wiki:
-  bacheche kanban, canvas, messaggi, gruppi, persone, classifica.
+* **App** in fondo alla barra laterale elenca gli strumenti attivati nella tua
+  wiki: bacheche kanban, canvas, messaggi, gruppi, persone, classifica.
 * Il pulsante del **tema** passa dal tema chiaro a quello scuro.
 
 ## Ricerca

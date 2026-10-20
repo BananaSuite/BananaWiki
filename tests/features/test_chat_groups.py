@@ -137,7 +137,7 @@ def test_a_timed_out_moderator_cannot_lift_a_timeout(client, login, group, peopl
     assert post(client, group, "untimeout", user_id=people["mod"]["id"]).status_code == 200
 
 
-def test_audit_10_revoked_chat_access_cannot_moderate(client, login, group, people, db):
+def test_revoked_chat_access_cannot_moderate(client, login, group, people, db):
     db.execute("UPDATE users SET chat_disabled = 1 WHERE id = ?", (people["mod"]["id"],))
     switch(client, login, people["mod"])
     assert post(client, group, "kick", user_id=people["member"]["id"]).status_code == 403
@@ -224,7 +224,7 @@ def test_delete_group_removes_files_and_blobs(app, client, group, db):
 
 
 def test_opening_the_global_room_does_not_change_anything(client, login, people, db):
-    """A GET (a link, an <img> on another site) used to create the room and join the visitor."""
+    """A GET (a link, an <img> on another site) neither creates the room nor joins the visitor."""
     db.execute("DELETE FROM group_chats WHERE is_global = 1")
     login(client, people["outsider"])
     page = client.get("/groups/global")

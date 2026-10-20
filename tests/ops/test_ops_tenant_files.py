@@ -53,7 +53,7 @@ def test_tenant_links_and_fifos_are_skipped_not_followed(hosting, fake_system):
     (tenant / "evil").symlink_to(outside)
     (tenant / "evil-dir").symlink_to(outside.parent)
     os.mkfifo(tenant / "pipe")
-    fake_system.data_permissions(settings)  # 1.4 and the first 1.6 controller refused: every update failed
+    fake_system.data_permissions(settings)  # links and FIFOs a tenant made are skipped, not refused
     assert untouched(outside)
     assert (tenant / "page.txt").stat().st_mode & 0o777 == 0o600
     assert (tenant / "uploads").is_symlink() and os.readlink(tenant / "uploads") == "storage/uploads"
@@ -77,7 +77,7 @@ def test_a_file_swapped_for_a_link_during_the_walk_is_not_followed(hosting, fake
             swap()
         return result
 
-    def checked_is_symlink(path: Path) -> bool:  # the check 1.4 and the first 1.6 controller made
+    def checked_is_symlink(path: Path) -> bool:  # a check by name that the swap can race
         result = real_is_symlink(path)
         if path == page and not result:
             monkeypatch.setattr(Path, "is_symlink", real_is_symlink)

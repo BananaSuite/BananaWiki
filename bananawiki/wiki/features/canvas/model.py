@@ -83,7 +83,7 @@ class DocumentError(ValueError):
         self.values = values
 
 
-# ── Scalars ───────────────────────────────────────────────────────────────────
+# Scalars
 
 
 def _number(value: Any, low: float, high: float, default: float | None = None) -> float | None:
@@ -145,7 +145,7 @@ def safe_url(value: Any, *, kind: str = "link") -> str:
     return url if scheme.group(1).lower() in allowed else ""
 
 
-# ── Nodes and edges ───────────────────────────────────────────────────────────
+# Nodes and edges
 
 
 def node_type(value: Any) -> str:
@@ -303,7 +303,7 @@ def serialize(document: dict[str, Any]) -> str:
     return text
 
 
-# ── Operations ────────────────────────────────────────────────────────────────
+# Operations
 
 
 def _protected(node: dict[str, Any]) -> dict[str, Any]:
@@ -328,7 +328,7 @@ def apply_ops(document: dict[str, Any], ops: Any,
               rejected: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     """Apply *ops* to *document* in place and return the operations that took effect.
 
-    Operations (``op`` or, as in 1.4, ``type``)::
+    Operations (``op``, or ``type`` from 1.4 clients)::
 
         {"op": "upsert_node", "node": {...}}      add or replace a node
         {"op": "delete_node", "id": "..."}        remove a node and its edges
@@ -430,7 +430,7 @@ def keep_page_links(before: dict[str, Any], after: dict[str, Any]) -> None:
         keep_page_link(old.get(node["id"]), node)
 
 
-# ── Helpers used by exports, imports and upload cleanup ──────────────────────
+# Helpers used by exports, imports and upload cleanup
 
 _UPLOAD_NAME = re.compile(r"^/static/uploads/([A-Za-z0-9_\-.]+)$")
 

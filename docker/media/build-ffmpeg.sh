@@ -29,7 +29,7 @@ grep -F "[GNUPG:] VALIDSIG $fingerprint " "$destination/signature-verification.t
 tar -xf "$archive"
 cd "ffmpeg-$version"
 
-# All Wiki and standalone GPU-service TTS inputs and playback speeds are retained.
+# Keeps every input format and playback speed the wiki's and the GPU server's TTS use.
 # No network protocols, video/image/subtitle codecs or hardware decoders. The
 # upstream CLI also selects its built-in transform/buffer filters and atrim.
 ./configure \

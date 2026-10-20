@@ -10,7 +10,7 @@ from flask import Flask, current_app, g, request, session
 from markupsafe import Markup, escape
 
 from .. import __version__
-from ..core import web
+from ..core import mascot, web
 from ..core.assets import asset_url
 from ..core.i18n import _PLACEHOLDER
 from ..core.timeutil import is_past, parse, utcnow
@@ -367,7 +367,7 @@ def install(app: Flask) -> None:
     def _globals() -> dict[str, Any]:
         cfg = current_app.config["HOSTING"]
         return {
-            "t": i18n.t, "lang": i18n.current_language(), "languages": i18n.LANGUAGES,
+            "t": i18n.t, "tn": i18n.tn, "lang": i18n.current_language(), "languages": i18n.LANGUAGES,
             "csrf_token": web.csrf_token, "csp_nonce": web.csp_nonce, "asset_url": asset_url,
             "current_account": auth.current_account(), "real_account": auth.real_account(),
             "impersonating": auth.impersonating(), "theme": theme, "banners": banners,
@@ -378,5 +378,5 @@ def install(app: Flask) -> None:
             "attention_banner": attention_banner, "notice_text": notifications.notice_text,
             "tm": tm, "link": link, "nowrap": nowrap, "strong": strong, "gate_pending": gate_pending, "subject_name": subject_name, "field_error": field_error,
             "inline_error": inline_error, "gate_allows": gate_allows,
-            "email_ready": notifications.configured,
+            "email_ready": notifications.configured, "mascot": mascot,
         }

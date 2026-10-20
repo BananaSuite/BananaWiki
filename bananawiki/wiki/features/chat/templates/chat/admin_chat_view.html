@@ -4,11 +4,13 @@
 {% block title %}{{ first.username if first else t('common.unknown_user') }} ↔ {{ second.username if second else t('common.unknown_user') }} · {{ t('chat.admin.title') }}{% endblock %}
 {% block admin_head %}<link rel="stylesheet" href="{{ asset_url('chat.css', blueprint='chat') }}">{% endblock %}
 {% block admin_content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('chat.admin_chats') }}">{{ t('chat.admin.title') }}</a></li><li aria-current="page">{{ (first.username if first else t('common.unknown_user')) ~ ' ↔ ' ~ (second.username if second else t('common.unknown_user')) }}</li>
+</ol></nav>
 <header class="page-header">
   <h1>{{ first.username if first else t('common.unknown_user') }} ↔ {{ second.username if second else t('common.unknown_user') }}</h1>
   <div class="page-header__actions">
-    <a class="btn btn--small" href="{{ url_for('chat.admin_chats') }}">{{ t('common.back') }}</a>
-    {{ forms.post_button(url_for('chat.admin_chat_clear', chat_id=chat.id), t('chat.admin.clear_both'), 'btn btn--small btn--danger', confirm=t('chat.admin.clear_both_confirm')) }}
+    {{ forms.post_button(url_for('chat.admin_chat_clear', chat_id=chat.id), t('chat.admin.clear_both'), 'btn btn--small btn--danger-quiet', confirm=t('chat.admin.clear_both_confirm')) }}
   </div>
 </header>
 <p class="muted small">{{ t('chat.admin.deleted_note') }}</p>

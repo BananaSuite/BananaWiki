@@ -1,5 +1,5 @@
 /* Syntax highlighting for fenced code (Pygments "codehilite" classes).
- * Hand-picked palettes for the dark and light themes, as in 1.4. The block
+ * Hand-picked palettes for the dark and light themes. The block
  * itself takes its colours from the design tokens (see content.css). */
 .codehilite { color: var(--bw-text); }
 .codehilite .hll { background: color-mix(in srgb, var(--warning) 18%, transparent); }
@@ -32,3 +32,6 @@
 [data-theme="light"] .codehilite .gd { color: #b31d28; }
 [data-theme="light"] .codehilite .gi { color: #1f7a3a; }
 [data-theme="light"] .codehilite :is(.gh, .gu) { color: #005cc5; }
+
+/* The dark palette is too pale on paper: code printed from the dark theme is plain text. */
+@media print { :root:not([data-theme="light"]) .codehilite * { color: inherit; } }

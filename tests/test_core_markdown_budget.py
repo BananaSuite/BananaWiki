@@ -1,4 +1,4 @@
-"""Rendering budget, render cache, post-sanitising rewrites and style values (2.x audit)."""
+"""Rendering budget, render cache, post-sanitising rewrites and style values."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def highlighted(monkeypatch):
     return sizes
 
 
-# ── Highlighting budget ──────────────────────────────────────────────────────
+# Highlighting budget
 
 
 def test_fenced_code_highlighting_has_a_per_document_budget(highlighted):
@@ -89,7 +89,25 @@ def test_blocks_of_one_document_share_one_budget(highlighted, monkeypatch):
     assert "<span" in markdown.highlight_code(code + "59\n", "c")
 
 
-# ── Render cache ─────────────────────────────────────────────────────────────
+# Render cache
+
+
+def test_a_builder_page_highlights_within_one_budget(app, monkeypatch):
+    from bananawiki.wiki.features.page_builder import document
+
+    sizes: list[int] = []
+    for module in (codehilite, markdown):
+        original = module.highlight
+        monkeypatch.setattr(module, "highlight",
+                            lambda source, *a, _original=original: sizes.append(len(source)) or _original(source, *a))
+    blocks = [{"type": "text", "format": "markdown", "text": f"```c\n{DENSE_LINE * 30}```\n\n{number}"}
+              for number in range(50)]
+    blocks += [{"type": "code", "language": "c", "code": f"{DENSE_LINE * 30}{number}"} for number in range(50)]
+    validated = document.validate({"version": 2, "blocks": blocks})
+    with app.test_request_context():
+        html = str(document.render(validated))
+    assert sum(sizes) + markdown.HIGHLIGHT_BLOCK_COST * len(sizes) <= markdown.MAX_HIGHLIGHT_DOCUMENT_CHARS
+    assert html.count("a+b-c*d/e%f&amp;g") >= 30 * 50  # blocks past the budget stay readable code
 
 
 def test_repeated_renders_of_a_large_source_come_from_the_cache(monkeypatch):
@@ -134,7 +152,7 @@ def test_the_cache_is_bounded(monkeypatch):
     assert markdown._render_cache.size <= 200_000
 
 
-# ── Rewrites after sanitising ────────────────────────────────────────────────
+# Rewrites after sanitising
 
 
 class _Tags(HTMLParser):
@@ -191,7 +209,7 @@ def test_rewrites_still_apply_to_text():
     assert 'data-embed-ref="plan"' in html
 
 
-# ── Style values ─────────────────────────────────────────────────────────────
+# Style values
 
 
 @pytest.mark.parametrize("style", [

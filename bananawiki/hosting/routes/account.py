@@ -144,7 +144,7 @@ def delete_account():
     return redirect(url_for("auth.login"))
 
 
-# ── Sessions ──────────────────────────────────────────────────────────────────
+# Sessions
 
 
 @bp.post("/account/sessions/<session_id>/revoke")
@@ -186,7 +186,7 @@ def clear_session_history():
     return redirect(url_for("account.account") + "#sessions")
 
 
-# ── Email ─────────────────────────────────────────────────────────────────────
+# Email
 
 
 @bp.route("/account/contact-email", methods=["GET", "POST"])
@@ -275,7 +275,7 @@ def export_account():
     return response
 
 
-# ── Terms of service ──────────────────────────────────────────────────────────
+# Terms of service
 
 
 @bp.route("/account/terms", methods=["GET", "POST"], endpoint="terms")
@@ -301,7 +301,7 @@ def accept_terms():
     return render_template("hosting/account/terms.html", version=accounts.terms_version())
 
 
-# ── Two-step sign-in ──────────────────────────────────────────────────────────
+# Two-step sign-in
 
 
 @bp.route("/account/mfa", methods=["GET", "POST"], endpoint="mfa")
@@ -353,7 +353,7 @@ def mfa_settings():
 
 
 
-# ── API tokens ────────────────────────────────────────────────────────────────
+# API tokens
 
 
 @bp.get("/account/api-tokens")
@@ -407,7 +407,7 @@ def revoke_api_token(token_id: int):
     return redirect(url_for("account.account") + "#api-tokens")
 
 
-# ── Account merges ────────────────────────────────────────────────────────────
+# Account merges
 
 
 @bp.route("/account/merge-request", methods=["GET", "POST"])
@@ -451,7 +451,7 @@ def merge_cancel(merge_id: int):
     return redirect(url_for("account.merge_pending"))
 
 
-# ── Notifications ─────────────────────────────────────────────────────────────
+# Notifications
 
 
 @bp.post("/account/notifications")

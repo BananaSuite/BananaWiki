@@ -92,7 +92,7 @@
       <span class="cluster">
         {% if not loop.first %}{{ forms.post_button(url_for('site_admin.favicon_reorder'), '↑', 'btn btn--small btn--ghost', hidden={'filename': name, 'direction': 'up'}, attrs={'aria-label': t('pages.order.up', name=t('site_admin.favicon.custom', number=loop.index))}) }}{% endif %}
         {% if not loop.last %}{{ forms.post_button(url_for('site_admin.favicon_reorder'), '↓', 'btn btn--small btn--ghost', hidden={'filename': name, 'direction': 'down'}, attrs={'aria-label': t('pages.order.down', name=t('site_admin.favicon.custom', number=loop.index))}) }}{% endif %}
-        {{ forms.post_button(url_for('site_admin.favicon_delete'), t('common.delete'), 'btn btn--small btn--danger', confirm=t('site_admin.favicon.delete_confirm'), hidden={'filename': name}) }}
+        {{ forms.post_button(url_for('site_admin.favicon_delete'), t('common.delete'), 'btn btn--small btn--danger-quiet', confirm=t('site_admin.favicon.delete_confirm'), hidden={'filename': name}) }}
       </span>
     </li>
     {% endfor %}

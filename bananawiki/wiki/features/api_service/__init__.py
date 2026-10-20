@@ -1,8 +1,8 @@
 """REST API (``/api/v1``) with bearer tokens, audit log, userbot mode and their management pages.
 
-The feature is the 1.4 ``api_service`` plugin (row in ``plugins``); the site
+The ``api_service`` row in ``plugins`` switches the feature; the site
 setting ``api_service_enabled`` is the administrator's on/off switch for the
-API itself (503 while off). See API.md.
+API itself (503 while off). See docs/api.md.
 """
 
 from ... import attention

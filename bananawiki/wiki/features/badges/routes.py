@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from flask import abort, current_app, jsonify, redirect, render_template, request, url_for
+from markupsafe import Markup, escape
 
 from ....core.web import safe_next
 from ... import accounts, auth
@@ -16,6 +17,20 @@ bp = feature_blueprint("badges", "badges", __name__, template_folder="templates"
 HEARTBEAT_INTERVAL = 50
 
 
+bp.add_app_template_global(service.chosen_icon, "badge_icon")
+
+
+@bp.app_template_global("badge_mark")
+def badge_mark(badge) -> Markup:
+    """The icon an administrator typed, otherwise a dot in the badge's colour (decorative either way)."""
+    icon = service.chosen_icon(badge.get("icon"))
+    if icon:
+        return Markup('<span class="badge-glyph" aria-hidden="true">{}</span>').format(icon)
+    color = badge.get("color") or ""
+    style = f' style="--badge-color: {escape(color)}"' if service.HEX_COLOR.fullmatch(color) else ""
+    return Markup(f'<span class="badge-mark" aria-hidden="true"{style}></span>')
+
+
 def _badge_or_404(badge_id: int) -> dict:
     badge = service.get_type(badge_id)
     if badge is None:
@@ -23,7 +38,7 @@ def _badge_or_404(badge_id: int) -> dict:
     return badge
 
 
-# ── Members ──────────────────────────────────────────────────────────────────
+# Members
 
 
 @bp.get("/badges/notifications")
@@ -55,7 +70,7 @@ def reading_heartbeat():
     return jsonify({"ok": True})
 
 
-# ── Administrators ───────────────────────────────────────────────────────────
+# Administrators
 
 
 @bp.get("/admin/badges")

@@ -1,10 +1,12 @@
 {% extends "base.html" if current_user else "base_minimal.html" %}
 {% block title %}{{ t('error.' ~ code ~ '.title', t('error.generic.title')) }}{% endblock %}
 {% block content %}
-<div class="card error-page{% if not current_user %} card--narrow{% endif %}">
-  <h1>{{ code }}: {{ t('error.' ~ code ~ '.title', t('error.generic.title')) }}</h1>
-  <p>{{ t('error.' ~ code ~ '.body', description or t('error.generic.body')) }}</p>
-  {% if request_id %}<p class="small muted">{{ t('error.reference', id=request_id) }}</p>{% endif %}
+<div class="card card--narrow error-page">
+  {% if current_user %}{{ slot('error.card', code=code) }}{% endif %}
+  <p class="error-page__code">{{ t('error.code', code=code) }}</p>
+  <h1>{{ t('error.' ~ code ~ '.title', t('error.generic.title')) }}</h1>
+  <p>{{ description or t('error.' ~ code ~ '.body', t('error.generic.body')) }}</p>
+  {% if request_id and code|int >= 500 %}<p class="small muted">{{ t('error.reference', id=request_id) }}</p>{% endif %}
   <p class="btn-row"><a class="btn btn--primary" href="/">{{ t('error.go_home') }}</a></p>
 </div>
 {% endblock %}

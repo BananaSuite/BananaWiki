@@ -1,4 +1,4 @@
-"""The portal never starts again by itself a wiki an update isolated; an explicit start does (OPS2-08).
+"""The portal never starts again by itself a wiki an update isolated; an explicit start does.
 
 An update that keeps its release although a few wikis do not serve under it
 stops those and records them in ``isolated-wikis.json``. The maintenance

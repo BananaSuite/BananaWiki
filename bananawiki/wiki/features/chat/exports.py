@@ -69,7 +69,7 @@ def export(target: Store, parent_id: int, *, title: str, header: list[str], incl
     text.detach()
     transcript.seek(0)
     if not attachments:
-        return send_file(transcript, mimetype="text/plain; charset=utf-8", as_attachment=True,
+        return send_file(transcript, mimetype="text/plain", as_attachment=True,
                          download_name=f"{stem}.txt")
     archive = tempfile.TemporaryFile()  # noqa: SIM115 - handed to send_file
     total = sum(int(item["file_size"] or 0) for item in attachments)

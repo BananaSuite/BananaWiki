@@ -7,10 +7,10 @@ an import accepts. Imports accept both. Every limit of a ZIP is checked
 before anything is unpacked: ``board.json`` is held to ``MAX_JSON`` like a
 plain JSON upload, and only the files tickets refer to are streamed into
 storage, through the normal upload checks, within ``MAX_UNCOMPRESSED`` and
-the storage left under a quota. 1.6 exports add each
-column's ``wip_limit``, each ticket's ``checklist``, ``"archived": true`` on
-archived tickets and on an archived board (imported as archived again); 1.7
-adds each column's ``done`` flag. Documents without them import as before.
+the storage left under a quota. Beyond the 1.4 format, exports carry each
+column's ``wip_limit`` and ``done`` flag, each ticket's ``checklist`` and
+``"archived": true`` on archived tickets and on an archived board (imported
+as archived again). Documents without these fields still import.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ _COMPRESSED = frozenset({"docx", "xlsx", "pptx", "zip", "gz", "png", "jpg", "jpe
                          "mp3", "ogg"})
 
 
-# ── Export ────────────────────────────────────────────────────────────────────
+# Export
 
 
 def export(board: dict[str, Any]) -> tuple[dict[str, Any], list[tuple[str, str]]]:
@@ -134,7 +134,7 @@ def _work_dir() -> str:
     return folder
 
 
-# ── Import ────────────────────────────────────────────────────────────────────
+# Import
 
 
 @dataclass

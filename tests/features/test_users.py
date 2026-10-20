@@ -20,7 +20,7 @@ from .people_support import (
 NEW_PASSWORD = "an entirely new secret"
 
 
-# ── Account settings ──────────────────────────────────────────────────────────
+# Account settings
 
 
 def test_settings_requires_login(client):
@@ -209,7 +209,7 @@ def test_legacy_language_url_and_unknown_language(client, make_user, login, db):
     assert saved["interface_language"] == "default"
 
 
-# ── Sessions ─────────────────────────────────────────────────────────────────
+# Sessions
 
 
 def test_sessions_list_and_revoke_other(app, make_user, login, db):
@@ -247,7 +247,7 @@ def test_sign_out_everywhere_and_clear_history(app, make_user, login, db):
     assert db.scalar("SELECT COUNT(*) FROM user_sessions WHERE user_id = ?", (user["id"],)) == 1
 
 
-# ── Display preferences ──────────────────────────────────────────────────────
+# Display preferences
 
 
 def test_display_preferences_keep_the_1x_format(client, make_user, login, db):
@@ -292,7 +292,7 @@ def test_invalid_preference_values_are_dropped(client, make_user, login, db):
 
 def test_numbers_too_large_for_an_integer_are_dropped_not_a_server_error(client, make_user, login, db):
     # 1e999 reads as infinity and int() cannot hold it: such a saved value (an imported account, or the
-    # cookie of a visitor in public mode) made every page answer 500, and so did a display form field.
+    # cookie of a visitor in public mode) or display form field must not make every page answer 500.
     user = make_user("bob", accessibility='{"contrast": 1e999, "mascot_shades": 1e999}')
     login(client, user)
     assert client.get("/settings").status_code == 200
@@ -358,7 +358,7 @@ def test_background_rejects_non_images(client, make_user, login, db):
     assert db.scalar("SELECT accessibility FROM users WHERE id = ?", (user["id"],)) is None
 
 
-# ── Profile editing ───────────────────────────────────────────────────────────
+# Profile editing
 
 
 def test_edit_profile_and_avatar(app, client, make_user, login, db):
@@ -395,7 +395,7 @@ def test_profile_editing_needs_the_profiles_feature(app, client, make_user, logi
     assert client.get("/settings/profile").status_code == 403
 
 
-# ── Profiles and member list ─────────────────────────────────────────────────
+# Profiles and member list
 
 
 def test_own_profile_is_always_visible(client, make_user, login):

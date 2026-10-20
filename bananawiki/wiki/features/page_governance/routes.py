@@ -38,7 +38,7 @@ def back_to(page: dict[str, Any]) -> Any:
     return redirect(safe_next(url_for("pages.view", slug=page["slug"]), request.form.get("next")))
 
 
-# ── Reservation directory ─────────────────────────────────────────────────────
+# Reservation directory
 
 
 @bp.get("/reservations")
@@ -62,7 +62,7 @@ def directory():
     )
 
 
-# ── Check-out and protection ─────────────────────────────────────────────────
+# Check-out and protection
 
 
 @bp.post("/page/<slug>/reserve")
@@ -109,7 +109,7 @@ def update_protection(slug: str):
     return back_to(page)
 
 
-# ── JSON API (session authenticated, as in 1.4) ─────────────────────────────
+# JSON API (session authenticated)
 
 
 def _api_page(page_id: int) -> dict[str, Any]:
@@ -166,7 +166,7 @@ def api_release(page_id: int):
     return jsonify({"ok": True, "message": t("page_governance.reservation.released")})
 
 
-# ── Reservation quota (the editor's own) ─────────────────────────────────────
+# Reservation quota (the editor's own)
 
 
 @bp.get("/account/reservation-quota")

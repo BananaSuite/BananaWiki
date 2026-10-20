@@ -11,7 +11,7 @@ from flask import Blueprint, abort, current_app, jsonify, redirect, render_templ
 from ....core.web import client_network, safe_next
 from ... import auth
 from ...i18n import t
-from . import service
+from . import service, summaries
 
 bp = Blueprint("pages", __name__, template_folder="templates", static_folder="static",
                static_url_path="/static/pages")
@@ -35,6 +35,12 @@ def rate_limited(bucket: str, limit: int, window: int = 60) -> Callable[[Callabl
         return wrapper
 
     return decorate
+
+
+@bp.app_template_global("page_history_message")
+def history_message(message: str | None) -> str:
+    """An edit summary in the reader's language (see :mod:`.summaries`)."""
+    return summaries.render(message)
 
 
 def visible_page_or_404(slug: str) -> dict[str, Any]:

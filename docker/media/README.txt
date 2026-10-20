@@ -26,10 +26,10 @@ record the effective configuration. Rebuild in the same Python/Debian base with
 those tools and libmp3lame-dev installed; the Dockerfiles show the complete build
 stages. To use a modified FFmpeg or LAME, rebuild those stages or replace the
 FFmpeg executable / dynamically linked LAME library in your own derived image.
-ffmpeg.cdx.json explicitly inventories the source-built FFmpeg component with
-its version, source hash, license, CPE and package URL. binary-SHA256SUMS records
-the built executable hash. Generic C binaries may not be covered by automatic
-OS/Python package scanners; review upstream FFmpeg security advisories as well.
+ffmpeg.cdx.json describes the source-built FFmpeg component (version, source
+hash, license, CPE and package URL); binary-SHA256SUMS records the hash of the
+built executable. OS and Python package scanners may not see FFmpeg: follow the
+upstream security advisories as well.
 Sources can be retrieved without running the image:
   docker create --name media-source <image>
   docker cp media-source:/usr/local/share/bananawiki/media ./media-source
@@ -42,6 +42,5 @@ LAME, sample conversion, pitch-preserving tempo changes and file/pipe protocols.
 No FFmpeg network protocols, video/image codecs or unrelated parsers are built.
 FFmpeg's upstream CLI also requires atrim and built-in video transform/buffer
 filters; no enabled input decoder or output encoder handles video frames.
-This reduces exposed code; it is not a claim that source-built software has no
-vulnerabilities. Update the pinned release after verifying newer signed releases
-and rerun the media container verifier plus the application tests.
+To update, verify the newer signed release, pin it, and run the media
+verifiers (VERIFY.txt in the source repository) and the application tests.

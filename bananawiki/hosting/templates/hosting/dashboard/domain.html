@@ -33,7 +33,7 @@
     {% if ips %}<dt>A / AAAA</dt><dd class="kv-copy"><span class="mono">{{ ips|join(', ') }}</span> <button type="button" class="btn btn--small" data-copy="{{ ips|join(' ') }}">{{ t('common.copy') }}</button></dd>{% endif %}</dl>
   {% if allow_proxied %}<p class="muted small">{{ t('hosting.domains.cloudflare_hint') }}</p>{% endif %}
   <div class="btn-row">{{ ui.post(url_for('dashboard.instance_domain', instance_id=instance.id), t('hosting.domains.check_again') if active else t('hosting.domains.verify'), 'btn' if active else 'btn btn--primary', hidden={'action': 'verify'}) }}
-  {{ ui.post(url_for('dashboard.instance_domain', instance_id=instance.id), t('hosting.domains.remove'), 'btn btn--danger', confirm=t('hosting.common.are_you_sure'), hidden={'action': 'remove'}) }}</div></section>
+  {{ ui.post(url_for('dashboard.instance_domain', instance_id=instance.id), t('hosting.domains.remove'), 'btn btn--danger-quiet', confirm=t('hosting.common.are_you_sure'), hidden={'action': 'remove'}) }}</div></section>
 {% else %}
 <section class="card"><h2>{{ t('hosting.domains.claim') }}</h2>
 <p class="muted small">{{ t('hosting.domains.claim_intro') }}</p>

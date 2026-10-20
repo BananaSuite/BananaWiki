@@ -20,7 +20,8 @@ reader may not open.
 
 The page's ``content`` column receives :func:`to_markdown` of the document,
 so search, exports, history diffs and the plain page view (feature switched
-off) keep working.
+off) keep working. Page lists are left out of it: every reader of the page
+sees that column, whatever pages they may open.
 """
 
 from __future__ import annotations
@@ -86,7 +87,7 @@ def empty() -> dict[str, Any]:
     return {"version": VERSION, "blocks": []}
 
 
-# ── Field validators ──────────────────────────────────────────────────────────
+# Field validators
 
 
 def _text(value: Any, *, limit: int = MAX_TEXT, required: bool = False) -> str:
@@ -187,7 +188,7 @@ def youtube_url(value: Any, *, required: bool) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
-# ── Blocks ────────────────────────────────────────────────────────────────────
+# Blocks
 
 
 def _heading(raw: dict[str, Any], complete: bool, version: int) -> dict[str, Any]:
@@ -432,7 +433,7 @@ def from_markdown(content: str) -> dict[str, Any]:
     return {"version": VERSION, "blocks": blocks[:MAX_BLOCKS]}
 
 
-# ── Output ────────────────────────────────────────────────────────────────────
+# Output
 
 
 def _lines(text: str) -> Markup:
@@ -613,7 +614,7 @@ def is_blank(block: dict[str, Any]) -> bool:
     return not block[field]
 
 
-# ── Markdown twin ─────────────────────────────────────────────────────────────
+# Markdown twin
 
 
 def _cell(text: str) -> str:
@@ -631,6 +632,10 @@ def to_markdown(document: dict[str, Any]) -> str:
     The output for version-1 block types never changes: pages whose content
     matches it are recognised as builder pages (:func:`is_current`).
     """
+    return _twin(document, page_links=False)
+
+
+def _twin(document: dict[str, Any], *, page_links: bool) -> str:
     parts: list[str] = []
     for block in document["blocks"]:
         kind = block["type"]
@@ -681,7 +686,7 @@ def to_markdown(document: dict[str, Any]) -> str:
         elif kind == "code" and block["code"]:
             fence = _fence(block["code"])
             parts.append(f"{fence}{block['language']}\n{block['code']}\n{fence}")
-        elif kind == "pages" and block["source"] == "selected" and block["slugs"]:
+        elif kind == "pages" and page_links and block["source"] == "selected" and block["slugs"]:
             parts.append("\n".join(f"- [{slug}](/page/{slug})" for slug in block["slugs"]))
         elif kind == "embed" and block["ref"]:
             parts.append(f'[[canvas slug="{block["ref"]}"]]' if block["kind"] == "canvas"
@@ -698,10 +703,12 @@ def is_current(page: dict[str, Any], document: dict[str, Any]) -> bool:
     an import) shows that Markdown instead.
     """
     content = page.get("content") or ""
-    return content == to_markdown(document) or content.startswith(LEGACY_MARKER)
+    # Twins written by 1.7.0 and earlier list the selected pages of page lists.
+    return (content in (to_markdown(document), _twin(document, page_links=True))
+            or content.startswith(LEGACY_MARKER))
 
 
-# ── Rewriting ─────────────────────────────────────────────────────────────────
+# Rewriting
 
 
 def rewrite(page: dict[str, Any], change: Callable[[str], str], *,

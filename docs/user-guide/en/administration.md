@@ -14,13 +14,13 @@ other administrators: only owners and superusers can change an administrator.
 
 ## The Admin area
 
-Open **Admin** from the account menu.
+Open **Administration** from the account menu.
 
 * **Dashboard**: accounts waiting for approval, suspended accounts, traffic.
 * **Users**: create accounts, approve or deny sign-ups, change roles, assign
   custom roles, set individual permissions and category access, suspend,
   reset passwords, end sessions, impersonate (to see the wiki as someone
-  else; logged). An account's **Audit** page lists its former user names,
+  else; logged). An account's **History** page lists its former user names,
   which nobody else can take; release one there when another account needs
   it.
 * **Custom roles**: named sets of permissions and category restrictions for
@@ -35,7 +35,8 @@ Open **Admin** from the account menu.
 * **Appearance** and **Languages**: colours, favicon, interface languages.
 * **Plugins**: switch features on and off and order the Apps menu.
   Switching a feature off hides it but keeps its data and settings.
-* **Documentation**: add this guide to the wiki as a category of pages.
+* **Documentation**: add the built-in user guide (full or simplified,
+  English, Italian or German) as a category of pages.
 * **Site migration**: export the whole wiki, or import one (this replaces
   everything, accounts included).
 * **Bulk delete**, **Bulk Markdown**, **Audit log**, **Server** and the pages

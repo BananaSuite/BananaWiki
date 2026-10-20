@@ -81,6 +81,30 @@ def entries(*, limit: int = 100, offset: int = 0, user_id: str | None = None) ->
     )
 
 
+def entries_for(viewer: dict[str, Any], *, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    """:func:`entries` as administrator *viewer* may see them.
+
+    As on the sessions pages and in the site audit log, the addresses of
+    accounts the viewer may not manage (other administrators for a plain
+    administrator, owners, superusers) are hidden (``ip_hidden``).
+    """
+    from ..admin import service as admin_service
+
+    rows = entries(limit=limit, offset=offset)
+    ids = sorted({row["user_id"] for row in rows if row["user_id"]})
+    accounts: dict[str, dict[str, Any]] = {}
+    if ids:
+        marks = ",".join("?" * len(ids))
+        accounts = {row["id"]: row for row in
+                    db.all(f"SELECT id, role, is_superuser FROM users WHERE id IN ({marks})", ids)}
+    for row in rows:
+        account = accounts.get(row["user_id"])
+        row["ip_hidden"] = bool(account and row["ip_address"] and admin_service.protection_error(viewer, account))
+        if row["ip_hidden"]:
+            row["ip_address"] = None
+    return rows
+
+
 def count(user_id: str | None = None) -> int:
     if user_id:
         return int(db.scalar("SELECT COUNT(*) FROM api_service__audit_log WHERE user_id = ?", (user_id,), default=0))

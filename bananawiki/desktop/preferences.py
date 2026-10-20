@@ -3,6 +3,10 @@
 Stored as JSON in the user's configuration folder (never in the data folder,
 which may be on a USB stick or shared): the last data folder, the launcher
 language, whether network sharing was chosen and a preferred port.
+
+``allow_plugins`` has no switch in the window: third-party plugins run with
+the user's own rights, so only someone who edits ``desktop.json`` on purpose
+turns them on.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ class Preferences:
     language: str = ""
     share_on_lan: bool = False
     port: int | None = None
+    allow_plugins: bool = False
 
 
 def config_dir() -> Path:
@@ -74,6 +79,7 @@ def _clean(raw: object) -> Preferences:
     if raw.get("language") in i18n.LANGUAGES:
         prefs.language = raw["language"]
     prefs.share_on_lan = raw.get("share_on_lan") is True
+    prefs.allow_plugins = raw.get("allow_plugins") is True
     port = raw.get("port")
     if isinstance(port, int) and not isinstance(port, bool) and 1 <= port <= 65535:
         prefs.port = port

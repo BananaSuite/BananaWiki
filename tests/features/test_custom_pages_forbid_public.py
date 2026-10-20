@@ -70,7 +70,7 @@ def assert_sign_in(response, path):
     assert location.path == "/login" and parse_qs(location.query)["next"] == [path]
 
 
-# ── BW_FORBID_PUBLIC_MODE: anonymous visitors sign in first ──────────────────
+# BW_FORBID_PUBLIC_MODE: anonymous visitors sign in first
 
 
 @pytest.mark.parametrize("kind", ["html", "html_full", "markdown", "wiki_page", "plain_text", "json_content",
@@ -169,7 +169,7 @@ def test_admin_pages_say_published_pages_are_for_members(enabled, admin_client, 
     assert "shown to signed-in members only" in edit and "anyone can open them" not in edit
 
 
-# ── BW_FORBID_PUBLIC_BUILDER_PAGES alone: only builder pages need a sign-in ──
+# BW_FORBID_PUBLIC_BUILDER_PAGES alone: only builder pages need a sign-in
 
 
 @pytest.mark.parametrize("app", [BUILDER_ONLY], indirect=True)

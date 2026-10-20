@@ -60,7 +60,7 @@
     </main>
   </div>
   {% endblock %}
-  {% include "layout/_flashes.html" %}
+  {% block flashes %}{% include "layout/_flashes.html" %}{% endblock %}
   <script type="application/json" id="bw-strings">{{ js_strings()|json_script }}</script>
   <script src="{{ asset_url('js/bananawiki.js') }}"></script>
   {{ slot('page.scripts') }}

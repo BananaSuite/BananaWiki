@@ -131,7 +131,7 @@ def test_denied_account_status_shows_deletion_time(client, db, make_user, login)
     assert db.scalar("SELECT denied_notified FROM users WHERE id = ?", (user["id"],)) == 1
 
 
-# ── Suspended users deleting their own account ───────────────────────────────
+# Suspended users deleting their own account
 
 
 def _suspend(db, user):

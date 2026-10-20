@@ -2,7 +2,8 @@
 
 Serve il ruolo di **editor** (o un ruolo personalizzato che lo permetta) e
 l'accesso in scrittura alla categoria. Chi può solo leggere spesso può
-**proporre una modifica** (vedi [organizzare](organizzazione.md#proporre-una-modifica)).
+**proporre una modifica** (vedi
+[organizzare](organizzazione.md#proporre-una-modifica)).
 
 ## Creare una pagina
 
@@ -82,18 +83,19 @@ Mentre scrivi, l'editor salva una **bozza** privata. Se chiudi la scheda per
 sbaglio, riaprendo l'editor ti viene proposto di recuperarla. Le bozze di
 altri editor sulla stessa pagina vengono elencate, così sai che qualcuno ha
 modifiche non salvate. Salvando la pagina le bozze vengono cancellate e i loro
-autori citati. **Le mie bozze** nel menu dell'account elenca le tue; puoi
-scartare una bozza o passarla a un'altra persona. Le bozze vecchie possono
+autori citati. **Le mie bozze** nel menu dell'account elenca le tue, da
+riprendere o eliminare. Con il permesso necessario, **Subentra nella bozza**
+nell'editor rende tua la bozza di un altro editor. Le bozze vecchie possono
 scadere.
 
 ## Cronologia
 
-**Altro → Cronologia** elenca ogni versione salvata: chi, quando, il
-riassunto e l'entità della modifica. Apri una versione per vederla com'era,
+**Azioni pagina → Cronologia** elenca ogni versione salvata: chi, quando,
+il riassunto e l'entità della modifica. Apri una versione per vederla com'era,
 nel suo Markdown, oppure le **Modifiche** rispetto alla versione precedente.
-Con il permesso adatto puoi **Ripristina questa versione** (il testo attuale
-resta nella cronologia), eliminare voci o attribuire una voce a un'altra
-persona.
+Con il permesso adatto puoi ripristinare la versione con **Ripristina questa
+versione** (il testo attuale resta nella cronologia), eliminare voci o
+attribuire una voce a un'altra persona.
 
 ## Il costruttore di pagine
 

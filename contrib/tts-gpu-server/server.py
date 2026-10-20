@@ -13,13 +13,15 @@ hosting platform, that wiki's own token ``bwt1.<wiki id>.<hex>``, an
 HMAC-SHA256 of the wiki id under ``TTS_AUTH_TOKEN``. Hosted wikis can run
 plugins, so they never get the master token; a single wiki is shut out with
 ``TTS_REVOKED_TENANTS``. Request bodies and text length are capped and
-refused, never silently truncated; at most ``TTS_MAX_CONCURRENT`` syntheses
-run at once and further requests wait up to ``TTS_QUEUE_TIMEOUT`` seconds
-before getting 503. A client that stays silent for ``TTS_SOCKET_TIMEOUT``
-seconds while sending a request (or between keep-alive requests) is
-disconnected, and connections beyond ``TTS_MAX_CONNECTIONS`` are closed at
-once, so slow or idle clients cannot tie up every thread. Configuration is read from environment variables, see
-README.md.
+refused, never silently truncated; the text is synthesised in pieces of at
+most 500 characters, as the wiki's own Piper does, so one request without a
+full stop cannot exhaust the GPU memory. At most ``TTS_MAX_CONCURRENT``
+syntheses run at once and further requests wait up to ``TTS_QUEUE_TIMEOUT``
+seconds before getting 503. A client that stays silent for
+``TTS_SOCKET_TIMEOUT`` seconds while sending a request (or between keep-alive
+requests) is disconnected, and connections beyond ``TTS_MAX_CONNECTIONS``
+are closed at once, so slow or idle clients cannot tie up every thread.
+Configuration is read from environment variables; see README.md.
 """
 
 from __future__ import annotations
@@ -45,7 +47,7 @@ from typing import Any, Protocol
 
 log = logging.getLogger("bananawiki-tts-gpu")
 
-VERSION = "1.7.0"  # released with BananaWiki (tests check it matches bananawiki.__version__)
+VERSION = "1.7.2"  # a test checks it matches bananawiki.__version__
 _LANGUAGE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z]{2})?$")
 _VOICE_NAME = re.compile(r"^[\w.-]{1,120}$")
 
@@ -180,7 +182,80 @@ class Engine(Protocol):
     def details(self) -> dict[str, Any]: ...
 
 
-# ── Piper engine ──────────────────────────────────────────────────────────────
+# Text in pieces
+# The same cuts as BananaWiki's local Piper (bananawiki/wiki/features/tts/text.py
+# and piper_child.py; tests check they agree), copied so the server needs no wiki.
+
+CHUNK_CHARS = 500
+_CHUNK_BREAKS = (
+    (". ", "! ", "? ", "… ", "。", "！", "？"),
+    ("; ", ": ", ", ", "；", "：", "，", "、"),
+    (" ",),
+)
+
+
+def speech_chunks(text: str, limit: int = CHUNK_CHARS) -> list[str]:
+    """*text* (single spaces) in pieces of at most *limit* characters, read one after another.
+
+    Piper synthesises a sentence at once and its memory grows faster than
+    the sentence, so a long text without a full stop could exhaust the GPU.
+    A piece ends at the last sentence end in the second half of its window,
+    else at a clause mark or a space, else at *limit*.
+    """
+    limit = max(2, limit)
+    pieces: list[str] = []
+    start = 0
+    while len(text) - start > limit:
+        low, high = start + limit // 2, start + limit
+        cut = high
+        for marks in _CHUNK_BREAKS:
+            ends = [found + len(mark.rstrip()) for mark in marks if (found := text.rfind(mark, low, high)) >= 0]
+            if ends:
+                cut = max(ends)
+                break
+        pieces.append(text[start:cut].strip())
+        start = cut
+    pieces.append(text[start:].strip())
+    return [piece for piece in pieces if piece]
+
+
+def _placeholder_format(wav: wave.Wave_write) -> None:
+    """A format for a file Piper may leave without audio; Piper sets the real one first."""
+    wav.setnchannels(1)
+    wav.setsampwidth(2)
+    wav.setframerate(22_050)
+
+
+def write_wav(voice: Any, chunks: list[str], syn_config: Any, output: Any) -> int:
+    """Synthesise *chunks* one after another into one WAV; returns the number of frames."""
+    frames = 0
+    shape: tuple[int, int, int] | None = None
+    with wave.open(output, "wb") as target:
+        _placeholder_format(target)
+        for chunk in chunks:
+            buffer = io.BytesIO()
+            with wave.open(buffer, "wb") as part:
+                _placeholder_format(part)
+                voice.synthesize_wav(chunk, part, syn_config=syn_config)
+            buffer.seek(0)
+            with wave.open(buffer, "rb") as part:
+                count = part.getnframes()
+                if not count:
+                    continue
+                current = (part.getnchannels(), part.getsampwidth(), part.getframerate())
+                if shape is None:
+                    shape = current
+                    target.setnchannels(current[0])
+                    target.setsampwidth(current[1])
+                    target.setframerate(current[2])
+                elif current != shape:
+                    raise ValueError("the voice changed its audio format between two pieces")
+                target.writeframes(part.readframes(count))
+            frames += count
+    return frames
+
+
+# Piper engine
 
 
 class PiperEngine:
@@ -243,11 +318,9 @@ class PiperEngine:
     def synthesize(self, text: str, language: str) -> tuple[bytes, str]:
         voice = self.voice(language)
         buffer = io.BytesIO()
-        with wave.open(buffer, "wb") as wav_file:
-            voice.synthesize_wav(text, wav_file, syn_config=self._config())
-        wav = buffer.getvalue()
-        if not wav:
+        if not write_wav(voice, speech_chunks(" ".join(text.split())), self._config(), buffer):
             raise RuntimeError("Piper produced no audio.")
+        wav = buffer.getvalue()
         if self.settings.output_format == "wav":
             return wav, "audio/wav"
         return wav_to_mp3(wav, self.settings.ffmpeg), "audio/mpeg"
@@ -288,7 +361,7 @@ def wav_to_mp3(wav: bytes, override: str = "") -> bytes:
     return result.stdout
 
 
-# ── HTTP ──────────────────────────────────────────────────────────────────────
+# HTTP
 
 
 TENANT_TOKEN = re.compile(r"bwt1\.([A-Za-z0-9]{1,64})\.([0-9a-f]{64})")

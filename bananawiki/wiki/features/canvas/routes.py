@@ -45,7 +45,7 @@ HISTORY_MESSAGES = {
 }
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# Helpers
 
 
 def _limit(bucket: str, limit: int, window: int = 60) -> None:
@@ -119,7 +119,7 @@ def outline_label(item: dict[str, Any]) -> str:
     return label
 
 
-# ── List, create, import, order ───────────────────────────────────────────────
+# List, create, import, order
 
 
 def _order_owner(user: dict[str, Any]) -> str | None:
@@ -215,7 +215,7 @@ def list_order_version():
     return jsonify({"list_order_version": service.order_version()})
 
 
-# ── The canvas ────────────────────────────────────────────────────────────────
+# The canvas
 
 
 @bp.get("/canvas/<slug>")
@@ -356,7 +356,7 @@ def outline(slug: str):
                            by_id={item["id"]: item for item in items})
 
 
-# ── Settings, sharing, deletion ───────────────────────────────────────────────
+# Settings, sharing, deletion
 
 
 @bp.get("/canvas/<slug>/settings")
@@ -450,7 +450,7 @@ def share(slug: str):
     return back
 
 
-# ── History ───────────────────────────────────────────────────────────────────
+# History
 
 
 @bp.get("/canvas/<slug>/history")
@@ -510,7 +510,7 @@ def clear_history(slug: str):
     return redirect(url_for("canvas.history", slug=layout["slug"]))
 
 
-# ── Embeds in wiki pages ──────────────────────────────────────────────────────
+# Embeds in wiki pages
 
 
 @bp.get("/api/embed/canvas/<slug>")
@@ -532,7 +532,7 @@ def embed_sync(slug: str):
     return _sync_response(layout)
 
 
-# ── Site settings ─────────────────────────────────────────────────────────────
+# Site settings
 
 SETTING_FIELDS = ("canvas_access", "canvas_write_access")
 SETTING_SWITCHES = ("canvas_public_access_enabled", "canvas_open_access")

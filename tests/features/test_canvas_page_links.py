@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
 """Canvas: wiki-page nodes store only page ids and never reveal pages the reader cannot open."""
 
 from __future__ import annotations

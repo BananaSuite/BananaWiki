@@ -107,7 +107,7 @@
     });
   }
 
-  // Other editors' drafts --------------------------------------------------
+  // Other editors' drafts
   var othersBox = panel.querySelector("[data-draft-others]");
   var othersList = panel.querySelector("[data-draft-others-list]");
   var transferUrl = panel.getAttribute("data-transfer-url");

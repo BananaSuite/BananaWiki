@@ -20,28 +20,21 @@ Nothing here is required: without Piper the wiki works normally and
 4. The `tts.sweep` job (every 6 hours) deletes files no row refers to and
    refreshes audio that fell out of date.
 
-Audio made by 1.4 stays valid: the spoken text and its hash are computed
-exactly as before (text beyond the 1,000,000 characters a page can hold is
-ignored), in time proportional to the length of the page.
-
 ## Install
 
 * **Piper**: `piper-tts` is part of `requirements.txt` (managed servers and the
   container image have it). From source: `python -m pip install -e '.[tts]'`.
 * **ffmpeg** (optional, for MP3 and speed-changed downloads):
   `apt install ffmpeg`, or point `BW_TTS_FFMPEG` at it.
-  The Wiki and tenant container images include a source-built FFmpeg 9.0.2,
-  verified with the upstream release signature and a pinned SHA256. It keeps
-  WAV/MP3 speech input, all supported PCM formats, MP3 output and pitch-preserving
-  speed conversion; only file and pipe protocols are compiled. Other media
-  formats and FFmpeg network protocols are excluded. The build recipe is in
-  `docker/media/`; matching source archives, effective configuration, licenses
-  and redistribution instructions are in each image at
+  The wiki and tenant container images include FFmpeg 9.0.2 built from the
+  signed upstream source with only what speech needs: WAV/MP3 input, PCM
+  formats, MP3 output and pitch-preserving speed changes, with file and pipe
+  protocols only. The build recipe is in `docker/media/`; sources, the
+  configuration, licences and redistribution notes are in each image at
   `/usr/local/share/bananawiki/media`.
-  Wiki/desktop speech, the GPU server and containers disable ONNX Runtime's
-  optional diagnostic telemetry (`ORT_DISABLE_TELEMETRY=1`) before Piper loads.
-  An explicitly supplied operator setting is preserved. Local speech synthesis
-  remains available without an external diagnostic service or device probe.
+* The wiki, the desktop app, the GPU server and the containers set
+  `ORT_DISABLE_TELEMETRY=1` before Piper loads, which turns off ONNX
+  Runtime's diagnostic telemetry. A value you set yourself is kept.
 * **Voices** are downloaded on first use into `BW_TTS_PIPER_VOICE_DIR` (default
   `<instance>/piper-voices`). On a server without internet access set
   `BW_TTS_PIPER_AUTO_DOWNLOAD=0` and download them beforehand, for example
@@ -51,7 +44,7 @@ ignored), in time proportional to the length of the page.
   replaces voices.
 * **Language detection**: a built-in heuristic for English and Italian is
   always available. `langdetect` improves detection for other languages; it is
-  no longer installed by default because it is only published as a source
+  not installed by default because it is only published as a source
   package (`python -m pip install langdetect==1.0.9` where building it is
   acceptable).
 
@@ -78,7 +71,7 @@ One page cannot stop the worker or hold the queue for good:
 * Piper reads the text in pieces of at most 500 characters, cut after a
   sentence where possible. Its memory grows with the length of a sentence,
   and a page may hold 20,000 characters without a full stop.
-* On Linux (any POSIX system) Piper runs in a child process of the worker,
+* On Linux and other POSIX systems Piper runs in a child process of the worker,
   started for each job, so the voice is loaded for every page. If it runs out
   of memory, crashes or runs longer than `BW_TTS_MAX_JOB_SECONDS` (default 3600),
   only that job fails. `BW_TTS_PIPER_MEMORY_MB` also limits its address space
@@ -88,7 +81,7 @@ One page cannot stop the worker or hold the queue for good:
   on your server before you rely on it. A lower `BW_MEMORY_LIMIT_MB` applies
   as well. On Windows and in the packaged desktop app Piper runs inside the
   worker.
-* No job runs longer than `BW_TTS_MAX_JOB_SECONDS`: its lease is no longer
+* No job runs longer than `BW_TTS_MAX_JOB_SECONDS`: its lease stops being
   renewed and the job fails ("The job ran longer than ..."). With a GPU
   server, keep it above `BW_TTS_REMOTE_GPU_TIMEOUT`.
 * A job whose worker stopped while reading it (killed, crashed) goes back to
@@ -109,12 +102,9 @@ One page cannot stop the worker or hold the queue for good:
 * the languages the wiki may speak (`tts_enabled_languages`, English and
   Italian until changed). A page is read in its detected language only if
   that language is enabled; otherwise English or another enabled language
-  is used. The interface language plays no part: German
-  pages are read with the German voice (`de_DE-thorsten-medium`) once German
-  is ticked here, right away when the reader picks German and through
-  automatic detection only with `langdetect` installed (see language
-  detection above); until then they are read with the English or Italian
-  voice;
+  is used. German pages use `de_DE-thorsten-medium` once German is ticked
+  here. Without `langdetect`, German is detected only when the reader
+  chooses it;
 * the remote GPU server (address, token, timeout, on/off) and a **Test**
   button;
 * the queue: retry failed jobs, delete one page's audio, queue audio for
@@ -132,88 +122,27 @@ configured by the platform only, never by the tenant.
 
 ## The GPU speech server
 
-The server lives in `contrib/tts-gpu-server/` (`server.py`, `install.sh`,
-`requirements.txt`).
-
-A small HTTP service that runs [Piper](https://github.com/OHF-Voice/piper1-gpl) voices on an
-NVIDIA GPU for one or more BananaWiki wikis. The wiki sends a page's text, the server answers
-with MP3 (or WAV) audio. If the server cannot be reached, the wiki falls back to Piper on its
-own machine.
-
-It replaces the 1.4 `banana-tts-gpu/` service and speaks the same protocol, so an existing
-wiki configuration keeps working.
-
-### Install
-
-On the GPU machine (Ubuntu/Debian with the NVIDIA driver, CUDA and cuDNN installed):
-
-```sh
-sudo ./install.sh                      # listens on the Tailscale address, or 127.0.0.1
-sudo ./install.sh --host 192.168.1.50  # a specific private address
-sudo ./install.sh --cpu                # no GPU: CPU onnxruntime
-sudo ./install.sh --uninstall
-```
-
-The installer creates the `bananawiki-tts` user, a virtualenv in `/opt/bananawiki-tts-gpu`,
-the root-only environment file `/etc/bananawiki-tts-gpu.env` with a random `TTS_AUTH_TOKEN`,
-and the systemd unit `bananawiki-tts-gpu`.
-
-Manual run: `pip install -r requirements.txt`, then
-`TTS_AUTH_TOKEN=... TTS_HOST=192.168.1.50 python server.py`.
-
-Never expose the server to the internet: bind it to a private address (a LAN, a VPN such as
-Tailscale or WireGuard) and firewall the port.
+A small HTTP service in `contrib/tts-gpu-server/` runs Piper voices on an
+NVIDIA GPU for one or more wikis; if it cannot be reached, the wiki falls
+back to Piper on its own machine. It speaks the protocol of the 1.4
+`banana-tts-gpu/` service, so an existing wiki configuration keeps working.
+Installing it, its settings and its HTTP API are described in
+[its README](../contrib/tts-gpu-server/README.md). Never expose it to the
+internet: bind it to a private address and firewall the port.
 
 ### Connect a wiki
 
 In the wiki: **Admin → Read aloud → Remote GPU server**. Enter the address
-(`http://192.168.1.50:8787`) and the token, tick *Use the GPU server*, save, and press
-*Test the GPU server*. Alternatively set `BW_TTS_REMOTE_GPU_URL`,
-`BW_TTS_REMOTE_GPU_AUTH_TOKEN` and optionally `BW_TTS_REMOTE_GPU_TIMEOUT` (seconds) in the
-wiki's environment; they take precedence (and on managed hosting they are the only source).
-A token set in the environment is only ever sent to the address set in the environment: with
-`BW_TTS_REMOTE_GPU_AUTH_TOKEN` set, an address saved on the admin page is ignored, so a wiki
-administrator cannot point the operator's token at another server.
+(`http://192.168.1.50:8787`) and the token, tick *Use the GPU server*, save,
+and press *Test the GPU server*. Alternatively set `BW_TTS_REMOTE_GPU_URL`,
+`BW_TTS_REMOTE_GPU_AUTH_TOKEN` and optionally `BW_TTS_REMOTE_GPU_TIMEOUT`
+(seconds) in the wiki's environment; they take precedence, and on managed
+hosting they are the only source.
 
-The wiki only connects to loopback, private, and shared (100.64.0.0/10) or public addresses;
-link-local and metadata addresses are refused, and redirects are never followed.
+An environment token is only sent to the environment address. Changing the
+saved address (scheme, host or port) clears the saved token; enter the token
+again with the new address.
 
-### Configuration
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `TTS_AUTH_TOKEN` | (required, ≥ 16 characters) | Shared bearer token |
-| `TTS_HOST` / `TTS_PORT` | `127.0.0.1` / `8787` | Listen address |
-| `PIPER_VOICE_DIR` | `./voices` | Voice models (`<voice>.onnx` + `.onnx.json`) |
-| `TTS_AUTO_DOWNLOAD` | `1` | Download missing voices on first use |
-| `TTS_VOICE_MAP` | | Extra voices: `de=de_DE-thorsten-high,pt=pt_BR-faber-medium` |
-| `TTS_PRELOAD` | `en,it` | Voices loaded at start |
-| `TTS_USE_CUDA` | `1` | Run on the GPU |
-| `TTS_MAX_LOADED_VOICES` | `8` | Voices kept in (GPU) memory |
-| `TTS_MAX_CONCURRENT` | `1` | Simultaneous syntheses |
-| `TTS_QUEUE_TIMEOUT` | `30` | Seconds a request waits for a free slot before `503` |
-| `TTS_MAX_INPUT_CHARS` | `20000` | Longer text is refused with `413` (the wiki sends at most 20000) |
-| `TTS_MAX_BODY_BYTES` | `262144` | Larger request bodies are refused with `413` |
-| `TTS_SOCKET_TIMEOUT` | `30` | Seconds a client may stay silent while sending a request (or between keep-alive requests) before it is disconnected |
-| `TTS_MAX_CONNECTIONS` | `64` | Open connections at once; further ones are closed straight away |
-| `TTS_OUTPUT_FORMAT` | `mp3` | `mp3` (needs ffmpeg) or `wav` |
-| `TTS_FFMPEG` | | Path to ffmpeg if it is not on `PATH` |
-| `TTS_LENGTH_SCALE`, `TTS_NOISE_SCALE`, `TTS_NOISE_W_SCALE` | `1.0`, `0.667`, `0.8` | Piper voice parameters |
-| `TTS_LOG_LEVEL` | `INFO` | Logging |
-
-### API
-
-* `GET /health` → `{"status": "ok", "version": "1.7.0"}`. With the bearer token it also
-  reports `gpu_available`, `cuda_enabled`, `loaded_voices` and `output_format`.
-* `POST /synthesize` with `Authorization: Bearer <token>`, `Content-Type: application/json`
-  and `{"text": "...", "language": "en"}` → `200` with `audio/mpeg` (or `audio/wav`).
-  Errors: `401`/`403` token, `400` bad input or no voice for the language, `411` missing
-  length, `413` too large, `415` not JSON, `503` busy (with `Retry-After`), `500` synthesis
-  failed. The wiki retries `5xx` answers with backoff and postpones on `429`.
-
-### Changes from 1.4
-
-* Standard-library HTTP server (no FastAPI/uvicorn); synthesis runs in request threads with a
-  concurrency limit instead of blocking an event loop, so `/health` always answers.
-* Over-long text is refused instead of silently cut.
-* `/health` without a token no longer discloses the voice directory or loaded voices.
+The wiki only connects to loopback, private, shared (100.64.0.0/10) or
+public addresses; link-local and metadata addresses are refused, and
+redirects are never followed.

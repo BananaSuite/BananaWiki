@@ -5,7 +5,7 @@
 <header class="page-header">
   <h1>{{ t('admin.sessions.title') }}</h1>
   <div class="page-header__actions">
-    {{ forms.post_button(url_for('admin.mass_logout'), t('admin.sessions.mass_logout'), 'btn btn--danger', confirm=t('admin.sessions.mass_logout_confirm')) }}
+    {{ forms.post_button(url_for('admin.mass_logout'), t('admin.sessions.mass_logout'), 'btn btn--danger-quiet', confirm=t('admin.sessions.mass_logout_confirm')) }}
   </div>
 </header>
 

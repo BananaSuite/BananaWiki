@@ -44,7 +44,7 @@ _MAX_FORM_AGE = 4 * 3600
 _FORM_TOKEN = re.compile(r"([0-9]{1,16})\.([0-9a-f]{20})")
 
 
-# ── Bot protection (signed form timestamp and honeypot, as in 1.4) ────────────
+# Bot protection (signed form timestamp and honeypot)
 
 
 def _sign(timestamp: str) -> str:
@@ -76,7 +76,7 @@ def _redirect_if_signed_in():
     return redirect(url_for("dashboard.dashboard")) if auth.current_account() else None
 
 
-# ── Sign-in ───────────────────────────────────────────────────────────────────
+# Sign-in
 
 
 def complete_login(account: dict, next_url: str | None, method: str):
@@ -239,7 +239,7 @@ def logout():
     return redirect(url_for("auth.login"))
 
 
-# ── Sign-up ───────────────────────────────────────────────────────────────────
+# Sign-up
 
 
 def _bootstrap_allowed() -> bool | None:
@@ -319,7 +319,7 @@ def signup():
     return redirect(url_for(gate or "dashboard.dashboard"))
 
 
-# ── Recovery ──────────────────────────────────────────────────────────────────
+# Recovery
 
 
 def _ipv6_site() -> str | None:
@@ -443,7 +443,7 @@ def verify_email():
     return redirect(url_for("auth.login"))
 
 
-# ── Account states ────────────────────────────────────────────────────────────
+# Account states
 
 
 @bp.get("/activation-pending")

@@ -1,19 +1,19 @@
-# Abzeichen und Erfolge
+# Abzeichen
 
-Abzeichen würdigen die Beteiligung im Wiki. Administratoren können sie von Hand verleihen, oder sie werden automatisch nach Regeln vergeben, etwa nach der Zahl der Beiträge, dem Alter des Kontos oder anderen Aktivitätskriterien.
+Abzeichen erscheinen in den Profilen der Mitglieder. Administratoren erstellen und verwalten sie unter **Verwaltung → Abzeichen**.
 
-## Wozu Abzeichen dienen
+## Automatische Abzeichen
 
-Abzeichen wirken am besten als kleine Ermutigung: um neue Mitwirkende willkommen zu heißen, hilfreiche Bearbeitungen zu würdigen oder besondere Zuständigkeiten sichtbar zu machen.
+Ein automatisches Abzeichen wird vergeben, wenn ein Mitglied eine Schwelle erreicht: erste Bearbeitung, Zahl der Bearbeitungen, erstellte Seiten, bearbeitete Kategorien, Tage der Mitgliedschaft oder Minuten beim Lesen.
 
-## Manuelle Vergabe
+## Manuelle Abzeichen
 
-Administratoren können einer Person direkt ein Abzeichen verleihen. Nutze manuelle Abzeichen für Meilensteine, abgeschlossene Schulungen, Anerkennung in der Gemeinschaft oder Rollen, die im Profil sichtbar sein sollen.
+Ein manuelles Abzeichen vergibt ein Administrator, zum Beispiel für einen abgeschlossenen Kurs oder eine übernommene Aufgabe.
 
-## Automatische Vergabe
+## Entziehen
 
-Automatische Abzeichen folgen Regeln. Formuliere die Regeln verständlich, damit alle wissen, was ein Abzeichen bedeutet. Prüfe die Einstellungen für die automatische Vergabe, nachdem du Plugins oder Abläufe für Beiträge geändert hast.
+Ein Administrator kann ein Abzeichen einem Mitglied oder allen entziehen. Ein entzogenes automatisches Abzeichen wird nicht erneut vergeben, außer die Vergabe wird stattdessen gelöscht.
 
-## Benachrichtigungen und Verlauf
+## Benachrichtigungen
 
-Benachrichtigungen informieren Personen, wenn sie ein Abzeichen erhalten. Mit dem Abzeichenverlauf können Administratoren nachvollziehen, wann und warum Abzeichen verliehen wurden.
+Mitglieder werden benachrichtigt, wenn sie ein Abzeichen erhalten.

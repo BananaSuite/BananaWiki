@@ -26,8 +26,7 @@
     {{ forms.csrf() }}
     <p class="hint">{{ t('profiles.fields.help_admin', user=target.username) if admin_view else t('profiles.fields.help') }}</p>
     {% for field in definitions %}
-    {% set current = values.get(field.id, {}) %}
-    {#- A plain field like the other forms: the label above the input, then the visibility switch. -#}
+    {% set current = values.get(field.id, {}) -%}
       <div class="field">
         <label for="value-{{ field.id }}">{{ field.label }}</label>
         {% if field.field_type == 'longtext' %}

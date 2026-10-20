@@ -20,7 +20,7 @@
   });
   function $(id) { return controls[id] || null; }
 
-  // ── Tabs ─────────────────────────────────────────────────────────────────
+  // Tabs
   var loaders = { comments: loadComments, attachments: loadAttachments, history: loadHistory };
 
   function showTab(name) {
@@ -39,7 +39,7 @@
     showTab(tab.dataset.tab);
   });
 
-  // ── Details ──────────────────────────────────────────────────────────────
+  // Details
   function setDescription(html) {
     var box = $("kanban-ticket-description");
     // Server-rendered, sanitised Markdown (markdown.render).
@@ -229,7 +229,7 @@
     }).then(function () { $("kanban-ticket-archive").focus(); }).catch(K.fail);
   });
 
-  // ── Description ──────────────────────────────────────────────────────────
+  // Description
   $("kanban-ticket-description-edit").addEventListener("click", function () {
     $("kanban-ticket-description-input").value = current.description;
     $("kanban-ticket-description-editor").hidden = false;
@@ -258,7 +258,7 @@
     });
   });
 
-  // ── Checklist ────────────────────────────────────────────────────────────
+  // Checklist
   function smallButton(text, label, onClick) {
     var button = el("button", "btn btn--small btn--ghost", text);
     button.type = "button";
@@ -503,7 +503,7 @@
     }).catch(K.fail).then(function () { input.disabled = false; input.focus(); });
   });
 
-  // ── Comments ─────────────────────────────────────────────────────────────
+  // Comments
   function renderComment(comment) {
     var li = el("li", "kanban-comment");
     li.dataset.commentId = comment.id;
@@ -591,7 +591,7 @@
     }).catch(K.fail);
   });
 
-  // ── Attachments ──────────────────────────────────────────────────────────
+  // Attachments
   function upload(file) {
     var form = new FormData();
     form.append("file", file);
@@ -638,7 +638,7 @@
     event.target.value = "";
   });
 
-  // ── Description history ──────────────────────────────────────────────────
+  // Description history
   function loadHistory() {
     if (!current) return;
     var list = $("kanban-ticket-history");

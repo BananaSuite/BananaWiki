@@ -14,7 +14,7 @@ def _slug_page(app, slug):
     return in_app(app, lambda: service.get_by_slug(slug))
 
 
-# ── Create ────────────────────────────────────────────────────────────────────
+# Create
 
 
 def test_editor_creates_page_with_category_preselected(app, client, make_user, login):
@@ -72,7 +72,7 @@ def test_saved_interceptor_called_on_create_and_edit(app, admin_client):
     assert seen == ["saved-one", "saved-one"]
 
 
-# ── Edit ──────────────────────────────────────────────────────────────────────
+# Edit
 
 
 def test_edit_saves_and_records_history(app, admin_client):
@@ -99,7 +99,7 @@ def test_edit_conflict_shows_diff_and_keeps_text(app, admin_client, admin):
 
 
 def test_edit_conflict_diff_is_bounded(app, admin_client, admin):
-    """R-04: a conflict between two repetitive versions shows a coarse diff instead of hanging."""
+    """A conflict between two repetitive versions shows a coarse diff instead of hanging."""
     page = make_page(app, "Lines", "a\n" * 20_000)
     in_app(app, lambda: service.update(service.get(page["id"]), author_id=admin["id"], content="b\n" + "a\n" * 20_000))
     response = admin_client.post("/page/lines/edit", data={"title": "Lines", "content": "a\n" * 20_000 + "c",
@@ -157,7 +157,7 @@ def test_pending_deletion_page_cannot_be_edited(app, admin_client):
     assert get_page(app, page["id"])["content"] == "x"
 
 
-# ── Details ───────────────────────────────────────────────────────────────────
+# Details
 
 
 def test_title_move_and_rename(app, admin_client):
@@ -261,7 +261,7 @@ def test_deindex_requires_permission(app, client, make_user, login, db, admin_cl
     assert get_page(app, page["id"])["is_deindexed"] == 0
 
 
-# ── Delete and home ───────────────────────────────────────────────────────────
+# Delete and home
 
 
 def test_delete_requires_page_delete(app, client, make_user, login, db):
@@ -313,3 +313,53 @@ def test_markdown_save_clears_builder_json(app, admin_client, db):
     admin_client.post("/page/built-page/edit", data={"title": "Built page", "content": "md2", "revision": 1})
     updated = get_page(app, page["id"])
     assert updated["builder_json"] == "" and updated["content"] == "md2"
+
+
+# Updates from an older copy of the page
+
+
+def test_title_change_keeps_content_saved_after_the_callers_snapshot(app):
+    page = make_page(app, "Plans", "first draft")
+    snapshot = dict(page)
+    in_app(app, lambda: service.update(get_page(app, page["id"]), author_id=None, content="second draft"))
+    renamed = in_app(app, lambda: service.update(snapshot, author_id=None, title="Better plans"))
+    assert renamed["title"] == "Better plans"
+    assert renamed["content"] == "second draft"
+    assert get_page(app, page["id"])["content"] == "second draft"
+
+
+def test_builder_change_keeps_title_saved_after_the_callers_snapshot(app):
+    page = make_page(app, "Landing", "text")
+    snapshot = dict(page)
+    in_app(app, lambda: service.update(get_page(app, page["id"]), author_id=None, title="Renamed"))
+    updated = in_app(app, lambda: service.update(snapshot, author_id=None, content="new text"))
+    assert updated["title"] == "Renamed" and updated["content"] == "new text"
+
+
+# Live preview and code highlighting
+
+
+def test_preview_is_for_accounts_that_can_edit(app, client, make_user, login):
+    login(client, make_user("reader"))
+    assert client.post("/api/preview", json={"content": "# Hi"}).status_code == 403
+    editor = app.test_client()
+    login(editor, make_user("writer", role="editor"))
+    response = editor.post("/api/preview", json={"content": "# Hi"})
+    assert response.status_code == 200 and "<h1" in response.get_json()["html"]
+
+
+def test_preview_refuses_requests_past_the_sixtieth(app, make_user, login, frozen_limiter_clock):
+    editor = app.test_client()
+    login(editor, make_user("typist", role="editor"))
+    statuses = [editor.post("/api/preview", json={"content": "x"}).status_code for _ in range(61)]
+    assert statuses[:60] == [200] * 60 and statuses[60] == 429
+
+
+def test_code_highlighting_is_for_accounts_that_can_edit(app, client, make_user, login):
+    login(client, make_user("reader"))
+    body = {"content": "x = 1", "language": "python"}
+    assert client.post("/api/code/highlight", json=body).status_code == 403
+    editor = app.test_client()
+    login(editor, make_user("writer", role="editor"))
+    response = editor.post("/api/code/highlight", json=body)
+    assert response.status_code == 200 and "codehilite" in response.get_json()["html"]

@@ -1,4 +1,4 @@
-"""Wikis that 1.6 left above their plan still start once 1.7 puts them under hard quotas (UP-1).
+"""Wikis that 1.6 left above their plan still start once 1.7 puts them under hard quotas.
 
 1.6 suspended a wiki only above 110% of its plan, measured apparent sizes
 (XFS charges allocated blocks), never limited administrators' and apex wikis,
@@ -130,10 +130,9 @@ def test_adopting_existing_data_is_not_refused_by_capacity_admission(model):
 
 
 def test_wikis_adopted_without_admission_do_not_block_every_later_snapshot(model):
-    # Second 1.7 audit (UP-1 follow-up): 1.6 never admitted plans against the volume, so
-    # adopted plans may add up to more than it holds. Their unused room counted in the
-    # staging reserve, which then exceeded the free space and refused every backup,
-    # update and rollback snapshot.
+    # 1.6 never admitted plans against the volume, so adopted plans may add up to more
+    # than it holds. Their unused room must not count in the staging reserve, or it
+    # exceeds the free space and refuses every backup, update and rollback snapshot.
     model.free.bytes = model.free.total = 20 * MIB
     beta = model.instances / "beta"
     beta.mkdir()
@@ -170,7 +169,7 @@ def test_registries_written_before_plans_were_recorded_are_upgraded(model):
     assert plan_columns(model) == [(PLAN, 128, 0, 0)]
 
 
-# The runtime agent ------------------------------------------------------------------------------------------
+# The runtime agent
 
 from dataclasses import replace  # noqa: E402
 

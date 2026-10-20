@@ -55,7 +55,7 @@ def _at(html: str, needle: str) -> int:
     return index
 
 
-# ── Scripts ───────────────────────────────────────────────────────────────────
+# Scripts
 
 BARE_ID_LOOKUP = re.compile(r"getElementById\(|document\.querySelector(?:All)?\(\s*[\"']#")
 TAGGED_LOOKUP = re.compile(r"""querySelector(?:All)?\(\s*["']([a-z]+)#([\w-]+)["']\s*\)""")
@@ -90,7 +90,7 @@ def test_run_once_marks_and_the_core_object_are_not_read_from_window_names():
     assert "if (BW.pagesNav) return;\n" in navigation.replace("\r\n", "\n")
 
 
-# ── Markdown ──────────────────────────────────────────────────────────────────
+# Markdown
 
 
 def test_headings_never_take_an_id_the_interface_links_to():
@@ -118,7 +118,7 @@ def test_builder_headings_never_take_an_id_the_interface_links_to(app):
     assert re.findall(r'<h\d id="([^"]+)"', html) == ["main-2", "sidebar-2", "main-3", "attachments_1"]
 
 
-# ── Kanban ────────────────────────────────────────────────────────────────────
+# Kanban
 
 
 def _trapped_board(app, admin_client, db, make_user, login, description=BOARD_TRAP):
@@ -189,7 +189,7 @@ def test_board_scripts_find_their_elements_by_tag_or_once(app, admin_client, db,
                      r'id="kanban-upload-input" class="visually-hidden">\s*</label>', html)
 
 
-# ── Pages ─────────────────────────────────────────────────────────────────────
+# Pages
 
 
 def _trapped_page(client, make_user, login):
@@ -256,7 +256,7 @@ def test_editor_preview_cannot_take_the_editor_fields_and_dialogs(app, client, m
     assert 'var linkDialog = document.querySelector("dialog#dlg-link");' in editor
 
 
-# ── Canvas ────────────────────────────────────────────────────────────────────
+# Canvas
 
 
 def test_canvas_text_cannot_take_the_editor_dialogs(app, client, make_user, login):
@@ -286,7 +286,7 @@ def test_canvas_text_cannot_take_the_editor_dialogs(app, client, make_user, logi
     assert 'document.querySelector("script#" + CSS.escape(sourceId))' in _source("features/canvas/static/canvas-static.js")
 
 
-# ── Announcements ─────────────────────────────────────────────────────────────
+# Announcements
 
 
 def test_announcement_headings_keep_no_ids(admin_client, db):

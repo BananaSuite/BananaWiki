@@ -128,7 +128,7 @@ def test_platform_export_is_encrypted_while_it_is_written(tmp_path):
     assert "snapshot" in agent.tasks()
 
 
-# ── Wikis that cannot be backed up ────────────────────────────────────────────
+# Wikis that cannot be backed up
 
 
 def _two_wikis(tmp_path):
@@ -315,7 +315,7 @@ def _restored(source, backup: Path, tmp_path, monkeypatch) -> Path:
 @pytest.mark.parametrize("hostile", [_colon, _backslash, _colon_folder, _deep_file],
                          ids=["colon", "backslash", "colon-folder", "too-long"])
 def test_tenant_file_names_a_restore_refuses_never_reach_the_backup(tmp_path, monkeypatch, caplog, hostile):
-    """One such member made the whole platform restore fail, while the backup counted as complete."""
+    """One such member would make the whole platform restore fail, while the backup counted as complete."""
     runtime, _agent, base = _two_wikis(tmp_path)
     name = "storage/uploads/" + hostile(base / "acme" / "storage" / "uploads")
     backup = runtime.export_platform(_work(tmp_path))
@@ -352,9 +352,9 @@ def test_tenant_file_names_never_start_a_line_of_the_platform_backups_log(tmp_pa
 
 @pytest.mark.parametrize("folder", ["bananawiki.db", "bananawiki.db-wal"], ids=["database", "journal"])
 def test_a_database_turned_into_a_folder_during_the_backup_stays_out(tmp_path, monkeypatch, folder):
-    """A wiki can replace its database with a folder once the copy is taken, before its files are walked: archived,
-    that folder made bananawiki.db both a file and a folder (or left a folder where SQLite needs its journal), so
-    the restore of every wiki failed while the backup counted as complete."""
+    """A database or journal replaced by a folder after the copy is taken stays out of the backup.
+
+    An archive holding bananawiki.db as both a file and a folder would not restore for any wiki."""
     from bananawiki.hosting.runtime import platform_backup
 
     runtime, _agent, base = _two_wikis(tmp_path)
@@ -386,9 +386,8 @@ def test_a_database_turned_into_a_folder_during_the_backup_stays_out(tmp_path, m
 
 @pytest.mark.parametrize("folder", ["storage", "storage/uploads", "external_plugins"])
 def test_a_file_where_a_wiki_needs_a_folder_stays_out_of_the_backup(tmp_path, monkeypatch, folder):
-    """A wiki can replace its storage, an asset folder or external_plugins with a file: archived, that file made
-    the restore of every wiki fail (the restored layout needs a folder there) while the backup counted as
-    complete."""
+    """A wiki can replace its storage, an asset folder or external_plugins with a file: archived, that file would
+    make the restore of every wiki fail (the restored layout needs a folder there)."""
     runtime, _agent, base = _two_wikis(tmp_path)
     shutil.rmtree(base / "acme" / folder)
     (base / "acme" / folder).write_bytes(b"not a folder")
@@ -410,8 +409,8 @@ def test_a_file_where_a_wiki_needs_a_folder_stays_out_of_the_backup(tmp_path, mo
 @pytest.mark.parametrize("kind", ["link", "fifo"])
 @pytest.mark.parametrize("folder", ["storage", "storage/uploads"])
 def test_a_storage_folder_replaced_by_a_link_leaves_the_wiki_incomplete(tmp_path, monkeypatch, folder, kind):
-    """The walk skips links and special files: a wiki that replaced its storage (or an asset folder) with one
-    counted as saved in full, while its restore held empty folders there."""
+    """The walk skips links and special files, so a wiki that replaced its storage (or an asset folder) with
+    one is reported incomplete: its restore would hold empty folders there."""
     runtime, _agent, base = _two_wikis(tmp_path)
     target = base / "acme" / folder
     target.rename(base / "acme" / "moved")
@@ -466,9 +465,9 @@ def test_platform_backups_read_each_wikis_storage_limit(tmp_path):
 
 
 def test_a_sparse_file_cannot_make_the_platform_backup_run_out_of_space(tmp_path, monkeypatch):
-    """A sparse file costs the wiki's quota nothing, but the backup wrote it at its full length (stored, from
-    64 MiB): one wiki could make every platform backup run out of space, hosting.db and the other wikis
-    included. Each wiki's files now get its storage limit, and some slack, in the archive."""
+    """A sparse file costs the wiki's quota nothing, but written at its full length it could make every platform
+    backup run out of space, hosting.db and the other wikis included. Each wiki's files get its storage limit,
+    and some slack, in the archive."""
     from bananawiki.hosting.runtime import platform_backup
 
     monkeypatch.setattr(platform_backup, "BUDGET_SLACK_BYTES", 0)
@@ -495,7 +494,7 @@ def test_a_sparse_file_cannot_make_the_platform_backup_run_out_of_space(tmp_path
 
 
 def test_hard_links_to_one_file_go_into_the_platform_backup_once(tmp_path):
-    """Each hard link cost the backup a full copy of the file, the wiki's quota only one: a wiki could make every
+    """Hard links cost the wiki's quota one copy, so the backup stores one too: otherwise a wiki could make every
     platform backup run out of space with links to one upload."""
     runtime, _agent, base = _two_wikis(tmp_path)
     uploads = base / "acme" / "storage" / "uploads"
@@ -564,7 +563,7 @@ def test_a_failed_archive_write_still_fails_the_whole_backup(tmp_path, monkeypat
 @pytest.mark.parametrize("failure", [sqlite3.OperationalError("database is locked"), OSError(errno.EIO, "I/O error")],
                          ids=["sqlite", "storage"])
 def test_platform_backup_errors_are_runtime_failures(tmp_path, monkeypatch, failure):
-    """The routes report a RuntimeFailure; any other error was a server error that left the work folder behind."""
+    """The routes report a RuntimeFailure, never a server error that leaves the work folder behind."""
     from bananawiki.hosting.runtime import platform_backup
 
     runtime, _agent = make_runtime(tmp_path)
@@ -638,8 +637,8 @@ def _database_link(root: Path) -> None:
 
 @pytest.mark.parametrize("hostile", [_plugin_cache, _database_link], ids=["file-name", "database-link"])
 def test_a_lone_wiki_that_keeps_itself_out_still_leaves_a_platform_backup(tmp_path, monkeypatch, hostile):
-    """On a platform with one wiki, a file name of that wiki's own (a plugin's cache) failed every platform
-    backup: hosting.db was never saved, nothing was recorded, and Drive retried every hour, for ever."""
+    """On a platform with one wiki, a file name of that wiki's own (a plugin's cache) does not fail the platform
+    backup: hosting.db is still saved and the run is recorded."""
     runtime, _agent = make_runtime(tmp_path)
     _hosting_db(runtime)
     provision(runtime, make_spec())
@@ -699,9 +698,8 @@ def _removed_copy(runtime, root: Path, monkeypatch) -> None:
 def test_wikis_whose_own_database_cannot_be_copied_still_leave_a_platform_backup(tmp_path, monkeypatch, hostile,
                                                                                  wikis):
     """The tenant task ran and found the database damaged, or the wiki removed the copy: the wikis' doing, not the
-    platform's. When no other wiki was saved, hosting.db and the session key were never backed up, nothing was
-    recorded and Drive retried every hour, for ever. Their uploads, which nothing else could replace, were left
-    out as well."""
+    platform's. Even when no other wiki is saved, hosting.db, the session key and the wikis' uploads (which
+    nothing else could replace) are backed up and the run is recorded."""
     runtime, _agent = make_runtime(tmp_path)
     _hosting_db(runtime)
     base = Path(runtime._cfg().instances_dir)
@@ -747,9 +745,7 @@ def _grown(path: Path, copy):
 
 @pytest.mark.parametrize("wikis", [("acme",), ("acme", "beta")], ids=["one-wiki", "two-wikis"])
 def test_a_database_copy_grown_once_made_stays_out_of_the_platform_backup(tmp_path, monkeypatch, wikis):
-    """The copy lies in the wiki's own directory: a plugin extended it to a huge sparse file between the task's
-    report and the host opening it, and the backup wrote it at that length (stored, from 64 MiB) until it ran
-    out of space, hosting.db and every other wiki included."""
+    """A database copy that grows after its task reported it stays out of the platform backup."""
     runtime, _agent = make_runtime(tmp_path)
     _hosting_db(runtime)
     base = Path(runtime._cfg().instances_dir)
@@ -795,10 +791,9 @@ def test_a_database_copy_over_the_wikis_budget_stays_out_of_the_platform_backup(
 
 
 def test_a_wiki_held_above_its_plan_keeps_its_database_in_the_platform_backup(tmp_path, monkeypatch):
-    """A wiki the runtime agent adopted above its plan (UP-1) serves, and its quota holds it to the hard limit it
-    was adopted at: its budget is that limit. From its plan alone, its genuine database was left out of every
-    platform backup. A sparse file beyond the adopted limit still stays out, and a wiki held to its plan keeps
-    the plan's budget."""
+    """A wiki the runtime agent adopted above its plan serves, and its quota holds it to the hard limit it was
+    adopted at: its budget is that limit, not its plan, so its genuine database is in the platform backup. A
+    sparse file beyond the adopted limit still stays out, and a wiki held to its plan keeps the plan's budget."""
     from bananawiki.hosting.runtime import platform_backup
 
     monkeypatch.setattr(platform_backup, "BUDGET_SLACK_BYTES", 0)
@@ -831,7 +826,7 @@ def test_a_wiki_held_above_its_plan_keeps_its_database_in_the_platform_backup(tm
 
 
 def test_a_database_copy_rewritten_once_made_leaves_the_wiki_incomplete(tmp_path, monkeypatch):
-    """Same size, other bytes: the backup held a database its sandbox never checked, and counted as complete."""
+    """A copy rewritten with the same size but other bytes marks the wiki's backup incomplete."""
 
     def rewritten(path: Path, copy):
         with path.open("r+b") as handle:
@@ -950,6 +945,120 @@ def test_platform_restore_onto_a_fresh_installation(tmp_path, monkeypatch):
         assert conn.execute("SELECT signup_mode FROM hosting_settings").fetchone()[0] == "closed"
     with pytest.raises(RuntimeFailure):
         target.restore_platform([tmp_path / "a" / "missing.zip"])
+
+
+def _fresh_target(tmp_path, source, monkeypatch):
+    """An installation without wikis that holds *source*'s backup key, with its session key at ``restored_secret``."""
+    target, agent = make_runtime(tmp_path / "b")
+    _hosting_db(target)
+    key_path = Path(target._cfg().backup_key_path)
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    key_path.write_bytes(source.backup_key())
+    key_path.chmod(0o600)
+    secret_path = tmp_path / "b" / "restored_secret"
+    monkeypatch.setenv("HOSTING_SECRET_KEY_PATH", str(secret_path))
+    return target, agent, secret_path
+
+
+def test_platform_restore_prepares_quotas_that_hold_what_each_wiki_restores(tmp_path, monkeypatch):
+    """As the portal asks for them: no limit (the agent's ceiling) for administrators' and apex wikis; a wiki held
+    above its plan gets room for what it restores, since its quota is prepared before any of its files is copied."""
+    source, _agent = make_runtime(tmp_path / "a")
+    _hosting_db(source)
+    with sqlite3.connect(source._cfg().database_path) as conn:
+        conn.execute("INSERT INTO accounts (id, username, password, is_admin, created_at) "
+                     "VALUES ('a1', 'root', 'x', 1, 'now'), ('a2', 'user', 'x', 0, 'now')")
+        for row in [("i1", "a1", "admin", "hosting", None), ("i2", "a2", "home", "apex", None),
+                    ("i3", "a2", "plain", "hosting", None), ("i4", "a2", "small", "hosting", 20),
+                    ("i5", "a2", "over", "hosting", 1)]:
+            conn.execute("INSERT INTO instances (id, account_id, subdomain, domain_mode, storage_limit_mb, status, "
+                         "created_at) VALUES (?, ?, ?, ?, ?, 'stopped', 'now')", row)
+    with sqlite3.connect(source._cfg().database_path) as conn, sqlite3.connect(tmp_path / "hosting.db") as copy:
+        conn.backup(copy)
+    part = tmp_path / "limits.zip"
+    with zipfile.ZipFile(part, "w") as archive:
+        archive.write(tmp_path / "hosting.db", "hosting.db")
+        for name in ("admin", "home__apex", "plain", "small"):
+            archive.writestr(f"instances/{name}/storage/uploads/a.png", b"png")
+        archive.writestr("instances/over/storage/uploads/big.bin", os.urandom(3 * 1024 ** 2))
+    target, agent, _secret = _fresh_target(tmp_path, source, monkeypatch)
+    target.restore_platform([part])
+    prepared = {args["tenant"]: args["limits"]["storage_bytes"] for args in agent.ops("tenant.quota")}
+    assert prepared == {"admin": 0, "home__apex": 0, "plain": target._cfg().limits.storage_limit_mb * 1024 ** 2,
+                        "small": 20 * 1024 ** 2, "over": 68 * 1024 ** 2}
+    assert len((Path(target._cfg().instances_dir) / "over" / "storage" / "uploads" / "big.bin").read_bytes()) \
+        == 3 * 1024 ** 2
+
+
+@pytest.mark.parametrize("failure", ["database", "quota"])
+def test_a_restore_failing_after_the_wikis_are_installed_leaves_a_target_a_retry_accepts(tmp_path, monkeypatch,
+                                                                                          failure):
+    from bananawiki.hosting.runtime import platform_backup
+    from bananawiki.hosting.runtime.plugin_safety import PluginState
+
+    source, _agent = make_runtime(tmp_path / "a")
+    _hosting_db(source)
+    spec = make_spec()
+    provision(source, spec)
+    PluginState(source._cfg().platform_state_dir, spec.instance_id).set_quarantine(True)
+    backup = source.export_platform(_work(tmp_path))
+    target, _agent2, secret_path = _fresh_target(tmp_path, source, monkeypatch)
+    cfg = target._cfg()
+    key = Path(cfg.backup_key_path).read_bytes()
+    if failure == "database":
+        def write_database(_database, _cfg):
+            assert (Path(cfg.instances_dir) / "acme" / "storage").is_dir(), "the wikis are installed first"
+            raise sqlite3.OperationalError("disk I/O error")
+        monkeypatch.setattr(platform_backup, "_write_database", write_database)
+    else:
+        install_file = platform_backup._install_file
+
+        def install_into_full_quota(source_path, destination, mode=0o600):
+            if destination.name == "bananawiki.db":
+                raise OSError(errno.EDQUOT, "Disk quota exceeded")
+            return install_file(source_path, destination, mode)
+        monkeypatch.setattr(platform_backup, "_install_file", install_into_full_quota)
+    with pytest.raises(RuntimeFailure) as error:
+        target.restore_platform([backup])
+    assert error.value.code == ("failed" if failure == "database" else "no_space")
+    assert platform_backup.tenant_names(cfg.instances_dir) == []
+    assert not secret_path.exists() and Path(cfg.backup_key_path).read_bytes() == key
+    assert not PluginState(cfg.platform_state_dir, spec.instance_id).quarantined()
+    assert not list(secret_path.parent.glob(".restore-*")), "no key copy is left behind"
+    monkeypatch.undo()
+    monkeypatch.setenv("HOSTING_SECRET_KEY_PATH", str(secret_path))
+    target.restore_platform([backup])
+    assert platform_backup.tenant_names(cfg.instances_dir) == ["acme"]
+    assert secret_path.read_text() == source._cfg().secret_key
+
+
+def test_platform_restore_keeps_plugin_quarantines(tmp_path, monkeypatch):
+    """The marker in a wiki's platform state is all that keeps its plugin code off: a backup holds it."""
+    from bananawiki.hosting.runtime.plugin_safety import PluginState
+
+    source, _agent = make_runtime(tmp_path / "a")
+    _hosting_db(source)
+    held, free = make_spec("acme"), make_spec("beta", port=6002)
+    for spec in (held, free):
+        provision(source, spec)
+    PluginState(source._cfg().platform_state_dir, held.instance_id).set_quarantine(True)
+    backup = source.export_platform(_work(tmp_path))
+    with _backup(source, backup) as archive:
+        assert [name for name in archive.namelist() if name.startswith("platform_state/")] == [
+            f"platform_state/{held.instance_id}/plugin_quarantine"]
+    target, _agent2, _secret = _fresh_target(tmp_path, source, monkeypatch)
+    target.restore_platform([backup])
+    assert target.plugins_quarantined(held) and not target.plugins_quarantined(free)
+
+    other, _agent3 = make_runtime(tmp_path / "c")
+    _hosting_db(other)
+    part = tmp_path / "invalid.zip"
+    with zipfile.ZipFile(part, "w") as archive:
+        archive.write(other._cfg().database_path, "hosting.db")
+        archive.writestr("platform_state/not.an.id/plugin_quarantine", b"")
+    with pytest.raises(RuntimeFailure) as error:
+        other.restore_platform([part])
+    assert error.value.code == "archive_invalid"
 
 
 def test_platform_restore_refuses_installations_with_wikis_and_unsafe_parts(tmp_path):
@@ -1078,7 +1187,7 @@ def test_restore_checks_free_space_before_extracting_platform_members(tmp_path, 
     assert error.value.code == "no_space"
 
 
-# ── Google Drive ──────────────────────────────────────────────────────────────
+# Google Drive
 
 
 def test_drive_schedule():
@@ -1277,7 +1386,7 @@ def test_drive_without_configuration(tmp_path):
     assert error.value.code == "not_configured"
 
 
-# ── DNS ───────────────────────────────────────────────────────────────────────
+# DNS
 
 
 @pytest.fixture
@@ -1329,7 +1438,7 @@ def test_check_domain_accepts_records_proxied_by_cloudflare(tmp_path, zone):
     assert not strict.check_domain("docs.example.org", "token-1").routing
 
 
-# ── Maintenance ───────────────────────────────────────────────────────────────
+# Maintenance
 
 
 def test_maintenance_tick_prunes_leftovers(tmp_path):

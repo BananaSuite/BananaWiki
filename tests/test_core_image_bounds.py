@@ -68,7 +68,7 @@ def bob(client, make_user, login):
 
 
 def test_avatar_pixel_limit_is_checked_before_decoding(client, db, bob, decoded):
-    """A 4.2-megapixel avatar of a few KB used to be decoded (and copied) at full size."""
+    """A 4.2-megapixel avatar of a few KB is refused without being decoded (or copied) at full size."""
     data = _png((2100, 2000))
     assert len(data) < user_service.AVATAR_MAX_BYTES
     response = client.post("/settings/profile", data={"avatar": (io.BytesIO(data), "me.png")},
@@ -167,3 +167,18 @@ def test_busy_image_slot_refuses_with_a_retryable_error(app, monkeypatch):
     assert error.value.key == "upload.error.busy"
     assert in_app(app, lambda: list(storage.folder_path("uploads").iterdir())) == []
     assert _save(app, _jpeg((40, 30)), "photo.jpg").filename.endswith(".jpg")
+
+
+def test_images_beyond_the_pixel_cap_are_refused_before_decoding(app):
+    """Pillow only warns up to twice MAX_IMAGE_PIXELS, so the cap is checked before decoding."""
+    data = _png((7000, 6000))
+    assert len(data) < 100_000
+
+    def upload() -> None:
+        storage.save(FileStorage(io.BytesIO(data), filename="huge.png"), "uploads", allowed=None,
+                     max_bytes=10 * MIB, images_only=True)
+
+    with pytest.raises(storage.UploadError) as error:
+        in_app(app, upload)
+    assert error.value.key == "upload.error.not_an_image"
+    assert storage.MAX_IMAGE_PIXELS == 40_000_000

@@ -12,7 +12,7 @@
   <div class="page-header__actions">
     <form method="post" action="{{ url_for('pages.history_clear', slug=page.slug) }}" data-confirm="{{ t('page_history.confirm.clear') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button class="btn btn--danger btn--small">{{ t('page_history.clear') }}</button>
+      <button class="btn btn--danger-quiet btn--small">{{ t('page_history.clear') }}</button>
     </form>
   </div>
   {% endif %}
@@ -27,10 +27,9 @@
   <tr>
     <td class="nowrap"><a href="{{ url_for('pages.history_entry', slug=page.slug, entry_id=row.id) }}" title="{{ row.created_at|datetime }}">{{ row.created_at|time_ago }}</a></td>
     <td data-label="{{ t('page_history.col.editor') }}">{% if row.editor %}{% if row.profile_url %}<a href="{{ row.profile_url }}">{{ row.editor }}</a>{% else %}{{ row.editor }}{% endif %}{% elif row.edited_by %}<span class="muted">{{ t('common.unknown_user') }}</span>{% else %}<span class="muted">{{ t('page_history.no_author') }}</span>{% endif %}</td>
-    <td data-label="{{ t('page_history.col.summary') }}">{{ row.edit_message or '—' }}{% if row.is_revert %} <span class="badge">{{ t('page_history.revert_badge') }}</span>{% endif %}</td>
-    <td class="nowrap small hide-sm">{% if row.delta is none %}<span class="text-success" title="{{ t('page_history.first_version') }}">+{{ row.size|digits }}</span>{% elif row.delta >= 0 %}<span class="text-success">+{{ row.delta|digits }}</span>{% else %}<span class="text-danger">−{{ (0 - row.delta)|digits }}</span>{% endif %}</td>
+    <td data-label="{{ t('page_history.col.summary') }}">{{ page_history_message(row.edit_message) or '—' }}{% if row.is_revert %} <span class="badge">{{ t('page_history.revert_badge') }}</span>{% endif %}</td>
+    <td class="nowrap small hide-sm">{% if row.delta is none %}<span class="text-success" title="{{ t('page_history.first_version') }}">+{{ row.size|digits }}</span>{% elif row.delta == 0 %}<span class="muted">±0</span>{% elif row.delta > 0 %}<span class="text-success">+{{ row.delta|digits }}</span>{% else %}<span class="text-danger">−{{ (0 - row.delta)|digits }}</span>{% endif %}</td>
     <td class="actions">
-      <a class="btn btn--small" href="{{ url_for('pages.history_entry', slug=page.slug, entry_id=row.id) }}">{{ t('page_history.view') }}</a>
       {% if can_revert or can_delete or can_transfer %}
       <details class="menu">
         <summary class="btn btn--small btn--ghost" aria-label="{{ t('common.actions') }}">⋯</summary>
@@ -61,6 +60,7 @@
           {% endif %}
           {% endif %}
           {% if can_delete %}
+          {% if (can_revert and not blocked) or can_transfer %}<hr>{% endif %}
           <form method="post" action="{{ url_for('pages.history_delete_entry', slug=page.slug, entry_id=row.id) }}" data-confirm="{{ t('page_history.confirm.delete') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="text-danger">{{ t('common.delete') }}</button></form>
           {% endif %}

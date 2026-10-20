@@ -71,7 +71,7 @@ class QuestionInput:
     errors: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
 
 
-# ── JSON helpers ──────────────────────────────────────────────────────────────
+# JSON helpers
 
 
 def _load_list(raw: str | None) -> list[Any]:
@@ -97,7 +97,7 @@ def decode_answer(raw: str | None) -> Any:
         return raw
 
 
-# ── Reading ──────────────────────────────────────────────────────────────────
+# Reading
 
 
 def for_page(page_id: int) -> dict[str, Any] | None:
@@ -186,14 +186,14 @@ def overview() -> list[dict[str, Any]]:
     )
 
 
-# ── Points ───────────────────────────────────────────────────────────────────
+# Points
 
 
 def total_points(user_id: str) -> int:
     """A user's points: the best attempt of each assessment, summed.
 
-    Other features (badges) may call this. Unlike 1.4, retaking an
-    assessment does not add up points again.
+    Other features (badges) may call this. Retaking an assessment does not
+    add up points again.
     """
     return int(db.scalar(
         "SELECT COALESCE(SUM(best), 0) FROM (SELECT MAX(total_points) AS best FROM assessment_attempts "
@@ -226,7 +226,7 @@ def point_sources(user_id: str) -> list[dict[str, Any]]:
     return sources
 
 
-# ── Access rules ─────────────────────────────────────────────────────────────
+# Access rules
 
 
 def can_manage(page: dict[str, Any], user: dict[str, Any] | None = None) -> bool:
@@ -262,7 +262,7 @@ def reveals_answers(assessment: dict[str, Any], page: dict[str, Any], user: dict
     return can_manage(page, user) or block_reason(assessment, user, attempts=1) is not None
 
 
-# ── Authoring ────────────────────────────────────────────────────────────────
+# Authoring
 
 
 def _points(raw: Any, default: int, errors: list, key: str) -> int:
@@ -430,7 +430,7 @@ def reset_attempts(assessment_id: int, user_id: str) -> int:
     ).rowcount
 
 
-# ── Taking ───────────────────────────────────────────────────────────────────
+# Taking
 
 
 def parse_answer(question: dict[str, Any], values: list[str]) -> Any:

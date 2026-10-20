@@ -144,7 +144,7 @@ def test_unconfirmed_orphan_cleanup_never_authorizes_stopped_repair(runtime, fai
 
 
 def _live_mounts(runtime, mounts):
-    """Daemon inventory fixture; mount identities use actual held directory inodes."""
+    """Docker as the agent sees it: the listed containers and the directory each one has mounted."""
     original = runtime.runner
     active = {item["id"]: item for item, _path in mounts}
     paths = {item["pid"]: path for item, path in mounts}

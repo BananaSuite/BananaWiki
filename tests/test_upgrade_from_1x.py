@@ -1,4 +1,4 @@
-"""Booting BananaWiki 1.6 on a real 1.4 instance keeps users, sessions, tokens and content."""
+"""Starting the current release on a real 1.4 instance keeps users, sessions, tokens and content."""
 
 import json
 import re

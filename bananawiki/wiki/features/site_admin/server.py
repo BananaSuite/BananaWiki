@@ -37,7 +37,7 @@ def gunicorn_master_pid() -> int:
     if not str(request.environ.get("SERVER_SOFTWARE", "")).lower().startswith("gunicorn"):
         return 0
     parent = os.getppid()
-    if parent <= 1:
+    if parent < 1:
         return 0
     cmdline = Path(f"/proc/{parent}/cmdline")
     if cmdline.exists():
@@ -47,6 +47,10 @@ def gunicorn_master_pid() -> int:
                 return 0
         except OSError:
             return 0
+    elif parent == 1:
+        # PID 1 is the master only when /proc shows Gunicorn (a container
+        # without an init); otherwise it may be an init that adopted this worker.
+        return 0
     return parent
 
 
@@ -73,7 +77,7 @@ def restart(master_pid: int) -> None:
     os.kill(master_pid, signal.SIGHUP)
 
 
-# ── Error log ────────────────────────────────────────────────────────────────
+# Error log
 
 
 def _secrets() -> list[str]:

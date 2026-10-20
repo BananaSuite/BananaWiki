@@ -4,7 +4,7 @@
 ``default_contribution_quota``). Users file requests to raise it; requests up
 to ``contribution_quota_auto_approve_max`` are approved on the spot. After a
 decision or a cancellation the user waits ``quota_request_cooldown_hours``
-(shared with reservation quota requests, as in 1.4).
+(shared with reservation quota requests).
 """
 
 from __future__ import annotations

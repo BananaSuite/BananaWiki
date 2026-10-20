@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
 """Schema version 10: members block other members in chats.
 
 1. ``chat__blocks``: one row per account and account it blocked (see

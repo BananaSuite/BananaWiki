@@ -1,4 +1,4 @@
-/* Canvas list: reorder with the ▲/▼ buttons (keyboard and touch) or by
+/* Canvas list: reorder with the ↑/↓ buttons (keyboard and touch) or by
  * dragging a card, save the order, and reload when someone else changes the
  * shared order (open access). */
 (function () {

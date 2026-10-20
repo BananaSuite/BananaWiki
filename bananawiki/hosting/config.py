@@ -5,11 +5,11 @@ meaning and default, so an existing ``config/app.env`` keeps working after the
 upgrade. Paths default to ``<repository>/hosting/data`` like 1.4; managed
 installations set them explicitly to the writable ``data/`` directory.
 
-Differences from 1.4: when ``HOSTING_PUBLIC_HOST`` is unset in port mode the
-portal no longer asks third-party IP-echo services for its address (it uses
-the outbound interface address, which sends no traffic), and nothing mutates
-the configuration at run time; the instance URL suffix chosen in the platform
-settings is applied by :mod:`bananawiki.hosting.urls`.
+When ``HOSTING_PUBLIC_HOST`` is unset in port mode the portal uses the
+outbound interface address (found without sending traffic), never a
+third-party IP-echo service. Nothing changes the configuration at run
+time; the instance URL suffix chosen in the platform settings is applied
+by :mod:`bananawiki.hosting.urls`.
 """
 
 from __future__ import annotations
@@ -206,7 +206,7 @@ class HostingConfig:
         return urls.get((page, language)) or urls.get((page, ""), "")
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# Helpers
 
 
 def _lax_bool(env: Env, name: str, default: str, falsy: tuple[str, ...] = ("0", "false", "no", "off", "")) -> bool:
@@ -237,7 +237,7 @@ def _terms_version(env: Env, name: str, default: str = "") -> str:
         except ValueError:
             valid = False
         if not valid:
-            raise ConfigError(f"{name} must be the terms' version date, such as 2026-10-09.")
+            raise ConfigError(f"{name} must be the terms' version date, such as 2026-01-31.")
     return value
 
 
@@ -488,7 +488,7 @@ def valid_suffix(value: str) -> bool:
     return bool(_SUFFIX.match(value)) and len(value) <= 30
 
 
-# ── Loader ────────────────────────────────────────────────────────────────────
+# Loader
 
 
 def load_config(environ: dict[str, str] | None = None, **overrides: object) -> HostingConfig:

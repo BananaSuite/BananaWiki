@@ -1,6 +1,6 @@
-# Writing Pages
+# Writing pages
 
-Pages are written in Markdown. Markdown is plain text with a few symbols for structure and formatting.
+Pages are written in Markdown: plain text with a few symbols for headings, lists and links.
 
 ## Quick reference
 
@@ -18,8 +18,8 @@ Pages are written in Markdown. Markdown is plain text with a few symbols for str
 
 ## A good page
 
-A good page has a clear title, a short opening answer, headings for the main sections, and links to related pages. Save a rough page now and improve it later. A useful draft is better than knowledge that stays in chat or memory.
+Give the page a clear title, answer the main question in the first lines, and link to related pages. Save a rough page now and improve it later.
 
 ## Editing flow
 
-Create or open a page, write on the left, check the preview on the right, then save. Drafts, page history, attachments, and PDF export may be available depending on enabled plugins and permissions.
+Open a page and click **Edit**. Write on the **Write** tab, check the **Preview** tab, then save. Drafts, history, attachments and PDF export appear when they are switched on and you are allowed to use them.

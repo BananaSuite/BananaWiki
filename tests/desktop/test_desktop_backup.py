@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import sqlite3
 import stat
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -88,6 +90,60 @@ def test_backup_refuses_symlinked_uploads(populated, tmp_path):
         backup.create_backup(populated, tmp_path / "b.zip")
     assert caught.value.key == "unsafe_file"
     assert not (tmp_path / "b.zip").exists()
+
+
+def test_backup_leaves_plugin_code_out(populated, tmp_path):
+    (populated.root / "plugins" / "notes").mkdir()
+    (populated.root / "plugins" / "notes" / "__init__.py").write_text("FEATURE = None")
+    with zipfile.ZipFile(backup.create_backup(populated, tmp_path / "b.zip")) as archive:
+        assert not any(name.startswith("plugins/") for name in archive.namelist())
+
+
+def _fat_stick(monkeypatch):
+    """Behave like a FAT32/exFAT stick on Linux: no hard links, no permission changes."""
+    def refused(*_args, **_kwargs):
+        raise PermissionError(errno.EPERM, "Operation not permitted")
+
+    monkeypatch.setattr(backup.os, "link", refused)
+    monkeypatch.setattr(backup.os, "chmod", refused)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows moves the file into place without a hard link")
+def test_backup_to_a_usb_stick_without_hard_links(populated, tmp_path, monkeypatch):
+    _fat_stick(monkeypatch)
+    target = backup.create_backup(populated, tmp_path / "stick" / "b.zip")
+    monkeypatch.undo()
+    with zipfile.ZipFile(target) as archive:
+        assert archive.testzip() is None
+        assert "uploads/photo.png" in archive.namelist()
+    assert [p.name for p in target.parent.iterdir()] == ["b.zip"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows moves the file into place without a hard link")
+def test_backup_never_replaces_a_file_created_meanwhile(populated, tmp_path, monkeypatch):
+    target = tmp_path / "b.zip"
+
+    def someone_else_was_faster(_source, destination):
+        Path(destination).write_text("keep me")
+        raise FileExistsError(errno.EEXIST, "File exists")
+
+    monkeypatch.setattr(backup.os, "link", someone_else_was_faster)
+    with pytest.raises(DesktopError) as caught:
+        backup.create_backup(populated, target)
+    assert caught.value.key == "backup_exists"
+    assert target.read_text() == "keep me"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows moves the file into place without a hard link")
+def test_backup_write_errors_are_explained(populated, tmp_path, monkeypatch):
+    def failing(*_args):
+        raise OSError(errno.EIO, "Input/output error")
+
+    monkeypatch.setattr(backup.os, "link", failing)
+    with pytest.raises(DesktopError) as caught:
+        backup.create_backup(populated, tmp_path / "b.zip")
+    assert caught.value.key == "backup_failed" and "Input/output error" in caught.value.detail
+    assert list(tmp_path.glob("*.zip")) == [] and list(tmp_path.glob(".bananawiki-backup-*")) == []
 
 
 def test_restore_round_trip_keeps_previous_data(populated, tmp_path):
@@ -200,6 +256,78 @@ def test_restore_rejects_code_outside_the_data_layout(wiki_folder, tmp_path):
     assert caught.value.key == "archive_unexpected"
 
 
+def test_restore_never_installs_or_enables_plugin_code(wiki_folder, tmp_path, free_port):
+    """A shared "class wiki" archive with an enabled plugin must not run its code here."""
+    marker = tmp_path / "plugin-ran"
+    shared = tmp_path / "shared.db"
+    backup.snapshot_database(wiki_folder.database, shared)
+    conn = sqlite3.connect(shared)
+    conn.execute("INSERT INTO plugins (id, name, version, builtin, enabled) VALUES ('evil', 'Evil', '1.0', 0, 1)")
+    conn.commit()
+    conn.close()
+    path = tmp_path / "class-wiki.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.write(shared, "bananawiki.db")
+        archive.writestr("plugins/evil/plugin.json", json.dumps({"id": "evil", "name": "Evil", "version": "1.0"}))
+        archive.writestr("plugins/evil/__init__.py", f"open({str(marker)!r}, 'w').close()\n")
+    (wiki_folder.root / "plugins" / "mine").mkdir()
+
+    previous = backup.restore_backup(wiki_folder, path)
+
+    assert list((wiki_folder.root / "plugins").iterdir()) == []
+    assert (previous / "plugins" / "mine").is_dir()
+    conn = sqlite3.connect(wiki_folder.database)
+    try:
+        assert conn.execute("SELECT enabled FROM plugins WHERE id = 'evil'").fetchone() == (0,)
+    finally:
+        conn.close()
+    wiki = WikiServer(wiki_folder, port=free_port, backend="waitress")
+    wiki.start()
+    wiki.stop()
+    assert not marker.exists()
+
+
+def test_restore_refuses_a_database_that_switches_its_plugins_back_on(wiki_folder, tmp_path):
+    set_setting(wiki_folder, "UPDATE site_settings SET site_name = ? WHERE id = 1", ("Current",))
+    shared = tmp_path / "shared.db"
+    backup.snapshot_database(wiki_folder.database, shared)
+    conn = sqlite3.connect(shared)
+    conn.execute("INSERT INTO plugins (id, name, version, builtin, enabled) VALUES ('evil', 'Evil', '1.0', 0, 1)")
+    conn.execute("CREATE TRIGGER again AFTER UPDATE ON plugins BEGIN "
+                 "UPDATE plugins SET enabled = 1 WHERE id = 'evil'; END")
+    conn.commit()
+    conn.close()
+    path = tmp_path / "class-wiki.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.write(shared, "bananawiki.db")
+    with pytest.raises(DesktopError) as caught:
+        backup.restore_backup(wiki_folder, path)
+    assert caught.value.key == "archive_unsafe"
+    assert site_name(wiki_folder) == "Current"
+
+
+@pytest.mark.parametrize("compression", [zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA])
+def test_restore_refuses_members_unpacked_without_a_memory_bound(wiki_folder, tmp_path, compression):
+    path = tmp_path / "packed.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.write(wiki_folder.database, "bananawiki.db")
+        archive.writestr("uploads/zeros.bin", bytes(1024 * 1024), compress_type=compression)
+    with pytest.raises(DesktopError) as caught:
+        backup.restore_backup(wiki_folder, path)
+    assert caught.value.key == "archive_unsupported"
+    assert not (wiki_folder.root / "previous").exists()
+
+
+@pytest.mark.parametrize("flag", [0x1, 0x20, 0x40])  # encrypted, patched data, strong encryption
+def test_restore_refuses_members_zipfile_cannot_unpack(wiki_folder, tmp_path, flag):
+    path = _zip_with(tmp_path, wiki_folder, "uploads/a.png")
+    with zipfile.ZipFile(path) as archive:
+        archive.getinfo("uploads/a.png").flag_bits |= flag
+        with pytest.raises(DesktopError) as caught:
+            backup.archive_entries(archive)
+    assert caught.value.key == "archive_unsupported"
+
+
 def test_restore_rejects_duplicate_names(wiki_folder, tmp_path):
     path = tmp_path / "dup.zip"
     with zipfile.ZipFile(path, "w") as archive:
@@ -250,6 +378,32 @@ def test_restore_rejects_a_database_from_a_newer_version(wiki_folder, tmp_path):
     with pytest.raises(DesktopError) as caught:
         backup.restore_backup(wiki_folder, path)
     assert caught.value.key == "archive_too_new"
+
+
+@pytest.mark.parametrize(("application_id", "version", "key"), [
+    (0x42574B49, 2, "archive_too_old"),
+    (0, 0, "archive_too_old"),  # unversioned, from before schema versions
+    (0, 5, "archive_foreign"),  # a schema version without BananaWiki's application id
+])
+def test_restore_rejects_a_database_the_wiki_could_not_open_before_replacing_anything(
+        wiki_folder, tmp_path, application_id, version, key):
+    set_setting(wiki_folder, "UPDATE site_settings SET site_name = ? WHERE id = 1", ("Current",))
+    older = tmp_path / "older.db"
+    backup.snapshot_database(wiki_folder.database, older)
+    conn = sqlite3.connect(older)
+    conn.execute(f"PRAGMA application_id = {application_id}")
+    conn.execute(f"PRAGMA user_version = {version}")
+    conn.close()
+    path = tmp_path / "older.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.write(older, "bananawiki.db")
+    with pytest.raises(DesktopError) as caught:
+        backup.restore_backup(wiki_folder, path)
+    assert caught.value.key == key
+    assert site_name(wiki_folder) == "Current"
+    assert not (wiki_folder.root / "previous").exists()
+    # Backing up such a folder is still allowed.
+    backup.check_database(older)
 
 
 def test_restore_rejects_a_lying_size(wiki_folder, tmp_path, monkeypatch):

@@ -2,7 +2,7 @@
 {% import "macros/forms.html" as forms with context %}
 <div class="form-grid">
   {{ forms.field('name', t('common.name'), values.name, required=true, attrs={'maxlength': 100}) }}
-  {{ forms.field('icon', t('badges.field.icon'), values.icon or '🏆', attrs={'maxlength': 10}) }}
+  {{ forms.field('icon', t('badges.field.icon'), badge_icon(values.icon), hint=t('badges.field.icon_hint'), attrs={'maxlength': 10}) }}
   <div class="field">
     <label for="f-color">{{ t('badges.field.color') }}</label>
     <input id="f-color" name="color" type="color" value="{{ values.color or '#ffd700' }}">

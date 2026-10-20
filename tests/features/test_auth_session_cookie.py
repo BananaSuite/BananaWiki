@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
 """The session cookie: ``__Host-`` prefixed over HTTPS, moved once from the plain name."""
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
-"""Plain text and excerpts never highlight code (second 1.7 audit).
+"""Plain text and excerpts never highlight code.
 
 Highlighted code is stripped of its markup right away, so highlighting it
-only cost time and, inside :func:`markdown.shared_highlighting`, the
+would only cost time and, inside :func:`markdown.shared_highlighting`, the
 allowance of the page that lists the excerpts (a page-builder page list).
 """
 

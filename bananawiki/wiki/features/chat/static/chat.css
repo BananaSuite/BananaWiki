@@ -28,18 +28,18 @@
   background: var(--surface-2); overflow-wrap: anywhere; }
 .chat-msg--mine { align-self: flex-end; background: color-mix(in srgb, var(--bw-primary) 22%, var(--surface)); }
 .chat-msg--system { align-self: center; max-width: 100%; background: none; padding: 0; }
-.chat-msg__system { margin: 0; font-size: .85rem; color: var(--muted); text-align: center; }
-.chat-msg__meta { display: flex; flex-wrap: wrap; gap: .1rem .5rem; align-items: baseline; font-size: .85rem; }
-.chat-msg__time { color: var(--muted); font-size: .78rem; white-space: nowrap; }
+.chat-msg__system { margin: 0; font-size: var(--font-size-ui); color: var(--muted); text-align: center; }
+.chat-msg__meta { display: flex; flex-wrap: wrap; gap: .1rem .5rem; align-items: baseline; font-size: var(--font-size-ui); }
+.chat-msg__time { color: var(--muted); font-size: var(--font-size-sm); white-space: nowrap; }
 .chat-msg a { text-decoration: underline; text-underline-offset: .15em; }
 /* On the tinted own bubble the accent colour is too faint for small links: use the text colour. */
 .chat-msg--mine a { color: var(--heading); }
 .chat-msg__body { margin: .15rem 0 0; white-space: pre-wrap; }
 .chat-msg__body--deleted { font-style: italic; color: var(--muted); }
-.chat-msg__files { list-style: none; margin: .3rem 0 0; padding: 0; font-size: .9rem; }
+.chat-msg__files { list-style: none; margin: .3rem 0 0; padding: 0; font-size: var(--font-size-ui); }
 .chat-msg__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .25rem; margin-top: .2rem; }
 .chat-msg__actions > form { margin: 0; }
-.chat-msg__reported { margin: .2rem 0 0; font-size: .8rem; color: var(--muted); text-align: right; }
+.chat-msg__reported { margin: .2rem 0 0; font-size: var(--font-size-sm); color: var(--muted); text-align: right; }
 /* With a mouse, the delete and report controls float over the bubble's top corner and show on hover or
    keyboard focus: they take no room, so a bubble ends right after its text. Touch screens keep one row. */
 @media (hover: hover) {
@@ -47,6 +47,9 @@
   .chat-msg__actions { position: absolute; top: .2rem; right: .3rem; margin: 0; flex-wrap: nowrap;
     background: inherit; border-radius: var(--radius-sm); opacity: 0; transition: opacity .12s; }
   .chat-msg:hover .chat-msg__actions, .chat-msg:focus-within .chat-msg__actions { opacity: 1; }
+  /* The header line keeps room for them, so they never cover the name or the time. */
+  .chat-msg:has(.chat-msg__actions > form) .chat-msg__meta { padding-inline-end: 4.5rem; }
+  .chat-msg:has(.chat-msg__actions > form + form) .chat-msg__meta { padding-inline-end: 9rem; }
 }
 .chat-reports { list-style: none; margin: 0; padding: 0; display: grid; }
 .chat-report { padding: 1rem 0; border-bottom: 1px solid var(--border); }

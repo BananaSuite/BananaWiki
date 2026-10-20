@@ -8,7 +8,7 @@
 <section class="page-form">
 <form method="post" class="form">{{ ui.csrf() }}
   {{ ui.field('subdomain', t('hosting.create.subdomain'), form.get('subdomain', ''), required=true,
-      hint=(t('hosting.create.subdomain_hint', example=t('hosting.create.example_name') ~ '-' ~ suffix ~ '.' ~ base_domain) if base_domain and suffix else ''), attrs={'maxlength': 63, 'pattern': '[a-z0-9-]+'}) }}
+      hint=(t('hosting.create.subdomain_hint', example=t('hosting.create.example_name') ~ '-' ~ suffix ~ '.' ~ base_domain) if base_domain and suffix else ''), attrs={'maxlength': 63, 'pattern': '[a-z0-9\\-]+'}) }}
   {% if current_account.is_admin %}
   <div class="field"><label for="f-mode">{{ t('hosting.create.domain_mode') }}</label><select id="f-mode" name="domain_mode">
     <option value="hosting">{{ t('hosting.create.mode_hosting') }}</option><option value="apex"{% if form.get('domain_mode') == 'apex' %} selected{% endif %}>{{ t('hosting.create.mode_apex') }}</option></select></div>

@@ -4,7 +4,7 @@
 .pm-section > h2 { font-size: 1rem; margin-bottom: .35rem; }
 .pm-section > .table-wrap { margin-top: .8rem; }
 .pm-section > .form { margin: 1rem 0; }
-.pm-section-links { display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; font-size: .85rem; }
+.pm-section-links { display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; font-size: var(--font-size-ui); }
 .pm-section-links a { padding: .2rem 0 .45rem; color: var(--muted); border-bottom: 1px solid transparent; }
 .pm-section-links a:hover, .pm-section-links a:focus-visible { color: var(--bw-text); border-bottom-color: var(--bw-primary); text-decoration: none; }
 .pm-filter { max-width: 26rem; margin: 1rem 0; }
@@ -23,7 +23,7 @@
 .pm-table th:last-child { text-align: right; }
 .pm-table__actions > .cluster { justify-content: flex-end; }
 .pm-status { display: inline-flex; align-items: center; gap: .4rem; padding-block: .15rem;
-  color: var(--muted); font-size: .78rem; font-weight: 500; }
+  color: var(--muted); font-size: var(--font-size-sm); font-weight: 500; }
 .pm-status::before { content: ""; width: .4rem; height: .4rem; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
 .pm-status--success { color: var(--success); }
 .pm-status--warning { color: var(--warning); }
@@ -38,7 +38,7 @@
     gap: .5rem .75rem; padding: .9rem 0; border-bottom: 1px solid var(--border); }
   .pm-table td { display: block; padding: 0; border: 0; min-width: 0; overflow-wrap: anywhere; }
   .pm-section .pm-table td:first-child { grid-column: 1 / -1; min-width: 0; }
-  .pm-table__meta::before { content: attr(data-label); display: block; font-size: .7rem; color: var(--muted); }
+  .pm-table__meta::before { content: attr(data-label); display: block; font-size: var(--font-size-xs); color: var(--muted); }
   .pm-table td:nth-child(5) { grid-column: 1 / -1; }
   .pm-table__actions > .cluster { justify-content: flex-start; }
   .pm-section .pm-table td { padding: 0; }
@@ -60,3 +60,4 @@
 .pm-facts dt { color: var(--muted); }
 .pm-facts dd { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 480px) { .pm-facts { grid-template-columns: 1fr; } .pm-facts dd { margin-bottom: .5rem; } }
+.pm-kit { margin-top: 1rem; }

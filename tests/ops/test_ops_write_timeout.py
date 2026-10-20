@@ -1,6 +1,4 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
-"""A client that stops reading a download no longer holds a Gunicorn thread forever (R-27)."""
+"""A client that stops reading a download does not hold a Gunicorn thread forever."""
 
 from __future__ import annotations
 

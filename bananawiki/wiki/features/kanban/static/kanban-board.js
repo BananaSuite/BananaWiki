@@ -44,7 +44,7 @@
   var dragging = null;
   var renderedLanes = false;
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
+  // Helpers
   function el(tag, className, text) {
     var node = document.createElement(tag);
     if (className) node.className = className;
@@ -126,7 +126,7 @@
   };
   K.isShown = function () { return true; };
 
-  // ── Rendering ────────────────────────────────────────────────────────────
+  // Rendering
   function badge(text, extra) {
     return el("span", "badge" + (extra ? " " + extra : ""), text);
   }
@@ -191,7 +191,7 @@
       meta.appendChild(progress);
     }
     ticket.labels.forEach(function (label) { meta.appendChild(badge("+" + label, "badge--primary")); });
-    ticket.assignees.forEach(function (person) { meta.appendChild(badge("@" + person.username)); });
+    ticket.assignees.forEach(function (person) { meta.appendChild(el("span", "kanban-card__assignee", "@" + person.username)); });
     [["attachment_count", "attachments"], ["comment_count", "comments"]].forEach(function (pair) {
       var count = ticket[pair[0]];
       if (!count) return;
@@ -490,7 +490,7 @@
     }).catch(K.fail);
   };
 
-  // ── Applying changes (ours and other people's) ──────────────────────────
+  // Applying changes (ours and other people's)
   function applyColumns(columns) {
     Object.keys(columns || {}).forEach(function (id) {
       var col = column(Number(id));
@@ -581,7 +581,7 @@
     return null;
   }
 
-  // ── Live sync ────────────────────────────────────────────────────────────
+  // Live sync
   var syncDelay = 4000;
   var syncTimer = null;
   var offline = document.querySelector("div#kanban-offline");
@@ -610,7 +610,7 @@
   window.addEventListener("online", function () { syncDelay = 4000; scheduleSync(0); });
   window.addEventListener("offline", function () { if (offline) offline.hidden = false; });
 
-  // ── Actions ──────────────────────────────────────────────────────────────
+  // Actions
   K.moveTicket = function (ticketId, columnId, index) {
     var from = columnOfTicket(ticketId);
     var to = column(columnId);
@@ -811,7 +811,7 @@
     }
   });
 
-  // ── Keyboard moves ───────────────────────────────────────────────────────
+  // Keyboard moves
   // On a ticket's handle: arrows move it (up/down within the column, left/right
   // to the neighbouring column). Alt+arrows do the same from the ticket title.
   root.addEventListener("keydown", function (event) {
@@ -857,7 +857,7 @@
     }
   });
 
-  // ── Pointer drag and drop (mouse, touch and pen) ─────────────────────────
+  // Pointer drag and drop (mouse, touch and pen)
   // Tickets drag from their handle (or anywhere on the card with a mouse);
   // columns drag from their handle. The dragged element itself moves through
   // the DOM while a floating copy follows the pointer.
@@ -1031,7 +1031,7 @@
     setTimeout(function () { document.removeEventListener("click", swallow, true); }, 0);
   }
 
-  // ── Activity panel ───────────────────────────────────────────────────────
+  // Activity panel
   var activityToggle = document.querySelector("button#kanban-activity-toggle");
   var activityPanel = document.querySelector("section#kanban-activity");
 

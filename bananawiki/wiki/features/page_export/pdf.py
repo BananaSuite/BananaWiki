@@ -61,9 +61,9 @@ MARGIN = 18
 _IMAGE_WIDTH = (PAGE_WIDTH - 2 * MARGIN) * 72 / 25.4
 IMAGE_TYPES = frozenset({"png", "jpg", "jpeg", "gif", "webp"})
 _UPLOAD_PATH = re.compile(r"^/static/uploads/([0-9A-Za-z_.-]+)$")
-_ACCENT = (74, 116, 190)
-_MUTED = (110, 116, 130)
-_TEXT = (33, 37, 46)
+_ACCENT = (138, 101, 0)
+_MUTED = (107, 105, 100)
+_TEXT = (32, 33, 36)
 
 
 def _find_font(name: str) -> str | None:
@@ -125,7 +125,7 @@ class _Simplifier(HTMLParser):
         self.images = 0
         self.files: list[str] = []  # what each embedded upload was when it was read
 
-    # Helpers ------------------------------------------------------------------
+    # Helpers
 
     def _link(self, href: str | None) -> str | None:
         if not href:
@@ -147,7 +147,7 @@ class _Simplifier(HTMLParser):
         width = min(self.image_width, size[0] * 0.75)
         return f'<img src="{escape(str(path))}" width="{width:.0f}">'
 
-    # Parser callbacks -----------------------------------------------------------
+    # Parser callbacks
 
     def handle_starttag(self, tag: str, attrs_list) -> None:
         attrs = dict(attrs_list)

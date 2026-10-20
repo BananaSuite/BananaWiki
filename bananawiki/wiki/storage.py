@@ -7,8 +7,8 @@ user wrote it in any script (see :func:`clean_filename`) and offered back in
 streamed to a temporary file in the same folder and renamed into place, so a
 failed upload never leaves a partial file behind.
 
-1.4 also copied attachments into the ``file_blobs`` table. 1.6 stores files on
-disk only; when a file is missing on disk but its blob exists, the blob is
+Files are stored on disk only. Databases upgraded from 1.4 may still hold
+copies in the ``file_blobs`` table; when a file is missing on disk but its blob exists, the blob is
 written back to disk on first access (see :func:`resolve`).
 """
 
@@ -166,7 +166,7 @@ def max_upload_bytes(default: int) -> int:
     return default
 
 
-# ── Storage quota (managed hosting) ──────────────────────────────────────────
+# Storage quota (managed hosting)
 
 _usage_cache: dict[str, tuple[float, int]] = {}
 
@@ -213,7 +213,7 @@ def _note_usage(delta: int) -> None:
         _usage_cache[cfg.instance_dir] = (cached[0], max(0, cached[1] + delta))
 
 
-# ── Saving ────────────────────────────────────────────────────────────────────
+# Saving
 
 
 # Largest image (in pixels) an upload may decode to: 40 megapixels, beyond any camera photo.
@@ -351,7 +351,7 @@ def save(
     return StoredFile(folder, name, original, size, mime, digest.hexdigest())
 
 
-# ── Reading ───────────────────────────────────────────────────────────────────
+# Reading
 
 
 def resolve(folder: str, filename: str, *, blob_id: int | None = None) -> Path | None:

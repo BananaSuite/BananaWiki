@@ -77,7 +77,7 @@ class Worker:
         self._last_reason: str | None = None
         self._threads: list[threading.Thread] = []
 
-    # Threads -------------------------------------------------------------
+    # Threads
 
     def start(self, *, daemon: bool = True) -> None:
         for index in range(self.threads):
@@ -149,7 +149,7 @@ class Worker:
             except Exception:  # noqa: BLE001
                 log.exception("Read-aloud lease renewal failed")
 
-    # Lifecycle -----------------------------------------------------------
+    # Lifecycle
 
     def alive(self) -> bool:
         return any(thread.is_alive() for thread in self._threads)
@@ -175,7 +175,7 @@ class Worker:
             log.info("Returned %s unfinished read-aloud job(s) to the queue", len(unfinished))
 
 
-# ── Inline worker (inside the web process) ────────────────────────────────────
+# Inline worker (inside the web process)
 
 _inline: dict[int, Worker] = {}
 _inline_lock = threading.Lock()
@@ -195,7 +195,7 @@ def start_inline(app: Flask) -> None:
         log.info("Read-aloud inline worker started with %s thread(s)", worker.threads)
 
 
-# ── Standalone process ────────────────────────────────────────────────────────
+# Standalone process
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:

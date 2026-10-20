@@ -23,7 +23,7 @@
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
 /* Smaller, not fainter: the counter keeps the text colour so it stays readable (WCAG AA). */
-.announcement__counter, .announcement__countdown { font-size: .75rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.announcement__counter, .announcement__countdown { font-size: var(--font-size-xs); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .announcement__countdown { padding: .1rem .4rem; border-radius: var(--radius-sm); background: color-mix(in srgb, currentColor 12%, transparent); }
 
 /* The text mixes the colour with the theme's text colour: 70% on dark backgrounds, 45% on light ones,
@@ -35,13 +35,14 @@
 .announcement--yellow { background: color-mix(in srgb, #d2aa5a 16%, var(--bw-bg)); color: color-mix(in srgb, #c49a3e var(--announce-mix), var(--bw-text)); }
 .announcement--blue { background: color-mix(in srgb, #6e8aca 18%, var(--bw-bg)); color: color-mix(in srgb, #6e8aca var(--announce-mix), var(--bw-text)); }
 .announcement--green { background: color-mix(in srgb, #64b464 16%, var(--bw-bg)); color: color-mix(in srgb, #5ca85c var(--announce-mix), var(--bw-text)); }
-.announcement--small .announcement__body, .announcement-full.announcement--small .content { font-size: .8rem; }
-.announcement--normal .announcement__body, .announcement-full.announcement--normal .content { font-size: .9rem; }
+.announcement--small .announcement__body, .announcement-full.announcement--small .content { font-size: var(--font-size-sm); }
+.announcement--normal .announcement__body, .announcement-full.announcement--normal .content { font-size: var(--font-size-ui); }
 .announcement--large .announcement__body, .announcement-full.announcement--large .content { font-size: 1rem; }
-.announcement a { color: inherit; }
+/* Links keep the announcement's text colour (its contrast is checked above), so the underline marks them. */
+.announcement a, .announcement-full .content a { color: inherit; text-decoration: underline; text-underline-offset: .15em; }
 
 .announcement-full { padding: 1rem 1.25rem; border-radius: var(--radius); margin-bottom: 1rem; }
-.announcement-full__expiry { font-size: .82rem; margin: .75rem 0 0; }
+.announcement-full__expiry { font-size: var(--font-size-sm); margin: .75rem 0 0; }
 .announcement-admin-list { display: grid; border-top: 1px solid var(--border); }
 .announcement-admin { display: grid; gap: .65rem; padding: .9rem .5rem .9rem .75rem;
   border-left: 3px solid var(--border); border-bottom: 1px solid var(--border); }

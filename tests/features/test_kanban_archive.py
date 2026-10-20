@@ -26,7 +26,7 @@ def archived(client, board_id):
     return client.get(f"/api/kanban/{board_id}/archived").get_json()
 
 
-# ── Tickets ──────────────────────────────────────────────────────────────────
+# Tickets
 
 
 def test_archiving_a_ticket_takes_it_off_the_board(admin_client, board, db, admin):
@@ -163,7 +163,7 @@ def test_export_import_keep_archive_state(admin_client, board, db):
     assert db.scalar("SELECT sort_order FROM kanban_tickets WHERE title = 'Active' AND id > ?", (gone["id"],)) == 0
 
 
-# ── Boards ───────────────────────────────────────────────────────────────────
+# Boards
 
 
 def test_archived_board_is_hidden_and_read_only(app, admin_client, db, board, make_user, login):
@@ -216,7 +216,7 @@ def test_hidden_archived_boards_stay_hidden(app, admin_client, db, board, make_u
     assert db.scalar("SELECT archived_at FROM kanban_boards WHERE id = ?", (board,))
 
 
-# ── History page ─────────────────────────────────────────────────────────────
+# History page
 
 
 def test_history_entry_shows_limits_checklists_archive_and_changes(admin_client, board, db):
@@ -261,7 +261,7 @@ def test_history_changes_unit():
     assert history.changes(new, new) == []
 
 
-# ── Board page and schema ────────────────────────────────────────────────────
+# Board page and schema
 
 
 def test_board_page_has_lanes_archive_and_no_inline_scripts(admin_client, board):

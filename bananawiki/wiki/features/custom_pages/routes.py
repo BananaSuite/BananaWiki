@@ -68,7 +68,7 @@ def _form_context(page: dict | None, form=None) -> dict:
     }
 
 
-# ── Administration ────────────────────────────────────────────────────────────
+# Administration
 
 
 @bp.get("/admin/custom-pages")
@@ -154,7 +154,7 @@ def admin_file_delete(file_id: int):
     return redirect(url_for("custom_pages.admin_edit", page_id=row["custom_page_id"]))
 
 
-# ── Public serving (published pages are public on purpose, unless the host forbids it) ──
+# Public serving (published pages are public on purpose, unless the host forbids it)
 
 
 def _members_gate(page: dict | None):

@@ -183,6 +183,33 @@ def test_admin_routes(client, login, people, db):
     assert client.get("/admin/temporary").status_code == 200
 
 
+def test_account_schedules_are_removed_only_within_the_hierarchy(app, client, login, people, db):
+    admin, admin2, owner = people["admin"], people["admin2"], people["owner"]
+    with app.test_request_context(), connection_scope():
+        for target in (admin, admin2):
+            service.schedule_role_revert(target, "user", SOON, show_countdown=True, actor=owner)
+            service.schedule_account_deletion(target, SOON, show_countdown=True, actor=owner)
+        with pytest.raises(TemporaryError) as refused:
+            service.remove("role", admin["id"], actor=admin)
+        assert refused.value.key == "temporary_accounts.error.self_remove"
+    login(client, admin)
+    assert "/remove" not in client.get("/admin/temporary").get_data(as_text=True)
+    for kind in ("role", "user"):
+        for target in (admin, admin2):
+            assert client.post(f"/admin/temporary/{kind}/{target['id']}/remove").status_code == 302
+    assert db.scalar("SELECT COUNT(*) FROM temp_roles") == 2
+    assert db.scalar("SELECT COUNT(*) FROM temp_users") == 2
+    _expire(db, "temp_roles")
+    with app.test_request_context(), connection_scope():
+        service.run_expiry()
+    assert db.scalar("SELECT role FROM users WHERE id = ?", (admin["id"],)) == "user"
+    client.post("/logout")
+    login(client, owner)
+    assert client.post(f"/admin/temporary/user/{admin['id']}/remove").status_code == 302
+    assert client.post(f"/admin/temporary/user/{admin2['id']}/remove").status_code == 302
+    assert db.scalar("SELECT COUNT(*) FROM temp_users") == 0
+
+
 def test_manual_role_change_drops_revert(ctx, db, people):
     service.schedule_role_revert(people["editor"], "user", SOON, show_countdown=True, actor=people["admin"])
     registry.emit("user.role_changed", user=people["editor"], old_role="editor", new_role="admin",

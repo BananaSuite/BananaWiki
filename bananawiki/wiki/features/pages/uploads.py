@@ -92,7 +92,7 @@ def save_image(upload: FileStorage | None, user: dict[str, Any]) -> dict[str, st
     return {"url": URL_PREFIX + stored.filename, "filename": stored.filename}
 
 
-# ── Clean-up ──────────────────────────────────────────────────────────────────
+# Clean-up
 
 
 def _text_columns(table: str) -> list[str]:

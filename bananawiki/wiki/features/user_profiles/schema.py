@@ -1,7 +1,7 @@
 """Custom profile field tables.
 
-1.4 created these only when the ``user_profiles`` plugin loaded; 1.6 creates
-them for every database so the data layer never depends on a feature switch.
+Created for every database, whether or not the feature is on, so the data
+layer never depends on a feature switch.
 """
 
 from __future__ import annotations

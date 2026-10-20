@@ -57,8 +57,8 @@ MAX_REQUIRES = 20
 
 PLUGIN_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 
-# 1.4 plugins that are no longer part of BananaWiki (see MIGRATION.md). Their
-# rows stay in ``plugins`` and are shown as retired; nothing under these ids
+# 1.4 plugins that BananaWiki does not ship (see "Retired 1.4 plugins" in
+# features/plugin_manager/PLUGINS.md). Their rows stay in ``plugins`` and are shown as retired; nothing under these ids
 # is ever loaded.
 RETIRED_IDS = frozenset({
     "banana_ai", "feedback", "meetings", "beta_testers", "git_override", "oauth_login",
@@ -66,7 +66,7 @@ RETIRED_IDS = frozenset({
     "chat_cleanup", "groups",
 })
 
-# Ids of the 1.4 built-in plugins. Whether or not a 1.6 feature carries the
+# Ids of the 1.4 built-in plugins. Whether or not a current feature carries the
 # same id, an uploaded plugin may never take one of them.
 LEGACY_BUILTIN_IDS = frozenset({
     "announcements", "api_service", "assessments", "attachments", "audit", "badges", "canvas", "chat",
@@ -187,7 +187,7 @@ def reserved_ids(feature_ids: Iterable[str]) -> frozenset[str]:
     return frozenset(x.casefold() for x in (*feature_ids, *LEGACY_BUILTIN_IDS, *RETIRED_IDS, *RESERVED_NAMES))
 
 
-# ── Table guard ──────────────────────────────────────────────────────────────
+# Table guard
 
 _SQLITE_INTERNAL = frozenset({"sqlite_master", "sqlite_schema", "sqlite_temp_master", "sqlite_temp_schema",
                               "sqlite_sequence", "sqlite_stat1", "sqlite_stat4"})
@@ -274,7 +274,7 @@ def guarded(conn: sqlite3.Connection, prefixes: Iterable[str], *, read_only: boo
         conn.set_authorizer(None)
 
 
-# ── Runtime state ────────────────────────────────────────────────────────────
+# Runtime state
 
 
 @dataclass
@@ -416,7 +416,7 @@ def runtime() -> Runtime:
     return current_app.extensions[EXTENSION]
 
 
-# ── Loading ──────────────────────────────────────────────────────────────────
+# Loading
 
 
 def _forget_modules(package: str) -> None:

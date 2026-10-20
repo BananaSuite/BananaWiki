@@ -9,6 +9,6 @@
 {% if nav.categories or nav.uncategorized.count %}
 {% with manage_order=false %}{% include "pages/_tree.html" %}{% endwith %}
 {% else %}
-<div class="card empty-state"><h2>{{ t('pages.welcome.empty_title') }}</h2><p>{{ t('pages.welcome.empty_body') }}</p></div>
+<div class="empty-state"><h2>{{ t('pages.welcome.empty_title') }}</h2><p>{{ t('pages.welcome.empty_body') }}</p></div>
 {% endif %}
 {% endblock %}

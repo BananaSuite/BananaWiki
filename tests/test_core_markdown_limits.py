@@ -160,7 +160,7 @@ def test_fence_display_options_cannot_become_unbounded_pygments_arguments(monkey
     observed = []
 
     def checked_highlighter(*args, **kwargs):
-        # Reject a regression before any oversized tab expansion can run.
+        # Fail before any oversized tab expansion can run.
         assert kwargs["tabsize"] <= 16
         assert kwargs["linenostart"] <= markdown.MAX_SOURCE_CHARS
         assert kwargs["guess_lang"] is False
@@ -293,7 +293,7 @@ _REPEATED_WATCH_URL = "https://youtube.com/watch?" + "youtube.com/watch?" * 55_0
     ("<" + _REPEATED_WATCH_URL + ">", '<p><a href="https://youtube.com/watch?youtube.com/'),
 ], ids=["bare", "autolink"])
 def test_overlong_video_links_stay_links_in_linear_time(source, prefix):
-    # Player detection used to rescan the rest of the URL from every "watch?".
+    # Player detection must not rescan the rest of the URL from every "watch?".
     assert len(source) < markdown.MAX_SOURCE_CHARS
     html = _render_with_deadline(source)
     assert html.startswith(prefix) and "bw-video" not in html
@@ -337,7 +337,7 @@ def test_embeds_per_document_are_capped_and_the_rest_stay_literal():
 
 def test_only_the_first_toc_marker_becomes_a_table_of_contents():
     headings = "".join(f"## Section {number}\n\n" for number in range(markdown.MAX_HEADINGS))
-    # 13 KB of source used to produce about 48 MB of HTML.
+    # Otherwise 13 KB of source would produce about 48 MB of HTML.
     html = _render_with_deadline("[TOC]\n\n" + headings + "[TOC]\n\n" * 800)
     assert html.count('<div class="toc">') == 1
     assert html.count('href="#section-999"') == 1
@@ -449,8 +449,8 @@ _UNCLOSED_HL_LINES_BODY = ('"\n' * 10 + "\n") * 4000
     '````{a}b}\n```hl_lines="1"\n\n' + _UNCLOSED_HL_LINES_BODY,
 ], ids=["short_page", "spaces_before_value", "after_a_skipped_fence"])
 def test_excerpt_allowances_cover_hl_lines_values_that_never_close(monkeypatch, source):
-    # Each later line ending in the quote restarted the search for a closer:
-    # such a 4 KB start took eight seconds per excerpt.
+    # A later line ending in the quote must not restart the search for a closer:
+    # such a 4 KB start would take eight seconds per excerpt.
     rendered = []
     plain_text = markdown.to_plain_text
     monkeypatch.setattr(markdown, "to_plain_text", lambda text: rendered.append(text) or plain_text(text))

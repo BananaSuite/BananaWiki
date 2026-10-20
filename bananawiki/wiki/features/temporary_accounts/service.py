@@ -8,8 +8,7 @@ Four schedules, each one row per page or user (1.4 tables):
 * ``temp_users`` - delete an account at ``expires_at``;
 * ``temp_roles`` - put a user's role back to ``original_role`` at ``expires_at``.
 
-The expiry job runs only while the feature is enabled (1.4 ran it even when
-the plugin was off). Every item is handled in its own transaction after
+The expiry job runs only while the feature is enabled. Every item is handled in its own transaction after
 re-reading it, so several workers or a re-run never act twice. Deletions go
 through the pages service and :mod:`accounts`, so ``page.deleted`` and
 ``user.deleted`` fire as for any other deletion. A page deletion first asks
@@ -77,7 +76,7 @@ def _check_account_target(target: dict[str, Any], actor: dict[str, Any]) -> None
         raise TemporaryError(error)
 
 
-# ── Scheduling ───────────────────────────────────────────────────────────────
+# Scheduling
 
 
 def schedule_page_deletion(page: dict[str, Any], expires: datetime | None, *, show_countdown: bool,
@@ -134,13 +133,30 @@ _TABLES = {"page": ("temp_pages", "page_id"), "visibility": ("temp_page_index_st
            "user": ("temp_users", "user_id"), "role": ("temp_roles", "user_id")}
 
 
-def remove(kind: str, key: Any) -> bool:
-    """Drop a schedule and keep things as they are now."""
+def removal_error(target: dict[str, Any], actor: dict[str, Any]) -> str | None:
+    """Why *actor* may not drop a schedule on *target*'s account, or None."""
+    # A temporary role or a planned deletion is not undone by the account it limits.
+    if target["id"] == actor["id"]:
+        return None if admin_service.is_top(actor) else "temporary_accounts.error.self_remove"
+    return admin_service.protection_error(actor, target)
+
+
+def remove(kind: str, key: Any, *, actor: dict[str, Any] | None = None) -> bool:
+    """Drop a schedule and keep things as they are now.
+
+    With *actor*, account schedules follow the same hierarchy as scheduling.
+    """
     table, column = _TABLES[kind]
-    return bool(db.execute(f"DELETE FROM {table} WHERE {column} = ?", (key,)).rowcount)
+    with db.transaction():
+        if actor is not None and kind in ("user", "role"):
+            target = accounts.by_id(key)
+            error = removal_error(target, actor) if target is not None else None
+            if error:
+                raise TemporaryError(error)
+        return bool(db.execute(f"DELETE FROM {table} WHERE {column} = ?", (key,)).rowcount)
 
 
-# ── Reading ──────────────────────────────────────────────────────────────────
+# Reading
 
 
 def page_schedule(page_id: int) -> dict[str, Any] | None:
@@ -172,7 +188,7 @@ def overview() -> dict[str, list[dict[str, Any]]]:
     }
 
 
-# ── Expiry job ───────────────────────────────────────────────────────────────
+# Expiry job
 
 
 def _admins() -> int:

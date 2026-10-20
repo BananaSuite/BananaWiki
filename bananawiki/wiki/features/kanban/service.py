@@ -53,7 +53,7 @@ def _column_payload(column: dict[str, Any]) -> dict[str, Any]:
             "done": bool(column.get("is_done")), "tickets": store.ticket_ids(column["id"])}
 
 
-# ── Boards ────────────────────────────────────────────────────────────────────
+# Boards
 
 
 def create_board(user: User, title: Any, description: Any = "", *, default_columns: bool = True) -> dict[str, Any]:
@@ -124,7 +124,7 @@ def restore_board(board: dict[str, Any], user: User | None) -> dict[str, Any]:
     return fresh
 
 
-# ── Sharing ───────────────────────────────────────────────────────────────────
+# Sharing
 
 
 def _access_changed(board_id: int, unassigned: list[int], user: User | None) -> None:
@@ -218,8 +218,10 @@ def transfer(board: dict[str, Any], new_owner_id: str, user: User | None = None)
     owner = db.one("SELECT id, username FROM users WHERE id = ?", (str(new_owner_id or ""),))
     if owner is None:
         raise KanbanError("kanban.error.user_not_found")
-    db.update("kanban_boards", {"created_by": owner["id"]}, "id = ?", (board["id"],))
-    signals.board_changed(board["id"], user)
+    with db.transaction():
+        db.update("kanban_boards", {"created_by": owner["id"]}, "id = ?", (board["id"],))
+        unassigned = remove_invalid_assignees(store.get_board(board["id"]) or board)
+    _access_changed(board["id"], unassigned, user)
     return owner
 
 
@@ -270,7 +272,7 @@ def apply_global_settings() -> None:
         signals.tickets_changed("updated", ticket_ids, board_id, None)
 
 
-# ── Board order ───────────────────────────────────────────────────────────────
+# Board order
 
 
 def _order_key(user: User | None) -> str | None:
@@ -319,7 +321,7 @@ def list_order_version() -> str:
     return format(zlib.crc32(",".join(map(str, _saved_order(None))).encode()), "08x")
 
 
-# ── Columns ───────────────────────────────────────────────────────────────────
+# Columns
 
 
 def create_column(board: dict[str, Any], user: User, title: Any) -> dict[str, Any]:
@@ -414,7 +416,7 @@ def reorder_columns(board: dict[str, Any], order: list[Any], user: User) -> list
     return ordered
 
 
-# ── Tickets ───────────────────────────────────────────────────────────────────
+# Tickets
 
 
 def _assignees(board: dict[str, Any], raw: Any, *, strict: bool) -> list[str]:
@@ -682,7 +684,7 @@ def _bulk_move(tickets: list[dict[str, Any]], target: dict[str, Any]) -> None:
     store.write_ticket_order(target["id"], staying + moving)
 
 
-# ── Archive ───────────────────────────────────────────────────────────────────
+# Archive
 
 
 def archive_tickets(board: dict[str, Any], tickets: list[dict[str, Any]], user: User | None) -> int:
@@ -763,7 +765,7 @@ def ticket_detail(ticket: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# ── Checklists ────────────────────────────────────────────────────────────────
+# Checklists
 
 
 def _checklist_changed(board: dict[str, Any], ticket: dict[str, Any], user: User) -> dict[str, Any]:
@@ -832,7 +834,7 @@ def reorder_checklist(board: dict[str, Any], ticket: dict[str, Any], order: list
     return result
 
 
-# ── My tickets ────────────────────────────────────────────────────────────────
+# My tickets
 
 MY_TICKETS_LIMIT = 500
 
@@ -891,12 +893,13 @@ def assigned_tickets(user: User, limit: int = MY_TICKETS_LIMIT,
     return result
 
 
-# ── Revert ────────────────────────────────────────────────────────────────────
+# Revert
 
 
 def revert(board: dict[str, Any], entry: dict[str, Any], user: User) -> dict[str, int]:
     with db.transaction():
         result = history.revert(board, entry["state"], user["id"])
+        remove_invalid_assignees(board)  # the snapshot may name people who lost access since
         message = logtext.message("kanban.log.reverted", id=entry["id"])
         events.append(board["id"], "board_reset", {}, user["id"])
         events.log_activity(board["id"], user["id"], "board_reverted", message)
@@ -905,7 +908,7 @@ def revert(board: dict[str, Any], entry: dict[str, Any], user: User) -> dict[str
     return result
 
 
-# ── Account clean-up ──────────────────────────────────────────────────────────
+# Account clean-up
 
 
 _HANDED_OVER = "_kanban_handed_over"
@@ -961,8 +964,8 @@ def release(session: Session, user_id: str, deleted_by: str | None = None) -> Re
     and comments to the owner of the board they are on, each comment headed
     by a note naming its author (:func:`_credit`); it leaves assignee lists,
     shares and saved orders. With no other administrator left, the
-    account's own boards are deleted with it, as before; what it added to
-    other people's boards is still kept. Needs no Flask application: the
+    account's own boards are deleted with it; what it added to other
+    people's boards is still kept. Needs no Flask application: the
     hosting operator's "remove wiki user" task (:mod:`bananawiki.ops.tenant_task`)
     calls it directly, :func:`hand_over` everywhere else.
     """

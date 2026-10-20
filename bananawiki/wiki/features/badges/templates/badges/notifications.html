@@ -8,13 +8,13 @@
 {% if items %}
 <ul class="badge-notices">
   {% for item in items %}
-  <li><strong><span aria-hidden="true">{{ item.icon }}</span> {{ item.name }}</strong>
+  <li><strong class="badge-name">{{ badge_mark(item) }}{{ item.name }}</strong>
     {% if item.description %}<p>{{ item.description }}</p>{% endif %}
     <p class="small muted">{{ item.created_at|time_ago }}</p></li>
   {% endfor %}
 </ul>
 <p class="users-spaced">{{ forms.post_button(url_for('badges.dismiss'), t('badges.notifications.dismiss'), cls='btn btn--primary') }}</p>
 {% else %}
-<div class="card empty-state"><p>{{ t('badges.notifications.none') }}</p></div>
+<p class="empty-state">{{ t('badges.notifications.none') }}</p>
 {% endif %}
 {% endblock %}

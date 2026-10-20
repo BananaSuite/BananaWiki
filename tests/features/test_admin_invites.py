@@ -110,7 +110,7 @@ def test_view_only_editor_cannot_generate(client, make_user, login, db):
     assert generate(client).status_code == 403
 
 
-# ── Delegated invites stay within the inviter's own rights ───────────────────
+# Delegated invites stay within the inviter's own rights
 
 
 def _custom_role(db, name, base_role, keys, *, write_ids=None):

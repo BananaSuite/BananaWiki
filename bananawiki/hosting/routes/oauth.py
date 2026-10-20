@@ -7,11 +7,13 @@ session): ``/oauth/token``, ``/oauth/userinfo`` (alias ``/oauth/me``),
 
 Wiki authentication for ``token``, ``link``, ``unlink`` and ``link-status``:
 HTTP Basic ``client_id:client_secret`` (preferred), or ``client_id`` and
-``client_secret`` form/JSON fields (1.4). ``link`` and ``unlink`` also accept
-1.4's JSON body with ``instance_id`` and ``client_secret``. Unlike 1.4,
-``link-status`` requires the wiki's credentials, and a wiki may only link a
+``client_secret`` form/JSON fields (as 1.4 wikis send them). ``link`` and
+``unlink`` also accept 1.4's JSON body with ``instance_id`` and
+``client_secret``. ``link-status`` requires the wiki's credentials, and a wiki may only link a
 hosting account that has signed in to it (holds a live access token).
-Every endpoint answers 404 while platform sign-in is switched off.
+Every endpoint answers 404 while platform sign-in is switched off. The
+server-to-server endpoints are exempt from the account gates: they take
+bearer or client credentials, never a portal session.
 
 An account merge moves the source's links to the target here only, so the
 wiki's own row still names the source. ``link-status`` therefore also answers
@@ -116,7 +118,7 @@ def authorize():
 
 @bp.post("/oauth/token")
 @auth.public
-@auth.exempt(*auth.GATES)  # bearer or client credentials; a portal session plays no part
+@auth.exempt(*auth.GATES)
 @csrf_exempt
 @_enabled
 @rate_limit(20)
@@ -150,7 +152,7 @@ def _bearer() -> tuple[dict[str, Any] | None, Any]:
 @bp.get("/oauth/userinfo")
 @bp.get("/oauth/me")
 @auth.public
-@auth.exempt(*auth.GATES)  # bearer or client credentials; a portal session plays no part
+@auth.exempt(*auth.GATES)
 @_enabled
 @rate_limit(60)
 def userinfo():
@@ -169,7 +171,7 @@ def userinfo():
 
 @bp.get("/oauth/verify")
 @auth.public
-@auth.exempt(*auth.GATES)  # bearer or client credentials; a portal session plays no part
+@auth.exempt(*auth.GATES)
 @_enabled
 @rate_limit(60)
 def verify():
@@ -187,7 +189,7 @@ def verify():
 
 @bp.get("/oauth/link-status")
 @auth.public
-@auth.exempt(*auth.GATES)  # bearer or client credentials; a portal session plays no part
+@auth.exempt(*auth.GATES)
 @_enabled
 @rate_limit(60)
 def link_status():
@@ -212,7 +214,7 @@ def link_status():
 
 @bp.post("/oauth/link")
 @auth.public
-@auth.exempt(*auth.GATES)  # bearer or client credentials; a portal session plays no part
+@auth.exempt(*auth.GATES)
 @csrf_exempt
 @_enabled
 @rate_limit(30)
@@ -250,7 +252,7 @@ def link():
 
 @bp.post("/oauth/unlink")
 @auth.public
-@auth.exempt(*auth.GATES)  # bearer or client credentials; a portal session plays no part
+@auth.exempt(*auth.GATES)
 @csrf_exempt
 @_enabled
 @rate_limit(30)

@@ -1,4 +1,4 @@
-"""Shared fixtures for the BananaWiki 1.6 test suite.
+"""Shared fixtures for the test suite.
 
 * ``app``      - a fresh wiki in a temporary instance directory, setup done.
 * ``client``   - a test client for that wiki (CSRF checks off; see ``csrf_client``).

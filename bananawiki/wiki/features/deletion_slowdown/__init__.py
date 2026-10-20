@@ -1,6 +1,6 @@
 """Deletion slowdown: a 48-hour grace period before deleted pages are gone.
 
-Switched by the ``deletion_slowdown`` row in ``plugins`` (as in 1.4). It
+Switched by the ``deletion_slowdown`` row in ``plugins``. It
 takes over page deletion through the ``page.delete`` interceptor; the purge
 runs as a job, so it stops while the feature is off (see :mod:`.service` for
 what happens to pages that were already waiting).

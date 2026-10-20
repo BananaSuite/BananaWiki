@@ -1,4 +1,4 @@
-"""Listing a ticket's comments costs a bounded amount of work per request (second 1.7 audit).
+"""Listing a ticket's comments costs a bounded amount of work per request.
 
 * The comments of one listing share one highlighting allowance, like the
   blocks of a page; what a listing could not highlight comes from later ones.
@@ -126,9 +126,8 @@ def _expanding_comment(n: int) -> str:
 
 
 def test_a_listing_renders_a_bounded_amount_of_html(admin_client, db, ticket, admin, monkeypatch):
-    # Second 1.7 audit (WCA-1 follow-up): the highlighting allowance bounded code, but
-    # reference links expand each comment to ~200 KB, so 300 of them made every listing
-    # render and send ~60 MB.
+    # The highlighting allowance bounds code only: reference links can expand each comment to
+    # ~200 KB, so 300 of them would make every listing render and send ~60 MB.
     url = f"/api/kanban/tickets/{ticket['id']}/comments"
     count = 60
     _comment_rows(db, ticket["id"], admin["id"], [_expanding_comment(n) for n in range(count - 1)])

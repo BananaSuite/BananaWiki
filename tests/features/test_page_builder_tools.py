@@ -51,7 +51,7 @@ def editor_client(app, make_user, login, name="editor1"):
     return other
 
 
-# ── Embed picker ──────────────────────────────────────────────────────────────
+# Embed picker
 
 
 def test_embeddables_list_what_the_editor_can_open(builder_on, admin_client, canvas, board):
@@ -95,7 +95,7 @@ def test_embeddables_are_rate_limited(builder_on, admin_client, monkeypatch):
     assert admin_client.get("/api/page-builder/embeddables").status_code == 429
 
 
-# ── Live embed previews ───────────────────────────────────────────────────────
+# Live embed previews
 
 
 def test_embed_frame_shows_the_published_placeholder_with_embed_scripts(builder_on, admin_client, canvas):
@@ -118,7 +118,7 @@ def test_embed_frame_refuses_bad_input_and_outsiders(builder_on, app, db, admin_
     assert client.get("/page-builder/embed-frame?kind=kanban&ref=1").status_code == 403
 
 
-# ── Clipboard ─────────────────────────────────────────────────────────────────
+# Clipboard
 
 
 def test_clipboard_blocks_are_validated_by_the_server(builder_on, admin_client):
@@ -140,7 +140,7 @@ def test_clipboard_needs_builder_access(builder_on, client, make_user, login):
     assert post(client, "/api/page-builder/clipboard", body).status_code == 403
 
 
-# ── Saved sections ────────────────────────────────────────────────────────────
+# Saved sections
 
 
 SECTION = {"version": 2, "blocks": [{"type": "callout", "title": "Note", "text": "Reusable"}, {"type": "divider"}]}
@@ -180,7 +180,7 @@ def test_section_validation(builder_on, admin_client, db, monkeypatch):
     assert db.scalar("SELECT COUNT(*) FROM page_builder_sections") == 1
 
 
-def test_editor_page_exposes_the_new_endpoints(builder_on, admin_client, page):
+def test_editor_page_exposes_the_embed_clipboard_and_draft_endpoints(builder_on, admin_client, page):
     html = admin_client.get(f"/page/{page['slug']}/builder").get_data(as_text=True)
     for attribute in ('data-embeddables-url="/api/page-builder/embeddables"',
                       'data-embed-frame-url="/page-builder/embed-frame"',

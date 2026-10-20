@@ -31,7 +31,7 @@ SNAPSHOT_KEEP = 5
 _SNAPSHOT_NAME = re.compile(r"^\d{8}T\d{6}Z-[A-Za-z0-9_-]+(?:-\d+)?\.db$")
 MAX_ORDER_LENGTH = 500
 
-# 1.4 sidebar order keys that name a part of a 1.6 feature.
+# 1.4 sidebar order keys that name a part of a current feature.
 LEGACY_APP_KEYS = {"chats": "chat", "groups": "chat", "reservations": "page_governance"}
 
 
@@ -206,7 +206,7 @@ def enabled_dependents(entry: Entry) -> list[str]:
     return [dep for dep in entry.required_by if dep in known and known[dep].stored]
 
 
-# ── Changes ──────────────────────────────────────────────────────────────────
+# Changes
 
 
 def set_state(entry: Entry, enabled: bool) -> None:
@@ -229,7 +229,7 @@ def remove_row(plugin_id: str) -> None:
     db.execute("DELETE FROM plugins WHERE id = ?", (plugin_id,))
 
 
-# ── Password, backups, restart ───────────────────────────────────────────────
+# Password, backups, restart
 
 
 def password_ok(password: str) -> bool:
@@ -261,7 +261,9 @@ def backup_database(plugin_id: str) -> Path:
 
 def restart_mode() -> str:
     """``gunicorn`` when a SIGHUP to the master reloads the code, else ``preloaded`` or ``manual``."""
-    if not request.environ.get("SERVER_SOFTWARE", "").startswith("gunicorn/"):
+    from ..site_admin import server
+
+    if not request.environ.get("SERVER_SOFTWARE", "").startswith("gunicorn/") or not server.gunicorn_master_pid():
         return "manual"
     if plugins_external.runtime().loaded_pid != os.getpid():
         return "preloaded"  # the app was imported by the master (preload_app): HUP keeps the old code
@@ -285,7 +287,7 @@ def request_restart() -> bool:
     return True
 
 
-# ── Sidebar order ────────────────────────────────────────────────────────────
+# Sidebar order
 
 
 def sidebar_apps() -> list[dict[str, Any]]:

@@ -1,18 +1,13 @@
 """Hosted wikis on storage without XFS project quotas: ``BW_HOSTING_TENANT_QUOTAS`` (auto, required, off).
 
-The incident these tests reproduce: a hosting server running ``b8bc352``,
-its wiki storage on ext4 and its wikis routed by a reverse proxy other than
-Caddy (no Caddy at all), was updated by its installed (old) updater to a
-release whose runtime agent required XFS project quotas. The old updater
-cannot check anything the new release needs: it stopped the wikis, wrote
-its own (generation 2) units, started the new agent, portal and
-maintenance service, and waited. The agent refused every wiki
-(``tenant.quota``: "Tenant storage must be an XFS filesystem with enforced
-project quotas"), so after the 360 s readiness timeout the update was rolled
-back, and automatic updates repeated it every hour.
+An older installed updater cannot check anything a new release needs: on a
+server whose wiki storage is ext4, it stops the wikis, writes its own
+(generation 2) units, starts the new agent, portal and maintenance service,
+and waits for readiness. In ``auto`` mode the agent starts every wiki without
+hard quotas instead of refusing the storage, so that update completes.
 
 Here the real runtime agent runs against a simulated Docker host, with what
-that old updater leaves behind: the agent's generation 2 sandbox (no
+an old updater leaves behind: the agent's generation 2 sandbox (no
 ``CAP_SYS_PTRACE``, so ``/proc/<pid>/root`` of a tenant is out of reach, and
 no quota system calls), tenant networks created by the 1.6 agent (Docker's
 ``br-<id>`` bridges) and routes Caddy never acknowledged.
@@ -108,7 +103,7 @@ class Ext4Platform:
         return self.host.containers[container_name(str((self.instances / name).resolve()))]
 
 
-# The incident ----------------------------------------------------------------------------------------------
+# Storage without quotas, after an update by an older updater
 
 
 def test_after_an_old_updater_install_the_maintenance_service_starts_every_wiki_without_hard_quotas(tmp_path):
@@ -195,7 +190,7 @@ def test_a_new_wiki_needs_free_space_when_quotas_are_not_enforced(tmp_path):
     assert failure.value.code == "no_space"
 
 
-# Without hard quotas the actual mount is still compared with the tenant directory ---------------------------
+# Without hard quotas the actual mount is still compared with the tenant directory
 
 
 def current_units(server: Ext4Platform) -> None:
@@ -251,7 +246,7 @@ def test_without_hard_quotas_a_task_on_a_swapped_directory_is_refused(tmp_path):
     assert not server.host.containers, "the task container was removed"
 
 
-def test_an_agent_unit_that_cannot_inspect_mounts_starts_wikis_as_16_did_and_says_so(tmp_path, caplog):
+def test_an_agent_unit_that_cannot_inspect_mounts_starts_wikis_unverified_and_says_so(tmp_path, caplog):
     """Units an older updater wrote (no CAP_SYS_PTRACE): the comparison is impossible until they converge."""
     server = Ext4Platform(tmp_path)
     with caplog.at_level(logging.WARNING, logger="bananawiki.agent"):
@@ -260,7 +255,7 @@ def test_an_agent_unit_that_cannot_inspect_mounts_starts_wikis_as_16_did_and_say
     assert len(warnings) == 1 and "'bananawiki update'" in warnings[0]
 
 
-# The three settings ------------------------------------------------------------------------------------------
+# The three settings
 
 
 @pytest.mark.parametrize("operation", ["tenant.quota", "tenant.start", "tenant.task"])
@@ -274,7 +269,7 @@ def test_required_refuses_on_storage_without_quotas_and_touches_no_container(tmp
                                                                     ["docker", "exec"])]
 
 
-def test_auto_starts_the_wikis_once_quotas_are_lost_and_says_so_loudly(tmp_path, caplog):
+def test_auto_starts_the_wikis_once_quotas_are_lost_with_a_warning(tmp_path, caplog):
     """Remounted without prjquota (or the volume replaced): the wikis keep serving, never a silent downgrade."""
     server = Ext4Platform(tmp_path, quotas_before=True)
     with caplog.at_level(logging.INFO, logger="bananawiki.agent"):
@@ -288,7 +283,7 @@ def test_auto_starts_the_wikis_once_quotas_are_lost_and_says_so_loudly(tmp_path,
                 and "no longer available" in record.getMessage()]
     assert len(warnings) == 1 and warnings[0].startswith(LOST + EXT4), "said once, at the start"
     assert "config set tenant-quotas required" in warnings[0]
-    # The explicit opt-in keeps the old behaviour: hard quotas or nothing.
+    # required: hard quotas or no wiki starts.
     server.agent.config["tenant_quotas"] = "required"
     with pytest.raises(AgentError) as error:
         server.agent.call("tenant.start", {"tenant": "team-wiki"})
@@ -296,7 +291,7 @@ def test_auto_starts_the_wikis_once_quotas_are_lost_and_says_so_loudly(tmp_path,
 
 
 def test_quotas_lost_while_the_agent_runs_are_logged_when_it_happens(tmp_path, caplog):
-    """A remount without prjquota while the agent runs: logged once, loudly, and again if it happens again."""
+    """A remount without prjquota while the agent runs: a warning is logged once, and again if it happens again."""
     found: list[str | None] = [None]
     server = Ext4Platform(tmp_path, quotas_before=True)
     server.agent._storage_probe = lambda: found[0]
@@ -364,7 +359,7 @@ def test_an_invalid_setting_is_refused_rather_than_guessed(tmp_path):
 
 
 def test_the_agent_logs_its_storage_policy_when_it_starts(tmp_path, caplog):
-    """Storage that never had hard quotas is a supported configuration: a calm notice, with how to get them."""
+    """Storage that never had hard quotas is a supported configuration: a note that says how to get them."""
     server = Ext4Platform(tmp_path)
     with caplog.at_level(logging.INFO, logger="bananawiki.agent"):
         runtime_agent.log_storage_policy(server.agent)
@@ -375,7 +370,7 @@ def test_the_agent_logs_its_storage_policy_when_it_starts(tmp_path, caplog):
     assert "no longer available" not in notice.getMessage()
 
 
-# The portal ---------------------------------------------------------------------------------------------------
+# The portal
 
 
 def test_the_portal_reports_the_storage_policy_for_its_administrators(tmp_path):
@@ -427,21 +422,21 @@ def test_administrators_are_told_when_wikis_run_without_hard_quotas(portal, runt
     client = portal.test_client()
     login(client, make_account(admin=True))
     assert banner(client) == "", "unknown: nothing shown"
-    # Never had them (storage without project quotas): a calm notice, with how to get hard limits.
+    # Never had them (storage without project quotas): a note with how to get hard limits.
     runtime.storage = dict(NEVER)
     shown = banner(client)
     assert 'class="alert alert--info" id="storage-protection"' in shown
     assert "BW_HOSTING_TENANT_QUOTAS=<wbr>auto" in shown and "prjquota" in shown and EXT4 in shown
     assert "no longer available" not in shown and "Wikis cannot start" not in shown
-    # Calm, but the whole trade-off: only checked, so a wiki can fill the shared disk between two checks.
+    # It states the trade-off: the limit is only checked, so a wiki can fill the shared disk between two checks.
     assert "is still checked" in shown and "still enforced" not in shown and "at worst, fill the disk" in shown
     # Neutral about the cause (the storage, or services under units an older controller wrote): status says which.
     assert "sudo bananawiki status" in shown
-    # Lost: the regression is named, as a warning.
+    # Lost: the loss is named, as a warning.
     runtime.storage = dict(LOST_STORAGE)
     shown = banner(client)
     assert 'class="alert alert--warning" id="storage-protection"' in shown
-    assert "Hard per-wiki storage quotas were enforced on this server before and are no longer available" in shown
+    assert "Hard per-wiki storage quotas stopped working on this server" in shown
     assert f'Server detail: <span lang="en">{EXT4}</span>' in shown
     assert "fill the disk" in shown and "sudo bananawiki restart" in shown and "prjquota" in shown
     # Refused only under required, the operator's explicit opt-in.
@@ -477,11 +472,11 @@ def test_the_storage_banner_wraps_settings_and_paths_on_a_phone(portal):
 
 @pytest.mark.parametrize(("language", "never", "lost", "refused", "off", "fill", "detail"), [
     ("it", "Su questo server le wiki non hanno quote rigide di spazio",
-     "Le quote rigide di spazio per ogni wiki erano applicate su questo server e ora non lo sono più",
+     "Le quote rigide di spazio per ogni wiki hanno smesso di funzionare su questo server",
      "Le wiki non possono avviarsi", "Le quote rigide di spazio per ogni wiki sono disattivate su questo server",
      "riempire il disco", "Dettaglio tecnico dal server:"),
     ("de", "Auf diesem Server haben die Wikis keine festen Speicherkontingente",
-     "Feste Speicherkontingente pro Wiki wurden auf diesem Server bisher durchgesetzt und sind nicht mehr verfügbar",
+     "Feste Speicherkontingente pro Wiki funktionieren auf diesem Server nicht mehr",
      "Wikis können nicht starten", "Feste Speicherkontingente pro Wiki sind auf diesem Server ausgeschaltet",
      "den Datenträger füllen", "Technische Angabe des Servers:"),
 ])

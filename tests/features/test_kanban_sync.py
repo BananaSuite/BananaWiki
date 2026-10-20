@@ -30,7 +30,7 @@ def folder(app) -> Path:
     return Path(app.config["BW"].folders.kanban_attachments)
 
 
-# ── Sync ─────────────────────────────────────────────────────────────────────
+# Sync
 
 
 def test_sync_returns_incremental_events(admin_client, board, db):
@@ -79,7 +79,7 @@ def test_event_sequence_is_unique_per_board(admin_client, board, db):
     assert seqs == list(range(1, len(seqs) + 1))
 
 
-# ── History and revert ───────────────────────────────────────────────────────
+# History and revert
 
 
 def test_revert_keeps_comments_attachments_and_newer_tickets(app, admin_client, board, db):
@@ -162,7 +162,7 @@ def test_history_pages_and_admin_clear(admin_client, board, db):
     assert db.scalar("SELECT COUNT(*) FROM kanban_board_history WHERE board_id = ?", (board,)) == 0
 
 
-# ── Attachment files ─────────────────────────────────────────────────────────
+# Attachment files
 
 
 def _file_with_blob(app, admin_client, db, ticket_id):
@@ -212,7 +212,7 @@ def test_orphan_sweep(app, admin_client, board):
     assert not orphan.exists()
 
 
-# ── Export, import, embeds, pages ────────────────────────────────────────────
+# Export, import, embeds, pages
 
 
 def test_export_import_roundtrip(app, admin_client, board, db):

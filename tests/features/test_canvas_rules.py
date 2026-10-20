@@ -74,7 +74,7 @@ def node(node_id, **fields):
     return {"id": node_id, "type": "text", "x": 0, "y": 0, "content": node_id, **fields}
 
 
-# ── Events ────────────────────────────────────────────────────────────────────
+# Events
 
 
 def test_web_actions_emit_created_updated_and_deleted(app, editor, owner, events, db, make_user, creators):
@@ -150,7 +150,7 @@ def test_failing_handlers_never_break_a_save(app, editor, canvas, db):
     assert [n["id"] for n in stored(db, canvas)["nodes"]] == ["a"]
 
 
-# ── Locks ─────────────────────────────────────────────────────────────────────
+# Locks
 
 
 def test_lock_violation_rules():
@@ -260,7 +260,7 @@ def test_viewers_cannot_touch_locks(app, canvas, make_user, login, client, db):
     assert ops(client, canvas, {"op": "upsert_node", "node": node("a", locked=True)}).status_code == 403
 
 
-# ── Connector sides ───────────────────────────────────────────────────────────
+# Connector sides
 
 
 def test_edge_sides_are_whitelisted_and_default_to_auto():
@@ -297,7 +297,7 @@ def test_edge_dialog_offers_side_choices(editor, canvas):
         assert marker in html, marker
 
 
-# ── Front-end hooks (the JavaScript itself is checked with node --check) ─────
+# Front-end hooks (the JavaScript itself is checked with node --check)
 
 
 def test_front_end_implements_guides_sides_and_export_placeholders():
@@ -315,7 +315,7 @@ def test_front_end_implements_guides_sides_and_export_placeholders():
 
 
 @pytest.mark.parametrize("language", sorted(set(BUILTIN_LANGUAGES) - {"en"}))
-def test_new_strings_exist_in_every_language(language):
+def test_canvas_strings_are_translated_in_every_language(language):
     folder = STATIC.parent / "translations"
     english = json.loads((folder / "en.json").read_text(encoding="utf-8"))
     translated = json.loads((folder / f"{language}.json").read_text(encoding="utf-8"))

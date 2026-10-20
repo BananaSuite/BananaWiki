@@ -1,8 +1,14 @@
 /* Read-aloud player and admin page. */
 .tts-panel { margin-top: 1.5rem; display: grid; gap: .75rem; }
-.tts-panel__header { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem; }
-.tts-panel__title { font-size: 1.05rem; margin: 0; }
-.tts-panel__status { margin: 0; }
+/* One row: title, status, then speed and the button at the end (they wrap under the title on phones). */
+.tts-panel__bar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
+.tts-panel__title { font-size: 1rem; margin: 0; }
+.tts-panel__status { margin: 0; flex: 1 1 auto; }
+@media (min-width: 601px) { .tts-panel__bar > .tts-panel__controls { margin-inline-start: auto; } }
+/* The speed select has the height of the small button beside it. */
+.tts-panel .tts-panel__speed select:not([multiple]):not([size]) { width: auto; height: var(--control-height-sm);
+  min-height: var(--control-height-sm); padding-block: .15rem; font-size: var(--font-size-sm); }
+@media (pointer: coarse) { .tts-panel .tts-panel__speed select:not([multiple]):not([size]) { height: 2.75rem; min-height: 2.75rem; } }
 .tts-panel__status[data-kind="failed"] { color: var(--danger); }
 .tts-panel__controls, .tts-panel__actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
 .tts-panel__speed { display: inline-flex; align-items: center; gap: .4rem; }
@@ -10,7 +16,7 @@
 .tts-panel__player { display: grid; gap: .5rem; }
 [data-tts-content] [data-tts-word].is-current {
   background: color-mix(in srgb, var(--bw-accent) 32%, transparent);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--bw-accent) 32%, transparent);
 }
 html[data-reduce-motion="true"] [data-tts-word].is-current { transition: none; }
@@ -25,6 +31,8 @@ html[data-reduce-motion="true"] [data-tts-word].is-current { transition: none; }
 .tts-voices { list-style: none; padding: 0; margin: .25rem 0 0; display: grid; gap: .35rem .75rem;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
 .tts-voices li { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; }
+/* A long state ("downloaded on first use") wraps inside the row instead of widening the page. */
+.tts-voices .badge { white-space: normal; max-width: 100%; }
 /* System facts: a narrow label column, values (a long folder path included) wrap inside the card. */
 .tts-system th[scope="row"] { width: 7.5rem; }
 .tts-system td { overflow-wrap: anywhere; }

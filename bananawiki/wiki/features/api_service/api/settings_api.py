@@ -5,9 +5,13 @@ from __future__ import annotations
 from flask import jsonify
 
 from .... import settings
+from ...kanban import service as kanban_service
 from .. import settings_rules
 from ..errors import ApiError, json_body
 from . import bp, ok, require_admin, requires
+
+KANBAN_ACCESS = frozenset({"kanban_access", "kanban_write_access", "kanban_open_access",
+                           "kanban_public_access_enabled"})
 
 
 @bp.get("/settings")
@@ -34,4 +38,6 @@ def update_settings():
         return jsonify({**error.payload(), "refused": refused}), 403
     if updates:
         settings.update(settings_rules.with_companions(updates))
+        if KANBAN_ACCESS.intersection(updates):
+            kanban_service.apply_global_settings()  # as the board settings form does
     return ok(updated=sorted(updates))

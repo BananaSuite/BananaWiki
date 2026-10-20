@@ -3,8 +3,8 @@
 A custom role has a base role (``user`` or ``editor``) that limits which
 permissions it can hold. Its holders' ``users.role`` always equals the base
 role. When a role is deleted its holders move to the replacement the
-administrator picked or, by default, to the most similar surviving role (as
-in 1.4): the highest Jaccard overlap of permission keys, with a bonus for the
+administrator picked or, by default, to the most similar surviving role: the
+highest Jaccard overlap of permission keys, with a bonus for the
 same base role.
 """
 

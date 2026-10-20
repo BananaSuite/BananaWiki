@@ -85,6 +85,15 @@ def test_instance_commands(cli, make_account, make_wiki, runtime, query):
     assert query("SELECT status FROM instances WHERE id = ?", (wiki["id"],), one=True)["status"] == "terminated"
 
 
+def test_a_copy_names_the_accounts_whose_two_step_verification_it_turned_off(cli, make_account, make_wiki, runtime):
+    wiki = make_wiki(make_account("gina"), "ginas")
+    runtime.tenants[wiki["subdomain"]].two_step = {"gina"}
+    code, out, _err = cli("instance", "duplicate", "ginas", "ginas-copy")
+    assert code == 0 and "Two-step verification is off for 1 account(s)" in out and out.rstrip().endswith(": gina.")
+    code, out, _err = cli("--json", "instance", "duplicate", "ginas", "ginas-again")
+    assert code == 0 and json.loads(out)["two_step_off"] == ["gina"]
+
+
 def test_wiki_user_commands_use_the_runtime(cli, make_account, make_wiki, runtime):
     wiki = make_wiki(make_account("erin"), "erins")
     assert cli("instance", "set-user-password", "erins", "frank", "--role", "editor",
@@ -123,6 +132,38 @@ def test_invites_and_signup_mode(cli, query):
     assert query("SELECT signup_mode FROM hosting_settings", one=True)["signup_mode"] == "invite"
     assert cli("invite", "delete", str(invite["id"]))[0] == 0
     assert cli("invite", "delete", str(invite["id"]))[0] == 1
+
+
+def test_set_admin_off_moves_apex_wikis_to_hosting_addresses_like_the_portal(cli, make_account, make_wiki, query):
+    make_account("root", admin=True)
+    former = make_account("former", admin=True)
+    make_wiki(former, "landing", domain_mode="apex")
+    code, out, _err = cli("account", "set-admin", "former", "--no-admin")
+    assert code == 0 and "Apex wikis moved to hosting addresses: 1." in out
+    row = query("SELECT subdomain, domain_mode, expires_at, storage_limit_mb FROM instances", one=True)
+    assert (row["subdomain"], row["domain_mode"]) == ("landing", "hosting")
+    assert row["expires_at"] and row["storage_limit_mb"] is None, "a customer's expiry and storage cap"
+    assert query("SELECT 1 FROM hosting_events WHERE action = 'account.admin.revoked' AND subject_id = ?",
+                 (former["id"],), one=True)
+
+
+def test_account_suspension_takes_and_gives_back_only_the_wikis_suspended_with_it(cli, make_account, make_wiki,
+                                                                                   query):
+    owner = make_account("erin")
+    together, alone = make_wiki(owner, "together"), make_wiki(owner, "alone")
+    assert cli("instance", "suspend", "alone", "--reason", "abuse")[0] == 0
+    assert cli("account", "suspend", "erin", "--hours", "24", "--reason", "spam", "--reason-visible",
+               "--also-instances")[0] == 0
+    until = query("SELECT suspended_until FROM accounts WHERE id = ?", (owner["id"],), one=True)["suspended_until"]
+    rows = {row["id"]: row for row in query("SELECT id, suspended_until, suspend_reason, suspend_reason_visible "
+                                            "FROM instances")}
+    assert rows[together["id"]]["suspended_until"] == until and rows[together["id"]]["suspend_reason_visible"] == 1
+    assert rows[alone["id"]]["suspended_until"] is None and rows[alone["id"]]["suspend_reason"] == "abuse"
+
+    code, out, _err = cli("account", "unsuspend", "erin", "--also-instances")
+    assert code == 0 and "stay suspended because they were suspended on their own: 1." in out
+    status = {row["id"]: row["status"] for row in query("SELECT id, status FROM instances")}
+    assert status == {together["id"]: "running", alone["id"]: "suspended"}
 
 
 def test_dates_outside_the_supported_years_are_refused(cli, make_account, make_wiki, query):
@@ -169,7 +210,7 @@ def test_ops_forwards_hosting_admin_as_the_service_account(tmp_path, monkeypatch
         ops_cli.run_app_command(Manager(), "create-admin", [])
 
 
-# ── Maintenance loop ──────────────────────────────────────────────────────────
+# Maintenance loop
 
 
 def test_run_recovers_first_then_ticks_until_sigterm(portal, runtime, monkeypatch):

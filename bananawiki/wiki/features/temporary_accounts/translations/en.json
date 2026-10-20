@@ -21,6 +21,7 @@
   "temporary_accounts.error.role_not_lower": "The role to go back to must be lower than the current one.",
   "temporary_accounts.error.same_visibility": "The page is already in that state.",
   "temporary_accounts.error.self": "You cannot schedule your own account.",
+  "temporary_accounts.error.self_remove": "Only an owner can remove a schedule on your own account.",
   "temporary_accounts.error.user_missing": "That user does not exist.",
   "temporary_accounts.field.expires_at": "Date and time",
   "temporary_accounts.field.original_role": "Role to go back to",

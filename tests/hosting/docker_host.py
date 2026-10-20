@@ -35,7 +35,7 @@ class DockerHost:
         self.addresses = 1
         self.released: list[str] = []  # containers whose mount gate was released
 
-    # Test helpers -----------------------------------------------------------
+    # Test helpers
 
     def legacy_network(self, name: str, *, internal: bool = True) -> None:
         """A tenant network created by the 1.6 agent: Docker named its bridge br-<id>."""
@@ -47,7 +47,7 @@ class DockerHost:
     def running(self) -> list[str]:
         return sorted(name for name, item in self.containers.items() if item["running"])
 
-    # The command line -------------------------------------------------------
+    # The command line
 
     def __call__(self, command: list[str], **_: Any) -> subprocess.CompletedProcess:
         command = [str(part) for part in command]

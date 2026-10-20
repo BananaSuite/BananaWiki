@@ -21,4 +21,4 @@ switched on. If something described here is missing, ask an administrator.
 
 The same guide is available in [Italian](../it/README.md). Administrators can
 also add a version of it to the wiki itself, in English, Italian or German:
-**Admin → Documentation**.
+**Administration → Documentation**.

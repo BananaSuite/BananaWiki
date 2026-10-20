@@ -86,7 +86,7 @@ def update(values: dict[str, Any], *, internal: bool = False) -> None:
     invalidate()
 
 
-# ── Derived switches used across the application ─────────────────────────────
+# Derived switches used across the application
 
 
 def _cfg():

@@ -1,4 +1,6 @@
-/* BananaWiki core behaviours. Loaded on every page; no inline handlers anywhere.
+/* The portal's copy of the wiki's core behaviours (bananawiki/wiki/static/js/bananawiki.js),
+ * without the parts only wiki pages use (move buttons, scroll cues, table fitting).
+ * Loaded on every page; no inline handlers anywhere.
  *
  * Exposes window.BW with:
  *   BW.t(key, vars)          translated string from the js.* catalogue
@@ -106,7 +108,36 @@
     return el && el.closest ? el.closest(selector) : null;
   }
 
-  // Confirmation prompts ----------------------------------------------------
+  // The Clipboard API exists only in secure contexts: over plain HTTP the text is copied from a selection.
+  function copyText(text) {
+    var copySelection = function () {
+      var focused = document.activeElement;
+      var area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.top = "0";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.focus();
+      area.select();
+      var copied = false;
+      try { copied = document.execCommand("copy"); } catch (e) { copied = false; }
+      area.remove();
+      if (focused && focused.focus) focused.focus();
+      return copied;
+    };
+    var report = function (copied) {
+      BW.toast(BW.t(copied ? "copied" : "copy_failed"), copied ? "success" : "error");
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { report(true); }, function () { report(copySelection()); });
+    } else {
+      report(copySelection());
+    }
+  }
+
+  // Confirmation prompts
   document.addEventListener("submit", function (event) {
     var form = event.target;
     var submitter = event.submitter;
@@ -141,10 +172,7 @@
 
     var copy = closest(target, "[data-copy]");
     if (copy) {
-      var text = copy.getAttribute("data-copy");
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(text).then(function () { BW.toast(BW.t("copied"), "success"); });
-      }
+      copyText(copy.getAttribute("data-copy"));
       return;
     }
 
@@ -195,7 +223,7 @@
     }
   });
 
-  // Sidebar (mobile drawer) and theme ---------------------------------------
+  // Sidebar (mobile drawer) and theme
   BW.onReady(function () {
     var toggle = document.querySelector("[data-sidebar-toggle]");
     if (toggle) {

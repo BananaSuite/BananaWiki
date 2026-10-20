@@ -262,6 +262,23 @@ def test_sharing_rules(pair):
     assert b.db.scalar("SELECT COUNT(*) FROM federation_shares") == 0  # withdrawn once no longer shareable
 
 
+def test_shared_pages_together_stay_within_the_answer_limit(pair, monkeypatch):
+    a, b, _inbox = pair
+    monkeypatch.setattr(protocol, "MAX_RESPONSE", 2500)  # each page below escapes to about 900 bytes
+    peer_id = b.db.scalar("SELECT wiki_id FROM federation_peers")
+    editor = b.user("b_editor", "editor")
+    first, second, third = (make_page(b.app, title, "\U0001F600" * 60) for title in ("First", "Second", "Third"))
+    for page in (first, second):
+        b.run(lambda page=page: store.share(peer_id, page, editor))
+    with pytest.raises(protocol.ProtocolError) as refused:
+        b.run(lambda: store.share(peer_id, third, editor))
+    assert refused.value.key == "federation.error.snapshot_full"
+    b.db.execute("UPDATE pages SET content = ? WHERE id = ?", ("\U0001F600" * 120, first["id"]))
+    assert a.run(lambda: sync.sync_peer(b.wiki_id, force=True, transport=transport_to(b))) is True
+    assert a.db.column("SELECT title FROM federation_copies") == ["First"]  # the later share waits
+    assert b.db.scalar("SELECT COUNT(*) FROM federation_shares") == 2
+
+
 def test_disconnect_removes_copies_and_legacy_keys_are_encrypted(pair):
     a, b, _inbox = pair
     share_page(b)
@@ -286,3 +303,13 @@ def test_protocol_validation():
             protocol.validate_snapshot({"version": 1, "wiki_id": source, "sequence": 1, "pages": [broken]}, source)
     with pytest.raises(protocol.ProtocolError):
         protocol.validate_snapshot({"version": 1, "wiki_id": source, "sequence": 0, "pages": []}, source)
+
+
+def test_snapshot_sizes_add_up_to_the_encoded_answer():
+    source = "3f1e2d4c-5b6a-4798-8a9b-0c1d2e3f4a5b"
+    pages = [{"id": "0c1d2e3f-4a5b-4798-8a9b-3f1e2d4c5b6a", "title": f"T{n}", "content": text,
+              "source_path": f"/page/t{n}", "revision": protocol.revision(f"T{n}", text, f"/page/t{n}")}
+             for n, text in enumerate(("中" * 1000, "\U0001F600" * 500, "\x01\"\\", "plain"))]
+    body = protocol.encode({"version": 1, "wiki_id": source, "sequence": 2**63 - 1, "pages": pages})
+    used = sum(protocol.encoded_size(page) for page in pages) - 1
+    assert len(body) == protocol.MAX_RESPONSE - protocol.snapshot_room(source) + used

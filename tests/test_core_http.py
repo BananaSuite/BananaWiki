@@ -69,6 +69,7 @@ def _get(url, **options):
     ("93.184.216.34", False, True), ("10.0.0.1", False, False), ("10.0.0.1", True, True),
     ("127.0.0.1", False, False), ("127.0.0.1", True, True), ("169.254.169.254", True, False),
     ("0.0.0.0", True, False), ("224.0.0.1", True, False), ("::ffff:127.0.0.1", False, False),
+    ("::1", False, False), ("::1", True, True), ("::", True, False),
     ("fe80::1", True, False), ("100.64.0.1", False, False), ("fec0::1", False, False), ("fec0::1", True, False),
     ("64:ff9b::a9fe:a9fe", False, False), ("64:ff9b::a9fe:a9fe", True, False),
     ("64:ff9b::7f00:1", False, False), ("64:ff9b::7f00:1", True, True), ("64:ff9b::808:808", False, True),
@@ -93,6 +94,16 @@ def test_every_resolved_address_is_checked():
 
     with pytest.raises(http.BlockedDestination):
         http.request("GET", "https://rebinding.example/", resolver=resolver)
+
+
+def test_localhost_with_both_loopback_addresses_needs_allow_private():
+    def resolver(_host, port):
+        return [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", port, 0, 0)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+
+    assert len(http.resolve("localhost", 80, allow_private=True, resolver=resolver)) == 2
+    with pytest.raises(http.BlockedDestination):
+        http.resolve("localhost", 80, allow_private=False, resolver=resolver)
 
 
 def test_loopback_is_refused_by_default(server):

@@ -22,7 +22,7 @@ def _settings(query, **values):
     query(f"UPDATE hosting_settings SET {assignments} WHERE id = 1", tuple(values.values()))
 
 
-# ── Sign-up ───────────────────────────────────────────────────────────────────
+# Sign-up
 
 
 def test_first_account_needs_the_bootstrap_token_and_becomes_admin(web, query):
@@ -108,7 +108,7 @@ def test_bot_protection_rejects_forms_without_a_signed_timestamp(tmp_path, make_
     assert response.status_code == 302
 
 
-# ── Sign-in and sessions ──────────────────────────────────────────────────────
+# Sign-in and sessions
 
 
 def test_login_rejects_wrong_password_and_limits_attempts(web, make_account):
@@ -168,7 +168,7 @@ def test_suspended_account_cannot_sign_in(web, make_account):
     assert web.get("/dashboard").status_code == 302
 
 
-# ── Two-step sign-in ──────────────────────────────────────────────────────────
+# Two-step sign-in
 
 
 def _enrol(portal, client) -> tuple[str, list[str]]:
@@ -271,7 +271,7 @@ def test_admin_mfa_requirement_gates_admin_pages(web, make_account, login, query
     assert web.get("/account/mfa").status_code == 200
 
 
-# ── Recovery by email ─────────────────────────────────────────────────────────
+# Recovery by email
 
 
 def test_password_reset_needs_a_verified_address_and_works_once(web, make_account):
@@ -295,6 +295,18 @@ def test_password_reset_ignores_unverified_addresses(web, make_account):
         response = web.post("/forgot-password", data={"username": user["username"], "email": "unverified@example.org"})
     assert response.status_code == 200
     assert outbox == []
+
+
+def test_changing_the_email_address_voids_a_pending_reset_link(ctx, make_account, query):
+    from bananawiki.hosting import accounts
+
+    account = make_account(email="old@example.com")
+    query("UPDATE accounts SET password_reset_token_hash = 'x', password_reset_expires_at = '2999-01-01 00:00:00' "
+          "WHERE id = ?", (account["id"],))
+    accounts.update_identity(accounts.get(account["id"]), username=account["username"], email="new@example.com",
+                             email_required=False)
+    row = query("SELECT password_reset_token_hash AS h FROM accounts WHERE id = ?", (account["id"],), one=True)
+    assert row["h"] == ""
 
 
 def test_email_verification_link_marks_the_address(web, make_account, login, query):

@@ -1,8 +1,8 @@
 """Category management: create, rename, move, sequential navigation, delete.
 
 Every action needs its ``category.*`` permission *and* write access to the
-categories it touches (fixes 1.4, where restricted editors could rename or
-move any category).
+categories it touches, so restricted editors cannot rename or move other
+categories.
 """
 
 from __future__ import annotations

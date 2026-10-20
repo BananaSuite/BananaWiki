@@ -4,14 +4,13 @@ Failed attempts are counted per client network (an IPv6 client's /64), per
 account name and source, and per account in the shared ``rate_limit_hits``
 table. A successful sign-in only clears the counter of the account that
 signed in, so a valid account cannot be used to reset the budget for
-guessing other accounts' passwords (audit H3).
+guessing other accounts' passwords.
 
 A browser that has signed in to an account before carries a device cookie
 for it (:mod:`.devices`: signed with the wiki's secret and the account's
 device epoch, which a new password and every change to two-step verification
 retire). Its failures are counted apart from everyone else's, so strangers
-who use up the account's shared budget cannot lock the owner out (as in the
-hosting portal, AUDIT #29).
+who use up the account's shared budget cannot lock the owner out.
 
 Accounts with two-step verification (:mod:`.two_step`) answer a code after
 the password, or after the hosting portal's sign-in: :func:`finish` keeps
@@ -97,7 +96,7 @@ def _limiter() -> SqlLimiter:
     return SqlLimiter(db.session)
 
 
-# ── Password check ────────────────────────────────────────────────────────────
+# Password check
 
 
 def _carry_over_api_tokens(user_id: str, old_hash: str, new_hash: str) -> None:
@@ -225,7 +224,7 @@ def _complete(user: dict[str, Any], *, remember: bool, next_url: str | None, met
     return response
 
 
-# ── Second step ───────────────────────────────────────────────────────────────
+# Second step
 
 
 def pending_second_step() -> tuple[dict[str, Any], dict[str, Any]] | None:

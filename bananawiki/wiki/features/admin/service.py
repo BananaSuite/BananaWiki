@@ -10,7 +10,7 @@ Hierarchy
   someone an owner.
 * Administrators are changed only by owners and superusers, so one
   administrator cannot take over another by resetting their password,
-  demoting or suspending them (1.4 audit M4).
+  demoting or suspending them.
 * The last owner can never be demoted or deleted.
 
 Every function takes the acting user and raises :class:`AccountError` with a
@@ -39,7 +39,7 @@ USERS_PER_PAGE = 50
 SUSPENSION_PRESETS = {"1": 1, "8": 8, "24": 24, "72": 72, "168": 168, "720": 720}
 
 
-# ── Rules ────────────────────────────────────────────────────────────────────
+# Rules
 
 
 def is_superuser(user: dict[str, Any] | None) -> bool:
@@ -107,7 +107,7 @@ def impersonation_error(actor: dict[str, Any], target: dict[str, Any]) -> str | 
     return None
 
 
-# ── Queries ──────────────────────────────────────────────────────────────────
+# Queries
 
 
 def get_user(user_id: str) -> dict[str, Any] | None:
@@ -268,11 +268,11 @@ def contribution_count(user_id: str) -> int:
     return int(db.scalar("SELECT COUNT(*) FROM page_history WHERE edited_by = ?", (user_id,), default=0))
 
 
-# ── Account changes ──────────────────────────────────────────────────────────
+# Account changes
 
 
 def _name_error(error: AccountError, username: str) -> AccountError:
-    """Name the account a refused former name is reserved for: its audit page can release it."""
+    """Name the account a refused former name is reserved for: its History page can release it."""
     if error.key == "auth.error.username_taken" and accounts.by_username(username) is None:
         holder = accounts.by_id(accounts.former_holder(username))
         if holder is not None:
@@ -397,7 +397,7 @@ def suspension_end(duration: str, custom_datetime: datetime | None, rel_hours: s
 
 def suspend(actor: dict[str, Any], target: dict[str, Any], *, until: str | None, label: str, reason: str,
             reason_visible: bool, time_visible: bool) -> None:
-    """Suspend an account and end all of its sessions at once (1.4 audit H2)."""
+    """Suspend an account and end all of its sessions at once."""
     reason = (reason or "").strip()[:MAX_SUSPEND_REASON]
     reason_visible = reason_visible and bool(reason)
     time_visible = time_visible and until is not None
@@ -473,15 +473,17 @@ def deny(actor: dict[str, Any], target: dict[str, Any]) -> None:
 
 def reset_password(actor: dict[str, Any], target: dict[str, Any], password: str, *, require_change: bool,
                    keep_original: bool) -> None:
-    """Set a new password, signing the account out everywhere (except the actor's own session)."""
+    """Set a new password, signing the account out everywhere.
+
+    One's own password is changed in the account settings, which ask for the current one.
+    """
     with db.transaction():
         actor, target = _current_accounts(actor, target)
-        own = actor["id"] == target["id"]
+        _require_other(actor, target, "admin.password.error.use_settings")
         if keep_original and not target.get("original_password_backup"):
             db.execute("UPDATE users SET original_password_backup = ? WHERE id = ?",
                        (target["password"], target["id"]))
-        accounts.set_password(target["id"], password, keep_session_id=auth.current_session_id() if own else None,
-                              require_change=require_change and not own, keep_backup=keep_original)
+        accounts.set_password(target["id"], password, require_change=require_change, keep_backup=keep_original)
     emit("user.password_reset", user=get_user(target["id"]), actor_id=actor["id"])
 
 
@@ -489,15 +491,15 @@ def restore_password(actor: dict[str, Any], target: dict[str, Any]) -> None:
     """Put back the password saved before a temporary password was set."""
     with db.transaction():
         actor, target = _current_accounts(actor, target)
+        _require_other(actor, target, "admin.password.error.use_settings")
         if not target.get("original_password_backup"):
             raise AccountError("admin.password.error.no_backup")
-        own = actor["id"] == target["id"]
         db.execute(
             "UPDATE users SET password = original_password_backup, original_password_backup = NULL, "
             "force_password_change = 0 WHERE id = ?",
             (target["id"],),
         )
-        auth.revoke_sessions(target["id"], except_session_id=auth.current_session_id() if own else None)
+        auth.revoke_sessions(target["id"])
     emit("user.password_reset", user=get_user(target["id"]), actor_id=actor["id"])
 
 
@@ -591,15 +593,13 @@ def start_impersonation(actor: dict[str, Any], target: dict[str, Any]) -> None:
         error = impersonation_error(actor, target)
         if error:
             raise AccountError(error)
-        db.execute(
-            "INSERT INTO impersonation_logs (admin_id, target_user_id, started_at) VALUES (?, ?, ?)",
-            (actor["id"], target["id"], now_sql()),
-        )
-        auth.start_impersonation(target)
+        log_id = db.insert("impersonation_logs",
+                           {"admin_id": actor["id"], "target_user_id": target["id"], "started_at": now_sql()})
+        auth.start_impersonation(target, log_id)
     _audit("user.impersonation_started", actor, target, role=target["role"])
 
 
-# ── Attribution and history clean-up ─────────────────────────────────────────
+# Attribution and history clean-up
 
 
 def deattribute_all(actor: dict[str, Any], target: dict[str, Any]) -> int:
@@ -649,7 +649,7 @@ def release_name(actor: dict[str, Any], target: dict[str, Any],
         return accounts.release_name(target, username, released_by=actor["id"])
 
 
-# ── Per-user permission overrides ────────────────────────────────────────────
+# Per-user permission overrides
 
 
 @dataclass
@@ -755,7 +755,7 @@ def reset_overrides(actor: dict[str, Any], target: dict[str, Any]) -> None:
     _audit("user.permissions_reset", actor, target)
 
 
-# ── Automatic clean-up ───────────────────────────────────────────────────────
+# Automatic clean-up
 
 
 def delete_expired_signups(denied_hours: int, pending_hours: int) -> int:

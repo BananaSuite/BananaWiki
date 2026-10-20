@@ -57,16 +57,21 @@ def _secret_key() -> str:
     return current_app.config["BW"].secret_key
 
 
-def _fernet() -> Fernet:
-    return totp.cipher(_secret_key(), _CIPHER_PURPOSE)
+def _fernet(secret_key: str | None = None) -> Fernet:
+    return totp.cipher(secret_key or _secret_key(), _CIPHER_PURPOSE)
 
 
 def encrypt_secret(secret: str) -> str:
     return totp.encrypt_secret(_fernet(), secret)
 
 
-def decrypt_secret(token: str | None) -> str:
-    return totp.decrypt_secret(_fernet(), token)
+def decrypt_secret(token: str | None, secret_key: str | None = None) -> str:
+    """The authenticator secret, or ``""`` when this wiki cannot read it.
+
+    *secret_key* defaults to the running wiki's; a hosted wiki's tenant tasks
+    run without the application and pass their own.
+    """
+    return totp.decrypt_secret(_fernet(secret_key), token)
 
 
 def _recovery_hash(code: str | None) -> str:
@@ -81,7 +86,7 @@ def _hashes(stored: str | None) -> list[str]:
     return [value for value in values if isinstance(value, str)] if isinstance(values, list) else []
 
 
-# ── State ─────────────────────────────────────────────────────────────────────
+# State
 
 
 def state(user_id: Any) -> dict[str, Any] | None:
@@ -118,7 +123,7 @@ def fingerprint(user: dict[str, Any]) -> str:
     return hmac.new(_secret_key().encode(), message, "sha256").hexdigest()[:32]
 
 
-# ── Codes ─────────────────────────────────────────────────────────────────────
+# Codes
 
 
 def _consume_totp(user_id: str, code: str) -> bool:
@@ -162,7 +167,7 @@ def verify(user_id: Any, code: str | None) -> str | None:
     return None
 
 
-# ── Changes ───────────────────────────────────────────────────────────────────
+# Changes
 
 
 def _new_codes() -> tuple[list[str], str]:

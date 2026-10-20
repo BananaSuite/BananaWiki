@@ -43,7 +43,7 @@ def _readable_paths() -> dict[int, str]:
     return categories.paths(lambda cid: auth.can_read_category(cid, user))
 
 
-# ── Rendering helpers for the editor ─────────────────────────────────────────
+# Rendering helpers for the editor
 
 
 @bp.post("/api/preview")
@@ -74,7 +74,7 @@ def api_highlight():
     return jsonify({"html": markdown.highlight_code(content[: service.MAX_CONTENT], language.strip()[:64])})
 
 
-# ── Lookups ───────────────────────────────────────────────────────────────────
+# Lookups
 
 
 @bp.get("/api/pages/search")
@@ -163,7 +163,7 @@ def may_reorder_pages() -> bool:
                                                    and auth.has_permission("page.edit_all", user)))
 
 
-# ── Live page state ───────────────────────────────────────────────────────────
+# Live page state
 
 
 @bp.get("/api/page/<slug>/sync")
@@ -216,7 +216,7 @@ def api_editing_stop(slug: str):
     return jsonify({"ok": True})
 
 
-# ── Images ────────────────────────────────────────────────────────────────────
+# Images
 
 
 @bp.post("/api/upload")
@@ -249,7 +249,7 @@ def api_upload_delete():
     return jsonify({"ok": True})
 
 
-# ── Ordering and home page ───────────────────────────────────────────────────
+# Ordering and home page
 
 
 def _ids() -> list[int]:

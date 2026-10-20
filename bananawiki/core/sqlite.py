@@ -82,7 +82,7 @@ def dict_row(cursor: sqlite3.Cursor, row: tuple) -> dict[str, Any]:
     return {column[0]: value for column, value in zip(cursor.description, row, strict=True)}
 
 
-# ── Schema helpers used by migrations ─────────────────────────────────────────
+# Schema helpers used by migrations
 
 
 def tuples(conn: sqlite3.Connection, sql: str, params: Sequence[Any] = ()) -> list[tuple]:
@@ -123,7 +123,7 @@ def execute_script(conn: sqlite3.Connection, script: str) -> None:
         conn.execute(remainder)
 
 
-# ── File lifecycle guard ──────────────────────────────────────────────────────
+# File lifecycle guard
 
 
 def _marker(path: Path) -> Path:
@@ -183,7 +183,7 @@ def _create_file(path: Path) -> None:
         os.close(fd)
 
 
-# ── Migrations ────────────────────────────────────────────────────────────────
+# Migrations
 
 
 @contextmanager
@@ -276,7 +276,7 @@ def _has_user_tables(conn: sqlite3.Connection) -> bool:
     return bool(tuples(conn, "SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' LIMIT 1"))
 
 
-# ── Database ──────────────────────────────────────────────────────────────────
+# Database
 
 
 class Database:
@@ -312,7 +312,7 @@ class Database:
     def latest_version(self) -> int:
         return self.baseline + len(self.migrations)
 
-    # Connections --------------------------------------------------------
+    # Connections
 
     def connect(self, *, _initializing: bool = False, readonly: bool = False) -> sqlite3.Connection:
         """Open a new autocommit connection with BananaWiki's pragmas."""
@@ -347,9 +347,9 @@ class Database:
         """Serialise first-boot work across processes, waiting for as long as another process holds it.
 
         An upgrade can outlast any fixed timeout (a large 1.4 database on a
-        slow disk). Giving up made a Gunicorn worker fail to boot, which
-        stopped the server and killed the worker that was migrating: the
-        upgrade was rolled back at every restart.
+        slow disk). Giving up would make a Gunicorn worker fail to boot, stop
+        the server and kill the worker that is migrating, so the upgrade would
+        roll back at every restart.
         """
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         lock_path = Path(str(self.path) + ".schema.lock")

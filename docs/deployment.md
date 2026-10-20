@@ -49,7 +49,7 @@ wiki or a hosting platform on a Linux server.
 ```sh
 git clone https://github.com/BananaSuite/BananaWiki.git
 cd BananaWiki
-git checkout v1.7.0       # the latest release tag
+git checkout "$(git tag -l 'v*' | sort -V | tail -1)"   # the latest release tag
 sudo ./banana install --mode wiki --domain wiki.example.org
 ```
 
@@ -102,14 +102,15 @@ the same configuration):
 | Option | Meaning |
 |---|---|
 | `--email ADDRESS` | ACME account e-mail for certificate notices. |
-| `--cloudflare` / `--no-cloudflare` | The DNS records are proxied by Cloudflare: disable the TLS-ALPN-01 challenge, which cannot pass Cloudflare's proxy (certificates then come from Let's Encrypt only, without Caddy's ZeroSSL fallback; also for custom domains in the two modes below). See [behind Cloudflare](#behind-cloudflare). |
-| `--tls acme` | Default: Let's Encrypt certificates per host name (on demand for hosted wikis). |
+| `--cloudflare` / `--no-cloudflare` | The DNS records are proxied by Cloudflare: disable the TLS-ALPN-01 challenge, which cannot pass Cloudflare's proxy. Without either option `proxy` looks the domain up and turns this on when it resolves only to Cloudflare's addresses (it says so). A hosting platform always disables that challenge. Certificates then come from Let's Encrypt only, without Caddy's ZeroSSL fallback (ZeroSSL needs an API key; also for custom domains in the two modes below). See [behind Cloudflare](#behind-cloudflare). |
+| `--tls acme` | Default: Let's Encrypt certificates per host name (on demand for hosted wikis: a new wiki's certificate is ordered at its first visit, see [behind Cloudflare](#behind-cloudflare)). |
 | `--tls cloudflare-dns --cloudflare-token-file FILE` | One wildcard certificate `*.<domain>` (plus `<domain>`) through the DNS-01 challenge. Needs Caddy 2.10 or newer with the `caddy-dns/cloudflare` module and an API token with *Zone → DNS → Edit* for the zone; the token is stored in `/etc/caddy/bananawiki-cloudflare.env` (root only, loaded by a `caddy.service.d` drop-in), never in the Caddyfile. |
 | `--tls origin-cert --origin-cert PEM --origin-key PEM` | A Cloudflare Origin CA certificate for `<domain>` and `*.<domain>`, copied to `/etc/caddy/bananawiki-origin.{crt,key}`. Only for proxied records with SSL/TLS mode *Full (strict)*: browsers do not trust it. |
 
 The printed output (without `--install`) ends with warnings on standard error
-when a host name is too deep for Cloudflare's free certificate or the installed
-Caddy is too old to pass visitors' real addresses (2.7 or newer is needed).
+when a host name is too deep for Cloudflare's free certificate, the installed
+Caddy is too old to pass visitors' real addresses (2.7 or newer is needed) or
+`--tls acme` runs behind Cloudflare (see below).
 
 Automatic updates stay **off** until you run `sudo bananawiki updates enable`.
 
@@ -158,23 +159,20 @@ Open `https://wiki.example.org` and use the token at `/setup`.
 
 How the image is built:
 
-* Python 3.12 (Debian 13/trixie), dependencies from wheels only, plus verified
-  source-built FFmpeg 9.0.2 with the WAV/MP3 speech components,
-  and DejaVu fonts for PDF export. Available distribution security updates
-  are applied when the image is first built. A plain rebuild reuses Docker's
-  cached base image and layers and gets no new fixes: rebuild regularly with
-  `--pull --no-cache` (see **Updates** below; this also rebuilds FFmpeg).
-  The ACL library is updated to Debian's authenticated `libacl1` 2.4.0-1,
-  together with compatible GNU tar 1.35+dfsg-6. Their corresponding source,
-  licenses and verification inventory are in `/usr/local/share/bananawiki/acl`.
-  Coreutils and GNU timeout remain available. The new safe ACL APIs do not
-  change legacy pathname APIs' symlink-following contract; privileged custom
-  copying or archiving of untrusted paths needs its own consumer review.
-* Package installers (`pip`, `setuptools`, `wheel`, and the bundled
-  `ensurepip` installer), APT, Perl, host login and mount utilities are omitted
-  from the runtime image. Python/Piper native libraries and the tenant task
-  deadline utility are retained. Add any custom
-  dependencies during your image build; the running image is read-only.
+* Python 3.12 on Debian 13 (trixie), dependencies from wheels only,
+  FFmpeg 9.0.2 built from the signed upstream source with only the WAV/MP3
+  speech components, and DejaVu fonts for PDF export. Distribution security
+  updates are applied at build time. A plain rebuild reuses Docker's cache
+  and gets no new fixes: rebuild regularly with `--pull --no-cache` (see
+  **Updates** below).
+* `libacl1` 2.4.0-1 and GNU tar 1.35+dfsg-6 come from Debian's signed
+  packages, for a fix trixie does not have yet. Sources, licences and the
+  verification records of FFmpeg and ACL are in the image under
+  `/usr/local/share/bananawiki/media` and `/usr/local/share/bananawiki/acl`
+  (see `docker/media/`).
+* The runtime image has no package installers (`pip`, `setuptools`, `wheel`,
+  `ensurepip`, APT), no Perl and no login or mount utilities. Add custom
+  dependencies in your own image build; the running image is read-only.
 * Runs as UID 10001, works with a read-only root file system; everything is
   written to the `/data` volume (`BW_INSTANCE_DIR=/data`).
 * Listens on port 5001; a health check calls `/health`.
@@ -222,8 +220,10 @@ For people who manage their servers themselves. The example uses
 ```sh
 sudo useradd --system --user-group --home-dir /srv/bananawiki/data --shell /usr/sbin/nologin bananawiki
 sudo mkdir -p /srv/bananawiki && sudo chown bananawiki: /srv/bananawiki
+sudo -u bananawiki mkdir -m 700 /srv/bananawiki/data
 sudo -u bananawiki git clone https://github.com/BananaSuite/BananaWiki.git /srv/bananawiki/app
 cd /srv/bananawiki/app
+sudo -u bananawiki sh -c 'git checkout "$(git tag -l "v*" | sort -V | tail -1)"'
 sudo -u bananawiki python3 -m venv .venv
 sudo -u bananawiki .venv/bin/python -m pip install --only-binary=:all: --require-hashes --upgrade --no-deps -r requirements-build.lock
 sudo -u bananawiki .venv/bin/python -m pip install --only-binary=:all: --require-hashes -r requirements.lock
@@ -231,8 +231,10 @@ sudo -u bananawiki .venv/bin/python -m pip install --only-binary=:all: --require
 
 `requirements.lock` pins every package, dependencies included, to the
 version and file hashes the release was tested with (`requirements.txt`
-keeps the ranges, for development). Check out a release tag
-(`git checkout v1.7.0`) rather than `main` for a production server.
+keeps the ranges, for development). Run a release tag, not `main`, on a
+production server. `/srv/bananawiki/data` must exist before the service
+starts: the unit below allows writes only there, and systemd refuses to
+start a unit whose `ReadWritePaths` is missing.
 
 Environment file `/srv/bananawiki/app.env` (mode 0600, owned by root):
 
@@ -356,51 +358,13 @@ it to HTTPS (an endless loop), or better, use *Full (strict)*.
 Never set `BW_PROXY_MODE=1` when the wiki's port is reachable directly: a
 client could then choose its own address and scheme.
 
-**Stalled downloads.** A client that stops reading a long download (a data
-export, a whole-site export, a large attachment) is disconnected once a write
-to it has waited `BW_WRITE_TIMEOUT` seconds (300 by default; the portal reads
-`HOSTING_WRITE_TIMEOUT`), so it holds a Gunicorn thread no longer than that.
-The limit applies to progress, not to the length of a download, but progress
-is what the receiving kernel lets through, and it comes in steps:
-
-* Gunicorn writes generated responses 64 KiB at a time and, on TCP
-  connections, keeps at most about 128 KiB queued but not yet sent
-  (`TCP_NOTSENT_LOWAT`; without it a file sent with `sendfile` fills megabytes
-  of kernel buffer, a third of which would have to drain within each period).
-  A connection read slowly from the start needs about 256 KiB per period,
-  about 1 KiB/s with the default.
-* The receiving kernel grows its buffer while data arrives fast, up to the
-  `net.ipv4.tcp_rmem` maximum (32 MiB on recent Linux), and once that buffer
-  is full takes more only after about a sixteenth of it is free again. A
-  client that slowed down after a fast start, or the proxy's connection to
-  Gunicorn when it carried fast downloads before, can then need up to 4 MiB
-  per period, about 14 KiB/s with the default.
-
-Gunicorn cannot see reads from a buffer it is waiting on, so the timeout is
-the only lever: the figures scale with it, which is why the default is five
-minutes (with 60 s a reader that slowed down could need some 70 KiB/s).
-Raise it if slower links must be served. The figures were measured on Linux
-6.18 over loopback. Generated responses, such as the data export, are corked
-(`TCP_CORK`, Linux only) until their last piece is written, so they travel in
-full segments: Gunicorn sends every write at once, and the small segments this
-left made a receive buffer at its maximum run out of memory before its window
-was used, drop data and stall the retransmissions too, which cut readers at
-the rates above in tests, also at the default timeout.
-
-Proxies have their own: Caddy 2.11.6 and newer drop a stalled client after
-one minute (`write_idle` in the global `servers { timeouts { … } }` options;
-prefer 2.11.7, which fixed regressions of 2.11.6), and with it the request to
-Gunicorn, so behind a recent Caddy a stalled download frees its thread after a
-minute. Caddy's minute meets the same steps on the client's side; set
-`write_idle` higher there to give slow clients more room. nginx's
-`send_timeout` (60 s by default) is also a stall timeout. Do not add a total
-response timeout such as Caddy's `write`: it cuts off large downloads on slow
-connections, which is why the shipped Caddyfiles have none. Caddy's
-`write_idle <duration> <min_rate>` also drops a client that keeps reading
-below a minimum rate, which the stall timeout alone does not. The timeout is
-set only on HTTP/1.1 connections, as the shipped configurations use between
-Caddy and Gunicorn: with HTTP/2 (h2c) there, a stream shares its connection,
-so stalled downloads are left to the proxy.
+**Stalled downloads.** A client whose download makes no progress for
+`BW_WRITE_TIMEOUT` seconds (300 by default; `HOSTING_WRITE_TIMEOUT` for the
+portal) is disconnected, so it holds a Gunicorn thread no longer than that.
+Raise it to serve very slow links. Proxy stall timeouts also apply: Caddy's
+`write_idle` (one minute by default; use Caddy 2.11.7 or newer) and nginx's
+`send_timeout` (60 s). Do not add a total response timeout such as Caddy's
+`write`: it cuts off large downloads on slow connections.
 
 ### Updating a manual installation
 
@@ -415,13 +379,6 @@ The database is copied to `<instance>/backups/` and upgraded on the first
 start of a release with a newer schema.
 
 ## Hosting platform
-
-Before public launch, complete the [release deployment checks](production-readiness.md#deployment-acceptance)
-on this host: tenant-to-host firewall isolation, byte/inode quotas, reserved
-portal/backup storage, HTTPS/proxy verification, restore and managed update/
-rollback. Review the [tenant image advisories](production-readiness.md#image-advisories)
-and rebuild/rescan when distributor fixes become available. Local container
-checks do not certify the target installation.
 
 `sudo ./banana install --mode hosting --domain example.com` installs the
 portal (`bananawiki.service`), its maintenance service
@@ -441,8 +398,8 @@ trade-off). Every release build (`install`, `update`, `restore`) pulls
 the newest base image and runs the Debian upgrade and the package
 installation again, so updates also bring the wikis the latest distribution
 and Python security fixes; with the registry unreachable, or when the build
-fails on a newly pulled base image (the ACL stage pins two Debian unstable
-versions), the image is built on the previous base image and `update`
+fails on a newly pulled base image (which rebuilds the FFmpeg and ACL
+stages), the image is built on the previous base image and `update`
 reports `image_warnings`. Between
 releases the image does not change: `status` shows when it was built
 (`tenant_image_built`). `sudo bananawiki proxy --install` then installs a Caddy
@@ -468,6 +425,26 @@ sudo grep HOSTING_BOOTSTRAP_TOKEN /opt/bananawiki/config/app.env
 
 Everything else about the platform is in [hosting](hosting.md).
 
+### Before opening it to the public
+
+* Load the [host firewall](hosting.md#host-firewall), make it persistent and
+  check it is still there after a reboot.
+* Decide on storage limits: hard quotas on XFS with `prjquota`, or the
+  application's own checks (see
+  [hard storage quotas](operations.md#hard-storage-quotas-hosting)). Keep
+  tenant plugins off without hard quotas.
+* Leave free space for the portal, update packages and backups on the volume
+  that holds `/opt/bananawiki` (see [isolation](hosting.md#isolation)).
+* Check HTTPS and DNS for the portal, the static site, a new wiki and a
+  custom domain, and that the logs show visitors' real addresses.
+* Take a backup and restore it into a scratch installation
+  ([restore and rollback](operations.md#restore-and-rollback)).
+* Run one update and one rollback before people depend on the platform.
+* Keep management listeners on loopback.
+* Rebuild the images regularly (`bananawiki update` does it for each release;
+  single-wiki images with `docker build --pull --no-cache`) to pick up
+  distribution security fixes, and scan them with your usual tools.
+
 ## Behind Cloudflare
 
 BananaWiki works with proxied (orange-cloud) Cloudflare DNS records, both for a
@@ -489,24 +466,11 @@ wiki). What the generated Caddy configuration does for it:
   replaces with its own "Bad gateway" page.
 
 **Not behind Cloudflare?** The same configuration serves visitors who connect
-directly. Caddy believes `CF-Connecting-IP`, and spares a plain-HTTP request
-with `CF-Visitor: {"scheme":"https"}` the redirect, only when the connection
-itself comes from one of Cloudflare's published edge ranges
-(`bananawiki/core/cloudflare.py`); from anywhere else those headers are
-ignored and the application sees the connecting address. Cloudflare's proxy
-writes `CF-Connecting-IP` itself, replacing anything the visitor sent, but
-anyone with a Cloudflare account can also open connections from those ranges
-(a Worker's outgoing TCP sockets, for example) and write the header
-themselves, to any server, behind Cloudflare or not. So on every
-installation the limits per address (requests per network, sign-in
-throttles, `HOSTING_SIGNUPS_PER_IP_PER_DAY`, recovery requests) are best
-effort against a determined client, and the addresses in the logs can be
-made up. Nothing is granted to an address: the public listeners answer
-`/internal/*` with 404 whatever the client's address, Caddy asks the
-portal's certificate check over loopback directly, and the plain-HTTP
-exemption only skips a redirect. There is no setting yet that turns this
-trust off on a server that is not behind Cloudflare. Refresh the ranges when
-Cloudflare announces a change; the module notes when they were last checked.
+directly. Caddy trusts `CF-Connecting-IP` and `CF-Visitor` only on connections
+from Cloudflare's published ranges (`bananawiki/core/cloudflare.py`). Anyone
+can send traffic from those ranges, so per-address limits and logged
+addresses are best effort; nothing is granted to an address. Refresh the
+ranges when Cloudflare announces a change.
 
 Recommended Cloudflare settings:
 
@@ -514,11 +478,22 @@ Recommended Cloudflare settings:
    Cloudflare-to-server leg unencrypted; *Full* skips certificate checks.
    Avoid *Automatic* while certificates are still being obtained: it can settle
    on *Flexible*.
-2. **Certificates on the server:**
+2. **Certificates on the server.** With `--tls acme` Caddy orders a wiki's
+   certificate during the first visitor's TLS handshake, which takes a few
+   seconds to half a minute (the handshake may wait for 60 seconds). The
+   portal makes that first handshake itself right after it creates the wiki
+   or verifies a custom domain, so visitors normally find the certificate in
+   place; if one arrives earlier it waits instead of failing. If there is
+   still no certificate after 5 minutes, the portal logs a warning naming the host.
+   If a wiki is unreachable right after it was created, look at Caddy's log
+   (`journalctl -u caddy`) and at the portal's `Certificate refused` lines.
+   Let's Encrypt allows 50 new certificates per registered domain per week
+   and 5 failed validations per host per hour, and a hosting platform
+   disables TLS-ALPN-01 for the same reason, so a platform that creates many
+   wikis should use a wildcard:
    * `--tls cloudflare-dns` (recommended with Cloudflare): one wildcard
      certificate through the DNS API, nothing depends on port 80, no
-     per-wiki certificates and no Let's Encrypt rate limits (50 new
-     certificates per week per domain).
+     per-wiki certificates and no Let's Encrypt rate limits.
    * `--tls origin-cert`: a free Cloudflare Origin CA certificate (SSL/TLS →
      Origin Server) for `example.com` and `*.example.com`.
    * `--tls acme --cloudflare` (the default mode): Let's Encrypt must reach
@@ -526,14 +501,17 @@ Recommended Cloudflare settings:
      HTTPS* off, or add a Configuration Rule that turns it off (and any WAF or
      Bot Fight challenge) for URI paths starting with
      `/.well-known/acme-challenge/`. With a redirect to HTTPS the first
-     certificate of every new wiki fails (Cloudflare error 525).
+     certificate of every new wiki fails (Cloudflare error 525). Port 80
+     must reach Caddy, and `proxy` warns when it detects this mode.
 3. **One level of subdomain.** Cloudflare's free Universal SSL certificate
    covers `example.com` and `*.example.com` only. A proxied
    `portal.hosting.example.com` fails in the browser with
    `ERR_SSL_VERSION_OR_CIPHER_MISMATCH` before it reaches the server; see the
    domain layout in [hosting platform](#hosting-platform).
 4. **DNS records:** proxied A/AAAA records for the base domain, `www`, the
-   portal and `*` (or each wiki) pointing at the server. Keep the custom
+   portal and `*` (or each wiki) pointing at the server. DNS-only (grey
+   cloud) records work too, with the same certificates and a wildcard A/AAAA
+   record (or one per wiki) that reaches ports 80 and 443. Keep the custom
    domain target (`HOSTING_CUSTOM_DOMAIN_TARGET`) **DNS-only** (grey cloud):
    customers' CNAMEs to a proxied name of another Cloudflare account fail
    with error 1014.

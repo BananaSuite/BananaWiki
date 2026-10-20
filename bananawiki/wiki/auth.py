@@ -41,6 +41,7 @@ from .i18n import t, tn
 
 SESSION_TOKEN_KEY = "auth_session_token"
 SESSION_CONFLICT_KEY = "_session_conflict"
+IMPERSONATION_LOG_KEY = "impersonation_log_id"
 TOUCH_INTERVAL_SECONDS = 300
 
 # View attributes set by the decorators below.
@@ -91,7 +92,7 @@ def view_exempt(view: Callable | None, gate: str) -> bool:
     return bool(view) and gate in getattr(view, _EXEMPT_ATTR, frozenset())
 
 
-# ── Current user ──────────────────────────────────────────────────────────────
+# Current user
 
 
 def _load_user(user_id: str | None) -> dict[str, Any] | None:
@@ -117,6 +118,7 @@ def load_request_user() -> None:
     authenticated_id = session.get("impersonator_id") or session.get("user_id")
     if row is None or row["user_id"] != authenticated_id:
         conflict = row is None and _ended_by_session_limit(raw, authenticated_id)
+        _end_impersonation_log(_session_ended_at(raw))
         session.clear()
         if conflict:
             # Another sign-in ended this session: explain that instead of "expired".
@@ -135,11 +137,8 @@ def load_request_user() -> None:
     if session.get("impersonator_id"):
         target = _load_user(session.get("user_id"))
         if not can_impersonate(real, target):
-            db.execute(
-                "UPDATE impersonation_logs SET ended_at = ? "
-                "WHERE admin_id = ? AND target_user_id = ? AND ended_at IS NULL",
-                (now_sql(), real["id"], session.get("user_id")),
-            )
+            _end_impersonation_log()
+            session.pop(IMPERSONATION_LOG_KEY, None)
             session.pop("impersonator_id", None)
             session["user_id"] = real["id"]
             target = real
@@ -159,6 +158,15 @@ def _ended_by_session_limit(raw: str, user_id: str | None) -> bool:
         "SELECT 1 FROM user_sessions WHERE token_hash = ? AND user_id = ? AND revoked_reason = 'session_limit'",
         (crypto.sha256_hex(raw), user_id),
     ))
+
+
+def _session_ended_at(raw: str) -> str:
+    """When the session behind the cookie token *raw* was revoked or expired (now if it is unknown)."""
+    now = now_sql()
+    row = db.one("SELECT revoked_at, expires_at FROM user_sessions WHERE token_hash = ?", (crypto.sha256_hex(raw),))
+    if row is None:
+        return now
+    return row["revoked_at"] or min(row["expires_at"], now)
 
 
 def current_user() -> dict[str, Any] | None:
@@ -181,7 +189,7 @@ def refresh_current_user() -> None:
         g.pop("_grants", None)
 
 
-# ── Sign-in and sign-out ──────────────────────────────────────────────────────
+# Sign-in and sign-out
 
 
 def start_session(user: dict[str, Any], *, remember: bool = False, method: str = "password") -> str:
@@ -214,6 +222,7 @@ def start_session(user: dict[str, Any], *, remember: bool = False, method: str =
              method[:40], client_ip(), client_ip(), user_agent),
         )
         db.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, user["id"]))
+    _end_impersonation_log()
     language = session.get("interface_language")
     session.clear()
     if language:
@@ -235,6 +244,7 @@ def end_session() -> None:
             "UPDATE user_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",
             (now_sql(), crypto.sha256_hex(raw)),
         )
+    _end_impersonation_log()
     language = session.get("interface_language")
     session.clear()
     if language:
@@ -260,17 +270,21 @@ def current_session_id() -> str | None:
     return row["id"] if row else None
 
 
-def start_impersonation(target: dict[str, Any]) -> None:
+def start_impersonation(target: dict[str, Any], log_id: int) -> None:
+    """Act as *target*; *log_id* is the ``impersonation_logs`` row closed when this ends."""
     admin = real_user()
     if admin is None:
         abort(403)
     session["impersonator_id"] = admin["id"]
+    session[IMPERSONATION_LOG_KEY] = log_id
     session["user_id"] = target["id"]
     g.user = target
     g.pop("_grants", None)
 
 
 def stop_impersonation() -> None:
+    _end_impersonation_log()
+    session.pop(IMPERSONATION_LOG_KEY, None)
     impersonator = session.pop("impersonator_id", None)
     if impersonator:
         session["user_id"] = impersonator
@@ -278,7 +292,25 @@ def stop_impersonation() -> None:
         g.pop("_grants", None)
 
 
-# ── Account state ─────────────────────────────────────────────────────────────
+def _end_impersonation_log(ended_at: str | None = None) -> None:
+    """Close the log row of the impersonation the cookie carries, if any."""
+    admin_id = session.get("impersonator_id")
+    if not admin_id:
+        return
+    log_id = session.get(IMPERSONATION_LOG_KEY)
+    if log_id is None:
+        # A cookie without the row id: the newest open row of the pair is this impersonation.
+        log_id = db.scalar(
+            "SELECT MAX(id) FROM impersonation_logs WHERE admin_id = ? AND target_user_id = ? AND ended_at IS NULL",
+            (admin_id, session.get("user_id")),
+        )
+    db.execute(
+        "UPDATE impersonation_logs SET ended_at = ? WHERE id = ? AND admin_id = ? AND ended_at IS NULL",
+        (ended_at or now_sql(), log_id, admin_id),
+    )
+
+
+# Account state
 
 
 def account_block(user: dict[str, Any]) -> str | None:
@@ -299,7 +331,21 @@ def account_block(user: dict[str, Any]) -> str | None:
     return None
 
 
-# ── Permission checks ────────────────────────────────────────────────────────
+def pending_account_step(user: dict[str, Any]) -> str | None:
+    """The endpoint of a step *user* must complete before anything else, or None."""
+    from .registry import intercept
+
+    if is_impersonating():
+        return None
+    if user.get("force_password_change"):
+        return "auth.force_password_change"
+    if user.get("onboarding_required"):
+        return "auth.onboarding"
+    # Steps features add, such as two-step verification required of administrators.
+    return intercept("account.pending_step", user=user)
+
+
+# Permission checks
 
 
 def grants(user: dict[str, Any] | None = None) -> perms.Grants | None:
@@ -365,7 +411,7 @@ def minimum_role_allows(setting_value: str | None, user: dict[str, Any] | None =
     return has_role(minimum, user)
 
 
-# ── Decorators ────────────────────────────────────────────────────────────────
+# Decorators
 
 
 def wants_json() -> bool:

@@ -1,4 +1,4 @@
-"""Mascot script: settings only from the top bar, an error when saving fails, quick clicks keep hopping.
+"""Mascot script: settings only from the top bar, the sunglasses on and off, the Konami code.
 
 The markup and the script source are checked everywhere; the script's behaviour
 runs under node with a small stand-in for the page, where node is installed.
@@ -16,12 +16,12 @@ import pytest
 
 from .pages_support import set_feature
 
-SCRIPT = Path(__file__).parents[2] / "bananawiki/wiki/features/mascot/static/mascot.js"
+SCRIPT = Path(__file__).parents[2] / "bananawiki/core/static/mascot/mascot.js"
 NODE = shutil.which("node")
 needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
-# What an editor can save in a page: a heading with the id the first version of the script read its
-# settings from, and a Markdown heading that the table of contents gives that same id.
+# Page content that imitates a settings element: a heading with id "mascot-config" holding JSON,
+# and a Markdown heading the table of contents gives the same id.
 TRAP = '<h2 id="mascot-config">{"url": "/admin/users/1/api-access", "clicks": 1}</h2>\n\n## Mascot config\n\nHi.\n'
 SCRIPT_TAG = re.compile(r'<script src="[^"]*/mascot\.js[?"][^>]*></script>')
 
@@ -36,7 +36,7 @@ def _home(client):
     return client.get("/", follow_redirects=True).get_data(as_text=True)
 
 
-# ── Markup ────────────────────────────────────────────────────────────────────
+# Markup
 
 
 def test_page_content_cannot_stand_in_for_the_mascot_settings(app, client, make_user, login):
@@ -83,7 +83,7 @@ def test_script_shows_a_generic_error_and_restarts_each_animation():
     assert "window.clearTimeout(timers[className])" in source
 
 
-# ── Behaviour (node) ──────────────────────────────────────────────────────────
+# Behaviour (node)
 
 HARNESS = r"""
 "use strict";
@@ -113,8 +113,14 @@ function advance(ms) {
 
 const attributes = { "data-mascot": "" };
 for (const [name, value] of Object.entries(scenario.attributes)) if (value !== null) attributes[name] = value;
-const sprite = { classList: classes() };
-let onClick = null;
+function element(className) {
+  return { className: className || "", classList: classes(), style: {}, children: [], parentNode: null,
+           setAttribute() {}, appendChild(child) { child.parentNode = this; this.children.push(child); },
+           removeChild(child) { this.children = this.children.filter((c) => c !== child); } };
+}
+const sprite = { classList: classes(), querySelector: () => null, cloneNode: () => element("mascot-sprite") };
+if (scenario.shades) sprite.classList.add("mascot-sprite--shades");
+let onClick = null, onKey = null;
 const button = {
   classList: classes(),
   offsetWidth: 32,
@@ -123,11 +129,18 @@ const button = {
   querySelector: (selector) => (selector === ".mascot-sprite" ? sprite : null),
   addEventListener: (type, fn) => { if (type === "click") onClick = fn; },
 };
-// The element an id lookup for "mascot-config" finds: page content, or the old settings block.
+// The element an id lookup for "mascot-config" finds: page content holding JSON.
 const byId = scenario.byId === null ? null : { textContent: JSON.stringify(scenario.byId) };
+const body = element();
+const showers = () => body.children.filter((child) => child.className === "mascot-shower");
 const document = {
-  querySelector: (selector) => (selector === "[data-mascot]" ? button : null),
+  documentElement: { getAttribute: (name) => (name === "data-reduce-motion" ? scenario.reduceSwitch : null) },
+  body,
+  createElement: () => element(),
+  querySelector: (selector) => (selector === "[data-mascot]" ? button
+                                : selector === ".mascot-shower" ? showers()[0] || null : null),
   getElementById: (id) => (id === "mascot-config" ? byId : null),
+  addEventListener: (type, fn) => { if (type === "keydown") onKey = fn; },
 };
 const posts = [], toasts = [];
 const BW = {
@@ -139,8 +152,15 @@ const BW = {
     return Promise.resolve({ ok: true });
   },
 };
+const stored = new Map(Object.entries(scenario.stored || {}));
+const localStorage = {
+  getItem: (key) => (stored.has(key) ? stored.get(key) : null),
+  setItem: (key, value) => { stored.set(key, String(value)); },
+  removeItem: (key) => { stored.delete(key); },
+};
 const location = { href: "https://wiki.example/page/mascot-trap", origin: "https://wiki.example" };
-const window = { setTimeout, clearTimeout, location, document, BW };
+const matchMedia = (query) => ({ matches: !!scenario.reduced && query === "(prefers-reduced-motion: reduce)" });
+const window = { setTimeout, clearTimeout, location, document, BW, localStorage, matchMedia };
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 (async () => {
@@ -150,23 +170,34 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
   for (const step of scenario.steps) {
     if (step === "click") { if (onClick) onClick({}); await flush(); }
     else if (step === "look") snapshots.push(button.classList.contains("mascot--hop"));
+    else if (step === "eager") snapshots.push(button.classList.contains("mascot--eager"));
+    else if (step === "lean") snapshots.push(button.classList.contains("mascot--lean"));
+    else if (step === "shower") snapshots.push(showers().map((layer) => layer.children.length));
+    else if (typeof step === "object") {
+      const target = { tagName: step.tag || "BODY", isContentEditable: !!step.editable };
+      if (onKey) onKey({ key: step.key, target, ctrlKey: !!step.ctrl, metaKey: false, altKey: false,
+                         defaultPrevented: !!step.handled });
+    }
     else advance(step);
   }
   process.stdout.write(JSON.stringify({ posts, toasts, snapshots, label: attributes["aria-label"] || null,
-                                        shades: sprite.classList.contains("mascot-sprite--shades") }));
+                                        shades: sprite.classList.contains("mascot-sprite--shades"),
+                                        stored: Object.fromEntries(stored) }));
 })().catch((error) => { process.stdout.write(JSON.stringify({ crashed: String((error && error.stack) || error) })); });
 """
 
-# What the server renders on the button, and what the settings block of the first version said.
+# The settings the server renders on the button, and a planted JSON block a page could carry.
 SETTINGS = {"data-mascot-url": "/mascot/shades", "data-mascot-clicks": "11"}
-OLD_BLOCK = {"url": "/mascot/shades", "clicks": 11}
+PLANTED_BLOCK = {"url": "/mascot/shades", "clicks": 11}
 OWN_ENDPOINT = ["https://wiki.example/mascot/shades", "POST"]
 
 
-def _run(tmp_path, steps, *, attributes=None, by_id=OLD_BLOCK, fail=False):
+def _run(tmp_path, steps, *, attributes=None, by_id=PLANTED_BLOCK, fail=False, stored=None, reduced=False,
+         reduce_switch=None, shades=False):
     harness = tmp_path / "harness.js"
     harness.write_text(HARNESS, encoding="utf-8")
-    scenario = {"steps": steps, "attributes": {**SETTINGS, **(attributes or {})}, "byId": by_id, "fail": fail}
+    scenario = {"steps": steps, "attributes": {**SETTINGS, **(attributes or {})}, "byId": by_id, "fail": fail,
+                "stored": stored or {}, "reduced": reduced, "reduceSwitch": reduce_switch, "shades": shades}
     done = subprocess.run([NODE, str(harness), str(SCRIPT), json.dumps(scenario)], capture_output=True,
                           text=True, timeout=60, check=True)
     result = json.loads(done.stdout)
@@ -220,3 +251,71 @@ def test_quick_clicks_restart_the_hop(tmp_path):
     # Hop lasts 450 ms: a second click at 300 ms must keep the mascot up until 750 ms.
     result = _run(tmp_path, ["click", 300, "click", 200, "look", 300, "look"])
     assert result["snapshots"] == [True, False]
+
+
+@needs_node
+def test_eleven_more_clicks_take_the_sunglasses_off(tmp_path):
+    assert _run(tmp_path, _clicks(10), shades=True)["posts"] == []
+    result = _run(tmp_path, _clicks(11), shades=True)
+    assert result["posts"] == [["https://wiki.example/mascot/shades", "DELETE"]] and not result["shades"]
+    assert result["label"] == "t:mascot.label" and result["toasts"] == [["t:mascot.shades_off", "success"]]
+    # On, off and on again: the count starts over after each change.
+    result = _run(tmp_path, _clicks(33))
+    assert [method for _, method in result["posts"]] == ["POST", "DELETE", "POST"] and result["shades"]
+
+
+@needs_node
+def test_the_hop_grows_past_half_way_and_settles_after_the_change(tmp_path):
+    result = _run(tmp_path, [*_clicks(5), "eager", "click", "eager", *_clicks(5), "eager"])
+    assert result["snapshots"] == [False, True, False]
+
+
+@needs_node
+def test_without_an_account_the_browser_keeps_the_sunglasses(tmp_path):
+    local = {"data-mascot-store": "local", "data-mascot-url": None}
+    result = _run(tmp_path, _clicks(11), attributes=local)
+    assert result["posts"] == [] and result["shades"]
+    assert result["stored"] == {"bananawiki.mascot.shades": "1"}
+    assert result["toasts"] == [["t:mascot.unlocked_local", "success"]]
+    # The next page starts with them on; eleven more clicks take them off again.
+    worn = {"bananawiki.mascot.shades": "1"}
+    assert _run(tmp_path, [], attributes=local, stored=worn)["shades"]
+    result = _run(tmp_path, _clicks(11), attributes=local, stored=worn)
+    assert result["posts"] == [] and not result["shades"] and result["stored"] == {}
+    # The browser's own copy never decides for an account.
+    assert not _run(tmp_path, [], stored=worn)["shades"]
+
+
+KONAMI = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight",
+          "b", "a"]
+
+
+def _keys(keys, **target):
+    return [{"key": key, **target} for key in keys]
+
+
+@needs_node
+def test_konami_code_sends_a_short_shower_of_bananas(tmp_path):
+    result = _run(tmp_path, [*_keys(KONAMI), "shower", "look", 2900, "shower", 200, "shower"])
+    assert result["snapshots"] == [[10], True, [10], []]
+    # A third "up" still counts as the start, and capitals as letters.
+    result = _run(tmp_path, [*_keys(["ArrowUp", *KONAMI[:-2], "B", "A"]), "shower"])
+    assert result["snapshots"] == [[10]]
+    # One shower at a time.
+    assert _run(tmp_path, [*_keys(KONAMI * 2), "shower"])["snapshots"] == [[10]]
+
+
+@needs_node
+@pytest.mark.parametrize("target", [{"tag": "INPUT"}, {"tag": "TEXTAREA"}, {"tag": "SELECT"},
+                                    {"tag": "DIV", "editable": True}, {"ctrl": True}, {"handled": True}])
+def test_konami_code_never_fires_while_typing_or_for_shortcuts(tmp_path, target):
+    steps = [*_keys(KONAMI[:-1]), *_keys(KONAMI[-1:], **target), "shower"]
+    assert _run(tmp_path, steps)["snapshots"] == [[]]
+
+
+@needs_node
+@pytest.mark.parametrize("reduced, reduce_switch", [(True, None), (False, "true")])
+def test_with_less_motion_the_konami_code_only_leans_the_mascot(tmp_path, reduced, reduce_switch):
+    result = _run(tmp_path, [*_keys(KONAMI), "shower", "lean", 700, "lean"], reduced=reduced,
+                  reduce_switch=reduce_switch)
+    assert result["snapshots"] == [[], True, False]

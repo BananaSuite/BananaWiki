@@ -19,7 +19,7 @@ from .. import service
 from ..blueprint import bp
 from .common import actor, back, endpoint_url, page_number, refuse, target_or_404
 
-# ── List and create ──────────────────────────────────────────────────────────
+# List and create
 
 
 @bp.get("/admin/users")
@@ -56,7 +56,7 @@ def create_user():
     return render_template("admin/user_create.html", form=form)
 
 
-# ── One account ──────────────────────────────────────────────────────────────
+# One account
 
 
 @bp.get("/admin/users/<string:user_id>")
@@ -245,7 +245,7 @@ def revoke_sessions(user_id: str):
     return back("admin.user_detail", user_id=target["id"])
 
 
-# ── Impersonation ────────────────────────────────────────────────────────────
+# Impersonation
 
 
 @bp.post("/admin/users/<string:user_id>/impersonate")
@@ -268,7 +268,7 @@ def stop_impersonating():
     return redirect(url_for("auth.stop_impersonation"), code=307)
 
 
-# ── Permissions ──────────────────────────────────────────────────────────────
+# Permissions
 
 
 def _category_ids(field: str) -> list[int]:
@@ -335,7 +335,7 @@ def editor_access(user_id: str):
     )
 
 
-# ── Audit and attributions ───────────────────────────────────────────────────
+# Audit and attributions
 
 
 @bp.get("/admin/users/<string:user_id>/audit")

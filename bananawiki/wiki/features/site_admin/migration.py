@@ -8,15 +8,15 @@ The unified BananaWiki archive of 1.4, which the hosting portal also reads::
     bananawiki.db        consistent online copy of the database
     uploads/ attachments/ chat_attachments/ kanban_attachments/ custom_page_files/
     favicons/            only ``custom_*`` icons
-    translations/        uploaded interface languages (1.6 only)
+    translations/        uploaded interface languages (not in 1.4 archives)
 
 Imports also accept the two older 1.4 shapes: everything nested under one
 ``<slug>/`` folder (hosting), and ``site_export.json`` with ``assets/<kind>/``
 folders and no database file (early standalone exports; the JSON dump is
 turned into a 1.4 database and upgraded like any other).
 
-Safety (1.4 audit C2)
----------------------
+Safety
+------
 An import only ever writes the database and the data folders above. Code
 (``config.py``, plugins), the secret key and anything else in the archive is
 ignored. Archives with encrypted or patched members, or members compressed
@@ -42,6 +42,7 @@ Only owners and superusers export or import (see :mod:`.routes_migration`).
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import secrets
@@ -52,6 +53,7 @@ import tempfile
 import time
 import uuid
 import zipfile
+import zlib
 from base64 import b64decode
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -78,6 +80,7 @@ from ....core.sqlite import (
 from ....core.zipcheck import readable_member
 from ... import migrations, settings, storage
 from ...i18n import catalog
+from ...migrations import v4_takeover
 from . import languages
 
 log = logging.getLogger("bananawiki.site_admin.migration")
@@ -133,7 +136,7 @@ def cleanup_stale() -> int:
     return removed
 
 
-# ── Export ────────────────────────────────────────────────────────────────────
+# Export
 
 
 def _asset_files(folder: str) -> list[tuple[Path, str]]:
@@ -199,7 +202,7 @@ def export_archive() -> tuple[Path, str]:
         raise
 
 
-# ── Import: reading the archive ──────────────────────────────────────────────
+# Import: reading the archive
 
 
 @dataclass
@@ -302,8 +305,17 @@ def stage(upload: FileStorage | None) -> Staged:
             archive = zipfile.ZipFile(archive_path)
         except (zipfile.BadZipFile, OSError):
             raise MigrationError("site_admin.migration.error.not_zip") from None
-        with archive:
-            staged = _unpack(archive, workdir, size)
+        try:
+            with archive:
+                staged = _unpack(archive, workdir, size)
+        except OSError as error:
+            if error.errno == errno.ENOSPC:
+                raise MigrationError("site_admin.migration.error.disk_space") from None
+            log.warning("Site import: the archive could not be unpacked: %s", error)
+            raise MigrationError("site_admin.migration.error.corrupt") from None
+        except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError) as error:
+            log.warning("Site import: the archive could not be unpacked: %s", error)
+            raise MigrationError("site_admin.migration.error.corrupt") from None
         archive_path.unlink()
         staged.two_step_off = _prepare_database(staged.database)
         return staged
@@ -409,13 +421,14 @@ def _database_from_json(raw: bytes, target: Path) -> None:
         conn.execute(f"PRAGMA application_id={int(migrations.APPLICATION_ID)}")
         conn.execute(f"PRAGMA user_version={int(migrations.BASELINE)}")
         conn.execute("COMMIT")
-    except sqlite3.Error:
+    except (sqlite3.Error, ValueError, TypeError, OverflowError):
+        # Besides SQLite: bad base64 in _decode, or numbers SQLite cannot store.
         raise MigrationError("site_admin.migration.error.json") from None
     finally:
         conn.close()
 
 
-# ── Import: checking and preparing the database ──────────────────────────────
+# Import: checking and preparing the database
 
 
 def _open(path: Path) -> sqlite3.Connection:
@@ -438,6 +451,9 @@ def _prepare_database(path: Path) -> list[str]:
         _check_identity(conn)
         try:
             apply_migrations(conn, migrations.APPLICATION_ID, migrations.MIGRATIONS, baseline=migrations.BASELINE)
+            # A wiki upgraded where SQLite lacked FTS5 has no search index; the
+            # triggers put back below would write into it.
+            v4_takeover.add_page_search(conn)
         except (DatabaseUnavailable, sqlite3.Error) as error:
             log.warning("Site import: the archive's database could not be upgraded: %s", error)
             raise MigrationError("site_admin.migration.error.upgrade") from None
@@ -470,7 +486,7 @@ def _check_identity(conn: sqlite3.Connection) -> None:
 
 
 def _check_content(conn: sqlite3.Connection) -> None:
-    """A replacement must leave a usable wiki behind (1.4 import checks)."""
+    """A replacement must leave a usable wiki behind."""
     try:
         setup = conn.execute("SELECT setup_done FROM site_settings WHERE id = 1").fetchone()
         admins = conn.execute("SELECT COUNT(*) AS n FROM users WHERE role IN ('admin', 'owner')").fetchone()
@@ -597,7 +613,7 @@ def _live_page_size() -> int:
         conn.close()
 
 
-# ── Import: replacing the live site ──────────────────────────────────────────
+# Import: replacing the live site
 
 
 def _custom_favicons(folder: Path) -> list[Path]:

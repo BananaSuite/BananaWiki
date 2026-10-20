@@ -25,7 +25,7 @@ def _client(app, make_user, login, name, role="user"):
     return client
 
 
-# ── Search ────────────────────────────────────────────────────────────────────
+# Search
 
 
 def test_search_page_filters_by_visibility(app, make_user, login, db):
@@ -84,7 +84,7 @@ def test_search_public_mode_anonymous(app, client, db):
     assert b"Open" in client.get("/search?q=visible").data
 
 
-# ── Preview and lookups ──────────────────────────────────────────────────────
+# Preview and lookups
 
 
 def test_preview_sanitises(admin_client):
@@ -109,7 +109,7 @@ def test_preview_by_slug_respects_visibility(app, make_user, login, db, admin_cl
     assert client.get("/api/pages/preview-by-slug?slug=peek").status_code == 404
 
 
-# ── Presence ──────────────────────────────────────────────────────────────────
+# Presence
 
 
 def test_editing_presence(app, make_user, login):
@@ -125,7 +125,7 @@ def test_editing_presence(app, make_user, login):
     assert plain.post("/api/page/busy/editing/heartbeat", json={}).status_code == 403
 
 
-# ── Uploads ───────────────────────────────────────────────────────────────────
+# Uploads
 
 
 def _upload(client, data=None, name="pic.png"):

@@ -1,5 +1,5 @@
 """Every feature switch is recorded, and only owners and superusers switch the audit log off, whatever page
-switches it (second audit of the 1.7 round: the onboarding wizard went around both rules)."""
+switches it (the onboarding wizard included)."""
 
 from __future__ import annotations
 

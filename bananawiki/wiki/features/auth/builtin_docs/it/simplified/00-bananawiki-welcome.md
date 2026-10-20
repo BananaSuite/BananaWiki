@@ -1,19 +1,19 @@
 # Benvenuto in BananaWiki
 
-BananaWiki è una wiki privata per il tuo team. Gira sul tuo server, tiene le pagine in un luogo ricercabile e dà agli admin controllo su utenti, ruoli, plugin e backup.
+BananaWiki tiene le pagine del tuo gruppo in un unico posto, sul tuo server. Gli amministratori decidono chi può leggere e scrivere, e quali funzioni sono attive.
 
 ## Per iniziare
 
-1. **Leggi** - apri le pagine dalla barra laterale e usa la ricerca quando conosci una parola chiave.
-2. **Scrivi** - crea una pagina quando manca una conoscenza utile.
-3. **Organizza** - sposta le pagine correlate in categorie così gli altri le trovano dopo.
+1. **Leggi** - apri le pagine dalla barra laterale, o cerca quando conosci una parola.
+2. **Scrivi** - clicca **Nuova pagina** quando una pagina manca.
+3. **Organizza** - sposta le pagine correlate in una categoria così gli altri le trovano.
 
 ## Cosa può includere BananaWiki
 
-- pagine Markdown con anteprima dal vivo
+- pagine Markdown con anteprima e cronologia
 - categorie e navigazione laterale
-- utenti, editor, admin e ruoli personalizzati
-- chat, Kanban, Canvas, badge, allegati e API opzionali
+- utenti, editor, amministratori e ruoli personalizzati
+- chat, bacheche Kanban, canvas, distintivi, allegati e un'API REST, quando sono attivi
 - export PDF, import Markdown, backup e ripristino
 
 ## Chi può fare cosa
@@ -22,7 +22,7 @@ BananaWiki è una wiki privata per il tuo team. Gira sul tuo server, tiene le pa
 |---|---|
 | **Utente** | leggere e usare gli strumenti consentiti |
 | **Editor** | creare e aggiornare pagine |
-| **Admin** | gestire wiki, utenti, impostazioni e plugin |
-| **Admin protetto** | accesso admin protetto da modifiche degli admin normali |
+| **Amministratore** | gestire wiki, utenti, impostazioni e plugin |
+| **Proprietario** | amministratore che gli altri amministratori non possono modificare |
 
-Gli admin possono ricreare questa guida da **Amministrazione → Documentazione** e scegliere inglese, italiano o tedesco, completa o semplificata.
+Gli amministratori possono ricreare questa guida da **Amministrazione → Documentazione** e scegliere inglese, italiano o tedesco, completa o semplificata.

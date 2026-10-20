@@ -110,7 +110,7 @@ def looks_like_audio(data: bytes) -> str | None:
     return "mp3" if ok else None
 
 
-# ── ffmpeg ────────────────────────────────────────────────────────────────────
+# ffmpeg
 
 
 def ffmpeg_binary() -> str | None:
@@ -222,7 +222,7 @@ def encode_mp3(source: Path, target: Path, *, speed: float = 1.0) -> None:
         raise SynthesisError("ffmpeg could not encode the audio.")
 
 
-# ── Stub ──────────────────────────────────────────────────────────────────────
+# Stub
 
 _SILENT_MP3 = b"\xff\xfb\x90\x44\x00" + b"\x00" * 417
 
@@ -241,7 +241,7 @@ class StubBackend:
         return Audio(path, "mp3")
 
 
-# ── Piper ─────────────────────────────────────────────────────────────────────
+# Piper
 
 _voice_cache: dict[tuple[str, str], Any] = {}
 _voice_lock = threading.Lock()
@@ -453,7 +453,7 @@ class PiperBackend:
         return Audio(mp3_path, "mp3")
 
 
-# ── Remote GPU server ─────────────────────────────────────────────────────────
+# Remote GPU server
 
 
 def gpu_base_url_problem(url: str) -> str | None:
@@ -552,7 +552,7 @@ class RemoteGpuBackend:
             return self.fallback.synthesize(spoken, language, workdir)
 
 
-# ── Selection ─────────────────────────────────────────────────────────────────
+# Selection
 
 
 def current() -> Synthesizer:

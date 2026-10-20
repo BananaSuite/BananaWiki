@@ -1,4 +1,4 @@
-"""Encrypted platform backups to Google Drive (1.4 ``hosting/gdrive_backup.py``).
+"""Encrypted platform backups to Google Drive.
 
 Settings live in ``hosting_settings`` (``gdrive_backup_enabled``,
 ``gdrive_credentials_path``, ``gdrive_folder_id``, ``gdrive_retention_days``,
@@ -8,7 +8,7 @@ are optional: without them every call raises ``not_configured``.
 
 Only ``.bwenc`` files (the encrypted ``BWBACKUP1`` format) are uploaded, and
 retention only ever deletes files in the configured folder whose names start
-with a backup prefix (1.6 or 1.4).
+with a backup prefix (current or 1.4).
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from . import RuntimeFailure
 log = logging.getLogger("bananawiki.hosting.runtime.gdrive")
 
 SCOPES = ("https://www.googleapis.com/auth/drive.file",)
-# 1.6 names, and the names 1.4 uploaded (retention covers both).
+# Current names, and the names 1.4 uploaded (retention covers both).
 PREFIXES = ("bananawiki_hosting_backup_", "bananawiki_backup_")
 MIME_TYPE = "application/octet-stream"
 FOLDER_ID = re.compile(r"[A-Za-z0-9_-]{1,200}")
@@ -118,7 +118,7 @@ def store_credentials(content: bytes, path: Path) -> Path:
 
 
 def service(settings: DriveSettings) -> Any:
-    """An authenticated Drive v3 client (the key file is re-checked: 1.4 stored it unchecked)."""
+    """An authenticated Drive v3 client (the key file is checked again, as it may predate validation)."""
     settings.check()
     with open(settings.credentials_path, "rb") as handle:
         validate_credentials(handle.read(CREDENTIALS_MAX + 1))

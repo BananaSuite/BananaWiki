@@ -1,4 +1,4 @@
-"""Who may bring third-party code into the wiki, and whether it is allowed at all (2.x release audit).
+"""Who may bring third-party code into the wiki, and whether it is allowed at all.
 
 * Installing and enabling plugins is for the owner and superusers; administrators may
   switch plugins off and remove them.
@@ -37,7 +37,7 @@ def _client(app, make_user, login, name, role="admin", **extra):
     return client
 
 
-# ── Default and upgrades ─────────────────────────────────────────────────────
+# Default and upgrades
 
 
 def test_new_installations_have_external_plugins_off(app_factory, tmp_path, make_user, login):
@@ -61,7 +61,7 @@ def test_an_upgraded_installation_with_plugins_keeps_them(app_factory, tmp_path,
     assert any("BW_ALLOW_EXTERNAL_PLUGINS" in record.getMessage() for record in caplog.records)
 
 
-def test_an_empty_value_turns_plugins_off_as_before(app_factory, tmp_path):
+def test_an_empty_value_turns_plugins_off(app_factory, tmp_path):
     install_folder(tmp_path, HELLO_PLUGIN)
     app = _build(app_factory, tmp_path, BW_ALLOW_EXTERNAL_PLUGINS="")
     assert app.extensions["bananawiki.plugins"].allowed is False
@@ -85,7 +85,7 @@ def test_managed_hosting_still_needs_container_isolation(app_factory, tmp_path):
     assert app.extensions["bananawiki.plugins"].allowed is False
 
 
-# ── Owner and superusers only ────────────────────────────────────────────────
+# Owner and superusers only
 
 
 def test_a_plain_administrator_cannot_upload_or_enable(app_factory, tmp_path, make_user, login):

@@ -42,7 +42,7 @@ def test_colours_are_saved_and_rendered(admin_client, db):
 
 def test_invalid_colour_changes_nothing(admin_client, db):
     admin_client.post("/admin/appearance/colors", data=colors_form(primary_color="red;}body{x"))
-    assert row(db)["primary_color"] == "#8fa0d4"
+    assert row(db)["primary_color"] == THEME_DEFAULTS["dark"]["primary"]
 
 
 def test_reset_restores_defaults(admin_client, db):
@@ -72,7 +72,7 @@ def test_invalid_theme_files_are_refused(admin_client, db):
                           (b"{}", "x.txt"), (b" " * 200_000, "x.bwtheme")):
         admin_client.post("/admin/appearance/theme/import", data={"theme_file": (io.BytesIO(content), name)},
                           content_type="multipart/form-data")
-    assert row(db)["primary_color"] == "#8fa0d4"
+    assert row(db)["primary_color"] == THEME_DEFAULTS["dark"]["primary"]
 
 
 def test_favicon_upload_select_and_serve(app, admin_client, db):

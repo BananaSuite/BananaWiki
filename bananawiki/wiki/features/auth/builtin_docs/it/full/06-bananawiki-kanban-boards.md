@@ -1,19 +1,19 @@
 # Bacheche Kanban
 
-Le bacheche Kanban aiutano a seguire il lavoro senza uscire dalla wiki. Una bacheca contiene colonne e le colonne contengono schede. Le schede possono rappresentare attività, idee, bug, lezioni o revisioni.
+Una bacheca Kanban ha colonne, e le colonne contengono schede. Le bacheche sono sotto **App → Kanban**.
 
-## Creare una bacheca utile
+## Colonne
 
-Parti con poche colonne, per esempio **Backlog**, **In corso**, **Revisione** e **Fatto**. Aggiungine altre solo se rispecchiano davvero il workflow. Troppe colonne rendono la bacheca più difficile da leggere. Sulla colonna che raccoglie il lavoro finito attiva **Colonna completata** (il pulsante con il segno di spunta tra gli strumenti della colonna): le sue schede mantengono la scadenza ma non risultano più scadute.
+Aggiungi colonne come **Da fare**, **In corso** e **Fatto**, e trascinale per riordinarle. Sulla colonna che raccoglie il lavoro finito attiva **Completata** (il pulsante con il segno di spunta tra gli strumenti della colonna): le sue schede mantengono la scadenza ma non risultano più scadute.
 
 ## Schede
 
-Una scheda dovrebbe avere un titolo breve e dettagli sufficienti per agire. Usa i commenti per la discussione e gli allegati per i file di supporto. Collega pagine wiki quando la scheda dipende da conoscenza documentata.
+Una scheda ha una descrizione in Markdown, etichette, una priorità, una scadenza, assegnatari, commenti, allegati e una checklist. Trascina le schede tra le colonne. **Archiviate** elenca le schede archiviate; da lì puoi ripristinarle.
 
 ## Accesso e condivisione
 
-Gli admin configurano l'accesso Kanban globale. I proprietari possono condividere singole bacheche con utenti specifici quando il sito lo consente. Usa l'accesso in scrittura con attenzione quando la bacheca rappresenta lavoro operativo.
+Gli amministratori decidono quali ruoli possono usare Kanban. Chi ha creato la bacheca la condivide con persone o ruoli, in lettura o in scrittura, da **Altro → Condivisione**.
 
-## Cronologia ed export
+## Cronologia ed esportazione
 
-La cronologia mostra come il lavoro è cambiato nel tempo. Le funzioni di export possono spostare i dati della bacheca in backup o workflow esterni.
+**Altro → Cronologia** elenca gli stati precedenti della bacheca; ripristinarne uno non elimina mai schede, commenti o file. **Esporta** scarica la bacheca con gli allegati come ZIP, e **Altro → Esporta senza allegati** come JSON.

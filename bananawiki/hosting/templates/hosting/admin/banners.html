@@ -16,7 +16,7 @@
   {{ ui.check('not_removable', t('hosting.banners.not_removable'), b.not_removable if b else true) }}
   {{ ui.check('show_countdown', t('hosting.banners.countdown'), b.show_countdown if b else false) }}
   {{ ui.check('custom_colors', t('hosting.banners.custom_colors'), b and b.custom_background) }}
-  <div class="cluster"><label>{{ t('hosting.banners.background') }} <input type="color" name="custom_background" value="{{ b.custom_background if b and b.custom_background else '#333344' }}"></label>
+  <div class="cluster"><label>{{ t('hosting.banners.background') }} <input type="color" name="custom_background" value="{{ b.custom_background if b and b.custom_background else '#333333' }}"></label>
   <label>{{ t('hosting.banners.text') }} <input type="color" name="custom_text_color" value="{{ b.custom_text_color if b and b.custom_text_color else '#ffffff' }}"></label></div>
 {% endmacro %}
 <div class="panel-list">
@@ -28,7 +28,7 @@
 <form method="post" action="{{ url_for('admin.edit_banner', banner_id=b.id) }}" class="form">{{ ui.csrf() }}{{ banner_fields(b) }}
   {{ ui.check('is_active', t('hosting.banners.is_active'), b.is_active) }}
   <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button>
-    <button class="btn btn--danger" type="submit" form="delete-banner-{{ b.id }}">{{ t('hosting.banners.delete') }}</button></div></form></details>
+    <button class="btn btn--danger-quiet" type="submit" form="delete-banner-{{ b.id }}">{{ t('hosting.banners.delete') }}</button></div></form></details>
 {% endfor %}
 </div>
 {% endblock %}

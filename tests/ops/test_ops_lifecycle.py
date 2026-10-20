@@ -1,4 +1,4 @@
-"""End to end: a 1.4-installed server is updated by the 1.6 controller, then rolled back."""
+"""End to end: a server installed by 1.4 is updated by the current controller, then rolled back."""
 
 from __future__ import annotations
 
@@ -282,11 +282,10 @@ def deep_files(root: Path, count: int) -> None:
         (directory / (f"{number:05d}" + "f" * 195)).write_bytes(b"x")
 
 
-def test_a_snapshot_index_beyond_16_mib_no_longer_fails_backups_and_updates(managed_root, fake_system, upstream,
+def test_a_snapshot_index_beyond_16_mib_does_not_fail_backups_and_updates(managed_root, fake_system, upstream,
                                                                              legacy):
-    """Earlier controllers read their snapshot index back (indented, about 220 bytes a file) only up to 16 MiB,
-    once the services had stopped: from about 76,000 files every backup and update failed after the downtime
-    (R-25). These few files with long names make an index as large."""
+    """The snapshot index (about 220 bytes a file) is read back whole, also beyond 16 MiB (about 76,000 files),
+    after the services stopped. These few files with long names make an index as large."""
     deep_files(managed_root, 4800)
     manager = Manager(managed_root, system=fake_system)
     package = manager.backup()
@@ -339,7 +338,7 @@ def test_more_files_than_a_package_may_hold_are_refused_before_anything_stops(ma
 
 def test_an_invalid_package_limit_refuses_an_update_before_anything_stops(managed_root, fake_system, upstream,
                                                                           legacy):
-    """It was read once the release was built, and the update was recorded as rolled back: a failed revision."""
+    """The limit is read before anything stops, so a bad value refuses the update instead of rolling it back."""
     environment = managed_root / "config/app.env"
     write_environment(environment, {**read_environment(environment), "BANANA_PACKAGE_MAX_FILES": "2M"})
     manager = Manager(managed_root, system=fake_system)
@@ -424,6 +423,18 @@ def test_pruning_keeps_rollback_target_and_newest(managed_root, fake_system, ups
     remaining = sorted(path.name for path in backups.iterdir())
     assert remaining == sorted([names[0], *names[-3:]])
     assert set(removed) == set(names[1:3])
+
+
+def test_every_backup_prunes_the_packages_failed_remote_backups_kept(managed_root, fake_system, upstream, legacy):
+    manager = Manager(managed_root, system=fake_system)
+    backups = managed_root / "backups"
+    kept = [f"{prefix}-2026010{index}T000000Z-aaaaaa.tar.gz" for prefix in ("remote", "before-restore")
+            for index in range(1, 6)]
+    for name in (*kept, "manual-20260101T000000Z-aaaaaa.tar.gz"):
+        (backups / name).write_bytes(b"x")
+    package = manager.backup(manager.backup_name("remote"))
+    remaining = sorted(path.name for path in backups.iterdir())
+    assert remaining == sorted(["manual-20260101T000000Z-aaaaaa.tar.gz", package.name, *kept[3:5], *kept[7:]])
 
 
 def test_update_prunes_tenant_images(managed_root, fake_system, upstream):

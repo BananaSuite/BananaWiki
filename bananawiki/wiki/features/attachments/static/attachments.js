@@ -14,7 +14,7 @@
   function deleteButton(url, name) {
     var button = document.createElement("button");
     button.type = "button";
-    button.className = "btn btn--small btn--ghost text-danger";
+    button.className = "btn btn--small btn--danger-quiet";
     button.setAttribute("data-attachment-delete", url);
     button.setAttribute("data-name", name);
     button.textContent = BW.t("attachments.delete");

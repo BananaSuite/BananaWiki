@@ -9,8 +9,8 @@ URL answers 404, including the endpoint peers call, so a wiki that has not
 opted in looks like one that never had the feature. There is no
 administrator switch.
 
-The wire protocol is unchanged from 1.4, so 1.4 and 1.6 wikis pair with each
-other.
+The wire protocol is the one 1.4 used, so wikis of any release from 1.4 on
+pair with each other.
 
 ## Pairing
 
@@ -34,8 +34,8 @@ A wiki is only contacted at public internet addresses. For a peer on the
 same private network, tick *The other wiki is on a private network* when
 pairing; loopback and private addresses are then allowed for that peer only.
 Under managed hosting (`BW_MANAGED_HOSTING=1`) the local network is the
-host's, so the option is not offered and a peer marked that way earlier is
-contacted at public addresses only.
+host's, so the option is not offered and peers are contacted at public
+addresses only, also those marked as private before.
 Link-local (cloud metadata), multicast and reserved addresses are always
 refused, the address is resolved once and the connection goes to the checked
 address, redirects are not followed, and answers are capped at 8 MiB and 25
@@ -48,7 +48,11 @@ At most 16 peers, and at most 32 shared pages per peer.
 Editors use `/federation/sharing` to share one page with one paired wiki.
 Only an active Markdown page the editor may edit can be shared (not hidden,
 pending deletion or page-builder pages), at most 128 KiB with a title of at
-most 300 characters. Later edits are sent on each synchronisation. A share is
+most 300 characters. Together the pages shared with one wiki must fit in the
+8 MiB answer once encoded (escaped JSON can take several times the page's
+size); a share that would not fit is refused, and pages that grew past it
+later are left out of the answer, most recently shared first, until they fit
+again. Later edits are sent on each synchronisation. A share is
 withdrawn automatically when the page stops qualifying, when the person who
 shared it may no longer edit it, or when the page moves to another category:
 sharing again is a deliberate act. Editors see and withdraw their own shares;
@@ -98,7 +102,7 @@ received from it. The other wiki keeps what it already received.
 ## Tables
 
 `federation_identity` (this wiki's id and sequence), `federation_peers`
-(pairings, poll state; 1.6 adds `allow_private_network`),
+(pairings, poll state, `allow_private_network`),
 `federation_page_ids` (stable public id per shared page),
 `federation_shares`, `federation_copies`, `federation_nonces`. Times in these
 tables are Unix seconds, as in 1.4.

@@ -56,7 +56,7 @@
       {% for item in contributions %}
       <li><div class="users-contributions__body">
         <a href="{{ url_for('pages.view', slug=item.page_slug) }}">{{ item.page_title }}</a>
-        {% if item.edit_message %}<span class="muted">{{ item.edit_message }}</span>{% endif %}
+        {% if item.edit_message %}<span class="muted">{{ page_history_message(item.edit_message) }}</span>{% endif %}
         </div><span class="small muted users-contributions__date">{{ item.created_at|datetime }}</span></li>
       {% endfor %}
     </ul>

@@ -6,13 +6,13 @@ exact shape BananaWiki 1.4 used, so saved choices survive the upgrade:
 
 * ``theme_mode`` ``default|dark|light`` and ``interface_language``;
 * ``font_scale`` (0.85 … 1.35), ``contrast`` (0-5), ``line_height`` and
-  ``letter_spacing`` (0-2), ``reduce_motion`` (0/1), ``dyslexic_font`` (0/1, new);
+  ``letter_spacing`` (0-2), ``reduce_motion`` (0/1), ``dyslexic_font`` (0/1);
 * ``custom_*`` colours, ``background_image`` (``backgrounds/<hex>.jpg``);
 * ``semantic_*`` highlighting levels (0-2), ``sidebar_width`` and
   ``content_max_width`` in pixels;
-* ``mascot_shades`` (0/1, new), changed only by the mascot feature (see
-  :data:`OWNED_KEYS`). ``mascot_enabled``, saved by earlier builds of 1.7 when
-  someone hid the mascot, is ignored and dropped at the next save.
+* ``mascot_shades`` (0/1), changed only by the mascot feature (see
+  :data:`OWNED_KEYS`). An old ``mascot_enabled`` key is ignored and dropped at
+  the next save.
 
 The page shell reads the coarse switches (``templating.accessibility_prefs``);
 :func:`custom_css` renders everything finer as CSS custom properties.
@@ -45,7 +45,7 @@ RGB_RE = re.compile(r"^rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)$")
 FONT_SCALES = (0.85, 0.9, 1.0, 1.1, 1.2, 1.35)
 COLOR_KEYS = ("custom_bg", "custom_text", "custom_primary", "custom_secondary", "custom_accent", "custom_sidebar")
 SEMANTIC_KEYS = ("semantic_bold", "semantic_italic", "semantic_code", "semantic_link", "semantic_heading")
-# Settings the 1.4 editor stored and 1.6 keeps untouched.
+# Editor settings (also stored by 1.4), kept untouched.
 PASSTHROUGH_KEYS = ("editor_pane_width", "editor_height", "sidebar_apps_order")
 # Kept by "reset" and refused by the JSON endpoint: their own feature sets them.
 OWNED_KEYS = ("mascot_shades",)
@@ -159,7 +159,7 @@ def reset(user: dict[str, Any] | None, response: Response) -> None:
         response.delete_cookie(COOKIE, samesite="Lax")
 
 
-# ── Background image ──────────────────────────────────────────────────────────
+# Background image
 
 
 def save_background(user: dict[str, Any], upload: Any) -> str:
@@ -210,7 +210,7 @@ def remove_background(user: dict[str, Any]) -> None:
     service.delete_upload(previous.get("background_image"))
 
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
+# CSS
 
 _SEMANTIC_CSS = {
     "semantic_bold": (".prose strong, .prose b", ("font-weight:800", "font-weight:900;color:var(--bw-accent)")),

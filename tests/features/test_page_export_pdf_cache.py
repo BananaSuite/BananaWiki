@@ -1,4 +1,4 @@
-"""Kept PDFs follow the uploaded images they embed (second 1.7 audit).
+"""Kept PDFs: an unchanged page is not laid out again, a changed embedded upload is.
 
 A PDF embeds images of the wiki's ``uploads`` folder read at layout time, so
 the cache key covers each embedded file: a deleted (or replaced) upload is
@@ -21,6 +21,19 @@ def _png(path, size, colour):
     buffer = io.BytesIO()
     Image.new("RGB", size, colour).save(buffer, format="PNG")
     path.write_bytes(buffer.getvalue())
+
+
+def test_unchanged_pages_are_not_laid_out_as_pdf_again(app, monkeypatch):
+    calls = []
+    original = pdf._render
+    monkeypatch.setattr(pdf, "_render", lambda **kwargs: calls.append(1) or original(**kwargs))
+    options = {"title": "Cached", "content": "# Big page\n\n" + "words " * 2000, "site_name": "Wiki",
+               "base_url": "https://wiki.example/", "meta": ["by someone"]}
+    with app.test_request_context():
+        first = pdf.render(**options)
+        assert pdf.render(**options) == first and len(calls) == 1
+        pdf.render(**{**options, "meta": ["by someone else"]})
+    assert len(calls) == 2
 
 
 def test_a_kept_pdf_is_made_again_when_an_embedded_upload_changes(app, monkeypatch):

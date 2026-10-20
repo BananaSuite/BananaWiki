@@ -1,6 +1,6 @@
 """Page history: listing, versions and diffs, revert, deletion, attribution, feature switch."""
 
-from bananawiki.wiki.features.pages import service
+from bananawiki.wiki.features.pages import service, summaries
 
 from .pages_support import add_interceptor, get_page, in_app, make_category, make_page, restrict, set_feature
 
@@ -38,7 +38,7 @@ def test_history_list_and_entry_views(app, admin_client, admin):
 
 
 def test_diff_of_repetitive_versions_is_bounded_and_says_so(app, admin_client, admin):
-    """R-04: the same line repeated made each diff view quadratic (hours of CPU for large pages)."""
+    """The same line repeated does not make a diff view quadratic (hours of CPU for large pages)."""
     page = make_page(app, "Lines", "a\n" * 20_000, author_id=admin["id"])
     in_app(app, lambda: service.update(service.get(page["id"]), author_id=admin["id"],
                                        content="b\n" + "a\n" * 19_998 + "c\n"))
@@ -127,6 +127,34 @@ def test_transfer_and_deattribute(app, make_user, login, admin, admin_client):
     assert _history(app, page["id"])[-1]["edited_by"] is None
     client, _ = _client(app, make_user, login, "thief", "editor")
     assert client.post(f"/page/story/history/{newest}/transfer", data={"username": "thief"}).status_code == 403
+
+
+def test_summaries_the_wiki_writes_follow_the_reader_language(app, admin_client, admin):
+    page = _two_versions(app, admin)
+    oldest = _history(app, page["id"])[-1]["id"]
+    admin_client.post("/page/story/edit/title", data={"title": "Tale"})
+    in_app(app, lambda: service.revert(service.get(page["id"]), oldest, author_id=admin["id"]))
+    italian = admin_client.get("/page/story/history?lang=it").get_data(as_text=True)
+    assert "Titolo cambiato da “Story”" in italian and f"Ripristinata la revisione n. {oldest}" in italian
+    assert ">Creata<" in italian and "weather" in italian
+    german = admin_client.get(f"/page/story/history/{oldest}?lang=de").get_data(as_text=True)
+    assert "· Erstellt" in german
+    dashboard = admin_client.get("/admin/dashboard?lang=de").get_data(as_text=True)
+    assert f"Version Nr. {oldest} wiederhergestellt" in dashboard
+    profile = admin_client.get(f"/users/{admin['username']}?lang=en").get_data(as_text=True)
+    assert "Title changed from “Story”" in profile
+
+
+def test_summary_text_is_matched_whole_and_typed_summaries_stay_as_written(app):
+    with app.test_request_context("/?lang=it"):
+        assert summaries.render("Updated with the visual page builder (contributors: ada, bob)") == \
+            "Aggiornata con l'editor visuale delle pagine (hanno contribuito: ada, bob)"
+        assert summaries.render("Contribution #4 by ada, approved by bob: typo") == \
+            "Contributo n. 4 di ada, approvato da bob: typo"
+        assert summaries.render("Updated mention of @old_name") == "Menzione di @old_name aggiornata"
+        assert summaries.render("Created the intro") == "Created the intro"
+        assert summaries.render("fixed typo (contributors: ada)") == "fixed typo (hanno contribuito: ada)"
+        assert summaries.render(None) == ""
 
 
 def test_history_changes_are_refused_while_the_page_cannot_be_edited(app, make_user, admin_client, admin):

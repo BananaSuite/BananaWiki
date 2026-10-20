@@ -89,7 +89,7 @@ def notify_account(account: dict[str, Any] | None, kind: str, *, by_account: boo
 def verification_required() -> bool:
     """Email verification is enforced whenever it is on and the portal can send email.
 
-    It fails closed: a spent daily email budget no longer switches it off
+    It fails closed: a spent daily email budget does not switch it off
     (an account could spend the budget on purpose to skip verification);
     accounts then wait for the next day's budget to receive their link.
     """
@@ -97,7 +97,7 @@ def verification_required() -> bool:
     return settings.flag("email_verification_required") and email.is_configured(cfg.email)
 
 
-# ── Administrators: requests waiting for them ────────────────────────────────
+# Administrators: requests waiting for them
 
 
 def attention_recipients() -> list[dict[str, Any]]:
@@ -168,7 +168,7 @@ def send_test(account: dict[str, Any]) -> tuple[bool, str]:
                 action_url=urls.external_url("admin.attention"))
 
 
-# ── Owners: decisions on their own requests ──────────────────────────────────
+# Owners: decisions on their own requests
 
 
 def notice_text(notice: dict[str, Any], lang: str | None = None) -> str:

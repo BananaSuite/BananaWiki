@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
+
 import pytest
 
 from bananawiki.wiki import registry
@@ -37,7 +40,7 @@ def _admin_client(app, make_user, login, name="root_admin"):
     return client
 
 
-# ── Loading ──────────────────────────────────────────────────────────────────
+# Loading
 
 
 def test_new_folder_is_registered_disabled_and_not_loaded(app_factory, tmp_path):
@@ -165,7 +168,7 @@ def test_plain_blueprints_of_plugins_are_gated(app_factory, tmp_path, make_user,
     assert client.get("/plain").status_code == 404
 
 
-# ── Uploads ──────────────────────────────────────────────────────────────────
+# Uploads
 
 
 def test_upload_needs_the_password_and_installs_disabled(app_factory, tmp_path, make_user, login):
@@ -246,6 +249,32 @@ def test_dangerous_archives_are_refused(app_factory, tmp_path, make_user, login,
     assert not (tmp_path / "evil.py").exists()
 
 
+def _damaged(content: bytes, member: str) -> bytes:
+    """*content* with a byte of *member*'s data flipped, so it only fails when that member is read."""
+    info = zipfile.ZipFile(io.BytesIO(content)).getinfo(member)
+    raw = bytearray(content)
+    header = info.header_offset
+    start = header + 30 + int.from_bytes(raw[header + 26:header + 28], "little") + int.from_bytes(
+        raw[header + 28:header + 30], "little")
+    raw[start + info.compress_size // 2] ^= 0x5A
+    return bytes(raw)
+
+
+@pytest.mark.parametrize("content", [
+    _damaged(archive({**plugin_files(), "data.bin": bytes(range(256)) * 64}, compress=False), "data.bin"),
+    archive({**plugin_files(), "lib": "x", "lib/module.py": "y"}),
+    archive({**plugin_files(), "lib/module.py": "y", "lib": "x"}),
+], ids=["bad-crc", "file-then-folder", "folder-then-file"])
+def test_archives_that_fail_while_unpacking_are_refused(app_factory, tmp_path, make_user, login, content):
+    app = build(app_factory, tmp_path)
+    client = _admin_client(app, make_user, login)
+    response = upload(client, content, password=PASSWORD)
+    assert response.status_code == 302
+    assert "not a valid plugin archive" in client.get(response.headers["Location"]).get_data(as_text=True)
+    assert row(app, "uploaded") is None
+    assert [p.name for p in plugins_dir(tmp_path).iterdir()] == []
+
+
 def test_too_many_entries_are_refused(app_factory, tmp_path, make_user, login, monkeypatch):
     from bananawiki.wiki.features.plugin_manager import archive as archive_module
 
@@ -273,7 +302,7 @@ def test_non_bwplugin_file_is_refused(app_factory, tmp_path, make_user, login):
     assert row(app, "uploaded") is None
 
 
-# ── Enabling and deleting ────────────────────────────────────────────────────
+# Enabling and deleting
 
 
 def test_enabling_asks_for_the_password_and_backs_up_first(app_factory, tmp_path, make_user, login):
@@ -374,7 +403,7 @@ def test_plugin_kit_download(app, admin_client):
     assert "bananawiki-plugin-kit/hello_plugin/plugin.json" in names
 
 
-# ── BananaWiki 1.4 plugins ───────────────────────────────────────────────────
+# BananaWiki 1.4 plugins
 
 
 def test_legacy_word_count_plugin_runs_through_the_adapter(app_factory, tmp_path, make_user):

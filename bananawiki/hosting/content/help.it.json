@@ -25,7 +25,7 @@
       },
       {
         "heading": "Cronologia e revisione",
-        "html": "<p>Ogni salvataggio viene conservato. La cronologia di una pagina mostra cosa è cambiato tra due revisioni e permette di ripristinarne una precedente.</p><p>Con il plugin <strong>Protezione e prenotazioni delle pagine</strong> un editor può prenotare una pagina mentre ci lavora, oppure proteggerla così che solo chi l'ha protetta possa modificarla, e le modifiche proposte da chi non ha diritti di scrittura restano in attesa di approvazione. Un altro amministratore può togliere la protezione dopo un'attesa di 72 ore. Il plugin <strong>Eliminazione ritardata</strong> trattiene per 48 ore una pagina eliminata, così un amministratore può recuperarla.</p>"
+        "html": "<p>Ogni salvataggio viene conservato. La cronologia di una pagina mostra cosa è cambiato tra due revisioni e permette di ripristinarne una precedente.</p><p>Con il plugin <strong>Protezione e prenotazioni delle pagine</strong> un editor può prenotare una pagina mentre ci lavora, oppure proteggerla così che solo chi l'ha protetta possa modificarla; un amministratore può togliere la protezione 72 ore dopo averlo chiesto. Con <strong>Approvazione dei contributi</strong>, le modifiche proposte da chi non ha diritti di scrittura aspettano un revisore. Il plugin <strong>Eliminazione ritardata</strong> trattiene per 48 ore una pagina eliminata, così un amministratore può recuperarla.</p>"
       },
       {
         "heading": "Persone e accessi",
@@ -37,7 +37,7 @@
       },
       {
         "heading": "Lettura e apprendimento",
-        "html": "<ul><li><strong>Lettura ad alta voce</strong> legge le pagine in italiano e in inglese, con voci Piper che girano sul server e non su un servizio esterno, una volta installate.</li><li>Le <strong>Verifiche</strong> aggiungono sondaggi e quiz a una pagina, con punteggi e limiti di tentativi.</li><li>I <strong>Distintivi</strong> si assegnano a mano o in automatico, per esempio dopo un certo numero di contributi.</li><li>Le <strong>Etichette di difficoltà</strong> indicano il livello di una pagina.</li></ul>"
+        "html": "<ul><li><strong>Lettura ad alta voce</strong> legge le pagine in italiano e in inglese (in tedesco quando un amministratore lo attiva), con voci Piper sul server.</li><li>Le <strong>Verifiche</strong> aggiungono sondaggi e quiz a una pagina, con punteggi e limiti di tentativi.</li><li>I <strong>Distintivi</strong> si assegnano a mano o in automatico, per esempio dopo un certo numero di contributi.</li><li>Le <strong>Etichette di difficoltà</strong> indicano il livello di una pagina.</li></ul>"
       },
       {
         "heading": "Amministrazione",
@@ -50,47 +50,21 @@
     ]
   },
   {
-    "slug": "inviting-users",
-    "title": "Invitare utenti e gestire ruoli",
-    "description": "Decidi chi può leggere e modificare la tua wiki.",
+    "slug": "running-your-wiki",
+    "title": "Gestire la tua wiki",
+    "description": "Membri, impostazioni e pagine dentro la wiki.",
     "sections": [
       {
-        "heading": "Account e inviti",
-        "html": "<p>Nella wiki, usa le pagine di amministrazione per gestire registrazione, inviti e utenti. Assegna solo i ruoli e i permessi necessari. Un collaboratore del portale di hosting e un editor della wiki hanno responsabilità e permessi diversi.</p>"
+        "heading": "Membri e ruoli",
+        "html": "<p>Nella wiki apri <strong>Amministrazione</strong>. <strong>Utenti</strong> crea account e cambia ruoli, <strong>Codici d'invito</strong> crea codici per la pagina di iscrizione, e <strong>Impostazioni del sito</strong> decide se le persone possono iscriversi da sole e se le iscrizioni attendono un'approvazione. I ruoli sono utente, editor, amministratore e proprietario; <strong>Ruoli personalizzati</strong> e l'accesso alle categorie li restringono ancora. Gli account della wiki sono separati dagli account di questo portale.</p>"
       },
       {
-        "heading": "Accesso alle pagine",
-        "html": "<p>Controlla i permessi di categorie e pagine prima di condividere contenuti. Verifica il risultato con un account utente ordinario. Rimuovere il permesso di modifica non rende automaticamente privati i contenuti già pubblici.</p>"
-      }
-    ]
-  },
-  {
-    "slug": "wiki-settings",
-    "title": "Configurare impostazioni e privacy",
-    "description": "Imposta nome, aspetto e criteri di accesso.",
-    "sections": [
-      {
-        "heading": "Impostazioni del sito",
-        "html": "<p>Gli amministratori della wiki possono modificare nome, aspetto, lingua, funzioni abilitate e registrazione. I limiti del servizio e i permessi sui domini sono gestiti separatamente dagli amministratori della piattaforma.</p>"
+        "heading": "Impostazioni e privacy",
+        "html": "<p>In <strong>Impostazioni del sito</strong> ci sono anche il nome e il fuso orario della wiki, e in <strong>Aspetto</strong> i suoi colori. Una wiki è privata: solo i membri che hanno effettuato l'accesso possono leggerla. L'accesso pubblico in lettura deve essere consentito per la tua wiki su questo servizio prima di poterlo attivare. Chi gestisce questo servizio può accedere ai dati sul server per la gestione e l'assistenza; consulta l'<a href=\"/privacy\">informativa sulla privacy</a>.</p>"
       },
       {
-        "heading": "Contenuti privati",
-        "html": "<p>Scegli la visibilità prevista per pagine e categorie e controlla i link prima di condividerli. Gli amministratori del servizio possono accedere ai dati del server per la gestione e l'assistenza; consulta l'<a href=\"/privacy\">informativa sulla privacy</a>.</p>"
-      }
-    ]
-  },
-  {
-    "slug": "writing-pages",
-    "title": "Creare e modificare pagine",
-    "description": "Scrivi pagine, organizza categorie e aggiungi file.",
-    "sections": [
-      {
-        "heading": "Pagine e cronologia",
-        "html": "<p>Crea una pagina in una categoria che puoi modificare. Usa l'editor per scrivere, visualizzare l'anteprima e salvare. La cronologia permette di consultare le versioni precedenti e di ripristinarne una se i tuoi permessi lo consentono.</p>"
-      },
-      {
-        "heading": "Caricamenti",
-        "html": "<p>Usa i controlli dell'editor per caricare immagini e allegati. La wiki indica formati consentiti e limiti di dimensione. Anche lo spazio totale dipende dai limiti del servizio. Conserva i file originali fuori dalla wiki se ti serve una copia indipendente.</p>"
+        "heading": "Pagine e file",
+        "html": "<p>Clicca <strong>Nuova pagina</strong> nella barra laterale per scrivere una pagina in Markdown. Immagini e allegati contano nel limite di spazio della wiki, che il portale mostra nella pagina della wiki. Per una guida completa dentro la wiki apri <strong>Amministrazione</strong>, poi <strong>Documentazione</strong>, che ne aggiunge una come categoria di pagine.</p>"
       }
     ]
   },
@@ -101,26 +75,26 @@
     "sections": [
       {
         "heading": "Dove trovarli",
-        "html": "<p>Nella wiki apri il menu dell'account, scegli <strong>Amministrazione</strong>, poi <strong>Plugin</strong> in <strong>Impostazioni wiki</strong>. Disattivare un plugin ne nasconde pagine e menu e ne conserva i contenuti, ma spegne anche le sue impostazioni, per esempio messaggi diretti, chat di gruppo e allegati in chat per Chat e gruppi. Se lo riattivi, queste impostazioni non si riattivano da sole: controllale di nuovo. Disattivare Lettura ad alta voce elimina anche l'audio generato.</p>"
+        "html": "<p>Nella wiki apri il menu dell'account, scegli <strong>Amministrazione</strong>, poi <strong>Plugin</strong> in <strong>Impostazioni wiki</strong>. Disattivare un plugin ne nasconde pagine e menu. I suoi contenuti e le sue impostazioni restano, e tornano quando lo riattivi.</p>"
       },
       {
         "heading": "I plugin integrati",
-        "html": "<p>Sono inclusi in ogni wiki, con i nomi che mostra la pagina Plugin. Quelli contrassegnati come <em>attivo</em> sono abilitati quando la wiki viene creata.</p><ul><li><strong>Account e pagine temporanei</strong>: account, pagine e ruoli che scadono a una data stabilita.</li><li><strong>Allegati</strong> <em>(attivo)</em>: file allegati alle pagine.</li><li><strong>Annunci</strong> <em>(attivo)</em>: banner visibili in tutto il sito.</li><li><strong>API REST</strong>: token personali, ognuno limitato alle aree scelte, con un registro del loro uso.</li><li><strong>Bacheche Kanban</strong> <em>(attivo)</em>: bacheche, schede, commenti e allegati.</li><li><strong>Bozze</strong> <em>(attivo)</em>: bozze salvate durante la modifica.</li><li><strong>Canvas</strong> <em>(attivo)</em>: diagrammi con testo, immagini, video e collegamenti alle pagine.</li><li><strong>Chat e gruppi</strong> <em>(attivo)</em>: messaggi diretti e conversazioni di gruppo.</li><li><strong>Cronologia delle pagine</strong> <em>(attivo)</em>: revisioni, differenze e ripristino di una versione precedente.</li><li><strong>Distintivi</strong> <em>(attivo)</em>: riconoscimenti assegnati a mano o in automatico.</li><li><strong>Eliminazione ritardata</strong>: le pagine eliminate restano recuperabili per 48 ore.</li><li><strong>Esportazione dei dati personali</strong> <em>(attivo)</em>: ogni membro può scaricare i propri dati.</li><li><strong>Etichette di difficoltà</strong> <em>(attivo)</em>: indicano il livello di una pagina.</li><li><strong>Lettura ad alta voce</strong> <em>(attivo)</em>: pagine lette da voci che girano sul server.</li><li><strong>Mascotte</strong> <em>(attivo)</em>: una banana in pixel art nella barra in alto, con una piccola sorpresa per i curiosi.</li><li><strong>Pagine personalizzate</strong>: contenuti pubblicati a un indirizzo a tua scelta.</li><li><strong>Profili utente</strong> <em>(attivo)</em>: pagine profilo con biografia, avatar e mappa dei contributi.</li><li><strong>Protezione e prenotazioni delle pagine</strong>: prenotazione di una pagina durante la modifica, protezione e approvazione delle modifiche proposte.</li><li><strong>Registro di controllo</strong> <em>(attivo)</em>: registro dei cambi di ruolo, dei tag personalizzati e dei contributi.</li><li><strong>Verifiche</strong> <em>(attivo)</em>: sondaggi e quiz in una pagina, con punteggi e limiti di tentativi.</li></ul>"
+        "html": "<p>Sono inclusi in ogni wiki, con i nomi che mostra la pagina Plugin. Quelli contrassegnati come <em>attivo</em> sono abilitati quando la wiki viene creata.</p><ul><li><strong>Account e pagine temporanei</strong>: account, pagine e ruoli che scadono a una data stabilita.</li><li><strong>Allegati</strong> <em>(attivo)</em>: file allegati alle pagine.</li><li><strong>Annunci</strong> <em>(attivo)</em>: banner visibili in tutto il sito.</li><li><strong>API REST</strong>: token personali, ognuno limitato alle aree scelte, con un registro del loro uso.</li><li><strong>Bacheche Kanban</strong> <em>(attivo)</em>: bacheche, schede, commenti e allegati.</li><li><strong>Bozze</strong> <em>(attivo)</em>: bozze salvate durante la modifica.</li><li><strong>Canvas</strong> <em>(attivo)</em>: diagrammi con testo, immagini, video e collegamenti alle pagine.</li><li><strong>Chat e gruppi</strong> <em>(attivo)</em>: messaggi diretti e conversazioni di gruppo.</li><li><strong>Cronologia delle pagine</strong> <em>(attivo)</em>: revisioni, differenze e ripristino di una versione precedente.</li><li><strong>Distintivi</strong> <em>(attivo)</em>: riconoscimenti assegnati a mano o in automatico.</li><li><strong>Eliminazione ritardata</strong>: le pagine eliminate restano recuperabili per 48 ore.</li><li><strong>Esportazione dei dati personali</strong> <em>(attivo)</em>: ogni membro può scaricare i propri dati.</li><li><strong>Etichette di difficoltà</strong> <em>(attivo)</em>: indicano il livello di una pagina.</li><li><strong>Lettura ad alta voce</strong> <em>(attivo)</em>: pagine lette da voci che girano sul server.</li><li><strong>Mascotte</strong> <em>(attivo)</em>: una banana in pixel art nella barra in alto.</li><li><strong>Pagine personalizzate</strong>: contenuti pubblicati a un indirizzo a tua scelta.</li><li><strong>Profili utente</strong> <em>(attivo)</em>: pagine profilo con biografia, avatar e mappa dei contributi.</li><li><strong>Protezione e prenotazioni delle pagine</strong>: prenotazione e protezione delle pagine.</li><li><strong>Registro di controllo</strong> <em>(attivo)</em>: registro di accessi, modifiche ad account e ruoli, eliminazioni e modifiche alle impostazioni.</li><li><strong>Verifiche</strong> <em>(attivo)</em>: sondaggi e quiz in una pagina, con punteggi e limiti di tentativi.</li></ul>"
       },
       {
         "heading": "Plugin di terze parti",
-        "html": "<p>La pagina Plugin può anche importare un file <code>.bwplugin</code> scritto da altri. Un plugin è codice Python e ha lo stesso accesso della wiki ai suoi dati e alla rete: installa solo codice di cui ti fidi. Su questo servizio ogni wiki gira nel proprio container, e l'operatore può disattivare in un colpo solo tutti i plugin personalizzati di una wiki se uno crea problemi.</p>"
+        "html": "<p>Se l'operatore del servizio lo consente, la pagina Plugin può anche importare un file <code>.bwplugin</code> scritto da altri. Un plugin è codice Python e ha lo stesso accesso della wiki ai suoi dati e alla rete: installa solo codice di cui ti fidi. Su questo servizio ogni wiki gira nel proprio container, e l'operatore può disattivare in un colpo solo tutti i plugin di terze parti di una wiki se uno crea problemi.</p>"
       }
     ]
   },
   {
     "slug": "exports-backups",
     "title": "Esportazioni e backup",
-    "description": "Conserva copie dei contenuti e scopri come funziona il ripristino.",
+    "description": "Esportare la wiki e cosa salva la piattaforma.",
     "sections": [
       {
         "heading": "Esporta la wiki",
-        "html": "<p>Nella wiki apri <strong>Amministrazione</strong>, poi <strong>Migrazione del sito</strong> in <strong>Sistema</strong>, e in <strong>Esporta l'intero sito</strong> scegli <strong>Esporta</strong> per un archivio completo della wiki: contenuti, account, file e impostazioni. Può farlo solo il proprietario della wiki. È la copia da conservare, e quella da usare se vuoi <a href=\"/help/move-to-your-own-server\">portare la wiki sul tuo server</a>. Per le sole pagine, <strong>Markdown in blocco</strong> le esporta come file Markdown, e ogni pagina si può esportare in Markdown o PDF dal suo menu. I membri possono scaricare i propri dati personali dalle impostazioni.</p>"
+        "html": "<p>Nella wiki apri <strong>Amministrazione</strong>, poi <strong>Migrazione del sito</strong> in <strong>Sistema</strong>, e in <strong>Esporta l'intero sito</strong> scegli <strong>Esporta</strong> per un archivio completo della wiki: contenuti, account, file e impostazioni. Possono farlo solo i proprietari e i superutenti della wiki. È la copia da conservare, e quella da usare se vuoi <a href=\"/help/move-to-your-own-server\">portare la wiki sul tuo server</a>. Per le sole pagine, <strong>Markdown in blocco</strong> le esporta come file Markdown, e ogni pagina si può esportare in Markdown o PDF dal suo menu. I membri possono scaricare i propri dati personali dalle impostazioni.</p>"
       },
       {
         "heading": "Backup della piattaforma",
@@ -177,7 +151,7 @@
     "sections": [
       {
         "heading": "Account e contenuti",
-        "html": "<p>Usa una password univoca e attiva la verifica in due passaggi per il tuo account di hosting. Controlla periodicamente collaboratori e ruoli della wiki. Verifica la visibilità prima di pubblicare materiale privato e conserva esportazioni indipendenti dei contenuti importanti. Installa solo plugin di cui ti fidi; vedi <a href=\"/help/plugins\">Gestire i plugin</a>.</p>"
+        "html": "<p>Usa una password univoca e attiva la verifica in due passaggi per il tuo account di hosting. Nella pagina della wiki, rimuovi i collaboratori che non hanno più bisogno di accedervi. Installa solo plugin di cui ti fidi; vedi <a href=\"/help/plugins\">Gestire i plugin</a>.</p>"
       },
       {
         "heading": "Segnala un problema",
@@ -218,11 +192,11 @@
   {
     "slug": "instance-expiry",
     "title": "Scadenza e rinnovo delle wiki",
-    "description": "Come funzionano i limiti di durata, il rinnovo e i periodi di recupero.",
+    "description": "Quando scade una wiki, come rinnovarla e per quanto tempo restano i dati.",
     "sections": [
       {
         "heading": "Scadenza del servizio",
-        "html": "<p><strong>Le tue wiki</strong> mostra quanto tempo resta a ogni wiki. Negli ultimi giorni prima della scadenza la pagina della wiki mostra <strong>Rinnova</strong>, che la prolunga del periodo indicato sul pulsante. Se il pulsante non compare, chiedi una proroga all'assistenza. Questi limiti non dipendono dalla licenza AGPL del software, che consente di installarlo sul proprio server, per uso personale e commerciale.</p>"
+        "html": "<p><strong>Le tue wiki</strong> mostra quanto tempo resta a ogni wiki. Negli ultimi giorni prima della scadenza la pagina della wiki mostra <strong>Rinnova</strong>, che le assegna i giorni indicati sul pulsante, contati dal giorno del rinnovo. Può rinnovarla il proprietario, o un collaboratore autorizzato ad avviare e arrestare la wiki. Se il pulsante non compare, chiedi una proroga all'assistenza. Questi limiti non dipendono dalla licenza AGPL del software, che consente di installarlo sul proprio server, per uso personale e commerciale.</p>"
       },
       {
         "heading": "Recupero",

@@ -44,7 +44,7 @@
       <td data-label="{{ t('api_service.tokens.access') }}">{{ t('api_service.tokens.read_write') if token.grant.write else t('api_service.tokens.read_only_badge') }}</td>
       <td class="nowrap" data-label="{{ t('api_service.tokens.last_used') }}">{{ token.last_used_at|time_ago if token.last_used_at else t('common.never') }}</td>
       <td class="nowrap" data-label="{{ t('api_service.tokens.expires') }}">{{ token.expires_at|datetime if token.expires_at else t('common.never') }}</td>
-      <td class="actions">{{ forms.post_button(url_for('api_service.admin_revoke_token', token_id=token.id), t('api_service.tokens.revoke'), cls='btn btn--small btn--danger', confirm=t('api_service.tokens.revoke_confirm')) }}</td>
+      <td class="actions">{{ forms.post_button(url_for('api_service.admin_revoke_token', token_id=token.id), t('api_service.tokens.revoke'), cls='btn btn--small btn--danger-quiet', confirm=t('api_service.tokens.revoke_confirm')) }}</td>
     </tr>
     {% endfor %}
     </tbody>
@@ -85,7 +85,7 @@
         </form>
         {% if user.userbot_enabled %}<span class="badge badge--primary">{{ t('api_service.userbot.state_on') }}</span>{% endif %}
       </td>
-      <td class="actions">{{ forms.post_button(url_for('api_service.admin_revoke_all'), t('api_service.admin.revoke_all'), cls='btn btn--small btn--danger', confirm=t('api_service.admin.revoke_all_confirm', username=user.username), hidden={'user_id': user.id}) }}</td>
+      <td class="actions">{{ forms.post_button(url_for('api_service.admin_revoke_all'), t('api_service.admin.revoke_all'), cls='btn btn--small btn--danger-quiet', confirm=t('api_service.admin.revoke_all_confirm', username=user.username), hidden={'user_id': user.id}) }}</td>
     </tr>
     {% endfor %}
     </tbody>
@@ -120,14 +120,14 @@
       <td data-label="{{ t('common.status') }}">
         <span class="badge {{ 'badge--success' if hook.active else '' }}">{{ t('common.enabled') if hook.active else t('common.disabled') }}</span>
         {% if hook.last_status %}<br><small class="muted">{{ t('api_service.webhooks.last', status=hook.last_status, when=hook.last_delivery_at|time_ago) }}</small>{% endif %}
-        {% if hook.consecutive_failures %}<br><small class="muted">{{ t('api_service.webhooks.failures', count=hook.consecutive_failures) }}</small>{% endif %}
+        {% if hook.consecutive_failures %}<br><small class="muted">{{ tn('api_service.webhooks.failures', hook.consecutive_failures) }}</small>{% endif %}
         {% if hook.disabled_reason and not hook.active %}<br><strong class="text-danger" role="note">{{ t('api_service.webhooks.auto_disabled', when=hook.disabled_at|time_ago) }}</strong>{% endif %}
       </td>
       <td class="actions"><div class="cluster">
         {{ forms.post_button(url_for('api_service.admin_toggle_webhook', webhook_id=hook.id), t('api_service.webhooks.disable') if hook.active else t('api_service.webhooks.enable'), cls='btn btn--small') }}
         {{ forms.post_button(url_for('api_service.admin_ping_webhook', webhook_id=hook.id), t('api_service.webhooks.ping'), cls='btn btn--small') }}
         {{ forms.post_button(url_for('api_service.admin_rotate_webhook', webhook_id=hook.id), t('api_service.webhooks.rotate'), cls='btn btn--small', confirm=t('api_service.webhooks.rotate_confirm')) }}
-        {{ forms.post_button(url_for('api_service.admin_delete_webhook', webhook_id=hook.id), t('common.delete'), cls='btn btn--small btn--danger', confirm=t('api_service.webhooks.delete_confirm')) }}
+        {{ forms.post_button(url_for('api_service.admin_delete_webhook', webhook_id=hook.id), t('common.delete'), cls='btn btn--small btn--danger-quiet', confirm=t('api_service.webhooks.delete_confirm')) }}
       </div></td>
     </tr>
     {% endfor %}
@@ -182,7 +182,7 @@
       <td><code class="mono">{{ entry.method }} {{ entry.endpoint }}</code>{% if entry.request_body %}<br><small class="muted mono">{{ entry.request_body }}</small>{% endif %}</td>
       <td><span class="badge {{ 'badge--success' if entry.status_code < 400 else 'badge--danger' }}">{{ entry.status_code }}</span></td>
       <td>{{ entry.duration_ms }} ms</td>
-      <td class="mono">{{ entry.ip_address }}</td>
+      <td class="mono">{% if entry.ip_hidden %}<span class="muted">{{ t('api_service.admin.ip_hidden') }}</span>{% else %}{{ entry.ip_address }}{% endif %}</td>
     </tr>
     {% endfor %}
     </tbody>

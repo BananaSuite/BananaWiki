@@ -1,19 +1,19 @@
 # Kanban-Boards
 
-Mit Kanban-Boards behalten Teams ihre Arbeit im Blick, ohne das Wiki zu verlassen. Ein Board enthält Spalten, und die Spalten enthalten Karten. Karten können Aufgaben, Ideen, Fehler, Unterrichtsstunden oder zu prüfende Inhalte darstellen.
+Ein Kanban-Board hat Spalten, und die Spalten enthalten Karten. Boards findest du unter **Apps → Kanban**.
 
-## Ein nützliches Board erstellen
+## Spalten
 
-Beginne mit wenigen Spalten wie **Backlog**, **In Arbeit**, **Prüfung** und **Erledigt**. Füge weitere nur hinzu, wenn sie einen echten Arbeitsablauf abbilden. Zu viele Spalten machen das Board unübersichtlich. Schalte bei der Spalte, in der die fertige Arbeit landet, **Erledigt-Spalte** ein (die Schaltfläche mit dem Häkchen unter den Werkzeugen der Spalte): Die Karten darin behalten ihr Fälligkeitsdatum, werden aber nicht mehr als überfällig angezeigt.
+Füge Spalten wie **Zu erledigen**, **In Arbeit** und **Erledigt** hinzu und zieh sie, um sie neu zu ordnen. Schalte bei der Spalte, in der die fertige Arbeit landet, **Erledigt-Spalte** ein (die Schaltfläche mit dem Häkchen unter den Werkzeugen der Spalte): Die Karten darin behalten ihr Fälligkeitsdatum, werden aber nicht mehr als überfällig angezeigt.
 
 ## Karten
 
-Eine Karte sollte einen kurzen Titel und so viele Details haben, dass die nächste Person weiterarbeiten kann. Nutze Kommentare für Diskussionen und Anhänge für ergänzende Dateien. Verlinke Wiki-Seiten, wenn eine Karte auf dokumentiertem Wissen aufbaut.
+Eine Karte hat eine Beschreibung in Markdown, Labels, eine Priorität, ein Fälligkeitsdatum, zugewiesene Personen, Kommentare, Anhänge und eine Checkliste. Zieh Karten zwischen den Spalten. **Archiv** listet archivierte Karten auf; dort kannst du sie wiederherstellen.
 
 ## Zugriff und Teilen
 
-Administratoren legen den globalen Zugriff auf Kanban fest. Eigentümer können ihre Boards einzeln mit bestimmten Personen teilen, wenn die Website das erlaubt. Vergib Schreibzugriff mit Bedacht, wenn ein Board den laufenden Betrieb abbildet.
+Administratoren legen fest, welche Rollen Kanban nutzen dürfen. Wer das Board erstellt hat, teilt es unter **Mehr → Teilen** mit Personen oder Rollen, zum Ansehen oder Bearbeiten.
 
 ## Verlauf und Export
 
-Der Verlauf eines Boards zeigt, wie sich die Arbeit mit der Zeit verändert hat. Mit den Exportfunktionen lassen sich Board-Daten bei Bedarf in Backups oder externe Arbeitsabläufe übernehmen.
+**Mehr → Verlauf** listet frühere Zustände des Boards auf; das Wiederherstellen löscht nie Karten, Kommentare oder Dateien. **Exportieren** lädt das Board mit seinen Anhängen als ZIP herunter, **Mehr → Ohne Anhänge exportieren** als JSON.

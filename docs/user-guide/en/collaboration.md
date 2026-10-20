@@ -8,8 +8,8 @@ These tools appear under **Apps** when your wiki has them switched on.
   their user name.
 * **Groups** (`/groups`): create a group, or join one with its invite code.
   Most wikis also have a global room for everyone. Owners and moderators can
-  add and remove members, time out or ban someone, and change the invite code;
-  the owner can hand the group over.
+  add and remove members and mute or ban someone; the owner can also change
+  the invite code and hand the group over.
 * You can attach files (within the size and daily limits), export a
   conversation, and delete your messages. **Deleting a message erases it for
   everyone**; a small "deleted" marker remains. In a direct conversation you
@@ -96,10 +96,10 @@ or roles (view or edit), exported and imported, and shown in a page with
   the side of each element it attaches to (top, right, bottom, left or
   automatic).
 * **Overview map** in the corner shows the whole canvas; click it to jump.
-* **Image** downloads the canvas as PNG or SVG. Images from other sites are
-  included when their site allows it; otherwise the PNG shows a labelled
-  placeholder box (the SVG keeps a link to the image). **Text outline** lists every
-  element with its connections, readable with a screen reader and
+* **Download image** saves the canvas as PNG or SVG. Images from other sites
+  are included when their site allows it; otherwise the PNG shows a labelled
+  placeholder box (the SVG keeps a link to the image). **Text outline** lists
+  every element with its connections, readable with a screen reader and
   downloadable as Markdown.
 
 ## Quizzes

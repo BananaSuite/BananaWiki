@@ -8,9 +8,9 @@ Questi strumenti compaiono sotto **App** quando la tua wiki li ha attivati.
   il suo nome utente.
 * **Gruppi** (`/groups`): crea un gruppo o entra in uno con il suo codice
   d'invito. Quasi tutte le wiki hanno anche una stanza globale per tutti. I
-  proprietari e i moderatori possono aggiungere e rimuovere membri, mettere
-  in pausa o bandire qualcuno e cambiare il codice d'invito; il proprietario
-  può cedere il gruppo.
+  proprietari e i moderatori possono aggiungere e rimuovere membri e silenziare
+  o bannare qualcuno; il proprietario può anche cambiare il codice d'invito e
+  cedere il gruppo.
 * Puoi allegare file (entro i limiti di dimensione e giornalieri), esportare
   una conversazione ed eliminare i tuoi messaggi. **Eliminare un messaggio lo
   cancella per tutti**; resta un piccolo segno "eliminato". In una
@@ -57,7 +57,7 @@ decide qualcosa, scrivilo in una pagina.
   cambiarne la priorità (da tastiera: spostala oltre la prima o l'ultima
   scheda della riga).
 * **Archivia** una scheda dalla sua finestra, più schede insieme con
-  **Selezione**, oppure tutte le schede di una colonna con **Archivia**
+  **Seleziona**, oppure tutte le schede di una colonna con **Archivia**
   nell'intestazione della colonna (comodo per *Fatto*). Le schede archiviate
   escono dalla bacheca ma conservano tutto; il pulsante **Archiviate** le
   elenca per aprirle, ripristinarle o eliminarle definitivamente.
@@ -95,7 +95,7 @@ esportare e importare e mostrare in una pagina con `[[canvas slug="<nome>"]]`.
 * **Disponi**: seleziona più elementi (Maiusc+clic o Maiusc+trascina) e usa
   **Disponi** per allinearli o distribuirli, raggrupparli (Ctrl+G) perché si
   spostino insieme o bloccarli (L) perché restino fermi. Nessuno può
-  spostare, ridimensionare, modificare o eliminare un elemento bloccato (il
+  spostare, ridimensionare, modificare o eliminare un elemento bloccato (la
   wiki lo rifiuta, anche tramite l'API) finché qualcuno non lo sblocca.
   Mentre trascini compaiono **linee guida** quando bordi o centri si
   allineano con gli elementi vicini, e l'elemento vi si aggancia; altrimenti
@@ -107,12 +107,11 @@ esportare e importare e mostrare in una pagina con `[[canvas slug="<nome>"]]`.
   destra, basso, sinistra o automatico).
 * La **mappa d'insieme** nell'angolo mostra tutto il canvas; fai clic per
   spostarti.
-* **Immagine** scarica il canvas come PNG o SVG. Le immagini di altri siti
-  sono incluse quando il loro sito lo consente; altrimenti il PNG mostra un
+* **Scarica immagine** salva il canvas come PNG o SVG. Le immagini di altri
+  siti sono incluse quando il loro sito lo consente; altrimenti il PNG mostra un
   riquadro segnaposto con etichetta (l'SVG mantiene un link all'immagine).
-  **Schema testuale** elenca
-  ogni elemento con i suoi collegamenti, leggibile con un lettore di schermo
-  e scaricabile in Markdown.
+  **Schema testuale** elenca ogni elemento con i suoi collegamenti, leggibile
+  con un lettore di schermo e scaricabile in Markdown.
 
 ## Quiz
 

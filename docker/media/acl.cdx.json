@@ -15,7 +15,7 @@
       "externalReferences": [
         {"type": "website", "url": "https://savannah.nongnu.org/projects/acl/"},
         {"type": "advisories", "url": "https://security-tracker.debian.org/tracker/CVE-2026-54369"},
-        {"type": "distribution", "url": "https://deb.debian.org/debian/pool/main/a/acl/"}
+        {"type": "distribution", "url": "https://snapshot.debian.org/package/acl/2.4.0-1/"}
       ],
       "properties": [
         {"name": "bananawiki:source:sha256", "value": "e661131456d2708a01c614a0f400e11d7d1bfaeb6f3e74b75bb980b72f0161a3"},

@@ -1,6 +1,6 @@
 """Taking over a BananaWiki 1.4 installation in place.
 
-Two things happen on the first start of 1.6:
+Two things happen at start-up, before the database is used:
 
 * **Backup.** Before the schema is migrated, an online copy of the database is
   written to ``<instance>/backups/pre-upgrade-v<old>-<time>.db``. A wiki of a
@@ -12,8 +12,8 @@ Two things happen on the first start of 1.6:
 * **Data folders.** 1.4 kept some user files inside the source tree by default
   (``app/static/uploads``, custom favicons in ``app/static/favicons``, uploaded
   languages in ``translations/``). When the matching ``BW_*`` variable is not
-  set, those files are moved to the instance directory, where 1.6 keeps all
-  persistent data. Files are moved, never overwritten.
+  set, those files are moved to the instance directory, where all persistent
+  data lives. Files are moved, never overwritten.
 
 Under Gunicorn both happen in the master process before any worker starts
 (see :mod:`bananawiki.ops.gunicorn_conf`): a worker has a timeout, the
@@ -37,7 +37,7 @@ log = logging.getLogger("bananawiki.takeover")
 
 # The languages 1.4 shipped in its translations/ folder. Any other file there was
 # uploaded (a de.json too: 1.4 had no German) and moves to the instance
-# directory; for a language bundled now, it overrides the bundled strings.
+# directory; for a bundled language it overrides the bundled strings.
 _BUNDLED_LANGUAGES = {"en.json", "it.json"}
 
 
@@ -85,7 +85,7 @@ def _move_tree(source: Path, target: Path, pattern: str) -> None:
             if _move_file(path, target / path.relative_to(source)):
                 moved += 1
     if moved:
-        log.warning("Moved %d files from %s to %s (BananaWiki 1.6 keeps data in the instance directory).",
+        log.warning("Moved %d files from %s to %s (BananaWiki keeps data in the instance directory).",
                     moved, source, target)
 
 

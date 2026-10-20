@@ -82,7 +82,7 @@ def _message(user: dict[str, Any], lang: str, *, subject: str, text: str, links:
     )
 
 
-# ── Waiting requests ──────────────────────────────────────────────────────────
+# Waiting requests
 
 
 def candidates() -> list[dict[str, Any]]:
@@ -150,7 +150,7 @@ def notify_reviewers(now: datetime | None = None) -> int:
         return engine.run(store, policy, recipients, deliver, now=now)
 
 
-# ── Decisions ─────────────────────────────────────────────────────────────────
+# Decisions
 
 
 def decision_message(user: dict[str, Any], notice: dict[str, Any], *, links: bool) -> mail.Message:

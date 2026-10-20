@@ -9,7 +9,6 @@
     <input type="hidden" name="next" value="{{ next_url }}">
     <input type="hidden" name="_form_time" value="{{ form_time }}">
     <div class="visually-hidden" aria-hidden="true"><label>Website <input name="website" tabindex="-1" autocomplete="off"></label></div>
-    {#- After a failed attempt the username is kept: the password is what needs typing again. -#}
     {{ ui.field('username', t('hosting.field.username'), username, required=true, attrs={'autocomplete': 'username', 'maxlength': 60, 'autofocus': 'autofocus'} if not username else {'autocomplete': 'username', 'maxlength': 60}) }}
     {{ ui.field('password', t('hosting.field.password'), type='password', required=true, attrs={'autocomplete': 'current-password', 'maxlength': 1000, 'autofocus': 'autofocus'} if username else {'autocomplete': 'current-password', 'maxlength': 1000}) }}
     <button class="btn btn--primary" type="submit">{{ t('hosting.login.submit') }}</button>

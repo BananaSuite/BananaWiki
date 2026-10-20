@@ -40,7 +40,7 @@
       </td>
       <td class="actions"><div class="cluster">
         {% if p.lapsed or (p.state and (p.state.is_controller or p.state.unlock_ready)) %}
-        {{ forms.post_button(url_for('page_governance.force_unlock', page_id=p.id), t('page_governance.admin.unlock'), cls='btn btn--small btn--danger', confirm=t('common.are_you_sure')) }}
+        {{ forms.post_button(url_for('page_governance.force_unlock', page_id=p.id), t('page_governance.admin.unlock'), cls='btn btn--small btn--danger-quiet', confirm=t('common.are_you_sure')) }}
         {% elif not p.state.unlock_requested_at %}
         {{ forms.post_button(url_for('page_governance.request_unlock', page_id=p.id), t('page_governance.admin.request_unlock'), cls='btn btn--small', confirm=t('page_governance.admin.request_unlock_confirm')) }}
         {% endif %}

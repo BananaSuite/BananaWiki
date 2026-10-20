@@ -9,9 +9,9 @@ accounts embed ``templates/auth/_bot_fields.html``:
 
 A submission is rejected when the honeypot is filled, the token is missing,
 forged, older than :data:`MAX_AGE_SECONDS`, younger than
-``BW_MIN_FORM_SECONDS`` (bots submit instantly) or was already used. Unlike
-1.4, the check does not switch itself off in test mode and a token cannot be
-replayed: its nonce is recorded in ``rate_limit_hits`` on first use.
+``BW_MIN_FORM_SECONDS`` (bots submit instantly) or was already used. The
+check stays on in test mode, and a token cannot be replayed: its nonce is
+recorded in ``rate_limit_hits`` on first use.
 """
 
 from __future__ import annotations

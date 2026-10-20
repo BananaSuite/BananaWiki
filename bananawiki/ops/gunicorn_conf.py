@@ -72,12 +72,12 @@ if _tmp:
 def on_starting(server: Any) -> None:
     """Create or upgrade the database in the master, before any worker starts.
 
-    A worker that upgrades a large database outlives ``timeout`` and is
-    killed, which rolls the upgrade back, and the workers waiting for it
-    failed to boot, which stopped Gunicorn: such an upgrade never finished.
-    The master has no timeout; the workers then find the schema current. The
-    master imports the application's modules but builds no application and
-    keeps no database connection for the workers to inherit.
+    A worker upgrading a large database would outlive ``timeout`` and be
+    killed, rolling the upgrade back, and the workers waiting for it would
+    fail to boot and stop Gunicorn. The master has no timeout; the workers
+    then find the schema current. The master imports the application's
+    modules but builds no application and keeps no database connection for
+    the workers to inherit.
     """
     from bananawiki.wiki.config import load_config
     from bananawiki.wiki.takeover import prepare_storage
@@ -87,5 +87,5 @@ def on_starting(server: Any) -> None:
 
 
 def post_worker_init(worker: Any) -> None:
-    """Free the thread of a client that stops reading a download (R-27, :mod:`bananawiki.ops.write_timeout`)."""
+    """Free the thread of a client that stops reading a download (see :mod:`bananawiki.ops.write_timeout`)."""
     worker.wsgi = _guard(worker.wsgi, _write_timeout)

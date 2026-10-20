@@ -347,7 +347,7 @@ def export_instance(inst: dict) -> Response:
         limit = (instances.storage_limit_mb(inst) or 0) * 1024 ** 2
         spec = replace(instances.spec(inst, with_policy=False), policy=TenantPolicy(storage_limit_bytes=limit))
         archive = instances.runtime().export_archive(spec, work)
-    except (RuntimeFailure, ValueError) as error:
+    except (RuntimeFailure, ValueError, OSError) as error:
         shutil.rmtree(work, ignore_errors=True)
         code = getattr(error, "code", "failed")
         raise ServiceError("hosting.instances.download_too_large" if code == "too_large"
@@ -413,7 +413,7 @@ def bulk_delete():
     return _bulk(terminate_one, ("running", "stopped"), "hosting.bulk.terminated")
 
 
-# ── Collaborators and transfers ───────────────────────────────────────────────
+# Collaborators and transfers
 
 
 @bp.get("/instances/<instance_id>/collaborators")
@@ -524,7 +524,7 @@ def cancel_transfer(transfer_id: int):
     return redirect(url_for("dashboard.dashboard"))
 
 
-# ── Custom domain ─────────────────────────────────────────────────────────────
+# Custom domain
 
 
 @bp.route("/instances/<instance_id>/domain", methods=["GET", "POST"])

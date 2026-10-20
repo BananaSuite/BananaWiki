@@ -2,9 +2,9 @@
 
 Every file starts with the ``# Managed by BananaSuite`` marker 1.4 used, so
 either version recognises the other's files as its own and refuses to touch
-units it did not write. Units for 1.6 releases also carry
-``# bananawiki-ops: 3``; an older marker tells the controller that a release was
-installed by the 1.4 updater and its units still need converging.
+units it did not write. Units this controller writes also carry
+``# bananawiki-ops: 3``; a missing or older marker means an earlier updater
+wrote them and they still need converging.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from .profile import ReleaseFeatures, Service
 QUOTA_GENERATION = 3
 
 # Sandbox for the unprivileged application services. The application only
-# writes below data/ (C7); /dev/shm stays writable for Gunicorn heartbeats.
+# writes below data/; /dev/shm stays writable for Gunicorn heartbeats.
 _APP_SANDBOX = (
     "NoNewPrivileges=true\n"
     "PrivateTmp=true\n"
@@ -106,8 +106,8 @@ def service_unit(settings: dict[str, Any], service: Service, features: ReleaseFe
         if settings["mode"] == "hosting":
             # Same-UID tenant processes must not expose namespace or memory
             # handles to the less privileged portal, including bootstrap.
-            # The hosting entrypoint adds an inherited argument filter for
-            # quota setters while permitting Python's descriptor/socket ioctls.
+            # The hosting entrypoint adds a seccomp filter that refuses every
+            # ioctl except FIONBIO, FIOCLEX and FIONCLEX.
             sandbox += "InaccessiblePaths=/proc\n"
         writable = f"ReadWritePaths={root / 'data'}\n"
     return (

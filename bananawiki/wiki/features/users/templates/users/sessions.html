@@ -34,7 +34,7 @@
 <section class="users-session-section" id="active-sessions" aria-labelledby="active-heading">
   <div class="card__header">
     <h2 id="active-heading">{{ t('users.sessions.active') }}</h2>
-    {{ forms.post_button(url_for('users.logout_everywhere'), t('users.sessions.logout_all'), cls='btn btn--danger btn--small', confirm=t('users.sessions.logout_all_confirm')) }}
+    {{ forms.post_button(url_for('users.logout_everywhere'), t('users.sessions.logout_all'), cls='btn btn--danger-quiet btn--small', confirm=t('users.sessions.logout_all_confirm')) }}
   </div>
   <p class="hint">{{ t('users.sessions.active_help') }}</p>
   <ul class="users-sessions">{% for item in active %}{{ session_card(item) }}{% endfor %}</ul>

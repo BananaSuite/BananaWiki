@@ -1,4 +1,4 @@
-"""An update isolates a wiki that does not serve under its release only once it is really stopped (OPS2-08).
+"""An update isolates a wiki that does not serve under its release only once it is really stopped.
 
 Readiness can time out while the portal's recovery is still starting that
 wiki (a slow migration). Isolation therefore records the wiki for the portal

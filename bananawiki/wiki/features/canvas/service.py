@@ -98,7 +98,7 @@ class VersionConflict(CanvasError):
         self.current_version = current_version
 
 
-# ── Events ────────────────────────────────────────────────────────────────────
+# Events
 
 
 def _actor(actor_id: str | None) -> str | None:
@@ -120,7 +120,7 @@ def _locked_error(ids: list[str]) -> CanvasError:
     return CanvasError("canvas.error.locked", count=len(ids), ids=", ".join(ids[:10]))
 
 
-# ── Layouts ───────────────────────────────────────────────────────────────────
+# Layouts
 
 
 def get_by_slug(slug: str | None) -> dict[str, Any] | None:
@@ -216,7 +216,7 @@ def transfer(layout: dict[str, Any], new_owner_id: str, *, actor_id: str | None 
     _emit("canvas.updated", layout["id"], actor_id)
 
 
-# ── Sharing ───────────────────────────────────────────────────────────────────
+# Sharing
 
 
 def permissions(layout_id: int) -> list[dict[str, Any]]:
@@ -259,7 +259,7 @@ def remove_permission(layout_id: int, *, user_id: str | None = None, role: str |
         _emit("canvas.updated", layout_id, actor_id)
 
 
-# ── List order ────────────────────────────────────────────────────────────────
+# List order
 
 
 def order_ids(owner_id: str | None) -> list[int]:
@@ -287,15 +287,15 @@ def save_order(owner_id: str | None, layout_ids: list[int]) -> None:
 def order_version() -> int:
     """Changes whenever the shared order is saved (rows are re-inserted with new ids).
 
-    Canvas keeps its own counter instead of the ``list_order_version`` site
-    setting that 1.4 shared with kanban.
+    Canvas keeps its own counter rather than the ``list_order_version`` site
+    setting.
     """
     return int(db.scalar(
         "SELECT COALESCE(MAX(id), 0) + COUNT(*) FROM canvas_user_layout_order WHERE user_id IS NULL", default=0
     ))
 
 
-# ── Wiki page links ───────────────────────────────────────────────────────────
+# Wiki page links
 
 
 def link_pages(nodes: Iterable[dict[str, Any]], actor_id: str | None) -> None:
@@ -419,7 +419,7 @@ def on_page_deleted(page: dict[str, Any], **_: Any) -> None:
     _rewrite_page_nodes(_same_page(page, page.get("slug")), _point_at(page))
 
 
-# ── Saving ────────────────────────────────────────────────────────────────────
+# Saving
 
 
 def _store(layout_id: int, doc: dict[str, Any]) -> int:
@@ -494,7 +494,7 @@ def save_document(layout: dict[str, Any], data: Any, *, expected_version: int | 
     return {"version": version, "seq": seq}
 
 
-# ── Op log ────────────────────────────────────────────────────────────────────
+# Op log
 
 
 def head_seq(layout_id: int) -> int:
@@ -549,7 +549,7 @@ def events_since(layout_id: int, since: int, *, exclude_session: str = "") -> di
 
 
 def _event_payload(op_type: str, raw: str | None) -> dict[str, Any] | None:
-    """The payload of a logged operation, cleaned like stored data (rows may predate 1.6)."""
+    """The payload of a logged operation, cleaned like stored data (rows may come from older versions)."""
     try:
         payload = json.loads(raw or "{}")
     except ValueError:
@@ -568,7 +568,7 @@ def _event_payload(op_type: str, raw: str | None) -> dict[str, Any] | None:
     return {} if op_type == "snapshot" else None
 
 
-# ── History ───────────────────────────────────────────────────────────────────
+# History
 
 
 def record_history(layout_id: int, user_id: str | None, message: str, *, is_revert: bool = False,
@@ -664,7 +664,7 @@ def clear_history(layout: dict[str, Any]) -> None:
     db.execute("DELETE FROM canvas__history WHERE layout_id = ?", (layout["id"],))
 
 
-# ── Maintenance ───────────────────────────────────────────────────────────────
+# Maintenance
 
 
 def prune() -> dict[str, int]:

@@ -63,7 +63,7 @@ def frames(audio: backends.Audio) -> int:
         return wav.getnframes()
 
 
-# ── Pieces ────────────────────────────────────────────────────────────────────
+# Pieces
 
 
 def test_text_without_full_stops_is_cut_at_spaces():
@@ -88,7 +88,7 @@ def test_text_without_spaces_is_cut_at_the_limit():
     assert text.speech_chunks("") == []
 
 
-# ── In the worker (Windows, packaged app) ─────────────────────────────────────
+# In the worker (Windows, packaged app)
 
 
 class FakeVoice:
@@ -126,7 +126,7 @@ def test_pieces_without_audio_are_skipped(tmp_path):
     assert piper_child.write_wav(FakeVoice(), ["silence"], None, str(output)) == 0
 
 
-# ── In a child process (POSIX) ────────────────────────────────────────────────
+# In a child process (POSIX)
 
 
 @pytest.fixture

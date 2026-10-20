@@ -70,7 +70,7 @@ class Draft:
     content: str
 
 
-# ── Slugs ─────────────────────────────────────────────────────────────────────
+# Slugs
 
 _SLUG_STRIP = re.compile(r"[^\w\s-]", re.UNICODE)
 _SLUG_SPACES = re.compile(r"[\s_]+")
@@ -98,7 +98,7 @@ def unique_slug(base: str, *, exclude_page_id: int | None = None) -> str:
         n += 1
 
 
-# ── Reading ──────────────────────────────────────────────────────────────────
+# Reading
 
 
 def get(page_id: int | str | None, *, with_content: bool = True) -> dict[str, Any] | None:
@@ -285,7 +285,7 @@ def adjacent(page: dict[str, Any], user: dict[str, Any] | None = None) -> tuple[
     return previous, following
 
 
-# ── Writing ──────────────────────────────────────────────────────────────────
+# Writing
 
 
 def _clean_title(title: str | None) -> str:
@@ -622,7 +622,7 @@ def transfer_history_bulk(page_id: int, from_user_id: str, to_user_id: str) -> i
     ).rowcount
 
 
-# ── Mentions ─────────────────────────────────────────────────────────────────
+# Mentions
 
 
 def _mention_pattern(username: str) -> re.Pattern[str]:
@@ -657,7 +657,7 @@ def rewrite_mentions(old_username: str, replacement: str) -> int:
     return changed
 
 
-# ── Search ───────────────────────────────────────────────────────────────────
+# Search
 
 _FTS_TOKEN = re.compile(r"\w+", re.UNICODE)
 

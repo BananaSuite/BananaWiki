@@ -63,7 +63,7 @@
     <tbody>{% for i in items.users %}<tr>
       <td>{{ i.username }}</td><td class="nowrap" data-label="{{ t('temporary_accounts.col.expires') }}">{{ i.expires_at|datetime }}</td>
       <td data-label="{{ t('temporary_accounts.col.countdown') }}">{{ t('common.yes') if i.show_countdown else t('common.no') }}</td>
-      <td class="actions">{{ remove_button('temporary_accounts.remove_user', 'user_id', i.user_id) }}</td>
+      <td class="actions">{% if i.removable %}{{ remove_button('temporary_accounts.remove_user', 'user_id', i.user_id) }}{% endif %}</td>
     </tr>{% endfor %}</tbody>
   </table></div>
   {% endif %}
@@ -85,7 +85,7 @@
       <td>{{ i.username }}</td>
       <td data-label="{{ t('temporary_accounts.col.role') }}">{{ t('temporary_accounts.role.' ~ i.current_role) }} → {{ t('temporary_accounts.role.' ~ i.original_role) }}</td>
       <td class="nowrap" data-label="{{ t('temporary_accounts.col.expires') }}">{{ i.expires_at|datetime }}</td>
-      <td class="actions">{{ remove_button('temporary_accounts.remove_role', 'user_id', i.user_id) }}</td>
+      <td class="actions">{% if i.removable %}{{ remove_button('temporary_accounts.remove_role', 'user_id', i.user_id) }}{% endif %}</td>
     </tr>{% endfor %}</tbody>
   </table></div>
   {% endif %}

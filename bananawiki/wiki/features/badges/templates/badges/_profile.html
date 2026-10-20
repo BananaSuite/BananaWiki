@@ -3,8 +3,8 @@
   <h2 id="badges-heading">{{ t('badges.profile.title') }}</h2>
   <ul class="cluster badge-awards">
     {% for badge in badges %}
-    <li class="badge" style="border:1px solid {{ badge.color }}" title="{{ badge.description }}">
-      <span aria-hidden="true">{{ badge.icon }}</span> {{ badge.name }}{% if badge.times > 1 %} ×{{ badge.times }}{% endif %}
+    <li class="badge badge-award" title="{{ badge.description }}">
+      {{ badge_mark(badge) }}{{ badge.name }}{% if badge.times > 1 %} ×{{ badge.times }}{% endif %}
       <span class="visually-hidden">{{ badge.description }}</span>
     </li>
     {% endfor %}

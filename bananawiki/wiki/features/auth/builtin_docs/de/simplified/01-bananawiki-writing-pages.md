@@ -1,6 +1,6 @@
 # Seiten schreiben
 
-Seiten werden in Markdown geschrieben. Markdown ist reiner Text mit ein paar Zeichen für Struktur und Formatierung.
+Seiten werden in Markdown geschrieben: einfacher Text mit wenigen Zeichen für Überschriften, Listen und Links.
 
 ## Kurzübersicht
 
@@ -10,16 +10,16 @@ Seiten werden in Markdown geschrieben. Markdown ist reiner Text mit ein paar Zei
 | `## Abschnitt` | Abschnittsüberschrift |
 | `**fett**` | fetter Text |
 | `*kursiv*` | kursiver Text |
-| `` `code` `` | Inline-Code |
+| `` `Code` `` | Code im Text |
 | `- Punkt` | Aufzählung |
 | `1. Punkt` | nummerierte Liste |
-| `[Text](url)` | Link |
-| `![alt](url)` | Bild |
+| `[Beschriftung](url)` | Link |
+| `![Alt](url)` | Bild |
 
 ## Eine gute Seite
 
-Eine gute Seite hat einen klaren Titel, gleich am Anfang eine kurze Antwort, Überschriften für die wichtigsten Abschnitte und Links zu verwandten Seiten. Speichere jetzt eine grobe Fassung und verbessere sie später. Ein nützlicher Entwurf ist besser als Wissen, das nur im Chat oder im Kopf bleibt.
+Gib der Seite einen klaren Titel, beantworte die wichtigste Frage in den ersten Zeilen und verlinke verwandte Seiten. Speichere jetzt eine grobe Fassung und verbessere sie später.
 
 ## Ablauf beim Bearbeiten
 
-Erstelle oder öffne eine Seite, schreibe links, prüfe rechts die Vorschau und speichere dann. Entwürfe, Versionsverlauf, Anhänge und PDF-Export können je nach aktivierten Plugins und Berechtigungen verfügbar sein.
+Öffne eine Seite und klicke auf **Bearbeiten**. Schreibe im Tab **Schreiben**, prüfe den Tab **Vorschau** und speichere dann. Entwürfe, Verlauf, Anhänge und PDF-Export erscheinen, wenn sie eingeschaltet sind und du sie nutzen darfst.

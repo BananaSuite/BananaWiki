@@ -1,18 +1,14 @@
-"""Root-agent XFS project quotas, verified before a tenant can write.
+"""XFS project quotas for tenant directories, set and checked by the root agent.
 
-Only Linux x86_64 with effective project accounting *and* enforcement is
-supported. The trusted caller serializes tenant lifecycle operations and must
-stop every writer before ``prepare(repair=True)``. New/copy/restore destinations
-must be prepared before copying data. Tenant containers must retain the pinned
-quota-setter-denying seccomp policy; root-only verification then relies on that
-kernel inheritance invariant instead of walking a running, mutable tree.
+Linux x86_64 only, on a filesystem with project accounting and enforcement on.
+The caller runs one lifecycle operation per tenant at a time, stops every
+writer before ``prepare(repair=True)``, and prepares new, copied or restored
+directories before writing into them. Running containers are not walked: their
+seccomp profile keeps them from changing project IDs.
 
-ABI definitions follow Linux's dqblk_xfs.h, fs.h and xfs_fs.h UAPI. No device
-paths, external quota utilities, mount changes, or tenant-owned markers are used.
-Primary ABI references:
-https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/dqblk_xfs.h
-https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/fs.h
-https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/fs/xfs/libxfs/xfs_fs.h
+No device paths, quota tools, mount changes or files inside the tenant
+directory are used. The ioctl and quotactl layouts follow the Linux UAPI
+headers dqblk_xfs.h, fs.h and xfs_fs.h.
 """
 
 from __future__ import annotations
@@ -42,7 +38,7 @@ _BULKSTAT = 0x8040587F
 _OPEN = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
 _MAX_ENTRIES = 200_000
 _MAX_DEPTH = 128
-# Room a wiki adopted above its plan gets beyond what it already holds (UP-1): enough for its database
+# Room a wiki adopted above its plan gets beyond what it already holds: enough for its database
 # journal and logs, not for new content. It is granted once: later starts never add to it.
 ADOPTION_HEADROOM_BYTES = 64 * 1024 * 1024
 ADOPTION_HEADROOM_INODES = 1024
@@ -54,6 +50,8 @@ class QuotaError(RuntimeError):
 
 @dataclass(frozen=True)
 class QuotaWitness:
+    """The quota :meth:`ProjectQuota.prepare` verified on a tenant directory, kept to check it again later."""
+
     project_id: int
     byte_limit: int
     inode_limit: int
@@ -260,13 +258,13 @@ def _mount_id(fd: int) -> int:
 
 
 class ProjectQuota:
-    """Durable, non-reused allocations on a dedicated installation XFS volume.
+    """Project ids and limits for tenant directories on one XFS volume.
 
-    ``state_dir`` must be a root-owned private directory outside tenant storage.
-    A deleted root's allocation remains reserved. A replacement root gets a new
-    allocation; a rename retains the same filesystem/inode/generation identity.
-    Existing data requires explicit stopped-only repair. Symlink targets are
-    never followed, and external hardlinks, special files and submounts fail shut.
+    Allocations are recorded in ``state_dir``, a private root-owned directory
+    outside tenant storage. An id is never reused: a renamed directory keeps
+    its id, a replaced one gets a new id. Existing data is put under quota only
+    while the wiki is stopped. Links are never followed; hard links to files
+    outside the tenant, special files and submounts are refused.
     """
 
     def __init__(self, instances_dir: Path, state_dir: Path, *, max_bytes: int,
@@ -322,7 +320,7 @@ class ProjectQuota:
 
     @staticmethod
     def _adopted(requested: int, used: int, previous: int | None, headroom: int, unit: int = 1) -> int:
-        """The hard limit of a stopped wiki holding *used* that asks for *requested* (UP-1).
+        """The hard limit of a stopped wiki holding *used* that asks for *requested*.
 
         Within its plan: the plan. Above it (1.6 let wikis grow past their
         plan, a plan can be lowered below what a wiki holds): what it holds
@@ -381,8 +379,8 @@ class ProjectQuota:
                 os.close(fd)
                 fd = child
                 info = os.fstat(fd)
-                # A root-owned sticky /tmp cannot let another user rename a
-                # root-owned child; useful for disposable acceptance fixtures.
+                # A root-owned sticky directory such as /tmp is accepted: other
+                # users cannot rename its root-owned children.
                 sticky = info.st_uid == 0 and info.st_mode & stat.S_ISVTX
                 if info.st_uid not in (0, os.geteuid()) or info.st_mode & 0o022 and not sticky:
                     raise QuotaError("Quota state parents must be trusted and not attacker-writable")
@@ -411,7 +409,8 @@ class ProjectQuota:
             if set(os.listdir(directory)) - names:
                 raise QuotaError("Quota state must be a dedicated allocation directory")
             # systemd shares StateDirectoryMode with Caddy's public routes
-            # directory. Normalize only this securely pinned root-owned leaf.
+            # directory: fix the mode of this one directory only, through the
+            # descriptor already opened.
             os.fchmod(directory, 0o700)
             for name in names:
                 try:
@@ -506,7 +505,8 @@ class ProjectQuota:
         connection.execute("INSERT INTO allocations (filesystem,inode,generation,project,tenant,bytes,inodes,ready,"
                            "admitted) VALUES (?,?,?,?,?,?,?,0,?)",
                            (filesystem, inode, generation, candidate, tenant, byte_limit, inode_limit, int(admit)))
-        # Persist reservation BEFORE any quota/inode mutation. Failure never frees an ID.
+        # Commit the reservation before touching quotas or inodes: an ID is never
+        # handed out twice, even after a failure.
         connection.commit()
         return self._row(connection, filesystem, inode, generation)
 
@@ -517,7 +517,7 @@ class ProjectQuota:
         concurrent delete/regrow cycle from creating apparent admission space.
         The dedicated-volume profile also budgets 4KiB per hard inode limit
         for inode/metadata growth. The free/unused check detects untracked
-        operator usage; neither check provides a hierarchical portal quota.
+        operator usage.
 
         Only *admission* runs this: a new allocation or a raised limit. An
         already admitted tenant is verified and restarted without it, so data
@@ -699,13 +699,9 @@ class ProjectQuota:
             raise QuotaError(f"Tenant quota verification failed: {exc}") from exc
 
     def verify_descriptor(self, fd: int, witness: QuotaWitness | dict) -> None:
-        """Check a trusted directory FD against its root-agent quota witness.
+        """Raise QuotaError unless *fd* is the directory *witness* describes, with the same quota.
 
-        The FD and witness must never be supplied by an IPC client. The caller
-        holds the verified source FD while an inert Docker bootstrap starts,
-        then checks a separately opened FD for the container's actual mounted
-        data root before releasing any tenant workload. A Docker pathname bind
-        alone does not preserve the source descriptor's inode identity.
+        *fd* and *witness* come from the agent itself, never from a request.
         """
         try:
             if isinstance(witness, dict):
@@ -742,12 +738,11 @@ class ProjectQuota:
 
     def prepare(self, tenant: str, *, byte_limit: int, inode_limit: int,
                 repair: bool = False, expected_descriptor: int | None = None) -> QuotaWitness:
-        """Prepare only the directory proven stopped by the trusted root agent.
+        """Put a stopped tenant directory under quota (or repair its quota).
 
-        ``expected_descriptor`` is an optional server-owned FD held across its
-        actual-mounted container inventory. It must never come from IPC. Its
-        pinned inode/device identity prevents pathname replacement from moving
-        stopped-only repair onto a different directory after that inventory.
+        *expected_descriptor*, when given, is the directory the agent checked
+        as stopped; a path swapped since then is refused. It never comes from
+        a request.
 
         A stopped wiki that already holds more than *byte_limit* or
         *inode_limit* (one 1.6 left above its plan, or whose plan was lowered)

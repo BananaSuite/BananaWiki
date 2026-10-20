@@ -1,32 +1,21 @@
-# Riferimento API per sviluppatori
+# API REST
 
-BananaWiki espone superfici per automazione, plugin e integrazioni. Alcuni endpoint usano sessione web e token CSRF. Il plugin API Service aggiunge endpoint Bearer-token per client esterni.
+Il plugin **API REST** aggiunge endpoint JSON sotto `/api/v1/` per script e integrazioni. Le richieste portano un token Bearer. L'elenco completo degli endpoint è in `/api-docs` sulla tua wiki. Gli endpoint sotto `/api/` usati dall'interfaccia web sono interni e possono cambiare tra una versione e l'altra.
 
-## Endpoint basati su sessione
+## Attivarla
 
-Gli endpoint web comuni includono ricerca, anteprima Markdown, bozze, filtro sidebar, prenotazioni pagina, riordino Kanban, dati Canvas, preferenze di accessibilità e upload. Richiedono un utente autenticato e le mutazioni richiedono protezione CSRF.
+Un amministratore attiva il plugin in **Amministrazione → Plugin**, poi spunta *Attiva l'API REST* nella sua pagina di impostazioni, dove si impostano anche i limiti di richieste e il numero di token per account.
 
-## Plugin API Service
+## Token
 
-Quando è attivo, API Service fornisce endpoint `/api/v1/` autenticati con Bearer token. Gli utenti possono creare token personali dove consentito. Gli admin configurano scope, limiti, scadenze e audit.
+Ogni account crea i suoi token in **Impostazioni → Token API**. Un token viene mostrato una sola volta; revoca i token che non usi più.
 
-## Scope
+## Ambiti
 
-Gli scope limitano cosa può fare un'integrazione. Preferisci il set minimo utile: pages per contenuti, categories per navigazione, users per amministrazione, settings per configurazione, userbot per automazioni account.
+Un token raggiunge solo gli endpoint dei suoi ambiti: `pages`, `categories`, `kanban`, `canvas`, `tokens`, e per gli amministratori `users`, `settings` e `admin`. `userbot` è per la chiave di automazione.
 
 ## Cosa può fare un token
 
 Un token agisce come la persona a cui appartiene e non può mai fare più di quanto quella persona potrebbe fare nell'editor. Valgono le restrizioni di lettura e scrittura per categoria: una pagina fuori dalle categorie leggibili risulta inesistente, e una modifica fuori dalle categorie scrivibili viene rifiutata con `403`. Una pagina protetta, o prenotata da un altro editor, viene rifiutata con `409`. L'elenco delle pagine contiene solo quelle leggibili. Creare, rinominare e spostare categorie richiede gli stessi permessi di categoria della wiki.
 
-Eliminare una pagina tramite API segue le stesse regole del pulsante Elimina. Con Deletion Slowdown attivo la pagina entra nel periodo di attesa e la richiesta risponde `202` con `"pending_deletion": true` invece di rimuoverla.
-
-## Plugin SDK
-
-Gli autori di plugin possono usare decoratori di autenticazione, registrare permessi, aggiungere slot template, chiamare helper database sicuri e reagire agli hook. Usa l'SDK come livello stabile invece di importare internals privati.
-
-## Checklist di sicurezza
-
-- mantieni segreti i token e ruotali quando una persona lascia il team
-- imposta scadenze per integrazioni temporanee
-- registra e rivedi le automazioni che modificano contenuti
-- valida i dati in ingresso anche quando una route è solo admin
+Eliminare una pagina tramite API segue le stesse regole del pulsante Elimina. Con l'eliminazione ritardata attiva la pagina entra nel periodo di attesa e la richiesta risponde `202` con `"pending_deletion": true` invece di rimuoverla.

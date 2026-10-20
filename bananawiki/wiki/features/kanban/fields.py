@@ -1,6 +1,6 @@
 """Validation of board, column and ticket fields, and the title shorthand.
 
-The shorthand lets people type metadata into a ticket title, as in 1.4::
+The shorthand lets people type metadata into a ticket title::
 
     Fix login @alice +backend !high color:red due:tomorrow
 
@@ -183,7 +183,7 @@ def labels(value: Any) -> list[str]:
 
 
 def stored_labels(raw: str | None) -> list[str]:
-    """Labels as stored by 1.4 and 1.6: a JSON list, or a legacy comma separated string."""
+    """Stored labels: a JSON list, or a legacy comma separated string."""
     if not raw:
         return []
     try:

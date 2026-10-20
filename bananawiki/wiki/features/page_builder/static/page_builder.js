@@ -61,7 +61,7 @@
   }
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
 
-  // ── Block defaults ──────────────────────────────────────────────────────────
+  // Block defaults
   function card(n) { return { title: tr("default.card") + " " + n, text: tr("default.card_text"), url: "", image: "", image_alt: "" }; }
   var defaults = {
     heading: function () { return { type: "heading", level: 2, text: tr("default.heading") }; },
@@ -96,7 +96,7 @@
     }
   };
 
-  // ── Status, history ─────────────────────────────────────────────────────────
+  // Status, history
   function setStatus(text, kind) {
     statusEl.textContent = text;
     statusEl.className = "builder-status small" + (kind ? " builder-status--" + kind : " muted");
@@ -135,7 +135,7 @@
   function undo() { travel(undoStack, redoStack, tr("status.undone")); }
   function redo() { travel(redoStack, undoStack, tr("status.redone")); }
 
-  // ── Fields ──────────────────────────────────────────────────────────────────
+  // Fields
   var fieldCounter = 0;
   function nextId() { return "builder-field-" + (++fieldCounter); }
 
@@ -521,7 +521,7 @@
     return typeof text === "string" ? text.split("\n")[0].slice(0, 80) : "";
   }
 
-  // ── Rendering the stage ─────────────────────────────────────────────────────
+  // Rendering the stage
   function render() {
     var focused = document.activeElement;
     var focusKey = focused && blocksEl.contains(focused) ? focusSignature(focused) : null;
@@ -599,7 +599,7 @@
     cardEl.scrollIntoView({ block: "nearest" });
   }
 
-  // ── Changes, drafts, preview ───────────────────────────────────────────────
+  // Changes, drafts, preview
   function changed() {
     dirty = true;
     setStatus(tr("status.unsaved"));
@@ -719,7 +719,7 @@
     focusBlock(index);
   });
 
-  // ── Structure changes ───────────────────────────────────────────────────────
+  // Structure changes
   function insertAt() { return selected >= 0 && selected < state.blocks.length ? selected + 1 : state.blocks.length; }
 
   function addBlock(type, index) {
@@ -821,7 +821,7 @@
     }
   }
 
-  // ── Events ──────────────────────────────────────────────────────────────────
+  // Events
   function cast(input, block) {
     var how = input.dataset.cast;
     if (input.type === "checkbox") return input.checked;
@@ -990,7 +990,7 @@
     }).catch(function (error) { fail(error.message); });
   }
 
-  // ── Embed picker ─────────────────────────────────────────────────────────────
+  // Embed picker
   var embedTimer = null, embedRequest = null, embedQuiet = false;
   function searchEmbeds(input) {
     window.clearTimeout(embedTimer);
@@ -1033,7 +1033,7 @@
     list.hidden = false;
     input.setAttribute("aria-expanded", "true");
     input.removeAttribute("aria-activedescendant");
-    setStatus(tr("embed_picker.count", { count: items.length }));
+    setStatus(BW.tn("page_builder.embed_picker.count", items.length));
   }
 
   function closeEmbedOptions(input) {
@@ -1083,7 +1083,7 @@
     setStatus(tr("embed_picker.chosen", { title: option.dataset.embedTitle }));
   }
 
-  // ── Clipboard ────────────────────────────────────────────────────────────────
+  // Clipboard
   function copyBlocks(blocks) {
     var text = JSON.stringify({ format: ENVELOPE, version: 2, blocks: clone(blocks) });
     if (!navigator.clipboard || !navigator.clipboard.writeText) return setStatus(tr("status.copy_failed"), "error");
@@ -1135,7 +1135,7 @@
     pasteText(text);
   });
 
-  // ── Saved sections ──────────────────────────────────────────────────────────
+  // Saved sections
   function renderSections() {
     sectionsEl.textContent = "";
     sectionsEmpty.hidden = options.sections.length > 0;
@@ -1305,7 +1305,7 @@
     move(dragged, dragged < index ? index - 1 : index, true);
   });
 
-  // ── Modes and devices ───────────────────────────────────────────────────────
+  // Modes and devices
   function setMode(preview) {
     previewEl.hidden = !preview;
     stageEl.hidden = preview;

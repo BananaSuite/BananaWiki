@@ -76,7 +76,7 @@ def _secret_key() -> str:
     return current_app.config["HOSTING"].secret_key
 
 
-# ── Typed accessors ───────────────────────────────────────────────────────────
+# Typed accessors
 
 
 def signup_mode() -> str:

@@ -1,8 +1,8 @@
-"""Independently decode verifier artifacts with a full reference FFmpeg build.
+"""Decode the files verify-ffmpeg.py wrote with a full FFmpeg build.
 
 Usage: python verify-decoded-audio.py /path/to/MEDIA_VERIFY_OUTPUT
-Checks actual sound, duration and pitch, independent of the minimal encoder's
-success status and the frame parser in verify-ffmpeg.py. This reference tool
+Checks sound, duration and pitch without relying on the minimal encoder's
+exit status or the frame parser in verify-ffmpeg.py. This reference tool
 needs the PCM output codec/demuxer of a normal development FFmpeg installation.
 """
 

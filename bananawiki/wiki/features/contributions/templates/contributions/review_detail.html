@@ -50,7 +50,7 @@
       </div>
       <div class="btn-row">
         <button class="btn btn--primary" type="submit" formaction="{{ url_for('contributions.approve', contribution_id=contribution.id) }}">{{ t('contributions.approve') }}</button>
-        <button class="btn btn--danger" type="submit" formaction="{{ url_for('contributions.deny', contribution_id=contribution.id) }}">{{ t('contributions.deny') }}</button>
+        <button class="btn btn--danger-quiet" type="submit" formaction="{{ url_for('contributions.deny', contribution_id=contribution.id) }}">{{ t('contributions.deny') }}</button>
       </div>
     </form>
     {% if is_admin %}

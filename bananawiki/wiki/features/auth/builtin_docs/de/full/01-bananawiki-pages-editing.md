@@ -1,41 +1,39 @@
 # Seiten erstellen und bearbeiten
 
-Seiten sind die Grundbausteine von BananaWiki. Eine gute Seite hat einen klaren Titel, eine stabile Adresse, eine passende Kategorie und einen Inhalt, der den Lesenden eine echte Frage beantwortet.
+Zum Erstellen und Bearbeiten von Seiten brauchst du die Rolle Redakteur oder eine eigene Rolle, die es erlaubt, und Schreibzugriff auf die Kategorie.
 
-## Seite erstellen
+## Eine Seite erstellen
 
-1. Klicke in der Seitenleiste oder im Seitenmenü auf **+ Neue Seite**.
-2. Gib einen kurzen Titel ein. BananaWiki schlägt automatisch eine Adresse vor.
-3. Wähle eine Kategorie aus oder lass die Seite ohne Kategorie, solange du noch daran arbeitest.
-4. Schreibe links in Markdown und prüfe rechts die Vorschau.
-5. Speichere, sobald die Seite bereit zum Teilen ist.
-
-Um die meisten Seiten zu erstellen und zu bearbeiten, brauchst du die Rolle Redakteur oder Administrator. Administratoren können das Bearbeiten außerdem auf ausgewählte Kategorien beschränken.
+1. Klicke in der Seitenleiste auf **Neue Seite**.
+2. Gib einen Titel ein. Die Adresse der Seite (`/page/<adresse>`) wird daraus gebildet; du kannst sie später ändern.
+3. Wähle eine Kategorie oder keine.
+4. Schreibe im Tab **Schreiben** und prüfe das Ergebnis in der **Vorschau**.
+5. Klicke auf **Seite erstellen**.
 
 ## Markdown-Grundlagen
 
 | Eingabe | Ergebnis |
 |---|---|
-| `# Heading` | Überschrift der obersten Ebene |
-| `## Heading` | Abschnittsüberschrift |
-| `**bold**` | fetter Text |
-| `*italic*` | kursiver Text |
-| `` `code` `` | Inline-Code |
-| `- item` | Aufzählung |
-| `1. item` | nummerierte Liste |
-| `[label](https://example.com)` | Link |
-| `![alt text](image.png)` | Bild |
+| `# Überschrift` | Hauptüberschrift |
+| `## Überschrift` | Abschnittsüberschrift |
+| `**fett**` | fetter Text |
+| `*kursiv*` | kursiver Text |
+| `` `Code` `` | Code im Text |
+| `- Punkt` | Aufzählung |
+| `1. Punkt` | nummerierte Liste |
+| `[Beschriftung](https://example.com)` | Link |
+| `![Alternativtext](bild.png)` | Bild |
 
-Nutze Überschriften, damit lange Seiten leicht zu überfliegen sind. Stelle die wichtigste Antwort an den Anfang und ergänze die Details darunter.
+Überschriften erscheinen im Inhaltsverzeichnis der Seite.
 
-## Medien und erweiterte Inhalte
+## Bilder, Videos und Dateien
 
-Bilder kannst du direkt im Editor hochladen. Einfache YouTube- oder Vimeo-Links in einer eigenen Zeile werden automatisch eingebettet. Wenn das Plugin „Anhänge“ aktiviert ist, können Dateien wie PDFs oder ZIP-Archive an Seiten angehängt und von angemeldeten Personen heruntergeladen werden.
+Zieh Bilder in den Editor oder füge sie ein, um sie hochzuladen. Eine YouTube- oder Vimeo-Adresse in einer eigenen Zeile wird zu einem Videoplayer. Wenn **Anhänge** eingeschaltet ist, kann eine Seite auch andere Dateien wie PDFs oder ZIP-Archive zum Herunterladen enthalten.
 
-## Entwürfe, Versionsverlauf und Prüfung
+## Entwürfe und Verlauf
 
-Wenn das Plugin „Entwürfe“ aktiviert ist, werden deine noch nicht gespeicherten Änderungen privat aufbewahrt, während du arbeitest. Wenn der „Versionsverlauf“ aktiviert ist, wird bei jedem Speichern eine Version angelegt. So können Redakteure Änderungen später vergleichen, nachprüfen oder frühere Versionen wiederherstellen.
+Wenn **Entwürfe** eingeschaltet ist, behält der Editor eine private Kopie dessen, was du tippst, und bietet beim erneuten Öffnen an, sie wiederherzustellen. Wenn **Versionsverlauf** eingeschaltet ist, bleibt jede gespeicherte Fassung erhalten: **Verlauf** im Menü der Seite zeigt jede Version und was sich geändert hat, und stellt eine frühere wieder her.
 
-## Verschieben und Löschen
+## Verschieben und löschen
 
-Die Adresse einer Seite kann geändert werden; interne Links werden dabei nach Möglichkeit angepasst. Seiten lassen sich zwischen Kategorien verschieben. Das Löschen einer Seite kann sofort erfolgen oder durch das Plugin „Löschverzögerung“ aufgeschoben werden – je nach Website-Einstellungen und je nachdem, ob die Seite zur geschützten Dokumentation gehört.
+**Seitenaktionen** enthält **Umbenennen**, **Adresse ändern** (Links in anderen Seiten werden angepasst) und **Verschieben** in eine andere Kategorie. Wenn die **Löschverzögerung** eingeschaltet ist, wartet eine gelöschte Seite 48 Stunden, und in dieser Zeit kann ein Administrator sie wiederherstellen.

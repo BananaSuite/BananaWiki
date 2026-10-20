@@ -1,23 +1,23 @@
 # Per amministratori
 
-Gli admin definiscono come si comporta la wiki. La maggior parte dei controlli si trova in **Amministrazione → Impostazioni del sito**, **Amministrazione → Utenti** e **Amministrazione → Plugin**.
+La maggior parte dei controlli si trova in **Amministrazione → Impostazioni del sito**, **Amministrazione → Utenti** e **Amministrazione → Plugin**.
 
 ## Prime verifiche
 
-- conferma nome del sito, tema, fuso orario e lingua
-- decidi se le iscrizioni richiedono codici invito
-- crea o invita i primi utenti
-- scegli quali plugin servono ora
-- fai un backup prima di import o migrazioni importanti
+- imposta nome del sito, fuso orario e lingua
+- decidi se le iscrizioni richiedono codici d'invito
+- crea i primi account
+- attiva i plugin che ti servono ora
+- fai un backup prima di importazioni grandi
 
 ## Utenti e permessi
 
-Usa i ruoli per l'accesso generale e le restrizioni di categoria per decidere dove le persone possono lavorare. Usa ruoli personalizzati quando più persone hanno bisogno dello stesso accesso speciale. Limita gli account admin protetti.
+I ruoli decidono cosa possono fare le persone; le restrizioni di categoria decidono dove. Usa un ruolo personalizzato quando più persone hanno bisogno dello stesso accesso speciale. Tieni basso il numero di proprietari e superutenti.
 
 ## Documentazione integrata
 
-La pagina **Amministrazione → Documentazione** può creare questa guida dentro la wiki. Scegli guida completa o semplificata, in inglese, italiano o tedesco. Puoi anche scaricare lo ZIP Markdown, modificarlo e importare le pagine personalizzate.
+**Amministrazione → Documentazione** aggiunge questa guida alla wiki, completa o semplificata, in inglese, italiano o tedesco. Puoi anche scaricarla come ZIP Markdown, modificarla e reimportare le pagine.
 
 ## Backup
 
-Usa l'export di migrazione o i backup di deployment. Le installazioni gestite supportano anche backup cifrati in un repository privato GitHub o Forgejo; consulta `docs/backups.md` nel codice sorgente. L'invio dei backup su Telegram è stato ritirato. Prova il ripristino prima di affidarti a una strategia di backup.
+Usa l'esportazione completa del sito o i backup del tuo server. I server possono anche tenere backup cifrati in un repository privato GitHub o Forgejo; vedi `docs/operations.md` nel codice sorgente. Prova un ripristino prima di affidarti a un backup.

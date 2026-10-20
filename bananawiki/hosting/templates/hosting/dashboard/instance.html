@@ -47,7 +47,6 @@
   </dl>
 </section>
 
-{#- A transfer offered to this viewer is a decision to take: shown first, before the wiki's own controls. -#}
 {% with transfers=incoming %}{% include "hosting/_transfers.html" %}{% endwith %}
 
 {% if inst.status in ('provisioning', 'provisioning_failed') %}
@@ -131,7 +130,7 @@
   {% if is_owner or not current_account.is_admin %}
   <label class="check"><input type="checkbox" name="compliance_declared" value="1" required><span>{{ tm('hosting.create.compliance_sentence', terms=link(url_for('public.terms'), t('hosting.signup.terms'))) }}</span></label>
   {% endif %}
-  <p><button class="btn" type="submit">{{ t('common.save') }}</button></p></form></details>
+  <p><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></p></form></details>
 {% endif %}
 
 {% if manager and users %}

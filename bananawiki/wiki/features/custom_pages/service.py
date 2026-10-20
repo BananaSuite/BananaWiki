@@ -75,7 +75,7 @@ TYPE_FIELDS: dict[str, frozenset[str]] = {
     "code_snippet": frozenset({"content", "code", "meta"}),
 }
 
-# First path segments that belong to BananaWiki (1.4 list plus 1.6 routes).
+# First path segments that belong to BananaWiki (the 1.4 list plus later routes).
 # Every first segment of a registered route is reserved too, see reserved_segments().
 RESERVED_SEGMENTS = frozenset({
     "_cpf", "_cpd", "admin", "announcements", "api", "api-docs", "badges", "canvas", "chats", "create",
@@ -118,7 +118,7 @@ class CustomPageError(ValueError):
         self.values = values
 
 
-# ── Access ───────────────────────────────────────────────────────────────────
+# Access
 
 
 def can_manage(user: dict[str, Any] | None = None) -> bool:
@@ -157,7 +157,7 @@ def is_visible(page: dict[str, Any] | None, user: dict[str, Any] | None = None) 
     return not members_only(page) or (bool(user) and not blocked)
 
 
-# ── Reading ──────────────────────────────────────────────────────────────────
+# Reading
 
 
 def get(page_id: int) -> dict[str, Any] | None:
@@ -209,7 +209,7 @@ def get_file(file_id: int) -> dict[str, Any] | None:
     return db.one("SELECT * FROM custom_page_files WHERE id = ?", (file_id,))
 
 
-# ── Paths ────────────────────────────────────────────────────────────────────
+# Paths
 
 
 def normalise_path(raw: str | None) -> str:
@@ -256,7 +256,7 @@ def validate_path(raw: str | None, *, page_id: int | None = None) -> str:
     return path
 
 
-# ── URL checks ───────────────────────────────────────────────────────────────
+# URL checks
 
 
 def url_scheme(url: str | None) -> str | None:
@@ -364,7 +364,7 @@ def parse_links(raw: str | None) -> list[dict[str, str]]:
     return links
 
 
-# ── Validation ───────────────────────────────────────────────────────────────
+# Validation
 
 
 def _text(form: Any, name: str, limit: int, *, strip: bool = True) -> str:
@@ -500,7 +500,7 @@ def save_builder_document(page: dict[str, Any], validated: dict[str, Any], *, ti
     update(page["id"], values)
 
 
-# ── Writing ──────────────────────────────────────────────────────────────────
+# Writing
 
 
 def create(values: dict[str, Any], *, created_by: str) -> int:

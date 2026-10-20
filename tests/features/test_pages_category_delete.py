@@ -121,13 +121,13 @@ def test_bulk_deletion_skips_categories_with_protected_pages(app, admin_client, 
     response = admin_client.post("/admin/bulk/categories/delete", follow_redirects=True,
                                  data={"ids": [str(kept["id"]), str(gone["id"])], "page_action": "delete",
                                        "confirm_text": "DELETE"})
-    assert "1 categories deleted, 1 skipped" in response.get_data(as_text=True)
+    assert "1 category deleted, 1 skipped" in response.get_data(as_text=True)
     assert _category(app, kept["id"]) is not None and get_page(app, locked["id"])["category_id"] == kept["id"]
     assert _category(app, gone["id"]) is None and get_page(app, free["id"]) is None
     other = make_category(app, "Other")
     response = admin_client.post("/admin/bulk/categories/delete", follow_redirects=True,
                                  data={"ids": [str(other["id"])], "page_action": "delete", "confirm_text": "DELETE"})
-    assert "1 categories deleted." in response.get_data(as_text=True)
+    assert "1 category deleted." in response.get_data(as_text=True)
 
 
 def test_refusal_message_names_the_first_pages_only():

@@ -182,7 +182,7 @@ def config() -> TtsConfig:
     return loaded
 
 
-# ── Site settings ─────────────────────────────────────────────────────────────
+# Site settings
 
 
 def host_disabled() -> bool:

@@ -3,26 +3,27 @@
 ## Signing in
 
 Open the wiki and sign in with your user name and password. Tick **Keep me
-signed in for 30 days** on your own device; otherwise you are
-signed out when you close the browser (and after 7 days at the latest).
-Depending on the wiki you can create an account yourself (**Create an account**; you
-may need an invite code, and an administrator may have to approve you), or an
+signed in for 30 days** on your own device; otherwise you are signed out when
+you close the browser (and after 7 days at the latest). Depending on the wiki
+you can create an account yourself (**Create an account**; you may need an
+invite code, and an administrator may have to approve you), or an
 administrator creates it for you. Some wikis are in **public mode**: then you
 can read without an account.
 
 The first time you sign in you may be asked to change your password and see a
-short introduction. You can replay the tour later from the account menu.
+short introduction. You can replay the tour later from Settings (**Open the
+guided tour**).
 
 ## Finding your way
 
 * **The sidebar** lists the categories and their pages. Click a category to
   open or close it; long categories show *More pages…*. The field at the top
-  filters page and category titles as you type; tick *Search in text too* to
+  filters page and category titles as you type; tick *Include page text* to
   search the text as well.
 * **Home** is the wiki's front page. **All pages** (`/navigation`) shows the
   whole tree.
-* **Apps** at the bottom of the sidebar lists the tools your wiki has switched on: kanban
-  boards, canvases, messages, groups, people, the leaderboard.
+* **Apps** at the bottom of the sidebar lists the tools your wiki has switched
+  on: kanban boards, canvases, messages, groups, people, the leaderboard.
 * The **theme** button switches between light and dark.
 
 ## Search

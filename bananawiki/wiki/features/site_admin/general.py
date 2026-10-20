@@ -2,7 +2,7 @@
 
 Settings that belong to one feature (chat, kanban, page governance, text to
 speech, …) live on that feature's own admin page; this page holds the
-site-wide ones that 1.4 kept on ``/global-settings``.
+site-wide ones.
 """
 
 from __future__ import annotations
@@ -42,8 +42,8 @@ def _two_step_requirement_locked() -> str | None:
     """It binds every administrator: owners and superusers decide, once they use it themselves.
 
     An owner without two-step verification would be stopped by the
-    requirement the moment it is saved; as in the hosting portal, they turn it
-    on for their own account first.
+    requirement the moment it is saved, so they turn it on for their own
+    account first.
     """
     from ..auth import two_step
 

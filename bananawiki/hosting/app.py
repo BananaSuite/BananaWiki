@@ -119,8 +119,8 @@ def _maintenance_pages(service_name: str = DEFAULT_SERVICE_NAME) -> dict[str, by
                 "hosting.maintenance.body": "The platform is being updated. Try again in a minute."}
     service = html.escape(service_name)
     pages: dict[str, bytes] = {}
-    light = "--bg:#f7f8fa;--card:#fff;--text:#252a33;--muted:#5c616b;--line:#d9dce1;color-scheme:light"
-    dark = "--bg:#16161f;--card:#1e1e2c;--text:#c8ccd8;--muted:#a3a8b6;--line:#3e414e;color-scheme:dark"
+    light = "--bg:#faf9f5;--card:#fff;--text:#202124;--muted:#5f6368;--line:#dcdad3;color-scheme:light"
+    dark = "--bg:#141414;--card:#1d1d1d;--text:#ededed;--muted:#a9a9a9;--line:#3a3a3a;color-scheme:dark"
     for lang, strings in catalogues.items():
         text = {key: html.escape(str(strings.get(key) or catalogues["en"].get(key) or default))
                 for key, default in fallback.items()}
@@ -180,10 +180,11 @@ def create_app(config: HostingConfig | None = None, *, runtime: Runtime | None =
     app.session_interface = _SessionInterface()
     app.jinja_env.trim_blocks = True
     app.jinja_env.lstrip_blocks = True
+    app.wsgi_app = web.HeadAsGet(app.wsgi_app)  # type: ignore[method-assign]
     # Inside ProxyFix: it needs the public Host and scheme.
     wikihosts.install(app)
     if cfg.proxy_mode:
-        # X-Forwarded-Prefix is not trusted: Caddy does not strip it (audit).
+        # X-Forwarded-Prefix is not trusted: Caddy does not strip it.
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[method-assign]
     if cfg.maintenance_file:
         app.wsgi_app = _MaintenanceGate(app.wsgi_app, cfg.maintenance_file,  # type: ignore[method-assign]
@@ -242,7 +243,10 @@ def _install_pipeline(app: Flask) -> None:
                 request.endpoint is None and not is_api_path(request.path)):
             return None
         limiter: MemoryLimiter = app.extensions["bananawiki.hosting.limiter"]
-        if not limiter.hit(f"g:{web.client_network()}", GLOBAL_RATE_LIMIT, 60):
+        # Caddy's on-demand TLS "ask" shares the loopback bucket with the portal's own calls; a 429 there
+        # would make Caddy refuse a certificate it should issue.
+        asking = request.endpoint == "public.authorize_certificate" and request.remote_addr in ("127.0.0.1", "::1")
+        if not asking and not limiter.hit(f"g:{web.client_network()}", GLOBAL_RATE_LIMIT, 60):
             if auth.wants_json():
                 return jsonify({"error": "Too many requests."}), 429
             return render_template("hosting/error.html", code=429), 429

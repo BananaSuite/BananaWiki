@@ -3,9 +3,9 @@
 .admin-shell { display: grid; grid-template-columns: 13rem minmax(0, 1fr); gap: 2rem; align-items: start; }
 .admin-shell--single { grid-template-columns: minmax(0, 1fr); }
 .admin-nav { position: sticky; top: calc(var(--topbar-height) + 1rem);
-  border-right: 1px solid var(--border); padding: .25rem .8rem .5rem 0;
+  border-right: 1px solid var(--border); padding: .25rem .6rem .5rem 0;
   max-height: calc(100dvh - var(--topbar-height) - 2rem); overflow-y: auto; scrollbar-width: thin; }
-.admin-nav .nav-list a { font-size: .85rem; padding: .45rem .6rem; align-items: flex-start; }
+.admin-nav .nav-list a { font-size: var(--font-size-ui); padding: .45rem .6rem; align-items: flex-start; }
 /* Long labels wrap (like the group headings) instead of being cut with an ellipsis. */
 .admin-nav .nav-list .nav-label { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
 /* German compounds wider than the sidebar are hyphenated, not cut at any letter. */
@@ -15,7 +15,7 @@
 .admin-nav__menu > summary { display: none; }
 .admin-nav__group { margin-top: .5rem; }
 .admin-nav__group > summary { display: flex; align-items: center; gap: .4rem; padding: .45rem .6rem;
-  font-size: .8rem; font-weight: 600; color: var(--muted); cursor: pointer; list-style: none; }
+  font-size: var(--font-size-sm); font-weight: 600; color: var(--muted); cursor: pointer; list-style: none; }
 .admin-nav__group > summary::-webkit-details-marker { display: none; }
 .admin-nav__group > summary::before { content: ""; width: .3rem; height: .3rem; flex: 0 0 auto;
   margin-right: .15rem; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); }
@@ -32,7 +32,7 @@
     max-height: none; overflow: visible; }
   .admin-nav .sidebar__section-title { display: none; }
   .admin-nav__menu > summary { display: flex; flex-wrap: nowrap; align-items: center; gap: .35rem .75rem;
-    min-height: 2.75rem; cursor: pointer; font-size: .85rem; font-weight: 600; }
+    min-height: 2.75rem; cursor: pointer; font-size: var(--font-size-ui); font-weight: 600; }
   .admin-nav__current { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .admin-nav__menu > summary::after { content: ""; width: .35rem; height: .35rem; margin-left: auto;
     margin-right: .2rem; color: var(--muted); border-right: 1.5px solid currentColor;
@@ -67,10 +67,10 @@
 /* Daily requests: one bar per day, anchored to the baseline. */
 .traffic-chart { display: flex; align-items: flex-end; gap: 2px; height: 140px; padding-top: .5rem;
   border-bottom: 1px solid var(--border-strong); }
-.traffic-chart__bar { flex: 1 1 0; min-width: 2px; background: var(--bw-primary); border-radius: 4px 4px 0 0;
+.traffic-chart__bar { flex: 1 1 0; min-width: 2px; background: var(--bw-primary); border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   min-height: 1px; position: relative; }
 .traffic-chart__bar:hover { background: var(--bw-accent); }
-.traffic-chart__axis { display: flex; justify-content: space-between; font-size: .75rem; color: var(--muted); margin-top: .3rem; }
+.traffic-chart__axis { display: flex; justify-content: space-between; font-size: var(--font-size-xs); color: var(--muted); margin-top: .3rem; }
 
 .admin-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-end; margin-bottom: 1rem; }
 .admin-filters .field { min-width: 140px; flex: 1 1 140px; }
@@ -80,7 +80,7 @@
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
 .perm-groups fieldset { display: grid; align-content: start; gap: .55rem; padding: .75rem 0 0;
   border: 0; border-top: 1px solid var(--border); border-radius: 0; }
-.perm-groups legend { font-size: .85rem; padding: 0 .5rem 0 0; }
+.perm-groups legend { font-size: var(--font-size-ui); padding: 0 .5rem 0 0; }
 .perm-groups fieldset:not(:has(.check:not([hidden]))) { display: none; }
 /* Only the grid gap spaces the items: a hidden option before them must not add a margin. */
 .perm-groups fieldset > .check + .check { margin-top: 0; }

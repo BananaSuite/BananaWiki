@@ -1,3 +1,11 @@
+/* A badge's mark: a dot in its colour, or the icon an administrator typed. */
+.badge-mark { display: inline-block; flex: 0 0 auto; width: .5rem; height: .5rem; border-radius: 50%;
+  background: var(--badge-color, var(--bw-primary)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--bw-text) 18%, transparent); }
+.badge-glyph { flex: 0 0 auto; line-height: 1; }
+.badge-name { display: inline-flex; align-items: center; gap: .45rem; }
+h1.badge-name { display: flex; gap: .6rem; }
+h1.badge-name > .badge-mark { width: .75rem; height: .75rem; }
+.badge-award { gap: .4rem; padding: .15rem .5rem; border: 1px solid var(--border); background: var(--surface-2); }
 /* Awards and notifications use the same quiet row treatment as other lists. */
 .badge-awards, .badge-notices { list-style: none; padding: 0; margin: 0; }
 .badge-notices { display: grid; border-top: 1px solid var(--border); }
@@ -6,7 +14,7 @@
 .badge-notices > li > :last-child { margin-bottom: 0; }
 /* Award / revoke / revoke from everyone: three steps with their own heading and spacing. */
 .badges-step + .badges-step { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border); }
-.badges-step h3 { margin: 0; font-size: .95rem; }
+.badges-step h3 { margin: 0; font-size: var(--font-size-body); }
 .badges-step .input-group--compact > input { flex-basis: 16rem; }
 /* On phones the field shrinks so a longer button ("Assegna") stays on its line. */
 @media (max-width: 600px) { .badges-step .input-group--compact > input { flex: 1 1 10rem; } }

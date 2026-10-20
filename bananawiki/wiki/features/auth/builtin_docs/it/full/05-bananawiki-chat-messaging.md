@@ -1,14 +1,14 @@
-# Chat e Messaggistica
+# Chat e messaggi
 
-La chat tiene le discussioni dentro la wiki. In base alle impostazioni e ai plugin, gli utenti possono inviare messaggi diretti, partecipare a chat di gruppo, allegare file e moderare conversazioni.
+Con la chat attiva, i membri possono scambiarsi messaggi diretti e parlare nei gruppi. Messaggi e gruppi sono sotto **App**.
 
 ## Messaggi diretti
 
-I messaggi diretti servono per chiarimenti veloci, richieste di revisione e coordinamento che non richiede una pagina. Se una decisione diventa importante, copia il risultato in una pagina wiki.
+Apri **Messaggi** e inserisci un nome utente per iniziare una conversazione. Quando una conversazione decide qualcosa, scrivilo in una pagina così anche gli altri lo trovano.
 
 ## Chat di gruppo
 
-I gruppi possono rappresentare team, classi, progetti o code di supporto. Gli admin gestiscono membri e moderazione. I gruppi funzionano meglio quando hanno uno scopo chiaro e partecipanti attesi.
+Crea un gruppo, oppure entra in uno con il suo codice d'invito. Proprietari e moderatori del gruppo aggiungono e rimuovono membri e silenziano o bannano qualcuno. Il proprietario cambia anche il codice d'invito.
 
 ## Bloccare qualcuno
 
@@ -16,8 +16,4 @@ Chiunque può bloccare un altro membro dalla conversazione con lui, dall'elenco 
 
 ## Allegati e limiti
 
-Gli allegati seguono le regole di upload del sito. Gli admin possono configurare dimensioni massime, quote giornaliere, lunghezza messaggi e pulizie automatiche. Se la chat è disabilitata per un utente, il resto della wiki dovrebbe continuare a funzionare normalmente.
-
-## Buona pratica
-
-Usa la chat per conversare e le pagine per la conoscenza duratura. Quando una discussione stabilisce una policy, un processo o una risposta, trasformala in documentazione.
+Gli amministratori impostano la dimensione massima dei file, il numero di file al giorno, la lunghezza dei messaggi e per quanto tempo messaggi e file restano prima di essere eliminati automaticamente. Gli amministratori possono leggere le conversazioni per moderarle.

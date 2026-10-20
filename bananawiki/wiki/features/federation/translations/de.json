@@ -57,6 +57,7 @@
   "federation.error.share_limit": "Das Limit für geteilte Seiten dieses Wikis ist erreicht.",
   "federation.error.share_missing": "Geteilte Seite nicht gefunden.",
   "federation.error.snapshot": "Das andere Wiki hat einen ungültigen Snapshot gesendet.",
+  "federation.error.snapshot_full": "Die bereits mit diesem Wiki geteilten Seiten füllen die 8 MiB, die eine Synchronisierung übertragen kann.",
   "federation.error.sync_failed": "Die Synchronisierung ist fehlgeschlagen; prüfe Kopplung, Uhrzeit, Netzwerk und das andere Wiki.",
   "federation.error.too_large": "Geteilte Seiten dürfen höchstens 128 KiB groß sein, Titel höchstens 300 Zeichen lang.",
   "federation.error.wiki_id": "Verwende die Wiki-ID, die auf der Föderationsseite des anderen Wikis angezeigt wird.",

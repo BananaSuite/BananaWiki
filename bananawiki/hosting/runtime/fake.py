@@ -29,6 +29,7 @@ class FakeTenant:
     passwords: dict[str, str] = field(default_factory=dict)
     quarantined: bool = False
     snapshots: list[str] = field(default_factory=list)
+    two_step: set[str] = field(default_factory=set)  # accounts with two-step verification set up
 
 
 class FakeRuntime:
@@ -40,9 +41,10 @@ class FakeRuntime:
         self.upstreams: dict[str, tuple[str, int]] = {}
         self.backup_status: dict[str, Any] = {}
         self.storage: dict[str, Any] = {}  # what storage_protection() reports ({} = unknown)
+        self.archive_two_step: list[str] = []  # accounts with two-step verification in imported archives
         self._failures: dict[str, RuntimeFailure] = {}
 
-    # Test helpers ---------------------------------------------------------
+    # Test helpers
 
     def fail_next(self, method: str, code: str = "failed") -> None:
         self._failures[method] = RuntimeFailure(code, "simulated")
@@ -63,7 +65,7 @@ class FakeRuntime:
     def called(self, method: str) -> list[str]:
         return [target for name, target in self.calls if name == method]
 
-    # Lifecycle ------------------------------------------------------------
+    # Lifecycle
 
     def provision(self, spec: TenantSpec, *, admin_username: str, admin_password: str,
                   force_password_change: bool) -> None:
@@ -113,7 +115,7 @@ class FakeRuntime:
         self._record("destroy", spec.data_dir_name)
         self.tenants.pop(spec.data_dir_name, None)
 
-    # Observation ----------------------------------------------------------
+    # Observation
 
     def status(self, spec: TenantSpec) -> TenantStatus:
         tenant = self.tenants.get(spec.data_dir_name)
@@ -125,7 +127,7 @@ class FakeRuntime:
         tenant = self.tenants.get(spec.data_dir_name)
         return self.upstreams.get(spec.data_dir_name) if tenant and tenant.running else None
 
-    def usage(self, spec: TenantSpec) -> int:
+    def usage(self, spec: TenantSpec, *, max_age: float | None = None) -> int:
         tenant = self.tenants.get(spec.data_dir_name)
         return tenant.usage if tenant else 0
 
@@ -145,7 +147,7 @@ class FakeRuntime:
         daily.append({"day": today.isoformat(), "request": 10, "page_view": 7, "error": 1})
         return {"window_days": days, "totals": {"request": 10, "page_view": 7, "error": 1}, "daily": daily}
 
-    # Tenant database ------------------------------------------------------
+    # Tenant database
 
     def list_users(self, spec: TenantSpec, *, limit: int = 200, offset: int = 0) -> tuple[list[WikiUser], int]:
         tenant = self._tenant(spec)
@@ -184,7 +186,7 @@ class FakeRuntime:
         self._record("apply_limits", spec.data_dir_name)
         self._tenant(spec)
 
-    # Archives -------------------------------------------------------------
+    # Archives
 
     def export_archive(self, spec: TenantSpec, destination_dir: Path) -> Path:
         self._record("export_archive", spec.data_dir_name)
@@ -194,15 +196,18 @@ class FakeRuntime:
             archive.writestr("bananawiki.json", '{"format": "bananawiki-site"}')
         return path
 
-    def import_archive(self, spec: TenantSpec, archive: Path) -> None:
+    # Neither an archive nor a copy brings the secret key two-step set-ups are sealed with: the new wiki turns them off.
+
+    def import_archive(self, spec: TenantSpec, archive: Path) -> list[str]:
         self._record("import_archive", spec.data_dir_name)
         if spec.data_dir_name in self.tenants:
             raise RuntimeFailure("data_exists", spec.data_dir_name)
         if not zipfile.is_zipfile(archive):
             raise RuntimeFailure("archive_invalid", str(archive))
         self.tenants[spec.data_dir_name] = FakeTenant(spec, running=True)
+        return sorted(self.archive_two_step)
 
-    def duplicate(self, source: TenantSpec, target: TenantSpec) -> None:
+    def duplicate(self, source: TenantSpec, target: TenantSpec) -> list[str]:
         self._record("duplicate", f"{source.data_dir_name}->{target.data_dir_name}")
         if target.data_dir_name in self.tenants:
             raise RuntimeFailure("data_exists", target.data_dir_name)
@@ -210,8 +215,9 @@ class FakeRuntime:
         self.tenants[target.data_dir_name] = FakeTenant(
             target, running=True, users=dict(original.users), passwords=dict(original.passwords)
         )
+        return sorted(original.two_step)
 
-    # Plugin safety ----------------------------------------------------------
+    # Plugin safety
 
     def plugins_quarantined(self, spec: TenantSpec) -> bool:
         tenant = self.tenants.get(spec.data_dir_name)
@@ -246,7 +252,7 @@ class FakeRuntime:
             raise RuntimeFailure("not_found", name or "")
         return name or tenant.snapshots[-1]
 
-    # Routing ----------------------------------------------------------------
+    # Routing
 
     def check_domain(self, domain: str, token: str) -> DomainCheck:
         self._record("check_domain", domain)
@@ -256,7 +262,7 @@ class FakeRuntime:
         self.calls.append(("sync_routes", str(len(specs))))
         self.routes = list(specs)
 
-    # Platform backups -----------------------------------------------------------
+    # Platform backups
 
     def export_platform(self, destination_dir: Path) -> Path:
         self._record("export_platform")

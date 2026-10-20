@@ -21,7 +21,7 @@
     return node;
   }
 
-  // User name suggestions for "new conversation" and "add member" -----------
+  // User name suggestions for "new conversation" and "add member"
   function setupSuggestions() {
     document.querySelectorAll("input[data-user-suggest]").forEach(function (input) {
       var listId = input.getAttribute("list");
@@ -50,7 +50,7 @@
     });
   }
 
-  // Timeout countdown ------------------------------------------------------
+  // Timeout countdown
   function setupCountdown() {
     var node = document.querySelector("[data-chat-countdown]");
     if (!node) return;
@@ -71,7 +71,7 @@
     return node;
   }
 
-  // The conversation -------------------------------------------------------
+  // The conversation
   function Conversation(data) {
     this.data = data;
     this.log = document.querySelector("ol#chat-log");

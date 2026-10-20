@@ -1,28 +1,28 @@
 # Welcome to BananaWiki
 
-BananaWiki is a private wiki for your team. It runs on your server, keeps pages in one searchable place, and gives admins control over users, roles, plugins, and backups.
+BananaWiki keeps your group's pages in one place on your own server. Administrators decide who can read and write, and which features are on.
 
 ## Three things to try first
 
-1. **Read** - open pages from the sidebar and use search when you know a keyword.
-2. **Write** - create a page when useful knowledge is missing.
-3. **Organise** - move related pages into categories so others can find them later.
+1. **Read** - open pages from the sidebar, or search when you know a word.
+2. **Write** - click **New page** when a page is missing.
+3. **Organise** - move related pages into a category so others find them.
 
 ## What BananaWiki can include
 
-- Markdown pages with live preview
+- Markdown pages with preview and history
 - categories and sidebar navigation
-- users, editors, admins, and custom roles
-- optional chat, Kanban, Canvas, badges, attachments, and API tools
-- PDF export, Markdown import, backups, and restore
+- users, editors, administrators and custom roles
+- chat, Kanban boards, canvases, badges, attachments and a REST API, when switched on
+- PDF export, Markdown import, backup and restore
 
 ## Who can do what
 
 | Role | Main purpose |
 |---|---|
-| **User** | read and use allowed collaboration tools |
+| **User** | read and use the tools they are allowed to |
 | **Editor** | create and update pages |
-| **Admin** | manage the wiki, users, settings, and plugins |
-| **Protected admin** | admin access protected from regular admin changes |
+| **Administrator** | manage the wiki, users, settings and plugins |
+| **Owner** | administrator that other administrators cannot change |
 
-Admins can recreate this guide from **Administration → Documentation** and choose English, Italian or German, full or simplified.
+Administrators can recreate this guide from **Administration → Documentation** and choose English, Italian or German, full or simplified.

@@ -25,7 +25,7 @@
       },
       {
         "heading": "History and review",
-        "html": "<p>Every save is kept. A page's history shows what changed between two revisions and lets you restore an earlier one.</p><p>With <strong>Page governance</strong> an editor can reserve a page while working on it, or protect it so that only they can edit it, and changes proposed by people without edit rights wait for approval. Another administrator can lift a protection after a 72-hour wait. The <strong>Deletion slowdown</strong> plugin holds a deleted page for 48 hours so an administrator can bring it back.</p>"
+        "html": "<p>Every save is kept. A page's history shows what changed between two revisions and lets you restore an earlier one.</p><p>With <strong>Page governance</strong> an editor can reserve a page while working on it, or protect it so only they can edit it; an administrator can remove a protection 72 hours after asking. With <strong>Contribution approval</strong>, changes proposed by people without edit rights wait for a reviewer. The <strong>Deletion slowdown</strong> plugin holds a deleted page for 48 hours so an administrator can bring it back.</p>"
       },
       {
         "heading": "People and access",
@@ -37,7 +37,7 @@
       },
       {
         "heading": "Reading and learning",
-        "html": "<ul><li><strong>Read aloud</strong> reads pages aloud in English and Italian with Piper voices that run on the server rather than a third-party service, once the voices are installed there.</li><li><strong>Assessments</strong> add polls and quizzes to a page, with points and limits on attempts.</li><li><strong>Badges</strong> are awarded by hand or automatically, for example after a number of contributions.</li><li><strong>Difficulty tags</strong> label pages by level.</li></ul>"
+        "html": "<ul><li><strong>Read aloud</strong> reads pages in English and Italian (German once an administrator turns it on), using Piper voices on the server.</li><li><strong>Assessments</strong> add polls and quizzes to a page, with points and limits on attempts.</li><li><strong>Badges</strong> are awarded by hand or automatically, for example after a number of contributions.</li><li><strong>Difficulty tags</strong> label pages by level.</li></ul>"
       },
       {
         "heading": "Administration",
@@ -50,47 +50,21 @@
     ]
   },
   {
-    "slug": "inviting-users",
-    "title": "Inviting users and managing roles",
-    "description": "Control who can read and edit your wiki.",
+    "slug": "running-your-wiki",
+    "title": "Running your wiki",
+    "description": "Members, settings and pages inside the wiki.",
     "sections": [
       {
-        "heading": "Accounts and invitations",
-        "html": "<p>Inside the wiki, use the administration pages to manage registration, invitations, and users. Give people only the role and permissions they need. A hosting collaborator and a wiki editor have different responsibilities and permissions.</p>"
+        "heading": "Members and roles",
+        "html": "<p>In the wiki, open <strong>Administration</strong>. <strong>Users</strong> creates accounts and changes roles, <strong>Invite codes</strong> makes codes for the sign-up page, and <strong>Site settings</strong> decides whether people can sign up themselves and whether sign-ups wait for approval. The roles are user, editor, administrator and owner; <strong>Custom roles</strong> and category access narrow them further. Wiki accounts are separate from accounts on this portal.</p>"
       },
       {
-        "heading": "Page access",
-        "html": "<p>Check category and page permissions before sharing content. Test the result using an ordinary user account. Removing a user's editing permission does not automatically make previously public content private.</p>"
-      }
-    ]
-  },
-  {
-    "slug": "wiki-settings",
-    "title": "Configuring wiki settings and privacy",
-    "description": "Set the wiki name, appearance, and access policy.",
-    "sections": [
-      {
-        "heading": "Site settings",
-        "html": "<p>Wiki administrators can change the site name, appearance, language, enabled features, and registration settings. Hosting limits and domain permissions are managed separately by platform administrators.</p>"
+        "heading": "Settings and privacy",
+        "html": "<p><strong>Site settings</strong> also holds the wiki's name and time zone, and <strong>Appearance</strong> its colours. A wiki is private: only signed-in members can read it. Public read access has to be allowed for your wiki on this service before it can be switched on. The operators of this service can reach the data on the server for operation and support; see the <a href=\"/privacy\">privacy policy</a>.</p>"
       },
       {
-        "heading": "Private content",
-        "html": "<p>Choose the intended visibility for pages and categories, and review links before sharing them. Administrators of the hosted service can access server data for operation and support; consult the <a href=\"/privacy\">privacy policy</a>.</p>"
-      }
-    ]
-  },
-  {
-    "slug": "writing-pages",
-    "title": "Creating and editing pages",
-    "description": "Write pages, organise categories and add files.",
-    "sections": [
-      {
-        "heading": "Pages and history",
-        "html": "<p>Create a page in a category you can edit. Use the editor to write content, preview it, and save. The history view lets you review previous versions and restore an earlier version when your permissions allow it.</p>"
-      },
-      {
-        "heading": "Uploads",
-        "html": "<p>Use the editor's upload controls for images and attachments. The wiki shows the allowed formats and size limits. The hosting service also limits total storage. Keep original files outside the wiki when you need an independent copy.</p>"
+        "heading": "Pages and files",
+        "html": "<p>Click <strong>New page</strong> in the sidebar to write a page in Markdown. Images and attachments count towards the wiki's storage limit, which the portal shows on the wiki's page. For a full user guide inside the wiki, open <strong>Administration</strong>, then <strong>Documentation</strong>, which adds one as a category of pages.</p>"
       }
     ]
   },
@@ -101,26 +75,26 @@
     "sections": [
       {
         "heading": "Where to find them",
-        "html": "<p>In the wiki, open the account menu, choose <strong>Administration</strong>, then <strong>Plugins</strong> under <strong>Wiki settings</strong>. Disabling a plugin hides its pages and menus and keeps its content, but it also switches the plugin's own settings off, for example direct messages, group chats and chat attachments for Chats and groups. Enabling it again does not turn those back on, so check the plugin's settings afterwards. Disabling Read aloud also deletes the audio it generated.</p>"
+        "html": "<p>In the wiki, open the account menu, choose <strong>Administration</strong>, then <strong>Plugins</strong> under <strong>Wiki settings</strong>. Disabling a plugin hides its pages and menus. Its content and settings stay, and come back when you enable it again.</p>"
       },
       {
         "heading": "The built-in plugins",
-        "html": "<p>These ship with every wiki, under the names the Plugins page shows. The ones marked <em>on</em> are enabled when a wiki is created.</p><ul><li><strong>Announcements</strong> <em>(on)</em>: banners shown across the site.</li><li><strong>Assessments</strong> <em>(on)</em>: polls and quizzes on a page, with points and attempt limits.</li><li><strong>Attachments</strong> <em>(on)</em>: files attached to pages.</li><li><strong>Audit log</strong> <em>(on)</em>: a record of role changes, custom user tags and contributions.</li><li><strong>Badges</strong> <em>(on)</em>: awards given by hand or automatically.</li><li><strong>Canvas</strong> <em>(on)</em>: diagrams with text, images, video and links to pages.</li><li><strong>Chats and groups</strong> <em>(on)</em>: direct messages and group conversations.</li><li><strong>Custom pages</strong>: content published at an address you choose.</li><li><strong>Deletion slowdown</strong>: deleted pages are held for 48 hours before they go.</li><li><strong>Difficulty tags</strong> <em>(on)</em>: labels for the level of a page.</li><li><strong>Drafts</strong> <em>(on)</em>: drafts saved while you edit.</li><li><strong>Kanban boards</strong> <em>(on)</em>: boards, tickets, comments and attachments.</li><li><strong>Mascot</strong> <em>(on)</em>: a pixel-art banana in the top bar, with a small surprise for the curious.</li><li><strong>Page governance</strong>: reservations, protection and approval of proposed changes.</li><li><strong>Page history</strong> <em>(on)</em>: revisions, differences and restoring an earlier version.</li><li><strong>Personal data export</strong> <em>(on)</em>: each member can download their own data.</li><li><strong>Read aloud</strong> <em>(on)</em>: pages read aloud by voices running on the server.</li><li><strong>REST API</strong>: personal tokens, each limited to chosen areas, with a log of their use.</li><li><strong>Temporary accounts and pages</strong>: accounts, pages and roles that expire on a schedule.</li><li><strong>User profiles</strong> <em>(on)</em>: profile pages with a bio, an avatar and a contribution map.</li></ul>"
+        "html": "<p>These ship with every wiki, under the names the Plugins page shows. The ones marked <em>on</em> are enabled when a wiki is created.</p><ul><li><strong>Announcements</strong> <em>(on)</em>: banners shown across the site.</li><li><strong>Assessments</strong> <em>(on)</em>: polls and quizzes on a page, with points and attempt limits.</li><li><strong>Attachments</strong> <em>(on)</em>: files attached to pages.</li><li><strong>Audit log</strong> <em>(on)</em>: a record of sign-ins, account and role changes, deletions and settings changes.</li><li><strong>Badges</strong> <em>(on)</em>: awards given by hand or automatically.</li><li><strong>Canvas</strong> <em>(on)</em>: diagrams with text, images, video and links to pages.</li><li><strong>Chats and groups</strong> <em>(on)</em>: direct messages and group conversations.</li><li><strong>Custom pages</strong>: content published at an address you choose.</li><li><strong>Deletion slowdown</strong>: deleted pages are held for 48 hours before they go.</li><li><strong>Difficulty tags</strong> <em>(on)</em>: labels for the level of a page.</li><li><strong>Drafts</strong> <em>(on)</em>: drafts saved while you edit.</li><li><strong>Kanban boards</strong> <em>(on)</em>: boards, tickets, comments and attachments.</li><li><strong>Mascot</strong> <em>(on)</em>: a pixel-art banana in the top bar.</li><li><strong>Page governance</strong>: page reservations and protection.</li><li><strong>Page history</strong> <em>(on)</em>: revisions, differences and restoring an earlier version.</li><li><strong>Personal data export</strong> <em>(on)</em>: each member can download their own data.</li><li><strong>Read aloud</strong> <em>(on)</em>: pages read aloud by voices running on the server.</li><li><strong>REST API</strong>: personal tokens, each limited to chosen areas, with a log of their use.</li><li><strong>Temporary accounts and pages</strong>: accounts, pages and roles that expire on a schedule.</li><li><strong>User profiles</strong> <em>(on)</em>: profile pages with a bio, an avatar and a contribution map.</li></ul>"
       },
       {
         "heading": "Plugins from elsewhere",
-        "html": "<p>The Plugins page can also import a <code>.bwplugin</code> file written by someone else. A plugin is Python code and runs with the wiki's own access to its data and network, so install only code you trust. On this service each wiki runs in its own container, and the operator can switch off every custom plugin on a wiki at once if one causes trouble.</p>"
+        "html": "<p>If the operator of this service allows them, the Plugins page can also import a <code>.bwplugin</code> file written by someone else. A plugin is Python code and runs with the wiki's own access to its data and network, so install only code you trust. On this service each wiki runs in its own container, and the operator can switch off every third-party plugin on a wiki at once if one causes trouble.</p>"
       }
     ]
   },
   {
     "slug": "exports-backups",
     "title": "Exports and backups",
-    "description": "Keep copies of your content and understand restoration.",
+    "description": "Export your wiki and what the platform backs up.",
     "sections": [
       {
         "heading": "Export your wiki",
-        "html": "<p>In the wiki, open <strong>Administration</strong>, then <strong>Site migration</strong> under <strong>System</strong>, and in <strong>Export the whole site</strong> choose <strong>Export</strong> for a complete archive of the wiki: content, accounts, files and settings. Only the wiki's owner can do this. It is the copy to keep, and the one to use if you <a href=\"/help/move-to-your-own-server\">move the wiki to your own server</a>. For pages only, <strong>Bulk Markdown</strong> exports them as Markdown files, and any single page can be exported as Markdown or PDF from its own menu. Members can download their personal data from their settings.</p>"
+        "html": "<p>In the wiki, open <strong>Administration</strong>, then <strong>Site migration</strong> under <strong>System</strong>, and in <strong>Export the whole site</strong> choose <strong>Export</strong> for a complete archive of the wiki: content, accounts, files and settings. Only the wiki's owners and superusers can do this. It is the copy to keep, and the one to use if you <a href=\"/help/move-to-your-own-server\">move the wiki to your own server</a>. For pages only, <strong>Bulk Markdown</strong> exports them as Markdown files, and any single page can be exported as Markdown or PDF from its own menu. Members can download their personal data from their settings.</p>"
       },
       {
         "heading": "Platform backups",
@@ -177,7 +151,7 @@
     "sections": [
       {
         "heading": "Accounts and content",
-        "html": "<p>Use a unique password and turn on two-step verification for your hosting account. Review collaborators and wiki roles periodically. Check visibility before publishing private material and keep independent exports of important content. Install only plugins you trust; see <a href=\"/help/plugins\">Managing plugins</a>.</p>"
+        "html": "<p>Use a unique password and turn on two-step verification for your hosting account. On a wiki's page, remove collaborators who no longer need access. Install only plugins you trust; see <a href=\"/help/plugins\">Managing plugins</a>.</p>"
       },
       {
         "heading": "Report a problem",
@@ -218,15 +192,15 @@
   {
     "slug": "instance-expiry",
     "title": "Wiki expiry and renewal",
-    "description": "Understand hosting time limits, renewal and recovery windows.",
+    "description": "When a wiki expires, how to renew it and how long data is kept.",
     "sections": [
       {
         "heading": "Service expiry",
-        "html": "<p><strong>Your wikis</strong> shows how long each wiki has left. In the last days before a wiki expires, its page offers <strong>Renew</strong>, which extends it by the period shown on the button. If the button is not offered, ask support for an extension. These hosting limits are separate from the AGPL software licence, which permits personal and commercial self-hosting.</p>"
+        "html": "<p><strong>Your wikis</strong> shows how long each wiki has left. In the last days before a wiki expires, its page offers <strong>Renew</strong>, which gives it the number of days shown on the button, counted from the day you renew. The owner, or a collaborator allowed to start and stop the wiki, can renew it. If the button is not offered, ask support for an extension. These hosting limits are separate from the AGPL software licence, which permits personal and commercial self-hosting.</p>"
       },
       {
         "heading": "Recovery",
-        "html": "<p>After termination, retained data may be restored during the configured grace period, and the wiki's page may offer a download until then. Contact support promptly and quote the wiki address. Recovery cannot be promised after the retained files have been deleted. Export important content before expiry.</p>"
+        "html": "<p>After termination, retained data may be restored during the retention period shown in the portal, and the wiki's page may offer a download until then. Contact support promptly and quote the wiki address. Recovery cannot be promised after the retained files have been deleted. Export important content before expiry.</p>"
       }
     ]
   },

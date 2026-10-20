@@ -1,7 +1,7 @@
 """Optional encrypted off-site backups in a private GitHub or Forgejo repository.
 
-A port of 1.4 ``banana_backup`` with the same on-repository format, so
-snapshots uploaded by 1.4 restore with 1.6 and the other way round:
+The repository format is the one 1.4's ``banana_backup`` used, so snapshots
+uploaded by 1.4 restore with this release and the other way round:
 
 * each snapshot is a root commit on ``refs/heads/banana-backups/bananawiki/<series>/<id>``
   holding ``index.json`` and ``part-NNNNN.age`` (age-encrypted, 32 MiB parts);

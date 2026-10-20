@@ -16,7 +16,7 @@
         <td class="actions">
           <div class="cluster">
             {% if d.editable %}<a class="btn btn--small btn--primary" href="{{ url_for('pages.edit', slug=d.page_slug) }}">{{ t('drafts.mine.continue') }}</a>{% endif %}
-            {% if can_delete %}{{ forms.post_button(url_for('drafts.discard', page_id=d.page_id), t('drafts.editor.discard'), cls='btn btn--small btn--ghost text-danger', confirm=t('drafts.mine.discard_confirm'), hidden={'next': url_for('drafts.mine')}) }}{% endif %}
+            {% if can_delete %}{{ forms.post_button(url_for('drafts.discard', page_id=d.page_id), t('drafts.editor.discard'), cls='btn btn--small btn--danger-quiet', confirm=t('drafts.mine.discard_confirm'), hidden={'next': url_for('drafts.mine')}) }}{% endif %}
           </div>
         </td>
       </tr>

@@ -36,7 +36,7 @@ def _user() -> dict[str, Any]:
     return user
 
 
-# ── Board list ────────────────────────────────────────────────────────────────
+# Board list
 
 
 @bp.post("/api/kanban/board-order")
@@ -59,7 +59,7 @@ def list_order_version():
     return jsonify({"list_order_version": service.list_order_version()})
 
 
-# ── Board state and sync ──────────────────────────────────────────────────────
+# Board state and sync
 
 
 def _state(board: dict[str, Any]) -> dict[str, Any]:
@@ -116,7 +116,7 @@ def activity(board_id: int):
     return jsonify({"entries": entries})
 
 
-# ── Board settings ────────────────────────────────────────────────────────────
+# Board settings
 
 
 @bp.get("/api/kanban/<int:board_id>/settings")
@@ -145,7 +145,7 @@ def put_settings(board_id: int):
     return jsonify({"ok": True})
 
 
-# ── Columns ───────────────────────────────────────────────────────────────────
+# Columns
 
 
 @bp.post("/api/kanban/<int:board_id>/columns")
@@ -188,7 +188,7 @@ def bulk_columns(board_id: int):
     return jsonify({"updated": len(columns)})
 
 
-# ── Tickets ───────────────────────────────────────────────────────────────────
+# Tickets
 
 
 @bp.post("/api/kanban/columns/<int:column_id>/tickets")
@@ -250,7 +250,7 @@ def bulk_tickets(board_id: int):
     return jsonify({"updated": count})
 
 
-# ── Archive ───────────────────────────────────────────────────────────────────
+# Archive
 
 
 @bp.get("/api/kanban/<int:board_id>/archived")
@@ -280,7 +280,7 @@ def archive_column(column_id: int):
     return jsonify({"updated": service.archive_column(board, column, _user())})
 
 
-# ── Checklists ────────────────────────────────────────────────────────────────
+# Checklists
 
 
 @bp.get("/api/kanban/tickets/<int:ticket_id>/checklist")
@@ -324,7 +324,7 @@ def delete_checklist_item(item_id: int):
     return jsonify(service.delete_checklist_item(board, item, _user()))
 
 
-# ── My tickets ────────────────────────────────────────────────────────────────
+# My tickets
 
 
 @bp.get("/api/kanban/my-tickets")
@@ -338,7 +338,7 @@ def my_tickets():
     return jsonify({"tickets": tickets})
 
 
-# ── Ticket description history ────────────────────────────────────────────────
+# Ticket description history
 
 
 @bp.get("/api/kanban/tickets/<int:ticket_id>/history")
@@ -364,7 +364,7 @@ def ticket_history_entry(entry_id: int):
     })
 
 
-# ── Comments ──────────────────────────────────────────────────────────────────
+# Comments
 
 
 @bp.get("/api/kanban/tickets/<int:ticket_id>/comments")
@@ -409,7 +409,7 @@ def delete_comment(comment_id: int):
     return jsonify({"ok": True})
 
 
-# ── Attachments ───────────────────────────────────────────────────────────────
+# Attachments
 
 
 def _attachment_payload(row: dict[str, Any]) -> dict[str, Any]:

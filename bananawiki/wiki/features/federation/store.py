@@ -3,7 +3,7 @@
 Pairing keys are needed in clear to compute signatures, so they are stored
 encrypted with the instance key (``core.crypto``) rather than hashed.
 Plaintext keys from 1.4 keep working and are encrypted by the poll job.
-Times in the ``federation_*`` tables are Unix seconds (REAL), as in 1.4.
+Times in the ``federation_*`` tables are Unix seconds (REAL).
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ LEASE_SECONDS = 120
 SERVE_INTERVAL = 30
 STALE_AFTER = 48 * 3600
 MAX_BACKOFF = 3600
+_SIZING_ID = str(uuid.UUID(int=0))  # every public page id has this length
 
 
 class PeerBusy(Exception):
@@ -110,7 +111,7 @@ def disconnect(remote_id: str) -> None:
     db.execute("DELETE FROM federation_peers WHERE wiki_id = ?", (remote_id,))
 
 
-# ── Outgoing shares ───────────────────────────────────────────────────────────
+# Outgoing shares
 
 
 def eligible(user: dict[str, Any] | None, page: dict[str, Any] | None) -> bool:
@@ -137,6 +138,14 @@ def share(remote_id: str, page: dict[str, Any], user: dict[str, Any]) -> None:
         if db.scalar("SELECT COUNT(*) FROM federation_shares WHERE peer_id = ?", (remote_id,), default=0) \
                 >= protocol.MAX_PAGES:
             raise ProtocolError("federation.error.share_limit")
+        room = protocol.snapshot_room(identity())
+        for grant in db.all("SELECT page_id FROM federation_shares WHERE peer_id = ? AND page_id != ?",
+                            (remote_id, current["id"])):
+            shared = service.get(grant["page_id"])
+            if shared is not None:
+                room -= protocol.encoded_size(_snapshot_page(shared, _SIZING_ID))
+        if protocol.encoded_size(_snapshot_page(current, _SIZING_ID)) > room:
+            raise ProtocolError("federation.error.snapshot_full")
         db.execute("INSERT OR IGNORE INTO federation_page_ids (page_id, public_id) VALUES (?, ?)",
                    (current["id"], str(uuid.uuid4())))
         db.execute("INSERT OR REPLACE INTO federation_shares (peer_id, page_id, granted_by, category_id) "
@@ -161,7 +170,13 @@ def shares(user: dict[str, Any]) -> list[dict[str, Any]]:
     return rows if auth.is_admin(user) else [row for row in rows if row["granted_by"] == user["id"]]
 
 
-# ── Serving snapshots ─────────────────────────────────────────────────────────
+# Serving snapshots
+
+
+def _snapshot_page(page: dict[str, Any], public_id: str) -> dict[str, Any]:
+    path = "/page/" + quote(page["slug"], safe="")
+    return {"id": public_id, "title": page["title"], "content": page["content"], "source_path": path,
+            "revision": protocol.revision(page["title"], page["content"], path)}
 
 
 def snapshot(headers: Any, *, now: float | None = None) -> tuple[bytes, str]:
@@ -169,7 +184,9 @@ def snapshot(headers: Any, *, now: float | None = None) -> tuple[bytes, str]:
 
     Raises :class:`ProtocolError` (401) or :class:`PeerBusy` (429). A grant
     whose page is no longer shareable, or has moved category, is withdrawn:
-    sharing again is a deliberate act.
+    sharing again is a deliberate act. When pages grew after they were shared
+    and no longer fit in :data:`protocol.MAX_RESPONSE` together, the latest
+    grants are left out until they fit again.
     """
     now = time.time() if now is None else now
     with db.transaction():
@@ -187,7 +204,9 @@ def snapshot(headers: Any, *, now: float | None = None) -> tuple[bytes, str]:
         db.execute("INSERT INTO federation_nonces (peer_id, nonce, expires) VALUES (?, ?, ?)",
                    (remote["wiki_id"], nonce, now + 2 * protocol.CLOCK_WINDOW))
         pages = []
-        for grant in db.all("SELECT * FROM federation_shares WHERE peer_id = ?", (remote["wiki_id"],)):
+        room = protocol.snapshot_room(local)
+        for grant in db.all("SELECT * FROM federation_shares WHERE peer_id = ? ORDER BY rowid",
+                            (remote["wiki_id"],)):
             page = service.get(grant["page_id"])
             granter = db.one("SELECT * FROM users WHERE id = ?", (grant["granted_by"],))
             if (not eligible(granter, page) or page["category_id"] != grant["category_id"]  # type: ignore[index]
@@ -197,9 +216,12 @@ def snapshot(headers: Any, *, now: float | None = None) -> tuple[bytes, str]:
                 continue
             assert page is not None
             public_id = db.scalar("SELECT public_id FROM federation_page_ids WHERE page_id = ?", (page["id"],))
-            path = "/page/" + quote(page["slug"], safe="")
-            pages.append({"id": public_id, "title": page["title"], "content": page["content"], "source_path": path,
-                          "revision": protocol.revision(page["title"], page["content"], path)})
+            entry = _snapshot_page(page, public_id)
+            size = protocol.encoded_size(entry)
+            if size > room:
+                continue
+            room -= size
+            pages.append(entry)
         sequence = int(db.scalar("SELECT sequence FROM federation_identity WHERE id = 1", default=0)) + 1
         payload = protocol.validate_snapshot({"version": 1, "wiki_id": local, "sequence": sequence, "pages": pages},
                                              local)
@@ -211,7 +233,7 @@ def snapshot(headers: Any, *, now: float | None = None) -> tuple[bytes, str]:
     return body, protocol.response_signature(secret, local, remote["wiki_id"], nonce, body)
 
 
-# ── Pulling snapshots (lease-fenced) ──────────────────────────────────────────
+# Pulling snapshots (lease-fenced)
 
 
 def claim(remote_id: str, *, force: bool = False) -> dict[str, Any] | None:
@@ -260,7 +282,7 @@ def finish(claimed: dict[str, Any], payload: dict[str, Any] | None, error_key: s
     return True
 
 
-# ── Received copies ───────────────────────────────────────────────────────────
+# Received copies
 
 
 def can_read(user: dict[str, Any] | None, copy: dict[str, Any] | None) -> bool:

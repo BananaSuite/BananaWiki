@@ -30,7 +30,7 @@ def insert(db, **values):
     return db.insert("custom_pages", base)
 
 
-# ── Feature switch and permissions ────────────────────────────────────────────
+# Feature switch and permissions
 
 
 def test_disabled_by_default(admin_client, db):
@@ -52,7 +52,7 @@ def test_permission_is_admin_only():
     assert "custom_page.manage" not in permissions.assignable("editor")
 
 
-# ── Creating and validating ───────────────────────────────────────────────────
+# Creating and validating
 
 
 def test_create_and_serve_wiki_page_anonymously(enabled, admin_client, db, app):
@@ -129,7 +129,7 @@ def test_video_size_setting(enabled, admin_client, db):
     assert db.scalar("SELECT custom_pages_max_video_size_mb FROM site_settings") == 250
 
 
-# ── Publishing and visibility ─────────────────────────────────────────────────
+# Publishing and visibility
 
 
 def test_unpublished_only_for_admins(enabled, client, admin, make_user, login, db):
@@ -173,7 +173,7 @@ def test_trailing_slash_redirects(enabled, client, db):
     assert response.status_code == 308 and response.headers["Location"].endswith("/docs")
 
 
-# ── Content types ─────────────────────────────────────────────────────────────
+# Content types
 
 
 def test_redirects(enabled, client, db):
@@ -265,7 +265,7 @@ def test_code_snippet_escaped(enabled, client, db):
     assert b"<script>alert(1)</script>" not in body and b"codehilite" in body
 
 
-# ── Files ─────────────────────────────────────────────────────────────────────
+# Files
 
 
 def _png() -> bytes:

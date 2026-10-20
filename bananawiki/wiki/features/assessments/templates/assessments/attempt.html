@@ -6,8 +6,7 @@
 {{ quiz.breadcrumbs(page) }}
 <div class="page-header">
   <h1>{{ assessment.title }}</h1>
-  {#- Actions beside the title (as on the take, manage and results pages); the meta line under both. -#}
-  {% if can_manage %}{{ quiz.manager_actions(page) }}{% endif %}
+  {%- if can_manage %}{{ quiz.manager_actions(page) }}{% endif %}
   <div class="page-header__meta">
     <span>{{ t('assessments.attempt_by', user=attempt.username, n=attempt.attempt_number) }}</span>
     <span>{{ attempt.submitted_at|datetime }}</span>

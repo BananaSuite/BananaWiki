@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from conftest import PASSWORD
 
 from .people_support import make_page
@@ -155,3 +156,15 @@ def test_protected_accounts_cannot_be_merged(admin_client, make_user, db):
     admin_client.post("/admin/users/merge", data={"source_username": "keeper", "target_username": "dst_user",
                                                   "action": "execute", "delete_source": "1"})
     assert db.scalar("SELECT 1 FROM users WHERE id = ?", (source["id"],))
+
+
+@pytest.mark.parametrize("role", ["owner", "admin"])
+def test_direct_merge_respects_the_administrator_hierarchy(admin_client, db, make_user, role):
+    """A plain administrator cannot delete an owner or another administrator by merging it away."""
+    make_user("protected_one", role=role)
+    make_user("throwaway")
+    response = admin_client.post("/admin/users/merge", data={
+        "source_username": "protected_one", "target_username": "throwaway", "delete_source": "1",
+        "action": "execute"})
+    assert response.status_code == 403
+    assert db.scalar("SELECT COUNT(*) FROM users WHERE username = 'protected_one'") == 1

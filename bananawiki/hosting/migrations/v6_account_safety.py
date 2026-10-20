@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
 """Version 6: email budgets, expiry warnings, owner renewal, email claims and account safety.
 
 * ``hosting_email_log``: one row per message the portal sent, so the daily

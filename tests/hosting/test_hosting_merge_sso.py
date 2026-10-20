@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
 """Platform sign-in after an account merge, end to end: a wiki talking to the real portal."""
 
 from __future__ import annotations

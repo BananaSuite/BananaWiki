@@ -43,7 +43,7 @@
   "chat.admin.title": "Chats",
   "chat.admin.withheld": "Nicht zugestellt: Die empfangende Person hatte die sendende Person blockiert",
   "chat.back_to_latest": "Zurück zu den neuesten Nachrichten",
-  "chat.badges.error.disabled": "Gruppenabzeichen sind nicht aktiviert.",
+  "chat.badges.error.disabled": "Gruppen im Profil sind nicht aktiviert.",
   "chat.badges.hide": "Im Profil ausblenden",
   "chat.badges.no_groups": "Du bist in keiner Gruppe.",
   "chat.badges.profile_heading": "Gruppen",

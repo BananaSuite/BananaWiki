@@ -157,7 +157,7 @@ def provision(runtime: AgentRuntime, spec: TenantSpec, username: str = "owner1")
 
 
 def hold_above_plan(runtime: AgentRuntime, instance_id: str, plan_bytes: int, byte_limit: int) -> None:
-    """What the portal records once the runtime agent adopted a wiki above its plan (UP-1): ``over-plan.json`` in
+    """What the portal records once the runtime agent adopted a wiki above its plan: ``over-plan.json`` in
     the wiki's platform state, with the plan and the hard limit it was adopted at."""
     state = Path(runtime._cfg().platform_state_dir) / instance_id
     state.mkdir(mode=0o700, parents=True, exist_ok=True)

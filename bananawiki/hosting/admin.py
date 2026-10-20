@@ -1,4 +1,4 @@
-"""Operator command line for the hosting platform (1.4 ``python -m hosting.admin_cli``).
+"""Operator command line for the hosting platform.
 
 ::
 
@@ -7,7 +7,6 @@
 
 It uses the same services as the web administration, so lifecycle side
 effects (events, suspension audit, runtime calls, routing) are identical.
-Differences from 1.4, which fix the audit findings:
 
 * Passwords are never taken from the command line (visible in ``ps`` and the
   shell history): they are prompted for, read from ``--password-file`` or
@@ -45,7 +44,7 @@ class CliError(Exception):
     """A user-facing failure, printed without a traceback (exit status 1)."""
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# Helpers
 
 
 def _public(row: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -152,7 +151,7 @@ def _until(args: argparse.Namespace) -> tuple[str | None, str]:
     return None, "permanent"
 
 
-# ── Commands ──────────────────────────────────────────────────────────────────
+# Commands
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -196,16 +195,17 @@ def cmd_account_set_password(args: argparse.Namespace) -> None:
 
 
 def cmd_account_set_admin(args: argparse.Namespace) -> None:
-    from . import accounts, instances
+    from . import accounts, events, instances
 
     account = _account(args.account)
     accounts.set_admin(account["id"], args.admin)
-    for inst in instances.owned_by(account["id"]):
-        instances.apply_owner_quota(inst, args.admin)
-        instances.apply_policy(inst, actor_id=None)
-    _audit("account.set_admin", {"account_id": account["id"], "admin": args.admin})
-    _print(args, {"ok": True, "is_admin": args.admin},
-           f"{account['username']} is {'now' if args.admin else 'no longer'} an administrator.")
+    events.record("account", account["id"], "account.admin." + ("granted" if args.admin else "revoked"), None)
+    renamed = instances.apply_owner_role(account["id"], args.admin, actor_id=None)
+    _audit("account.set_admin", {"account_id": account["id"], "admin": args.admin, "renamed": renamed})
+    message = f"{account['username']} is {'now' if args.admin else 'no longer'} an administrator."
+    if renamed:
+        message += f" Apex wikis moved to hosting addresses: {renamed}."
+    _print(args, {"ok": True, "is_admin": args.admin, "renamed": renamed}, message)
 
 
 def cmd_account_suspend(args: argparse.Namespace) -> None:
@@ -216,8 +216,8 @@ def cmd_account_suspend(args: argparse.Namespace) -> None:
     accounts.suspend(account["id"], until=until, reason=args.reason or "", reason_visible=args.reason_visible,
                      time_visible=args.time_visible, actor_id=None, duration_label=label)
     if args.also_instances:
-        for inst in instances.owned_by(account["id"]):
-            instances.suspend(inst, actor_id=None, until=until, reason=args.reason or "", duration_label=label)
+        instances.suspend_with_account(account["id"], actor_id=None, until=until, reason=args.reason or "",
+                                       reason_visible=args.reason_visible, time_visible=args.time_visible)
     _audit("account.suspend", {"account_id": account["id"], "until": until, "also_instances": args.also_instances})
     _print(args, {"ok": True, "until": until}, f"Suspended {account['username']} ({label}).")
 
@@ -227,12 +227,16 @@ def cmd_account_unsuspend(args: argparse.Namespace) -> None:
 
     account = _account(args.account)
     accounts.unsuspend(account["id"], actor_id=None)
+    restarted = kept = held = 0
     if args.also_instances:
-        for inst in instances.owned_by(account["id"]):
-            if inst["status"] == "suspended":
-                instances.unsuspend(inst, actor_id=None)
+        restarted, kept, held = instances.unsuspend_with_account(account["id"], actor_id=None)
     _audit("account.unsuspend", {"account_id": account["id"], "also_instances": args.also_instances})
-    _print(args, {"ok": True}, f"Lifted the suspension of {account['username']}.")
+    message = f"Lifted the suspension of {account['username']}."
+    if kept:
+        message += f" Wikis that stay suspended because they were suspended on their own: {kept}."
+    if held:
+        message += f" Wikis held by the storage protection until they fit within their limit: {held}."
+    _print(args, {"ok": True, "restarted": restarted, "still_suspended": kept, "storage_held": held}, message)
 
 
 def cmd_account_delete(args: argparse.Namespace) -> None:
@@ -351,12 +355,21 @@ def cmd_instance_rename(args: argparse.Namespace) -> None:
     _print(args, _public(renamed), f"Renamed {inst['subdomain']} to {renamed['subdomain']}.")
 
 
+def _two_step_off(inst: dict[str, Any]) -> str:
+    names = inst.get("two_step_off") or []
+    if not names:
+        return ""
+    return (f" Two-step verification is off for {len(names)} account(s) that set it up on the original wiki"
+            f" (its secret key is not copied); they sign in with their password: {', '.join(names)}.")
+
+
 def cmd_instance_duplicate(args: argparse.Namespace) -> None:
     inst = _instance(args.instance, args.current_domain_mode)
     owner = _account(args.account) if args.account else _account(inst["account_id"])
     copy = _instances().duplicate(inst, owner, args.subdomain, args.domain_mode, actor_id=None)
     _audit("instance.duplicate", {"instance_id": inst["id"], "copy_id": copy["id"]})
-    _print(args, _public(copy), f"Copied {inst['subdomain']} to {copy['subdomain']} ({copy['id']}).")
+    _print(args, _public(copy), f"Copied {inst['subdomain']} to {copy['subdomain']} ({copy['id']})."
+           + _two_step_off(copy))
 
 
 def cmd_instance_restore(args: argparse.Namespace) -> None:
@@ -375,7 +388,7 @@ def cmd_instance_import_archive(args: argparse.Namespace) -> None:
         raise CliError(f"{path} is not a file.")
     inst = _instances().import_archive(owner, args.subdomain, args.domain_mode, path, actor_id=None)
     _audit("instance.import", {"instance_id": inst["id"], "account_id": owner["id"], "archive": path.name})
-    _print(args, _public(inst), f"Imported {inst['subdomain']} ({inst['id']}).")
+    _print(args, _public(inst), f"Imported {inst['subdomain']} ({inst['id']})." + _two_step_off(inst))
 
 
 def cmd_instance_reset_password(args: argparse.Namespace) -> None:
@@ -484,7 +497,7 @@ INSTANCE_ACTIONS: dict[str, tuple[str, Callable[[Any, dict[str, Any]], Any], boo
 }
 
 
-# ── Parser ────────────────────────────────────────────────────────────────────
+# Parser
 
 
 def _instance_parser(sub: Any, name: str, handler: Callable[[argparse.Namespace], None], **kwargs: Any) -> Any:

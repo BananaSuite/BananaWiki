@@ -11,11 +11,13 @@ the folder get its real name. No plugin code runs during installation.
 
 from __future__ import annotations
 
+import errno
 import re
 import shutil
 import stat
 import tempfile
 import zipfile
+import zlib
 from pathlib import Path
 
 from ....core.json import loads as safe_json_loads
@@ -125,25 +127,33 @@ def _check_new_id(manifest: Manifest, rt: plugins_external.Runtime) -> None:
 
 def _extract(archive_path: Path, prefix: tuple[str, ...], members: list[Member], target: Path) -> None:
     written = 0
-    with zipfile.ZipFile(archive_path) as archive:
-        for info, parts in members:
-            relative = parts[len(prefix):]
-            if not relative:
-                continue
-            destination = target.joinpath(*relative)
-            if target.resolve() not in destination.resolve().parents:
-                raise ManifestError("plugin_manager.zip.traversal")
-            if info.is_dir():
-                destination.mkdir(mode=0o755, parents=True, exist_ok=True)
-                continue
-            destination.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
-            with archive.open(info) as source, destination.open("xb") as sink:
-                while chunk := source.read(65536):
-                    written += len(chunk)
-                    if written > MAX_UNCOMPRESSED:
-                        raise ManifestError("plugin_manager.zip.too_large", limit=MAX_UNCOMPRESSED // MIB)
-                    sink.write(chunk)
-            destination.chmod(0o644)
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            for info, parts in members:
+                relative = parts[len(prefix):]
+                if not relative:
+                    continue
+                destination = target.joinpath(*relative)
+                if target.resolve() not in destination.resolve().parents:
+                    raise ManifestError("plugin_manager.zip.traversal")
+                if info.is_dir():
+                    destination.mkdir(mode=0o755, parents=True, exist_ok=True)
+                    continue
+                destination.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+                with archive.open(info) as source, destination.open("xb") as sink:
+                    while chunk := source.read(65536):
+                        written += len(chunk)
+                        if written > MAX_UNCOMPRESSED:
+                            raise ManifestError("plugin_manager.zip.too_large", limit=MAX_UNCOMPRESSED // MIB)
+                        sink.write(chunk)
+                destination.chmod(0o644)
+    except OSError as error:
+        if error.errno == errno.ENOSPC:
+            raise
+        # A file and a folder of the same name, or a member that cannot be read.
+        raise ManifestError("plugin_manager.zip.not_zip") from error
+    except (zipfile.BadZipFile, zipfile.LargeZipFile, zlib.error, EOFError, NotImplementedError) as error:
+        raise ManifestError("plugin_manager.zip.not_zip") from error
 
 
 def install(archive_path: str | Path) -> Manifest:
@@ -179,7 +189,7 @@ def install(archive_path: str | Path) -> Manifest:
     return manifest
 
 
-# ── Removal ──────────────────────────────────────────────────────────────────
+# Removal
 
 
 def _owner(table: str, known: set[str]) -> str | None:

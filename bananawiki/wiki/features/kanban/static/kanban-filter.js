@@ -4,7 +4,8 @@
  * Filtering happens in the browser on the board state; the choice is kept in
  * the address (?q=…&who=…&label=…&priority=…&due=…) so a filtered board can be
  * bookmarked or shared. The server applies the same rules to the same
- * parameters (filters.py: board state endpoint and "My tickets"). "/" focuses the search field; Escape in it clears it.
+ * parameters (filters.py: board state endpoint and "My tickets").
+ * "/" focuses the search field; Escape in it clears it.
  * Depends on kanban-board.js (window.BWKanban). */
 (function () {
   "use strict";
@@ -82,7 +83,7 @@
     li.hidden = !K.isShown(ticket);
   });
 
-  // ── Choices that come from the board (people and labels) ─────────────────
+  // Choices that come from the board (people and labels)
   function option(value, text) {
     var node = K.el("option", "", text);
     node.value = value;
@@ -123,7 +124,7 @@
       .map(function (key) { return [labels[key], "+" + labels[key]]; }).sort(byName));
   }
 
-  // ── Summary, address and applying ────────────────────────────────────────
+  // Summary, address and applying
   function counts() {
     var total = 0;
     var shown = 0;

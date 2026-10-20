@@ -65,7 +65,7 @@ def _to_page(page: dict[str, Any]):
     return redirect(url_for("pages.view", slug=page["slug"]))
 
 
-# ── Proposing ────────────────────────────────────────────────────────────────
+# Proposing
 
 
 @bp.route("/page/<slug>/propose-edit", methods=["GET", "POST"])
@@ -134,7 +134,7 @@ def withdraw(slug: str, contribution_id: int):
     return _to_page(page)
 
 
-# ── The proposer's own list and quota ───────────────────────────────────────
+# The proposer's own list and quota
 
 
 @bp.get("/my-contributions")
@@ -181,7 +181,7 @@ def cancel_quota_request():
     return redirect(url_for("contributions.mine"))
 
 
-# ── Review ───────────────────────────────────────────────────────────────────
+# Review
 
 
 def _reviewer() -> dict[str, Any]:

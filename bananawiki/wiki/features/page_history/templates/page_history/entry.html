@@ -18,7 +18,7 @@
   <p class="page-header__meta">
     {% if entry.editor %}{{ t('page_history.saved_by') }} {% if editor_url %}<a href="{{ editor_url }}">{{ entry.editor }}</a>{% else %}<strong>{{ entry.editor }}</strong>{% endif %}{% else %}{{ t('page_history.no_author') }}{% endif %}
     · <time datetime="{{ entry.created_at }}">{{ entry.created_at|datetime }}</time>
-    {% if entry.edit_message %} · {{ entry.edit_message }}{% endif %}
+    {% if entry.edit_message %} · {{ page_history_message(entry.edit_message) }}{% endif %}
     {% if entry.is_revert %}<span class="badge">{{ t('page_history.revert_badge') }}</span>{% endif %}
   </p>
 </header>

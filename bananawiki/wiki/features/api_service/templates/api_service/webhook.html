@@ -2,10 +2,12 @@
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('api_service.webhooks.deliveries') }}{% endblock %}
 {% block admin_content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('api_service.admin', _anchor='webhooks') }}">{{ t('api_service.admin.title') }}</a></li><li aria-current="page">{{ t('api_service.webhooks.deliveries') }}</li>
+</ol></nav>
 <div class="page-header">
   <h1>{{ t('api_service.webhooks.deliveries') }}</h1>
   <div class="page-header__actions">
-    <a class="btn btn--small" href="{{ url_for('api_service.admin', _anchor='webhooks') }}">{{ t('api_service.webhooks.back') }}</a>
     {{ forms.post_button(url_for('api_service.admin_ping_webhook', webhook_id=hook.id), t('api_service.webhooks.ping'), cls='btn btn--small') }}
   </div>
 </div>

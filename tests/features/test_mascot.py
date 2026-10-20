@@ -64,8 +64,8 @@ def test_switched_off_feature_hides_everything(app, client, make_user, login, db
 
 
 @pytest.mark.parametrize("saved", ['{"mascot_enabled": 0}', '{"mascot_enabled": "0", "theme_mode": "dark"}'])
-def test_a_mascot_hidden_by_an_earlier_build_is_shown_again(app, client, make_user, login, db, saved):
-    # Earlier builds of 1.7 let people hide it (mascot_enabled 0); that choice is ignored now.
+def test_a_mascot_hidden_in_1_7_0_is_shown_again(app, client, make_user, login, db, saved):
+    # 1.7.0 let people hide it (mascot_enabled 0); that choice is ignored.
     user = make_user("mascot_was_hidden", accessibility=saved)
     login(client, user)
     html = _home(client)
@@ -100,7 +100,7 @@ def test_customise_cannot_hide_it_and_offers_only_taking_the_sunglasses_off(app,
     # Without sunglasses there is nothing to change: no section at all, which keeps the easter egg a surprise.
     display = client.get("/settings/display").get_data(as_text=True)
     assert 'id="mascot-heading"' not in display and "/settings/mascot" not in display
-    # The switch is gone: hiding or showing it answers 400 and writes nothing.
+    # There is no switch to hide or show it: those actions answer 400 and write nothing.
     for action in ("hide", "show", "shades_on"):
         assert client.post("/settings/mascot", data={"action": action}).status_code == 400
     assert "mascot_enabled" not in _prefs(db, user)
@@ -116,6 +116,43 @@ def test_customise_cannot_hide_it_and_offers_only_taking_the_sunglasses_off(app,
 def test_mascot_needs_an_account(app, client):
     response = client.post("/mascot/shades")
     assert response.status_code in (302, 401)
+    assert client.delete("/mascot/shades").status_code in (302, 401)
+
+
+def test_as_many_clicks_again_take_the_sunglasses_off(app, client, make_user, login, db):
+    user = make_user("mascot_uncool", accessibility='{"theme_mode": "dark"}')
+    login(client, user)
+    client.post("/mascot/shades", headers={"Accept": "application/json"})
+    response = client.delete("/mascot/shades", headers={"Accept": "application/json"})
+    assert response.status_code == 200 and response.get_json() == {"ok": True}
+    assert _prefs(db, user) == {"theme_mode": "dark", "mascot_shades": 0}
+    assert "mascot-sprite--shades" not in _home(client)
+
+
+def _peek(html):
+    card = html[html.index('class="card card--narrow error-page"'):]
+    card = card[:card.index("</div>")]
+    match = re.search(r'<span class="mascot-peek" aria-hidden="true"><svg class="([^"]+)"', card)
+    return match.group(1) if match else None
+
+
+def test_the_mascot_peeks_into_the_page_not_found_card(app, client, make_user, login, db):
+    assert _peek(client.get("/no-such-address").get_data(as_text=True)) is None
+    user = make_user("mascot_lost")
+    login(client, user)
+    page = client.get("/no-such-address")
+    assert page.status_code == 404 and _peek(page.get_data(as_text=True)) == "mascot-sprite"
+    client.post("/mascot/shades")
+    assert _peek(client.get("/no-such-address").get_data(as_text=True)) == "mascot-sprite mascot-sprite--shades"
+    # Only on "not found": other errors keep their plain card.
+    assert client.get("/admin/appearance").status_code == 403
+    assert _peek(client.get("/admin/appearance").get_data(as_text=True)) is None
+    # Nor for accounts the wiki does not let in, nor with the feature off.
+    db.execute("UPDATE users SET approval_status = 'pending' WHERE id = ?", (user["id"],))
+    assert _peek(client.get("/no-such-address").get_data(as_text=True)) is None
+    db.execute("UPDATE users SET approval_status = 'approved' WHERE id = ?", (user["id"],))
+    set_feature(app, "mascot", False)
+    assert _peek(client.get("/no-such-address").get_data(as_text=True)) is None
 
 
 def test_display_preferences_do_not_touch_the_mascot(app, client, make_user, login, db):
@@ -127,7 +164,7 @@ def test_display_preferences_do_not_touch_the_mascot(app, client, make_user, log
     prefs = _prefs(db, user)
     assert prefs["theme_mode"] == "light" and prefs["mascot_shades"] == 1 and "mascot_enabled" not in prefs
     assert "mascot_enabled" not in client.get("/api/accessibility").get_json()
-    # ...saving the display form keeps them, and drops a switch an earlier build of 1.7 saved...
+    # ...saving the display form keeps them, and drops the switch 1.7.0 saved...
     db.execute("UPDATE users SET accessibility = json_set(accessibility, '$.mascot_enabled', 0) WHERE id = ?",
                (user["id"],))
     client.post("/settings/display", data={"theme_mode": "dark"})
@@ -164,7 +201,7 @@ def test_administrator_actions_change_every_account(app, admin_client, make_user
     admin_client.post("/admin/appearance/mascot", data={"action": "shades_off"})
     assert all(_prefs(db, user)["mascot_shades"] == 0 for user in (alice, bob, admin))
 
-    # Showing and hiding it for everyone are gone: 400, nothing written and nothing audited.
+    # Administrators cannot show or hide it for everyone: 400, nothing written and nothing audited.
     for action in ("show", "hide", "explode"):
         assert admin_client.post("/admin/appearance/mascot", data={"action": action}).status_code == 400
     assert all("mascot_enabled" not in _prefs(db, user) for user in (alice, bob, admin))
@@ -174,7 +211,7 @@ def test_administrator_actions_change_every_account(app, admin_client, make_user
 
 
 def test_sprite_variants():
-    from bananawiki.wiki.features.mascot import sprite
+    from bananawiki.core import mascot as sprite
 
     normal, shades, off = (str(sprite.svg(v)) for v in sprite.VARIANTS)
     assert "mascot__shades" in normal and "mascot-sprite--shades" not in normal
@@ -182,13 +219,14 @@ def test_sprite_variants():
     assert "currentColor" in off and "mascot__eyes" not in off
 
 
-# ── Integration into 1.7 (wording, plurals, audit, layout, motion, CSRF) ─────
+# Wording, plurals, audit log, layout, motion and CSRF
 
-MASCOT = Path(__file__).resolve().parents[2] / "bananawiki" / "wiki" / "features" / "mascot"
+PACKAGE = Path(__file__).resolve().parents[2] / "bananawiki"
+MASCOT = PACKAGE / "core" / "static" / "mascot"
 
 
 def _catalogue(lang):
-    return json.loads((MASCOT / "translations" / f"{lang}.json").read_text(encoding="utf-8"))
+    return json.loads((PACKAGE / "wiki" / "features" / "mascot" / "translations" / f"{lang}.json").read_text(encoding="utf-8"))
 
 
 def test_english_strings_use_british_spelling_like_the_customise_button():
@@ -198,9 +236,9 @@ def test_english_strings_use_british_spelling_like_the_customise_button():
 
 
 @pytest.mark.parametrize("action", ["shades_on", "shades_off"])
-def test_bulk_messages_have_a_singular_in_both_languages(action):
+def test_bulk_messages_have_a_singular_in_every_language(action):
     key = f"mascot.admin.done.{action}_one"
-    assert key in _catalogue("en") and key in _catalogue("it")
+    assert all(key in _catalogue(lang) for lang in ("en", "it", "de"))
 
 
 def test_bulk_message_for_one_account_is_singular(app, admin_client, make_user, login, db):
@@ -221,7 +259,7 @@ def test_bulk_actions_are_audited_in_the_readers_language(app, admin_client, mak
     page = admin_client.get("/admin/audit").get_data(as_text=True)
     assert "Sunglasses put on the mascot for every account" in page
     assert '<strong title="count">Count</strong>' in page
-    # Show and hide are gone as actions, but entries of earlier builds of 1.7 still need their names.
+    # Audit entries from 1.7.0 can still name the show and hide actions.
     for lang in ("en", "it", "de"):
         strings = _catalogue(lang)
         assert all(f"audit.action.mascot.everyone.{name}" in strings
@@ -250,7 +288,7 @@ def test_administrator_hint_is_spaced_from_its_buttons(admin_client):
 def test_idle_animations_stop_when_the_system_asks_for_reduced_motion():
     # The shell shortens animations to .01ms for prefers-reduced-motion; an infinite bob and blink
     # would still run (one frame each), so the mascot stops them itself.
-    css = (MASCOT / "static" / "mascot.css").read_text(encoding="utf-8")
+    css = (MASCOT / "mascot.css").read_text(encoding="utf-8")
     block = css[css.index("@media (prefers-reduced-motion: reduce)"):]
     assert ".mascot__body" in block and ".mascot__eyes" in block and "animation: none" in block
 
@@ -260,6 +298,7 @@ def test_mascot_requests_need_the_csrf_token(app, client, make_user, login, db):
     login(client, user)
     app.config["CSRF_DISABLED"] = False
     assert client.post("/mascot/shades", headers={"Accept": "application/json"}).status_code == 400
+    assert client.delete("/mascot/shades", headers={"Accept": "application/json"}).status_code == 400
     assert client.post("/settings/mascot", data={"action": "shades_off"}).status_code == 400
     assert "mascot_shades" not in _prefs(db, user)
 
@@ -269,22 +308,34 @@ def test_taking_the_sunglasses_off_needs_an_account(client):
     assert response.status_code == 302 and "/login" in response.headers["Location"]
 
 
+def test_the_glint_is_hidden_unless_it_runs():
+    # The script adds the glint pixel when the sunglasses land; standing still, it must never show.
+    css = (MASCOT / "mascot.css").read_text(encoding="utf-8")
+    assert ".mascot__glint { opacity: 0; }" in css
+    block = css[css.index("@media (prefers-reduced-motion: reduce)"):]
+    assert ".mascot--shades-drop .mascot__glint" in block and ".mascot-shower { display: none; }" in block
+    script = (MASCOT / "mascot.js").read_text(encoding="utf-8")
+    from bananawiki.core.mascot import COLORS
+
+    assert f'fill: "{COLORS["W"]}"' in script
+
+
 def test_on_phones_the_mascot_takes_no_more_room_than_the_logo():
-    # 375 px: without the pull, the sprite's two empty left columns (4 px) and one more pixel pushed the
-    # site name right, so a name that fitted beside the logo was cut ("Banana Labs W…"). They go under the
-    # menu button's gap instead (physical left, as the art is not mirrored), and the name starts where it
-    # does beside the 32 px logo, which bananawiki.css pulls by the same 5 px (test_site_icons).
-    # This holds with a mouse; touch screens give the mascot the shell's touch size instead (pull request
-    # #25, test_mascot_motion), 12 px wider than the sprite.
-    css = (MASCOT / "static" / "mascot.css").read_text(encoding="utf-8")
+    # At 375 px the sprite's two empty left columns (4 px) and one more pixel would push the site name right
+    # and cut a name that fits beside the logo ("Banana Labs W…"). They go under the menu button's gap
+    # instead (physical left, as the art is not mirrored), and the name starts where it does beside the
+    # 32 px logo, which bananawiki.css pulls by the same 5 px (test_site_icons).
+    # This holds with a mouse; touch screens give the mascot the shell's touch size instead
+    # (test_mascot_motion), 12 px wider than the sprite.
+    css = (MASCOT / "mascot.css").read_text(encoding="utf-8")
     block = css[css.index("@media (max-width: 600px)"):]
     assert ".mascot { margin-left: -5px; }" in block[:block.index("}\n}") + 3]
 
 
 def test_on_touch_phones_the_finger_sized_mascot_stays_clear_of_the_menu_button():
-    # The phone rule pulls the mascot left into the top bar's gap; with the touch size of #25 the whole
+    # The phone rule pulls the mascot left into the top bar's gap; with the touch size the whole
     # 2.75rem box moves, so the pull must stay within the gap or the box would cover the menu button's edge.
-    css = (MASCOT / "static" / "mascot.css").read_text(encoding="utf-8")
+    css = (MASCOT / "mascot.css").read_text(encoding="utf-8")
     shell = (Path(__file__).resolve().parents[2] / "bananawiki" / "core" / "static" / "css" / "bananawiki.css"
              ).read_text(encoding="utf-8")
     phone = shell[shell.index("@media (max-width: 600px) {\n  .topbar {"):]
@@ -296,12 +347,12 @@ def test_on_touch_phones_the_finger_sized_mascot_stays_clear_of_the_menu_button(
 
 
 def test_the_button_icons_draw_the_banana_at_twice_its_grid():
-    # Under "Customise" and in Appearance the sprite was 28 px, 1.75 screen pixels per art pixel: rows and
-    # columns came out one or two pixels wide and the blinking eyes blurred. 32 px is twice the 16-pixel
-    # grid, as in the top bar; the negative block margins keep the buttons as tall as the 28 px icon left them.
-    from bananawiki.wiki.features.mascot.sprite import SIZE
+    # 32 px is twice the 16-pixel grid, as in the top bar: at 28 px (1.75 screen pixels per art pixel) rows
+    # and columns come out one or two pixels wide and the blinking eyes blur. Negative block margins keep the
+    # buttons as tall as a 28 px icon would.
+    from bananawiki.core.mascot import SIZE
 
-    css = (MASCOT / "static" / "mascot.css").read_text(encoding="utf-8")
+    css = (MASCOT / "mascot.css").read_text(encoding="utf-8")
     rule = css.split(".mascot-button__sprite {")[1].split("}")[0]
     width = int(rule.split("width:")[1].split("px")[0])
     height = int(rule.split("height:")[1].split("px")[0])

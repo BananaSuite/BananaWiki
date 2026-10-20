@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
 """Piper in a child process of the read-aloud worker.
 
 ``python -P piper_child.py`` reads a JSON request on standard input:

@@ -13,7 +13,7 @@
     return node;
   }
 
-  // Live search -------------------------------------------------------------
+  // Live search
   function initSearch(form) {
     var input = form.querySelector('input[name="q"]');
     var content = form.querySelector("[data-search-content]");
@@ -77,7 +77,7 @@
     });
   }
 
-  // "More pages" ------------------------------------------------------------
+  // "More pages"
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest("a[data-nav-more]");
     if (!link) return;
@@ -95,7 +95,7 @@
     });
   });
 
-  // Reordering (drag and drop, plus up/down buttons) -------------------------
+  // Reordering (drag and drop, plus up/down buttons)
   function items(list) {
     return Array.prototype.filter.call(list.children, function (c) { return c.hasAttribute("data-reorder-item"); });
   }

@@ -54,7 +54,7 @@ class CommandError(Exception):
     """A user-facing failure: printed without a traceback, exit status 1."""
 
 
-# Helpers ---------------------------------------------------------------------
+# Helpers
 
 
 def _config(**overrides: Any):
@@ -111,7 +111,7 @@ def _print(value: Any) -> None:
     print(json.dumps(value, indent=2, default=str))
 
 
-# Commands --------------------------------------------------------------------
+# Commands
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
@@ -182,7 +182,7 @@ def retired_tables(conn: sqlite3.Connection) -> list[str]:
 
 
 def prune_retired(database: Any, *, assume_yes: bool) -> int:
-    """Drop the tables of plugins that 1.6 no longer ships, after an online backup."""
+    """Drop the tables of retired 1.4 plugins, after an online backup."""
     from .core.sqlite import quote_identifier, tuples
 
     conn = database.connect()
@@ -355,7 +355,9 @@ def cmd_export(args: argparse.Namespace) -> int:
 def cmd_import(args: argparse.Namespace) -> int:
     from .ops.files import read_package
 
-    cfg = _config()
+    # Only the paths are needed here: loading the real key would write a new
+    # .secret_key into the directory before the check below.
+    cfg = _config(secret_key=secrets.token_hex(32))
     instance = Path(cfg.instance_dir)
     if instance.exists() and any(instance.iterdir()):
         raise CommandError(f"{instance} is not empty; import only into a new instance directory.")
@@ -374,7 +376,7 @@ def cmd_import(args: argparse.Namespace) -> int:
     return cmd_migrate(args)
 
 
-# Parser ----------------------------------------------------------------------
+# Parser
 
 
 def parser() -> argparse.ArgumentParser:

@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
 """Schema version 11: kanban columns that count as done.
 
 ``kanban_columns.is_done``: 1 for a column whose tickets are finished work, so

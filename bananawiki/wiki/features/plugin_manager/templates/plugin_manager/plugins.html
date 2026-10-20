@@ -110,7 +110,7 @@
   <h3>{{ t('plugin_manager.invalid.title') }}</h3>
   <ul>{% for state in invalid %}<li><span class="mono">{{ state.id }}</span>: {{ t(state.error_key, **state.error_values) }}</li>{% endfor %}</ul>
   {% endif %}
-  <p><a class="btn btn--small" href="{{ url_for('plugin_manager.sdk_download') }}">{{ t('plugin_manager.action.download_kit') }}</a>
+  <p class="pm-kit"><a class="btn btn--small" href="{{ url_for('plugin_manager.sdk_download') }}">{{ t('plugin_manager.action.download_kit') }}</a>
     <span class="small muted">{{ t('plugin_manager.kit_hint') }}</span></p>
 </section>
 

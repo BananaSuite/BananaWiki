@@ -35,7 +35,7 @@ class NotificationError(ValueError):
         self.values = values
 
 
-# ── Mail configuration ────────────────────────────────────────────────────────
+# Mail configuration
 
 
 def mail_source() -> str:
@@ -108,7 +108,7 @@ def _bounded(value: Any, default: int, minimum: int, maximum: int) -> int:
         return default
 
 
-# ── People's addresses and choices ───────────────────────────────────────────
+# People's addresses and choices
 
 
 def set_email(user_id: str, address: str) -> str:
@@ -151,7 +151,7 @@ def unsubscribe(user_id: str, kind: str) -> bool:
     return bool(db.execute(f"UPDATE users SET {column} = 0 WHERE id = ?", (user_id,)).rowcount)
 
 
-# ── Events ────────────────────────────────────────────────────────────────────
+# Events
 
 
 def store() -> engine.Store:
@@ -175,7 +175,7 @@ def on_decided(user_id: str, source: str, outcome: str, object_id: str = "", end
                                "object_id": object_id[:100], "endpoint": endpoint[:100], "created_at": now_sql()})
 
 
-# ── Notices ───────────────────────────────────────────────────────────────────
+# Notices
 
 
 def notices_for(user_id: str, limit: int = MAX_NOTICES_SHOWN) -> list[dict[str, Any]]:

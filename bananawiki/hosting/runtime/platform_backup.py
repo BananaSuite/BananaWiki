@@ -1,14 +1,16 @@
 """Whole-platform backups: the encrypted export and the restore onto a fresh installation.
 
-The export (1.4 ``hosting/backups.py``) holds a consistent copy of
-``hosting.db``, the portal's secret key and every tenant directory, with each
-tenant database copied inside its own container. It is written straight
-into :class:`~.crypto.EncryptedOutput`, so no plaintext archive exists on
-disk at any point (1.4 wrote one to ``/tmp`` first). One wiki that cannot be
-copied no longer stops the backup of all the others: ``backup_manifest.json``,
+The export holds a consistent copy of
+``hosting.db``, the portal's secret key and every tenant directory, with
+each tenant database copied inside its own container, and the quarantine
+marker of every wiki whose plugins are quarantined (nothing in
+``hosting.db`` records it). It is written straight into
+:class:`~.crypto.EncryptedOutput`, so no plaintext archive exists on disk at
+any point. One wiki that cannot be copied does not stop the backup of all
+the others: ``backup_manifest.json``,
 written last, lists the wikis it holds and those it could not save.
 
-The restore (1.4 ``db.restore_hosting_from_backup_zips``) accepts the
+The restore accepts the
 encrypted ``.bwenc`` files and plain 1.4 ``.zip`` parts, checks every member
 before changing anything, and only restores onto an installation that has no
 wikis yet: replacing live tenants needs them offline, which a web request
@@ -37,9 +39,10 @@ from ... import __version__
 from ...core import zipcheck
 from ...core.json import loads as safe_json_loads
 from ...core.logformat import one_line
+from ...ops.project_quota import ADOPTION_HEADROOM_BYTES
 from ..config import HostingConfig
 from . import FAILURE_CODES, RuntimeFailure, archives, crypto, tenantfs
-from .plugin_safety import INSTANCE_ID
+from .plugin_safety import INSTANCE_ID, PluginState
 
 log = logging.getLogger("bananawiki.hosting.runtime.platform")
 
@@ -54,8 +57,11 @@ MANIFEST_NAME = "backup_manifest.json"
 # blocks, the budget sizes as files report them.
 BUDGET_SLACK_BYTES = 64 * 1024 ** 2
 # What the portal keeps in a wiki's platform state while the runtime agent
-# holds it above its plan (UP-1): the plan and the hard limit it was adopted at.
+# holds it above its plan: the plan and the hard limit it was adopted at.
 OVER_PLAN_NAME = "over-plan.json"
+# Where a backup holds the plugin quarantine marker of a wiki: platform_state/<instance id>/plugin_quarantine.
+STATE_PREFIX = "platform_state"
+QUARANTINE_NAME = "plugin_quarantine"
 
 Snapshot = Callable[[str], archives.DatabaseCopy | None]
 
@@ -73,7 +79,7 @@ def byte_budget(limit: int | None) -> int | None:
 
 def held_limit(state_dir: str, instance_id: str, limit: int | None) -> int | None:
     """The storage limit a wiki's archives are held to: its plan *limit* (bytes; None: no limit), or the larger
-    hard limit the runtime agent adopted it at above that plan (UP-1), as the portal recorded it in the wiki's
+    hard limit the runtime agent adopted it at above that plan, as the portal recorded it in the wiki's
     platform state.
 
     Such a wiki serves holding more than its plan, and its quota bounds what
@@ -97,6 +103,15 @@ def tenant_names(instances_dir: str) -> list[str]:
         return []
     return sorted(entry.name for entry in base.iterdir()
                   if tenantfs.DATA_DIR_NAME.fullmatch(entry.name) and tenantfs.is_tenant_dir(entry))
+
+
+def quarantined_wikis(state_dir: str) -> list[str]:
+    """The instance ids of the wikis whose plugins are quarantined (:class:`~.plugin_safety.PluginState`)."""
+    base = Path(state_dir)
+    if not base.is_dir():
+        return []
+    return sorted(entry.name for entry in base.iterdir()
+                  if INSTANCE_ID.fullmatch(entry.name) and PluginState(state_dir, entry.name).quarantined())
 
 
 def _snapshot_hosting_db(cfg: HostingConfig, target: Path) -> None:
@@ -189,39 +204,18 @@ def export(cfg: HostingConfig, destination_dir: Path, key: bytes, snapshot: Snap
     again; ``available()`` tells whether the runtime that makes the
     snapshots still answers.
 
-    A wiki that fails (a snapshot that fails or times out, a database the
-    tenant damaged or replaced with a link, a copy it removed or changed, a
-    storage folder replaced with a link or special file, an unreadable
-    folder, a file that shrinks, whose name an archive cannot hold or that
-    stands where the restore needs one of the wiki's folders, any other
-    error) is skipped and reported, and what was already written of it
-    stays in the archive. When the wiki's sandbox refused the database
-    copy, or the wiki removed, replaced or changed it, its other files are
-    still archived: they are what nothing else could replace. The database
-    copy lies in the wiki's own directory, and the wiki can extend it to a
-    huge sparse file once its task reported it: it goes in only at the size
-    the task reported (``db_unsafe`` otherwise) and, for a wiki with a
-    storage limit, within the budget below (``too_large``). Its SHA-256 is
-    checked as it is written: a copy whose content changed stays in the
-    archive, and the wiki is reported (``db_unsafe``). Besides its database copy, a wiki's files add at most
-    its storage limit (from the copy of ``hosting.db``) and some slack to
-    the archive, counted at their apparent size, and each file goes in once
-    whatever number of hard links it has: a sparse file, or many links to
-    one file, cost the wiki's quota next to nothing and must not make the
-    whole backup run out of space. A wiki over its budget is saved up to it
-    and reported (``too_large``), further links are left out and reported.
-    The whole backup fails instead when the runtime no longer answers after
-    a wiki failed (``unavailable``), or when the runtime could not make the
-    database copy of any wiki (a timeout, the agent or Docker failing, each
-    time): a platform fault, and a backup without any wiki must not count
-    as one. A wiki that kept itself from being saved does not count there:
-    its sandbox refused the copy, or its own files stood in the way once
-    the copy was made (its copy changed, or over its budget too). The
-    backup then holds ``hosting.db`` and whatever could be saved of that
-    wiki, and is reported incomplete. ``hosting.db``, the secret key and
-    the output itself stay all or nothing; their storage and SQLite errors
-    are raised as :class:`RuntimeFailure`, like every other runtime
-    failure.
+    * A wiki that fails is skipped and reported with a code (``db_unsafe``,
+      ``too_large``, ``no_space``, ``failed``, or the runtime's own code).
+      What was already written of it stays in the archive, and its files
+      are still archived when only its database copy failed.
+    * Besides its database copy, a wiki's files add at most its storage
+      limit plus some slack, counted at their apparent size; a file with
+      several hard links goes in once.
+    * The whole backup fails only with ``unavailable`` (the runtime stopped
+      answering after a wiki failed), or when the runtime could not make
+      the database copy of any wiki. ``hosting.db``, the secret key and the
+      output are all or nothing; their errors are raised as
+      :class:`RuntimeFailure`.
     """
     try:
         return _export(cfg, Path(destination_dir), key, snapshot, release, available)
@@ -252,6 +246,11 @@ def _export(cfg: HostingConfig, destination_dir: Path, key: bytes, snapshot: Sna
                 for suffix in ("", "-wal", "-shm"):
                     Path(f"{database}{suffix}").unlink(missing_ok=True)
             archive.writestr("secret_key", cfg.secret_key)
+            for instance_id in quarantined_wikis(cfg.platform_state_dir):
+                # The only thing keeping the wiki's plugin code off: a restore must not lift it.
+                with contextlib.suppress(FileNotFoundError):  # lifted meanwhile
+                    archive.write(PluginState(cfg.platform_state_dir, instance_id).marker,
+                                  f"{STATE_PREFIX}/{instance_id}/{QUARANTINE_NAME}")
             for tenant in tenant_names(cfg.instances_dir):
                 copied = False
                 try:
@@ -414,7 +413,7 @@ def _add_tenant(archive: zipfile.ZipFile, cfg: HostingConfig, tenant: str, copy:
                                        f"{', '.join(links[:5])}"[:300])
 
 
-# ── Restore ───────────────────────────────────────────────────────────────────
+# Restore
 
 
 def _staged_name(name: str) -> PurePosixPath | None:
@@ -429,6 +428,10 @@ def _staged_name(name: str) -> PurePosixPath | None:
         return PurePosixPath("secret_key")
     if name == BACKUP_KEY_NAME:
         return PurePosixPath("backup_key")
+    if len(parts) == 3 and parts[0] == STATE_PREFIX and parts[2] == QUARANTINE_NAME:
+        if not INSTANCE_ID.fullmatch(parts[1]):
+            raise RuntimeFailure("archive_invalid", "the backup names a plugin quarantine of an invalid wiki")
+        return PurePosixPath(name)
     if len(parts) >= 4 and parts[:2] == ("hosting", "instances"):
         parts = parts[1:]
     if len(parts) >= 3 and parts[0] == "instances":
@@ -537,7 +540,8 @@ def _stage(parts: Sequence[Path], stage: Path, cfg: HostingConfig, key: Callable
     return incomplete
 
 
-def _install_file(source: Path, destination: Path, mode: int = 0o600) -> None:
+def _pending_copy(source: Path, destination: Path, mode: int = 0o600) -> Path:
+    """A synced copy of *source* next to *destination*, for :func:`os.replace` to put in its place."""
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     descriptor, pending = tempfile.mkstemp(dir=destination.parent, prefix=".restore-")
     try:
@@ -546,9 +550,26 @@ def _install_file(source: Path, destination: Path, mode: int = 0o600) -> None:
             output.flush()
             os.fsync(output.fileno())
         os.chmod(pending, mode)
+    except BaseException:
+        Path(pending).unlink(missing_ok=True)
+        raise
+    return Path(pending)
+
+
+def _install_file(source: Path, destination: Path, mode: int = 0o600) -> None:
+    pending = _pending_copy(source, destination, mode)
+    try:
         os.replace(pending, destination)
     finally:
-        Path(pending).unlink(missing_ok=True)
+        pending.unlink(missing_ok=True)
+
+
+def _restored_limit(tenant_dir: Path, limit: int) -> int:
+    """*limit*, or what the staged wiki *tenant_dir* takes once restored (in whole 4 KiB blocks) and the runtime
+    agent's adoption headroom, rounded up to a MiB, when that is more."""
+    used = 4096 + sum(-(-entry.stat().st_size // 4096) * 4096 if entry.is_file() else 4096
+                      for entry in tenant_dir.rglob("*"))
+    return limit if used <= limit else -(-(used + ADOPTION_HEADROOM_BYTES) // 1024 ** 2) * 1024 ** 2
 
 
 def _refuse_links(root: Path, target: Path) -> None:
@@ -562,7 +583,16 @@ def _refuse_links(root: Path, target: Path) -> None:
 
 def _install_tenants(staged: Path, cfg: HostingConfig, *,
                      prepare_tenant: Callable[[str, int], None] | None = None,
-                     storage_limits: dict[str, int] | None = None) -> None:
+                     storage_limits: dict[str, int] | None = None) -> list[Path]:
+    """Install every staged wiki; returns their new directories, or removes them all again on a failure.
+
+    Each wiki's storage quota is prepared on its empty directory, at its
+    limit from *storage_limits* (bytes by data directory, 0: the runtime
+    agent's own ceiling). A wiki the agent held above its plan holds more
+    than that limit, and the agent can only adopt data that is already
+    there: its quota is prepared for what it restores, and its first start
+    adopts it above its plan as on any other host.
+    """
     base = Path(cfg.instances_dir)
     base.mkdir(mode=0o700, parents=True, exist_ok=True)
     created: list[Path] = []
@@ -574,8 +604,8 @@ def _install_tenants(staged: Path, cfg: HostingConfig, *,
             root.mkdir(mode=0o700)
             created.append(root)
             if prepare_tenant is not None:
-                prepare_tenant(tenant_dir.name, (storage_limits or {}).get(
-                    tenant_dir.name, cfg.limits.storage_limit_mb * 1024 ** 2))
+                limit = (storage_limits or {}).get(tenant_dir.name, cfg.limits.storage_limit_mb * 1024 ** 2)
+                prepare_tenant(tenant_dir.name, limit and _restored_limit(tenant_dir, limit))
             for source in sorted(tenant_dir.rglob("*")):
                 if not source.is_file():
                     continue
@@ -588,16 +618,112 @@ def _install_tenants(staged: Path, cfg: HostingConfig, *,
                 # Older backups can hold a file where a folder belongs: say whose.
                 raise RuntimeFailure(error.code, f"{tenant_dir.name}: {error.detail}"[:300]) from None
     except BaseException:
-        # In particular, capacity/quota refusal must leave a retryable fresh
-        # target instead of half a restored platform without its database.
+        # Any failure, a refused quota included, removes what this restore
+        # created, so the target stays fresh and the restore can be retried.
         for root in reversed(created):
             shutil.rmtree(root)
         raise
+    return created
+
+
+def _install_quarantines(staged: Path, cfg: HostingConfig) -> list[Path]:
+    """Put back the plugin quarantine of every wiki the backup holds one for; returns the markers it set."""
+    created: list[Path] = []
+    try:
+        for marker in sorted(staged.glob(f"*/{QUARANTINE_NAME}")):
+            state = PluginState(cfg.platform_state_dir, marker.parent.name)
+            if not state.quarantined():
+                state.set_quarantine(True)
+                created.append(state.marker)
+    except BaseException:
+        for path in created:
+            path.unlink(missing_ok=True)
+        raise
+    return created
+
+
+def _restore_limits(cfg: HostingConfig, database: Path) -> dict[str, int]:
+    """Each wiki's storage limit in bytes by data directory, read from the staged ``hosting.db``, as the portal
+    asks the runtime agent for it: 0 (the agent's own ceiling) for an administrator's wiki, an apex wiki or a
+    limit of 0, the default limit for a wiki without one of its own."""
+    limits: dict[str, int] = {}
+    try:
+        # The encrypted platform database has already been validated. Read
+        # only quota policy; tenant SQLite files remain sandbox-only.
+        with contextlib.closing(sqlite3.connect(f"{database.absolute().as_uri()}?mode=ro", uri=True)) as policy:
+            policy.execute("PRAGMA trusted_schema=OFF")
+            for slug, mode, limit, admin in policy.execute(
+                    "SELECT i.subdomain, i.domain_mode, i.storage_limit_mb, a.is_admin "
+                    "FROM instances i LEFT JOIN accounts a ON a.id = i.account_id"):
+                if (not isinstance(slug, str) or mode not in {"hosting", "apex"}
+                        or limit is not None and (type(limit) is not int or limit < 0)):
+                    raise RuntimeFailure("archive_invalid", "the backup has an invalid tenant storage policy")
+                name = slug + ("__apex" if mode == "apex" else "")
+                tenantfs.tenant_path(cfg.instances_dir, name)
+                if mode == "apex" or admin:
+                    limits[name] = 0
+                else:
+                    limits[name] = (cfg.limits.storage_limit_mb if limit is None else limit) * 1024 ** 2
+    except sqlite3.DatabaseError:
+        raise RuntimeFailure("archive_invalid", "the backup tenant storage policy is not readable") from None
+    return limits
+
+
+def _write_database(database: Path, cfg: HostingConfig) -> None:
+    source = sqlite3.connect(str(database))
+    try:
+        target = sqlite3.connect(cfg.database_path, timeout=20)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+    finally:
+        source.close()
+
+
+def _install(stage: Path, cfg: HostingConfig, secret_key_path: str, *,
+             prepare_tenant: Callable[[str, int], None] | None, storage_limits: dict[str, int]) -> None:
+    """Install the staged platform, leaving the fresh installation as it was when any step fails.
+
+    The keys are first copied next to the ones they replace, then the
+    plugin quarantines, the wikis and ``hosting.db`` are installed, and only
+    then do the keys take the place of the current ones: a failure on the
+    way (a full disk, say) must leave a target a retry accepts, not wikis
+    on disk without the database that names them.
+    """
+    keys = [(stage / name, Path(path)) for name, path in (("secret_key", secret_key_path),
+                                                          ("backup_key", cfg.backup_key_path))]
+    pending: list[tuple[Path, Path]] = []
+    markers: list[Path] = []
+    created: list[Path] = []
+    try:
+        for source, destination in keys:
+            if source.is_file():
+                pending.append((_pending_copy(source, destination), destination))
+        try:
+            if (stage / STATE_PREFIX).is_dir():
+                markers = _install_quarantines(stage / STATE_PREFIX, cfg)
+            if (stage / "instances").is_dir():
+                created = _install_tenants(stage / "instances", cfg, prepare_tenant=prepare_tenant,
+                                           storage_limits=storage_limits)
+            _write_database(stage / "hosting.db", cfg)
+        except BaseException:
+            for root in reversed(created):
+                shutil.rmtree(root)
+            for marker in markers:
+                marker.unlink(missing_ok=True)
+            raise
+        for path, destination in pending:
+            os.replace(path, destination)
+    finally:
+        for path, _destination in pending:
+            path.unlink(missing_ok=True)
 
 
 def restore(cfg: HostingConfig, parts: Sequence[Path], key: Callable[[], bytes], secret_key_path: str, *,
             prepare_tenant: Callable[[str, int], None] | None = None) -> None:
-    """Validate every part, then install tenants, keys and finally ``hosting.db``."""
+    """Validate every part, then install the platform (:func:`_install`); storage and SQLite errors are raised
+    as :class:`RuntimeFailure`."""
     check_restore_target(cfg)
     data_dir = Path(cfg.database_path).parent
     with tempfile.TemporaryDirectory(prefix="restore-", dir=data_dir) as temporary:
@@ -614,45 +740,20 @@ def restore(cfg: HostingConfig, parts: Sequence[Path], key: Callable[[], bytes],
         if not database.is_file():
             raise RuntimeFailure("archive_invalid", "the backup holds no hosting database")
         _check_database(database)
-        storage_limits = {}
-        if prepare_tenant is not None:
-            # The encrypted platform database has already been validated. Read
-            # only quota policy; tenant SQLite files remain sandbox-only.
-            try:
-                with sqlite3.connect(f"{database.absolute().as_uri()}?mode=ro", uri=True) as policy:
-                    policy.execute("PRAGMA trusted_schema=OFF")
-                    for slug, mode, limit in policy.execute(
-                            "SELECT subdomain, domain_mode, storage_limit_mb FROM instances"):
-                        if (not isinstance(slug, str) or mode not in {"hosting", "apex"}
-                                or limit is not None and (type(limit) is not int or limit < 0)):
-                            raise RuntimeFailure("archive_invalid", "the backup has an invalid tenant storage policy")
-                        name = slug + ("__apex" if mode == "apex" else "")
-                        tenantfs.tenant_path(cfg.instances_dir, name)
-                        storage_limits[name] = (cfg.limits.storage_limit_mb if limit is None else limit) * 1024 ** 2
-            except sqlite3.DatabaseError:
-                raise RuntimeFailure("archive_invalid", "the backup tenant storage policy is not readable") from None
+        storage_limits = _restore_limits(cfg, database) if prepare_tenant is not None else {}
         secret = stage / "secret_key"
         if secret.is_file() and not 32 <= len(secret.read_bytes().strip()) <= 4096:
             raise RuntimeFailure("archive_invalid", "the backup holds an invalid session key")
         backup_key = stage / "backup_key"
         if backup_key.is_file() and backup_key.stat().st_size != 32:
             raise RuntimeFailure("archive_invalid", "the backup encryption key must be 32 bytes")
-        if (stage / "instances").is_dir():
-            _install_tenants(stage / "instances", cfg, prepare_tenant=prepare_tenant,
-                             storage_limits=storage_limits)
-        if secret.is_file():
-            _install_file(secret, Path(secret_key_path))
-        if backup_key.is_file():
-            _install_file(backup_key, Path(cfg.backup_key_path))
-        source = sqlite3.connect(str(database))
         try:
-            target = sqlite3.connect(cfg.database_path, timeout=20)
-            try:
-                source.backup(target)
-            finally:
-                target.close()
-        finally:
-            source.close()
+            _install(stage, cfg, secret_key_path, prepare_tenant=prepare_tenant, storage_limits=storage_limits)
+        except OSError as error:
+            code = "no_space" if error.errno in (errno.ENOSPC, errno.EDQUOT) else "failed"
+            raise RuntimeFailure(code, f"platform restore: {error.strerror or error}") from None
+        except sqlite3.Error as error:
+            raise RuntimeFailure("failed", f"platform restore: hosting.db could not be written: {error}") from None
     if incomplete:
         log.warning("The restored backup did not hold these wikis in full: %s", ", ".join(incomplete[:50]))
     log.warning("The hosting platform was restored from a backup; restart the portal.")

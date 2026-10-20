@@ -93,7 +93,7 @@ class MailError(ValueError):
         self.code = code
 
 
-# ── Validation ────────────────────────────────────────────────────────────────
+# Validation
 
 
 def valid_address(value: str | None) -> bool:
@@ -166,7 +166,7 @@ def settings_from_env(env: Env, prefix: str) -> MailSettings | None:
     )
 
 
-# ── Quotas ────────────────────────────────────────────────────────────────────
+# Quotas
 
 
 class DailyLimiter:
@@ -199,7 +199,7 @@ class DailyLimiter:
             return self._total if self._day == date.today() else 0
 
 
-# ── Test outbox ───────────────────────────────────────────────────────────────
+# Test outbox
 
 _outbox: list[Message] | None = None
 
@@ -215,7 +215,7 @@ def capture_outbox() -> Iterator[list[Message]]:
         _outbox = previous
 
 
-# ── Sending ───────────────────────────────────────────────────────────────────
+# Sending
 
 
 def send(settings: MailSettings | None, message: Message, *, limiter: DailyLimiter | None = None) -> tuple[bool, str]:
@@ -336,7 +336,7 @@ def _smtp(settings: MailSettings, message: Message, body_html: str) -> tuple[boo
         return False, "smtp_failed"
 
 
-# ── HTML rendering ────────────────────────────────────────────────────────────
+# HTML rendering
 
 
 def _paragraphs(text: str) -> str:
@@ -348,11 +348,11 @@ def _paragraphs(text: str) -> str:
         for match in _URL.finditer(paragraph):
             url = match.group(0).rstrip(".,);]")
             pieces.append(html.escape(paragraph[cursor:match.start()]))
-            pieces.append(f'<a href="{html.escape(url, quote=True)}" style="color:#526bbf">{html.escape(url)}</a>')
+            pieces.append(f'<a href="{html.escape(url, quote=True)}" style="color:#8a6500">{html.escape(url)}</a>')
             cursor = match.start() + len(url)
         pieces.append(html.escape(paragraph[cursor:]))
         body = "".join(pieces).replace("\n", "<br>")
-        parts.append(f'<p style="margin:0 0 18px;color:#4b5063;font-size:16px;line-height:1.7">{body}</p>')
+        parts.append(f'<p style="margin:0 0 18px;color:#4a4a48;font-size:16px;line-height:1.7">{body}</p>')
     return "".join(parts)
 
 
@@ -368,38 +368,38 @@ def render_html(message: Message) -> str:
     detail = ""
     if message.detail_value:
         detail = (
-            '<table role="presentation" width="100%" style="margin:4px 0 22px;background:#f5f6fb;'
-            'border:1px solid #e4e7f1;border-radius:8px"><tr><td style="padding:16px 18px">'
-            f'<div style="color:#777d91;font-size:11px;font-weight:700;text-transform:uppercase">'
+            '<table role="presentation" width="100%" style="margin:4px 0 22px;background:#faf9f5;'
+            'border:1px solid #e7e4da;border-radius:8px"><tr><td style="padding:16px 18px">'
+            f'<div style="color:#6b6964;font-size:11px;font-weight:700;text-transform:uppercase">'
             f'{html.escape(message.detail_label)}</div>'
-            f'<div style="color:#202534;font-size:18px;font-weight:700">{html.escape(message.detail_value)}</div>'
+            f'<div style="color:#202124;font-size:18px;font-weight:700">{html.escape(message.detail_value)}</div>'
             "</td></tr></table>"
         )
     action = ""
     url = _link(message.action_url)
     if url and message.action_label:
         action = (
-            '<table role="presentation" style="margin:4px 0 24px"><tr><td bgcolor="#7e9ada" style="border-radius:7px">'
-            f'<a href="{url}" style="display:inline-block;padding:13px 22px;color:#111522;font-weight:700;'
+            '<table role="presentation" style="margin:4px 0 24px"><tr><td bgcolor="#e6be32" style="border-radius:7px">'
+            f'<a href="{url}" style="display:inline-block;padding:13px 22px;color:#000000;font-weight:700;'
             f'text-decoration:none">{html.escape(message.action_label)}</a></td></tr></table>'
-            f'<p style="margin:0 0 20px;color:#858a9b;font-size:12px;word-break:break-all">{url}</p>'
+            f'<p style="margin:0 0 20px;color:#6b6964;font-size:12px;word-break:break-all">{url}</p>'
         )
-    footer = f'<p style="margin-top:20px;color:#8a8fa0;font-size:12px">{html.escape(message.footer)}</p>' \
+    footer = f'<p style="margin-top:20px;color:#6b6964;font-size:12px">{html.escape(message.footer)}</p>' \
         if message.footer else ""
     unsubscribe = _link(message.unsubscribe_url)
     if unsubscribe:
-        footer += (f'<p style="margin:8px 0 0;font-size:12px"><a href="{unsubscribe}" style="color:#8a8fa0">'
+        footer += (f'<p style="margin:8px 0 0;font-size:12px"><a href="{unsubscribe}" style="color:#6b6964">'
                    f"{unsubscribe}</a></p>")
     return (
         '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
         f"<title>{title}</title></head>"
-        '<body style="margin:0;padding:0;background:#f1f2f6;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif">'
-        '<table role="presentation" width="100%" style="background:#f1f2f6"><tr><td align="center" style="padding:38px 16px">'
+        '<body style="margin:0;padding:0;background:#f4f1e8;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif">'
+        '<table role="presentation" width="100%" style="background:#f4f1e8"><tr><td align="center" style="padding:38px 16px">'
         '<table role="presentation" width="600" style="max-width:600px;width:100%">'
-        f'<tr><td style="padding:0 8px 18px;color:#202534;font-size:18px;font-weight:750">{brand}</td></tr>'
-        '<tr><td bgcolor="#ffffff" style="padding:40px 42px;border:1px solid #e4e7f1;border-radius:8px">'
-        f'<div style="margin-bottom:11px;color:#777d91;font-size:11px;font-weight:700;text-transform:uppercase">{eyebrow}</div>'
-        f'<h1 style="margin:0 0 20px;color:#202534;font-size:28px">{title}</h1>'
+        f'<tr><td style="padding:0 8px 18px;color:#202124;font-size:18px;font-weight:750">{brand}</td></tr>'
+        '<tr><td bgcolor="#ffffff" style="padding:40px 42px;border:1px solid #e7e4da;border-radius:8px">'
+        f'<div style="margin-bottom:11px;color:#6b6964;font-size:11px;font-weight:700;text-transform:uppercase">{eyebrow}</div>'
+        f'<h1 style="margin:0 0 20px;color:#202124;font-size:28px">{title}</h1>'
         f"{_paragraphs(message.text)}{detail}{action}{footer}"
         "</td></tr></table></td></tr></table></body></html>"
     )

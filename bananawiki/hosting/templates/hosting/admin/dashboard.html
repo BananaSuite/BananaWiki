@@ -6,8 +6,8 @@
 {% include "hosting/admin/_nav.html" %}
 <h1>{{ t('hosting.admin.title') }}</h1>
 {% if storage and not storage.hard_quotas %}
-{# Refused only under BW_HOSTING_TENANT_QUOTAS=required; lost: hard quotas enforced here before, no longer (a warning);
-   never had them, or off: a calm notice. #}
+{# An error when starts are refused (BW_HOSTING_TENANT_QUOTAS=required), a warning when hard quotas
+   were enforced here before and are lost, a notice otherwise. #}
 {% set storage_off = storage.setting == 'off' and not storage.refused %}
 <div class="alert alert--{{ 'error' if storage.refused else 'warning' if storage.lost else 'info' }}" id="storage-protection" role="status"><div class="alert__body">
   <p>{{ t('hosting.admin.storage_refused' if storage.refused else 'hosting.admin.storage_lost' if storage.lost else 'hosting.admin.storage_off' if storage_off else 'hosting.admin.storage_unenforced', setting=storage.setting)|wbr_settings }}</p>
@@ -28,8 +28,8 @@
   {% if acct.signup_use_case %}<p class="small">{{ acct.signup_use_case }}</p>{% endif %}</div>
   <form method="post" class="cluster">{{ ui.csrf() }}
     <input name="decision_reason" maxlength="1000" placeholder="{{ t('hosting.admin.decision_reason') }}" aria-label="{{ t('hosting.admin.decision_reason') }}">
-    <button class="btn btn--small btn--primary" formaction="{{ url_for('admin.approve_account', account_id=acct.id) }}">{{ t('hosting.admin.approve') }}</button>
-    <button class="btn btn--small btn--danger" formaction="{{ url_for('admin.deny_account', account_id=acct.id) }}">{{ t('hosting.admin.deny') }}</button></form></div>{% if not loop.last %}<hr>{% endif %}
+    <button class="btn btn--small" formaction="{{ url_for('admin.approve_account', account_id=acct.id) }}">{{ t('hosting.admin.approve') }}</button>
+    <button class="btn btn--small btn--danger-quiet" formaction="{{ url_for('admin.deny_account', account_id=acct.id) }}">{{ t('hosting.admin.deny') }}</button></form></div>{% if not loop.last %}<hr>{% endif %}
 {% endfor %}</section>
 {% endif %}
 
@@ -38,8 +38,8 @@
 {% for req in feature_queue %}
 <div class="split"><div><strong>{{ t('hosting.features.' ~ req.feature) }}</strong> · <a href="{{ url_for('admin.instance', instance_id=req.instance_id) }}">{{ req.subdomain }}</a> ({{ req.owner_username }})<p class="small">{{ req.reason }}</p></div>
   <form method="post" class="cluster">{{ ui.csrf() }}<input name="review_note" maxlength="2000" placeholder="{{ t('hosting.features.note') }}" aria-label="{{ t('hosting.features.note') }}">
-    <button class="btn btn--small btn--primary" formaction="{{ url_for('admin.approve_feature', request_id=req.id) }}">{{ t('hosting.admin.approve') }}</button>
-    <button class="btn btn--small btn--danger" formaction="{{ url_for('admin.deny_feature', request_id=req.id) }}">{{ t('hosting.admin.deny') }}</button></form></div>{% if not loop.last %}<hr>{% endif %}
+    <button class="btn btn--small" formaction="{{ url_for('admin.approve_feature', request_id=req.id) }}">{{ t('hosting.admin.approve') }}</button>
+    <button class="btn btn--small btn--danger-quiet" formaction="{{ url_for('admin.deny_feature', request_id=req.id) }}">{{ t('hosting.admin.deny') }}</button></form></div>{% if not loop.last %}<hr>{% endif %}
 {% endfor %}</section>
 {% endif %}
 
@@ -61,10 +61,9 @@
 <section class="card table-panel"><h2>{{ t('hosting.admin.instances') }}</h2>
 <details class="bulk-actions table-bulk"><summary>{{ t('hosting.bulk.title') }}</summary>
 <p class="hint">{{ t('hosting.bulk.hint') }}</p>
-<form method="post" id="inst-bulk" class="bulk-bar">{{ ui.csrf() }}
-  {#- Terminating and deleting for good look destructive, as they do on the owner's dashboard. -#}
+<form method="post" id="inst-bulk" class="bulk-bar">{{ ui.csrf() -}}
   {% for action, label in [('admin.bulk_stop', 'hosting.bulk.stop'), ('admin.bulk_restart', 'hosting.bulk.start'), ('admin.bulk_suspend', 'hosting.bulk.suspend'), ('admin.bulk_unsuspend', 'hosting.bulk.unsuspend'), ('admin.bulk_restore', 'hosting.bulk.restore'), ('admin.bulk_terminate', 'hosting.bulk.terminate'), ('admin.bulk_purge', 'hosting.bulk.purge')] %}
-  <button class="btn btn--small{% if action in ('admin.bulk_terminate', 'admin.bulk_purge') %} btn--danger{% endif %}" formaction="{{ url_for(action) }}" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ t(label) }}</button>{% endfor %}</form></details>
+  <button class="btn btn--small{% if action in ('admin.bulk_terminate', 'admin.bulk_purge') %} btn--danger-quiet{% endif %}" formaction="{{ url_for(action) }}" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ t(label) }}</button>{% endfor %}</form></details>
 <div class="table-wrap"><table class="table"><thead><tr><th><span class="visually-hidden">{{ t('hosting.bulk.select') }}</span></th><th>{{ t('hosting.instance.name') }}</th><th class="col-owner">{{ t('hosting.instance.owner') }}</th><th>{{ t('hosting.instance.status') }}</th><th class="col-optional">{{ t('hosting.instance.expires') }}</th><th class="col-optional">{{ t('hosting.instance.storage') }}</th></tr></thead><tbody>
 {% for inst in instances %}
 <tr><td><input type="checkbox" name="instance_ids" value="{{ inst.id }}" form="inst-bulk" aria-label="{{ inst.original_slug }}"></td>

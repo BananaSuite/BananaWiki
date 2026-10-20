@@ -5,15 +5,26 @@ job and, for small backlogs, before a view) into ``leaderboard_revisions``.
 Views aggregate that table in SQL, restricted to the pages the viewer may
 see, so no revision content is loaded into Python. Characters added and
 removed are measured as the change in size against the page's previous
-revision (1.4 ran a full text diff of every revision on every view).
+revision.
+
+The aggregation reads every revision, so its result is kept for
+``CACHE_SECONDS`` per visibility and date range, and dropped as soon as a
+revision is added or removed. Account names and deletions apply at once;
+other changes, such as a page moved out of the viewer's reach, count once the
+result expires (the page itself is never named to that viewer).
 """
 
 from __future__ import annotations
 
 import csv
 import io
+import threading
+import time
+from collections import OrderedDict
 from datetime import date, timedelta
 from typing import Any
+
+from flask import current_app
 
 from ....core.timeutil import sql_in
 from ...db import db
@@ -24,6 +35,8 @@ RANGES = {"all": None, "30d": 30, "90d": 90, "year": 365}
 BATCH = 500
 INLINE_BACKLOG = 2000
 LIMIT = 250
+CACHE_SECONDS = 60
+CACHE_ENTRIES = 8
 
 _SORT_KEYS = {
     "score": lambda e: e["score"], "edits": lambda e: e["edit_count"], "chars": lambda e: e["total"],
@@ -32,7 +45,7 @@ _SORT_KEYS = {
 }
 
 
-# ── Cache maintenance ─────────────────────────────────────────────────────────
+# Cache maintenance
 
 
 def backlog() -> int:
@@ -77,7 +90,7 @@ def refresh_all() -> int:
     return refresh()
 
 
-# ── Ranking ───────────────────────────────────────────────────────────────────
+# Ranking
 
 
 def _since(range_key: str) -> str | None:
@@ -119,7 +132,7 @@ def _streaks(days: list[str]) -> tuple[int, int]:
 
 
 def _score(entry: dict[str, Any]) -> int:
-    """The 1.4 impact score: breadth, creation, consistency and volume, minus reverts."""
+    """The impact score: breadth, creation, consistency and volume, minus reverts."""
     net_positive = max(entry["added"] - entry["removed"], 0)
     score = (entry["edit_count"] * 10 + entry["pages_touched"] * 20 + entry["pages_created"] * 30
              + entry["active_days"] * 8 + entry["longest_streak"] * 4 + entry["total"] / 120
@@ -127,11 +140,66 @@ def _score(entry: dict[str, Any]) -> int:
     return max(0, round(score))
 
 
+class _Results:
+    """Recent unranked results, least recently stored dropped first."""
+
+    def __init__(self) -> None:
+        self._items: OrderedDict[tuple[Any, ...], tuple[float, Any]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, key: tuple[Any, ...]) -> Any:
+        with self._lock:
+            item = self._items.get(key)
+            return item[1] if item and time.monotonic() - item[0] < CACHE_SECONDS else None
+
+    def put(self, key: tuple[Any, ...], value: Any) -> None:
+        now = time.monotonic()
+        with self._lock:
+            for stale in [k for k, (stored, _) in self._items.items() if now - stored >= CACHE_SECONDS]:
+                del self._items[stale]
+            self._items.pop(key, None)
+            self._items[key] = (now, value)
+            while len(self._items) > CACHE_ENTRIES:
+                self._items.popitem(last=False)
+
+
+def _results() -> _Results:
+    return current_app.extensions.setdefault("bananawiki.leaderboard", _Results())
+
+
 def ranking(viewer: dict[str, Any] | None, *, sort: str = "score", range_key: str = "all") -> dict[str, Any]:
     """Every contributor's statistics, ranked, plus site-wide totals."""
     if backlog() <= INLINE_BACKLOG:
         refresh()
     sort = sort if sort in SORTS else "score"
+    where, params = pages.visible_filter(viewer)
+    state = db.one("SELECT COUNT(*) AS revisions, MAX(history_id) AS last FROM leaderboard_revisions")
+    key = (where, tuple(params), range_key, state["revisions"], state["last"])
+    cached = _results().get(key)
+    if cached is None:
+        cached = _contributors(viewer, range_key)
+        _results().put(key, cached)
+    stats, site = cached
+    names = {row["id"]: row["username"] for row in db.all("SELECT id, username FROM users")}
+    entries = [{**entry, "username": names[entry["user_id"]]} for entry in stats if entry["user_id"] in names]
+    entries.sort(key=lambda e: e["username"].casefold())
+    entries.sort(key=lambda e: (_SORT_KEYS[sort](e), e["score"], e["edit_count"], e["total"]), reverse=True)
+    for rank, entry in enumerate(entries, start=1):
+        entry["rank"] = rank
+    summary = {
+        "contributors": len(entries),
+        "edits": sum(e["edit_count"] for e in entries),
+        "pages_created": sum(e["pages_created"] for e in entries),
+        "pages_touched": site["pages_touched"],
+        "active_days": site["active_days"],
+        "added": sum(e["added"] for e in entries),
+        "removed": sum(e["removed"] for e in entries),
+    }
+    return {"entries": entries, "summary": summary, "sort": sort, "range": range_key}
+
+
+def _contributors(viewer: dict[str, Any] | None, range_key: str) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Each contributor's statistics, unranked, and the site-wide pages touched and active days."""
     base, params = _base(viewer, _since(range_key))
     rows = db.all(
         "SELECT ph.edited_by AS user_id, u.username, COUNT(*) AS edit_count, SUM(lr.added) AS added, "
@@ -156,32 +224,24 @@ def ranking(viewer: dict[str, Any] | None, *, sort: str = "score", range_key: st
         entry["longest_streak"], entry["current_streak"] = _streaks(days_by_user.get(entry["user_id"], []))
         entry["score"] = _score(entry)
         entries.append(entry)
-    entries.sort(key=lambda e: e["username"].casefold())
-    entries.sort(key=lambda e: (_SORT_KEYS[sort](e), e["score"], e["edit_count"], e["total"]), reverse=True)
-    for rank, entry in enumerate(entries, start=1):
-        entry["rank"] = rank
     all_days = {day for days in days_by_user.values() for day in days}
-    summary = {
-        "contributors": len(entries),
-        "edits": sum(e["edit_count"] for e in entries),
-        "pages_created": sum(e["pages_created"] for e in entries),
+    site = {
         "pages_touched": int(db.scalar(f"SELECT COUNT(DISTINCT lr.page_id) {base}", params, default=0)),
         "active_days": len(all_days),
-        "added": sum(e["added"] for e in entries),
-        "removed": sum(e["removed"] for e in entries),
     }
-    return {"entries": entries, "summary": summary, "sort": sort, "range": range_key}
+    return entries, site
 
 
-def attach_details(entries: list[dict[str, Any]]) -> None:
-    """Latest page and profile visibility for the displayed entries (two queries)."""
+def attach_details(entries: list[dict[str, Any]], viewer: dict[str, Any] | None) -> None:
+    """Latest page *viewer* may see and profile visibility for the displayed entries (two queries)."""
     if not entries:
         return
     ids = [e["last_history_id"] for e in entries]
     marks = ",".join("?" for _ in ids)
+    where, params = pages.visible_filter(viewer)
     latest = {row["history_id"]: row for row in db.all(
         f"SELECT lr.history_id, p.title, p.slug FROM leaderboard_revisions lr JOIN pages p ON p.id = lr.page_id "
-        f"WHERE lr.history_id IN ({marks})", ids)}
+        f"WHERE lr.history_id IN ({marks}) AND {where}", [*ids, *params])}
     users = [e["user_id"] for e in entries]
     marks = ",".join("?" for _ in users)
     published = set(db.column(

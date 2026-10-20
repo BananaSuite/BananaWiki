@@ -9,7 +9,7 @@ it was.
 How a feature is switched:
 
 * **Plugin switch**: **Admin → Plugins** (`/admin/plugins`). The state is the
-  feature's row in the `plugins` table, as in 1.4.
+  feature's row in the `plugins` table.
 * **Setting**: a site setting on the feature's own admin page or
   **Admin → Site settings**.
 * **Always on**: part of the core.
@@ -70,34 +70,22 @@ The wiki itself: Markdown pages in a tree of categories.
   contents, line breaks kept, forgiving lists, plus `[[video url="…"]]`,
   `[[canvas slug="…"]]` and `[[kanban board="…"]]` on their own line, bare
   YouTube/Vimeo links on their own line, and `@username` mentions.
-* **Page actions** (More menu): rename, change address (links in other pages
+* **Page actions** menu: rename, change address (links in other pages
   are rewritten), move to another category, make home page, hide from
   navigation and search, print, delete.
 * **Search** at `/search` over a full-text index: all words must match,
   `"exact phrase"`, `-excluded`, and the fields `title:`, `content:`,
   `category:`, `slug:`, `type:page|category`; sort by relevance, title or
   recent edits. The sidebar search filters titles instantly.
-* **Categories**: create, rename, move (drag and drop in the sidebar),
-  sequential navigation, delete (its pages are moved, left without category,
-  or deleted; subcategories move up).
+* **Categories**: create, rename, move into another category, reorder (drag
+  and drop on **All pages**), sequential navigation, delete (its pages are
+  moved, left without category, or deleted; subcategories move up).
 * **Images** are stored once in the uploads folder; unused images are removed
   by a job after 24 hours.
 
-Settings: per-user daily upload quotas and the upload rules
-(**Admin → Site settings → Uploads**).
-Permissions: `page.*`, `category.*`, `search.*` (see [permissions](permissions.md)).
-Renaming or deleting an account leaves pages and drafts as they are: a
-mention of a former name (`/users/<old name>`) leads to the renamed account,
-and a former name stays reserved for its account until the account is
-deleted or an administrator releases the name on the account's **Audit**
-page (**Admin → Users**; the release is recorded in the audit log), after
-which old mentions no longer lead to it and its renames away from the name
-leave the account's history and data export. On a wiki upgraded from 1.4,
-which did not reserve names, several accounts may have given up the same
-name: releasing it from the latest one passes it to the one before, and the
-administrator is told so. Members can rename themselves three times a day.
-Account merges still rewrite the source's `@mentions`, with a history entry
-per page.
+Settings: per-user daily upload quotas and the upload rules (**Admin → Site
+settings → Uploads**). Permissions: `page.*`, `category.*`, `search.*` (see
+[permissions](permissions.md)).
 
 ## Page history
 
@@ -120,10 +108,10 @@ While someone edits a page, the editor autosaves their text as a private
 draft. Reopening the editor offers to restore or discard it; other editors'
 open drafts are listed. Saving the page clears the drafts on it and credits
 their authors in the edit summary. **My drafts** (`/drafts`) lists your
-drafts; a draft can be handed to someone else.
+drafts; **Take over draft** in the editor makes another editor's draft yours.
 
-Setting: `draft_expiration_hours` (**Admin → Site settings → Content**; 0
-keeps drafts forever). Permissions: `draft.create`, `draft.view_own`,
+Setting: `draft_expiration_hours` (**Admin → Site settings → Content and
+exports**; 0 keeps drafts forever). Permissions: `draft.create`, `draft.view_own`,
 `draft.delete_own`, `draft.transfer`.
 
 ## Attachments
@@ -171,8 +159,9 @@ content, so search, history and exports keep working.
   button, questions (expandable FAQ), divider, spacer, a **page list** (chosen
   pages, a category or recently updated pages) and a **canvas or Kanban
   embed**. Page lists and embeds are resolved for each reader with their own
-  permissions, so they never show a page, canvas or board the reader cannot open.
-  The page lists of one page show at most 48 pages together.
+  permissions, so they never show a page, canvas or board the reader cannot
+  open. The page lists of one page show at most 48 pages together; they are
+  left out of the Markdown version.
 * Every block has layout options from a fixed list: alignment, a background
   from the theme palette and spacing. Layouts follow the width the page really
   gets, so columns and cards stack on phones.
@@ -189,7 +178,7 @@ content, so search, history and exports keep working.
 * The server validates every document against an allow-list (block types, keys,
   lengths, links, uploaded images only, fixed layout values) and escapes or
   sanitises everything it renders. Documents are version 2; version 1 documents
-  (1.4 and early 1.6) are upgraded when read and keep rendering unchanged.
+  from older releases are upgraded when read and keep rendering unchanged.
 * The embed block offers a searchable picker (type part of a name, arrow keys
   and Enter) of the canvases and Kanban boards you can open, listed with those
   features' own access rules; the preview shows each embed live, exactly as
@@ -238,13 +227,12 @@ People who may read a page but not edit it (`contribution.propose`) propose an
 edit with a reason from the page (`/page/<slug>/propose-edit`). Reviewers
 (`contribution.review` plus edit rights on the page, and administrators)
 approve or deny it at `/admin/contributions`; approving applies the edit
-credited to the proposer. An approval applies exactly the version the
-reviewer opened: if the proposal or the page changed in the meantime it is
-refused and the review shows the current state. The review lists at most
-5000 lines of the diff and counts the changed lines it leaves out; approving
-still applies the whole proposal, not only what was shown. Each user has a quota of
-waiting proposals
-(`default_contribution_quota`, requests up to
+credited to the proposer. An approval applies exactly the version the reviewer
+opened: if the proposal or the page changed in the meantime it is refused and
+the review shows the current state. The review lists at most 5000 lines of the
+diff and counts the changed lines it leaves out; approving still applies the
+whole proposal, not only what was shown. Each user has a quota of waiting
+proposals (`default_contribution_quota`, requests up to
 `contribution_quota_auto_approve_max` approved automatically). Old proposals
 expire. **My contributions** at `/my-contributions`.
 
@@ -292,10 +280,10 @@ Permissions: `assessment.view`, `assessment.manage`. Settings on
 
 ## Kanban boards
 
-Boards (`/kanban`) with columns and tickets: descriptions in Markdown,
-labels, priorities, due dates, colours, several assignees, comments (up to
-300 per ticket), attachments and description history. A title shorthand fills fields as you
-type: `Fix login @alice +backend !high color:red due:tomorrow`.
+Boards (`/kanban`) with columns and tickets: descriptions in Markdown, labels,
+priorities, due dates, colours, several assignees, comments (up to 300 per
+ticket), attachments and description history. A title shorthand fills fields
+as you type: `Fix login @alice +backend !high color:red due:tomorrow`.
 
 * Changes appear for everyone viewing the board within seconds (the page
   fetches only what changed, and catches up at once after a lost connection).
@@ -304,8 +292,7 @@ type: `Fix login @alice +backend !high color:red due:tomorrow`.
   block); due-soon (within 2 days) and overdue highlighting. A column can be
   marked as a **done column** (the check-mark button among the column tools,
   *Done column*): its tickets keep their due dates but are never overdue or
-  due soon, on the board, in the due-date filters and on *My tickets*
-  (schema 11).
+  due soon, on the board, in the due-date filters and on *My tickets*.
 * **Filter bar**: search text, `@person`/*Me*/unassigned, label, priority and
   due date range, kept in the address (`?q=&who=&label=&priority=&due=`);
   `/` focuses the search. Keyboard moves skip hidden cards. The board state
@@ -340,14 +327,14 @@ type: `Fix login @alice +backend !high color:red due:tomorrow`.
 * **Deleted accounts**: deleting an account (by its holder, by an
   administrator, in a merge, or from the hosting portal) keeps what it added.
   Its boards pass to the administrator who deleted it (otherwise to the
-  longest-standing owner or administrator, active ones first), its tickets
-  and comments to the owner of the board they are on (each comment headed by
-  a note, in the site's language, naming the deleted author), and it leaves
-  assignee lists and shares.
-  Each board that changed records the hand-over in its activity (and in its
-  history when its state changed), except when the hosting portal removes the
-  user. This also happens while Kanban is switched off. With no other owner or
-  administrator left, the account's own boards are deleted with it.
+  longest-standing owner or administrator, active ones first), its tickets and
+  comments to the owner of the board they are on (each comment headed by a
+  note, in the site's language, naming the deleted author), and it leaves
+  assignee lists and shares. Each board that changed records the hand-over in
+  its activity (and in its history when its state changed), except when the
+  hosting portal removes the user. This also happens while Kanban is switched
+  off. With no other owner or administrator left, the account's own boards are
+  deleted with it.
 * Export and import as JSON (or ZIP with attachments), the 1.4 format plus
   column limits, checklists and archived state. A ZIP holds at most 4,999
   attachments and 1 GB; a board with more can still be exported as JSON
@@ -355,11 +342,10 @@ type: `Fix login @alice +backend !high color:red due:tomorrow`.
   offered for any board). An import unpacks only the files its
   tickets refer to, streamed into storage, and skips those that no longer fit
   in the storage quota; its `board.json` is held to the 20 MB of a JSON
-  import. An archive is refused when its file list is larger than 5,000
-  files need, when `board.json` or a file it refers to is neither stored nor
-  deflated, is encrypted or cannot be read, or when such a file over 1 MB is
-  packed more than 200 times smaller.
-* **Events** for other features and webhooks: `kanban.board.created|updated|deleted`,
+  import. Imports refuse archives with more than 5,000 files, encrypted or
+  unusually compressed members, or members that cannot be read.
+* **Events** for other features and webhooks:
+  `kanban.board.created|updated|deleted`,
   `kanban.ticket.created|updated|moved|deleted` (bulk changes: one per ticket)
   and `kanban.comment.created`, emitted after the change is saved.
 * Embed a read-only board in a page with `[[kanban board="<id>"]]`.
@@ -373,66 +359,76 @@ mode). Permissions: `kanban.view`, `kanban.create`.
 ## Canvases
 
 Free-form visual boards (`/canvas`): notes, shapes, images, videos, code and
-links to wiki pages, connected by edges. Several people can edit at once:
-small operations are merged on the server, and a whole-document save made on
-an outdated copy is refused instead of overwriting others. History with
-restore (the newest 200 entries, and only as many of them as fit in 32 MB of
-snapshots per canvas; changes by one person within 15 minutes, or by anyone
-within a minute of the latest entry, share one entry, which keeps the name of
-the person who started it), sharing per person
-or role (view, edit, or an explicit "none"), ZIP export and import with
-images, embeds in pages with
-`[[canvas slug="…"]]`. A wiki-page node stores only the id of its page: the
-title, address and excerpt are read from the page when the canvas is shown,
-so renaming or deleting the page updates the node. Readers who may not open
-the page see neither its title nor whether it still exists (only
-administrators see "deleted"), and the same applies to exports, the REST API
-and the personal data export. Notes and code are rendered on the server and
-kept in a per-process cache; one view renders at most about half a million
-characters of them, and on canvases with more text the remaining notes are
-shown as plain text. Code without a language is shown unhighlighted. An
-import reads at most 7 MB of canvas data and a zip of at most one image per
-node. A document listing more nodes or edges than a canvas may hold
-(counting every listed entry, even invalid or repeated ones) is refused
-before it is processed, whether it comes from an import, a whole-document
-save or the REST API. An export zip is written to a temporary file and
-holds at most 2000 files and 512 MB of them; a canvas showing more is
-exported with a note in place of its files.
+links to wiki pages, connected by edges.
+
+* **Editing together:** several people can edit at once. Small operations
+  are merged on the server; a whole-document save made on an outdated copy
+  is refused instead of overwriting others.
+* **History** with restore. Changes by one person within 15 minutes, or by
+  anyone within a minute of the latest entry, share one entry, which keeps
+  the name of the person who started it.
+* **Sharing** per person or role: view, edit, or an explicit "none".
+* **ZIP export and import** with images, and embeds in pages with
+  `[[canvas slug="…"]]`.
+* **Wiki-page nodes** store only the id of their page. The title, address
+  and excerpt are read when the canvas is shown, so renaming or deleting the
+  page updates the node. Readers who may not open the page see neither its
+  title nor whether it still exists (only administrators see "deleted");
+  exports, the REST API and the personal data export follow the same rule.
+* Notes and code are rendered on the server and cached per process. Code
+  without a language is shown unhighlighted.
+
+Limits:
+
+* 2000 nodes and 5000 edges per canvas. A document listing more, counting
+  invalid and repeated entries, is refused from an import, a whole-document
+  save or the REST API.
+* History keeps the newest 200 entries, and only as many as fit in 32 MB of
+  snapshots per canvas.
+* One view renders about half a million characters of notes and code; the
+  remaining notes are shown as plain text.
+* An import reads at most 7 MB of canvas data and one image per node.
+* An export holds at most 2000 files and 512 MB of them; a canvas showing
+  more is exported with a note in place of its files.
 
 New canvases can start from a template (flowchart, mind map, retrospective
-board, SWOT analysis). The editor snaps to a grid (G), aligns and
-distributes the selection, groups elements (Ctrl+G) so they move together,
-locks elements (L), shows alignment guides while dragging (edges and centres
-of nearby elements, with snapping; Alt places freely), draws connections
-curved, straight or at right angles attached to the facing sides or to a
-chosen side (`from_side` / `to_side`: top, right, bottom, left; absent means
-automatic), and shows an overview map. Everyone who can open a canvas can
-download it as a PNG or SVG image (made in the browser; images from other
-sites are loaded from their site with CORS, never through the wiki, and when
-that is refused the PNG shows a labelled placeholder while the SVG keeps a
-link) and read its **text
-outline** (`/canvas/<slug>/outline`, also as Markdown with `?format=md`):
-every element in reading order with its connections, for screen readers and
-quick reviews.
+board, SWOT analysis). The editor has:
+
+* a grid with snapping (G), alignment and distribution of the selection,
+  groups that move together (Ctrl+G) and locks (L);
+* alignment guides while dragging (edges and centres of nearby elements;
+  Alt places freely) and an overview map;
+* connections drawn curved, straight or at right angles, attached to the
+  facing sides or to a chosen side (`from_side` / `to_side`: top, right,
+  bottom, left; absent means automatic).
+
+Everyone who can open a canvas can download it as a PNG or SVG image, made in
+the browser. Images from other sites are loaded from their site with CORS,
+never through the wiki; when that is refused the PNG shows a labelled
+placeholder and the SVG keeps a link. The **text outline**
+(`/canvas/<slug>/outline`, also as Markdown with `?format=md`) lists every
+element in reading order with its connections, for screen readers and quick
+reviews.
 
 **Locks are enforced by the server.** An operation that moves, resizes,
-edits or deletes a locked element is refused unless an earlier operation of
-the same batch unlocks it (an operation that unlocks *and* changes the
-element counts as a change, so a client that never saw the lock cannot
-override it). Unlocking, locking, restacking (`layer`) and grouping stay
-allowed for every editor. The editor skips refused operations and reports
-them (`rejected` in the `/ops` answer, then reloads); the REST API and
-whole-document saves refuse the whole request with the error code `locked`.
-History restores are not blocked. A locked wiki-page node keeps its page
-whatever page an operation or save names for it (unlock it first to link
-another page), and a wiki-page node sent without a page keeps the stored one,
-since readers who may not open that page receive the node without it.
+edits or deletes a locked element is refused unless an earlier operation in
+the same batch unlocks it. A single operation that unlocks and changes an
+element counts as a change and is refused. Locking, unlocking, restacking
+(`layer`) and grouping stay allowed for every editor.
+
+* The editor skips refused operations, reports them (`rejected` in the
+  `/ops` answer) and reloads.
+* The REST API and whole-document saves refuse the whole request with the
+  error code `locked`.
+* History restores are not blocked.
+* A locked wiki-page node keeps its page, whatever page an operation or save
+  names for it. A wiki-page node sent without a page keeps the stored one.
 
 Events (after commit): `canvas.created`, `canvas.updated` (once per
 operation batch, save, restore, change of title, visibility, sharing or
-owner, or page-link update of a node saved by an older version) and
-`canvas.deleted`, with `canvas` (the layout
-row) and `actor_id`; the web interface and the REST API emit the same.
+owner, or update of a node's page link) and `canvas.deleted`, with `canvas`
+(the layout row) and `actor_id`. The web interface and the REST API emit the
+same events.
 
 Settings (**Admin → Canvas**): `canvas_access`, `canvas_write_access`,
 `canvas_open_access`, `canvas_public_access_enabled`. Archived canvases are
@@ -452,23 +448,15 @@ visible only to their creator and administrators. Permissions:
   message to the administrators, who see a copy of it even if it is deleted
   later.
 * **Blocking**: a member blocks another from a conversation, a group's member
-  list or **Settings → Blocked people** (where they also unblock). What the
-  blocked member sends them in a conversation they already have is withheld:
-  it looks sent to its sender, is never delivered (not even after an
-  unblock) and is not unread. The blocked member cannot start a conversation
-  with them or add them to a group (refused as for an account that cannot
-  receive messages; a conversation they already have opens as usual, and a
-  current member is reported as one) and is not offered their name; the one
-  who blocked cannot message them either until they unblock. In groups they
-  share, the blocked member's messages are hidden from the one who blocked
-  them (system messages stay) and are not counted as unread. Blocks are
-  private: nobody is notified, the blocked member sees nothing an inactive
-  account would not show (though seeing the other person post in a shared
-  group while a new conversation is refused lets them guess), they are not
-  in the audit log, and only the member who blocked sees
-  them (also in their data export). The administration pages hide nothing
-  and mark withheld messages (`chat__blocks`, `chat_messages.withheld`,
-  schema 10).
+  list or **Settings → Blocked people**, where they also unblock. Messages
+  from the blocked member are withheld: they look sent but are never
+  delivered, not even after an unblock. The blocked member cannot start a
+  conversation with the blocker or add them to a group, and the blocker
+  cannot message the blocked member until they unblock. In shared groups the
+  blocked member's messages are hidden from the blocker. Nobody is notified,
+  blocks are not in the audit log, and only the blocker sees the list (also
+  in their data export). The administration pages show withheld messages,
+  marked as such.
 * Pages load the latest messages, then fetch only new ones, and poll less
   while the tab is hidden.
 * **Deleting a message erases its text and attachments for everyone**; a
@@ -495,7 +483,7 @@ retention policies for messages and attachments of direct messages and groups
 
 ## Read aloud
 
-An audio player under each page: readers press **Generate**, a worker
+An audio player under each page: readers press **Generate audio**, a worker
 synthesises the page with a neural voice (Piper) on the server or on a GPU
 server, and the audio is kept until the page changes. Speeds from 0.75× to
 2×, download as audio file, automatic generation after edits (optional),
@@ -514,6 +502,14 @@ See [read aloud](tts.md) for installation and configuration.
   sign out everywhere, clear history), two-step verification
   (`/settings/two-step`: authenticator app and recovery codes), API tokens,
   personal data export, account merges, and deleting the account.
+* **Renames:** renaming or deleting an account leaves pages and drafts as
+  they are.
+  * A former name stays reserved for its account, and mentions of it
+    (`/users/<old name>`) lead to the renamed account.
+  * An administrator can release a former name on the account's **History**
+    page (**Admin → Users**). The release is recorded in the audit log, and
+    old mentions stop leading to the account.
+  * Members can rename themselves at most 3 times a day.
 * **People** (`/users`) lists members; `/users/<username>` shows a profile
   with contributions, badges and custom fields when the owner published it.
 * **User profiles** feature (`user_profiles`): published profile pages,
@@ -528,8 +524,9 @@ See [read aloud](tts.md) for installation and configuration.
   (`/admin/users/merge`). The source is then deleted, or kept locked: renamed
   `merged_<name>`, made a plain user with an unknown password, signed out,
   its API tokens revoked and suspended so that only an administrator can
-  reactivate it. The last owner and the last active administrator cannot be
-  merged away.
+  reactivate it. A merge rewrites the source's `@mentions`, with a history
+  entry per page. The last owner and the last active administrator cannot
+  be merged away.
 
 ## Badges
 
@@ -538,6 +535,8 @@ Awards shown on profiles. Administrators create badge types
 automatically: first edit, number of edits, categories edited, pages created,
 days of membership, minutes spent reading. Automatic badges are checked by a
 job and when the author saves or signs in. Members are notified of new badges.
+A revoked badge is not awarded again automatically; deleting the award instead
+lets its trigger award it again.
 
 ## Leaderboard
 
@@ -548,59 +547,31 @@ see, with CSV export. Revision sizes are computed once in the background.
 ## Mascot
 
 A pixel-art banana in the top bar, in place of the logo, for every signed-in
-person while the plugin is on; it cannot be hidden for one account or for
-everyone. Visitors who are not signed in see the logo. It bobs, blinks and
-hops when clicked, and stands still with reduced motion (the **Reduce motion**
-display preference or the operating system's setting); eleven clicks on the
-same page put sunglasses on it, and they stay on the account until the person
-takes them off. On touch screens its button has the shell's touch size
-(2.75rem square), and quick taps do not zoom the page.
-
-* **Customise** (`/settings/display`): while its sunglasses are on, a Mascot
-  section offers to take them off. Without them there is no Mascot section.
-* **Admin → Appearance**: put its sunglasses on or take them off for every
-  account at once, after a confirmation. Accounts that already have that
-  choice are left alone, and the others are written in one batch. Each action
-  is recorded in the audit log under its own name (`mascot.everyone.shades_on`,
-  `mascot.everyone.shades_off`) with the number of accounts it changed;
-  people can take the sunglasses off afterwards under Customise. Entries
-  written by earlier builds of 1.7, which could also show or hide the mascot
-  for everyone (`mascot.everyone.show`, `mascot.everyone.hide`), keep their
-  translated names in the log.
-* Switching the plugin off (or listing `mascot` in
-  `BW_MANAGED_PLUGIN_DENYLIST`, on a hosting platform
-  `HOSTING_TENANT_PLUGIN_DENYLIST`) is the only way to remove the mascot: it
-  goes for everyone and the logo comes back, since 1.7 the same banana,
-  standing still and linking home. The sunglasses stay saved for when it is
-  switched on again.
-
-The sunglasses are a key of the account's display preferences
-(`users.accessibility`: `mascot_shades`), with no table of their own. Taking
-them off and the administrator's actions write only this key, leaving every
-other saved preference exactly as stored. **Reset display preferences** keeps
-it, as it keeps the language, and `/api/accessibility` cannot set it. A
-`mascot_enabled` key that earlier builds of 1.7 saved to hide the mascot is
-ignored, and dropped the next time the display preferences are saved. The top
-bar reads just the sunglasses key on every page, and the script takes its
-click count and the address it saves to from the mascot's own button, never
-from page content.
-
-Because the mascot takes the logo's place, a click there makes the banana hop
-instead of opening the home page; the site name next to it still links home.
-Administrators who prefer the logo link switch the plugin off.
+person; visitors who are not signed in see the logo. It bobs, blinks and hops
+when clicked (Enter and Space too), and stands still with reduced motion.
+Eleven clicks on the same page put sunglasses on it for that account, and
+eleven more take them off. **Customise** takes them off too;
+**Admin → Appearance** puts them on or takes them off for every account, and
+records it in the audit log. Switch the plugin off (or deny it with
+`BW_MANAGED_PLUGIN_DENYLIST`) to show the logo for everyone. While it is on, the
+Konami code sends a short shower of small bananas, and the mascot peeks into
+the "page not found" card.
+The hosting portal's top bar shows the same mascot to everyone; there the
+sunglasses are kept in the browser.
 
 ## Personal data export
 
-**Settings → Your data → Download my data** (`/settings/export`) downloads a ZIP of
-everything the account owns: account, profile, preferences, its own records
-(edits, drafts, proposals, messages, boards, canvases, sessions, tokens …) and
-its uploaded files. It never contains password hashes, tokens or other
-secrets (two-step verification appears only as whether it is on, since when
-and how many recovery codes are left), what administrators keep to themselves (hidden suspension reasons
-and end times, impersonation records, internal tags, who changed a role), or
-content the account can no longer read: rows of pages, boards, canvases and
-groups it has lost access to keep only their ids and times. Administrators can
-export any account (`/admin/users/<id>/export`).
+**Settings → Your data → Download my data** (`/settings/export`) downloads a
+ZIP of everything the account owns: account, profile, preferences, its own
+records (edits, drafts, proposals, messages, boards, canvases, sessions,
+tokens …) and its uploaded files. It never contains password hashes, tokens or
+other secrets (two-step verification appears only as whether it is on, since
+when and how many recovery codes are left), what administrators keep to
+themselves (hidden suspension reasons and end times, impersonation records,
+internal tags, who changed a role), or content the account can no longer read:
+rows of pages, boards, canvases and groups it has lost access to keep only
+their ids and times. Administrators can export any account
+(`/admin/users/<id>/export`).
 
 ## Custom pages
 
@@ -610,9 +581,10 @@ published. Types: redirect, HTML, styled HTML, HTML with scripts, Markdown,
 wiki page, plain text, JSON, XML, image, image page, YouTube video, hosted
 video, file download, file listing, iframe, page embed, link list, code
 snippet, and **visual builder page**. Author HTML, CSS and JavaScript run in a
-sandboxed document with no access to the wiki's cookies. A custom page can never take over an address
-the wiki uses. **Admin → Custom pages**; permission `custom_page.manage`
-(administrators only); setting `custom_pages_max_video_size_mb`.
+sandboxed document with no access to the wiki's cookies. A custom page can
+never take over an address the wiki uses. **Admin → Custom pages**; permission
+`custom_page.manage` (administrators only); setting
+`custom_pages_max_video_size_mb`.
 
 A host can forbid that: under `BW_FORBID_PUBLIC_MODE` published custom pages,
 their files, redirects and sandboxed documents are for signed-in members only,
@@ -659,12 +631,12 @@ Everything under **Admin** (`/admin/dashboard`), for administrators:
   here.
 * **Custom roles**, **Invite codes** (with a number of uses, an expiry and an
   assigned role or custom role; editors granted the `invite.*` permissions
-  manage their own codes and can only hand out a plain member account or
-  what they hold themselves: no permission or category beyond their own), **Sessions** (every
-  active session, end one, sign everyone out, daily automatic sign-out of
-  users and editors at an hour of the site time zone). The account
-  hierarchy applies throughout: a plain administrator neither sees the
-  addresses of nor signs out owners, superusers and other administrators,
+  manage their own codes and can only hand out a plain member account or what
+  they hold themselves: no permission or category beyond their own),
+  **Sessions** (every active session, end one, sign everyone out, daily
+  automatic sign-out of users and editors at an hour of the site time zone).
+  The account hierarchy applies throughout: a plain administrator neither sees
+  the addresses of nor signs out owners, superusers and other administrators,
   and the automatic sign-out, which any administrator may set, leaves all
   three signed in.
 * **Site settings** (`/admin/settings`): name, time zone, public mode (with
@@ -685,25 +657,24 @@ Everything under **Admin** (`/admin/dashboard`), for administrators:
 * **Documentation**: add the built-in user guide (full or simplified,
   English, Italian or German) as a category of pages, or download it as
   Markdown.
-* **Site migration** (owners and superusers): export the whole wiki
-  (database and files) as one ZIP, or import one, which **replaces
-  everything**, accounts included. Both ask for your password. Imports accept
-  1.4 archives, never touch code or the secret key, check the database
-  first, drop triggers and views this release would not create, keep the
-  live audit log (without doubling the entries the archive already holds),
-  keep a copy of the current site in
-  `<instance>/backups/pre-import-<time>/` and restore it if anything fails.
-  An archive with encrypted files, or with files compressed other than
+* **Site migration** (owners and superusers): export the whole wiki (database
+  and files) as one ZIP, or import one, which **replaces everything**,
+  accounts included. Both ask for your password. Imports accept 1.4 archives,
+  never touch code or the secret key, check the database first, drop triggers
+  and views this release would not create, keep the live audit log (without
+  doubling the entries the archive already holds), keep a copy of the current
+  site in `<instance>/backups/pre-import-<time>/` and restore it if anything
+  fails. An archive with encrypted files, or with files compressed other than
   stored or deflated (the only methods exports use), is refused unread.
-  Two-step verification set up on another wiki cannot be checked without
-  that wiki's secret key, so the import turns it off for those accounts
-  (named in a notice and in the audit log); they sign in with their
-  password and can set it up again. Needs `BW_ALLOW_SITE_IMPORT` (on by
-  default except under managed hosting).
+  Two-step verification set up on another wiki cannot be checked without that
+  wiki's secret key, so the import turns it off for those accounts (named in a
+  notice and in the audit log); they sign in with their password and can set
+  it up again. Needs `BW_ALLOW_SITE_IMPORT` (on by default except under
+  managed hosting).
 * **Server**: restart and error log.
-* **Plugins** (`/admin/plugins`): switch features, install third-party
-  plugins (owner and superusers only, and only with `BW_ALLOW_EXTERNAL_PLUGINS=1`;
-  see [plugins](plugins/README.md)), order the sidebar apps.
+* **Plugins** (`/admin/plugins`): switch features, install third-party plugins
+  (owner and superusers only, and only with `BW_ALLOW_EXTERNAL_PLUGINS=1`; see
+  [plugins](plugins/README.md)), order the sidebar apps.
 * **Bulk delete** (`/admin/bulk`): delete many categories, pages, canvases or
   boards at once, with the same checks and events as single deletions. The
   server asks for a typed confirmation word (`DELETE`, or the interface
@@ -721,7 +692,7 @@ Everything that waits for someone's decision is collected in one place:
 | Proposed edits to review | reviewers (`contribution.review` and edit rights on the page) and administrators | Contributions review list |
 | Contribution quota requests | administrators | Contributions review list |
 | Pages waiting to be deleted | administrators | Admin → Pending deletions |
-| Account merges to approve | administrators | Admin → Merge requests |
+| Account merges to approve | administrators | Admin → Account merges |
 | Plugin changes waiting for a restart | administrators | Admin → Plugins |
 
 * A **red dot with the number** of waiting requests sits on the account
@@ -766,8 +737,8 @@ at most one email, and what each person was last told is kept in
 `/login` (with "remember me"), `/login/two-step` (the authenticator or
 recovery code of accounts with two-step verification), `/signup` (invite
 codes, open sign-up, approval, bot protection), `/setup` for the first
-account, account status
-pages for suspended, pending and denied accounts, forced password change, the
-administrator's first-run wizard, an introduction and a guided tour for new
-members (the tour illustrates what each role can do; it never changes what
-the account can see), and sign-in with the hosting portal on hosted wikis.
+account, account status pages for suspended, pending and denied accounts,
+forced password change, the administrator's first-run wizard, an introduction
+and a guided tour for new members (the tour illustrates what each role can do;
+it never changes what the account can see), and sign-in with the hosting
+portal on hosted wikis.

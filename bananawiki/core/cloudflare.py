@@ -14,6 +14,7 @@ Cloudflare announces a change.
 from __future__ import annotations
 
 import ipaddress
+import socket
 from functools import cache
 
 UPDATED = "2026-09-30"
@@ -52,4 +53,18 @@ def all_cloudflare(addresses) -> bool:
     return bool(values) and all(is_cloudflare_address(value) for value in values)
 
 
-__all__ = ["IPV4", "IPV6", "RANGES", "UPDATED", "all_cloudflare", "is_cloudflare_address"]
+def addresses(host: str) -> list[str]:
+    """The addresses *host* resolves to (none when the lookup fails)."""
+    try:
+        found = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except (OSError, UnicodeError):
+        return []
+    return sorted({str(item[4][0]) for item in found})
+
+
+def proxied(hosts) -> bool:
+    """True when *hosts* resolve, every one of them only to Cloudflare's edge (the records are orange-cloud)."""
+    return all_cloudflare(address for host in hosts for address in addresses(host))
+
+
+__all__ = ["IPV4", "IPV6", "RANGES", "UPDATED", "addresses", "all_cloudflare", "is_cloudflare_address", "proxied"]

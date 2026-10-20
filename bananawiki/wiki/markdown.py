@@ -179,8 +179,8 @@ RESERVED_IDS = frozenset({"main", "sidebar", "attachments"})
 _FENCE = re.compile(r"^\s*(```|~~~)")
 _LIST_ITEM = re.compile(r"^(\d+[.)]|[-*+])\s+\S")
 _INDENTED_LIST_ITEM = re.compile(r"^([ \t]*)(\d+[.)]|[-*+])\s")
-# A single ``\s``: the attribute class already accepts further whitespace, and
-# ``\s+`` before it made an unclosed shortcode quadratic in its line length.
+# A single ``\s``: the attribute class accepts further whitespace, and ``\s+``
+# here would make an unclosed shortcode quadratic in its line length.
 _SHORTCODE_LINE = re.compile(r"^[ \t]*\[\[(?:video|canvas|kanban)\s[^\]]*?\]\][ \t]*$", re.IGNORECASE)
 _BLANK_RUN = re.compile(r"(\n[ \t]*){3,}")
 _FENCE_RUN = re.compile(r"(`{3,}|~{3,})[ ]*")
@@ -586,7 +586,7 @@ def sanitize(html: str) -> str:
     )
 
 
-# ── Post-sanitisation embeds ──────────────────────────────────────────────────
+# Post-sanitisation embeds
 
 # The sanitiser writes every attribute value in double quotes with ``"`` and
 # ``&`` escaped, and ``<`` and ``>`` escaped in text, but only nh3 0.3.7 and
@@ -610,8 +610,10 @@ def _escape_attribute_brackets(html: str) -> str:
 _SHORTCODE_ATTRS = rf"(?P<attrs>(?:[^\]<]|<(?!/?p>)){{0,{MAX_SHORTCODE_CHARS}}}?)"
 _VIDEO_SHORTCODE = re.compile(rf"<p>\s*\[\[video\s{_SHORTCODE_ATTRS}\]\]\s*</p>", re.IGNORECASE)
 _EMBED_SHORTCODE = re.compile(rf"<p>\s*\[\[(?P<kind>canvas|kanban)\s{_SHORTCODE_ATTRS}\]\]\s*</p>", re.IGNORECASE)
-# Names start after a non-letter: retrying inside a long word was quadratic.
-_SHORTCODE_ATTR = re.compile(r'(?<![a-z])([a-z]+)\s*=\s*(?:"|&quot;)([^"&]*)(?:"|&quot;)', re.IGNORECASE)
+# Names start after a non-letter, so a long word is not retried at every position.
+# Values may hold escaped ampersands (``&amp;`` in a URL query) up to the closing quote.
+_SHORTCODE_ATTR = re.compile(r'(?<![a-z])([a-z]+)\s*=\s*(?:"|&quot;)((?:[^"&]|&(?!quot;))*)(?:"|&quot;)',
+                             re.IGNORECASE)
 _BARE_VIDEO = re.compile(
     r'<p>\s*(?:<a href="(?P<href>https?://[^"]+)"[^>]*>(?P=href)</a>|(?P<bare>https?://[^\s<>"]+))\s*</p>',
     re.IGNORECASE,
@@ -937,8 +939,8 @@ class _FirstTocMarker(TocTreeprocessor):
     """Only the first ``[TOC]`` marker becomes the table; later ones stay literal text.
 
     Upstream copies the table into every marker and finds each marker by
-    scanning its siblings, so a short source repeating the marker grew the
-    output with markers × headings and the work with markers squared.
+    scanning its siblings, so a short source repeating the marker would grow
+    the output with markers × headings and the work with markers squared.
     """
 
     def replace_marker(self, root: Element, elem: Element) -> None:

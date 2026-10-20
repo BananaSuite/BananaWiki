@@ -9,7 +9,7 @@ description = "A self-hosted wiki with page history, fine-grained permissions, c
 readme = "README.md"
 license = "AGPL-3.0-only"
 license-files = ["LICENSE", "NOTICE"]
-authors = [{ name = "Luca Zani and BananaWiki contributors" }]
+authors = [{ name = "Luca Zani and contributors" }]
 requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -22,21 +22,21 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP :: Dynamic Content :: Wiki",
 ]
 dependencies = [
-    "Flask>=3.1,<3.2",
-    "Werkzeug>=3.1,<3.2",
-    "Jinja2>=3.1,<4",
+    "Flask>=3.1.3,<3.2",
+    "Werkzeug>=3.1.9,<3.2",
+    "Jinja2>=3.1.6,<4",
     "MarkupSafe>=2.1,<4",
     "itsdangerous>=2.2,<3",
-    "Markdown>=3.6,<4",
-    "Pygments>=2.18,<3",
+    "Markdown>=3.8.1,<4",
+    "Pygments>=2.20,<3",
     "nh3>=0.3.7,<0.4",
-    "Pillow>=12.3,<13",
+    "Pillow>=13.0,<14",
     "cryptography>=50.0.1,<51",
-    "filelock>=3.13,<5",
+    "filelock>=3.20.3,<5",
     "fpdf2>=2.8,<3",
     "qrcode>=7.4,<9",
     "gunicorn>=26.2,<27; sys_platform != 'win32'",
-    "waitress>=3,<4",
+    "waitress>=3.0.1,<4",
     "tzdata>=2024.1; sys_platform == 'win32'",
 ]
 
@@ -49,9 +49,9 @@ hosting = [
     "google-auth>=2.23,<3",
 ]
 dev = [
-    "pytest>=8",
+    "pytest>=9.0.3",
     "pytest-xdist>=3.5",
-    "ruff>=0.6",
+    "ruff==0.17.1",
 ]
 
 [project.scripts]
@@ -102,7 +102,6 @@ ignore = [
     "SIM108",
     # SQL is assembled only from literal fragments and validated identifiers
     # (core.sqlite.quote_identifier); values always go through ? parameters.
-    # Reviewed in the security review rather than flagged per line.
     "S608",
     # Markup() is applied to HTML the application built and escaped itself.
     "S704",

@@ -68,7 +68,7 @@ class WikiClient:
         self.last_headers: dict[str, str] = {}
         self._opener = _request.build_opener(_request.ProxyHandler({}), _NoRedirect())
 
-    # ── Transport ─────────────────────────────────────────────────────────────
+    # Transport
 
     def request(self, method: str, path: str, payload: Any = None, *, query: dict[str, Any] | None = None,
                 idempotency_key: str | None = None, if_match: str | None = None) -> dict[str, Any]:
@@ -121,7 +121,7 @@ class WikiClient:
             yield from answer.get(key, [])
             offset = answer.get("next_offset")
 
-    # ── Pages ─────────────────────────────────────────────────────────────────
+    # Pages
 
     def page(self, slug: str) -> dict[str, Any]:
         """A page the account may read (needs the ``pages`` scope)."""
@@ -156,7 +156,7 @@ class WikiClient:
     def delete_page(self, slug: str) -> dict[str, Any]:
         return self.request("DELETE", "/pages/" + _segment(slug))
 
-    # ── Kanban ────────────────────────────────────────────────────────────────
+    # Kanban
 
     def boards(self, *, archived: bool = False) -> list[dict[str, Any]]:
         """Active boards, or with *archived* only the archived ones."""
@@ -250,7 +250,7 @@ class WikiClient:
         return self.request("POST", f"/kanban/tickets/{int(ticket_id)}/checklist/reorder",
                             {"order": [int(item) for item in order]})["checklist"]
 
-    # ── Webhooks (administrators) ─────────────────────────────────────────────
+    # Webhooks (administrators)
 
     def webhooks(self) -> list[dict[str, Any]]:
         """Configured webhooks; ``disabled_reason`` tells whether the wiki switched one off after failures."""
@@ -260,7 +260,7 @@ class WikiClient:
         """Change ``url``, ``events``, ``description``, ``active``…; ``active=True`` also resets the failure count."""
         return self.request("PUT", f"/admin/webhooks/{int(webhook_id)}", fields)["webhook"]
 
-    # ── Canvas ────────────────────────────────────────────────────────────────
+    # Canvas
 
     def canvases(self) -> list[dict[str, Any]]:
         return list(self.iter_all("/canvas", "canvases"))

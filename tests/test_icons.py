@@ -3,7 +3,7 @@
 The favicon presets of Admin > Appearance, the logo, the hosting portal's
 icon, the home-screen icons and the desktop app's icons (.png for its window,
 .ico for Windows, .icns for macOS) come from the pixel art in
-bananawiki/wiki/features/mascot/sprite.py: its body, eyes and mouth, without
+bananawiki/core/mascot.py: its body, eyes and mouth, without
 the sunglasses, each sprite pixel an exact square. ``make_icons.py --check``
 fails when an icon was edited by hand or the sprite changed without a rerun.
 """
@@ -20,7 +20,7 @@ import pytest
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
-from bananawiki.wiki.features.mascot import sprite
+from bananawiki.core import mascot as sprite
 from bananawiki.wiki.templating import FAVICON_PRESETS
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,7 +90,7 @@ def test_the_committed_icons_are_the_ones_the_script_draws():
 
 def test_the_yellow_favicon_is_the_mascot_with_its_own_colours_and_no_sunglasses():
     image = Image.open(FAVICONS / "banana_yellow.png")
-    assert (image.format, image.size, image.mode) == ("PNG", (32, 32), "RGBA")
+    assert (image.format, image.size, image.has_transparency_data) == ("PNG", (32, 32), True)
     drawn = grid(image, 2)
     assert drawn == centred(mascot())
     # Where the sunglasses would cover the face, the banana shows; no glint either.
@@ -104,7 +104,7 @@ def test_the_yellow_favicon_is_the_mascot_with_its_own_colours_and_no_sunglasses
 @pytest.mark.parametrize("preset", FAVICON_PRESETS)
 def test_every_favicon_preset_is_the_mascot_in_its_colour(preset):
     image = Image.open(FAVICONS / f"banana_{preset}.png")
-    assert (image.format, image.size, image.mode) == ("PNG", (32, 32), "RGBA")
+    assert (image.format, image.size, image.has_transparency_data) == ("PNG", (32, 32), True)
     drawn = grid(image, 2)
     light, shade = make_icons().preset_colours(preset)
     assert drawn == centred(mascot(light, shade))
@@ -126,23 +126,30 @@ def test_the_portal_uses_the_wiki_s_yellow_icons_byte_for_byte():
     assert (HOSTING / "apple-touch-icon.png").read_bytes() == TOUCH.read_bytes()
 
 
-def test_the_home_screen_icon_is_the_banana_on_an_opaque_tile():
-    """iOS shows the transparent parts of a home-screen icon in black (and rounds the corners itself), so the
-    banana sits on a light square, at ten times its size: half that size (the READMEs) is still exact."""
+def test_the_home_screen_icon_is_the_banana_on_a_transparent_square():
+    """The banana at ten times its size, so half that size (the READMEs) is still exact, with nothing around it:
+    iOS fills the transparency with black (the suite's dark background) and rounds the corners itself."""
     image = Image.open(TOUCH).convert("RGBA")
     assert image.size == (180, 180)
-    assert {alpha for _count, (*_rgb_, alpha) in image.getcolors(180 * 180)} == {255}
+    assert image.getpixel((0, 0)) == (0, 0, 0, 0)
     tool = make_icons()
     left, top = tool.touch_origin()
     assert left % 2 == 0 and top % 2 == 0
-    drawn = grid(image, 10, (left, top))
-    tile = image.getpixel((0, 0))
-    assert {point: colour for point, colour in drawn.items() if colour != tile} == centred(mascot())
+    assert grid(image, 10, (left, top)) == centred(mascot())
+    assert image.getbbox() == tuple(edge * 10 + offset for edge, offset in zip(
+        tool.banana().getbbox(), (left, top, left, top), strict=True))
+
+
+def test_the_home_screen_banana_is_centred_by_eye_not_by_its_box():
+    """The stem and the tip stick out to the top right, so a centred bounding box looks low and to the left:
+    the banana sits a little higher and further right than that, and stays inside the icon."""
+    left, top, right, bottom = Image.open(TOUCH).convert("RGBA").getbbox()
+    assert 0 < 180 - right < left and 0 < top < 180 - bottom
 
 
 def test_the_desktop_window_icon_is_256_pixels():
     image = Image.open(DESKTOP_ICON)
-    assert (image.format, image.size, image.mode) == ("PNG", (256, 256), "RGBA")
+    assert (image.format, image.size, image.has_transparency_data) == ("PNG", (256, 256), True)
     assert grid(image, 16) == centred(mascot())
 
 
@@ -167,8 +174,8 @@ class _FakePhoto:
 
 
 def test_the_desktop_window_gets_the_banana_at_exact_sizes():
-    """Given only the 256px image, window managers scaled it to 16, 24, 32 or 48px themselves (256 to 24 is
-    10.67:1) and blurred the pixel art; the launcher now offers whole multiples of the sprite as well."""
+    """Window managers given only the 256px image scale it themselves (256 to 24 is 10.67:1) and blur the pixel
+    art, so the launcher offers whole multiples of the sprite as well."""
     from bananawiki.desktop.app import window_icons
 
     images = window_icons(_FakePhoto, DESKTOP_ICON)
@@ -223,7 +230,7 @@ def test_check_names_an_icon_changed_by_hand_and_a_rerun_restores_it(tmp_path):
     assert not missing.exists()
     assert tool.sync(targets, write=True) == [edited, missing]
     assert tool.sync(targets, write=False) == []
-    assert edited.read_bytes() == (FAVICONS / "banana_red.png").read_bytes()
+    assert tool.same(edited.read_bytes(), (FAVICONS / "banana_red.png").read_bytes())
 
 
 def test_metadata_in_an_icon_counts_as_a_difference(tmp_path):
@@ -264,6 +271,39 @@ def test_copies_in_the_other_trees_are_byte_identical_to_this_tree_s(tmp_path):
     assert (site / "img" / "apple-touch-icon.png").read_bytes() == TOUCH.read_bytes()
 
 
+@pytest.mark.parametrize("relative", ["bananachat/static/js/mascot.js", "mascot/mascot.js"])
+def test_a_change_to_the_mascot_fails_until_each_port_records_it(tmp_path, relative):
+    tool = make_icons()
+    assert relative in (tool.CHAT_PORT, tool.SITE_PORT)
+    wiki, tree = tmp_path / "wiki", tmp_path / "port"
+    for name in tool.MASCOT_SOURCES:
+        (wiki / name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / name, wiki / name)
+    port = tree / relative
+    port.parent.mkdir(parents=True)
+    port.write_text(f"// Ported from BananaWiki mascot {tool.mascot_version(wiki)} (...).\nimport x;\n", encoding="utf-8")
+    assert tool.port(wiki, tree, relative, record=False) is None
+    script = wiki / "bananawiki" / "core" / "static" / "mascot" / "mascot.js"
+    script.write_text(script.read_text(encoding="utf-8") + "// a fix\n", encoding="utf-8")
+    assert "--ported" in tool.port(wiki, tree, relative, record=False)
+    assert tool.port(wiki, tree, relative, record=True) is None
+    assert port.read_text(encoding="utf-8") == (
+        f"// Ported from BananaWiki mascot {tool.mascot_version(wiki)} (...).\nimport x;\n")
+    assert tool.port(wiki, tree, relative, record=False) is None
+    port.write_text("import x;\n", encoding="utf-8")
+    assert tool.port(wiki, tree, relative, record=True).endswith('no "BananaWiki mascot <hash>" line')
+
+
+@pytest.mark.parametrize(("sibling", "marker", "relative"), [("BananaChat", "bananachat/static", "CHAT_PORT"),
+                                                             ("BananaWiki-site", "img", "SITE_PORT")])
+def test_the_sibling_ports_of_the_mascot_follow_this_tree_s(sibling, marker, relative):
+    tree = ROOT.parent / sibling
+    if not (tree / marker).is_dir():
+        pytest.skip(f"{sibling} is not next to this tree")
+    tool = make_icons()
+    assert tool.port(ROOT, tree, getattr(tool, relative), record=False) is None
+
+
 def test_the_script_reads_the_sprite_without_flask_or_markupsafe(tmp_path):
     probe = (
         "import builtins, runpy, sys\n"
@@ -283,6 +323,6 @@ def test_the_script_reads_the_sprite_without_flask_or_markupsafe(tmp_path):
 def test_pngs_are_whole_squares_when_browsers_halve_them():
     """A browser shows a 32x32 favicon at 16x16 on a standard screen: every 2x2 block is one colour, so the
     halved icon is the sprite again, not a blur."""
-    image = Image.open(FAVICONS / "banana_yellow.png")
+    image = Image.open(FAVICONS / "banana_yellow.png").convert("RGBA")
     halved = image.reduce(2)
     assert halved.size == (16, 16) and grid(halved, 1) == centred(mascot())

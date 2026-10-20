@@ -1,8 +1,10 @@
-"""Reading pages: home, page view, navigation, categories, sidebar, public mode."""
+"""Reading pages: home, page view, navigation, categories, sidebar, search, public mode."""
 
+import pytest
 from markupsafe import Markup
 
 from bananawiki.wiki.features.pages import service
+from bananawiki.wiki.features.pages.search import snippet_html, snippet_text
 
 from .pages_support import add_interceptor, in_app, make_category, make_page, restrict
 
@@ -141,3 +143,50 @@ def test_sync_endpoint_reports_changes(app, admin_client, admin):
     in_app(app, lambda: service.update(service.get(page["id"]), author_id=admin["id"], content="v2"))
     data = admin_client.get("/api/page/live/sync?since=1").get_json()
     assert data["changed"] is True and data["revision"] == 2
+
+
+@pytest.mark.parametrize("query", ["#", "category:Hidden", "slug:salaries", '"'])
+def test_search_without_full_text_terms_does_not_fail(app, admin_client, query):
+    """Relevance sorting needs a full-text term; queries without one still answer."""
+    hidden = make_category(app, "Hidden")
+    make_page(app, "Salaries 2026", "confidential numbers", category_id=hidden["id"])
+    assert admin_client.get("/search", query_string={"q": query}).status_code == 200
+
+
+def test_search_works_without_the_full_text_index(app, admin_client, monkeypatch):
+    make_page(app, "Salaries 2026", "confidential numbers")
+    monkeypatch.setattr(service, "fts_available", lambda: False)
+    response = admin_client.get("/search", query_string={"q": "confidential"})
+    assert response.status_code == 200 and b"Salaries 2026" in response.data
+
+
+@pytest.mark.parametrize(("raw", "expected"), [
+    ("**Operations**, **Product**, HR", "Operations, Product, HR"),
+    ("[TOC] Overview of the release", "Overview of the release"),
+    (" … release notes and project pages. ![Team offsite 2026](/static/up … ", "… release notes and project pages. …"),
+    ('see [[kanban board="1"]] here', "see here"),
+    ("ask @mia_member about snake_case_name", "ask @mia_member about snake_case_name"),
+    ("read [the docs](https://example.org/docs) now", "read the docs now"),
+    ("## Heading\n> quote\n- [x] done\n| a | b |\n| --- | --- |", "Heading quote done a b"),
+    (" … example.org/x.png) after the image", "… after the image"),
+])
+def test_search_snippets_show_words_not_markdown(raw, expected):
+    assert snippet_text(raw) == expected
+
+
+def test_search_snippet_keeps_the_match_marks_and_escapes():
+    html = str(snippet_html(" … the _\x02release\x03_ <b>notes</b> for mia_\x02member\x03 … ", [], marked=True))
+    assert html == "… the <mark>release</mark> &lt;b&gt;notes&lt;/b&gt; for mia_<mark>member</mark> …"
+
+
+def test_viewing_a_page_twice_renders_its_markdown_once(app, admin_client, monkeypatch):
+    from bananawiki.wiki import markdown
+
+    markdown.clear_render_cache()
+    calls = []
+    original = markdown._render
+    monkeypatch.setattr(markdown, "_render", lambda *args: calls.append(1) or original(*args))
+    page = make_page(app, "Long read", "# Long read\n\n" + "A paragraph with some words.\n\n" * 300)
+    for _ in range(3):
+        assert admin_client.get(f"/page/{page['slug']}").status_code == 200
+    assert len(calls) == 1

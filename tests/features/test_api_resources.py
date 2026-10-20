@@ -35,7 +35,7 @@ def world(api_app, db, people):
     return {"open": open_cat, "secret": secret_cat}
 
 
-# ── Pages ─────────────────────────────────────────────────────────────────────
+# Pages
 
 
 def test_restricted_pages_are_404_and_left_out(api_app, client, world, people):
@@ -173,7 +173,7 @@ def test_page_events_fire_for_api_writes(api_app, client, world, people):
     assert seen == ["evented"]
 
 
-# ── Categories ────────────────────────────────────────────────────────────────
+# Categories
 
 
 def test_categories_follow_read_restrictions(api_app, client, world, people):
@@ -202,7 +202,7 @@ def test_category_changes_need_their_permissions(api_app, client, db, world, peo
     assert call(client, "DELETE", f"/categories/{world['secret']['id']}", admin).status_code == 200
 
 
-# ── Accounts ──────────────────────────────────────────────────────────────────
+# Accounts
 
 
 def test_account_creation_rules(api_app, client, people):
@@ -288,7 +288,7 @@ def test_account_changes_are_recorded_like_the_web_interface(api_app, client, db
         "user.role_changed", "user.suspended"]
 
 
-# ── Settings ──────────────────────────────────────────────────────────────────
+# Settings
 
 
 def test_settings_hide_secrets_and_round_trip(api_app, client, db, people):
@@ -326,6 +326,27 @@ def test_settings_feature_gates_platform_rules_and_clamping(api_app, client, db,
     assert db.scalar("SELECT public_mode_until FROM site_settings") == "2999-01-01 00:00:00"
     call(client, "PUT", "/settings", token, json={"public_mode": False})
     assert db.scalar("SELECT public_mode_until FROM site_settings") is None
+
+
+def test_settings_kanban_lockdown_drops_role_shares_and_assignees(api_app, client, admin_client, db, people,
+                                                                    make_user, login):
+    from .test_kanban import board_id_from, columns, new_ticket
+
+    db.execute("UPDATE site_settings SET kanban_access = 'all'")
+    bob = make_user("bob")
+    board = board_id_from(admin_client.post("/kanban/create", data={"title": "Plans"}))
+    admin_client.post(f"/kanban/{board}/share", data={"action": "set_visibility", "visibility": "private"})
+    admin_client.post(f"/kanban/{board}/share", data={"action": "add_role", "role": "user", "access_level": "write"})
+    ticket = new_ticket(admin_client, columns(admin_client, board)[0]["id"], assignees=[bob["id"]])
+    assert [a["id"] for a in ticket["assignees"]] == [bob["id"]]
+    token = issue(api_app, people["admin"], ["settings"])
+    assert call(client, "PUT", "/settings", token, json={"kanban_access": "admin"}).status_code == 200
+    assert db.scalar("SELECT COUNT(*) FROM kanban_board_shares WHERE board_id = ?", (board,)) == 0
+    assert db.scalar("SELECT COUNT(*) FROM kanban_ticket_assignees WHERE ticket_id = ?", (ticket["id"],)) == 0
+    call(client, "PUT", "/settings", token, json={"kanban_access": "all"})
+    bob_client = api_app.test_client()
+    login(bob_client, bob)
+    assert bob_client.get(f"/kanban/{board}").status_code == 404
 
 
 def test_settings_platform_restrictions(app_factory):

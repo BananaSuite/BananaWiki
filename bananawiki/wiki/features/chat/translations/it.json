@@ -43,7 +43,7 @@
   "chat.admin.title": "Chat",
   "chat.admin.withheld": "Non consegnato: il destinatario aveva bloccato il mittente",
   "chat.back_to_latest": "Torna ai messaggi più recenti",
-  "chat.badges.error.disabled": "I badge dei gruppi non sono attivi.",
+  "chat.badges.error.disabled": "I gruppi sul profilo non sono attivi.",
   "chat.badges.hide": "Nascondi dal profilo",
   "chat.badges.no_groups": "Non fai parte di nessun gruppo.",
   "chat.badges.profile_heading": "Gruppi",

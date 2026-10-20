@@ -46,7 +46,7 @@ def test_operator_maintenance_preserves_the_api_error_contract(app_factory, tmp_
     assert client.get("/login").status_code == 503
 
 
-# ── Rate limit headers ────────────────────────────────────────────────────────
+# Rate limit headers
 
 
 def test_rate_limit_headers(api_app, client, db, people):
@@ -62,7 +62,7 @@ def test_rate_limit_headers(api_app, client, db, people):
     assert 1 <= int(limited.headers["Retry-After"]) <= 60
 
 
-# ── Idempotency-Key ───────────────────────────────────────────────────────────
+# Idempotency-Key
 
 
 def test_idempotent_post_is_replayed_not_repeated(api_app, client, db, people):
@@ -361,7 +361,7 @@ def test_idempotency_prune(api_app, db, people):
     assert in_app(api_app, idempotency.prune) == 1
 
 
-# ── ETag / If-Match ───────────────────────────────────────────────────────────
+# ETag / If-Match
 
 
 def test_page_etag_and_if_match(api_app, client, people):
@@ -383,7 +383,7 @@ def test_page_etag_and_if_match(api_app, client, people):
     assert call(client, "GET", "/pages/doc", token).json["page"]["content"] == "v4"
 
 
-# ── Pagination ────────────────────────────────────────────────────────────────
+# Pagination
 
 
 def test_history_search_and_audit_are_paginated(api_app, client, people):
@@ -401,7 +401,7 @@ def test_history_search_and_audit_are_paginated(api_app, client, people):
     assert len(audit["entries"]) == 1 and audit["next_offset"] == 1 and audit["total"] >= 2
 
 
-# ── Page attachments ──────────────────────────────────────────────────────────
+# Page attachments
 
 
 def upload(client, token, slug, content=b"data", name="notes.txt"):
@@ -442,7 +442,7 @@ def test_page_attachments(api_app, client, db, people):
     assert call(client, "GET", "/pages/shared/attachments", admin).status_code == 404
 
 
-# ── OpenAPI ───────────────────────────────────────────────────────────────────
+# OpenAPI
 
 
 def _routes(app) -> set[tuple[str, str]]:

@@ -9,7 +9,7 @@
   <div class="page-header__actions">
     <button type="button" class="btn btn--primary" data-dialog-open="canvas-create-dialog">{{ t('canvas.list.new') }}</button>
     <details class="menu">
-      <summary class="btn" aria-label="{{ t('canvas.list.options_label') }}">{{ t('canvas.list.options') }} <span aria-hidden="true">▾</span></summary>
+      <summary class="btn menu__toggle" aria-label="{{ t('canvas.list.options_label') }}">{{ t('canvas.list.options') }}</summary>
       <div class="menu__panel" role="menu">
         <button type="button" role="menuitem" data-dialog-open="canvas-import-dialog">{{ t('canvas.list.import') }}</button>
       </div>
@@ -36,8 +36,8 @@
     {#- After the link in the DOM, so keyboard focus meets the canvas before its move buttons. -#}
     {% if can_reorder and layouts|length > 1 %}
     <div class="canvas-list__move">
-      <button type="button" class="btn btn--ghost btn--icon btn--small" data-move="up" aria-label="{{ t('canvas.list.move_up', title=layout.title) }}">▲</button>
-      <button type="button" class="btn btn--ghost btn--icon btn--small" data-move="down" aria-label="{{ t('canvas.list.move_down', title=layout.title) }}">▼</button>
+      <button type="button" class="btn btn--ghost btn--icon btn--small" data-move="up" aria-label="{{ t('canvas.list.move_up', title=layout.title) }}">↑</button>
+      <button type="button" class="btn btn--ghost btn--icon btn--small" data-move="down" aria-label="{{ t('canvas.list.move_down', title=layout.title) }}">↓</button>
     </div>
     {% endif %}
   </li>

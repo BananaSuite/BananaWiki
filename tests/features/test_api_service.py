@@ -21,7 +21,7 @@ def api_app(app, db):
     return app
 
 
-# ── Authentication ────────────────────────────────────────────────────────────
+# Authentication
 
 
 def test_status_and_openapi_need_no_token(api_app, client):
@@ -113,7 +113,7 @@ def test_other_browser_origins_are_refused(api_app, client, admin):
     assert call(client, "GET", "/pages", token, headers={"Origin": "http://localhost"}).status_code == 200
 
 
-# ── Scopes and flags ──────────────────────────────────────────────────────────
+# Scopes and flags
 
 
 def test_scope_and_write_flag_are_enforced_for_admins_too(api_app, client, admin):
@@ -138,7 +138,7 @@ def test_admin_scopes_on_a_members_token_do_not_help(api_app, client, make_user)
         assert call(client, "GET", path, token).json["code"] == "admin_required"
 
 
-# ── Rate limit and audit ──────────────────────────────────────────────────────
+# Rate limit and audit
 
 
 def test_rate_limit_per_account(api_app, client, db, make_user):
@@ -202,7 +202,32 @@ def test_audit_log_endpoint_and_superuser_clear(api_app, client, db, admin):
     assert call(client, "DELETE", "/admin/audit-log?before_days=1", token).status_code == 200
 
 
-# ── Tokens ────────────────────────────────────────────────────────────────────
+def test_audit_log_hides_addresses_of_accounts_the_viewer_may_not_manage(api_app, client, db, login, admin,
+                                                                         make_user):
+    owner = make_user("theowner", role="owner")
+    people = {"theowner": owner, "super": make_user("super", role="admin", is_superuser=1),
+              "other": make_user("other", role="admin"), "member": make_user("member"), "admin_user": admin}
+    for number, (name, person) in enumerate(people.items(), start=1):
+        db.execute("INSERT INTO api_service__audit_log (user_id, username, endpoint, method, status_code, "
+                   "ip_address, created_at) VALUES (?, ?, '/api/v1/pages', 'GET', 200, ?, ?)",
+                   (person["id"], name, f"203.0.113.{number}", "2026-01-01 00:00:00"))
+
+    def addresses(viewer):
+        rows = call(client, "GET", "/admin/audit-log", issue(api_app, viewer, ["admin"])).json["entries"]
+        seeded = [row for row in rows if row["endpoint"] == "/api/v1/pages"]
+        assert all(row["ip_hidden"] is (row["ip_address"] is None) for row in seeded)
+        return {row["username"]: row["ip_address"] for row in seeded}
+
+    assert addresses(admin) == {"theowner": None, "super": None, "other": None, "member": "203.0.113.4",
+                                "admin_user": "203.0.113.5"}
+    assert [name for name, ip in addresses(owner).items() if ip is None] == ["super"]
+    assert [name for name, ip in addresses(people["super"]).items() if ip is None] == ["theowner"]
+    login(client, admin)
+    page = client.get("/admin/api-service").get_data(as_text=True)
+    assert "203.0.113.4" in page and "203.0.113.1" not in page and "Hidden" in page
+
+
+# Tokens
 
 
 def test_child_tokens_cannot_exceed_their_parent(api_app, client, db, admin):
@@ -377,7 +402,7 @@ def test_listings_are_bounded_even_with_limit_zero(api_app, client, db, admin, m
     assert len(categories["categories"]) <= 3 and "next_offset" in categories
 
 
-# ── Web pages ─────────────────────────────────────────────────────────────────
+# Web pages
 
 
 def test_token_page_creates_and_shows_the_token_once(api_app, client, db, login, make_user):
@@ -440,7 +465,7 @@ def test_account_settings_slot(api_app, admin):
     assert "/settings/api-tokens" in html
 
 
-# ── Userbot ───────────────────────────────────────────────────────────────────
+# Userbot
 
 
 def test_userbot_mode_and_profile(api_app, client, db, login, make_user):

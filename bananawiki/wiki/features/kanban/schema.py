@@ -1,6 +1,6 @@
 """Schema additions for kanban on top of the 1.4 tables.
 
-* indexes for the 1.6 queries;
+* indexes for the board queries;
 * ``kanban_columns.wip_limit``: an optional work-in-progress limit per column
   (``NULL`` means no limit);
 * ``kanban_ticket_checklist``: checklist items (subtasks) of a ticket;

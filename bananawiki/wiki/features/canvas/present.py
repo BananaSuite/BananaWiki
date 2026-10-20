@@ -13,8 +13,7 @@ nodes past it are sent without HTML and the browser shows their text as it
 is (code without a language is shown as plain text, never guessed).
 
 Wiki-page nodes are shown with the page's current title, slug and excerpt
-only when the viewer may read that page (1.4 showed stored page titles to
-everyone who could open the canvas). Otherwise the node loses its page id,
+only when the viewer may read that page. Otherwise the node loses its page id,
 slug and title and is marked ``restricted``, whether the page exists or not,
 so a canvas cannot be used to find out which pages exist; only
 administrators, who may read every page, see ``deleted`` instead.
@@ -242,7 +241,7 @@ def present_events(events: list[dict[str, Any]], user: dict[str, Any] | None) ->
     return {"rendered": shown["rendered"], "pages": shown["pages"]}
 
 
-# ── Text outline ──────────────────────────────────────────────────────────────
+# Text outline
 
 OUTLINE_TEXT_LIMIT = 4000
 _ROW_HEIGHT = 80

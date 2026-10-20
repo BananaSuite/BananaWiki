@@ -87,6 +87,23 @@ def test_gunicorn_detection_checks_the_parent(app):
         assert server.gunicorn_master_pid() == 0
 
 
+def test_gunicorn_as_pid_1_in_a_container_is_the_master(app, monkeypatch, tmp_path):
+    from bananawiki.wiki.features.site_admin import server
+
+    cmdline = tmp_path / "cmdline"
+    monkeypatch.setattr(os, "getppid", lambda: 1)
+    monkeypatch.setattr(server, "Path", lambda path: cmdline)
+    with app.test_request_context(environ_base=GUNICORN):
+        cmdline.write_bytes(b"gunicorn\0-c\0gunicorn.conf.py\0wsgi:app\0")
+        assert server.gunicorn_master_pid() == 1
+        cmdline.write_bytes(b"/sbin/init\0splash\0")
+        assert server.gunicorn_master_pid() == 0
+        cmdline.unlink()
+        assert server.gunicorn_master_pid() == 0  # no /proc: PID 1 is an init that adopted the worker
+        monkeypatch.setattr(os, "getppid", lambda: 4242)
+        assert server.gunicorn_master_pid() == 4242
+
+
 def test_error_log_is_redacted(app, admin_client):
     cfg = app.config["BW"]
     os.makedirs(os.path.dirname(cfg.log_file), exist_ok=True)

@@ -7,8 +7,7 @@ Approving applies the edit through the pages service, credited to the
 proposer. Each user may have at most their quota of proposals waiting.
 
 ``pending_contributions`` keeps one row per (page, user) (``UNIQUE`` in the
-1.4 schema). 1.4 therefore refused a second proposal for a page until the
-old row was purged; here a new proposal reuses the resolved row.
+schema), so a new proposal for the same page reuses the resolved row.
 ``base_revision`` records the page revision the proposal started from so
 reviewers can see when the page changed since. An approval is bound to what
 the reviewer looked at: the review form carries :func:`review_version` and
@@ -37,7 +36,7 @@ DIFF_CONTEXT = 3
 MAX_DIFF_ROWS = 5000
 
 
-# ── Who may do what ─────────────────────────────────────────────────────────
+# Who may do what
 
 
 def can_propose(page: dict[str, Any] | None, user: dict[str, Any] | None) -> bool:
@@ -55,7 +54,7 @@ def is_reviewer(user: dict[str, Any] | None) -> bool:
     return bool(user) and auth.has_role("editor", user) and auth.has_permission("contribution.review", user)
 
 
-# ── Reading ──────────────────────────────────────────────────────────────────
+# Reading
 
 _SELECT = (
     "SELECT c.*, u.username, p.title AS page_title, p.slug AS page_slug, p.revision AS page_revision, "
@@ -116,7 +115,7 @@ def oldest_for_reviewer(user: dict[str, Any]) -> str | None:
     return rows[0]["created_at"] if rows else None
 
 
-# ── Proposing ────────────────────────────────────────────────────────────────
+# Proposing
 
 
 def _clean(page: dict[str, Any], title: str | None, content: str | None, reason: str | None) -> tuple[str, str, str]:
@@ -189,7 +188,7 @@ def withdraw(contribution: dict[str, Any], user: dict[str, Any]) -> None:
         raise ContributionError("contributions.error.not_pending")
 
 
-# ── Reviewing ────────────────────────────────────────────────────────────────
+# Reviewing
 
 
 def _review_target(contribution_id: int, reviewer: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -273,7 +272,7 @@ def deny(contribution_id: int, reviewer: dict[str, Any], reason: str = "") -> No
                       endpoint="contributions.mine")
 
 
-# ── Diff for reviewers ───────────────────────────────────────────────────────
+# Diff for reviewers
 
 
 def diff_lines(old: str, new: str) -> list[dict[str, str]]:
@@ -314,7 +313,7 @@ def diff_lines(old: str, new: str) -> list[dict[str, str]]:
 
 def withdraw_if_editing_allowed(user: dict[str, Any], old_role: str, new_role: str,
                                 changed_by: str | None) -> None:
-    """``user.role_changed``: someone who may now edit directly no longer needs their proposals (as in 1.4)."""
+    """``user.role_changed``: someone who may now edit directly no longer needs their proposals."""
     if not (auth.has_role("editor", user) and auth.has_permission("page.edit_all", user)):
         return
     db.execute(
@@ -324,13 +323,13 @@ def withdraw_if_editing_allowed(user: dict[str, Any], old_role: str, new_role: s
     )
 
 
-# ── Housekeeping ─────────────────────────────────────────────────────────────
+# Housekeeping
 
 
 def expire() -> None:
     """Expire old proposals and drop long-resolved rows (idempotent).
 
-    As in 1.4, proposals expire after ``draft_expiration_hours`` (0 = never).
+    Proposals expire after ``draft_expiration_hours`` (0 = never).
     """
     now = now_sql()
     try:

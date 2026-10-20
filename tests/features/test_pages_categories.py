@@ -1,4 +1,6 @@
-"""Category management and ordering (including the 1.4 M1 fix)."""
+"""Category management and ordering."""
+
+import re
 
 from flask import redirect
 
@@ -153,6 +155,51 @@ def test_reorder_categories(app, admin_client, make_user, login, db):
     assert admin_client.post("/api/reorder/categories", json={"ids": [child["id"], y["id"]]}).status_code == 400
     client = _editor_client(app, make_user, login, db, "catorder", write=[x["id"]])
     assert client.post("/api/reorder/categories", json={"ids": [x["id"], y["id"]]}).status_code in (403, 404)
+
+
+def _parent_options(admin_client, category_id: int) -> set[int]:
+    fragment = admin_client.get(f"/api/category/{category_id}/management").get_json()["html"]
+    select = fragment[fragment.index('<select name="parent_id"'):]
+    return {int(value) for value in re.findall(r'<option value="(\d+)"', select[:select.index("</select>")])}
+
+
+def test_a_category_cannot_move_below_itself(app, admin_client):
+    root = make_category(app, "Root")
+    child = make_category(app, "Child", root["id"])
+    grandchild = make_category(app, "Grandchild", child["id"])
+    other = make_category(app, "Other")
+    beside = make_category(app, "Beside", other["id"])
+    assert _parent_options(admin_client, root["id"]) == {other["id"], beside["id"]}
+    assert _parent_options(admin_client, child["id"]) == {root["id"], other["id"], beside["id"]}
+    assert _parent_options(admin_client, grandchild["id"]) == {root["id"], child["id"], other["id"], beside["id"]}
+
+
+def test_category_page_statements_do_not_grow_with_nested_categories(app, admin_client, monkeypatch):
+    from bananawiki.core.sqlite import Database
+
+    statements: list[str] = []
+    connect = Database.connect
+
+    def traced(self, *args, **kwargs):
+        conn = connect(self, *args, **kwargs)
+        conn.set_trace_callback(statements.append)
+        return conn
+
+    monkeypatch.setattr(Database, "connect", traced)
+
+    def count(category_id: int) -> int:
+        statements.clear()
+        assert admin_client.get(f"/category/{category_id}").status_code == 200
+        return len(statements)
+
+    root = make_category(app, "Root")
+    parent = root
+    for depth in range(3):
+        parent = make_category(app, f"Level {depth}", parent["id"])
+    shallow = count(root["id"])
+    for depth in range(3, 30):
+        parent = make_category(app, f"Level {depth}", parent["id"])
+    assert count(root["id"]) == shallow
 
 
 def test_category_page_and_management_fragment(app, admin_client, make_user, login):

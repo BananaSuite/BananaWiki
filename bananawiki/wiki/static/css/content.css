@@ -11,7 +11,7 @@
   background: transparent; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; color: var(--muted); }
 .prose blockquote > :first-child { margin-top: 0; }
 .prose blockquote > :last-child { margin-bottom: 0; }
-.prose code { background: var(--surface-2); padding: .1em .35em; border-radius: 4px; }
+.prose code { background: var(--surface-2); padding: .1em .35em; border-radius: var(--radius-sm); }
 .prose pre { background: var(--surface); border: 1px solid var(--border); padding: .9rem 1rem; border-radius: var(--radius);
   overflow-x: auto; line-height: 1.45;
   /* Same scroll shadows as tables: an edge darkens while a long line runs past it. */
@@ -59,7 +59,7 @@ dialog .prose table, .card .prose table { --scroll-cover: var(--surface); }
   .prose .media-left, .prose .media-right { float: none; display: block; max-width: 100%; margin: 0 auto 1rem; }
 }
 .prose figure { margin: 0 0 1em; }
-.prose figcaption, .prose .media-caption { font-size: .85rem; color: var(--muted); text-align: center; }
+.prose figcaption, .prose .media-caption { font-size: var(--font-size-ui); color: var(--muted); text-align: center; }
 .prose .toc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .75rem 1rem; margin-bottom: 1em; }
 .prose .toc ul { margin: 0; }
 .prose a { text-decoration: underline; text-underline-offset: .15em; }
@@ -67,7 +67,8 @@ dialog .prose table, .card .prose table { --scroll-cover: var(--surface); }
 .prose::after { content: ""; display: table; clear: both; }
 
 /* Video players from [[video]] shortcodes and bare links. */
-.bw-video { position: relative; width: 100%; margin: 1rem auto; max-width: 100%; }
+/* The surface shows while the player loads, or when it is blocked. */
+.bw-video { position: relative; width: 100%; margin: 1rem auto; max-width: 100%; background: var(--surface-2); border-radius: var(--radius-sm); }
 .bw-video::before { content: ""; display: block; padding-bottom: 56.25%; }
 .bw-video.ratio-4x3::before { padding-bottom: 75%; }
 .bw-video.ratio-1x1::before { padding-bottom: 100%; }
@@ -95,3 +96,9 @@ dialog .prose table, .card .prose table { --scroll-cover: var(--surface); }
 .prose .table-wrapper > table { margin: 0; }
 .prose .media-inline { display: inline-block; vertical-align: middle; }
 .prose .media-image-container { max-width: 100%; }
+
+/* Paper has no scrolling: no scroll shadows, and long code lines wrap. */
+@media print {
+  .prose table, .prose pre, .prose .table-wrapper { overflow: visible; background-image: none; }
+  .prose pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+}

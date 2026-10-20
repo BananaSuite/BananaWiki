@@ -4,8 +4,10 @@
 #   sudo ./install.sh [--host ADDRESS] [--port 8787] [--cpu] [--app-dir /opt/bananawiki-tts-gpu]
 #   sudo ./install.sh --uninstall
 #
+# --host defaults to a Tailscale address if Tailscale is installed, otherwise 127.0.0.1.
 # Creates a system user, a virtualenv with the dependencies, a root-only
 # environment file holding a fresh TTS_AUTH_TOKEN, and a hardened unit.
+
 set -euo pipefail
 
 NAME="bananawiki-tts-gpu"
@@ -50,7 +52,7 @@ python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' || die "Python 3.1
 command -v ffmpeg >/dev/null || echo "warning: ffmpeg not found; install it or set TTS_OUTPUT_FORMAT=wav" >&2
 
 if [[ -z "$HOST" ]]; then
-    # Prefer the Tailscale address; never listen on every interface by default.
+    # A Tailscale address if Tailscale is installed, otherwise loopback; never every interface.
     HOST="$(command -v tailscale >/dev/null && tailscale ip -4 2>/dev/null | head -n1 || true)"
     HOST="${HOST:-127.0.0.1}"
 fi

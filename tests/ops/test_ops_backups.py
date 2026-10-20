@@ -170,3 +170,136 @@ def test_the_authentication_key_comes_from_the_recovery_identity(series):
     shutil.copy(crypto.keygen(tmp_path / "other.agekey")["key_file"], fresh / "recovery.agekey")
     with pytest.raises(ValueError, match="authentication failed"):
         rebuilt.verify(identifier)
+
+
+def _usage(free: int):
+    return type("Usage", (), {"free": free})()
+
+
+def test_upload_checks_its_staging_space_before_anything_is_pushed(series, monkeypatch):
+    """Verification is sized by the snapshot, not the series limit, so a run that pushed also prunes."""
+    backups, tmp_path = series
+    path = backups.root / "repository.json"
+    write_json(path, {**json.loads(path.read_text()), "max_mib": 512})
+    package = tmp_path / "package.tar.gz"
+    package.write_bytes(b"package")
+    monkeypatch.setattr(store.shutil, "disk_usage", lambda _: _usage(100 * 1024 * 1024))
+    with pytest.raises(ValueError, match="Not enough free space"):
+        backups.upload(package)
+    assert backups.list() == []
+    monkeypatch.setattr(store.shutil, "disk_usage", lambda _: _usage(1024 * 1024 * 1024))
+    identifiers = [backups.upload(package)["snapshot"] for _ in range(3)]
+    assert [item["snapshot"] for item in backups.list()] == identifiers[:0:-1]
+
+
+def test_an_upload_whose_staging_space_ran_out_pushes_nothing(series, monkeypatch):
+    """Free space is checked again right before the push, with what the upload holds by then."""
+    backups, tmp_path = series
+    package = tmp_path / "package.tar.gz"
+    package.write_bytes(b"first")
+    first = backups.upload(package)["snapshot"]
+    free = [100 * 1024 * 1024, 1024 * 1024 * 1024]
+    monkeypatch.setattr(store.shutil, "disk_usage", lambda _: _usage(free.pop() if len(free) > 1 else free[0]))
+    package.write_bytes(b"second")
+    with pytest.raises(ValueError, match="Not enough free space"):
+        backups.upload(package)
+    assert [item["snapshot"] for item in backups.list()] == [first]
+
+
+def test_an_upload_verifies_without_keeping_its_own_copies(series, monkeypatch):
+    backups, tmp_path = series
+    decrypt, download = crypto.decrypt, store.Store._download
+
+    def verifying(self, git, *args, **kwargs):
+        names = {path.name for path in self.root.rglob("*")}
+        assert "sealed.age" not in names and not any(name.startswith("part-") for name in names)
+        return download(self, git, *args, **kwargs)
+
+    def decrypting(ciphertext, *args):
+        assert not (Path(ciphertext).parent / "git").exists()
+        return decrypt(ciphertext, *args)
+
+    monkeypatch.setattr(store.Store, "_download", verifying)
+    monkeypatch.setattr(crypto, "decrypt", decrypting)
+    package = tmp_path / "package.tar.gz"
+    package.write_bytes(b"package")
+    assert backups.upload(package)["verified"]
+
+
+def test_working_directories_of_a_killed_operation_are_removed(series):
+    backups, tmp_path = series
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep").write_bytes(b"not ours")
+    for name in ("transfer-abc", "verify-def", "restore-ghi"):
+        (backups.root / name).mkdir()
+        (backups.root / name / "package.tar.gz").write_bytes(b"decrypted package")
+    (backups.root / "transfer-link").symlink_to(outside)
+    backups.list()
+    left = sorted(path.name for path in backups.root.iterdir()
+                  if path.name.startswith(("transfer-", "verify-", "restore-")))
+    assert left == ["transfer-link"]
+    assert (outside / "keep").read_bytes() == b"not ours"
+    assert backups.identity.exists() and (backups.root / "repository.json").exists()
+
+
+def test_a_restore_holds_the_backup_lock_until_it_is_done_with_the_package(series):
+    backups, tmp_path = series
+    package = tmp_path / "package.tar.gz"
+    package.write_bytes(b"genuine")
+    identifier = backups.upload(package)["snapshot"]
+    parser = argparse.ArgumentParser()
+    commands.add_commands(parser.add_subparsers(dest="command"))
+    seen = []
+
+    def restore_package(path, options):
+        with pytest.raises(RuntimeError, match="Another backup operation"):
+            backups.list()
+        seen.append(Path(path).read_bytes())
+        return {"outcome": "complete", "package": str(path)}
+
+    result = commands.handle(parser.parse_args(["backups", "restore", identifier]), backups, create_package=None,
+                             restore_package=restore_package)
+    assert seen == [b"genuine"]
+    assert not Path(result["package"]).exists()
+    assert backups.list()
+
+
+def test_branches_named_with_any_bytes_break_nothing(series):
+    """Whoever can push chooses branch names: not UTF-8, or merely ending like the series identity."""
+    backups, tmp_path = series
+    package = tmp_path / "package.tar.gz"
+    package.write_bytes(b"first")
+    first = backups.upload(package)
+    prefix = backups.prefix(backups.settings())
+    remote = Path(backups.settings()["url"])
+    for ref in (prefix.encode() + b"x\xff", prefix.encode() + first["snapshot"].encode() + "\u2028x".encode(),
+                ("refs/heads/elsewhere/" + prefix.removeprefix("refs/heads/") + "identity").encode()):
+        subprocess.run(["git", "--git-dir", str(remote), "update-ref", ref, first["commit"]], check=True)
+    package.write_bytes(b"second")
+    second = backups.upload(package)
+    assert [item["snapshot"] for item in backups.list()] == [second["snapshot"], first["snapshot"]]
+    assert backups.verify(first["snapshot"])["authenticated"] is True
+    assert backups.prune()["removed"] == []
+
+
+def test_configure_keeps_the_stored_recovery_key_unless_told_to_replace_it(series):
+    backups, tmp_path = series
+    original = backups.identity.read_bytes()
+    settings = {"repo": "https://github.com/owner/backups.git", "forge": "github", "name": "wiki-production",
+                "token_file": backups.token, "keep": 3}
+    assert backups.configure(**settings)["repository"]["keep"] == 3
+    assert backups.identity.read_bytes() == original
+    replacement = crypto.keygen(tmp_path / "new.agekey")["key_file"]
+    with pytest.raises(ValueError, match="--replace-key"):
+        backups.configure(**settings, key_file=replacement)
+    assert backups.identity.read_bytes() == original
+    parser = argparse.ArgumentParser()
+    commands.add_commands(parser.add_subparsers(dest="command"))
+    args = parser.parse_args(["backups", "configure", "--repo", settings["repo"], "--forge", "github", "--name",
+                              "other", "--token-file", str(backups.token), "--key-file", replacement,
+                              "--replace-key"])
+    commands.handle(args, backups, create_package=None, restore_package=None)
+    assert backups.identity.read_bytes() == Path(replacement).read_bytes()
+    with pytest.raises(ValueError, match="--key-file"):
+        store.Store(tmp_path / "new-server", "BananaWiki").configure(**settings)

@@ -29,7 +29,7 @@ class ProfileFieldError(ValueError):
         self.values = values
 
 
-# ── Moderation rules ──────────────────────────────────────────────────────────
+# Moderation rules
 
 
 def can_moderate(target: dict[str, Any], actor: dict[str, Any] | None = None) -> bool:
@@ -40,7 +40,7 @@ def can_moderate(target: dict[str, Any], actor: dict[str, Any] | None = None) ->
     return admin_service.protection_error(actor, target) is None
 
 
-# ── Field definitions ─────────────────────────────────────────────────────────
+# Field definitions
 
 
 def definitions() -> list[dict[str, Any]]:
@@ -101,7 +101,7 @@ def move_definition(field_id: int, offset: int) -> None:
                        [(position, row_id) for position, row_id in enumerate(ids)])
 
 
-# ── Values ────────────────────────────────────────────────────────────────────
+# Values
 
 
 def values(user_id: str) -> dict[int, dict[str, Any]]:
@@ -174,7 +174,7 @@ def save_values(user_id: str, form: Any) -> None:
         )
 
 
-# ── Custom tags ───────────────────────────────────────────────────────────────
+# Custom tags
 
 
 def tags(user_id: str) -> list[dict[str, Any]]:
@@ -225,7 +225,7 @@ def move_tag(user_id: str, tag_id: int, offset: int) -> None:
                        [(position, row_id) for position, row_id in enumerate(ids)])
 
 
-# ── Publication ───────────────────────────────────────────────────────────────
+# Publication
 
 
 def set_published(user_id: str, published: bool) -> None:

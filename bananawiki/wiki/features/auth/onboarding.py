@@ -8,7 +8,7 @@ from typing import Any
 from flask import current_app
 
 from ....core.timeutil import now_sql
-from ... import accounts, i18n, settings
+from ... import accounts, i18n, migrations, settings
 from ...db import db
 from ...registry import Feature, emit, is_enabled, registry, set_enabled, switch_refusal
 from . import docs
@@ -121,11 +121,22 @@ def apply(choices: Choices, admin: dict[str, Any]) -> list[dict[str, Any]]:
             "UPDATE users SET onboarding_required = 0, onboarding_completed_at = ?, intro_required = 1 WHERE id = ?",
             (now, admin["id"]),
         )
+        _translate_home_page(choices.language)
     for user in created:
         emit("user.created", user=user)
     if choices.docs_variant:
         docs.spawn(variant=choices.docs_variant, language=choices.docs_language, actor_id=admin["id"])
     return created
+
+
+def _translate_home_page(language: str) -> None:
+    """Put the page a new database starts with into the wiki's language, unless it was edited."""
+    db.execute(
+        "UPDATE pages SET title = ?, content = ? WHERE is_home = 1 AND content = ? "
+        "AND NOT EXISTS (SELECT 1 FROM page_history h WHERE h.page_id = pages.id)",
+        (i18n.t_lang(language, "auth.onboarding.home_title"), i18n.t_lang(language, "auth.onboarding.home_body"),
+         migrations.DEFAULT_HOME),
+    )
 
 
 def mark_intro_for_new_user(user: dict[str, Any]) -> None:

@@ -1,26 +1,26 @@
-# Categories & Navigation
+# Categories and navigation
 
-Categories are the folder structure of the wiki. They shape the sidebar, group related pages, and help readers understand where information belongs.
+Categories are the folders of the sidebar and can contain subcategories.
 
 ## Browse the sidebar
 
-- Click a category to expand or collapse it.
+- Click a category to open or close it.
 - Click a page title to open it.
-- Use the sidebar search field to filter pages and categories quickly.
-- Drag pages and categories when you have permission to reorder them.
+- Type in the field at the top to filter page and category titles.
+- Drag pages to change their order, if you are allowed to. Categories are reordered on **All pages**.
 
-## Create useful categories
+## Create a category
 
-Prefer category names that match how people look for information: **Operations**, **Product**, **HR**, **Class Notes**, **Release Process**, or **Customer Support**. Avoid deep nesting unless the hierarchy makes navigation easier.
+Click **New category** in the sidebar. Name it after what people look for, such as **Handbook**, **Class notes** or **Release process**. A flat structure is easier to browse than deep nesting.
 
 ## Sequential navigation
 
-Sequential navigation adds Previous and Next links between pages in a category. It is useful for tutorials, training paths, handbooks, and course chapters. The sequence follows the manual order in the sidebar.
+On a category's page you can switch on sequential navigation. Its pages then get Previous and Next links, in sidebar order, which suits courses and tutorials.
 
 ## Category permissions
 
-Admins can limit category visibility and editing. Read restrictions hide categories and pages from users who are not allowed to see them. Write restrictions let an editor work only in selected areas while still reading broader material if permitted.
+Administrators can limit who reads and who writes in a category. Someone without read access does not see the category or its pages. Someone without write access can still read it.
 
 ## Deleting a category
 
-When deleting a category, choose what should happen to its pages: move them elsewhere, uncategorise them, or delete them too. For important content, move first and delete only after checking the result.
+When you delete a category, choose what happens to its pages: move them to another category, leave them without one, or delete them. Subcategories move up one level.

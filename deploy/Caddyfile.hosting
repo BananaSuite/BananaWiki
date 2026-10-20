@@ -2,9 +2,12 @@
 # managed servers get the same file from `bananawiki proxy`. Set the {$VARIABLES} in Caddy's environment.
 {
 	email {$ACME_EMAIL}
+	cert_issuer acme {
+		disable_tlsalpn_challenge
+	}
 	servers {
 		timeouts {
-			read_header 10s
+			read_header 60s
 			read_body 5m
 			idle 16m
 		}

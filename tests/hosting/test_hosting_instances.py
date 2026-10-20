@@ -65,6 +65,29 @@ def test_create_validates_name_use_case_and_compliance(web, make_account, login,
     assert query("SELECT COUNT(*) AS n FROM instances", one=True)["n"] == 0
 
 
+def test_an_apex_name_cannot_take_a_hosting_wikis_address(ctx, make_account, make_wiki):
+    from bananawiki.hosting import instances
+    from bananawiki.hosting.errors import ServiceError
+
+    make_wiki(make_account(), "team")
+    admin = make_account(admin=True)
+    with pytest.raises(ServiceError):
+        instances.create(admin, "team-hosting", domain_mode="apex")
+
+
+def test_a_name_is_shortened_to_fit_a_dns_label_with_the_suffix(ctx, query):
+    from bananawiki.hosting import urls
+    from bananawiki.hosting.errors import ServiceError
+
+    query("UPDATE hosting_settings SET instance_url_suffix = ? WHERE id = 1", ("s" * 30,))
+    room = 63 - 30 - 1
+    assert urls.validate_slug("a" * room, account_is_admin=False) == "a" * room
+    with pytest.raises(ServiceError) as error:
+        urls.validate_slug("a" * (room + 1), account_is_admin=False)
+    assert error.value.values["max"] == room
+    assert urls.validate_slug("a" * (room + 1), account_is_admin=True, domain_mode="apex")
+
+
 def test_create_rolls_back_when_the_runtime_fails(web, make_account, login, runtime, query):
     owner = make_account()
     login(web, owner)
@@ -167,7 +190,7 @@ def test_a_suspension_during_the_owners_start_leaves_the_wiki_stopped(web, make_
     assert query("SELECT status FROM instances", one=True)["status"] == "suspended"
     assert runtime.tenants["racing"].running is False
 
-# ── Collaborators ─────────────────────────────────────────────────────────────
+# Collaborators
 
 
 def test_collaborator_gets_only_the_granted_permissions(portal, make_account, make_wiki, login, runtime, query):
@@ -220,7 +243,7 @@ def test_owner_can_remove_a_collaborator(portal, make_account, make_wiki, login)
     assert helper_client.get(f"/instances/{wiki['id']}").status_code == 404
 
 
-# ── Ownership transfer ────────────────────────────────────────────────────────
+# Ownership transfer
 
 
 def test_transfer_needs_the_recipients_acceptance(portal, make_account, make_wiki, login, query):
@@ -237,8 +260,7 @@ def test_transfer_needs_the_recipients_acceptance(portal, make_account, make_wik
     assert query("SELECT account_id FROM instances", one=True)["account_id"] == owner["id"]
     recipient_client.post(f"/transfers/{transfer['id']}/accept")
     assert query("SELECT account_id FROM instances", one=True)["account_id"] == recipient["id"]
-    # Unlike 1.4, the previous owner keeps no access unless the recipient chooses so
-    # (see test_hosting_access.py).
+    # The previous owner keeps no access unless the recipient chooses so (see test_hosting_access.py).
     assert query("SELECT role FROM instance_collaborators WHERE account_id = ?", (owner["id"],), one=True) is None
     assert stranger_client.get(f"/instances/{wiki['id']}").status_code == 404
 
@@ -251,11 +273,11 @@ def test_transfer_to_a_suspended_account_is_refused(web, make_account, make_wiki
     assert query("SELECT COUNT(*) AS n FROM instance_ownership_transfers", one=True)["n"] == 0
 
 
-# ── Data directories ──────────────────────────────────────────────────────────
+# Data directories
 
 
 def _orphan(make_account, make_wiki, query, slug: str) -> None:
-    """Data left under *slug* with no wiki holding the name (what a failed move used to leave)."""
+    """Data left under *slug* with no wiki holding the name (what an interrupted move can leave)."""
     wiki = make_wiki(make_account(), slug)
     query("UPDATE instances SET status = 'terminated', subdomain = ? WHERE id = ?",
           (f"{slug}--terminated-{wiki['id'][:8]}", wiki["id"]))
@@ -538,6 +560,27 @@ def test_terminate_without_data_or_grace_period(ctx, make_account, make_wiki, ru
     assert runtime.called("destroy")[-1] == archived and archived not in runtime.tenants
 
 
+def test_a_restored_wiki_gets_the_usual_expiry_of_its_owner(ctx, make_account, make_wiki):
+    from datetime import timedelta
+
+    from bananawiki.core.timeutil import parse, utcnow
+    from bananawiki.hosting import instances
+
+    admin, customer = make_account(admin=True), make_account()
+    for owner, slug in ((admin, "admins-own"), (customer, "customers-own")):
+        wiki = make_wiki(owner, slug)
+        instances.terminate(instances.get(wiki["id"]), actor_id=None)
+        restored = instances.restore(instances.get(wiki["id"]), actor_id=admin["id"])
+        left = parse(restored["expires_at"]) - utcnow()
+        if owner is admin:
+            assert left > timedelta(days=365 * 50), "an administrator's wiki does not expire"
+        else:
+            assert left <= timedelta(days=instances.cfg().limits.duration_days)
+        instances.terminate(instances.get(wiki["id"]), actor_id=None)
+        restored = instances.restore(instances.get(wiki["id"]), actor_id=admin["id"], extend_days=3)
+        assert parse(restored["expires_at"]) - utcnow() <= timedelta(days=3), "the days given win"
+
+
 def test_restore_and_rename_put_the_data_back_when_the_row_cannot_follow(ctx, make_account, make_wiki, runtime,
                                                                          monkeypatch):
     from bananawiki.hosting import instances
@@ -593,3 +636,43 @@ def test_rename_puts_the_data_back_when_the_database_is_busy(ctx, make_account, 
         instances.rename(instances.get(moving["id"]), "renamed", "hosting", actor_id=owner["id"])
     assert instances.get(moving["id"])["subdomain"] == "original"
     assert "renamed" not in runtime.tenants and runtime.tenants["original"].running
+
+
+def test_a_rename_whose_folder_move_fails_starts_the_wiki_again(ctx, make_account, make_wiki, runtime):
+    """When the folder cannot be moved, the rename is undone and the wiki starts again under its old name."""
+    from bananawiki.hosting import instances
+    from bananawiki.hosting.errors import ServiceError
+    from bananawiki.hosting.runtime.fake import FakeTenant
+
+    owner = make_account()
+    wiki = make_wiki(owner, "handbook")
+    runtime.tenants["docs"] = FakeTenant(runtime.tenants["handbook"].spec)
+    with pytest.raises(ServiceError) as error:
+        instances.rename(instances.get(wiki["id"]), "docs", "hosting", actor_id=owner["id"])
+    assert error.value.key == "hosting.runtime.data_exists"
+    row = instances.get(wiki["id"])
+    assert (row["subdomain"], row["status"]) == ("handbook", "running")
+    assert runtime.tenants["handbook"].running and not runtime.tenants["docs"].running
+
+    runtime.fail_next("start")
+    with pytest.raises(ServiceError):
+        instances.rename(row, "docs", "hosting", actor_id=owner["id"])
+    assert instances.get(wiki["id"])["status"] == "stopped", "a wiki that did not start is not listed as running"
+    assert not runtime.tenants["handbook"].running
+
+
+def test_moving_an_apex_wiki_to_hosting_mode_starts_it_again_when_its_folder_cannot_move(ctx, make_account,
+                                                                                      make_wiki, runtime):
+    from bananawiki.hosting import instances
+    from bananawiki.hosting.errors import ServiceError
+    from bananawiki.hosting.runtime.fake import FakeTenant
+
+    admin = make_account(admin=True)
+    wiki = make_wiki(admin, "lead", domain_mode="apex")
+    runtime.tenants["lead"] = FakeTenant(runtime.tenants["lead__apex"].spec)
+    with pytest.raises(ServiceError) as error:
+        instances.rename_for_non_admin(instances.get(wiki["id"]), actor_id=None)
+    assert error.value.key == "hosting.runtime.data_exists"
+    row = instances.get(wiki["id"])
+    assert (row["subdomain"], row["domain_mode"], row["status"]) == ("lead", "apex", "running")
+    assert runtime.tenants["lead__apex"].running

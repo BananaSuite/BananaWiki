@@ -1,19 +1,19 @@
-# Badges & Achievements
+# Badges
 
-Badges recognise participation. They can be awarded manually by admins or automatically by rules such as contribution counts, account age, or other activity triggers.
+Badges appear on members' profiles. Administrators create and manage them in **Administration → Badges**.
 
-## Why use badges
+## Automatic badges
 
-Badges work best as light encouragement: welcoming new contributors, recognising helpful edits, or marking special responsibilities.
+An automatic badge is awarded when a member reaches a threshold: first edit, number of edits, pages created, categories edited, days of membership or minutes spent reading.
 
-## Manual awards
+## Manual badges
 
-Admins can award a badge directly to a user. Use manual badges for milestones, training completion, community recognition, or roles that should be visible on profiles.
+A manual badge is awarded by an administrator, for example for finishing a course or taking on a role.
 
-## Automatic awards
+## Revoking
 
-Automatic badges are rule-driven. Keep rules understandable so users know what the badge means. Review auto-award settings after changing plugins or contribution workflows.
+An administrator can revoke a badge from one member or from everyone. A revoked automatic badge is not awarded again unless the award is deleted instead.
 
-## Notifications and history
+## Notifications
 
-Badge notifications tell users when they receive a badge. Badge history helps admins audit when and why awards happened.
+Members are notified when they receive a badge.

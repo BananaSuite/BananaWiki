@@ -192,8 +192,15 @@ def update_user(user_id: str):
         db.execute("UPDATE users SET api_access_enabled = ? WHERE id = ?", (1 if api_access else 0, target["id"]))
     if new_password is not None:
         payload["api_tokens_revoked"] = tokens.revoke_all_for_user(target["id"])
-        _service(admin_service.reset_password, _target(user_id), new_password, require_change=False,
-                 keep_original=False)
+        if own:
+            # The administration service leaves one's own password to the account settings.
+            try:
+                accounts.set_password(target["id"], new_password, expected_password_hash=caller()["password"])
+            except accounts.AccountError as error:
+                raise from_service(error) from None
+        else:
+            _service(admin_service.reset_password, _target(user_id), new_password, require_change=False,
+                     keep_original=False)
     return ok(user=serialize.user(_target(user_id)), **payload)
 
 

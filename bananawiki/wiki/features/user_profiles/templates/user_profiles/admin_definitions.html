@@ -26,9 +26,9 @@
       </td>
       <td class="actions"><div class="cluster">
         <button class="btn btn--small" form="pf-{{ field.id }}" name="action" value="update">{{ t('common.save') }}</button>
-        {% if not loop.first %}<button class="btn btn--small" form="pf-{{ field.id }}" name="action" value="move_up" aria-label="{{ t('profiles.move_up') }}">↑</button>{% endif %}
-        {% if not loop.last %}<button class="btn btn--small" form="pf-{{ field.id }}" name="action" value="move_down" aria-label="{{ t('profiles.move_down') }}">↓</button>{% endif %}
-        <button class="btn btn--small btn--danger" form="pf-{{ field.id }}" name="action" value="delete" data-confirm="{{ t('profiles.admin.delete_field_confirm') }}">{{ t('common.delete') }}</button>
+        {% if not loop.first %}<button class="btn btn--small" form="pf-{{ field.id }}" name="action" value="move_up" aria-label="{{ t('profiles.move_up') }}">↑</button>{% else %}<span class="btn btn--small btn-placeholder" aria-hidden="true">↑</span>{% endif %}
+        {% if not loop.last %}<button class="btn btn--small" form="pf-{{ field.id }}" name="action" value="move_down" aria-label="{{ t('profiles.move_down') }}">↓</button>{% else %}<span class="btn btn--small btn-placeholder" aria-hidden="true">↓</span>{% endif %}
+        <button class="btn btn--small btn--danger-quiet" form="pf-{{ field.id }}" name="action" value="delete" data-confirm="{{ t('profiles.admin.delete_field_confirm') }}">{{ t('common.delete') }}</button>
       </div></td>
     </tr>
     {% endfor %}

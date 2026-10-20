@@ -18,6 +18,7 @@ exclusive lock file while a server runs or a restore replaces the data.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import secrets
@@ -50,6 +51,20 @@ SECRET_KEY_NAME = ".secret_key"
 MAX_KEY_BYTES = 4096
 
 
+def make_private(path: str | os.PathLike[str]) -> None:
+    """Make a file readable only by its owner, where the file system has Unix permissions.
+
+    FAT32 and exFAT (most USB sticks) have none, and Linux refuses the change there.
+    """
+    if os.name != "posix":
+        return
+    try:
+        os.chmod(path, 0o600)
+    except OSError as error:
+        if error.errno not in (errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP):
+            raise
+
+
 def write_private(path: Path, content: bytes) -> None:
     """Atomically replace *path* with *content*, readable only by the owner."""
     if path.is_symlink():
@@ -60,8 +75,7 @@ def write_private(path: Path, content: bytes) -> None:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
-        if os.name == "posix":
-            os.chmod(temporary, 0o600)
+        make_private(temporary)
         os.replace(temporary, path)
     finally:
         Path(temporary).unlink(missing_ok=True)
@@ -76,7 +90,7 @@ class DataFolder:
     def __repr__(self) -> str:
         return f"DataFolder({str(self.root)!r})"
 
-    # Paths ----------------------------------------------------------------
+    # Paths
 
     @property
     def instance(self) -> Path:
@@ -98,7 +112,7 @@ class DataFolder:
     def previous(self) -> Path:
         return self.root / PREVIOUS_DIRECTORY
 
-    # Validation and layout -------------------------------------------------
+    # Validation and layout
 
     def check(self) -> None:
         """Refuse folders that are not (or cannot become) a BananaWiki data folder.
@@ -163,7 +177,7 @@ class DataFolder:
         finally:
             lock.release()
 
-    # Secrets and state -----------------------------------------------------
+    # Secrets and state
 
     def secret_key(self) -> str:
         """The session key, generated on first use and kept in the folder.
@@ -181,7 +195,7 @@ class DataFolder:
             if not key or len(raw) > MAX_KEY_BYTES:
                 raise DesktopError("secret_key_invalid", str(path))
             if os.name == "posix" and path.stat().st_mode & 0o077:
-                os.chmod(path, 0o600)
+                make_private(path)
             return key
         key = secrets.token_hex(32)
         write_private(path, key.encode("ascii"))
@@ -201,14 +215,16 @@ class DataFolder:
             return False
         return bool(row and row[0])
 
-    # Wiki configuration ----------------------------------------------------
+    # Wiki configuration
 
-    def environ(self, *, host: str, port: int, language: str) -> dict[str, str]:
+    def environ(self, *, host: str, port: int, language: str, allow_plugins: bool = False) -> dict[str, str]:
         """The ``BW_*`` variables that point the wiki at this folder.
 
         Built from scratch: nothing is inherited from the user's environment,
         so a ``SECRET_KEY`` or ``BW_*`` variable set for another purpose can
-        never change which data or key this wiki uses.
+        never change which data or key this wiki uses. Third-party plugins
+        stay off unless the user allowed them in the launcher: a plugin
+        folder that turns up in the data folder never switches them on.
         """
         root = self.root
         return {
@@ -224,6 +240,7 @@ class DataFolder:
             "BW_FAVICON_UPLOAD_FOLDER": str(root / "favicons"),
             "BW_TTS_FOLDER": str(root / "tts"),
             "BW_EXTERNAL_PLUGINS_DIR": str(root / "plugins"),
+            "BW_ALLOW_EXTERNAL_PLUGINS": "1" if allow_plugins else "0",
             "BW_SITE_EXPORT_TEMP_DIR": str(root / "tmp_exports"),
             "BW_LOG_FILE": str(self.logs / "bananawiki.log"),
             "BW_HOST": host,

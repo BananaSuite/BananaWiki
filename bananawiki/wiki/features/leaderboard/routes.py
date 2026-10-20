@@ -27,7 +27,7 @@ def index():
     mine = next((e for e in entries if e["user_id"] == viewer["id"]), None)
     if mine is not None and mine not in shown:
         shown.append(mine)
-    service.attach_details(shown)
+    service.attach_details(shown, viewer)
     return render_template(
         "leaderboard/index.html", entries=shown, summary=result["summary"], mine=mine,
         sort=sort, range_key=range_key, sorts=service.SORTS, ranges=service.RANGES,

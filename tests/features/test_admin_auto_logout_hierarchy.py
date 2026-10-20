@@ -1,4 +1,4 @@
-"""The daily automatic sign-out follows the account hierarchy (second audit of the 1.7 round).
+"""The daily automatic sign-out follows the account hierarchy.
 
 Any administrator may switch it on and choose the hour, so it ends only the
 sessions every administrator may end: those of users and editors. Administrators,

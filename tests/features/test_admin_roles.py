@@ -26,7 +26,7 @@ def create_role(client, **data):
     return client.post("/admin/roles/create", data=payload)
 
 
-# ── Custom roles ─────────────────────────────────────────────────────────────
+# Custom roles
 
 
 @pytest.mark.parametrize("role", ["user", "editor"])
@@ -128,7 +128,7 @@ def test_unknown_role_is_404(admin_client):
     assert admin_client.post("/admin/roles/999/delete").status_code == 404
 
 
-# ── Per-user overrides ───────────────────────────────────────────────────────
+# Per-user overrides
 
 
 def test_user_permission_overrides(app, admin_client, make_user, db):

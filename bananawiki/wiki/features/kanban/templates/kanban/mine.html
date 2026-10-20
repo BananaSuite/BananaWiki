@@ -38,9 +38,9 @@
 {% if limited %}<p class="alert alert--info">{{ t('kanban.mine.limited', count=total) }}</p>{% endif %}
 {% if not groups %}
 {% if filter.active %}
-<div class="empty-state card"><h2>{{ t('kanban.mine.no_match') }}</h2></div>
+<p class="empty-state">{{ t('kanban.mine.no_match') }}</p>
 {% else %}
-<div class="empty-state card"><h2>{{ t('kanban.mine.empty') }}</h2><p>{{ t('kanban.mine.empty_help') }}</p></div>
+<div class="empty-state"><p>{{ t('kanban.mine.empty') }}</p><p>{{ t('kanban.mine.empty_help') }}</p></div>
 {% endif %}
 {% endif %}
 {% for name, tickets in groups %}

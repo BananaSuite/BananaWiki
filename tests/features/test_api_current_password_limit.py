@@ -1,4 +1,4 @@
-"""The API's ``current_password`` check counts against the account's password budget (second audit, 1.7).
+"""The API's ``current_password`` check counts against the account's password budget.
 
 A token holder must not be able to guess the account's password through
 ``PUT /users/<own id>`` faster than through the account settings.

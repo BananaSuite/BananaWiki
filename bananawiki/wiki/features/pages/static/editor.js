@@ -23,7 +23,7 @@
   var initial = draftState();
   var submitting = false;
 
-  // Text helpers ---------------------------------------------------------------
+  // Text helpers
   function replaceSelection(before, after, placeholder) {
     var start = area.selectionStart, end = area.selectionEnd;
     var selected = area.value.slice(start, end) || placeholder || "";
@@ -110,7 +110,7 @@
     }
   });
 
-  // Live preview and counters --------------------------------------------------
+  // Live preview and counters
   var previewTimer = null, previewController = null, previewVersion = 0;
   function cancelPreview() {
     clearTimeout(previewTimer);
@@ -190,7 +190,7 @@
     });
   }
 
-  // Images ---------------------------------------------------------------------
+  // Images
   function sendImage(file) {
     var body = new FormData();
     body.append("file", file);
@@ -238,7 +238,7 @@
     }
   });
 
-  // Image options: alt text, width, alignment, spacing and crop -------------------
+  // Image options: alt text, width, alignment, spacing and crop
   // A picture is changed in the Markdown, one token at a time. The preview only
   // says which picture: it is rebuilt as you type, so nothing is resized in it.
   var MD_IMAGE = /!\[([^\]\n]*)\]\(\s*<?([^\s<>()]+)>?(?:\s+"([^"\n]*)")?\s*\)/g;
@@ -540,7 +540,7 @@
     else BW.toast(BW.t("pages.image_not_found"), "error");
   });
 
-  // Dialogs: link, table, video --------------------------------------------------
+  // Dialogs: link, table, video
   function openDialog(id) {
     // By tag: the preview, before the dialogs, keeps the ids of its headings.
     var dialog = document.querySelector("dialog#" + CSS.escape(id));
@@ -642,7 +642,7 @@
     });
   });
 
-  // Presence and leaving ---------------------------------------------------------
+  // Presence and leaving
   var othersBadge = document.querySelector("[data-presence-editor]");
   function heartbeat() {
     if (!config.heartbeat || document.visibilityState === "hidden") return;

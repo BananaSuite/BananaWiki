@@ -65,7 +65,7 @@ def toggle_language(code: str):
 @bp.post("/admin/interface-languages/add")
 @auth.admin_required
 def add_language():
-    """1.4 registered a language by name; 1.6 needs its file, so this only enables installed ones."""
+    """Enable an installed language (1.4 forms registered one by name; a language needs its file)."""
     code = request.form.get("language_code", "")
     try:
         languages.set_enabled(code, bool(request.form.get("language_enabled", "1")))

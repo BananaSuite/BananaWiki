@@ -1,4 +1,4 @@
-"""Done columns: a column setting (off by default) whose tickets no longer count as overdue or due soon."""
+"""Done columns: a column setting (off by default) whose tickets do not count as overdue or due soon."""
 
 from __future__ import annotations
 
@@ -144,10 +144,8 @@ def test_the_rest_api_reads_and_sets_the_flag(app, client, db, make_user):
 
 
 def test_the_done_toggle_is_an_icon_so_the_column_tools_keep_one_row():
-    # At the default column width (250 px) a third text button ("Done column", "Completata") pushed the
-    # delete button onto a second row. The toggle is an icon button named by its aria-label (with the
-    # column's title, like the other column tools) and explained by its tooltip; the row keeps two short
-    # text buttons and two icon buttons.
+    # At the default column width (250 px) a third text button would push Delete onto a second row,
+    # so the done toggle is an icon button named by its aria-label.
     static = Path(kanban_store.__file__).with_name("static")
     script = (static / "kanban-board.js").read_text(encoding="utf-8")
     tools = script.split('var tools = el("div", "kanban-column__tools");', 1)[1].split("head.appendChild(tools);", 1)[0]

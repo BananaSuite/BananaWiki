@@ -13,7 +13,7 @@
     {% if entries %}
     {{ m.entry_list(entries, show_oldest=true) }}
     {% else %}
-    <div class="empty-state"><h3>{{ t('attention.empty.title') }}</h3><p>{{ t('attention.empty.body') }}</p></div>
+    <p class="empty-state">{{ t('attention.empty.body') }}</p>
     {% endif %}
   </section>
   {% if notices %}

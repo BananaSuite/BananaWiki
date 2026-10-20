@@ -1,4 +1,4 @@
-"""REST API findings of the 2.x release audit: tokens as a stepping stone to more power."""
+"""API tokens cannot be used to gain more access than their owner has."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def api_app(app, db):
     return app
 
 
-# ── Accounts ─────────────────────────────────────────────────────────────────
+# Accounts
 
 
 def test_a_token_cannot_set_its_own_accounts_password_without_the_current_one(api_app, client, make_user):
@@ -57,7 +57,7 @@ def test_tokens_never_create_owners_or_superusers(api_app, client, db, make_user
     assert db.scalar("SELECT is_superuser FROM users WHERE id = ?", (member["id"],)) == 0
 
 
-# ── Tokens minted by tokens ──────────────────────────────────────────────────
+# Tokens minted by tokens
 
 
 def _mint(client, parent, scopes):
@@ -98,7 +98,7 @@ def test_minted_tokens_cannot_mint_tokens(api_app, client, admin):
     assert refused.status_code == 403 and refused.json["code"] == "tokens_scope_forbidden"
 
 
-# ── Userbot lock ─────────────────────────────────────────────────────────────
+# Userbot lock
 
 
 def test_an_ordinary_token_cannot_bypass_the_userbot_lock(api_app, client, db, login, make_user):
@@ -121,7 +121,7 @@ def test_the_userbot_scope_is_not_offered_on_ordinary_tokens(api_app, client, lo
     assert tokens.scopes_for_role(member, ["pages", "userbot"]) == ["pages"]
 
 
-# ── The token page ───────────────────────────────────────────────────────────
+# The token page
 
 
 def test_the_token_page_shows_which_tokens_a_token_issued(api_app, client, db, make_user, login):
@@ -141,7 +141,7 @@ def test_the_token_page_shows_which_tokens_a_token_issued(api_app, client, db, m
     assert "Revoking a token also revokes every token it issued" in page
     # The confirmation names how many tokens go with it (the grandchild too).
     assert "the 2 tokens it issued are revoked with it" in page
-    assert "the 1 tokens it issued are revoked with it" in page
+    assert "and the token it issued is revoked with it" in page
     response = client.post(f"/settings/api-tokens/{ci}/revoke")
     assert response.status_code == 302
     assert db.scalar("SELECT COUNT(*) FROM api_service__tokens WHERE active = 1") == 1

@@ -5,8 +5,7 @@ signed in never do. The sunglasses are a 0/1 key in the account's display
 preferences (``users.accessibility``: ``mascot_shades``), so they need no table
 of their own and survive "reset display settings". Only that key is read and
 written here: every other saved preference stays exactly as stored, including
-a ``mascot_enabled`` that earlier builds of 1.7 saved to hide the mascot (it is
-ignored).
+an old ``mascot_enabled`` key, which is ignored.
 """
 
 from __future__ import annotations
@@ -16,9 +15,6 @@ from typing import Any
 
 from ...db import db
 from ..users import preferences
-
-# Clicking the mascot this many times puts its sunglasses on.
-CLICKS_FOR_SHADES = 11
 
 # Administrator actions: what each one writes on every account.
 BULK_ACTIONS: dict[str, dict[str, int]] = {

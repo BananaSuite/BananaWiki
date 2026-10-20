@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
 """Version 5: purging an account no longer deletes rows it is only named in.
 
 ``instance_collaborators.invited_by`` and ``hosting_account_merge_logs.merged_by``

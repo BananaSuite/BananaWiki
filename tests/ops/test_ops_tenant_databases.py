@@ -2,7 +2,7 @@
 
 The tenant controls its database and the WAL next to it. Opening them with
 SQLite would parse attacker-controlled content in the most privileged process
-of the platform (audit: root-parses-tenant-sqlite). The snapshot copies the
+of the platform. The snapshot copies the
 database with its WAL or journal once the wiki is stopped; SQLite replays the
 WAL when the wiki opens the restored copy, inside its own sandbox.
 """

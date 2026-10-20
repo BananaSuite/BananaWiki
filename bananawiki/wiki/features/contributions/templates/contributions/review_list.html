@@ -20,7 +20,7 @@
       <td data-label="{{ t('contributions.col.user') }}">{{ c.username }}</td>
       <td data-label="{{ t('contributions.field.reason') }}">{{ c.reason }}</td>
       <td class="nowrap" data-label="{{ t('common.created') }}">{{ c.created_at|datetime }}</td>
-      <td class="actions"><a class="btn btn--small btn--primary" href="{{ url_for('contributions.review_detail', contribution_id=c.id) }}">{{ t('contributions.review') }}</a></td>
+      <td class="actions"><a class="btn btn--small" href="{{ url_for('contributions.review_detail', contribution_id=c.id) }}">{{ t('contributions.review') }}</a></td>
     </tr>
     {% endfor %}
     </tbody>
@@ -41,8 +41,8 @@
       <td data-label="{{ t('contributions.quota.requested') }}">{{ t('contributions.quota.unlimited') if q.requested_quota == -1 else q.requested_quota }}</td>
       <td data-label="{{ t('contributions.field.reason') }}">{{ q.reason }}</td>
       <td class="actions"><div class="cluster">
-        {{ forms.post_button(url_for('contributions.review_quota_request', request_id=q.id), t('contributions.approve'), cls='btn btn--small btn--primary', hidden={'action': 'approve'}) }}
-        {{ forms.post_button(url_for('contributions.review_quota_request', request_id=q.id), t('contributions.deny'), cls='btn btn--small btn--danger', hidden={'action': 'deny'}) }}
+        {{ forms.post_button(url_for('contributions.review_quota_request', request_id=q.id), t('contributions.approve'), cls='btn btn--small', hidden={'action': 'approve'}) }}
+        {{ forms.post_button(url_for('contributions.review_quota_request', request_id=q.id), t('contributions.deny'), cls='btn btn--small btn--danger-quiet', hidden={'action': 'deny'}) }}
       </div></td>
     </tr>
     {% endfor %}

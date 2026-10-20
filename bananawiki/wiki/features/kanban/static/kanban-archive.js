@@ -53,7 +53,7 @@
         var tools = el("div", "kanban-archive__tools");
         var restore = button(BW.t("kanban.restore"), BW.t("kanban.restore_ticket", { title: ticket.title }));
         restore.dataset.archived = "restore";
-        var remove = button(BW.t("kanban.delete_forever"), BW.t("kanban.delete_forever_ticket", { title: ticket.title }), "btn--danger");
+        var remove = button(BW.t("kanban.delete_forever"), BW.t("kanban.delete_forever_ticket", { title: ticket.title }), "btn--danger-quiet");
         remove.dataset.archived = "delete";
         tools.appendChild(restore);
         tools.appendChild(remove);

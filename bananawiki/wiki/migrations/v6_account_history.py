@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
 """Schema version 6: account history that permission decisions rely on.
 
 1. ``suspension_audit.imposed_by_top``: whether an owner or superuser imposed

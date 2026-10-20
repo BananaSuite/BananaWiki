@@ -95,6 +95,8 @@ def address_allowed(address: ipaddress.IPv4Address | ipaddress.IPv6Address, *, a
         mapped = ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
     if mapped is not None:
         address = mapped
+    if address.is_loopback:
+        return allow_private  # ::1 lies in the reserved ::/8 block
     if (address.is_link_local or address.is_multicast or address.is_unspecified or address.is_reserved
             or getattr(address, "is_site_local", False)
             or any(address in network for network in _METADATA_NETWORKS)):

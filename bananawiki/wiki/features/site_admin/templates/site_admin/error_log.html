@@ -2,10 +2,12 @@
 {% block title %}{{ t('site_admin.log.title') }}{% endblock %}
 {% block admin_head %}<link rel="stylesheet" href="{{ asset_url('site_admin.css', blueprint='site_admin') }}">{% endblock %}
 {% block admin_content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('site_admin.server_page') }}">{{ t('site_admin.server.title') }}</a></li><li aria-current="page">{{ t('site_admin.log.title') }}</li>
+</ol></nav>
 <header class="page-header">
   <h1>{{ t('site_admin.log.title') }}</h1>
   <div class="page-header__actions">
-    <a class="btn btn--small" href="{{ url_for('site_admin.server_page') }}">{{ t('site_admin.log.back_to_server') }}</a>
     {% if errors_only %}<a class="btn btn--small" href="{{ url_for('site_admin.error_log', level='all') }}">{{ t('site_admin.log.show_all') }}</a>
     {% else %}<a class="btn btn--small" href="{{ url_for('site_admin.error_log') }}">{{ t('site_admin.log.show_errors') }}</a>{% endif %}
   </div>

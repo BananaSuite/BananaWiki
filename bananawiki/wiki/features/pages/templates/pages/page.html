@@ -35,7 +35,7 @@
         {% endif %}
         {% set feature_actions = slot('page.header_actions', page=page) %}
         <details class="menu page-actions-menu">
-          <summary class="btn btn--small">{{ t('pages.actions.menu') }} <span aria-hidden="true">▾</span></summary>
+          <summary class="btn btn--small menu__toggle">{{ t('pages.actions.menu') }}</summary>
           <div class="menu__panel">
             {% if feature_actions %}<div class="page-actions-menu__tools">{{ feature_actions }}</div><hr>{% endif %}
             {% if can_view_history and feature_enabled('page_history') %}<a href="{{ url_for('pages.history', slug=page.slug) }}">{{ t('pages.actions.history') }}</a>{% endif %}
@@ -86,6 +86,7 @@
     {% endif %}
     {{ slot('page.above_content', page=page) }}
     <article class="prose" id="page-content">{{ body }}</article>
+    {% if not body|trim %}<p class="empty-state">{{ t('pages.view.empty') }}</p>{% endif %}
     {{ slot('page.below_content', page=page) }}
     {% if previous or following %}
     <nav class="seq-nav no-print" aria-label="{{ t('pages.seq.label') }}">

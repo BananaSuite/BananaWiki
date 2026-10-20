@@ -16,7 +16,7 @@ from bananawiki.desktop import DesktopError, i18n, network, preferences
 ROOT = Path(__file__).resolve().parents[2]
 
 
-# ── network ───────────────────────────────────────────────────────────────────
+# network
 
 
 def test_bind_host_is_loopback_unless_the_user_opted_in():
@@ -62,22 +62,25 @@ def test_port_available(free_port):
         assert not network.port_available("127.0.0.1", free_port)
 
 
-# ── preferences ───────────────────────────────────────────────────────────────
+# preferences
 
 
 @pytest.mark.parametrize("language", sorted(i18n.LANGUAGES))
 def test_preferences_round_trip(tmp_path, language):
     path = tmp_path / "cfg" / "desktop.json"
-    prefs = preferences.Preferences(data_dir=str(tmp_path / "wiki"), language=language, share_on_lan=True, port=8080)
+    prefs = preferences.Preferences(data_dir=str(tmp_path / "wiki"), language=language, share_on_lan=True, port=8080,
+                                    allow_plugins=True)
     preferences.save(prefs, path)
     assert preferences.load(path) == prefs
 
 
 def test_invalid_preferences_fall_back_to_safe_defaults(tmp_path):
     path = tmp_path / "desktop.json"
-    path.write_text(json.dumps({"data_dir": 5, "language": "xx", "share_on_lan": "yes", "port": 99999}))
+    path.write_text(json.dumps({"data_dir": 5, "language": "xx", "share_on_lan": "yes", "port": 99999,
+                                "allow_plugins": "yes"}))
     prefs = preferences.load(path)
     assert prefs.share_on_lan is False
+    assert prefs.allow_plugins is False
     assert prefs.port is None
     assert prefs.language in i18n.LANGUAGES
     assert prefs.data_dir == str(preferences.default_data_dir())
@@ -102,7 +105,7 @@ def test_packaged_app_keeps_data_beside_itself(monkeypatch, tmp_path):
     assert preferences.default_data_dir() == app_dir / "bananawiki"
 
 
-# ── translations ──────────────────────────────────────────────────────────────
+# translations
 
 
 @pytest.mark.parametrize("language", sorted(set(i18n.LANGUAGES) - {"en"}))
@@ -139,7 +142,7 @@ def test_translator_formats_errors():
     assert i18n.Translator("xx").language == "en"
 
 
-# ── packaging ─────────────────────────────────────────────────────────────────
+# packaging
 
 
 @pytest.fixture(scope="module")
@@ -153,7 +156,6 @@ def build():
 def test_spec_uses_a_neutral_bundle_id():
     spec = (ROOT / "packaging" / "desktop" / "bananawiki-desktop.spec").read_text()
     assert 'BUNDLE_ID = "org.bananawiki.desktop"' in spec
-    assert "canale" + "scuola" not in spec.lower()  # the old organisation-specific bundle id
 
 
 def test_linux_package_is_executable(build, tmp_path):

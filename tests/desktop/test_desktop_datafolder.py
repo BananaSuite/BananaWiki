@@ -132,6 +132,16 @@ def test_environ_ignores_the_users_secret_key(folder, monkeypatch):
     assert environ["BW_DATABASE_PATH"] == str(folder.database)
 
 
+def test_environ_keeps_third_party_plugins_off_unless_the_user_allowed_them(folder):
+    folder.prepare()
+    (folder.root / "plugins" / "copied").mkdir()  # a plugin folder turning up must not switch them on
+    environ = folder.environ(host="127.0.0.1", port=80, language="en")
+    assert environ["BW_ALLOW_EXTERNAL_PLUGINS"] == "0"
+    assert load_config(environ, secret_key="k" * 64).allow_external_plugins is False
+    allowed = folder.environ(host="127.0.0.1", port=80, language="en", allow_plugins=True)
+    assert load_config(allowed, secret_key="k" * 64).allow_external_plugins is True
+
+
 def test_setup_done_reads_the_database(wiki_folder):
     from .conftest import set_setting
 

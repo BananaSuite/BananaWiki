@@ -53,3 +53,11 @@ def test_pdf_export_survives_a_non_ascii_list_start(app, db, admin_client):
     page = make_page(app, "Numbered", f'<ol start="{SUPERSCRIPT_TWO}"><li>one</li></ol>')
     response = admin_client.get(f"/page/{page['slug']}/export-pdf")
     assert response.status_code == 200
+
+
+def test_out_of_range_numbers_in_the_query_are_a_bad_request(app, admin_client):
+    """``?page=10**20`` would overflow SQLite's OFFSET."""
+    page = make_page(app, "Numbers", "x")
+    huge = 10 ** 20
+    for url in (f"/page/{page['slug']}/history?page={huge}", f"/users?page={huge}", f"/admin/users?page={huge}"):
+        assert admin_client.get(url).status_code == 400, url

@@ -45,7 +45,7 @@ def _to_checkouts():
     return redirect(url_for("page_governance.checkouts"))
 
 
-# ── Check-outs ────────────────────────────────────────────────────────────────
+# Check-outs
 
 
 @bp.get("/admin/checkouts")
@@ -119,7 +119,7 @@ def clear_cooldown(page_id: int):
     return _to_checkouts()
 
 
-# ── Reservation quota of one user ────────────────────────────────────────────
+# Reservation quota of one user
 
 
 @bp.route("/admin/users/<string:user_id>/reservation-quota", methods=["GET", "POST"])
@@ -161,7 +161,7 @@ def _handle_admin_quota_form(target: dict[str, Any]) -> None:
         flash_error(exc)
 
 
-# ── Protected pages and settings ─────────────────────────────────────────────
+# Protected pages and settings
 
 
 @bp.route("/admin/governance", methods=["GET", "POST"])

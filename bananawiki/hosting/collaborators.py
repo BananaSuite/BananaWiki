@@ -1,18 +1,16 @@
 """Wiki collaborators and ownership transfers.
 
-Rules fixed from 1.4: a collaborator holding ``manage_collaborators`` may
-only hand out permissions it holds itself, cannot grant ``full_access`` and
-cannot change or remove owners of full access; transfers are always made
-from the current owner (an administrator starting one no longer produced a
-transfer that could never be accepted); the recipient must be an active,
-approved account, and accepting one applies the new owner's privileges.
+A collaborator holding ``manage_collaborators`` may only hand out
+permissions it holds itself, cannot grant ``full_access`` and cannot change
+or remove owners of full access. Transfers are always made from the current
+owner, also when an administrator starts one. The recipient must be an
+active, approved account, and accepting a transfer applies the new owner's
+privileges.
 
-Changed in 1.6: accepting a transfer no longer leaves the previous owner as
-a full-access collaborator (able to terminate the wiki or reset its
-administrator's password). The recipient chooses: remove them (the default)
-or keep them as a viewer. The recipient's wiki limit applies, and an
-administrator who must use two-step verification but has not turned it on
-holds no administrator rights over other people's wikis.
+Accepting a transfer does not leave the previous owner as a full-access
+collaborator (able to terminate the wiki or reset its administrator's
+password). The recipient chooses: remove them (the default) or keep them as
+a viewer. The recipient's wiki limit applies.
 """
 
 from __future__ import annotations
@@ -126,7 +124,7 @@ def remove(inst: dict[str, Any], actor: dict[str, Any], account_id: str) -> None
     events.record("instance", inst["id"], "collaborator.removed", actor["id"], account_id)
 
 
-# ── Ownership transfers ───────────────────────────────────────────────────────
+# Ownership transfers
 
 
 def pending_transfer(instance_id: str) -> dict[str, Any] | None:

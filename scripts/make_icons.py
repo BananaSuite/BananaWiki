@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Draw every BananaSuite icon from the mascot's pixel art.
 
-The banana of ``bananawiki/wiki/features/mascot/sprite.py`` (its body, eyes
+The banana of ``bananawiki/core/mascot.py`` (its body, eyes
 and mouth: the normal face, without the sunglasses) is the icon of the wiki,
 the hosting portal, the desktop app, BananaChat and the website. Every sprite
 pixel becomes an exact square (whole-number scales, no smoothing), the banana
 is centred, and the files carry no metadata, so a rerun writes the same bytes:
 
     bananawiki/wiki/static/favicons/banana_<colour>.png   favicon presets (Admin > Appearance), 32x32
-    bananawiki/wiki/static/favicons/apple-touch-icon.png  home-screen icon, 180x180 on a light tile
+    bananawiki/wiki/static/favicons/apple-touch-icon.png  home-screen icon, 180x180, transparent
     bananawiki/hosting/static/favicon.png                 the portal's icon: the yellow preset
     bananawiki/hosting/static/apple-touch-icon.png
     bananawiki/desktop/static/icon.png                    the desktop app's window icon, 256x256
@@ -25,18 +25,32 @@ home-screen icon. Run it after changing the sprite::
     python scripts/make_icons.py --check      list the icons that differ and exit 1, writing nothing
     python scripts/make_icons.py --wiki-only  only this repository's icons (with or without --check)
 
+BananaChat's top bar and the website's header have their own ports of the mascot
+(``bananachat/static/js/mascot.js``, ``css/mascot.css`` and the sprite in
+``templates/partials/mascot.html``; the website's ``mascot/mascot.js``, ``mascot/mascot.css`` and
+the sprite in each page's header). Each script names the version of this repository's mascot it
+follows, a hash of ``bananawiki/core/mascot.py`` and ``bananawiki/core/static/mascot/``; both
+modes fail while that differs. Port the change, then record it::
+
+    python scripts/make_icons.py --ported     write the current hash into both ports' mascot.js
+
 An icon differs when its pixels do, or when it carries anything besides
 pixels (a text chunk, a timestamp). PNG compression varies between zlib
-builds, so a file with the right pixels is left as it is, and the copies in
-the other trees must be byte-identical to this repository's. The sprite
-module is read, not imported: no Flask or markupsafe needed, only Pillow.
+builds, so a file with the right pixels is left as it is, whatever its colour
+type, and the copies in the other trees must be byte-identical to this
+repository's. That also keeps the single PNGs smaller than Pillow writes them:
+they were recompressed losslessly with oxipng (``oxipng -o max -Z --strip all``),
+which stores them as palette images. The sprite module is read, not imported:
+no Flask or markupsafe needed, only Pillow.
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import io
+import re
 import struct
 import sys
 from functools import cache
@@ -45,13 +59,18 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-SPRITE = ROOT / "bananawiki" / "wiki" / "features" / "mascot" / "sprite.py"
+SPRITE = ROOT / "bananawiki" / "core" / "mascot.py"
+MASCOT_SOURCES = ("bananawiki/core/mascot.py", "bananawiki/core/static/mascot/mascot.js",
+                  "bananawiki/core/static/mascot/mascot.css")
+CHAT_PORT = "bananachat/static/js/mascot.js"
+SITE_PORT = "mascot/mascot.js"
+PORT_MARK = re.compile(r"(BananaWiki mascot )([0-9a-f]{12})")
 
 # Light and shaded body colour (the sprite's Y and y) of each favicon preset. Yellow is the sprite's own
-# pair. The others keep the hue of the two main colours of the earlier preset icons (light/shade:
+# pair. The others keep the hue of the two main colours of the original preset icons (light/shade:
 # green #b9e7ba/#45974e, red #efabae/#b93546, blue #b6d0f5/#3b6ec6, purple #d5b8ef/#804eb7,
 # orange #f9c991/#d27120, cyan #b5e7f0/#319fb1, lime #e1f1ae/#96b738), with the lightness and saturation
-# moved as much as it takes to turn the earlier yellow (#fae89c/#d7b01d) into the sprite's: the colours
+# moved as much as it takes to turn the original yellow (#fae89c/#d7b01d) into the sprite's: the colours
 # stay recognisable and are as bright as the mascot.
 PRESETS = {
     "yellow": None,
@@ -69,11 +88,11 @@ ICO_SIZES = (16, 32, 48, 64, 128, 256)
 # macOS icon types, each a PNG: 16, 32, 128, 256 and 512 points at single and double density.
 ICNS_TYPES = ((b"icp4", 16), (b"ic11", 32), (b"icp5", 32), (b"ic12", 64), (b"ic07", 128), (b"ic13", 256),
               (b"ic08", 256), (b"ic14", 512), (b"ic09", 512), (b"ic10", 1024))
-# Home screens (iOS shows transparency in black and rounds the corners itself): an opaque light square,
-# the banana at ten times its size, so the half-size picture in the READMEs is still exact.
+# Home screens: the banana at ten times its size on a transparent square, so the half-size picture in the
+# READMEs is still exact and sits on the page's own background. iOS fills the transparency with black, like
+# the suite's dark background, and rounds the corners itself.
 TOUCH_SIZE = 180
 TOUCH_SCALE = 10
-TOUCH_TILE = "#fffaeb"
 PNG_CHUNKS = {b"IHDR", b"PLTE", b"tRNS", b"IDAT", b"IEND"}
 
 
@@ -123,17 +142,27 @@ def scaled(image: Image.Image, factor: int) -> Image.Image:
 
 
 def touch_origin() -> tuple[int, int]:
-    """Where the home-screen icon's 16x16 grid starts: the banana in the middle, on even pixels."""
-    box = banana().getbbox()
-    width, height = (box[2] - box[0]) * TOUCH_SCALE, (box[3] - box[1]) * TOUCH_SCALE
-    left = (TOUCH_SIZE - width) // 4 * 2 - box[0] * TOUCH_SCALE
-    top = (TOUCH_SIZE - height) // 4 * 2 - box[1] * TOUCH_SCALE
-    return left, top
+    """Where the home-screen icon's 16x16 grid starts, on even pixels: the banana centred optically.
+
+    Centring its bounding box leaves it low and to the left, because the stem and the tip stick out to the
+    top and the right while the body sits lower left. The point halfway between the box's centre and the
+    centre of the banana's pixels goes in the middle of the icon instead.
+    """
+    image = banana()
+    box = image.getbbox()
+    pixels = [(column + .5, row + .5) for row in range(image.height) for column in range(image.width)
+              if image.getpixel((column, row))[3]]
+    origin = []
+    for axis in (0, 1):
+        middle = (box[axis] + box[axis + 2]) / 2
+        mass = sum(point[axis] for point in pixels) / len(pixels)
+        origin.append(round((TOUCH_SIZE / 2 - (middle + mass) / 2 * TOUCH_SCALE) / 2) * 2)
+    return origin[0], origin[1]
 
 
 def touch_icon() -> Image.Image:
-    """The home-screen icon: the yellow banana on its light square."""
-    image = Image.new("RGBA", (TOUCH_SIZE, TOUCH_SIZE), _rgba(TOUCH_TILE))
+    """The home-screen icon: the yellow banana, centred optically on a transparent square."""
+    image = Image.new("RGBA", (TOUCH_SIZE, TOUCH_SIZE), (0, 0, 0, 0))
     image.alpha_composite(scaled(banana(), TOUCH_SCALE), touch_origin())
     return image
 
@@ -198,7 +227,7 @@ def targets(wiki: Path, chat: Path | None, site: Path | None) -> list[tuple[Path
 
 
 def _png_frames(data: bytes) -> list[tuple[str, tuple[int, int], bytes]]:
-    """[(mode, size, pixels)] of a PNG; ValueError for anything but the chunks the script writes."""
+    """[(size, RGBA pixels)] of a PNG; ValueError for anything but the chunks the script writes."""
     if data[:8] != b"\x89PNG\r\n\x1a\n":
         raise ValueError("not a PNG")
     position = 8
@@ -209,7 +238,7 @@ def _png_frames(data: bytes) -> list[tuple[str, tuple[int, int], bytes]]:
         position += 12 + length
     image = Image.open(io.BytesIO(data))
     image.load()
-    return [(image.mode, image.size, image.tobytes())]
+    return [(image.size, image.convert("RGBA").tobytes())]
 
 
 def _frames(data: bytes) -> list:
@@ -256,6 +285,31 @@ def sync(files: list[tuple[Path, str]], *, write: bool) -> list[Path]:
     return differing
 
 
+def mascot_version(wiki: Path) -> str:
+    """The hash of *wiki*'s mascot sources (line endings as in a checkout of either kind)."""
+    digest = hashlib.sha256()
+    for name in MASCOT_SOURCES:
+        digest.update(name.encode() + b"\0" + (wiki / name).read_bytes().replace(b"\r\n", b"\n") + b"\0")
+    return digest.hexdigest()[:12]
+
+
+def port(wiki: Path, tree: Path, relative: str, *, record: bool) -> str | None:
+    """Why the mascot port at *relative* in *tree* (:data:`CHAT_PORT`, :data:`SITE_PORT`) does not follow
+    *wiki*'s mascot, or None when it does. With *record*, the current hash is written into the port first."""
+    path, version = tree / relative, mascot_version(wiki)
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    mark = PORT_MARK.search(text)
+    if mark is None:
+        return f"{path}: no \"BananaWiki mascot <hash>\" line"
+    if record and mark.group(2) != version:
+        path.write_text(PORT_MARK.sub(rf"\g<1>{version}", text, count=1), encoding="utf-8")
+        return None
+    if mark.group(2) != version:
+        return (f"{path}: ported from another version of the mascot ({mark.group(2)}, this tree has {version}): "
+                f"port the changes of {', '.join(MASCOT_SOURCES)}, then run python scripts/make_icons.py --ported")
+    return None
+
+
 def _sibling(given: str | None, default: Path, marker: str) -> Path | None:
     if given is not None:
         path = Path(given)
@@ -271,6 +325,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--wiki-only", action="store_true", help="only this repository's icons")
     parser.add_argument("--chat", help="the BananaChat tree (default: ../BananaChat, when it is there)")
     parser.add_argument("--site", help="the website tree (default: ../BananaWiki-site, when it is there)")
+    parser.add_argument("--ported", action="store_true",
+                        help="record that BananaChat's and the website's mascots follow this tree's mascot")
     args = parser.parse_args(argv)
     chat = site = None
     if not args.wiki_only:
@@ -281,12 +337,17 @@ def main(argv: list[str] | None = None) -> int:
     for path in differing:
         print(f"{'differs' if args.check else 'wrote'}: {path}")
     trees = ", ".join(str(tree) for tree in (ROOT, chat, site) if tree is not None)
+    ports = [(tree, relative) for tree, relative in ((chat, CHAT_PORT), (site, SITE_PORT)) if tree is not None]
+    stale = [reason for tree, relative in ports
+             if (reason := port(ROOT, tree, relative, record=args.ported and not args.check))]
+    for reason in stale:
+        print(reason)
     if args.check and differing:
         print(f"{len(differing)} of {len(files)} icons differ from the sprite: run python scripts/make_icons.py")
         return 1
     if not differing:
         print(f"All {len(files)} icons match the sprite ({trees}).")
-    return 0
+    return 1 if stale else 0
 
 
 if __name__ == "__main__":

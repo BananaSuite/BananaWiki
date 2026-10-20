@@ -1,7 +1,7 @@
 """BananaWiki 1.4 userbot SDK name, kept for existing scripts.
 
 ``from bananawiki_userbot_sdk import UserbotClient`` keeps working; the client
-now lives in :mod:`bananawiki.sdk.userbot` (and the general REST client,
+lives in :mod:`bananawiki.sdk.userbot` (and the general REST client,
 ``WikiClient``, in :mod:`bananawiki.sdk.client`).
 """
 

@@ -26,6 +26,44 @@ def test_forms_without_csrf_token_are_refused(tmp_path):
     assert response.headers["Location"].endswith("/dashboard")
 
 
+def test_head_requests_never_run_a_form_submission(portal, web, make_account, make_wiki, login, query):
+    admin, user = make_account(admin=True), make_account()
+    make_wiki(user, "kept")
+    login(web, admin)
+    portal.config["CSRF_DISABLED"] = False
+    response = web.head(f"/admin/accounts/{user['id']}/delete")
+    assert response.status_code == 200 and response.data == b""
+    assert query("SELECT deleted_at FROM accounts WHERE id = ?", (user["id"],), one=True)["deleted_at"] is None
+    assert query("SELECT status FROM instances", one=True)["status"] == "running"
+
+
+def test_views_accepting_get_and_post_see_head_as_get(portal, web, make_account, login):
+    from flask import request, url_for
+    from werkzeug.routing import IntegerConverter
+
+    login(web, make_account(admin=True))
+    portal.config["CSRF_DISABLED"] = False
+    seen: dict[str, str] = {}
+
+    def recording(endpoint, view):
+        def record(*args, **kwargs):
+            seen[endpoint] = request.method
+            return view(*args, **kwargs)
+        return record
+
+    rules = [rule for rule in portal.url_map.iter_rules() if {"GET", "POST"} <= (rule.methods or set())]
+    assert rules
+    for rule in rules:
+        portal.view_functions[rule.endpoint] = recording(rule.endpoint, portal.view_functions[rule.endpoint])
+    for rule in rules:
+        values = {name: 1 if isinstance(rule._converters[name], IntegerConverter) else "x"
+                  for name in rule.arguments}
+        with portal.test_request_context():
+            target = url_for(rule.endpoint, **values)
+        web.head(target)
+    assert seen and set(seen.values()) == {"GET"}
+
+
 def test_security_headers(web):
     response = web.get("/login")
     csp = response.headers["Content-Security-Policy"]
@@ -37,6 +75,19 @@ def test_security_headers(web):
 def test_signed_in_pages_are_not_cached(web, make_account, login):
     login(web, make_account())
     assert "no-store" in web.get("/dashboard").headers["Cache-Control"]
+
+
+def test_https_sessions_use_a_host_only_cookie_that_wikis_cannot_plant(web, make_account):
+    account = make_account()
+    response = web.post("https://localhost/login", data={"username": account["username"], "password": PASSWORD})
+    cookie = next((value for value in response.headers.getlist("Set-Cookie") if "bwh_session=" in value), "")
+    assert cookie.startswith("__Host-bwh_session=") and "Secure" in cookie and "Path=/" in cookie
+    assert "Domain" not in cookie
+    assert web.get("https://localhost/dashboard").status_code == 200
+    # A same-named cookie without the prefix (what a sibling wiki could set) is not a session.
+    other = web.application.test_client()
+    other.set_cookie("bwh_session", web.get_cookie("__Host-bwh_session", domain="localhost").value)
+    assert other.get("https://localhost/dashboard").status_code == 302
 
 
 def test_health_never_reveals_error_details(portal, web, monkeypatch):
@@ -178,3 +229,12 @@ def test_successful_portal_signin_refunds_its_attempt_without_erasing_other_fail
         assert limiter.count("127.0.0.1", "login-failed", 900) == 3
         assert limiter.count("other-person", "login-account", 900) == 3
         assert limiter.count(account["username"].lower(), "login-account", 900) == 0
+
+
+def test_a_successful_sign_in_does_not_reset_the_per_ip_limit(web, make_account, query):
+    good = make_account()
+    for _ in range(3):
+        web.post("/login", data={"username": "victim", "password": "wrong"})
+    web.post("/login", data={"username": good["username"], "password": PASSWORD})
+    rows = query("SELECT COUNT(*) AS n FROM hosting_rate_limit_hits WHERE bucket = 'login-failed'", one=True)
+    assert rows["n"] == 3

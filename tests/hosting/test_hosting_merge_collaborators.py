@@ -1,6 +1,4 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
-"""Account merges and wiki collaborators: an owner never ends up a collaborator of its own wiki (S-30)."""
+"""Account merges and wiki collaborators: an owner never ends up a collaborator of its own wiki."""
 
 from __future__ import annotations
 
@@ -11,8 +9,8 @@ SELF_COLLABORATIONS = ("SELECT COUNT(*) AS n FROM instance_collaborators c JOIN 
 
 
 def test_the_sources_collaboration_on_a_target_wiki_is_dropped(ctx, make_account, make_wiki, query):
-    """The source handed its wiki to the target (and stayed a collaborator), then was merged into it:
-    the target, now owner and collaborator at once, kept full access after an administrator moved the wiki on."""
+    """The source handed its wiki to the target (and stayed a collaborator), then was merged into it: the
+    target must not stay owner and collaborator at once, keeping full access after the wiki moves on."""
     source, target, other, admin = make_account(), make_account(), make_account(), make_account(admin=True)
     wiki = make_wiki(target, "handed-over")
     collaborators.add(instances.get(wiki["id"]), target, source["username"], "full_access", [])

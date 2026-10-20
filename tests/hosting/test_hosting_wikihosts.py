@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import http.server
+import itertools
 import json
 import threading
+import time
+from types import SimpleNamespace
 
 import pytest
+
+from bananawiki.hosting import wikihosts
 
 
 class _Upstream(http.server.ThreadingHTTPServer):
@@ -99,6 +104,22 @@ def test_paused_and_unknown_wikis_get_a_status_page(web, runtime, make_account, 
     assert missing.status_code == 404 and "No wiki at this address" in missing.get_data(as_text=True)
 
 
+def test_apex_wikis_keep_addresses_that_read_as_hosting_ones(web, make_account, make_wiki, query):
+    admin = make_account(admin=True)
+    make_wiki(admin, "landing", domain_mode="apex")
+    make_wiki(admin, "docs-hosting", domain_mode="apex")
+    make_wiki(make_account(), "team")
+    query("UPDATE instances SET status = 'stopped'")
+
+    def answer(host: str) -> int:
+        return web.get("/", headers={"Host": host}).status_code
+
+    assert answer("docs-hosting.wiki.test") == 503
+    query("UPDATE hosting_settings SET instance_suffix_disabled = 1 WHERE id = 1")
+    assert answer("landing.wiki.test") == 503 and answer("team.wiki.test") == 503
+    assert answer("nobody.wiki.test") == 404
+
+
 def test_suspension_details_are_shown_only_when_visible(web, make_account, make_wiki, query):
     inst = make_wiki(make_account(), "team")
     query("UPDATE instances SET status = 'suspended', suspend_reason = 'spam', suspend_reason_visible = 1 "
@@ -126,8 +147,6 @@ def test_an_unreachable_wiki_gets_a_retry_page(web, runtime, make_account, make_
 
 
 def test_wiki_status_pages_are_never_502_or_504(web):
-    from bananawiki.hosting import wikihosts
-
     app = web.application
     middleware = app.wsgi_app
     while not isinstance(middleware, wikihosts.WikiHosts):
@@ -152,3 +171,33 @@ def test_head_requests_have_no_body(web, runtime, make_account, make_wiki, upstr
     runtime.upstreams["team"] = upstream
     response = web.head("/", headers={"Host": _host("team")})
     assert response.status_code in (200, 501) and response.get_data() == b""
+
+
+def test_proxied_requests_never_take_every_portal_thread():
+    slots = wikihosts._Slots(total=2)
+    first, second, third = slots.get("a"), slots.get("b"), slots.get("c")
+    assert first.acquire(0.01) and second.acquire(0.01)
+    assert not third.acquire(0.01)
+    first.release()
+    assert third.acquire(0.01)
+
+
+def test_one_busy_wiki_always_leaves_a_proxy_slot_to_the_others():
+    slots = wikihosts._Slots(total=3)
+    busy = [slots.get("slow") for _ in range(3)]
+    assert busy[0].acquire(0.01) and busy[1].acquire(0.01)
+    assert not busy[2].acquire(0.01)
+    assert slots.get("other").acquire(0.01)
+
+
+def test_a_trickling_wiki_response_is_cut_off_at_the_deadline(monkeypatch):
+    clock = itertools.count(0, 10.0)
+    monkeypatch.setattr(time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(wikihosts, "RESPONSE_SECONDS", 50, raising=False)
+    released = []
+    response = SimpleNamespace(read1=lambda _size: b"x")
+    connection = SimpleNamespace(sock=None, close=lambda: None)
+    body = wikihosts._Body(response, connection, SimpleNamespace(release=lambda: released.append(True)))
+    assert len(list(itertools.islice(body, 100))) < 10
+    body.close()
+    assert released == [True]

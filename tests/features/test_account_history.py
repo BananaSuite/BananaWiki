@@ -30,7 +30,7 @@ def _suspend(app, actor, target) -> None:
                                                reason_visible=False, time_visible=False))
 
 
-# ── Renames and deletions leave pages alone ───────────────────────────────────
+# Renames and deletions leave pages alone
 
 
 def test_renames_and_deletion_do_not_touch_pages_the_user_cannot_read(app, client, make_user, login, db):
@@ -68,7 +68,7 @@ def test_self_renames_are_limited_per_day(client, make_user, login, db):
     assert b"at most 3 times a day" in client.get("/settings").data
 
 
-# ── Former names ──────────────────────────────────────────────────────────────
+# Former names
 
 
 def test_old_profile_links_follow_the_rename(client, make_user, login, db):
@@ -115,7 +115,7 @@ def test_a_rename_from_a_stale_copy_records_the_name_given_up(app, make_user, db
         make_user("alice_two")
 
 
-# ── Merges ────────────────────────────────────────────────────────────────────
+# Merges
 
 
 def test_merge_rewrites_mentions_without_stopping_at_a_page_that_cannot_take_them(app, make_user, admin, db):
@@ -232,7 +232,7 @@ def test_deleting_the_source_keeps_the_background_the_target_took_over(app, make
                      (source["id"],)) == admin["id"]
 
 
-# ── Self-reactivation fails closed ────────────────────────────────────────────
+# Self-reactivation fails closed
 
 
 def test_suspension_records_the_rank_of_whoever_imposed_it(app, make_user, db):

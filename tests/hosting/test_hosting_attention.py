@@ -53,7 +53,7 @@ def request_feature(portal, login, owner, wiki):
     return client
 
 
-# ── Queues and the red dot ───────────────────────────────────────────────────
+# Queues and the red dot
 
 
 def test_counts_cover_every_queue(portal, ctx, make_account, make_wiki, query, admin, login):
@@ -114,7 +114,7 @@ def test_italian_labels(portal, make_account, login, admin):
     assert "Account in attesa di approvazione" in client.get("/admin/attention").get_data(as_text=True)
 
 
-# ── Events and owner notices ─────────────────────────────────────────────────
+# Events and owner notices
 
 
 def test_new_items_are_recorded_as_events(portal, ctx, make_account, make_wiki, login, query):
@@ -188,7 +188,7 @@ def test_merge_decisions(portal, ctx, make_account, admin):
     assert db.column("SELECT source_id FROM hosting_attention_events") == ["merges.awaiting"]
 
 
-# ── Administrator emails ─────────────────────────────────────────────────────
+# Administrator emails
 
 
 def test_admin_emails_follow_the_settings(portal, make_account, query, admin, outbox):
@@ -274,7 +274,7 @@ def test_account_approval_notice_is_not_emailed_twice(portal, make_account, logi
     assert send_decisions(portal) == 0
 
 
-# ── Settings and the test button ─────────────────────────────────────────────
+# Settings and the test button
 
 
 def test_notification_settings_are_saved_and_validated(portal, login, query, admin):

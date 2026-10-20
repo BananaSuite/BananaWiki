@@ -46,7 +46,7 @@ def _join(client, db, group):
     assert client.post("/groups/join", data={"invite_code": code}, headers=JSON).status_code == 200
 
 
-# ── Direct messages ──────────────────────────────────────────────────────────
+# Direct messages
 
 
 def test_what_a_blocked_member_sends_is_withheld_from_the_one_who_blocked_them(app, client, login, people, db):
@@ -104,7 +104,7 @@ def test_starting_a_conversation_with_someone_who_blocked_you_reads_like_an_inac
     assert refused.json["error"] == unknown.json["error"]
 
 
-# ── Groups ───────────────────────────────────────────────────────────────────
+# Groups
 
 
 def test_group_messages_of_a_blocked_member_are_hidden_from_the_one_who_blocked(client, login, people, db):
@@ -185,8 +185,8 @@ def test_a_blocked_member_cannot_add_the_one_who_blocked_them_to_a_group(client,
 
 
 def test_adding_a_member_who_blocked_you_answers_as_for_any_member(client, login, people, db):
-    # Second 1.7 audit (FNU-2 follow-up): the block check ran before the membership check,
-    # so "add alice" answered "no active user" although alice visibly posts in the group.
+    # The membership check comes before the block check: "add alice" must not answer "no active
+    # user" while alice visibly posts in the group.
     alice, bob, carol = people
     login(client, bob)
     group = create_group(client, "Bob's group")
@@ -217,7 +217,7 @@ def test_block_and_unblock_buttons_in_the_member_list(client, login, people, db)
     assert 'aria-label="Unblock bob"' in page
 
 
-# ── Settings, privacy and refusals ───────────────────────────────────────────
+# Settings, privacy and refusals
 
 
 def test_blocking_by_name_and_unblocking_from_the_settings(client, login, people, db):
@@ -291,3 +291,14 @@ def test_chat_translations_have_the_same_keys_and_placeholders():
     assert set(english) == set(italian)
     for key, text in english.items():
         assert set(re.findall(r"{(\w+)}", text)) == set(re.findall(r"{(\w+)}", italian[key])), key
+
+
+def test_blocking_clears_the_unread_badge(app, client, login, make_user, db):
+    alice, bob = make_user("alice"), make_user("bob")
+    other = app.test_client()
+    login(other, bob)
+    dm = start_dm(other, "alice")
+    send(other, f"/chats/{dm}/send", "spam")
+    login(client, alice)
+    assert client.post("/chats/blocks", data={"user_id": bob["id"], "next": "/chats"}).status_code in (302, 303)
+    assert db.scalar("SELECT unread_count_user1 + unread_count_user2 FROM chats WHERE id = ?", (dm,)) == 0

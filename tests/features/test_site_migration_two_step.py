@@ -1,4 +1,4 @@
-"""Site import and two-step verification; importing the same wiki twice (second audit of the 1.7 round).
+"""Site import and two-step verification; importing the same wiki twice.
 
 Authenticator secrets and recovery codes are bound to the secret key of the
 wiki that stored them, and an archive never holds that key. An import keeps

@@ -23,7 +23,7 @@ def owner(make_user):
     return make_user("the_owner", role="owner", is_superuser=1)
 
 
-# ── Access ───────────────────────────────────────────────────────────────────
+# Access
 
 ADMIN_URLS = ["/admin/dashboard", "/admin/users", "/admin/users/create", "/admin/roles", "/admin/roles/create",
               "/admin/sessions"]
@@ -72,7 +72,7 @@ def test_csrf_is_required(app, admin_client, make_user, db):
     assert fetch(db, bob)["suspended"] == 0
 
 
-# ── List and create ──────────────────────────────────────────────────────────
+# List and create
 
 
 def test_list_search_filter_and_pagination(admin_client, make_user):
@@ -109,7 +109,7 @@ def test_create_user_validation(admin_client, db, data):
     assert db.scalar("SELECT COUNT(*) FROM users WHERE username = 'valid_name'") == 0
 
 
-# ── Hierarchy (1.4 audit M4) ─────────────────────────────────────────────────
+# Hierarchy
 
 
 def test_admin_cannot_reset_another_admins_password(admin_client, make_user, db):
@@ -201,7 +201,7 @@ def test_role_change_records_history_and_resets_overrides(admin_client, admin, m
     assert db.scalar("SELECT COUNT(*) FROM user_category_access WHERE user_id = ?", (bob["id"],)) == 0
 
 
-# ── Suspension (1.4 audit H2) ────────────────────────────────────────────────
+# Suspension
 
 
 def test_suspension_revokes_sessions_and_is_audited(app, admin_client, make_user, login, db):
@@ -222,6 +222,12 @@ def test_suspension_revokes_sessions_and_is_audited(app, admin_client, make_user
     row = fetch(db, bob)
     assert row["suspended"] == 0 and row["suspend_reason"] is None
     assert db.scalar("SELECT COUNT(*) FROM suspension_audit WHERE user_id = ?", (bob["id"],)) == 2
+
+
+def test_suspension_lengths_read_in_the_singular_for_one_hour(admin_client, make_user):
+    bob = make_user("bob")
+    page = admin_client.get(f"/admin/users/{bob['id']}?lang=it").get_data(as_text=True)
+    assert '<option value="1">1 ora</option>' in page and '<option value="8">8 ore</option>' in page
 
 
 def test_suspension_visibility_needs_reason_and_end(admin_client, make_user, db):
@@ -260,7 +266,7 @@ def test_cannot_suspend_self(admin_client, admin, db):
     assert fetch(db, admin)["suspended"] == 0
 
 
-# ── Passwords ────────────────────────────────────────────────────────────────
+# Passwords
 
 
 def test_password_reset_forces_change_and_signs_out(app, admin_client, make_user, login, db):
@@ -307,13 +313,27 @@ def test_a_later_permanent_reset_drops_the_saved_original(admin_client, make_use
     assert fetch(db, bob)["original_password_backup"] is None
 
 
+@pytest.mark.parametrize("data", [
+    {"action": "change_password", "password": NEW_PASSWORD, "confirm_password": NEW_PASSWORD},
+    {"action": "set_temp_password", "password": NEW_PASSWORD, "confirm_password": NEW_PASSWORD},
+    {"action": "revert_password"},
+])
+def test_own_password_is_changed_only_in_account_settings(admin_client, admin, db, data):
+    db.execute("UPDATE users SET original_password_backup = 'saved-hash' WHERE id = ?", (admin["id"],))
+    edit(admin_client, admin, **data)
+    row = fetch(db, admin)
+    assert row["password"] == admin["password"] and row["original_password_backup"] == "saved-hash"
+    page = admin_client.get(f"/admin/users/{admin['id']}").get_data(as_text=True)
+    assert 'value="change_password"' not in page and "/settings#password-heading" in page
+
+
 def test_password_mismatch_is_refused(admin_client, make_user, db):
     bob = make_user("bob")
     edit(admin_client, bob, action="change_password", password=NEW_PASSWORD, confirm_password="nope nope nope")
     assert fetch(db, bob)["password"] == bob["password"]
 
 
-# ── Approval ─────────────────────────────────────────────────────────────────
+# Approval
 
 
 def test_approve_and_deny(admin_client, admin, make_user, db):
@@ -359,7 +379,7 @@ def test_expired_suspensions_are_lifted(app, make_user, db):
     assert row["suspended"] == 0 and row["suspend_reason"] is None
 
 
-# ── Other actions ────────────────────────────────────────────────────────────
+# Other actions
 
 
 def test_rename_and_toggle_chat(admin_client, make_user, db):
@@ -386,7 +406,7 @@ def test_next_redirect_must_be_local(admin_client, make_user):
     assert "evil.example" not in response.headers["Location"]
 
 
-# ── Impersonation ────────────────────────────────────────────────────────────
+# Impersonation
 
 
 def test_impersonation_start_and_stop(admin_client, admin, make_user, db):
@@ -400,6 +420,29 @@ def test_impersonation_start_and_stop(admin_client, admin, make_user, db):
     admin_client.post(response.headers["Location"])
     assert admin_client.get("/admin/users").status_code == 200
     assert db.one("SELECT ended_at FROM impersonation_logs WHERE id = ?", (log["id"],))["ended_at"]
+
+
+def test_signing_out_ends_the_impersonation_log(admin_client, admin, login, make_user, db):
+    bob = make_user("bob")
+    admin_client.post(f"/admin/users/{bob['id']}/impersonate")
+    db.execute("UPDATE impersonation_logs SET started_at = '2020-01-01 00:00:00'")
+    admin_client.post("/logout")
+    first = db.one("SELECT * FROM impersonation_logs")
+    assert first["ended_at"] is not None
+    db.execute("UPDATE impersonation_logs SET ended_at = '2020-01-01 01:00:00'")
+    login(admin_client, admin)
+    admin_client.post(f"/admin/users/{bob['id']}/impersonate")
+    admin_client.post("/impersonation/stop")
+    rows = db.all("SELECT ended_at FROM impersonation_logs ORDER BY id")
+    assert rows[0]["ended_at"] == "2020-01-01 01:00:00" and rows[1]["ended_at"] is not None
+
+
+def test_a_revoked_session_ends_the_impersonation_log_when_it_was_revoked(admin_client, admin, make_user, db):
+    bob = make_user("bob")
+    admin_client.post(f"/admin/users/{bob['id']}/impersonate")
+    db.execute("UPDATE user_sessions SET revoked_at = '2020-01-02 00:00:00' WHERE user_id = ?", (admin["id"],))
+    assert "/login" in admin_client.get("/_probe/private").headers["Location"]
+    assert db.scalar("SELECT ended_at FROM impersonation_logs") == "2020-01-02 00:00:00"
 
 
 @pytest.mark.parametrize("target_kwargs", [
@@ -424,7 +467,7 @@ def test_cannot_impersonate_self_or_nest(admin_client, admin, make_user, db):
     assert db.scalar("SELECT COUNT(*) FROM impersonation_logs") == 0
 
 
-# ── Sessions ─────────────────────────────────────────────────────────────────
+# Sessions
 
 
 def test_revoke_user_sessions(app, admin_client, make_user, login, db):
@@ -520,7 +563,7 @@ def test_auto_logout_job(app, admin_client, make_user, login, db):
     assert "/login" in bob_client.get("/_probe/private").headers["Location"]
 
 
-# ── Expired sign-ups ─────────────────────────────────────────────────────────
+# Expired sign-ups
 
 
 def test_expired_signup_cleanup_spares_an_account_approved_meanwhile(app, db, make_user):

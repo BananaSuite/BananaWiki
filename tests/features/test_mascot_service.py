@@ -39,12 +39,12 @@ def _forbid_full_cleaning(monkeypatch):
     monkeypatch.setattr(preferences, "enabled_languages", refuse)
 
 
-# ── Writing ───────────────────────────────────────────────────────────────────
+# Writing
 
 
 def test_own_choice_writes_only_the_mascot_key(app, client, make_user, login, db):
-    # A language switched off for a while, a key some later version will understand, and the switch an
-    # earlier build of 1.7 saved to hide the mascot (ignored, but left as stored).
+    # A language switched off for a while, a key some later version will understand, and the switch
+    # 1.7.0 saved to hide the mascot (ignored, but left as stored).
     _switch_off_italian(db)
     user = make_user("mascot_linguist")
     saved = {"interface_language": "it", "theme_mode": "light", "later_key": {"kept": True}, "mascot_enabled": 0}
@@ -81,7 +81,7 @@ def test_bulk_actions_write_only_the_mascot_key(app, admin_client, make_user, db
     assert _prefs(db, blank) == _prefs(db, empty) == {"mascot_shades": 0}
 
 
-# ── Cost ──────────────────────────────────────────────────────────────────────
+# Cost
 
 
 def test_bulk_action_reads_the_raw_keys_and_counts_exactly(app, admin_client, make_user, db, monkeypatch):
@@ -124,7 +124,7 @@ def test_bulk_action_reads_the_raw_keys_and_counts_exactly(app, admin_client, ma
     ('{"mascot_shades": [1]}', False),
     ('{"mascot_shades": 1e999}', False),
     ('{"interface_language": "xx", "mascot_shades": 1}', True),
-    # The switch earlier builds of 1.7 saved to hide the mascot: ignored.
+    # The switch 1.7.0 saved to hide the mascot: ignored.
     ('{"mascot_enabled": 0}', False),
     ('{"mascot_enabled": "0", "mascot_shades": "1"}', True),
 ])

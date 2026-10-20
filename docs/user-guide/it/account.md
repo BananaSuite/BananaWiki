@@ -12,14 +12,13 @@ profilo** lo mostra come lo vedono gli altri.
 ## Preferenze di visualizzazione
 
 Apri **Personalizza** nella barra superiore per le tue **Preferenze di
-visualizzazione**. Queste cambiano l'aspetto della wiki solo per
-te: tema chiaro o scuro, dimensione del testo, interlinea e spaziatura delle
-lettere, larghezza del contenuto e della barra laterale, contrasto, colori
-personali, un'immagine di sfondo, un carattere adatto alla dislessia, meno
-animazioni e quanto risaltano grassetto, collegamenti, titoli e codice.
-**Ripristina le preferenze di visualizzazione** torna a quelle del sito e
-rimuove l'immagine di sfondo; la lingua e le scelte sulla mascotte restano
-come sono.
+visualizzazione**. Queste cambiano l'aspetto della wiki solo per te: tema
+chiaro o scuro, dimensione del testo, interlinea e spaziatura delle lettere,
+larghezza del contenuto e della barra laterale, contrasto, colori personali,
+un'immagine di sfondo, un carattere adatto alla dislessia, meno animazioni e
+quanto risaltano grassetto, collegamenti, titoli e codice. **Ripristina le
+preferenze di visualizzazione** torna a quelle del sito e rimuove l'immagine
+di sfondo; la lingua e le scelte sulla mascotte restano come sono.
 
 Se la tua wiki ha la mascotte, una banana al posto del logo nella barra
 superiore, un clic la fa saltare; il nome del sito accanto porta alla pagina
@@ -29,9 +28,9 @@ hai scoperto come metterle gli occhiali da sole, puoi toglierglieli qui in
 
 ## Lingua
 
-Scegli la lingua dell'interfaccia dal menu dell'account o nelle Impostazioni:
-inglese, italiano, tedesco e le lingue aggiunte dagli amministratori, se non
-le hanno disattivate. Le pagine non vengono tradotte.
+Scegli la lingua dell'interfaccia nelle Impostazioni: inglese, italiano,
+tedesco e le lingue aggiunte dagli amministratori, se non le hanno
+disattivate. Le pagine non vengono tradotte.
 
 ## Password e nome utente
 
@@ -39,11 +38,10 @@ Cambia la password nelle Impostazioni. Così facendo le altre sessioni vengono
 chiuse (quella attuale resta) e i tuoi token API smettono di funzionare. Una
 nuova password deve avere almeno 8 caratteri, non può contenere il tuo nome
 utente né la parte del tuo indirizzo email prima della @ e non può essere una
-delle password più comuni.
-Cambiando il nome utente le pagine restano come sono: le `@menzioni` del
-vecchio nome portano ancora al tuo profilo e nessun altro può prendere quel
-nome, a meno che un amministratore non lo liberi. Puoi cambiarlo tre volte
-al giorno.
+delle password più comuni. Cambiando il nome utente le pagine restano come
+sono: le `@menzioni` del vecchio nome portano ancora al tuo profilo e nessun
+altro può prendere quel nome, a meno che un amministratore non lo liberi. Puoi
+cambiarlo tre volte al giorno.
 
 ## Sessioni
 

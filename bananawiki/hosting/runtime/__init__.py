@@ -7,8 +7,8 @@ databases itself. Everything that does goes through a :class:`Runtime`.
 
 Privilege split
 ---------------
-The web process must not hold Docker privileges (1.4 put the portal in the
-``docker`` group, so any portal bug was host root). Docker is reached only
+The web process must not hold Docker privileges: membership of the
+``docker`` group would turn any portal bug into host root. Docker is reached only
 through the root runtime agent installed by ``bananawiki/ops`` (contract:
 ``bananawiki/ops/RUNTIME_AGENT.md``; client:
 ``bananawiki.ops.agent_client.connect()``, whose ``call(op, args)`` offers
@@ -55,7 +55,7 @@ Conventions for every method
   :mod:`bananawiki.hosting.maintenance`) calls portal functions that do.
 * Data directories live at ``INSTANCES_DIR/<TenantSpec.data_dir_name>``:
   ``<slug>`` for hosting-mode wikis and ``<slug>__apex`` for apex wikis,
-  exactly as in 1.4, because the 1.4 updater checks that path for every row
+  as in 1.4, because the 1.4 updater checks that path for every row
   of ``instances`` with ``status='running'``. Containers must carry the
   labels ``org.bananawiki.role=tenant``, ``org.bananawiki.data-dir=<realpath>``
   and ``org.bananawiki.internal-port=<HOSTING_CONTAINER_INTERNAL_PORT>``.
@@ -103,12 +103,12 @@ class RuntimeFailure(Exception):
         super().__init__(f"{self.code}: {detail}" if detail else self.code)
 
 
-# ── Data passed to the runtime ────────────────────────────────────────────────
+# Data passed to the runtime
 
 
 @dataclass(frozen=True)
 class OAuthClient:
-    """Platform sign-in credentials handed to one wiki (1.4 ``BW_PLATFORM_OAUTH_*``).
+    """Platform sign-in credentials handed to one wiki (``BW_PLATFORM_OAUTH_*``).
 
     Maps to the tenant environment as ``BW_PLATFORM_OAUTH_ENABLED=1``,
     ``..._CLIENT_ID``, ``..._CLIENT_SECRET``, ``..._PORTAL_BASE``,
@@ -152,7 +152,7 @@ class TenantPolicy:
     ``BW_MANAGED_HOSTING=1``, ``BW_PROXY_MODE=1``, paths under ``/data``,
     ``BW_MAINTENANCE_FILE=/data/.banana-maintenance``, a per-tenant
     ``BW_SESSION_COOKIE_NAME``; never the portal's own secrets) and into
-    container limits. Field to variable mapping, as in 1.4:
+    container limits. Field to variable mapping:
 
     ==========================  ================================================
     ``easy_wiki``               ``BW_EASY_WIKI`` (1/0)
@@ -179,9 +179,9 @@ class TenantPolicy:
                                 ``BW_NOFILE_LIMIT``
     ==========================  ================================================
 
-    External plugins are enabled in the container unless the agent's own
-    host-side plugin quarantine marker is set (``BW_ALLOW_EXTERNAL_PLUGINS``,
-    ``BW_MANAGED_PLUGIN_QUARANTINE``); the quarantine is runtime state.
+    External plugins are enabled in the container (``BW_ALLOW_EXTERNAL_PLUGINS``)
+    only when the operator allows tenant plugins and the agent's own host-side
+    plugin quarantine marker is not set; the quarantine is runtime state.
     """
 
     easy_wiki: bool = False
@@ -278,7 +278,7 @@ class DomainCheck:
 class Runtime(Protocol):
     """Operations on tenants. See the module docstring for the conventions."""
 
-    # ── Lifecycle ────────────────────────────────────────────────────────
+    # Lifecycle
 
     def provision(self, spec: TenantSpec, *, admin_username: str, admin_password: str,
                   force_password_change: bool) -> None:
@@ -306,7 +306,6 @@ class Runtime(Protocol):
         Raises ``data_exists`` when the directory is already there (never
         overwrite), and only then: it means nothing was written or started.
         ``start_failed``/``unavailable`` otherwise.
-        1.4: ``instance_manager.provision_instance`` + ``instance_database._seed_instance_db``.
         """
 
     def start(self, spec: TenantSpec) -> None:
@@ -318,7 +317,6 @@ class Runtime(Protocol):
         stale state (PID files, ``.starting`` locks) from earlier crashes.
         Called after the portal sets the row to ``running``; on failure the
         portal sets the row back to ``stopped``.
-        1.4: ``restart_instance`` / ``_start_process`` / ``container_runtime.start_container``.
         """
 
     def stop(self, spec: TenantSpec) -> None:
@@ -327,13 +325,13 @@ class Runtime(Protocol):
         Idempotent: succeeds when nothing runs. Must only return once Docker
         confirms the container is gone (raise ``stop_failed`` otherwise). Data
         stays on disk. Used for pause, suspension, rename and before
-        termination. 1.4: ``_stop_process`` / ``container_runtime.stop_container``.
+        termination.
         """
 
     def restart(self, spec: TenantSpec, *, force: bool = False, policy_change: bool = False) -> None:
         """Stop then start. With *force*, also discard every cached health and
-        process state first (1.4 ``force_restart_instance``, the fix for a
-        wiki stuck on "Starting up" after a host reboot).
+        process state first, for a wiki stuck on "Starting up" after a host
+        reboot.
 
         *policy_change*: the restart only applies a changed policy, nobody
         asked for this wiki to run. A wiki an update isolated then stays
@@ -343,12 +341,11 @@ class Runtime(Protocol):
     def recover(self, specs: Sequence[TenantSpec]) -> int:
         """Bring back every tenant the database says is running.
 
-        Called by the maintenance service at start (the 1.4 updater removes
-        all tenant containers and waits for them to come back, see audit C10)
-        with every ``status='running'`` row. Starts the missing or unhealthy
+        Called by the maintenance service at start (an update removes all
+        tenant containers and waits for them to come back) with every
+        ``status='running'`` row. Starts the missing or unhealthy
         ones in bounded parallel waves and returns how many were started.
         Tenants whose data directory is missing are logged and skipped.
-        1.4: ``recover_running_instances``.
         """
 
     def relocate(self, instance_id: str, old_dir_name: str, new_dir_name: str) -> None:
@@ -359,7 +356,7 @@ class Runtime(Protocol):
         (``data_exists``) when the target exists and differs from the source;
         a missing source raises ``not_found`` (checked first, so data an
         interrupted move already took away reads as gone). Must not follow
-        links planted by the tenant. 1.4: ``_move_dir_safely``.
+        links planted by the tenant.
         """
 
     def destroy(self, spec: TenantSpec) -> None:
@@ -367,52 +364,51 @@ class Runtime(Protocol):
         (``HOSTING_PLATFORM_STATE_DIR/<instance_id>``: plugin snapshots and the
         quarantine marker). Stops the container first. Idempotent. Used when a
         grace period ends, when an admin hard-deletes a terminated wiki and to
-        clean up a failed provisioning. 1.4: ``purge_expired_grace_periods``,
-        ``hard_delete_terminated_instance``."""
+        clean up a failed provisioning."""
 
-    # ── Observation (cheap, cached; safe to call on every dashboard view) ─
+    # Observation (cheap, cached; safe to call on every dashboard view)
 
     def status(self, spec: TenantSpec) -> TenantStatus:
         """Current state of the tenant. Must answer in well under a second
-        (cache health for ~10 s, negative results for ~3 s like 1.4)."""
+        (cache health for ~10 s, negative results for ~3 s)."""
 
     def upstream(self, spec: TenantSpec) -> tuple[str, int] | None:
         """``(address, port)`` where the running tenant answers HTTP, or None.
 
         The portal proxies a wiki's traffic itself only when a request for a
         wiki host reaches it anyway (the reverse proxy has no route for it
-        yet, or still sends every host to the portal as 1.4 did)."""
+        yet, or sends every host to the portal)."""
 
-    def usage(self, spec: TenantSpec) -> int:
-        """Bytes used by the tenant's data directory (cached ~5 s; a bounded
-        walk that does not follow links). 0 when the directory is missing."""
+    def usage(self, spec: TenantSpec, *, max_age: float | None = None) -> int:
+        """Bytes used by the tenant's data directory (a bounded walk that does
+        not follow links). 0 when the directory is missing. A measurement up to
+        *max_age* seconds old may answer (default ~5 s)."""
 
     def logs(self, spec: TenantSpec, name: str, max_bytes: int = 256 * 1024) -> LogTail:
         """Tail of ``error.log`` or ``access.log`` (any other *name* raises
         ``invalid``); opened without following links. A missing log is an
-        empty tail. 1.4: ``read_instance_log``."""
+        empty tail."""
 
     def analytics(self, spec: TenantSpec, days: int) -> dict[str, Any]:
         """Daily traffic roll-up read from the tenant DB (read-only):
         ``{"window_days": n, "totals": {"request": int, "page_view": int,
         "error": int}, "daily": [{"day": "YYYY-MM-DD", "request": int,
         "page_view": int, "error": int}, ...]}`` oldest first. Raises
-        ``db_missing``/``db_unsafe``. 1.4: ``read_instance_analytics``."""
+        ``db_missing``/``db_unsafe``."""
 
-    # ── Tenant database operations (recovery tools) ──────────────────────
+    # Tenant database operations (recovery tools)
 
     def list_users(self, spec: TenantSpec, *, limit: int = 200, offset: int = 0) -> tuple[list[WikiUser], int]:
         """One page of the wiki's users (oldest first, fields capped at 200
-        chars) and the total count. 1.4: ``list_instance_users_page``."""
+        chars) and the total count."""
 
     def set_user_password(self, spec: TenantSpec, username: str, password: str, role: str) -> None:
         """Create the user, or set its password and role; revokes the user's
-        wiki API tokens when it existed. *role* is user/editor/admin/owner.
-        1.4: ``set_instance_user_password``."""
+        wiki API tokens when it existed. *role* is user/editor/admin/owner."""
 
     def remove_user(self, spec: TenantSpec, username: str) -> None:
         """Delete a wiki user; raises ``user_not_found`` or ``protected_user``
-        (owners). 1.4: ``remove_instance_user``."""
+        (owners)."""
 
     def reset_admin_password(self, spec: TenantSpec, admin_username: str, new_password: str) -> str:
         """Set *new_password* (with ``force_password_change=1``) on the user
@@ -420,25 +416,24 @@ class Runtime(Protocol):
         owner. Ends those users' sessions, revokes their wiki API tokens and
         turns off their two-step verification (recorded in the wiki's audit
         log). Returns the user name the caller should show. Works whether the
-        tenant runs or not. 1.4: ``reset_instance_password``."""
+        tenant runs or not."""
 
     def reset_content(self, spec: TenantSpec, *, admin_username: str, admin_password: str) -> None:
         """Factory reset of a *stopped* tenant: delete the database and the
         asset folders (real folders only; links planted by the tenant are
         removed as links), then seed a fresh database as in :meth:`provision`.
-        The plugin quarantine survives. 1.4: ``reset_wiki``."""
+        The plugin quarantine survives."""
 
     def apply_limits(self, spec: TenantSpec) -> None:
         """Write the policy that lives inside the tenant DB (upload size and
         blocked extensions) and any agent-side quota. The portal restarts a
-        running tenant afterwards so its environment matches.
-        1.4: ``apply_upload_policy_to_instance``."""
+        running tenant afterwards so its environment matches."""
 
-    # ── Copies and archives ──────────────────────────────────────────────
+    # Copies and archives
 
     def export_archive(self, spec: TenantSpec, destination_dir: Path) -> Path:
-        """Write the tenant's portable ZIP (1.4 ``build_instance_archive``
-        format, importable by :meth:`import_archive` and by a self-hosted
+        """Write the tenant's portable ZIP (the unified archive format of
+        :mod:`.archives`, importable by :meth:`import_archive` and by a self-hosted
         wiki) into *destination_dir* (created by the portal under
         ``HOSTING_EXPORT_TEMP_DIR``) and return its path. Consistent DB
         snapshot; links and special files skipped. Of the policy only
@@ -446,26 +441,31 @@ class Runtime(Protocol):
         platform backup bounds the wiki (``too_large``). The portal streams
         and deletes the file."""
 
-    def import_archive(self, spec: TenantSpec, archive: Path) -> None:
+    def import_archive(self, spec: TenantSpec, archive: Path) -> list[str]:
         """Provision a new tenant whose data comes from *archive* (a ZIP
         uploaded by an admin), validate members (no traversal, links or
         oversized content per ``HOSTING_IMPORT_*``), migrate the database
-        inside the tenant image, then start it. Raises ``archive_invalid``,
+        inside the tenant image, then start it. Returns the names of the
+        accounts whose two-step verification the new wiki turned off (set
+        up under another wiki's secret key). Raises ``archive_invalid``,
         ``too_large``, ``no_space``, and ``data_exists`` (without touching
         anything) when the directory is already there. On any other failure
-        the portal terminates the row and calls :meth:`destroy`.
-        1.4: ``provision_instance_from_archive``."""
+        the portal terminates the row and calls :meth:`destroy`."""
 
-    def duplicate(self, source: TenantSpec, target: TenantSpec) -> None:
+    def duplicate(self, source: TenantSpec, target: TenantSpec) -> list[str]:
         """Copy *source*'s database snapshot and asset folders into a new
-        tenant *target*, then start it. Raises ``data_exists`` when
+        tenant *target*, then start it. Returns the names of the accounts
+        whose two-step verification *target* turned off, as
+        :meth:`import_archive` does. Raises ``data_exists`` when
         *target*'s directory is already there, checked first and without
-        touching anything (even when *source* is missing too), and
-        ``not_found`` when *source*'s is missing. On any other failure the
-        portal terminates the row and calls :meth:`destroy` on *target*.
-        1.4: ``duplicate_instance``."""
+        touching anything (even when *source* is missing too),
+        ``not_found`` when *source*'s is missing, and ``too_large`` when the
+        database copy or the files exceed *target*'s storage limit as an
+        export counts it (a sparse file at its full length; further hard
+        links to a file are copied as links). On any other failure the
+        portal terminates the row and calls :meth:`destroy` on *target*."""
 
-    # ── Plugin safety (host-side state, out of the tenant's reach) ───────
+    # Plugin safety (host-side state, out of the tenant's reach)
 
     def plugins_quarantined(self, spec: TenantSpec) -> bool:
         """Whether the operator's plugin quarantine is in force."""
@@ -489,24 +489,22 @@ class Runtime(Protocol):
         """Roll the tenant DB back to snapshot *name* (newest when None) and
         restart a running tenant; returns a summary."""
 
-    # ── Routing and custom domains ───────────────────────────────────────
+    # Routing and custom domains
 
     def check_domain(self, domain: str, token: str) -> DomainCheck:
-        """DNS checks for a custom domain claim (see :class:`DomainCheck`).
-        1.4: ``domains.verify_domain`` (dnspython, 4 s lifetime)."""
+        """DNS checks for a custom domain claim (see :class:`DomainCheck`)."""
 
-    def sync_routes(self, specs: Sequence[TenantSpec]) -> None:
+    def sync_routes(self, specs: Sequence[TenantSpec]) -> dict[str, Any] | None:
         """Publish the complete routing table (hostname -> tenant) to the
         reverse proxy. The portal calls it after anything that changes
         routing (create, rename, stop/start, suspension, termination, domain
         verification); the maintenance loop calls it periodically. Only
         tenants that may serve are passed (see ``domains.may_serve``);
         requests for other hosts reach the portal, which shows a status
-        page (or proxies the wiki itself, see :mod:`..wikihosts`).
-        1.4: the in-portal ``SubdomainProxyMiddleware``, which 1.6 replaces
-        with direct proxy routes (audit section 3)."""
+        page (or proxies the wiki itself, see :mod:`..wikihosts`). Returns
+        the agent's answer (routes, changed, reloaded) when there is one."""
 
-    # ── Platform backups ─────────────────────────────────────────────────
+    # Platform backups
 
     def export_platform(self, destination_dir: Path) -> Path:
         """Write an encrypted full backup (consistent ``hosting.db`` snapshot,
@@ -515,8 +513,7 @@ class Runtime(Protocol):
         outside *destination_dir*. A wiki that cannot be copied is left out
         (and named in the archive's ``backup_manifest.json``) instead of
         failing the whole backup; the backup fails when the runtime itself
-        stops answering, or when no wiki at all could be saved. 1.4:
-        ``backups.build_full_backup`` + ``backup_crypto.encrypt_backup``."""
+        stops answering, or when no wiki at all could be saved."""
 
     def platform_backup_status(self) -> dict[str, Any]:
         """The latest platform backup, for the settings page: ``{"finished_at",
@@ -534,8 +531,7 @@ class Runtime(Protocol):
 
     def restore_platform(self, archives: Sequence[Path]) -> None:
         """Replace the platform with the uploaded backup parts (``.zip`` or
-        ``.bwenc``). Stops every tenant first. The portal restarts afterwards.
-        1.4: ``db.restore_hosting_from_backup_zips``."""
+        ``.bwenc``). Stops every tenant first. The portal restarts afterwards."""
 
     def backup_key(self) -> bytes:
         """The 32-byte key that decrypts platform backups

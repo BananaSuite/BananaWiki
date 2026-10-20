@@ -28,9 +28,6 @@ Two more protections sit on top:
     an owner or a superuser;
   * the last owner can never be demoted or deleted.
 
-  In 1.4 any administrator could demote, suspend or reset the password of
-  another administrator; that is no longer possible.
-
 Roles are changed on **Admin → Users → (account)**, which also suspends
 (permanently or until a time, with an optional visible reason), resets
 passwords, ends sessions, switches off chat for the account, and opens the
@@ -52,8 +49,8 @@ whatever the settings say. Some permissions can only be given to editors
 offer what the role may hold. Granting some permissions also grants the ones
 they need (see [implied permissions](#implied-permissions)).
 
-Unlike 1.4, every permission in the catalogue is enforced by the pages and
-API calls it describes.
+Every permission in the catalogue is enforced by the pages and API calls it
+describes.
 
 ## Category access
 
@@ -168,7 +165,7 @@ permission is only granted while that feature is on.
 | `draft.create` | Save unfinished edits as drafts | yes | no | `drafts` | editors |
 | `draft.view_own` | List your own drafts | yes | no | `drafts` | editors |
 | `draft.delete_own` | Delete your own drafts | yes | no | `drafts` | editors |
-| `draft.transfer` | Hand a draft to another user | no | no | `drafts` | editors |
+| `draft.transfer` | Take over another user's draft | no | no | `drafts` | editors |
 
 ### Attachments
 

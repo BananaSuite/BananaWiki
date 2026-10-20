@@ -117,11 +117,11 @@ def management_context(category_row: dict[str, Any]) -> dict[str, Any]:
     user = auth.current_user()
     category_id = category_row["id"]
     choices = access.category_choices(user)
+    subtree = categories.subtree_ids(category_id)
     return {
         "category": category_row,
         "page_count": categories.count_pages(category_id),
-        "parent_choices": [c for c in choices
-                           if c["id"] != category_id and not categories.is_descendant(c["id"], category_id)],
+        "parent_choices": [c for c in choices if c["id"] not in subtree],
         "move_targets": [c for c in choices if c["id"] != category_id],
         "manage": {
             "edit": access.can_manage_category("category.edit", category_id, user),

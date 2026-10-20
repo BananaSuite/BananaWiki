@@ -11,6 +11,7 @@ Admin: ``/admin/tts`` (``/admin/tts-status`` redirects there).
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlsplit
 
 from flask import abort, current_app, jsonify, redirect, render_template, request, send_file, url_for
 
@@ -28,7 +29,7 @@ QUEUE_PAGE_SIZE = 50
 SPEED_LIMIT = (6, 600)  # new speed conversions per client per 10 minutes
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# Helpers
 
 
 def _rate_limited(bucket: str, limit: int, window: int) -> bool:
@@ -73,7 +74,7 @@ def status_payload(page: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# ── Page endpoints ────────────────────────────────────────────────────────────
+# Page endpoints
 
 
 @bp.get("/page/<slug>/tts/status")
@@ -168,7 +169,7 @@ def download(slug: str):
     return _send_audio(_page_for_listening(slug), download=True)
 
 
-# ── Admin ─────────────────────────────────────────────────────────────────────
+# Admin
 
 
 def _system_status() -> dict[str, Any]:
@@ -230,6 +231,16 @@ def _back():
     return redirect(url_for("tts.admin", status=request.args.get("status") or None))
 
 
+def _origin(url: str) -> tuple[str, str, int | None]:
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    return scheme, (parts.hostname or "").lower(), port or {"http": 80, "https": 443}.get(scheme)
+
+
 @bp.post("/admin/tts/settings")
 @auth.admin_required
 def admin_settings():
@@ -264,8 +275,13 @@ def admin_settings():
                 auth.flash_t("tts.admin.gpu_token_invalid", "error")
                 return _back()
             values["tts_gpu_auth_token"] = token
+        elif settings.get("tts_gpu_auth_token") and _origin(url) != _origin(str(settings.get("tts_gpu_url") or "")):
+            # A saved token is only ever sent to the server it was entered for.
+            values["tts_gpu_auth_token"] = ""
     settings.update(values)
     auth.flash_t("tts.admin.saved", "success")
+    if values.get("tts_gpu_auth_token") == "" and not form.get("clear_gpu_token"):
+        auth.flash_t("tts.admin.gpu_token_removed", "warning")
     return _back()
 
 
@@ -334,7 +350,7 @@ def admin_gpu_test():
     return _back()
 
 
-# ── Page panel (slot) ─────────────────────────────────────────────────────────
+# Page panel (slot)
 
 
 def render_panel(page: dict[str, Any] | None = None, **_: Any) -> str:

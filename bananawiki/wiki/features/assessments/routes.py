@@ -26,7 +26,7 @@ _QUESTION_FIELD = re.compile(
 )
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# Helpers
 
 
 def _page(slug: str) -> dict[str, Any]:
@@ -109,7 +109,7 @@ def _render_take(page, assessment, user, *, answers=None, error=None, missing=()
     ), status
 
 
-# ── Taking an assessment ─────────────────────────────────────────────────────
+# Taking an assessment
 
 
 @bp.get("/page/<slug>/assessment")
@@ -163,7 +163,7 @@ def attempt(slug: str, attempt_id: int):
     )
 
 
-# ── Managing ─────────────────────────────────────────────────────────────────
+# Managing
 
 
 @bp.route("/page/<slug>/assessment/manage", methods=["GET", "POST"])
@@ -232,7 +232,7 @@ def reset(slug: str, user_id: str):
     return redirect(url_for("assessments.results", slug=page["slug"]))
 
 
-# ── Points ───────────────────────────────────────────────────────────────────
+# Points
 
 
 def points_enabled() -> bool:

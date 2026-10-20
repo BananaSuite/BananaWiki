@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Luca Zani and BananaWiki contributors
-# SPDX-License-Identifier: AGPL-3.0-only
 """Version 7: a denied account waits one day before it is deleted, as documented.
 
 ``hosting_settings.hosting_activation_denied_timeout_seconds`` came from 1.4

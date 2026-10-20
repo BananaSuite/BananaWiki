@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import threading
+import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,9 @@ FALLBACK = "en"
 META_KEY = "_meta"
 LANG_CODE = re.compile(r"^[a-z]{2,12}(?:-[a-z0-9]{2,8})?$")
 MAX_FILE_BYTES = 5 * 1024 * 1024
+# How often uploaded languages are checked for changes made by another process
+# (another worker); the process that changes them reloads at once.
+CUSTOM_CHECK_SECONDS = 2.0
 _PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
@@ -47,7 +51,8 @@ class Catalog:
         self._lock = threading.Lock()
         self._cache: dict[str, dict[str, str]] = {}
         self._meta: dict[str, dict[str, Any]] = {}
-        self._custom_mtime: float = -1.0
+        self._custom_state: tuple[tuple[str, int, int], ...] | None = None
+        self._custom_checked = float("-inf")
 
     def add_directory(self, directory: str | os.PathLike[str]) -> None:
         path = Path(directory)
@@ -59,14 +64,36 @@ class Catalog:
         with self._lock:
             self._cache.clear()
             self._meta.clear()
+            self._custom_checked = float("-inf")
 
-    def _custom_signature(self) -> float:
+    def _custom_signature(self) -> tuple[tuple[str, int, int], ...]:
         if not self.custom_dir or not self.custom_dir.is_dir():
-            return 0.0
+            return ()
+        entries = []
         try:
-            return max((p.stat().st_mtime for p in self.custom_dir.glob("*.json")), default=0.0)
+            for path in self.custom_dir.glob("*.json"):
+                info = path.stat()
+                entries.append((path.name, info.st_mtime_ns, info.st_size))
         except OSError:
-            return 0.0
+            return ()
+        return tuple(sorted(entries))
+
+    def _check_custom(self) -> None:
+        """Drop the cache when the uploaded languages changed, looking at most every few seconds.
+
+        Every string of every page passes through here, so the folder is not
+        listed on each call, and never while holding the lock.
+        """
+        now = time.monotonic()
+        if now - self._custom_checked < CUSTOM_CHECK_SECONDS:
+            return
+        signature = self._custom_signature()
+        with self._lock:
+            self._custom_checked = now
+            if signature != self._custom_state:
+                self._cache.clear()
+                self._meta.clear()
+                self._custom_state = signature
 
     def _read(self, path: Path) -> dict[str, Any]:
         try:
@@ -83,11 +110,6 @@ class Catalog:
         return data if isinstance(data, dict) else {}
 
     def _load(self, code: str) -> dict[str, str]:
-        signature = self._custom_signature()
-        if signature != self._custom_mtime:
-            self._cache.clear()
-            self._meta.clear()
-            self._custom_mtime = signature
         cached = self._cache.get(code)
         if cached is not None:
             return cached
@@ -106,10 +128,12 @@ class Catalog:
         return merged
 
     def strings(self, code: str) -> dict[str, str]:
+        self._check_custom()
         with self._lock:
             return self._load(valid_code(code) or FALLBACK)
 
     def meta(self, code: str) -> dict[str, Any]:
+        self._check_custom()
         with self._lock:
             code = valid_code(code) or FALLBACK
             self._load(code)

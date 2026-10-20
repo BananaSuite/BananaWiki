@@ -22,7 +22,8 @@ import re
 from dataclasses import dataclass
 
 _FRONT_MATTER = re.compile(r"\A---[ \t]*\n(.*?)\n---[ \t]*(?:\n|\Z)", re.DOTALL)
-_H1 = re.compile(r"^[ \t]*#[ \t]+(.+?)[ \t#]*$", re.MULTILINE)
+# A closing run of ``#`` needs a space before it (CommonMark), so "# C#" keeps its "#".
+_H1 = re.compile(r"^[ \t]*#[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$", re.MULTILINE)
 _BOM = "\ufeff"
 
 
@@ -89,7 +90,8 @@ def first_heading(body: str) -> str | None:
 def strip_heading(body: str, title: str) -> str:
     """Remove the opening ``# title`` line that export adds (and 1.4 files often have)."""
     match = _H1.search(body)
-    if match and not body[:match.start()].strip() and match.group(1).strip() == title:
+    if match and not body[:match.start()].strip() and (
+            match.group(0).strip() == f"# {title}" or match.group(1).strip() == title):
         return body[match.end():].lstrip("\n")
     return body
 

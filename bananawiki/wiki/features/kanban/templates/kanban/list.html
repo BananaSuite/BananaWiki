@@ -10,7 +10,7 @@
     {% if show_mine %}<a class="btn" href="{{ url_for('kanban.mine') }}">{{ t('kanban.mine.title') }}</a>{% endif %}
     {% if can_create or show_settings or archived_count %}
     <details class="menu">
-      <summary class="btn" aria-label="{{ t('kanban.list.options_label') }}">{{ t('kanban.list.options') }} <span aria-hidden="true">▾</span></summary>
+      <summary class="btn menu__toggle" aria-label="{{ t('kanban.list.options_label') }}">{{ t('kanban.list.options') }}</summary>
       <div class="menu__panel" role="menu">
         {% if can_create %}<button type="button" role="menuitem" data-dialog-open="kanban-import-dialog">{{ t('kanban.list.import') }}</button>{% endif %}
         {% if archived_count %}

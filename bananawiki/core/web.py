@@ -2,7 +2,8 @@
 
 * CSRF: a per-session secret; forms send it as ``csrf_token``, scripts as the
   ``X-CSRF-Token`` header. Requests authenticated with a bearer token are
-  exempt because browsers never attach those automatically.
+  exempt because browsers never attach those automatically. HEAD requests
+  reach the views as GET (:class:`HeadAsGet`).
 * Content-Security-Policy with a per-request nonce. Templates must not use
   inline event handlers; inline ``<script>`` blocks need ``nonce="{{ csp_nonce }}"``.
   ``form-action`` is ``'self'``; a view whose form is answered with a
@@ -18,9 +19,11 @@ import re
 import secrets
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
+from typing import Any
 from urllib.parse import urljoin, urlsplit
 
-from flask import Flask, Response, abort, g, request, session
+from flask import Flask, Response, g, request, session
+from werkzeug.exceptions import BadRequest
 
 from .logformat import one_line  # noqa: F401 - re-exported for the applications' log calls
 
@@ -209,6 +212,35 @@ def client_network() -> str:
     return network_key(client_ip())
 
 
+class HeadAsGet:
+    """WSGI wrapper that runs a HEAD request as GET and drops the body.
+
+    Flask routes HEAD to every view that accepts GET, and the CSRF check lets
+    HEAD through as a safe method. A view that tells its form submission apart
+    with ``request.method == "GET"`` would then run the submission for HEAD.
+    Behind this wrapper views only ever see GET; the answer keeps the headers
+    GET would have sent.
+    """
+
+    def __init__(self, wsgi_app: Any):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ: dict[str, Any], start_response: Any) -> Iterable[bytes]:
+        if environ.get("REQUEST_METHOD") != "HEAD":
+            return self.wsgi_app(environ, start_response)
+        body = self.wsgi_app({**environ, "REQUEST_METHOD": "GET"}, start_response)
+        close = getattr(body, "close", None)
+        if close is not None:
+            close()
+        return []
+
+
+class CsrfRejected(BadRequest):
+    """A form or script call without a valid CSRF token (each application words the page)."""
+
+    description = "The form expired or was sent from another site. Reload the page and try again."
+
+
 def install_csrf(app: Flask, *, exempt_prefixes: Iterable[str] = (), exempt_when=None) -> None:
     """Reject unsafe requests that lack a valid CSRF token."""
     prefixes = tuple(exempt_prefixes)
@@ -229,7 +261,7 @@ def install_csrf(app: Flask, *, exempt_prefixes: Iterable[str] = (), exempt_when
         if view is not None and getattr(view, "_csrf_exempt", False):
             return None
         if not csrf_valid():
-            abort(400, description="The form expired or was sent from another site. Reload the page and try again.")
+            raise CsrfRejected()
         return None
 
 

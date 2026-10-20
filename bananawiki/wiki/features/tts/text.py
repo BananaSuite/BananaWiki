@@ -187,12 +187,11 @@ _EN_STOPWORDS = frozenset({
 
 SUPPORTED_SET = frozenset(SUPPORTED_LANGUAGES)
 
-# ── Normalisation ─────────────────────────────────────────────────────────────
+# Normalisation
 #
-# The output must stay that of 1.4 (it is hashed), but the 1.4 expressions
-# backtracked quadratically on unclosed constructs ("[" * n, "<" * n, a fence
-# never closed, long runs of spaces). The ones below give the same text and
-# do linear work:
+# The output must match 1.4 byte for byte (it is hashed). The expressions below
+# give the same text in linear time, also on unclosed constructs ("[" * n,
+# "<" * n, a fence never closed, long runs of spaces):
 #
 # * an atomic group stops the fence's info string from being tried again;
 # * the second alternative of _IMAGE, _LINK and _REF_DEF takes a bracket that
@@ -200,8 +199,8 @@ SUPPORTED_SET = frozenset(SUPPORTED_LANGUAGES)
 #   fail the same way) and puts it back unchanged;
 # * links, images and tags are only looked for up to the last ")" or ">",
 #   after which no match can end (see _through_last);
-# * _RULE and _TABLE_SEP lost a second run of spaces that backtracked against
-#   the first one;
+# * _RULE and _TABLE_SEP match one run of spaces, so two runs cannot
+#   backtrack against each other;
 # * _REF_DEF starts at the line holding the "[" rather than at the blank
 #   lines before it, which only become spaces either way.
 
@@ -283,7 +282,7 @@ def content_hash(spoken: str, language: str) -> str:
     return hashlib.sha256(((spoken or "") + "\x00" + language).encode("utf-8")).hexdigest()
 
 
-# ── Pieces for the synthesiser ────────────────────────────────────────────────
+# Pieces for the synthesiser
 
 CHUNK_CHARS = 500
 # Where a piece may end, best first: after a sentence, after a clause, at a
@@ -322,7 +321,7 @@ def speech_chunks(spoken: str, limit: int = CHUNK_CHARS) -> list[str]:
     return [piece for piece in pieces if piece]
 
 
-# ── Languages ─────────────────────────────────────────────────────────────────
+# Languages
 
 
 def parse_enabled_languages(value: str | Iterable[str] | None) -> tuple[str, ...]:
@@ -445,7 +444,7 @@ def detect_language(text: str, *, allowed: Iterable[str], default: str = FALLBAC
     return guess if guess in allowed_set else fallback_language(default, allowed_set)
 
 
-# ── Playback speed ────────────────────────────────────────────────────────────
+# Playback speed
 
 
 def normalize_speed(value: object, default: float = DEFAULT_SPEED) -> float:

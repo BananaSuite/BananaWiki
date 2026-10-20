@@ -42,7 +42,7 @@ class AnnouncementInput:
     not_removable: bool = True
     show_countdown: bool = True
     custom_colors: bool = False
-    custom_background: str = "#24304f"
+    custom_background: str = "#333333"
     custom_text_color: str = "#ffffff"
     audience_user_ids: list[str] = field(default_factory=list)
     errors: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
@@ -165,7 +165,7 @@ def as_input(row: dict[str, Any]) -> AnnouncementInput:
         expires_at=row["expires_at"], expires_input=datetime_local_input(row["expires_at"]),
         is_active=bool(row["is_active"]), not_removable=bool(row["not_removable"]),
         show_countdown=bool(row["show_countdown"]), custom_colors=custom,
-        custom_background=row["custom_background"] if custom else "#24304f",
+        custom_background=row["custom_background"] if custom else "#333333",
         custom_text_color=row["custom_text_color"] if custom else "#ffffff",
     )
 
@@ -182,7 +182,7 @@ def list_all() -> list[dict[str, Any]]:
     return rows
 
 
-# ── Visibility ───────────────────────────────────────────────────────────────
+# Visibility
 
 
 def _unexpired(row: dict[str, Any]) -> bool:
@@ -225,7 +225,7 @@ def expires_iso(row: dict[str, Any]) -> str:
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ") if moment else ""
 
 
-# ── Housekeeping ─────────────────────────────────────────────────────────────
+# Housekeeping
 
 
 def prune_expired() -> int:

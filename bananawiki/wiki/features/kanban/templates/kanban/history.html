@@ -10,7 +10,7 @@
   <h1>{{ t('kanban.history.title', title=board.title) }}</h1>
   {% if is_admin and entries %}
   <div class="page-header__actions">
-    {{ forms.post_button(url_for('kanban.clear_history', board_id=board.id), t('kanban.history.clear'), 'btn btn--danger btn--small', confirm=t('kanban.history.clear_confirm')) }}
+    {{ forms.post_button(url_for('kanban.clear_history', board_id=board.id), t('kanban.history.clear'), 'btn btn--danger-quiet btn--small', confirm=t('kanban.history.clear_confirm')) }}
   </div>
   {% endif %}
 </header>

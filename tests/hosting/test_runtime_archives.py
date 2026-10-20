@@ -74,8 +74,9 @@ def test_export_filename_collision_preserves_the_finished_archive(setup, tmp_pat
     monkeypatch.setattr(archives, "datetime", SimpleNamespace(now=lambda _tz: frozen, fromtimestamp=datetime.fromtimestamp))
     path = _export(runtime, spec, tmp_path)
     original = path.read_bytes()
-    with pytest.raises(FileExistsError):
+    with pytest.raises(RuntimeFailure) as error:
         _export(runtime, spec, tmp_path)
+    assert error.value.code == "failed" and "File exists" in error.value.detail
     assert path.read_bytes() == original
 
 
@@ -219,11 +220,9 @@ def _both_imports(runtime, path: Path, tmp_path, app_factory, folder: str, name:
 ], ids=["assets-file", "assets-folder", "assets-translation", "storage-translation", "storage-favicon"])
 def test_export_leaves_out_tenant_files_imports_take_for_the_wikis_own(setup, tmp_path, app_factory, hostile,
                                                                      neighbour):
-    """Imports strip assets/ (the hosting import storage/ as well) from member paths: a tenant file below such a
-    folder lands where the wiki's own file goes. Next to it, the hosting import refused the export (duplicate
-    files, a path used as a file and a folder) and the standalone import failed or took it instead; flattened
-    like an asset folder, storage/translations/xx.json and storage/favicons/custom_a.png took the place of the
-    wiki's own files in the export, whichever the walk met first."""
+    """Imports strip assets/ (the hosting import storage/ as well) from member paths, so a tenant file below such
+    a folder would land where the wiki's own file goes. The export leaves such files out and lists them in the
+    manifest; both imports then accept it and restore the wiki's own file."""
     runtime, _agent, spec, root = setup
     for relative in (hostile, neighbour):
         if relative:
@@ -266,9 +265,7 @@ def test_export_keeps_storage_paths_no_import_maps(setup, tmp_path, app_factory,
 
 
 def test_export_prefers_the_storage_copy_of_an_asset_folder(setup, tmp_path, app_factory, monkeypatch):
-    """A wiki can replace its uploads link with a folder, or its attachments link with a file: the export kept
-    whichever file the walk met first, so the top-level copy could replace the wiki's own, and a file named
-    attachments left every storage/attachments file out."""
+    """When a wiki replaces its uploads or attachments link, the export keeps every storage/ file."""
     runtime, _agent, spec, root = setup
     (root / "uploads").unlink()
     (root / "uploads").mkdir()
@@ -588,6 +585,62 @@ def test_duplicate_copies_data_and_revokes_credentials(setup):
     assert not (Path(runtime._cfg().instances_dir) / "other").exists()
 
 
+def _turn_on_two_step(root: Path, username: str, secret_key: str) -> None:
+    """Two-step verification for *username*, set up under *secret_key* (the wiki's own, or another's)."""
+    from bananawiki.core import totp
+    from bananawiki.wiki.features.auth import two_step
+
+    sealed = totp.encrypt_secret(totp.cipher(secret_key, two_step._CIPHER_PURPOSE), totp.generate_secret())
+    with sqlite3.connect(root / "bananawiki.db") as conn:
+        conn.execute("INSERT INTO auth__two_step (user_id, secret_encrypted, recovery_hashes, last_counter, "
+                     "enabled_at) SELECT id, ?, '[]', 0, '2026-01-01 00:00:00' FROM users WHERE username = ?",
+                     (sealed, username))
+
+
+def _two_step_state(root: Path) -> tuple[list[str], list[dict]]:
+    with sqlite3.connect(root / "bananawiki.db") as conn:
+        users = [row[0] for row in conn.execute(
+            "SELECT u.username FROM auth__two_step t JOIN users u ON u.id = t.user_id ORDER BY u.username")]
+        audit = [json.loads(row[0]) for row in conn.execute(
+            "SELECT details FROM audit_log WHERE action = 'user.two_step_reset' ORDER BY id")]
+    return users, audit
+
+
+def test_an_imported_wiki_turns_off_two_step_set_up_under_the_source_wikis_key(setup, tmp_path):
+    """An archive never carries the secret key its authenticator secrets are sealed with: those accounts sign in
+    with their password and set two-step verification up again, as after a site import."""
+    runtime, _agent, spec, root = setup
+    _turn_on_two_step(root, "owner1", (root / ".secret_key").read_text())
+    path = _export(runtime, spec, tmp_path)
+    assert runtime.import_archive(make_spec("copy"), path) == ["owner1"], "the portal names those accounts"
+    copy = Path(runtime._cfg().instances_dir) / "copy"
+    assert _two_step_state(copy) == ([], [{"username": "owner1", "via": "hosting import"}])
+    assert _two_step_state(root)[0] == ["owner1"], "the source keeps its own"
+
+
+@pytest.mark.parametrize("shared_key", [False, True])
+def test_a_duplicate_keeps_only_two_step_set_ups_it_can_check(tmp_path, monkeypatch, shared_key):
+    if shared_key:
+        monkeypatch.setenv("BW_SECRET_KEY", "shared-secret-key-" + "s" * 32)
+    runtime, _agent = make_runtime(tmp_path)
+    spec = make_spec()
+    provision(runtime, spec)
+    runtime.set_user_password(spec, "member", "member-password", "user")
+    root = Path(runtime._cfg().instances_dir) / "acme"
+    key = "shared-secret-key-" + "s" * 32 if shared_key else (root / ".secret_key").read_text()
+    _turn_on_two_step(root, "member", key)
+    _turn_on_two_step(root, "owner1", key)
+    turned_off = runtime.duplicate(spec, replace(make_spec("clone"), instance_id="idclone"))
+    clone = Path(runtime._cfg().instances_dir) / "clone"
+    assert turned_off == ([] if shared_key else ["member", "owner1"])
+    if shared_key:
+        assert _two_step_state(clone) == (["member", "owner1"], [])
+    else:
+        assert _two_step_state(clone) == ([], [{"username": "member", "via": "hosting copy"},
+                                              {"username": "owner1", "via": "hosting copy"}])
+    assert _two_step_state(root)[0] == ["member", "owner1"]
+
+
 GROWN_COPY_BYTES = 16 * 1024 ** 2
 
 
@@ -621,10 +674,8 @@ def _linked(path: Path, copy):
     (_linked, "failed", "the database copy"),
 ], ids=["grown", "rewritten", "over-budget", "removed", "link"])
 def test_duplicate_refuses_a_database_copy_changed_once_made(setup, monkeypatch, change, code, detail):
-    """The source wiki (its plugins) can change its copy once its task reported it: the new wiki got it at any
-    length, or a database the sandbox never checked, and a copy it removed or replaced with a link failed with an
-    error the portal does not handle. Nothing is left for the migration to take for a database; the portal
-    destroys the new wiki's folder. Extended before its task measured it, the copy gets the new wiki's byte
+    """A copy the source changes, removes or replaces with a link after its task reported it is refused and the
+    new wiki's folder is removed; a copy extended before the task measured it is held to the new wiki's byte
     budget."""
     from bananawiki.hosting.runtime import platform_backup
 
@@ -646,6 +697,73 @@ def test_duplicate_refuses_a_database_copy_changed_once_made(setup, monkeypatch,
     assert not (Path(runtime._cfg().instances_dir) / "clone" / "bananawiki.db").exists()
     assert agent.tasks()[-1] == "snapshot" and "clone" not in agent.containers
     assert not list((root / ".bw-host").iterdir()), "the copy is removed"
+
+
+def test_duplicate_holds_the_files_to_the_new_wikis_storage_limit(setup, monkeypatch):
+    """A sparse file costs the source's quota next to nothing, but the copy wrote it out at its full length: a
+    wiki could fill the disk every wiki shares."""
+    from bananawiki.hosting.runtime import platform_backup
+
+    monkeypatch.setattr(platform_backup, "BUDGET_SLACK_BYTES", 0)
+    runtime, agent, spec, root = setup
+    with open(root / "storage" / "uploads" / "sparse.bin", "wb") as handle:
+        handle.truncate(4 * 1024 ** 2)
+    limited = TenantPolicy(storage_limit_bytes=2 * 1024 ** 2)
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.duplicate(spec, replace(make_spec("clone", policy=limited), instance_id="idclone"))
+    assert error.value.code == "too_large" and "sparse.bin" in error.value.detail
+    assert not (Path(runtime._cfg().instances_dir) / "clone" / "storage" / "uploads" / "sparse.bin").exists()
+    assert "clone" not in agent.containers
+
+    runtime.duplicate(spec, replace(make_spec("copy"), instance_id="idcopy"))
+    copied = Path(runtime._cfg().instances_dir) / "copy" / "storage" / "uploads" / "sparse.bin"
+    assert copied.stat().st_size == 4 * 1024 ** 2, "a wiki without a limit"
+
+
+def test_duplicate_copies_a_hard_linked_file_once(setup):
+    runtime, _agent, spec, root = setup
+    uploads = root / "storage" / "uploads"
+    data = os.urandom(64 * 1024)
+    (uploads / "r.bin").write_bytes(data)
+    for index in range(20):
+        os.link(uploads / "r.bin", uploads / f"r{index:02d}.bin")
+    runtime.duplicate(spec, replace(make_spec("clone"), instance_id="idclone"))
+    copies = sorted((Path(runtime._cfg().instances_dir) / "clone" / "storage" / "uploads").glob("r*.bin"))
+    assert len(copies) == 21 and all(path.read_bytes() == data for path in copies)
+    assert len({path.stat().st_ino for path in copies}) == 1, "further links stay links to the one copy"
+
+
+def test_duplicate_skips_a_file_whose_folder_is_a_file_in_the_copy(setup):
+    """A tenant can replace its ``uploads`` link with a folder of its own. A path such as ``uploads/a/b`` that
+    clashes with the file ``storage/uploads/a`` is skipped, not fatal."""
+    runtime, _agent, spec, root = setup
+    (root / "storage" / "uploads" / "a").write_bytes(b"kept")
+    (root / "uploads").unlink()
+    (root / "uploads" / "a").mkdir(parents=True)
+    (root / "uploads" / "a" / "b").write_bytes(b"left out")
+    runtime.duplicate(spec, replace(make_spec("clone"), instance_id="idclone"))
+    clone = Path(runtime._cfg().instances_dir) / "clone"
+    assert (clone / "storage" / "uploads" / "a").read_bytes() == b"kept"
+    assert (clone / "storage" / "uploads" / "photo.png").read_bytes() == b"\x89PNG data"
+
+
+@pytest.mark.parametrize("failure", [errno.ENOSPC, errno.EDQUOT])
+def test_duplicate_reports_a_full_disk_while_copying_files(setup, monkeypatch, failure):
+    from bananawiki.hosting.runtime import tenantfs
+
+    runtime, agent, spec, _root = setup
+    copy_observed = tenantfs.copy_observed
+
+    def full(source, target, size):
+        if str(getattr(target, "name", "")).endswith("photo.png"):
+            raise OSError(failure, os.strerror(failure))
+        copy_observed(source, target, size)
+
+    monkeypatch.setattr(tenantfs, "copy_observed", full)
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.duplicate(spec, replace(make_spec("clone"), instance_id="idclone"))
+    assert error.value.code == "no_space" and "storage/uploads" in error.value.detail
+    assert "clone" not in agent.containers
 
 
 def test_import_never_cleans_up_a_directory_it_did_not_create(setup, tmp_path, monkeypatch):
@@ -707,8 +825,7 @@ def test_import_keeps_its_verdict_when_the_cleanup_fails(setup, tmp_path, monkey
 
 
 def test_export_refuses_a_database_copy_grown_once_made(setup, tmp_path, monkeypatch):
-    """The copy lies in the wiki's own directory: a plugin could extend it to a huge sparse file once its task
-    reported it, and the export, in a folder every wiki's exports share, wrote it at that length."""
+    """The export refuses a database copy that a plugin extends after its task reported it."""
     runtime, _agent, spec, root = setup
     snapshot = runtime._snapshot
 
@@ -728,8 +845,7 @@ def test_export_refuses_a_database_copy_grown_once_made(setup, tmp_path, monkeyp
 
 
 def test_export_holds_a_wiki_to_its_storage_limit(setup, tmp_path, monkeypatch):
-    """A sparse file costs the wiki's quota nothing, but the export, in a folder every wiki's exports share,
-    wrote it at its full length: a wiki could fill that disk for all the others."""
+    """A sparse file counts at full length against the storage limit, so no wiki fills the shared folder."""
     from bananawiki.hosting.runtime import platform_backup
 
     monkeypatch.setattr(platform_backup, "BUDGET_SLACK_BYTES", 0)
@@ -774,9 +890,9 @@ def test_export_holds_a_database_copy_to_the_wikis_storage_limit(setup, tmp_path
 
 
 def test_a_wiki_held_above_its_plan_can_still_be_downloaded(setup, tmp_path, monkeypatch):
-    """A wiki the runtime agent adopted above its plan (UP-1) serves, and its quota holds it to the hard limit it
-    was adopted at: its export's budget is that limit. From its plan alone, the owner's download of its genuine
-    database was refused. A sparse file beyond the adopted limit still fails the export."""
+    """A wiki the runtime agent adopted above its plan serves, and its quota holds it to the hard limit it was
+    adopted at: its export's budget is that limit, not its plan, so the owner can download its genuine database.
+    A sparse file beyond the adopted limit still fails the export."""
     from bananawiki.hosting.runtime import platform_backup
 
     monkeypatch.setattr(platform_backup, "BUDGET_SLACK_BYTES", 0)
@@ -799,7 +915,7 @@ def test_a_wiki_held_above_its_plan_can_still_be_downloaded(setup, tmp_path, mon
 
 
 def test_hard_links_to_one_file_go_into_an_export_once(setup, tmp_path):
-    """Each hard link cost the export a full copy of the file, the wiki's quota only one."""
+    """Hard links cost the wiki's quota one copy, so the export holds the file once too."""
     runtime, _agent, spec, root = setup
     uploads = root / "storage" / "uploads"
     data = os.urandom(200 * 1024)
@@ -844,6 +960,42 @@ def test_wiki_downloads_carry_the_wikis_storage_limit(web, runtime, make_account
     monkeypatch.setattr(runtime, "export_archive", too_large)
     page = web.get(f"/admin/instances/{limited['id']}/download", follow_redirects=True).get_data(as_text=True)
     assert "storage limit allows in a download, so no archive was made" in page
+
+
+@pytest.mark.parametrize("failure", [errno.ENOSPC, errno.EDQUOT])
+def test_export_reports_a_full_export_folder(setup, tmp_path, monkeypatch, failure):
+    """Exports of every wiki share one folder: when it is full, the export fails cleanly and leaves no files."""
+    runtime, _agent, spec, root = setup
+    copy_observed = tenantfs.copy_observed
+
+    def full(source, target, size):
+        copy_observed(source, target, min(size, 4096))
+        raise OSError(failure, os.strerror(failure))
+
+    monkeypatch.setattr(tenantfs, "copy_observed", full)
+    out = tmp_path / "out"
+    out.mkdir()
+    with pytest.raises(RuntimeFailure) as error:
+        runtime.export_archive(spec, out)
+    assert error.value.code == "no_space"
+    assert not list(out.iterdir()), "no archive is left"
+    assert not list((root / ".bw-host").iterdir()), "the copy is removed"
+
+
+def test_a_download_that_fails_unexpectedly_says_so_and_leaves_no_files(web, portal, runtime, make_account,
+                                                                        make_wiki, login, monkeypatch):
+    admin = make_account(admin=True)
+    wiki = make_wiki(make_account(), "broken")
+
+    def broken(_spec, destination_dir):
+        (Path(destination_dir) / "partial.zip").write_bytes(b"PK")
+        raise OSError(errno.EIO, os.strerror(errno.EIO))
+
+    monkeypatch.setattr(runtime, "export_archive", broken)
+    login(web, admin)
+    response = web.get(f"/admin/instances/{wiki['id']}/download", follow_redirects=True)
+    assert response.status_code == 200 and "The operation failed." in response.get_data(as_text=True)
+    assert not list(Path(portal.config["HOSTING"].archives.export_temp_dir).iterdir())
 
 
 @pytest.mark.parametrize("answer", [{"size": None}, {"size": -1}, {"sha256": "x" * 64}], ids=["none", "negative",

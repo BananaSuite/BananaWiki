@@ -1,4 +1,6 @@
-from bananawiki.wiki.markdown import render, video_embed_src
+import re
+
+from bananawiki.wiki.markdown import render, to_plain_text, video_embed_src
 
 
 def test_scripts_and_handlers_are_removed():
@@ -37,6 +39,17 @@ def test_video_shortcode_and_bare_link():
     assert "player.vimeo.com/video/123" in render("https://vimeo.com/123")
 
 
+def test_video_shortcode_url_may_contain_ampersands():
+    for url in ("https://youtu.be/dQw4w9WgXcQ?si=abc&t=42",
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123&index=2",
+                "https://www.youtube.com/watch?list=PL123&v=dQw4w9WgXcQ"):
+        html = render(f'[[video url="{url}" align="right" ratio="4:3"]]')
+        assert "youtube-nocookie.com/embed/dQw4w9WgXcQ" in html, url
+        assert f'data-source-url="{url.replace("&", "&amp;")}"' in html
+        assert "bw-video-right" in html and 'data-ratio="4:3"' in html
+        assert "[[video" not in html
+
+
 def test_video_src_rejects_other_hosts():
     assert video_embed_src("https://evil.example/watch?v=dQw4w9WgXcQ") is None
 
@@ -61,3 +74,13 @@ def test_strikethrough_and_task_lists():
 
 def test_task_marker_in_code_is_untouched():
     assert "[ ]" in render("```\n- [ ] x\n```")
+
+
+def test_a_list_nested_by_three_spaces_under_a_numbered_item_nests():
+    html = render("1. a\n2. b\n   - c\n")
+    assert re.search(r"<li>b\s*<ul>\s*<li>c</li>", html)
+
+
+def test_plain_text_keeps_punctuation_next_to_inline_markup():
+    assert to_plain_text("before **v1.7.0**.") == "before v1.7.0."
+    assert to_plain_text("See [the docs](https://x.y), then *go*!\n\nNext") == "See the docs, then go! Next"

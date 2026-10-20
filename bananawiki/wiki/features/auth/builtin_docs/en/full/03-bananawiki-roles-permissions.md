@@ -1,28 +1,30 @@
-# Roles & Permissions
+# Roles and permissions
 
-Permissions decide what each person can see and do. BananaWiki starts with simple roles and lets admins add precision when a team needs it.
+Every account has one role. Administrators can add custom roles, per-account permissions and category restrictions on top.
 
 ## Built-in roles
 
-| Role | Typical access |
+| Role | Access |
 |---|---|
-| **User** | read pages, search, use allowed collaboration tools |
+| **User** | read pages, search, use the tools they are allowed to |
 | **Editor** | create and edit pages and categories |
-| **Admin** | manage users, settings, plugins, and site-wide behaviour |
-| **Protected admin** | admin access that cannot be changed by regular admins |
+| **Administrator** | manage accounts, settings, features and all content |
+| **Owner** | administrator that other administrators cannot change |
+
+A superuser is an account that only other superusers can change. The account created when the wiki is set up is an owner and a superuser.
 
 ## Custom roles
 
-Custom roles combine a base role with specific permissions and category rules. Use them when a built-in role is too broad, for example **Support editor**, **Course assistant**, or **Read-only contractor**.
+A custom role adds permissions and category rules to a base role, for example **Support editor** or **Course assistant**. Create them in **Administration → Custom roles**.
 
-## Per-user overrides
+## Per-user permissions
 
-Admins can override individual permissions for one account. This is helpful for temporary exceptions, but custom roles are easier to maintain when multiple users need the same access.
+Administrators can change single permissions for one account. When several people need the same access, a custom role is easier to keep track of.
 
 ## Category restrictions
 
-Role permissions answer *what can this person do?* Category restrictions answer *where can they do it?* Combining both lets a user edit one area while only reading another.
+Permissions say *what* someone can do; category restrictions say *where*. Together they let someone edit one category and only read another.
 
-## Practical guidance
+## Reviewing access
 
-Start with the smallest role that works. Promote users when they need broader responsibility. Review admins and protected admins regularly. For short-lived access, prefer temporary accounts or temporary roles when that plugin is enabled.
+Give each person the smallest role that works, and check the list of owners and superusers from time to time.

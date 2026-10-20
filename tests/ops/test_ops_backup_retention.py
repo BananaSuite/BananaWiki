@@ -7,12 +7,12 @@ names, so they say nothing by themselves:
 * ``prune`` (and the pruning after an upload) counts only snapshots whose
   index this recovery key authenticated, newest first, and never deletes
   while fewer than ``keep`` of them would remain. IDs dated in the future, or
-  that are no dates, are neither counted nor deleted, only reported (OPS2-02).
-* No ID, however crafted, keeps uploads from working (OPS2-02).
+  that are no dates, are neither counted nor deleted, only reported.
+* No ID, however crafted, keeps uploads from working.
 * ``--allow-unauthenticated`` restores only what can be a snapshot made
   before backups were authenticated: not one dated at or after the series'
   first authenticated snapshot, which every authenticated index records, so
-  retention deleting that snapshot changes nothing (OPS2-06).
+  retention deleting that snapshot changes nothing.
 """
 
 from __future__ import annotations
@@ -139,6 +139,29 @@ def test_an_unauthenticated_snapshot_newer_than_an_authenticated_one_is_never_re
     assert "it was made before" not in str(error.value)
 
 
+def test_a_snapshot_uploaded_after_going_back_to_an_earlier_release_is_refused_but_recoverable_by_hand(series):
+    """1.6 uploads unauthenticated snapshots: after a rollback to it, they are newer than authenticated ones."""
+    backups, tmp_path = series
+    upload(backups, tmp_path, 1)
+    identifier = push_branch(backups, tmp_path, stamp(timedelta(seconds=1)) + "-16161616", garbage=False)
+    with pytest.raises(ValueError, match="went back to it") as error:
+        backups.download(identifier, tmp_path / "refused.tar.gz", allow_unauthenticated=True)
+    assert "by hand" in str(error.value)
+    # As the operations guide does it: the parts in order, decrypted, without the two header lines.
+    config = backups.settings()
+    ref = backups.prefix(config) + identifier
+
+    def show(*args: str) -> bytes:
+        return subprocess.run(["git", "--git-dir", config["url"], *args], capture_output=True, check=True).stdout
+
+    parts = sorted(name for name in show("ls-tree", "--name-only", ref).decode().split() if name.startswith("part-"))
+    ciphertext = b"".join(show("show", ref + ":" + name) for name in parts)
+    wrapped = subprocess.run(["age", "--decrypt", "--identity", str(backups.identity)], input=ciphertext,
+                             capture_output=True, check=True).stdout
+    recovered = subprocess.run(["tail", "-n", "+3"], input=wrapped, capture_output=True, check=True).stdout
+    assert recovered == b"not from this server"
+
+
 def _between(first: str, second: str) -> str:
     """A snapshot ID dated between two others."""
     times = [datetime.strptime(name.split("Z-")[0], "%Y%m%dT%H%M%S.%f").replace(tzinfo=UTC) for name in (first, second)]
@@ -148,8 +171,7 @@ def _between(first: str, second: str) -> str:
 
 
 def test_an_unauthenticated_snapshot_dated_like_the_first_authenticated_one_is_never_restored(series):
-    # Second 1.7 audit (OPS2-06 follow-up): only snapshots dated strictly later than an
-    # authenticated one were refused, and a series' IDs only ever grow.
+    # A series' IDs only ever grow, so a snapshot dated like the first authenticated one is refused too.
     backups, tmp_path = series
     (first,) = upload(backups, tmp_path, 1)
     same = push_branch(backups, tmp_path, first.split("Z-")[0] + "Z-00000000", garbage=False)
@@ -159,8 +181,8 @@ def test_an_unauthenticated_snapshot_dated_like_the_first_authenticated_one_is_n
 
 
 def test_retention_does_not_forget_when_authentication_began(series):
-    # The boundary was the oldest authenticated snapshot still in the repository; retention
-    # deletes old ones, so a forgery dated after authentication began passed once they were gone.
+    # The boundary is when authentication began, not the oldest authenticated snapshot still in the
+    # repository: retention deletes old ones, and a forgery dated after that would pass once they were gone.
     backups, tmp_path = series  # keep=2, not append-only: each upload prunes
     genuine = upload(backups, tmp_path, 3)
     assert genuine[0] not in listed(backups)

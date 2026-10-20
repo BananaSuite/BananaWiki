@@ -14,6 +14,7 @@ back once, and that containers removed meanwhile are not an error.
 from __future__ import annotations
 
 import argparse
+import errno
 import http.client
 import http.server
 import json
@@ -197,7 +198,7 @@ def assert_in_service(root: Path, wikis: Wikis) -> None:
     assert wikis.markers() == []
 
 
-# R-07: a wiki's own failure is reported, the platform leaves maintenance -------------------------
+# A wiki's own failure is reported, the platform leaves maintenance
 
 
 def test_a_wiki_failing_only_in_maintenance_mode_does_not_hold_backups(hosting):
@@ -328,7 +329,7 @@ def test_a_wiki_failing_before_an_update_does_not_hold_it_and_is_listed(hosting)
     assert_in_service(hosting.root, hosting.wikis)
 
 
-# R-07: a wiki's own plugins never hold platform updates back, a regression of the release still does ------
+# A wiki's own plugins never hold platform updates back, a regression of the release still does
 
 
 def allow_plugins(hosting, *slugs: str, setting: str = "1") -> None:
@@ -392,7 +393,7 @@ def test_a_wiki_still_failing_with_its_plugins_quarantined_rolls_the_update_back
     assert_rolled_back(hosting, new)
 
 
-def test_without_tenant_plugins_a_wiki_failing_under_a_new_release_rolls_it_back_as_before(hosting):
+def test_without_tenant_plugins_a_wiki_failing_under_a_new_release_rolls_it_back(hosting):
     unready_wikis_policy(hosting.root, "rollback")
     allow_plugins(hosting, "broken", setting="0")
     new = hosting.upstream.commit("1.6.1")
@@ -683,7 +684,7 @@ def test_the_portal_command_run_as_the_service_account_gets_none_of_the_controll
 
 @pytest.mark.parametrize("location", ["http://[", "http://" + "a" * 64 + ".example.org/"])
 def test_a_health_check_redirected_to_a_malformed_url_is_only_a_failing_wiki(redirecting, location):
-    """urllib followed such a redirect and raised ValueError or UnicodeError out of the readiness check."""
+    """A redirect to a malformed URL counts as a failing wiki; it never raises out of the readiness check."""
     redirecting.location = location
     port = redirecting.server_address[1]
     system = System(runner=lambda command, **_: subprocess.CompletedProcess(command, 0, "", ""))
@@ -916,6 +917,68 @@ def test_a_restored_state_is_put_back_once(hosting):
     assert_in_service(root, hosting.wikis)
 
 
+def test_a_rollback_starts_the_wikis_on_files_of_their_own(hosting):
+    """The rollback links the wikis' files back from the snapshot, which is gone before anything starts on them
+    (a wiki's database and its storage quota refuse files with another link)."""
+    root, manager = hosting.root, hosting.manager
+    unready_wikis_policy(root, "rollback")
+    new = hosting.upstream.commit("1.6.1")
+    hosting.wikis.failing_under["broken"] = new
+    original = manager.finish
+    started: list[tuple[bool, int]] = []
+
+    def finish(journal, settings, **options):
+        if journal.get("phase") == "restored":
+            page = root / "data/instances/acme/page.txt"
+            started.append((Path(journal["snapshot"]).exists(), page.stat().st_nlink))
+        return original(journal, settings, **options)
+
+    manager.finish = finish  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="broken"):
+        manager.update()
+    assert started == [(False, 1)]
+    assert (root / "data/instances/acme/page.txt").read_text() == "acme"
+    assert_in_service(root, hosting.wikis)
+
+
+def test_a_rollback_short_of_space_leaves_no_partial_copy_and_the_next_command_finishes_it(hosting, monkeypatch):
+    from bananawiki.ops import snapshot
+
+    root, wikis = hosting.root, hosting.wikis
+    new = hosting.upstream.commit("1.6.1")
+    hosting.system.unhealthy_revisions.add(new)
+
+    def full(source, destination):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(snapshot, "_copy", full)
+    with pytest.raises(OSError, match="No space left"):
+        hosting.manager.update()
+    assert read_json(root / "config/transaction.json")["phase"] == "snapshotted"
+    assert not list(root.glob(".restore-*")) and not list(root.glob(".previous-*"))
+    assert (root / "data/instances/acme/page.txt").read_text() == "acme"
+    monkeypatch.undo()
+    result = lifecycle(Manager(root, system=hosting.system), argparse.Namespace(command="start"))
+    assert result["recovered"] is True
+    assert (root / "current").resolve().name == hosting.old
+    assert_in_service(root, wikis)
+
+
+def test_trees_an_interrupted_restore_left_are_removed_once_data_is_in_place(hosting):
+    root = hosting.root
+    leftovers = [root / ".restore-data-0badf00d", root / ".previous-data-0badf00d", root / ".restore-site-0badf00d"]
+    for path in leftovers:
+        (path / "instances").mkdir(parents=True)
+    # Interrupted between apply_tree's two renames: the data is only in the leftovers.
+    (root / "data").rename(root / ".previous-data-cafe0000")
+    hosting.manager.remove_partial_trees()
+    assert [path.exists() for path in leftovers] == [True, True, False]
+    assert (root / ".previous-data-cafe0000/instances/acme/page.txt").read_text() == "acme"
+    (root / ".previous-data-cafe0000").rename(root / "data")
+    hosting.manager.backup()
+    assert not list(root.glob(".restore-*")) and not list(root.glob(".previous-*"))
+
+
 def test_a_rollback_that_does_not_start_ends_in_maintenance_until_start(hosting):
     root, system, wikis = hosting.root, hosting.system, hosting.wikis
     new = hosting.upstream.commit("1.6.1")
@@ -959,7 +1022,7 @@ def test_recover_abandon_drops_a_transaction_that_cannot_be_put_back(hosting):
     assert not (root / "config/transaction.json").exists()
 
 
-# R-13: containers that disappear during or after an operation ----------------------------------
+# Containers that disappear during or after an operation
 
 
 def test_a_wiki_terminated_while_the_maintenance_service_stops_does_not_block_operations(hosting):
@@ -1172,7 +1235,7 @@ def test_inspect_failing_for_a_wiki_removed_after_the_listing_lists_again():
         System(runner=failing).containers(settings)
 
 
-# Before anything stops, and after the services start -------------------------------------------
+# Before anything stops, and after the services start
 
 
 def outdate_units(hosting) -> None:
@@ -1185,7 +1248,7 @@ def stops(system: FakeSystem) -> int:
 
 
 def test_convergence_lists_the_wikis_once_the_maintenance_service_stopped(hosting):
-    """Until it stops, the maintenance service can remove a wiki between the listing and the inspection (R-13)."""
+    """Until it stops, the maintenance service can remove a wiki between the listing and the inspection."""
     system = hosting.system
     outdate_units(hosting)
     listed_while: list[bool] = []

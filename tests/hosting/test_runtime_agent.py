@@ -6,6 +6,8 @@ import errno
 import os
 import sqlite3
 import subprocess
+import threading
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -41,7 +43,7 @@ def test_provision_creates_the_1x_layout_seeds_inside_the_sandbox_and_starts(set
     assert oct(root.stat().st_mode & 0o777) == "0o700"
     for name in ("uploads", "attachments", "chat_attachments", "kanban_attachments", "custom_page_files"):
         assert (root / "storage" / name).is_dir()
-        assert os.readlink(root / name) == f"storage/{name}", "relative alias like 1.4 (C12)"
+        assert os.readlink(root / name) == f"storage/{name}", "relative alias, as 1.4 made it"
     assert agent.tasks() == ["seed"]
     started = agent.ops("tenant.start")[0]
     assert started["tenant"] == "acme" and started["network"] == "isolated" and "publish_port" not in started
@@ -176,7 +178,8 @@ def test_environment_maps_the_policy_and_keeps_portal_secrets_out(tmp_path):
     assert env["BW_ALLOW_EXTERNAL_PLUGINS"] == "1" and env["BW_SESSION_COOKIE_NAME"] == "bw_session_acme"
     assert all(key.startswith("BW_") for key in env)
     assert runtime._cfg().secret_key not in env.values()
-    assert tenant_environment(make_spec(), runtime._cfg(), quarantined=True)["BW_ALLOW_EXTERNAL_PLUGINS"] == "0"
+    quarantined = tenant_environment(make_spec(), runtime._cfg(), quarantined=True)
+    assert quarantined["BW_ALLOW_EXTERNAL_PLUGINS"] == "0" and not any("QUARANTINE" in key for key in quarantined)
 
 
 def test_hosted_third_party_plugins_require_operator_opt_in(tmp_path):
@@ -218,6 +221,30 @@ def test_stop_destroy_and_relocate(setup):
     runtime.destroy(moved)
     assert not (base / "acme--terminated-idacme").exists()
     assert not runtime._state(runtime._cfg(), moved).root.exists()
+
+
+def test_data_kept_under_a_name_the_agent_refuses_can_still_be_deleted(setup):
+    """A wiki archived under a name longer than the agent accepts is still deleted when its grace period ends."""
+    from bananawiki.hosting import urls
+    from bananawiki.ops.runtime_agent import TENANT
+
+    runtime, agent = setup
+    spec = make_spec()
+    provision(runtime, spec)
+    runtime.stop(spec)
+    archived = f"{'a' * 63}--terminated-idacme00"
+    runtime.relocate(spec.instance_id, "acme", archived)
+    agent.failures["tenant.stop"] = AgentError("invalid_tenant", "Tenant names are lowercase letters, digits "
+                                                                 "and hyphens.")
+    runtime.destroy(replace(spec, data_dir_name=archived))
+    assert not (Path(runtime._cfg().instances_dir) / archived).exists()
+    for slug in ("a" * 63, f"{'a' * 41}-{'b' * 21}"):
+        name = urls.archived_slug("ID0123456789", slug)
+        assert len(name) <= 63 and name.endswith("--terminated-id012345") and "---" not in name
+        assert urls.original_slug(name) == slug[:42].rstrip("-")
+        for mode in ("hosting", "apex"):
+            assert TENANT.fullmatch(urls.data_dir_name(name, mode)), "the agent accepts it"
+    assert urls.archived_slug("ID0123456789", "Docs") == "docs--terminated-id012345"
 
 
 def test_destroy_does_not_follow_planted_links(setup, tmp_path):
@@ -276,6 +303,25 @@ def test_usage_counts_files_without_following_links(setup, tmp_path):
     runtime._forget("acme")
     assert 100_000 <= runtime.usage(spec) - base < 200_000
     assert runtime.usage(make_spec("nothing")) == 0
+
+
+def test_usage_answers_from_a_measurement_no_older_than_asked(setup, monkeypatch):
+    from bananawiki.hosting.runtime import agent as agent_module
+
+    runtime, _agent = setup
+    spec = make_spec()
+    provision(runtime, spec)
+    uploads = Path(runtime._cfg().instances_dir) / "acme" / "storage" / "uploads"
+    clock = [1000.0]
+    monkeypatch.setattr(agent_module.time, "monotonic", lambda: clock[0])
+    runtime._forget("acme")
+    before = runtime.usage(spec)
+    (uploads / "new.bin").write_bytes(b"x" * 50_000)
+    clock[0] += agent_module.USAGE_TTL + 1
+    assert runtime.usage(spec, max_age=60) == before
+    assert runtime.usage(spec) == before + 50_000
+    (uploads / "more.bin").write_bytes(b"x" * 1_000)
+    assert runtime.usage(spec, max_age=0) == before + 51_000
 
 
 def test_usage_deadline_also_bounds_a_single_large_directory(tmp_path, monkeypatch):
@@ -440,7 +486,7 @@ def test_recover_starts_the_other_tenants_when_one_fails_unexpectedly(setup, mon
         start(cfg, spec, **options)
 
     monkeypatch.setattr(runtime, "_start", broken_first)
-    # More tenants than recovery threads: an escaping error used to cancel the queued ones.
+    # More tenants than recovery threads: an escaping error does not cancel the queued ones.
     assert runtime.recover(specs) == 7
     assert set(agent.containers) == {f"wiki{number}" for number in range(1, 8)}
 
@@ -463,7 +509,7 @@ def test_agent_errors_become_runtime_failures(setup):
     assert error.value.code == "unavailable"
 
 
-# ── Tenant database tools ─────────────────────────────────────────────────────
+# Tenant database tools
 
 
 def test_user_management_runs_as_tenant_tasks(setup):
@@ -570,7 +616,7 @@ def test_apply_limits_and_analytics(setup):
     assert summary["window_days"] == 7 and summary["totals"]["request"] == 7 and len(summary["daily"]) == 7
 
 
-# ── Plugin safety ─────────────────────────────────────────────────────────────
+# Plugin safety
 
 
 def _add_plugin(runtime: AgentRuntime, plugin_id: str, *, builtin: int, folder: bool) -> None:
@@ -668,10 +714,9 @@ def _linked(path: Path, copy):
     (_linked, "failed", "the database copy"),
 ], ids=["grown", "rewritten", "over-budget", "removed", "link"])
 def test_a_plugin_snapshot_refuses_a_database_copy_changed_once_made(setup, monkeypatch, change, code, detail):
-    """The copy lies in the wiki's own directory and the wiki may be running: a plugin extended it to a huge sparse
-    file, and the host copied it at that length into the platform state folder, which no quota bounds (or kept a
-    database its sandbox never checked, or failed with an error the portal does not handle). Extended before its
-    task measured it, the copy gets the wiki's byte budget, as in a platform backup."""
+    """The database copy lies in the wiki's own folder and the wiki may be running. A copy changed, removed or
+    replaced with a link after its task reported it is refused; one extended before the task measured it is
+    held to the wiki's byte budget, as in a platform backup."""
     from bananawiki.hosting.runtime import platform_backup
 
     monkeypatch.setattr(platform_backup, "BUDGET_SLACK_BYTES", 0)
@@ -691,7 +736,7 @@ def test_a_plugin_snapshot_refuses_a_database_copy_changed_once_made(setup, monk
 
 
 def test_a_plugin_snapshot_of_a_wiki_held_above_its_plan_is_kept(setup, monkeypatch):
-    """A wiki the runtime agent adopted above its plan (UP-1) serves: its plugin snapshots (before an enable, a
+    """A wiki the runtime agent adopted above its plan serves: its plugin snapshots (before an enable, a
     quarantine or a restore) get the hard limit it was adopted at, not its plan alone."""
     from bananawiki.hosting.runtime import platform_backup
 
@@ -724,8 +769,7 @@ def _full_disk(monkeypatch) -> None:
 
 @pytest.mark.parametrize("failure", ["changed", "full-disk"])
 def test_quarantine_goes_on_without_its_forensic_copy(tmp_path, monkeypatch, caplog, failure):
-    """The kill switch must work when its copy fails: a copy the wiki changed, or a full disk, raised once the
-    marker was set, and left the plugins enabled, the wiki stopped and the administrator with an error page."""
+    """The quarantine disables plugins and restarts the wiki even when its forensic copy fails."""
     runtime, agent = make_runtime(tmp_path, HOSTING_ALLOW_TENANT_PLUGINS="1")
     spec = make_spec()
     provision(runtime, spec)
@@ -761,7 +805,7 @@ def test_a_refused_copy_before_a_restore_leaves_the_wiki_serving(setup, monkeypa
     assert [item["label"] for item in runtime.list_plugin_snapshots(spec)] == ["pre-enable"]
 
 
-# ── Routing ───────────────────────────────────────────────────────────────────
+# Routing
 
 
 def test_sync_routes_sends_hostnames_to_the_agent(setup):
@@ -806,7 +850,7 @@ def test_sync_routes_is_a_no_op_in_port_mode_and_tolerates_old_agents(tmp_path, 
         runtime.sync_routes([make_spec()])
 
 
-# ── Wired into the portal ─────────────────────────────────────────────────────
+# Wired into the portal
 
 
 def test_portal_lifecycle_on_the_production_runtime(tmp_path):
@@ -835,9 +879,80 @@ def test_portal_lifecycle_on_the_production_runtime(tmp_path):
     assert username and password
 
 
+def test_wiki_lists_probe_the_wikis_side_by_side(tmp_path):
+    """Unresponsive wikis hold up the administrators' overview for one probe timeout, not one each."""
+    from bananawiki.hosting.db import connection_scope
+
+    from .agent_fakes import FakeAgent
+    from .hosting_support import PASSWORD, build_portal
+
+    agent = FakeAgent(tmp_path / "instances")
+    runtime = AgentRuntime(client=agent, probe=lambda _address, _port: True)
+    portal = build_portal(tmp_path, runtime=runtime)  # type: ignore[arg-type]
+    together = threading.Barrier(3)
+
+    def probe(_address: str, _port: int) -> bool:
+        try:
+            together.wait(timeout=5)
+        except threading.BrokenBarrierError:
+            return False
+        return True
+
+    with portal.test_request_context("/"), connection_scope(portal.extensions["bananawiki.hosting.database"]):
+        from bananawiki.hosting import accounts, instances
+
+        owner = accounts.create("owner", PASSWORD, is_admin=True)
+        for slug in ("one", "two", "three"):
+            instances.create(owner, slug)
+            runtime._forget(slug)
+        runtime._probe = probe
+        assert [item["health"] for item in instances.admin_list()] == ["running"] * 3
+        for slug in ("one", "two", "three"):
+            runtime._forget(slug)
+        assert [item["health"] for item in instances.dashboard_list(owner)] == ["running"] * 3
+
+
+def test_wikis_probed_together_share_one_container_listing(setup, monkeypatch):
+    runtime, agent = setup
+    specs = [make_spec(name, port=6001 + index) for index, name in enumerate(("one", "two", "three"))]
+    for spec in specs:
+        provision(runtime, spec)
+    listing, failing = agent.tenant_list, [False]
+
+    def slow_listing(args):
+        time.sleep(0.3)
+        if failing[0]:
+            raise AgentError("unavailable", "The runtime agent is not reachable.")
+        return listing(args)
+
+    monkeypatch.setattr(agent, "tenant_list", slow_listing)
+
+    def probe_together() -> list[str]:
+        for spec in specs:
+            runtime._forget(spec.data_dir_name)
+        agent.calls.clear()
+        ready = threading.Barrier(len(specs))
+        states: dict[str, str] = {}
+
+        def probe(spec):
+            ready.wait(timeout=5)
+            states[spec.data_dir_name] = runtime.status(spec).state
+
+        threads = [threading.Thread(target=probe, args=(spec,)) for spec in specs]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        assert len(agent.ops("tenant.list")) == 1
+        return [states[spec.data_dir_name] for spec in specs]
+
+    assert probe_together() == ["running"] * 3
+    failing[0] = True
+    assert probe_together() == ["unknown"] * 3
+
 def test_the_portal_discards_a_duplicate_whose_copy_the_source_removed(tmp_path, monkeypatch):
-    """A copy the source wiki removed made the duplicate fail with an error the portal did not handle: the new
-    wiki stayed pending with its folder and storage quota, and the administrator got an error page."""
+    """When the source wiki removes its database copy, the duplicate is refused cleanly: the new wiki's folder
+    and quota are released and no error page is shown."""
     from bananawiki.hosting.db import connection_scope, db
     from bananawiki.hosting.errors import ServiceError
 

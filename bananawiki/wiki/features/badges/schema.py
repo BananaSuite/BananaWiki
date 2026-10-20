@@ -1,4 +1,4 @@
-"""Reading time tracked for the ``reading_time`` badge trigger (new in 1.6)."""
+"""Reading time tracked for the ``reading_time`` badge trigger."""
 
 from __future__ import annotations
 

@@ -88,7 +88,7 @@ class _Names:
         return candidate
 
 
-# ── Export ────────────────────────────────────────────────────────────────────
+# Export
 
 
 @dataclass
@@ -113,8 +113,17 @@ def _category_names() -> tuple[dict[int, list[str]], dict[int, list[str]]]:
             current = rows.get(current["parent_id"]) if current["parent_id"] else None
         chain.reverse()
         folders[category_id] = [_segment(c["name"], f"category-{c['id']}") for c in chain]
-        names[category_id] = [c["name"].replace("/", "∕") for c in chain]
+        names[category_id] = [_path_name(c["name"]) for c in chain]
     return folders, names
+
+
+def _path_name(name: str) -> str:
+    return name.replace("/", "∕")
+
+
+def category_path(chain: list[dict[str, Any]]) -> str:
+    """The ``category_path`` front matter for a root-first chain of categories."""
+    return "/".join(_path_name(c["name"]) for c in chain)
 
 
 def export_archive() -> tuple[IO[bytes], ExportSummary]:
@@ -183,7 +192,7 @@ def _write_attachments(zf: zipfile.ZipFile, slugs: dict[int, str], unique: _Name
         summary.attachments += 1
 
 
-# ── Reading uploads ───────────────────────────────────────────────────────────
+# Reading uploads
 
 
 @dataclass
@@ -282,7 +291,7 @@ def _read_zip(stream: IO[bytes], archive_name: str, result: ImportResult) -> lis
     return files
 
 
-# ── Creating pages ────────────────────────────────────────────────────────────
+# Creating pages
 
 
 def _folder_name(segment: str) -> str:

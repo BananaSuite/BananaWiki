@@ -155,15 +155,35 @@ def test_restart_under_gunicorn_signals_the_master(app, admin_client, monkeypatc
     admin_client.post("/admin/plugins/restart", environ_base={"SERVER_SOFTWARE": "gunicorn/23.0.0"})
     assert sent == [(4242, signal.SIGHUP)]
     # The shared one-a-minute cooldown stops a second restart.
-    admin_client.post("/admin/plugins/restart", environ_base={"SERVER_SOFTWARE": "gunicorn/23.0.0"})
-    assert len(sent) == 1
+    page = admin_client.post("/admin/plugins/restart", environ_base={"SERVER_SOFTWARE": "gunicorn/23.0.0"},
+                             follow_redirects=True)
+    assert len(sent) == 1 and "restarted recently" in page.get_data(as_text=True)
+
+
+def test_restart_is_not_offered_when_the_gunicorn_master_is_unknown(app, admin_client, monkeypatch):
+    import os
+
+    from bananawiki.wiki.features.plugin_manager import service
+    from bananawiki.wiki.features.site_admin import server
+
+    sent = []
+    monkeypatch.setattr(os, "kill", lambda pid, sig: sent.append((pid, sig)))
+    monkeypatch.setattr(server, "gunicorn_master_pid", lambda: 0)
+    page = admin_client.post("/admin/plugins/restart", environ_base={"SERVER_SOFTWARE": "gunicorn/23.0.0"},
+                             follow_redirects=True)
+    assert sent == [] and "process manager" in page.get_data(as_text=True)
+    with app.test_request_context(environ_base={"SERVER_SOFTWARE": "gunicorn/23.0.0"}):
+        assert service.restart_mode() == "manual"
 
 
 def test_restart_with_preloaded_app_does_not_signal(app, admin_client, monkeypatch):
     import os
 
+    from bananawiki.wiki.features.site_admin import server
+
     sent = []
     monkeypatch.setattr(os, "kill", lambda pid, sig: sent.append((pid, sig)))
+    monkeypatch.setattr(server, "gunicorn_master_pid", lambda: 4242)
     app.extensions["bananawiki.plugins"].loaded_pid = os.getpid() + 1
     page = admin_client.post("/admin/plugins/restart", environ_base={"SERVER_SOFTWARE": "gunicorn/23.0.0"},
                              follow_redirects=True)

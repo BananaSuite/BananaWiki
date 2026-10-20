@@ -85,7 +85,7 @@ class Field:
         parser = getattr(self, f"_parse_{self.kind}")
         return parser(form, (raw or "").strip() if isinstance(raw, str) else "")
 
-    # Parsers ----------------------------------------------------------
+    # Parsers
 
     def _parse_number(self, _form: Mapping[str, Any], text: str) -> int:
         try:

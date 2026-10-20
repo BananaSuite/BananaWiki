@@ -17,7 +17,7 @@ def _pdf(client, slug):
     return response.status_code, data
 
 
-# ── PDF ───────────────────────────────────────────────────────────────────────
+# PDF
 
 
 def test_pdf_export_for_permitted_users(app, client, make_user, login, db, admin):
@@ -116,7 +116,7 @@ def test_history_revision_pdf(app, admin_client, db):
     assert admin_client.get(f"/page/{other['slug']}/history/{entry}/export-pdf").status_code == 404
 
 
-# ── Markdown (single page) ────────────────────────────────────────────────────
+# Markdown (single page)
 
 
 def test_markdown_export_for_editors(app, client, make_user, login, db):
@@ -134,6 +134,21 @@ def test_markdown_export_for_editors(app, client, make_user, login, db):
     response.close()
     db.execute("UPDATE site_settings SET markdown_export_enabled = 0")
     assert client.get("/page/café-quoted/export-md").status_code == 404
+
+
+def test_page_exports_are_kept_out_of_caches(app, admin_client):
+    make_page(app, "Private plan", "Body")
+    for path in ("/page/private-plan/export-pdf", "/page/private-plan/export-md"):
+        response = admin_client.get(path)
+        assert response.status_code == 200
+        assert response.headers["Cache-Control"] == "private, no-store" and "Expires" not in response.headers
+        response.close()
+    response = admin_client.get("/page/private-plan/export-md")
+    assert response.headers["Content-Type"] == "text/markdown; charset=utf-8"
+    response.close()
+    asset = admin_client.get("/static/css/bananawiki.css")
+    assert "no-store" not in asset.headers["Cache-Control"]
+    asset.close()
 
 
 def test_import_markdown_into_editor(app, client, make_user, login):
@@ -164,7 +179,7 @@ def test_export_menu_visibility(app, client, make_user, login, admin):
     assert "/page/menu/export-pdf" in html and "/page/menu/export-md" in html
 
 
-# ── Bulk Markdown ─────────────────────────────────────────────────────────────
+# Bulk Markdown
 
 
 def _zip(files):
@@ -317,3 +332,49 @@ def test_bulk_export_round_trip(app, admin_client, db):
     category = db.one("SELECT * FROM categories WHERE id = ?", (restored["category_id"],))
     assert category["name"] == "How/To"
     assert db.one("SELECT name FROM categories WHERE id = ?", (category["parent_id"],))["name"] == "Docs"
+
+
+def test_bulk_round_trip_keeps_titles_ending_in_hash(app, admin_client, db):
+    for title in ("C#", "Issue #"):
+        make_page(app, title, "Body text")
+    response = admin_client.post("/admin/bulk-markdown/export")
+    archive = zipfile.ZipFile(io.BytesIO(response.data))
+    response.close()
+    files = {name: archive.read(name) for name in ("c.md", "issue.md")}
+    assert files["c.md"].decode().endswith("# C#\n\nBody text")
+    before = db.scalar("SELECT COUNT(*) FROM page_history")
+    _bulk_import(admin_client, files, mode="update")
+    assert db.scalar("SELECT COUNT(*) FROM page_history") == before
+    db.execute("DELETE FROM pages WHERE is_home = 0")
+    _bulk_import(admin_client, files)
+    assert _page(app, "c")["content"] == "Body text" and _page(app, "issue")["content"] == "Body text"
+
+
+def test_single_markdown_export_reimports_into_its_category(app, client, make_user, login, db):
+    parent = make_category(app, "Guides")
+    child = make_category(app, "How/To", parent_id=parent["id"])
+    make_page(app, "Setup", "Steps", category_id=child["id"])
+    login(client, make_user("md_admin", role="admin"))
+    response = client.get("/page/setup/export-md")
+    text = response.data
+    response.close()
+    assert 'category: "How/To"\ncategory_path: "Guides/How∕To"\n' in text.decode()
+    db.execute("DELETE FROM pages WHERE slug = 'setup'")
+    data = {"import_file": (io.BytesIO(text), "setup.md")}
+    client.post("/admin/bulk-markdown", data=data, content_type="multipart/form-data")
+    assert _page(app, "setup")["category_id"] == child["id"]
+    assert db.scalar("SELECT COUNT(*) FROM categories") == 2
+
+
+def test_single_markdown_export_names_no_parent_the_editor_cannot_open(app, client, make_user, login, db):
+    parent = make_category(app, "Board minutes")
+    child = make_category(app, "Summaries", parent_id=parent["id"])
+    make_page(app, "Summary", "Text", category_id=child["id"])
+    editor = make_user("md_scoped", role="editor")
+    restrict(db, editor, read=[child["id"]], write=[child["id"]])
+    login(client, editor)
+    response = client.get("/page/summary/export-md")
+    text = response.data.decode()
+    response.close()
+    assert response.status_code == 200 and 'category: "Summaries"\n' in text
+    assert "Board minutes" not in text and "category_path" not in text

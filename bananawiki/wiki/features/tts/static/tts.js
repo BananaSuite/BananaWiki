@@ -35,7 +35,7 @@
     return Math.floor(seconds / 60) + ":" + (s < 10 ? "0" : "") + s;
   }
 
-  /* Word highlighting ------------------------------------------------------ */
+  /* Word highlighting */
 
   function contentRoot() {
     return document.querySelector("article#page-content") || document.querySelector("[data-page-content]") ||
@@ -109,7 +109,7 @@
     this.current = null;
   };
 
-  /* Panel ------------------------------------------------------------------ */
+  /* Panel */
 
   function Panel(root) {
     var config = JSON.parse(root.querySelector("[data-tts-config]").textContent || "{}");

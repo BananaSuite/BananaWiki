@@ -42,7 +42,7 @@ def _editable(slug: str) -> tuple[dict[str, Any], Any]:
     return page, _blocked_redirect(page)
 
 
-# ── Create ────────────────────────────────────────────────────────────────────
+# Create
 
 
 def _create_denied(category_id: int | None):
@@ -82,7 +82,7 @@ def create():
     return redirect(url_for("pages.view", slug=page["slug"]))
 
 
-# ── Edit ──────────────────────────────────────────────────────────────────────
+# Edit
 
 
 def _editor(page: dict[str, Any], *, title: str, content: str, category_id: int | None, revision: int,
@@ -122,7 +122,7 @@ def edit(slug: str):
             return _editor(page, title=title, content=content, category_id=page["category_id"],
                            revision=revision or page["revision"], edit_message=edit_message, status=403)
     try:
-        # Saving from the Markdown editor turns a page-builder page back into Markdown (as in 1.4).
+        # Saving from the Markdown editor turns a page-builder page back into Markdown.
         updated = service.update(page, author_id=user["id"], title=title, content=content,
                                  edit_message=edit_message, expected_revision=revision,
                                  builder_json="", builder_public=False)
@@ -162,7 +162,7 @@ def _conflict(page: dict[str, Any], current: dict[str, Any], *, title: str, cont
                    edit_message=edit_message, conflict=info, status=409)
 
 
-# ── Details ───────────────────────────────────────────────────────────────────
+# Details
 
 
 def _details_page(slug: str) -> tuple[dict[str, Any], Any]:

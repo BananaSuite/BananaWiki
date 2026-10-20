@@ -1,11 +1,10 @@
 """The lifecycle controller and hosted wikis' storage: quota modes, the new release's own preflight, BuildKit.
 
-An update must never stop wikis for a refusal it could have predicted (the
-production incident in AUDIT.md: an update stopped the wikis of a server on
-ext4 storage, waited out the readiness timeout on storage the new release
-refused, rolled back, and did it again every hour). These tests run the real
-controller against a simulated host (see ``ops_fakes``) with the hosting
-platform of ``test_ops_recovery``.
+An update never stops wikis for a refusal it could have predicted, such as
+storage the new release refuses: it would wait out the readiness timeout,
+roll back, and every automatic update would do the same again. These tests
+run the real controller against a simulated host (see ``ops_fakes``) with the
+hosting platform of ``test_ops_recovery``.
 """
 
 from __future__ import annotations
@@ -57,7 +56,7 @@ def enable_automatic_updates(root: Path) -> None:
     write_json(root / "config/updates.json", {"enabled": True, "interval_minutes": 60, "keep_backups": 3})
 
 
-# BW_HOSTING_TENANT_QUOTAS ----------------------------------------------------------------------------------------
+# BW_HOSTING_TENANT_QUOTAS
 
 LOST = "Hard quotas were enforced on this platform before and are no longer available: "
 EXT4 = "Tenant storage must be an XFS filesystem with enforced project quotas"
@@ -68,7 +67,7 @@ EXT4 = "Tenant storage must be an XFS filesystem with enforced project quotas"
     ("auto", None, False, (True, False, False)),
     ("auto", None, True, (True, False, False)),
     ("auto", EXT4, False, (False, False, False)),
-    ("auto", EXT4, True, (False, False, True)),  # lost: the wikis still start, with a loud warning
+    ("auto", EXT4, True, (False, False, True)),  # lost: the wikis still start, with a warning
     ("required", None, True, (True, False, False)),
     ("required", EXT4, False, (True, True, False)),
     ("required", EXT4, True, (True, True, False)),
@@ -92,7 +91,7 @@ def test_the_three_settings_decide_as_documented(configured, problem, before, ex
 
 
 def test_new_platforms_default_to_auto():
-    """The owner's decision: no installation or update ever requires XFS; required is an explicit opt-in."""
+    """No installation or update requires XFS: new platforms start in auto, required is an opt-in."""
     assert tenant_quotas.INSTALL_DEFAULT == tenant_quotas.DEFAULT == "auto"
 
 
@@ -102,7 +101,7 @@ def test_auto_updates_a_platform_whose_storage_has_no_quotas_and_says_so(hosting
     with_project_quotas(hosting, enforced=False)
     result = manager.update()
     assert result["outcome"] == "complete" and (root / "current").resolve().name == new
-    # A supported configuration: a calm note, not a warning.
+    # A supported configuration: a note, not a warning.
     assert "Hard per-wiki storage quotas are not enforced" in result["storage_note"]
     assert "storage_warning" not in result
     status = manager.status()
@@ -131,7 +130,7 @@ def test_status_reports_what_an_agent_under_older_units_can_do(hosting):
     assert storage["hard_quotas"] is False and storage["refused"] is False
     assert "units an older controller wrote" in storage["reason"]
     assert cli.config_command(manager, ["get", "tenant-quotas"])["tenant_quotas"] == storage
-    quota_registry(system)  # quotas were enforced here: the wikis still start, and status says loudly what was lost
+    quota_registry(system)  # quotas were enforced here: the wikis still start, and status warns what was lost
     status = manager.status()
     assert status["tenant_storage"]["refused"] is False and status["tenant_storage"]["lost"] is True
     assert any(warning.startswith(LOST) and "older controller wrote" in warning for warning in status["warnings"])
@@ -176,7 +175,7 @@ def test_required_refuses_an_update_before_anything_stops(hosting):
     assert_in_service(root, hosting.wikis)
 
 
-def test_auto_keeps_the_wikis_running_once_quotas_are_lost_and_says_so_loudly(hosting, capsys):
+def test_auto_keeps_the_wikis_running_once_quotas_are_lost_with_a_warning(hosting, capsys):
     """prjquota lost (a remount, a replaced volume): the wikis start without hard quotas, never silently."""
     root, system, manager = hosting.root, hosting.system, hosting.manager
     new = hosting.upstream.commit("1.7.0", extra=MODES)
@@ -197,7 +196,7 @@ def test_auto_keeps_the_wikis_running_once_quotas_are_lost_and_says_so_loudly(ho
     assert cli.config_command(manager, ["get", "tenant-quotas"])["tenant_quotas"]["lost"] is True
     with pytest.raises(TenantStorageUnsupported, match="Nothing was changed"):
         cli.config_command(manager, ["set", "tenant-quotas", "required"])
-    # Turned off on purpose: no regression to warn about.
+    # Turned off on purpose: nothing to warn about.
     configure(root, "off")
     status = manager.status()
     assert status["tenant_storage"]["setting"] == "off" and status["tenant_storage"]["lost"] is False
@@ -233,7 +232,7 @@ def test_a_quota_registry_the_controller_cannot_read_counts_as_used(hosting):
 
 
 def test_a_release_from_before_quota_modes_always_needs_quotas(hosting):
-    """Such a release (9591b29, say) has no auto mode: whatever the setting, its agent refuses the storage."""
+    """Such a release has no auto mode: whatever the setting, its agent refuses the storage."""
     hosting.upstream.commit("1.7.0-rc", extra=QUOTAS)
     with_project_quotas(hosting, enforced=False)
     with pytest.raises(TenantStorageUnsupported, match="confirm that the wiki storage .* enforces XFS"):
@@ -250,7 +249,7 @@ def test_an_invalid_setting_is_refused_before_the_release_is_built(hosting):
     assert_in_service(root, hosting.wikis)
 
 
-# The new release's own preflight -----------------------------------------------------------------------------
+# The new release's own preflight
 
 
 def candidate_preflight(system: FakeSystem, *answers):
@@ -290,7 +289,7 @@ def test_this_releases_preflight_answers_what_it_needs_from_the_server(hosting, 
     # Storage that never had hard quotas is supported: a note, not a warning (an older controller ignores notes).
     assert any("Hard per-wiki storage quotas are not enforced" in note for note in answer["notes"])
     assert answer["warnings"] == []
-    registry = quota_registry(hosting.system)  # quotas were enforced here before: lost, said loudly, not refused
+    registry = quota_registry(hosting.system)  # quotas were enforced here before: lost, warned about, not refused
     assert preflight.run(manager) == 0
     answer = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert answer["ok"] is True and any(warning.startswith(LOST) for warning in answer["warnings"])
@@ -475,7 +474,7 @@ def test_an_update_says_once_what_the_wikis_storage_gets(hosting, capsys, kernel
     assert err.count(message) == 1 and ("Warning: " if lost else "Note: ") + message in err
 
 
-# The failed-revision record ------------------------------------------------------------------------------------
+# The failed-revision record
 
 
 def test_a_rolled_back_update_records_why_and_automatic_updates_skip_it_until_a_newer_one(hosting):
@@ -503,16 +502,16 @@ def test_a_rolled_back_update_records_why_and_automatic_updates_skip_it_until_a_
 def test_a_record_written_by_an_older_controller_is_still_honoured(hosting):
     root, manager = hosting.root, hosting.manager
     bad = hosting.upstream.commit("1.7.1")
-    write_json(root / "config/failed-revision.json", {"revision": bad})  # b8bc352 wrote only this
+    write_json(root / "config/failed-revision.json", {"revision": bad})  # older controllers write only this
     enable_automatic_updates(root)
     assert manager.update(automatic=True)["outcome"] == "paused"
     assert manager.status()["failed_revision"] == {"revision": bad}
 
 
 def test_a_failed_revision_the_platform_has_moved_past_is_forgotten(hosting):
-    """An older updater (b8bc352) recorded 9591b29, then installed 1.7, which contains it, and kept the record."""
+    """An older updater recorded a failed revision, then installed 1.7, which contains it, and kept the record."""
     root, manager = hosting.root, hosting.manager
-    bad = hosting.upstream.commit("9591b29: the release that needed XFS")
+    bad = hosting.upstream.commit("a release that required XFS")
     new = hosting.upstream.commit("1.7.0", extra=MODES)
     assert manager.update()["outcome"] == "complete" and (root / "current").resolve().name == new
     write_json(root / "config/failed-revision.json", {"revision": bad})  # what the old updater left behind
@@ -529,7 +528,7 @@ def test_a_failed_revision_the_platform_has_moved_past_is_forgotten(hosting):
     assert manager.status()["failed_revision"]["revision"] == other
 
 
-# A failed unit convergence (the units an older updater wrote) ------------------------------------------------
+# A failed unit convergence (the units an older updater wrote)
 
 
 def older_units(system: FakeSystem) -> None:
@@ -539,13 +538,13 @@ def older_units(system: FakeSystem) -> None:
 
 
 def test_a_failed_unit_convergence_is_not_repeated_by_every_automatic_run(hosting):
-    """The incident's pattern must not come back through the convergence every pre-1.7 server goes through.
+    """The convergence every pre-1.7 server goes through does not stop the services again at every run.
 
     Once an older updater installed 1.7, the next ``update`` installs 1.7's
     own units: it stops the services, starts them under the new units and
-    waits for readiness. When the new units fail on a host, that wait was
-    repeated (with the portal, and so every wiki another reverse proxy sends
-    through it, down) at every automatic run.
+    waits for readiness. When the new units fail on a host, the failure is
+    recorded and automatic runs do not repeat that wait (the portal, and so
+    every wiki routed through it, would be down each time).
     """
     root, system, manager = hosting.root, hosting.system, hosting.manager
     enable_automatic_updates(root)
@@ -607,7 +606,7 @@ def test_a_restart_that_installs_the_units_ends_a_paused_convergence(hosting):
     assert manager.status()["units_current"] is True
 
 
-# BuildKit --------------------------------------------------------------------------------------------------------
+# BuildKit
 
 
 def test_an_update_without_buildkit_stops_nothing_and_names_the_package(hosting):
@@ -677,9 +676,9 @@ def test_a_build_that_leaves_no_tenant_image_fails_before_anything_stops(tmp_pat
 
 @pytest.mark.parametrize("name", ["Dockerfile", "Dockerfile.tenant"])
 def test_the_images_build_without_fetching_a_dockerfile_frontend(name):
-    """A '# syntax=' line makes BuildKit look the frontend up on Docker Hub at every build, so a build with the
-    registry unreachable failed, though an update promises to build on the base image it has (docs/deployment.md).
-    The built-in frontend (Docker 20.10 and later) has RUN --mount, for which BuildKit is still required."""
+    """No '# syntax=' line, so images build from the local base image with Docker Hub unreachable.
+
+    The built-in frontend (Docker 20.10 and later) has RUN --mount, which still needs BuildKit."""
     from bananawiki.ops.system import needs_buildkit
 
     dockerfile = Path(__file__).resolve().parents[2] / name
@@ -705,7 +704,7 @@ def test_an_older_release_is_still_built_with_whatever_builder_docker_has(tmp_pa
     assert "env" not in next(options for command, options in seen if command[:2] == ["docker", "build"])
 
 
-# Transitions the older controllers leave ------------------------------------------------------------------------
+# Transitions the older controllers leave
 
 
 def test_a_failed_unit_convergence_keeps_the_portal_out_of_the_docker_group(tmp_path):
@@ -749,7 +748,7 @@ def test_a_release_an_older_controller_prepared_is_prepared_again(tmp_path):
     assert manager.stage({**manager.settings(), "revision": new}) == release and system.prepared == [new]
 
 
-# Installing a new hosting platform -------------------------------------------------------------------------------
+# Installing a new hosting platform
 
 
 def free_port() -> int:
@@ -831,7 +830,7 @@ def test_a_restore_does_not_silently_ignore_a_quota_setting(tmp_path):
     assert restored == [tmp_path / "package.tar.gz"]
 
 
-# bananawiki config set tenant-quotas ------------------------------------------------------------------------------
+# bananawiki config set tenant-quotas
 
 
 def test_the_setting_is_changed_with_a_command_and_checked_first(hosting, capsys):

@@ -34,7 +34,7 @@ MAX_BULK = 100
 MAX_SLUG = 200
 
 
-# ── Helpers shared with the bulk endpoints ────────────────────────────────────
+# Helpers shared with the bulk endpoints
 
 
 def readable(slug: str) -> dict[str, Any]:
@@ -60,7 +60,7 @@ def _content(value: Any) -> str:
 
 
 def _new_slug(value: Any, title: str) -> str:
-    """The slug a new page gets; like 1.4, an existing slug is a conflict, not a renamed copy."""
+    """The slug a new page gets; an existing slug is a conflict, not a renamed copy."""
     if value not in (None, "") and not isinstance(value, str):
         raise invalid("slug", "string")
     slug = service.slugify(value or title)
@@ -176,7 +176,7 @@ def delete_page(page: dict[str, Any]) -> bool:
     return False
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# Endpoints
 
 
 @bp.get("/pages")
@@ -286,7 +286,7 @@ def delete(slug: str):
     return ok(deleted=True, slug=page["slug"])
 
 
-# ── Bulk (administrators) ─────────────────────────────────────────────────────
+# Bulk (administrators)
 
 
 @bp.post("/pages/bulk")

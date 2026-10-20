@@ -34,7 +34,7 @@ def settings(db, **values):
         db.execute(f"UPDATE site_settings SET {name} = ? WHERE id = 1", (value,))
 
 
-# ── Kanban ────────────────────────────────────────────────────────────────────
+# Kanban
 
 
 @pytest.fixture
@@ -182,7 +182,7 @@ def test_kanban_needs_its_scope_and_feature(api_app, client, board, people):
     assert call(client, "GET", "/kanban/boards", token).status_code == 404
 
 
-# ── Canvas ────────────────────────────────────────────────────────────────────
+# Canvas
 
 
 @pytest.fixture

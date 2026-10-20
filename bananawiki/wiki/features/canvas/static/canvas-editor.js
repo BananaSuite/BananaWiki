@@ -74,7 +74,7 @@
     return nodes.filter(function (node) { return node.locked; }).map(function (node) { return node.id; }).sort().join(",");
   }
 
-  /* ── Alignment guides ───────────────────────────────────────────────────── */
+  /* Alignment guides */
 
   /* Edge and centre positions of the nodes around the view (not *skip*), collected once when a drag
    * starts and sorted, so each pointer move only needs two binary searches however large the canvas. */
@@ -183,7 +183,7 @@
     this.load(true);
   }
 
-  /* ── Minimap ────────────────────────────────────────────────────────────── */
+  /* Minimap */
 
   /* An overview of the whole canvas with the visible area outlined; click or drag on it to move the view.
    * It is hidden from assistive technology: the text outline page describes the canvas instead. */
@@ -287,7 +287,7 @@
     scene.applyViewport();
   };
 
-  /* ── Status ─────────────────────────────────────────────────────────────── */
+  /* Status */
 
   Editor.prototype.status = function (key, vars) {
     if (this.statusEl) this.statusEl.textContent = key ? BW.t(key, vars) : "";
@@ -309,7 +309,7 @@
     this.scene.fit();
   };
 
-  /* ── Loading and syncing ────────────────────────────────────────────────── */
+  /* Loading and syncing */
 
   Editor.prototype.load = function (first) {
     var editor = this;
@@ -399,7 +399,7 @@
     }
   };
 
-  /* ── Saving ─────────────────────────────────────────────────────────────── */
+  /* Saving */
 
   Editor.prototype.snapshot = function () {
     return JSON.stringify({ nodes: this.scene.nodes, edges: this.scene.edges });
@@ -522,7 +522,7 @@
     return this.canEdit && (this.saving || this.diff().length > 0);
   };
 
-  /* ── Undo ───────────────────────────────────────────────────────────────── */
+  /* Undo */
 
   Editor.prototype.restore = function (from, to) {
     if (!from.length) return;
@@ -544,7 +544,7 @@
   Editor.prototype.undo = function () { this.restore(this.undoStack, this.redoStack); };
   Editor.prototype.redo = function () { this.restore(this.redoStack, this.undoStack); };
 
-  /* ── Selection ──────────────────────────────────────────────────────────── */
+  /* Selection */
 
   Editor.prototype.selectedNodes = function () {
     var selected = this.scene.selected;
@@ -610,7 +610,7 @@
     if (redo) redo.disabled = !this.redoStack.length;
   };
 
-  /* ── Pointer interaction ────────────────────────────────────────────────── */
+  /* Pointer interaction */
 
   Editor.prototype.bindPointer = function () {
     var editor = this;
@@ -802,7 +802,7 @@
     this.select(ids, true);
   };
 
-  /* ── Node and edge actions ──────────────────────────────────────────────── */
+  /* Node and edge actions */
 
   Editor.prototype.topLayer = function () {
     return this.scene.nodes.reduce(function (top, node) { return Math.max(top, node.layer || 0); }, 0);
@@ -1066,7 +1066,7 @@
     this.commit();
   };
 
-  /* ── Dialogs ────────────────────────────────────────────────────────────── */
+  /* Dialogs */
 
   var FIELDS = {
     text: ["display_text", "content", "markdown_hint", "shape"],
@@ -1303,7 +1303,7 @@
     });
   };
 
-  /* ── Toolbar, keyboard, clipboard, drops ────────────────────────────────── */
+  /* Toolbar, keyboard, clipboard, drops */
 
   Editor.prototype.run = function (action) {
     var scene = this.scene;

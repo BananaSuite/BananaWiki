@@ -9,8 +9,12 @@ way round::
     bananawiki.db                  the database
     instance/.secret_key           sessions and the setup code
     instance/translations/*.json   uploaded languages
-    uploads/... attachments/... (every asset folder)
+    uploads/... attachments/... (every asset folder but plugins/)
     manifest.json                  informational
+
+Plugins are code, not data: a backup leaves them out, a restore skips the
+``plugins/`` folder of older archives and switches off every third-party
+plugin the restored database had enabled.
 
 A restore needs the server stopped. It validates and unpacks the whole
 archive next to the data first, then swaps the folders in; the replaced data
@@ -21,6 +25,7 @@ if the computer stops half-way, the next start puts the old data back.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
 import re
@@ -36,13 +41,23 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ..core.zipcheck import readable_member
 from . import DesktopError
-from .datafolder import ASSET_DIRECTORIES, DATABASE_NAME, RESTORE_JOURNAL, DataFolder, write_private
+from .datafolder import (
+    ASSET_DIRECTORIES,
+    DATABASE_NAME,
+    RESTORE_JOURNAL,
+    DataFolder,
+    make_private,
+    write_private,
+)
 
 ARCHIVE_DATABASE = DATABASE_NAME
 ARCHIVE_KEY = "instance/.secret_key"
 ARCHIVE_TRANSLATIONS = "instance/translations"
 METADATA_FILES = frozenset({"manifest.json", "site_export.json"})
+PLUGINS = "plugins"
+ARCHIVED = tuple(name for name in ASSET_DIRECTORIES if name != PLUGINS)
 RESTORED = ("instance", *ASSET_DIRECTORIES)
 REQUIRED_TABLES = frozenset({"users", "pages", "site_settings"})
 MAX_FILES = 100_000
@@ -53,14 +68,21 @@ _RESERVED_NAMES = frozenset({"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in ra
                              *(f"LPT{i}" for i in range(1, 10))})
 _STAGED_NAME = re.compile(r"\.restore-[A-Za-z0-9_]+")
 _PREVIOUS_NAME = re.compile(r"\d{8}-\d{6}(?:-\d+)?")
+# link(2) errors of file systems without hard links (FAT32, exFAT, many network shares).
+_NO_HARD_LINKS = frozenset({errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EMLINK, errno.ENOSYS})
 
 
-# ── Database checks ──────────────────────────────────────────────────────────
+# Database checks
 
 
-def check_database(path: Path) -> None:
-    """Refuse anything but an intact BananaWiki database this version can open."""
-    from ..wiki.migrations import APPLICATION_ID, LATEST
+def check_database(path: Path, *, restoring: bool = False) -> None:
+    """Refuse anything but an intact BananaWiki database this version can open.
+
+    *restoring* also refuses one this version cannot upgrade, before a
+    restore replaces anything: the wiki would not start on it. A backup of
+    such a folder is still allowed.
+    """
+    from ..wiki.migrations import APPLICATION_ID, BASELINE, LATEST
 
     if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:
         raise DesktopError("archive_no_database")
@@ -70,13 +92,41 @@ def check_database(path: Path) -> None:
             conn.execute("PRAGMA trusted_schema=OFF")
             if conn.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                 raise DesktopError("archive_damaged")
-            if conn.execute("PRAGMA application_id").fetchone()[0] not in (0, APPLICATION_ID):
+            application_id = conn.execute("PRAGMA application_id").fetchone()[0]
+            if application_id not in (0, APPLICATION_ID):
                 raise DesktopError("archive_foreign")
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
             if not tables >= REQUIRED_TABLES:
                 raise DesktopError("archive_foreign")
-            if conn.execute("PRAGMA user_version").fetchone()[0] > LATEST:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+            if version > LATEST:
                 raise DesktopError("archive_too_new")
+            if restoring and version < BASELINE:
+                raise DesktopError("archive_too_old")
+            if restoring and application_id != APPLICATION_ID:
+                raise DesktopError("archive_foreign")  # a schema version without BananaWiki's application id
+        finally:
+            conn.close()
+    except sqlite3.DatabaseError as error:
+        raise DesktopError("archive_damaged", str(error)) from error
+
+
+def disable_plugins(path: Path) -> None:
+    """Switch off the third-party plugins a restored database had enabled.
+
+    Turning plugin code on stays a decision of the person running this
+    computer, never of whoever made the archive.
+    """
+    try:
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("PRAGMA trusted_schema=OFF")
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(plugins)")}
+            if {"builtin", "enabled"} <= columns:
+                with conn:
+                    conn.execute("UPDATE plugins SET enabled = 0 WHERE builtin IS NOT 1 AND enabled IS NOT 0")
+                if conn.execute("SELECT 1 FROM plugins WHERE builtin IS NOT 1 AND enabled IS NOT 0").fetchone():
+                    raise DesktopError("archive_unsafe")  # a trigger in the archive switched one back on
         finally:
             conn.close()
     except sqlite3.DatabaseError as error:
@@ -94,12 +144,11 @@ def snapshot_database(source: Path, destination: Path) -> Path:
             dst.close()
     finally:
         src.close()
-    if os.name == "posix":
-        os.chmod(destination, 0o600)
+    make_private(destination)
     return destination
 
 
-# ── Archive validation ───────────────────────────────────────────────────────
+# Archive validation
 
 
 def _safe_parts(name: str) -> list[str]:
@@ -122,9 +171,9 @@ def _target(name: str, parts: list[str], size: int) -> str | None:
         return name
     if name.startswith(ARCHIVE_TRANSLATIONS + "/") and len(parts) == 3 and name.endswith(".json"):
         return name
-    if parts[0] in ASSET_DIRECTORIES and len(parts) > 1:
+    if parts[0] in ARCHIVED and len(parts) > 1:
         return name
-    if name in METADATA_FILES:
+    if name in METADATA_FILES or parts[0] == PLUGINS:
         return None
     raise DesktopError("archive_unexpected", name)
 
@@ -140,8 +189,10 @@ def archive_entries(archive: zipfile.ZipFile) -> tuple[list[tuple[zipfile.ZipInf
     for info in infos:
         parts = _safe_parts(info.filename)
         kind = (info.external_attr >> 16) & 0o170000
-        if kind not in (0, stat.S_IFREG, stat.S_IFDIR) or info.flag_bits & 0x1:
+        if kind not in (0, stat.S_IFREG, stat.S_IFDIR):
             raise DesktopError("archive_unsafe", info.filename)
+        if not readable_member(info):
+            raise DesktopError("archive_unsupported", info.filename)
         key = unicodedata.normalize("NFC", "/".join(parts)).casefold()
         if key in seen:
             raise DesktopError("archive_unsafe", info.filename)
@@ -159,7 +210,7 @@ def archive_entries(archive: zipfile.ZipFile) -> tuple[list[tuple[zipfile.ZipInf
     return accepted, total
 
 
-# ── Backup ───────────────────────────────────────────────────────────────────
+# Backup
 
 
 def _regular_files(folder: DataFolder, directory: str) -> Iterator[tuple[Path, str]]:
@@ -185,9 +236,22 @@ def _backup_inputs(folder: DataFolder, database_copy: Path) -> list[tuple[Path, 
         for path in sorted(languages.glob("*.json")):
             if path.is_file() and not path.is_symlink():
                 inputs.append((path, f"{ARCHIVE_TRANSLATIONS}/{path.name}"))
-    for directory in ASSET_DIRECTORIES:
+    for directory in ARCHIVED:
         inputs.extend(_regular_files(folder, directory))
     return inputs
+
+
+def _copy_new(source: Path, destination: Path) -> None:
+    """Copy *source* to *destination*, which must not exist yet."""
+    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as output, source.open("rb") as data:
+            shutil.copyfileobj(data, output, CHUNK)
+            output.flush()
+            os.fsync(output.fileno())
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
 
 
 def _publish(completed: Path, destination: Path) -> None:
@@ -195,7 +259,12 @@ def _publish(completed: Path, destination: Path) -> None:
     if os.name == "nt":
         os.rename(completed, destination)
         return
-    os.link(completed, destination)
+    try:
+        os.link(completed, destination)
+    except OSError as error:
+        if error.errno not in _NO_HARD_LINKS:
+            raise
+        _copy_new(completed, destination)
     directory = os.open(destination.parent, os.O_RDONLY)
     try:
         os.fsync(directory)
@@ -217,7 +286,18 @@ def create_backup(folder: DataFolder, destination: str | os.PathLike[str]) -> Pa
         raise DesktopError("backup_exists", str(destination))
     if not folder.database.is_file():
         raise DesktopError("nothing_to_back_up")
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        _write_backup(folder, destination)
+    except FileExistsError as error:  # created by something else in the meantime
+        raise DesktopError("backup_exists", str(destination)) from error
+    except OSError as error:
+        key = "disk_full" if error.errno == errno.ENOSPC else "backup_failed"
+        raise DesktopError(key, str(error)) from error
+    return destination
+
+
+def _write_backup(folder: DataFolder, destination: Path) -> None:
     with tempfile.TemporaryDirectory(prefix=".bananawiki-backup-", dir=destination.parent) as scratch:
         work = Path(scratch)
         database_copy = snapshot_database(folder.database, work / DATABASE_NAME)
@@ -237,8 +317,7 @@ def create_backup(folder: DataFolder, destination: str | os.PathLike[str]) -> Pa
                 "exported_at": datetime.now(UTC).isoformat(timespec="seconds"),
                 "has_raw_db": True, "includes_application_key": any(n == ARCHIVE_KEY for _p, n in inputs),
             }))
-        if os.name == "posix":
-            os.chmod(archive_path, 0o600)
+        make_private(archive_path)
         with zipfile.ZipFile(archive_path) as archive:
             archive_entries(archive)
             if archive.testzip() is not None:
@@ -247,10 +326,9 @@ def create_backup(folder: DataFolder, destination: str | os.PathLike[str]) -> Pa
         with archive_path.open("r+b") as handle:
             os.fsync(handle.fileno())
         _publish(archive_path, destination)
-    return destination
 
 
-# ── Restore ──────────────────────────────────────────────────────────────────
+# Restore
 
 
 def _extract(archive: zipfile.ZipFile, entries: list[tuple[zipfile.ZipInfo, str]], staged: Path) -> None:
@@ -259,8 +337,7 @@ def _extract(archive: zipfile.ZipFile, entries: list[tuple[zipfile.ZipInfo, str]
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         copied = 0
         with archive.open(info) as source, path.open("xb") as output:
-            if os.name == "posix":
-                os.chmod(path, 0o600)
+            make_private(path)
             while chunk := source.read(CHUNK):
                 copied += len(chunk)
                 if copied > info.file_size:
@@ -377,7 +454,8 @@ def restore_backup(folder: DataFolder, archive_path: str | os.PathLike[str]) -> 
                     _extract(archive, entries, staged)
                 except (zipfile.BadZipFile, zlib.error, EOFError) as error:
                     raise DesktopError("archive_damaged", str(error)) from error
-            check_database(staged / "instance" / DATABASE_NAME)
+            check_database(staged / "instance" / DATABASE_NAME, restoring=True)
+            disable_plugins(staged / "instance" / DATABASE_NAME)
             key_path = staged / ARCHIVE_KEY
             if not key_path.exists() and old_key:
                 write_private(key_path, old_key)

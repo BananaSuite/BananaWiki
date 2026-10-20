@@ -9,14 +9,20 @@ from ...registry import feature_blueprint
 from ..audit import record
 from . import service
 
-bp = feature_blueprint("mascot", "mascot", __name__, template_folder="templates",
-                       static_folder="static", static_url_path="/static/mascot")
+bp = feature_blueprint("mascot", "mascot", __name__, template_folder="templates")
 
 
 @bp.post("/mascot/shades")
 def put_on_shades():
     """Called by the script after the eleventh click on the mascot (signed in, as every view here)."""
     service.update(auth.current_user(), mascot_shades=1)
+    return jsonify({"ok": True})
+
+
+@bp.delete("/mascot/shades")
+def take_off_shades():
+    """Called by the script after as many clicks again while the sunglasses are on."""
+    service.update(auth.current_user(), mascot_shades=0)
     return jsonify({"ok": True})
 
 
@@ -37,8 +43,8 @@ def everyone():
     if action not in service.BULK_ACTIONS:
         abort(400)
     changed = service.apply_to_everyone(action)
-    # One action name per button, so the audit log names it in the reader's language. The catalogues keep
-    # audit.action.mascot.everyone.show and .hide, actions of earlier builds of 1.7, for entries already logged.
+    # One action name per button, so the audit log names it in the reader's language. The catalogues
+    # also keep audit.action.mascot.everyone.show and .hide, which older versions logged.
     record(f"mascot.everyone.{action}", details={"count": changed})
     auth.flash_t(f"mascot.admin.done.{action}", "success", count=changed)
     return redirect(url_for("site_admin.appearance"))

@@ -1,19 +1,19 @@
-# Canvas Layouts
+# Canvases
 
-Canvas layouts are visual maps for ideas that do not fit neatly into a linear page. Use them for architecture sketches, concept maps, lesson plans, dependency diagrams, and planning spaces.
+A canvas is a free-form board of notes, shapes, images, videos, code and links to wiki pages, connected by arrows. Canvases are under **Apps → Canvases**.
 
-## Nodes and links
+## Elements and connections
 
-A canvas is made of nodes connected by edges. Nodes can contain text, references, or structured information depending on enabled features. Link related wiki pages so the canvas becomes an entry point into deeper documentation.
+Add elements from the toolbar and connect them with arrows; connections follow the elements when you move them. Several people can edit the same canvas at once. When you create a canvas you can start from a template: a flowchart, a mind map, a retrospective board or a SWOT analysis.
 
-## When to use Canvas
+## Pages or canvas
 
-Use a page when the reader needs a clear explanation from top to bottom. Use a canvas when the reader needs relationships: systems, people, dependencies, steps, or alternatives.
+A page suits text read from top to bottom. A canvas suits relationships: systems, people, dependencies, steps or alternatives.
 
 ## Permissions
 
-Canvas access can be configured globally and shared per layout. View access and edit access may differ. Admins should keep sensitive diagrams under the same category or user restrictions as the pages they describe.
+Administrators decide which roles can use canvases. The canvas's creator shares it with people or roles, for viewing or editing.
 
-## Maintenance
+## History and export
 
-Visual maps age quickly. Add dates, owners, or links to source pages so readers know whether a diagram is current.
+**History** keeps earlier versions and restores them. **Export** downloads the canvas for import into another wiki, and **Download image** saves it as PNG or SVG.

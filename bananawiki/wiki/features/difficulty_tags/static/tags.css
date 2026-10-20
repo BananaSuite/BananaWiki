@@ -1,6 +1,6 @@
 /* Difficulty tags. */
 .difficulty-tag-line { margin: 0 0 .75rem; }
-.difficulty-tag { display: inline-block; padding: .15rem .6rem; border-radius: var(--radius-sm); font-size: .75rem;
+.difficulty-tag { display: inline-block; padding: .15rem .6rem; border-radius: var(--radius-sm); font-size: var(--font-size-xs);
   font-weight: 600; letter-spacing: .03em; text-transform: uppercase; --tag-color: #6e8aca;
   --tag-mix: 70%; color: color-mix(in srgb, var(--tag-color) var(--tag-mix), var(--bw-text)); background: color-mix(in srgb, var(--tag-color) 18%, transparent);
   border: 1px solid color-mix(in srgb, var(--tag-color) 45%, transparent); }

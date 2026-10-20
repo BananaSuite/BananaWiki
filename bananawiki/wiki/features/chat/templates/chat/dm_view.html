@@ -4,15 +4,17 @@
 {% block title %}{{ t('chat.dm.with', user=other_name) }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ asset_url('chat.css', blueprint='chat') }}">{% endblock %}
 {% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('chat.dm_list') }}">{{ t('chat.dm.title') }}</a></li><li aria-current="page">{{ other_name }}</li>
+</ol></nav>
 <header class="page-header">
   <h1>{{ t('chat.dm.with', user=other_name) }}</h1>
   <div class="page-header__actions">
-    <a class="btn btn--small" href="{{ url_for('chat.dm_list') }}">{{ t('common.back') }}</a>
     <a class="btn btn--small" href="{{ url_for('chat.dm_export', chat_id=chat.id) }}">{{ t('chat.export.button') }}</a>
     <form class="inline" method="post" action="{{ url_for('chat.dm_clear', chat_id=chat.id) }}"
           data-confirm="{{ t('chat.clear.dm_confirm', messages=counts[0], attachments=counts[1]) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button class="btn btn--small btn--danger" type="submit">{{ t('chat.clear.button') }}</button>
+      <button class="btn btn--small btn--danger-quiet" type="submit">{{ t('chat.clear.button') }}</button>
     </form>
     {% if other and not blocked_by_me %}{{ ui.block_button(other, request.path) }}{% endif %}
   </div>

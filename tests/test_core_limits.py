@@ -1,4 +1,4 @@
-"""Production regressions for bounded requests, files and account deletion."""
+"""Request and upload limits, login budgets, log lines, and account deletion under concurrent changes."""
 
 from __future__ import annotations
 

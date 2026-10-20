@@ -1,8 +1,7 @@
 """Frozen copies of ``data/``, ``site/`` and the configuration, taken mostly online.
 
-1.4 stopped every service and then tarred all data, so an update's downtime
-grew with the size of the installation (every tenant in hosting mode). A
-snapshot is prepared while the site is still serving:
+A snapshot is prepared while the site is still serving, so an update's
+downtime does not grow with the size of the installation:
 
 * the databases the platform keeps (:func:`~.files.application_databases`)
   are copied (with their WAL or journal) by descriptor into a private
@@ -116,9 +115,14 @@ def is_sidecar(name: str, databases: Collection[str]) -> bool:
             or name.endswith("-shm") and tenant_database(name[: -len("-shm")]))
 
 
+def _named_like_database(relative: str) -> bool:
+    path = Path(relative)
+    return path.suffix in _DATABASE_SUFFIXES or path.name.endswith(_SIDECARS)
+
+
 def _mutable(relative: str, size: int) -> bool:
     path = Path(relative)
-    return (path.suffix in _MUTABLE_SUFFIXES or path.suffix in _DATABASE_SUFFIXES or path.name.endswith(_SIDECARS)
+    return (path.suffix in _MUTABLE_SUFFIXES or _named_like_database(relative)
             or ".log." in path.name or "logs" in path.parts[:-1] or size < _SMALL)
 
 
@@ -289,7 +293,7 @@ class Snapshot:
             raise ValueError("The snapshot recorded in the journal is incomplete or missing.")
         return cls(path, root, allowed_link)
 
-    # Index --------------------------------------------------------------
+    # Index
 
     def index(self) -> dict[str, dict[str, Any]]:
         """What was captured: ``{package entry name: {"method": ..., "signature": [...]}}``."""
@@ -333,7 +337,7 @@ class Snapshot:
         finally:
             Path(temporary).unlink(missing_ok=True)
 
-    # Capture ------------------------------------------------------------
+    # Capture
 
     def _sources(self) -> dict[str, Path]:
         return sources(self.root, self.allowed_link)
@@ -393,9 +397,10 @@ class Snapshot:
             info = _current(path)
             size = info.st_size if info else 0
             if is_database(name, self.databases):
-                needed += 2 * size  # the private copy and the consolidated one
+                needed += 2 * size  # the private copy and the consolidated one (or the one a rollback puts back)
             elif self._untrusted(name) or _mutable(name, size):
-                needed += size
+                # A rollback links the copy back, but copies a database (see copy_tree).
+                needed += 2 * size if _named_like_database(name) else size
         free = shutil.disk_usage(self.path).free
         if free < needed + 128 * 1024 * 1024:
             # Checked while capturing, before anything stops.
@@ -452,14 +457,22 @@ class Snapshot:
         self._write_index(index, complete=True)
         return counts
 
-    # Use ----------------------------------------------------------------
+    # Use
 
     def inputs(self) -> list[tuple[Path, str]]:
         """Package entries (``data/…``, ``site/…``, ``config/…``) in a stable order."""
         return [(self.path / name, name) for name in sorted(self.index())]
 
-    def copy_tree(self, name: str, destination: Path) -> None:
-        """Materialise ``data`` or ``site`` at *destination* (hard links where the snapshot linked)."""
+    def copy_tree(self, name: str, destination: Path, owner: tuple[int, int] | None = None) -> None:
+        """Materialise ``data`` or ``site`` at *destination* (hard links where the snapshot linked).
+
+        With *owner* (a rollback, which discards the snapshot once the data is
+        back) the files the snapshot copied are hard-linked back too, owned by
+        *owner* with mode 0600 as ``data/`` keeps them: putting every wiki's
+        files back needs no room for another copy. Databases are still copied,
+        since SQLite refuses a database file with a second link. The snapshot
+        must be gone before anything runs on the restored files again.
+        """
         index = self.index()
         destination.mkdir(mode=0o700, parents=True, exist_ok=True)
         prefix = name + "/"
@@ -470,6 +483,10 @@ class Snapshot:
             target = destination / entry_name[len(prefix):]
             if entry["method"] == "link":
                 link_or_copy(source, target)
+            elif owner is not None and entry["method"] == "copy" and not _named_like_database(entry_name):
+                link_or_copy(source, target)
+                os.chown(target, *owner, follow_symlinks=False)
+                os.chmod(target, 0o600)
             else:
                 _copy(source, target)
 

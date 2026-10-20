@@ -28,7 +28,7 @@
       <a class="btn btn--small" href="{{ url_for('chat.admin_group_view', group_id=r.parent_id) }}">{{ t('chat.admin.read') }}</a>
       {% endif %}
       {% if r.status == 'open' %}
-      {{ forms.post_button(url_for('chat.admin_report_resolve', report_id=r.id), t('chat.admin.report_resolve'), 'btn btn--small btn--primary') }}
+      {{ forms.post_button(url_for('chat.admin_report_resolve', report_id=r.id), t('chat.admin.report_resolve'), 'btn btn--small') }}
       {% else %}
       <span class="small muted">{{ t('chat.admin.report_resolved_by', user=r.resolver_name or t('common.unknown_user')) }}</span>
       {% endif %}

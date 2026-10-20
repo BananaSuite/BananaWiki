@@ -38,7 +38,7 @@ from ..core.timeutil import now_sql, parse, sql_in, utcnow
 from ..core.web import client_ip
 from . import accounts, settings
 from .db import db
-from .i18n import current_language, t
+from .i18n import current_language, t, tn
 
 TOKEN_KEY = "hosting_auth_session_token"
 ACCOUNT_KEY = "hosting_account_id"
@@ -81,7 +81,7 @@ def is_exempt(view: Callable | None, gate: str) -> bool:
     return gate in getattr(view, "_hosting_exempt", frozenset())
 
 
-# ── Current account ───────────────────────────────────────────────────────────
+# Current account
 
 
 def current_account() -> dict[str, Any] | None:
@@ -153,7 +153,7 @@ def refresh() -> None:
         g.real_account = accounts.get(real["id"])
 
 
-# ── Sessions ──────────────────────────────────────────────────────────────────
+# Sessions
 
 
 def start_session(account: dict[str, Any], method: str = "password") -> str:
@@ -239,7 +239,7 @@ def clear_history(account_id: str) -> int:
                       "OR expires_at <= ?)", (account_id, now_sql())).rowcount
 
 
-# ── Impersonation ─────────────────────────────────────────────────────────────
+# Impersonation
 
 
 def start_impersonation(target: dict[str, Any]) -> None:
@@ -260,7 +260,7 @@ def stop_impersonation() -> None:
         g.account = g.real_account
 
 
-# ── Gates and decorators ──────────────────────────────────────────────────────
+# Gates and decorators
 
 
 def wants_json() -> bool:
@@ -317,7 +317,7 @@ def redirect_to_login():
     return redirect(url_for("auth.login", next=target))
 
 
-# ── Device cookies for sign-in throttling ─────────────────────────────────────
+# Device cookies for sign-in throttling
 # A browser that has signed in to an account gets its own failure count for
 # that account, so failed attempts by anyone else cannot lock the owner out.
 # The cookie carries the account's ``mfa_epoch``, which turning two-step
@@ -383,4 +383,5 @@ def admin_required(view: Callable) -> Callable:
 
 
 def flash_t(key: str, category: str = "info", **values: Any) -> None:
-    flash(t(key, **values), category)
+    """Flash the translation of *key*; a ``count`` value picks the ``<key>_one`` form for 1."""
+    flash(tn(key, values["count"], **values) if "count" in values else t(key, **values), category)

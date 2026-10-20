@@ -1,4 +1,4 @@
-"""Bounded diffs: ordinary edits compare exactly, crafted inputs stay within the work budget (R-04)."""
+"""Bounded diffs: ordinary edits compare exactly, crafted inputs stay within the work budget."""
 
 from __future__ import annotations
 
@@ -112,7 +112,7 @@ def test_long_edited_page_keeps_an_exact_diff(spent):
 
 
 def test_many_small_changes_do_not_add_up_beyond_the_budget(spent, monkeypatch):
-    """One matcher per small stretch cost far more than the steps it was charged: seconds for a large page."""
+    """One matcher per small stretch would cost far more than the steps it is charged: seconds for a large page."""
     built = []
     original = diff._BoundedMatcher.__init__
 

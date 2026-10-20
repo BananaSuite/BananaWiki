@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from . import DEFAULT_SOURCE_URL, RETIRED_SOURCE_URL
 from .files import atomic_write
 
 _SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
@@ -37,6 +38,10 @@ RELEASE_TAG = re.compile(r"v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0
 TRACKS = ("tags", "branch")
 # Release tags tried, highest first, before an update gives up on finding one that verifies.
 MAX_RELEASE_CANDIDATES = 20
+# With the OpenPGP and X.509 programs disabled, only an SSH signature from the
+# allowed signers file can verify, whatever the object's text says.
+_SSH_SIGNATURES_ONLY = ("-c", "gpg.format=ssh", "-c", "gpg.openpgp.program=false", "-c", "gpg.x509.program=false")
+_SSH_SIGNATURE = "-----BEGIN SSH SIGNATURE-----"
 
 
 def valid_track(value: Any) -> str:
@@ -78,6 +83,23 @@ def credential_host(url: str) -> str | None:
     if "@" in url and "://" not in url:
         return url.split("@", 1)[-1].split(":", 1)[0]
     return urlsplit(url).hostname
+
+
+def retired_source(url: str) -> bool:
+    """Whether *url* is the repository managed servers followed by default until 1.6."""
+    return url.rstrip("/").removesuffix(".git").lower() == RETIRED_SOURCE_URL.removesuffix(".git").lower()
+
+
+def ssh_signed_commit(header: str) -> bool:
+    """Whether every signature header of a commit (``gpgsig``, ``gpgsig-sha256``) holds an SSH signature."""
+    signatures = [line.split(" ", 1)[1] for line in header.splitlines() if line.startswith(("gpgsig ", "gpgsig-sha256 "))]
+    return bool(signatures) and all(line == _SSH_SIGNATURE for line in signatures)
+
+
+def ssh_signed_tag(body: str) -> bool:
+    """Whether the signature Git verifies in a tag object, its last armored block, is an SSH signature."""
+    blocks = [line for line in body.splitlines() if line.startswith("-----BEGIN ")]
+    return bool(blocks) and blocks[-1] == _SSH_SIGNATURE
 
 
 def valid_revision(value: str) -> str:
@@ -151,7 +173,11 @@ class GitSource:
                                 stderr=subprocess.PIPE, text=output is None, timeout=timeout, check=False)
         if check and result.returncode:
             # Git error text can include authentication details: never print or store it.
-            raise RuntimeError(f"Git {arguments[0]} failed. Check repository access, credentials and the branch.")
+            message = f"Git {arguments[0]} failed. Check repository access, credentials and the branch."
+            if retired_source(self.source.get("url", "")):
+                message += (f" This server still follows {RETIRED_SOURCE_URL}, which no longer exists: run "
+                            f"'source set --repo {DEFAULT_SOURCE_URL} --branch main', then retry.")
+            raise RuntimeError(message)
         return result
 
     def initialize(self) -> None:
@@ -202,11 +228,11 @@ class GitSource:
         signers = self.config_dir / "repo.allowed_signers"
         private_file(signers)
         header = self.git("cat-file", "commit", revision).stdout.split("\n\n", 1)[0]
-        if "BEGIN SSH SIGNATURE" not in header:
+        if not ssh_signed_commit(header):
             detail = "carries an OpenPGP signature, which is not accepted" if "gpgsig" in header else "is not signed"
             raise RuntimeError(f"Revision {revision[:12]} {detail}. Updates require an SSH signature from a key "
                                "in the allowed signers file. Nothing was deployed.")
-        result = self.git("-c", "gpg.format=ssh", "-c", "gpg.ssh.allowedSignersFile=" + str(signers),
+        result = self.git(*_SSH_SIGNATURES_ONLY, "-c", "gpg.ssh.allowedSignersFile=" + str(signers),
                           "verify-commit", revision, check=False)
         if result.returncode:
             raise RuntimeError(f"Revision {revision[:12]} is not signed by a key in the allowed signers file. "
@@ -236,12 +262,12 @@ class GitSource:
         if "tag " + tag not in header or "object " + revision not in header or "type commit" not in header:
             raise RuntimeError(f"Release {tag} is a tag object made for another name or commit, so it releases "
                                "nothing. Nothing was deployed.")
-        if "BEGIN SSH SIGNATURE" not in body:
+        if not ssh_signed_tag(body):
             detail = ("carries an OpenPGP signature, which is not accepted" if "BEGIN PGP SIGNATURE" in body
                       else "is not signed")
             raise RuntimeError(f"Release {tag} {detail}: with signatures required, a release is an annotated tag "
                                "signed with an allowed SSH key (git tag -s). Nothing was deployed.")
-        result = self.git("-c", "gpg.format=ssh", "-c", "gpg.ssh.allowedSignersFile=" + str(signers),
+        result = self.git(*_SSH_SIGNATURES_ONLY, "-c", "gpg.ssh.allowedSignersFile=" + str(signers),
                           "verify-tag", tag_object, check=False)
         if result.returncode:
             raise RuntimeError(f"Release {tag} is not signed by a key in the allowed signers file. Nothing was "

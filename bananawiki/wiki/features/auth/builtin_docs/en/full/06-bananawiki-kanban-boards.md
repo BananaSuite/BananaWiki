@@ -1,19 +1,19 @@
-# Kanban Boards
+# Kanban boards
 
-Kanban boards help teams track work without leaving the wiki. A board contains columns, and columns contain tickets. Tickets can represent tasks, ideas, bugs, lessons, or review items.
+A Kanban board has columns, and columns hold tickets. Boards are under **Apps → Kanban**.
 
-## Create a useful board
+## Columns
 
-Start with a few columns such as **Backlog**, **Doing**, **Review**, and **Done**. Add more only when they reflect a real workflow. Too many columns make the board harder to scan. Turn on **Done column** (the check-mark button among the column's tools) on the column that holds finished work: its tickets keep their due dates but no longer show as overdue.
+Add columns such as **To do**, **Doing** and **Done**, and drag them to reorder. Turn on **Done column** (the check-mark button among the column's tools) on the column that holds finished work: its tickets keep their due dates but no longer show as overdue.
 
 ## Tickets
 
-A ticket should have a short title and enough detail for the next person to act. Use comments for discussion and attachments for supporting files. Link to wiki pages when a ticket depends on documented knowledge.
+A ticket has a description in Markdown, labels, a priority, a due date, assignees, comments, attachments and a checklist. Drag tickets between columns. **Archived** lists tickets you archived; you can restore them from there.
 
 ## Access and sharing
 
-Admins configure global Kanban access. Board owners can share individual boards with specific users when the site allows it. Use write access carefully when a board represents operational work.
+Administrators decide which roles can use Kanban. The board's creator shares it with people or roles, for viewing or writing, from **More → Sharing**.
 
 ## History and export
 
-Board history shows how work changed over time. Export features can move board data into backups or external workflows when needed.
+**More → History** lists earlier states of the board; restoring one never deletes tickets, comments or files. **Export** downloads the board with its attachments as a ZIP, and **More → Export without attachments** as JSON.

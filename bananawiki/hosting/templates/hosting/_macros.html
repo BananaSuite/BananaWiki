@@ -57,8 +57,7 @@
 {%- endif -%}
 {%- endmacro %}
 
-{#- An account's or wiki's history: its moderation log, plus the suspension records it does not mirror
-    (older ones), newest first, with actions and generated reasons in words. -#}
+{#- Moderation log plus suspension records not in the log, newest first, in words. -#}
 {% macro history(rows, events, subject) -%}
 {%- set ns = namespace(keys=[], items=[]) -%}
 {%- for ev in events -%}

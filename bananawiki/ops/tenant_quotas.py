@@ -13,16 +13,14 @@ controller (which must not stop wikis that could not start again) and
     Hard quotas (XFS project quotas) whenever the wiki storage
     (``INSTANCES_DIR``) enforces them. On other storage (ext4, or a root
     agent whose systemd unit cannot use quotas yet) the wikis run without
-    them, with a calm notice (agent log at every start, ``status``, the
-    portal's administration page). When quotas were enforced on this
-    platform before (its private quota registry exists) and the storage no
-    longer enforces them (a remount without ``prjquota``, a replaced volume),
-    the wikis still start without them, and the regression is reported
-    loudly: a warning in the agent log, ``status`` and the administration
-    page (:attr:`Policy.lost`).
+    them, with a notice (agent log at every start, ``status``, the portal's
+    administration page). When quotas were enforced on this platform before
+    (its private quota registry exists) and the storage does not enforce
+    them now (a remount without ``prjquota``, a replaced volume), the wikis
+    still start without them and a warning goes to the agent log,
+    ``status`` and the administration page (:attr:`Policy.lost`).
 ``required``
-    The operator's explicit opt-in: wikis start only under verified hard
-    quotas, and the lifecycle controller refuses an operation before it
+    Set by the operator: wikis start only under verified hard quotas, and the lifecycle controller refuses an operation before it
     stops anything when they could not start again.
 ``off``
     Never use project quotas, whatever the storage supports.
@@ -73,10 +71,10 @@ def state_file(state_dir: str | Path) -> Path:
 def registry_exists(state_dir: str | Path) -> bool:
     """Whether quotas were enforced on this platform before (:func:`state_file` exists).
 
-    It tells quotas that were lost (:attr:`Policy.lost`, a loud warning)
-    from storage that never had them (a calm notice). When that cannot be
-    told (the directory cannot be examined, an I/O error), True: a loss is
-    never reported as the quiet case. ``os.lstat``, not ``Path.exists()``,
+    It tells quotas that were lost (:attr:`Policy.lost`, a warning) from
+    storage that never had them (a notice). When that cannot be told (the
+    directory cannot be examined, an I/O error), True: a loss is never
+    reported as a notice. ``os.lstat``, not ``Path.exists()``,
     which on Python 3.14 answers False for such errors.
     """
     try:
@@ -95,8 +93,8 @@ class Policy:
     ``enforced``: wikis run only under verified XFS project quotas.
     ``refused``: they should (``required``), and the storage cannot, so no
     wiki starts (fail closed). ``lost``: hard quotas were enforced on this
-    platform before and the storage no longer enforces them; the wikis start
-    without them (``auto``), and :meth:`warning` says so loudly.
+    platform before and the storage does not enforce them now; the wikis start
+    without them (``auto``), and :meth:`warning` says so as a warning.
     ``reason``: why quotas are not enforced, or why starts are refused.
     """
 

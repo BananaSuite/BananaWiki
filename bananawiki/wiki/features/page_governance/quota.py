@@ -5,7 +5,7 @@ A user's quota is ``users.reserved_pages_quota`` (``-1`` = unlimited,
 more with a request; requests up to ``reservation_quota_auto_approve_max``
 are approved on the spot. After any decision or cancellation the user waits
 ``quota_request_cooldown_hours`` before filing the next request (the same
-per-user timestamp the contribution quota uses, as in 1.4).
+per-user timestamp the contribution quota uses).
 """
 
 from __future__ import annotations

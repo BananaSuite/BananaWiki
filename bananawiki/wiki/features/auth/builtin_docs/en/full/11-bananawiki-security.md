@@ -1,27 +1,23 @@
-# Security & Backups
+# Security and backups
 
-BananaWiki is built for private knowledge, so it protects accounts and content, logs admin and security events, and supports full-site backup and restore.
+How the wiki protects accounts and content, and how to back it up.
 
 ## Account protection
 
-Passwords are stored as hashes, login attempts are rate-limited, CSRF tokens protect forms and AJAX mutations, and admins can enforce session limits. Suspensions, forced password changes, invite codes, and maintenance mode provide additional controls.
+Passwords are stored as hashes, sign-in attempts are rate-limited, and forms are protected against cross-site requests. Administrators can suspend accounts, force a password change, require invite codes, allow one session per account and put the wiki in maintenance mode.
 
 Anyone can turn on **two-step verification** in **Settings → Two-step verification**: after the password, signing in also asks for a code from an authenticator app on their phone, or one of ten single-use recovery codes shown when it is turned on. Owners and superusers can require it for every administrator in **Administration → Site settings → Security**, and reset it in **Administration → Users** for someone who lost both their phone and their recovery codes.
 
 ## Content protection
 
-Markdown is sanitised before display. Uploads are validated and dangerous file types are blocked where appropriate. Attachments are served through authenticated routes rather than as public files. Category restrictions and permissions keep sensitive pages away from users who should not see them.
+Markdown is cleaned of unsafe HTML before it is shown. Uploads are checked against the size limits and the allowed and blocked file types, and still images are re-encoded, which removes location data. Attachments are only served to people who can read the page.
 
-## Operational safety
+## Undoing changes
 
-Audit logs record important administrative and security events. Deletion slowdown can add a grace period before destructive page removal. Page history and backups give admins a path back when content changes unexpectedly.
+The audit log records sign-ins, account and role changes, deletions and settings changes. Page history restores earlier versions, and deletion slowdown keeps deleted pages for 48 hours.
 
 ## Backups
 
-Use full-site exports or deployment backups. A backup is only useful if restore works, so test restoration before an emergency. Keep copies outside the server that hosts the live wiki.
+Back up with the full-site export or the server's own backups, keep copies on another machine, and try a restore before you need one.
 
-A full-site export holds every password hash, so store it like a password. Export and import both ask for the admin's password again and are logged. Importing a backup gives complete control of the wiki, owner accounts included, because the backup replaces every account. Installing a plugin does the same, since its code runs with the wiki's own rights.
-
-## Production recommendations
-
-Run behind HTTPS, keep the application updated, limit admin accounts, review plugins before enabling them, monitor disk space, and document your local recovery procedure in the wiki itself.
+A full-site export holds every password hash, so store it like a password. Only owners and superusers can export or import the whole site; both ask for the password again and are logged. Importing a backup gives complete control of the wiki, owner accounts included, because the backup replaces every account. Installing a plugin does the same, since its code runs with the wiki's own rights.

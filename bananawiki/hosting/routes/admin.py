@@ -48,7 +48,7 @@ from .. import (
 )
 from ..db import db
 from ..errors import ServiceError
-from ..i18n import t
+from ..i18n import t, tn
 from ..limits import rate_limit
 from ..runtime import RuntimeFailure
 from .common import (
@@ -90,10 +90,21 @@ def _instance_or_404(instance_id: str) -> dict[str, Any]:
 
 
 def _done(key: str, **values: Any) -> None:
-    flash(t(key, **values), "success")
+    flash(tn(key, values["count"], **values) if "count" in values else t(key, **values), "success")
 
 
-# ── Overview ──────────────────────────────────────────────────────────────────
+TWO_STEP_NAMES_SHOWN = 20  # a flash message lives in the session cookie
+
+
+def _two_step_off(inst: dict[str, Any]) -> None:
+    """Name the accounts whose two-step verification a new wiki made from another one turned off."""
+    names = inst.get("two_step_off") or []
+    if names:
+        listed = ", ".join(names[:TWO_STEP_NAMES_SHOWN]) + (" …" if len(names) > TWO_STEP_NAMES_SHOWN else "")
+        flash(tn("hosting.admin.two_step_off", len(names), slug=inst["subdomain"], names=listed), "warning")
+
+
+# Overview
 
 
 @bp.get("/admin")
@@ -149,7 +160,7 @@ def moderation():
                            events=events.recent(request.args.get("type"), request.args.get("id")))
 
 
-# ── Accounts ──────────────────────────────────────────────────────────────────
+# Accounts
 
 
 @bp.get("/admin/accounts/<account_id>")
@@ -157,9 +168,9 @@ def moderation():
 def account_page(account_id: str):
     target = _account_or_404(account_id)
     remaining = accounts.deletion_remaining(target)
-    return render_template("hosting/admin/account.html", target=target,
-                           owned=db.all("SELECT * FROM instances WHERE account_id = ? ORDER BY created_at DESC",
-                                        (account_id,)),
+    owned = [{**inst, "original_slug": urls.original_slug(inst["subdomain"]) or inst["subdomain"]}
+             for inst in db.all("SELECT * FROM instances WHERE account_id = ? ORDER BY created_at DESC", (account_id,))]
+    return render_template("hosting/admin/account.html", target=target, owned=owned,
                            history=accounts.suspension_history(account_id),
                            events=events.recent("account", account_id, 50),
                            deletion_remaining=remaining,
@@ -199,19 +210,13 @@ def toggle_admin(account_id: str):
         promote = not target["is_admin"]
         accounts.set_admin(account_id, promote)
         events.record("account", account_id, "account.admin." + ("granted" if promote else "revoked"), account()["id"])
-        renamed = 0
-        for inst in instances.owned_by(account_id):
-            if not promote and (inst.get("domain_mode") or "hosting") == "apex":
-                inst = instances.rename_for_non_admin(inst, actor_id=account()["id"])
-                renamed += 1
-            instances.apply_owner_quota(inst, promote)
-            instances.apply_policy(inst, actor_id=account()["id"])
+        renamed = instances.apply_owner_role(account_id, promote, actor_id=account()["id"])
     except ServiceError as error:
         flash_error(error)
         return back(url_for("admin.account_page", account_id=account_id))
     _done("hosting.admin.admin_granted" if promote else "hosting.admin.admin_revoked", username=target["username"])
     if renamed:
-        flash(t("hosting.admin.apex_converted", count=renamed), "info")
+        flash(tn("hosting.admin.apex_converted", renamed), "info")
     return back(url_for("admin.account_page", account_id=account_id))
 
 
@@ -303,7 +308,7 @@ def bulk_delete_accounts():
             failed += 1
     _done("hosting.admin.accounts_deleted", count=done)
     if failed:
-        flash(t("hosting.admin.accounts_not_deleted", count=failed), "error")
+        flash(tn("hosting.admin.accounts_not_deleted", failed), "error")
     return _dashboard()
 
 
@@ -352,9 +357,8 @@ def suspend_account(account_id: str):
         accounts.suspend(account_id, until=until, reason=reason, reason_visible=reason_visible,
                          time_visible=time_visible, actor_id=account()["id"], duration_label=label)
         if request.form.get("suspend_instances") == "1":
-            for inst in instances.owned_by(account_id):
-                if inst["status"] in ("running", "stopped"):
-                    instances.suspend(inst, actor_id=account()["id"], reason=reason, duration_label="account")
+            instances.suspend_with_account(account_id, actor_id=account()["id"], until=until, reason=reason,
+                                           reason_visible=reason_visible, time_visible=time_visible)
     except ServiceError as error:
         flash_error(error)
         return back(url_for("admin.account_page", account_id=account_id))
@@ -371,18 +375,16 @@ def suspend_account(account_id: str):
 def unsuspend_account(account_id: str):
     target = _account_or_404(account_id)
     accounts.unsuspend(account_id, actor_id=account()["id"])
-    restored = 0
+    restored = kept = held = 0
     if request.form.get("unsuspend_instances") == "1":
-        for inst in instances.owned_by(account_id):
-            if inst["status"] == "suspended":
-                try:
-                    instances.unsuspend(inst, actor_id=account()["id"])
-                    restored += 1
-                except ServiceError:
-                    continue
+        restored, kept, held = instances.unsuspend_with_account(account_id, actor_id=account()["id"])
     if request.form.get("notify_user", "1") != "0":
         notifications.notify_account(target, "account_restored")
     _done("hosting.admin.account_unsuspended", username=target["username"], count=restored)
+    if kept:
+        flash(tn("hosting.admin.wikis_stay_suspended", kept), "info")
+    if held:
+        flash(tn("hosting.admin.wikis_stay_storage_suspended", held), "info")
     return back(url_for("admin.account_page", account_id=account_id))
 
 
@@ -474,7 +476,7 @@ def deny_account(account_id: str):
     return back(url_for("admin.dashboard"))
 
 
-# ── Sign-up gating ────────────────────────────────────────────────────────────
+# Sign-up gating
 
 
 @bp.post("/admin/signup-mode")
@@ -490,7 +492,7 @@ def signup_mode():
     if was_approval and mode != "approval":
         count = accounts.approve_all_pending(account()["id"])
         if count:
-            flash(t("hosting.admin.auto_approved", count=count), "info")
+            flash(tn("hosting.admin.auto_approved", count), "info")
     _done("hosting.admin.signup_mode_saved", mode=t(f"hosting.signup_mode.{mode}"))
     return _dashboard()
 
@@ -522,7 +524,7 @@ def delete_invite(invite_id: int):
     return _dashboard()
 
 
-# ── Wikis ─────────────────────────────────────────────────────────────────────
+# Wikis
 
 
 @bp.get("/admin/instances/<instance_id>/manage")
@@ -765,7 +767,7 @@ def transfer_instance(instance_id: str):
         return admin_back(instance_id)
     _done("hosting.admin.transferred", username=target["username"])
     if "renamed" in notes:
-        flash(t("hosting.admin.apex_converted", count=1), "info")
+        flash(tn("hosting.admin.apex_converted", 1), "info")
     return admin_back(instance_id)
 
 
@@ -801,6 +803,7 @@ def duplicate_instance(instance_id: str):
         flash_error(error)
         return admin_back(instance_id)
     _done("hosting.admin.duplicated", slug=copy["subdomain"])
+    _two_step_off(copy)
     return redirect(url_for("admin.instance", instance_id=copy["id"]))
 
 
@@ -1045,7 +1048,7 @@ def _admin_bulk(action, allowed: tuple[str, ...], key: str):
             failed += 1
     flash(t(key, done=done, skipped=skipped), "success")
     if failed:
-        flash(t("hosting.bulk.failed", count=failed), "error")
+        flash(tn("hosting.bulk.failed", failed), "error")
     return _dashboard()
 
 
@@ -1100,7 +1103,7 @@ def bulk_purge():
     return _admin_bulk(lambda i: instances.hard_delete(i, actor_id=_actor()), ("terminated",), "hosting.bulk.deleted")
 
 
-# ── Feature requests ──────────────────────────────────────────────────────────
+# Feature requests
 
 
 def _review(request_id: int, decision: str):
@@ -1127,7 +1130,7 @@ def deny_feature(request_id: int):
     return _review(request_id, "denied")
 
 
-# ── Banners ───────────────────────────────────────────────────────────────────
+# Banners
 
 
 def _banner_form() -> tuple[dict[str, Any], list[str]]:
@@ -1189,7 +1192,7 @@ def delete_banner(banner_id: int):
     return redirect(url_for("admin.banners_page"))
 
 
-# ── Merges ────────────────────────────────────────────────────────────────────
+# Merges
 
 
 @bp.route("/admin/merge-accounts", methods=["GET", "POST"])
@@ -1251,7 +1254,7 @@ def execute_merge(merge_id: int):
     return _merge_action(merge_id, lambda: merges.execute(merge_id, account()), "hosting.merges.completed")
 
 
-# ── Settings ──────────────────────────────────────────────────────────────────
+# Settings
 
 
 def _checked(name: str) -> int:
@@ -1321,14 +1324,21 @@ def _save_settings(action: str) -> str:
         if was and not settings.approval_required():
             count = accounts.approve_all_pending(account()["id"])
             if count:
-                flash(t("hosting.admin.auto_approved", count=count), "info")
+                flash(tn("hosting.admin.auto_approved", count), "info")
     elif action == "save_instance_url_suffix":
         suffix = (request.form.get("instance_url_suffix") or "").strip().lower()
         from ..config import valid_suffix
 
         if suffix and not valid_suffix(suffix):
             raise ServiceError("hosting.admin.invalid_suffix")
-        settings.update(instance_url_suffix=suffix or "hosting", instance_suffix_disabled=_checked("instance_suffix_disabled"))
+        disabled = _checked("instance_suffix_disabled")
+        effective = "" if disabled else suffix or "hosting"
+        if effective != urls.instance_suffix():
+            conflicts = instances.address_conflicts(effective)
+            if conflicts:
+                raise ServiceError("hosting.admin.suffix_conflict",
+                                   wikis=", ".join(sorted(urls.platform_host(row) for row in conflicts)))
+        settings.update(instance_url_suffix=suffix or "hosting", instance_suffix_disabled=disabled)
         instances.sync_routes()
     elif action == "save_tour":
         settings.update(global_tour_enabled=_checked("global_tour_enabled"))
@@ -1419,12 +1429,12 @@ def _gdrive(action: str) -> None:
 @bp.route("/admin/spawn-demos", methods=["GET", "POST"])
 @auth.admin_required
 def spawn_demos():
-    """Retired in 1.6 (seeded demo content host-side); kept as a redirect."""
+    """Old URL of the removed demo seeding; shows a notice and the dashboard."""
     flash(t("hosting.admin.demos_retired"), "info")
     return _dashboard()
 
 
-# ── Archives and platform backups ─────────────────────────────────────────────
+# Archives and platform backups
 
 
 def _upload_root() -> Path:
@@ -1504,6 +1514,7 @@ def _import(path: Path, meta: dict[str, Any]) -> str:
     archive = path.with_suffix(".zip")
     path.rename(archive)
     inst = instances.import_archive(account(), meta["subdomain"], meta["domain_mode"], archive, actor_id=account()["id"])
+    _two_step_off(inst)
     return t("hosting.archives.imported", url=urls.instance_url(inst))
 
 
@@ -1539,6 +1550,7 @@ def import_instance():
     finally:
         shutil.rmtree(work, ignore_errors=True)
     _done("hosting.archives.imported", url=urls.instance_url(inst))
+    _two_step_off(inst)
     return _dashboard()
 
 
