@@ -363,7 +363,11 @@ links to wiki pages, connected by edges.
 
 * **Editing together:** several people can edit at once. Small operations
   are merged on the server; a whole-document save made on an outdated copy
-  is refused instead of overwriting others.
+  is refused instead of overwriting others. Undo and redo take back only
+  your own changes: what others added or changed meanwhile stays, and undo
+  never brings back an element someone else deleted or changes one they
+  locked. An element someone deletes while you edit it in its dialog comes
+  back, with your changes, when you save.
 * **History** with restore. Changes by one person within 15 minutes, or by
   anyone within a minute of the latest entry, share one entry, which keeps
   the name of the person who started it.
