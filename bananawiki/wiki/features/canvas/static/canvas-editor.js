@@ -7,6 +7,13 @@
  * next save wins). A "snapshot" event (history restore, whole-document save)
  * reloads the canvas.
  *
+ * Undo: each step keeps only the items one change touched, as they were
+ * before it, so undo and redo put back those items and leave the others,
+ * other people's changes among them, as they are. Their operations reach the
+ * steps by the same rule: a step holding the last synced version of the item
+ * takes theirs, one holding your own change keeps it, and a deletion or a
+ * lock always wins (undo never brings back what someone else deleted).
+ *
  * Input: mouse, touch and pen through pointer events; every action is also
  * reachable from the toolbar and the keyboard (see the "Keyboard" help on the
  * page). User text is only ever inserted with textContent.
@@ -69,9 +76,41 @@
     return low;
   }
 
-  /* The ids of the locked nodes of a snapshot, to notice lock changes. */
+  /* The ids of the locked nodes of a list, to notice lock changes. */
   function lockedIds(nodes) {
     return nodes.filter(function (node) { return node.locked; }).map(function (node) { return node.id; }).sort().join(",");
+  }
+
+  /* An undo step: the items *after* changes, adds or removes compared with *before* (both snapshots),
+   * with their versions in *before* (null: the item was not there), or null when nothing changed. */
+  function changes(before, after) {
+    var step = { nodes: {}, edges: {} }, changed = false;
+    ["nodes", "edges"].forEach(function (kind) {
+      var was = before[kind], now = after[kind];
+      Object.keys(was).forEach(function (id) {
+        if (now[id] !== was[id]) { step[kind][id] = was[id]; changed = true; }
+      });
+      Object.keys(now).forEach(function (id) {
+        if (was[id] === undefined) { step[kind][id] = null; changed = true; }
+      });
+    });
+    return changed ? step : null;
+  }
+
+  /* *list* with the *versions* (id: JSON, or null to remove) put back, except those *allowed* refuses;
+   * the versions they replace go to *back*. Untouched items keep their place, new ones come last. */
+  function putItems(list, versions, back, allowed) {
+    var items = {}, added = [];
+    list.forEach(function (item) { items[item.id] = item; });
+    Object.keys(versions).forEach(function (id) {
+      var now = items[id] ? JSON.stringify(items[id]) : null;
+      var item = versions[id] && JSON.parse(versions[id]);
+      if (now === versions[id] || (item && !allowed(item))) return;
+      back[id] = now;
+      if (item && !items[id]) added.push(item);
+      items[id] = item;
+    });
+    return list.map(function (item) { return items[item.id]; }).filter(Boolean).concat(added);
   }
 
   /* Alignment guides */
@@ -161,7 +200,7 @@
     this.version = 0;
     this.undoStack = [];
     this.redoStack = [];
-    this.current = null;
+    this.current = { nodes: {}, edges: {} };
     this.saveTimer = null;
     this.saving = false;
     this.failed = false;
@@ -322,6 +361,8 @@
       editor.scene.load(res.data, res);
       editor.markSynced();
       editor.current = editor.snapshot();
+      editor.undoStack = [];  /* steps of the document this one replaces */
+      editor.redoStack = [];
       if (first) editor.restoreViewport();
       editor.refreshToolbar();
       editor.status("canvas.status.loaded");
@@ -330,10 +371,7 @@
   };
 
   Editor.prototype.markSynced = function () {
-    var synced = { nodes: {}, edges: {} };
-    this.scene.nodes.forEach(function (node) { synced.nodes[node.id] = JSON.stringify(node); });
-    this.scene.edges.forEach(function (edge) { synced.edges[edge.id] = JSON.stringify(edge); });
-    this.synced = synced;
+    this.synced = this.snapshot();
   };
 
   Editor.prototype.scheduleSync = function () {
@@ -378,11 +416,14 @@
     if (event.op_type === "upsert_node" || event.op_type === "upsert_edge") {
       var item = payload.node || payload.edge;
       var dirty = this.localChanged(kind, item.id);
-      this.synced[kind][item.id] = JSON.stringify(item);
+      var version = JSON.stringify(item);
+      this.rebase(kind, item.id, version, kind === "nodes" && !!item.locked);
+      this.synced[kind][item.id] = version;
       if (dirty) return;
       var index = list.findIndex(function (existing) { return existing.id === item.id; });
       if (index >= 0) list[index] = item; else list.push(item);
     } else if (event.op_type === "delete_node" || event.op_type === "delete_edge") {
+      this.rebase(kind, payload.id, null, true);
       delete this.synced[kind][payload.id];
       scene[kind] = list.filter(function (existing) { return existing.id !== payload.id; });
       delete scene.selected[payload.id];
@@ -399,17 +440,36 @@
     }
   };
 
-  /* Saving */
-
-  Editor.prototype.snapshot = function () {
-    return JSON.stringify({ nodes: this.scene.nodes, edges: this.scene.edges });
+  /* Bring someone else's version of an item (JSON, or null: deleted) into the undo and redo steps that
+   * hold the item, as applyRemote does for the canvas: a step holding the version last synced takes
+   * theirs, one holding a change of yours keeps it, unless theirs *wins* (a deletion or a lock).
+   * Called before synced takes the new version. */
+  Editor.prototype.rebase = function (kind, id, version, wins) {
+    var before = this.synced[kind][id] || null;
+    [this.undoStack, this.redoStack].forEach(function (stack) {
+      stack.forEach(function (step) {
+        var items = step[kind];
+        if (Object.prototype.hasOwnProperty.call(items, id) && (wins || items[id] === before)) items[id] = version;
+      });
+    });
   };
 
-  /* Record a finished change: undo point, redraw, save soon. */
+  /* Saving */
+
+  /* Every node and edge as JSON, by id. */
+  Editor.prototype.snapshot = function () {
+    var state = { nodes: {}, edges: {} };
+    this.scene.nodes.forEach(function (node) { state.nodes[node.id] = JSON.stringify(node); });
+    this.scene.edges.forEach(function (edge) { state.edges[edge.id] = JSON.stringify(edge); });
+    return state;
+  };
+
+  /* Record a finished change: undo step, redraw, save soon. */
   Editor.prototype.commit = function () {
     var next = this.snapshot();
-    if (next === this.current) { this.scene.render(); return; }
-    this.undoStack.push(this.current);
+    var step = changes(this.current, next);
+    if (!step) { this.scene.render(); return; }
+    this.undoStack.push(step);
     if (this.undoStack.length > MAX_UNDO) this.undoStack.shift();
     this.redoStack = [];
     this.current = next;
@@ -524,21 +584,35 @@
 
   /* Undo */
 
+  /* Put back the versions *step* holds and return the step that reverses this, or null when nothing
+   * changed. An edge whose element is gone is not put back, and goes when its element does. */
+  Editor.prototype.putBack = function (step) {
+    var scene = this.scene;
+    var back = { nodes: {}, edges: {} }, present = {};
+    scene.nodes = putItems(scene.nodes, step.nodes, back.nodes, function () { return true; });
+    scene.nodes.forEach(function (node) { present[node.id] = true; });
+    var joined = function (edge) { return present[edge.from] && present[edge.to]; };
+    scene.edges = putItems(scene.edges, step.edges, back.edges, joined).filter(function (edge) {
+      if (!joined(edge)) back.edges[edge.id] = JSON.stringify(edge);
+      return joined(edge);
+    });
+    return Object.keys(back.nodes).length || Object.keys(back.edges).length ? back : null;
+  };
+
   Editor.prototype.restore = function (from, to) {
-    if (!from.length) return;
-    to.push(this.current);
-    var locks = lockedIds(JSON.parse(this.current).nodes);
-    this.current = from.pop();
-    var state = JSON.parse(this.current);
-    this.scene.nodes = state.nodes;
-    this.scene.edges = state.edges;
+    var locks = lockedIds(this.scene.nodes);
+    var back = null;
+    while (from.length && !back) back = this.putBack(from.pop());  /* skip steps others' changes emptied */
+    if (!back) { this.refreshToolbar(); return; }
+    to.push(back);
+    this.current = this.snapshot();
     var present = {};
-    state.nodes.forEach(function (node) { present[node.id] = true; });
+    this.scene.nodes.forEach(function (node) { present[node.id] = true; });
     Object.keys(this.scene.selected).forEach(function (id) { if (!present[id]) delete this.scene.selected[id]; }, this);
     this.scene.selectedEdge = null;
     this.scene.render();
     this.refreshToolbar();
-    if (lockedIds(state.nodes) !== locks) this.save(); else this.scheduleSave();
+    if (lockedIds(this.scene.nodes) !== locks) this.save(); else this.scheduleSave();
   };
 
   Editor.prototype.undo = function () { this.restore(this.undoStack, this.redoStack); };
@@ -1114,7 +1188,7 @@
     this.resetPagePicker(form, node);
     dialog.querySelector("[data-dialog-title]").textContent =
       BW.t(node ? "canvas.dialog.edit" : "canvas.dialog.add", { type: BW.t("node." + type) });
-    this.dialogState = { nodeId: nodeId, type: type, at: at || null };
+    this.dialogState = { nodeId: nodeId, type: type, at: at || null, original: node && clone(node) };
     dialog.showModal();
     var first = form.querySelector("[data-field]:not([hidden]) input, [data-field]:not([hidden]) textarea");
     var focusTarget = type === "wiki_page" ? form.querySelector("#cn-page-search") :
@@ -1208,9 +1282,8 @@
         if (this.pageChoice.slug) { fields.page_slug = this.pageChoice.slug; fields.label = this.pageChoice.title; }
       }
     }
-    if (state.nodeId) {
-      var node = this.scene.node(state.nodeId);
-      if (!node) return true;
+    var node = state.nodeId && this.scene.node(state.nodeId);
+    if (node) {
       ["display_text", "content", "language", "url", "alt", "shape", "color", "label", "page_id", "page_slug"].forEach(function (key) {
         if (!(key in fields)) delete node[key];
       });
@@ -1222,8 +1295,11 @@
       this.commit();
       this.focusNode(node.id);
     } else {
+      /* Deleted by someone else while the dialog was open: put it back, with what was typed, where it was. */
+      var original = state.original;
       if (!fields.display_text) delete fields.display_text;
-      this.addNode(fields, state.at);
+      this.addNode(fields, original ? { x: original.x + fields.width / 2, y: original.y + fields.height / 2 } : state.at);
+      if (original) BW.toast(BW.t("canvas.status.node_restored"), "info");
     }
     return true;
   };
@@ -1242,13 +1318,26 @@
     form.elements.to_side.value = edge.to_side || "auto";
     form.elements.text_size.value = edge.text_size || 14;
     this.edgeDialogId = edgeId;
+    this.edgeDialogOriginal = clone(edge);
     dialog.showModal();
     form.elements.label.focus();
   };
 
   Editor.prototype.saveEdgeDialog = function (form) {
     var edge = this.scene.edge(this.edgeDialogId);
-    if (!edge) return;
+    var restored = !edge;
+    if (restored) {
+      /* Deleted by someone else while the dialog was open: put it back with the changes, if it still has
+       * both its elements. */
+      var original = this.edgeDialogOriginal;
+      if (!this.scene.node(original.from) || !this.scene.node(original.to)) {
+        BW.toast(BW.t("canvas.status.edge_lost"), "error");
+        return;
+      }
+      edge = Object.assign(clone(original), { id: randomId("e") });
+      this.scene.edges.push(edge);
+      this.scene.selectedEdge = edge.id;
+    }
     edge.label = form.elements.label.value.trim().slice(0, 200);
     edge.arrow = form.elements.arrow.value;
     edge.style = form.elements.style.value;
@@ -1260,6 +1349,7 @@
     var size = parseInt(form.elements.text_size.value, 10);
     edge.text_size = isFinite(size) ? Canvas.clamp(size, 8, 96) : 14;
     this.commit();
+    if (restored) BW.toast(BW.t("canvas.status.edge_restored"), "info");
   };
 
   Editor.prototype.bindDialogs = function () {

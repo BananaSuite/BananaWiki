@@ -320,5 +320,6 @@ def test_canvas_strings_are_translated_in_every_language(language):
     english = json.loads((folder / "en.json").read_text(encoding="utf-8"))
     translated = json.loads((folder / f"{language}.json").read_text(encoding="utf-8"))
     for key in ("canvas.error.locked", "canvas.edge.from_side", "canvas.edge.side_left", "canvas.keys.guides",
-                "js.canvas.export_placeholder", "js.canvas.status.exported_placeholders"):
+                "js.canvas.export_placeholder", "js.canvas.status.exported_placeholders",
+                "js.canvas.status.node_restored", "js.canvas.status.edge_restored", "js.canvas.status.edge_lost"):
         assert english[key] and translated[key] and english[key] != translated[key]
