@@ -41,7 +41,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-tts = ["piper-tts==1.4.2"]
+tts = ["piper-tts==1.8.0"]
 hosting = [
     "dnspython>=2.8,<3",
     "urllib3>=2.8,<3",
