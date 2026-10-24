@@ -68,7 +68,10 @@ Permissions say *what* someone may do; category access says *where*.
 
 Set category access per account on **Admin → Users → (account) → Editor
 access** (for editors) and **Permissions**, or for a whole group with a
-custom role.
+custom role. For an editor without individual permissions, **Editor access**
+copies the defaults of their role, except `canvas.create`: given
+individually, that permission lets them create canvases below the canvas
+write role, so only an administrator ticking it on **Permissions** grants it.
 
 Two permissions sit on top of read access:
 

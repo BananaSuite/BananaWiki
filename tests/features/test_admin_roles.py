@@ -181,7 +181,8 @@ def test_editor_access_keeps_default_permissions(app, admin_client, make_user, d
     admin_client.post(f"/admin/users/{bob['id']}/editor-access",
                       data={"restricted": "1", "category_ids": [str(docs)]})
     grants = grants_of(app, bob["id"])
-    assert grants.keys == perms.defaults("editor")
+    # Except canvas.create: copied as an individual permission it would authorize canvases nobody chose.
+    assert grants.keys == perms.defaults("editor") - {"canvas.create"}
     assert perms.can_write_category(grants, docs) and not perms.can_write_category(grants, other)
     assert perms.can_read_category(grants, other)
 

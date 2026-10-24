@@ -319,6 +319,12 @@ def grants_permission(grants: Grants, key: str, feature_enabled) -> bool:
     return key in grants.keys
 
 
+#: Keys whose explicit grant allows more than the role default (``canvas.create`` below the canvas
+#: write role). A copy of the defaults made for another reason leaves them out, so it grants
+#: nothing that nobody chose.
+EXPLICIT_GRANT_KEYS = frozenset({"canvas.create"})
+
+
 def grants_explicitly(grants: Grants, key: str, feature_enabled) -> bool:
     """*key* granted by the custom role or the individual permissions, not by the base-role defaults.
 

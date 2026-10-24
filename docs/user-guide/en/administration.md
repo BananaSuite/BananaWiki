@@ -52,7 +52,9 @@ Open **Administration** from the account menu.
   administrators, by default). To let one person create canvases without
   opening creation to their whole role, tick **Create canvases** in their
   custom role or their individual permissions; the editors' default alone
-  does not count.
+  does not count. The first time you limit an editor's categories on
+  **Editor access**, it is left out: tick it again on **Permissions** if they
+  should keep creating canvases.
 * **Bulk delete**, **Bulk Markdown**, **Audit log**, **Server** and the pages
   of individual features (announcements, badges, chats, read aloud …).
 

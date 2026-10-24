@@ -274,6 +274,29 @@ def test_individual_permissions_let_one_user_create_while_creation_is_for_admins
     assert listing.status_code == 200 and b"canvas-create-dialog" not in listing.data
 
 
+def test_limiting_an_editors_categories_does_not_authorize_canvases(client, login, people, app, db):
+    docs = db.insert("categories", {"name": "Docs"})
+    editor = people["editor"]
+    as_(client, login, people["admin"])
+    assert b"Create canvases" in client.get(f"/admin/users/{editor['id']}/editor-access").data  # the note
+    client.post(f"/admin/users/{editor['id']}/editor-access", data={"restricted": "1", "category_ids": [str(docs)]})
+    assert b"Create canvases" not in client.get(f"/admin/users/{editor['id']}/editor-access").data
+    form = client.get(f"/admin/users/{editor['id']}/permissions").data
+    assert b'value="canvas.create">' in form and b'value="page.create" checked' in form
+    assert may_create(app, db, editor) == (False, False)
+
+    # Where every editor may create, the limited one stops until an administrator ticks it again.
+    settings(db, canvas_write_access="editor")
+    assert may_create(app, db, editor)[0] is False
+    assert may_create(app, db, people["owner"])[0] is True
+    keys = sorted(perms.defaults("editor"))
+    client.post(f"/admin/users/{editor['id']}/permissions",
+                data={"permissions": keys, "write_restricted": "1", "write_category_ids": [str(docs)]})
+    assert may_create(app, db, editor)[0] is True
+    settings(db, canvas_write_access="admin")  # ticked there, it is a choice
+    assert may_create(app, db, editor) == (True, True)
+
+
 def test_rename_keeps_slug(client, login, people, app, db):
     layout = make_canvas(app, people["owner"], "First name")
     as_(client, login, people["owner"])

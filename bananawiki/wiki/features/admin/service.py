@@ -756,7 +756,11 @@ def save_overrides(actor: dict[str, Any], target: dict[str, Any], *, keys: list[
 
 def save_editor_access(actor: dict[str, Any], target: dict[str, Any], *, restricted: bool,
                        category_ids: list[int]) -> None:
-    """Limit which categories an editor may write to, keeping their other permissions."""
+    """Limit which categories an editor may write to, keeping their other permissions.
+
+    An editor without individual permissions gets the role defaults copied, minus
+    ``perms.EXPLICIT_GRANT_KEYS``: limiting categories must not authorize them to create canvases.
+    """
     with db.transaction():
         actor, target = _current_accounts(actor, target)
         _require_overridable(actor, target)
@@ -764,8 +768,10 @@ def save_editor_access(actor: dict[str, Any], target: dict[str, Any], *, restric
             raise AccountError("admin.editor_access.error.not_editor")
         current = user_access(target)
         if not current.customized:
+            # Their first individual permissions: the defaults, without the keys only a choice may grant.
+            kept = current.keys - perms.EXPLICIT_GRANT_KEYS
             db.executemany("INSERT OR IGNORE INTO user_permissions (user_id, permission_key) VALUES (?, ?)",
-                           [(target["id"], key) for key in sorted(current.keys)])
+                           [(target["id"], key) for key in sorted(kept)])
             _write_access(target["id"], "read", False, [])
         _write_access(target["id"], "write", restricted, category_ids)
     _audit("user.permissions_changed", actor, target,
