@@ -55,6 +55,13 @@ Apri **Amministrazione** dal menu dell'account.
   in inglese, italiano o tedesco) come categoria di pagine.
 * **Migrazione del sito**: esporta l'intera wiki oppure importane una (questo
   sostituisce tutto, account compresi).
+* **Canvas**: chi può usare i canvas e chi può crearli o importarli (di base
+  solo gli amministratori). Per permettere a una sola persona di creare
+  canvas senza aprire la creazione a tutto il suo ruolo, spunta **Creare
+  canvas** nel suo ruolo personalizzato o nei suoi permessi individuali; il
+  permesso predefinito degli editor da solo non basta. La prima volta che
+  limiti le categorie di un editor in **Accesso editor** il permesso viene
+  tolto: spuntalo di nuovo in **Permessi** se deve continuare a creare canvas.
 * **Eliminazione in blocco**, **Markdown in blocco**, **Registro di
   controllo**, **Server** e le pagine delle singole funzioni (annunci,
   distintivi, chat, lettura ad alta voce…).

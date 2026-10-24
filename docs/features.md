@@ -533,6 +533,19 @@ Settings (**Admin → Canvas**): `canvas_access`, `canvas_write_access`,
 visible only to their creator and administrators. Permissions:
 `canvas.view`, `canvas.create`.
 
+**Creating and importing** needs `canvas.create` and a base role at least
+`canvas_write_access` (administrators by default). To let one person below
+that role create canvases, give them `canvas.create` in their custom role or
+their individual permissions: such an explicit grant is enough, while the
+editors' default is not, so nobody else gains anything. Whoever may create
+also gets the canvas list and its sidebar link, showing their own canvases
+and those shared with them. The web interface (create, import) and the REST
+API (`POST /canvas`) apply the same rule. Limiting an editor's categories on
+**Editor access** gives them individual permissions copied from the defaults
+without `canvas.create`, so it never authorizes anyone. Where editors may
+create anyway (`canvas_write_access` `editor` or `all`, or open access), tick
+**Create canvases** again on their **Permissions** page.
+
 ## Chats and groups
 
 * **Direct messages** (`/chats`) between two members and **group chats**

@@ -1,6 +1,7 @@
 """Who may see, change and manage canvases.
 
-The rules follow the kanban boards so both features behave the same way:
+The rules follow the kanban boards so both features behave the same way,
+except that single people can be allowed to create canvases:
 
 * Site settings. ``canvas_access`` and ``canvas_write_access`` hold the
   weakest role with *global* access and with the right to create or import
@@ -9,7 +10,10 @@ The rules follow the kanban boards so both features behave the same way:
   ``canvas_public_access_enabled`` lets anonymous visitors read ``public``
   canvases while public mode is on. Nobody gets anything without the
   ``canvas.view`` permission, which also disappears while the feature is off;
-  creating additionally needs ``canvas.create``.
+  creating additionally needs ``canvas.create``. Below the
+  ``canvas_write_access`` role, ``canvas.create`` from the person's custom
+  role or individual permissions is enough to create (the base-role default
+  is not), and whoever may create also opens the canvas list.
 * Canvases. Administrators and the creator always have full access. A row in
   ``canvas__permissions`` gives one user or one role ``view``, ``edit`` or
   ``none`` (an explicit refusal); a user row wins over a role row. Users
@@ -78,12 +82,19 @@ def has_global_access(user: User) -> bool:
 
 
 def can_create(user: User) -> bool:
-    """Create or import canvases: global write access and ``canvas.create``."""
+    """Create or import canvases: ``canvas.create`` and global write access.
+
+    Below the ``canvas_write_access`` role an explicit grant also counts, so
+    administrators can let one person create without opening creation to
+    their whole role.
+    """
     if not can_use(user) or not auth.has_permission("canvas.create", user):
         return False
-    return is_admin(user) or open_access() or role_at_least(
-        user["role"], _minimum_role("canvas_write_access")  # type: ignore[index]
-    )
+    if is_admin(user) or open_access():
+        return True
+    if role_at_least(user["role"], _minimum_role("canvas_write_access")):  # type: ignore[index]
+        return True
+    return auth.has_explicit_permission("canvas.create", user)
 
 
 def has_user_share(user: User) -> bool:
@@ -106,7 +117,7 @@ def can_open_canvas(user: User) -> bool:
         return public_access_active()
     if not can_use(user):
         return False
-    return has_global_access(user) or has_user_share(user) or owns_any(user)
+    return has_global_access(user) or can_create(user) or has_user_share(user) or owns_any(user)
 
 
 def _rows_for(user: dict[str, Any], layout_ids: list[int] | None = None) -> dict[int, dict[str, str]]:

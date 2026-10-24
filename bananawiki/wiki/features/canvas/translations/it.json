@@ -28,7 +28,7 @@
   "canvas.admin.public_access_hint": "Mentre la modalità pubblica è attiva, i visitatori non connessi possono vedere i canvas contrassegnati come pubblici.",
   "canvas.admin.title": "Impostazioni dei canvas",
   "canvas.admin.write_access": "Chi può creare e importare canvas",
-  "canvas.admin.write_access_hint": "Per creare serve anche il permesso «Creare canvas».",
+  "canvas.admin.write_access_hint": "Per creare serve anche il permesso «Creare canvas». Chi è sotto questo ruolo può creare lo stesso se il permesso è spuntato nel suo ruolo personalizzato o nei suoi permessi individuali; il permesso predefinito degli editor non basta.",
   "canvas.arrange.align": "Allinea",
   "canvas.arrange.bottom": "Bordi inferiori",
   "canvas.arrange.center": "Centri orizzontali",

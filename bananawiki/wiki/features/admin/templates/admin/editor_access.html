@@ -20,6 +20,7 @@
 <form method="post" class="card form">
   {{ forms.csrf() }}
   <p class="muted">{{ t('admin.editor_access.intro') }}</p>
+  {% if not access.customized %}<p class="muted">{{ t('admin.editor_access.canvas_note') }}</p>{% endif %}
   <fieldset>
     <legend>{{ t('admin.editor_access.mode') }}</legend>
     <label class="check"><input type="radio" name="restricted" value="0"{% if not access.write_restricted %} checked{% endif %}> <span>{{ t('admin.editor_access.all') }}</span></label>

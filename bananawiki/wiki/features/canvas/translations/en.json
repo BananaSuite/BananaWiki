@@ -28,7 +28,7 @@
   "canvas.admin.public_access_hint": "While public mode is on, visitors who are not signed in can view canvases marked public.",
   "canvas.admin.title": "Canvas settings",
   "canvas.admin.write_access": "Who can create and import canvases",
-  "canvas.admin.write_access_hint": "Creating also needs the “Create canvases” permission.",
+  "canvas.admin.write_access_hint": "Creating also needs the “Create canvases” permission. People below this role can still create when that permission is ticked in their custom role or individual permissions; the editors' default is not enough.",
   "canvas.arrange.align": "Align",
   "canvas.arrange.bottom": "Bottom edges",
   "canvas.arrange.center": "Horizontal centres",

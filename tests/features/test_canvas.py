@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import io
 import re
 
 import pytest
 
+from bananawiki.wiki import permissions as perms
 from bananawiki.wiki import registry
 from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.canvas import service
@@ -156,6 +158,143 @@ def test_create_requires_write_access_and_permission(client, login, people, app,
     client.post("/canvas/create", data={"title": "  "})
     client.post("/canvas/create", data={"title": "t" * 201})
     assert db.scalar("SELECT COUNT(*) FROM canvas__layouts") == 1
+
+
+# Creating below the write-access role: canvas.create granted to one person
+
+
+def custom_role(db, user, keys, base_role="editor"):
+    from bananawiki.core.timeutil import now_sql
+
+    role_id = db.insert("custom_roles", {"name": f"Role of {user['username']}", "base_role": base_role,
+                                         "created_at": now_sql(), "updated_at": now_sql()})
+    db.executemany("INSERT INTO custom_role_permissions (role_id, permission_key) VALUES (?, ?)",
+                   [(role_id, key) for key in keys])
+    db.execute("UPDATE users SET custom_role_id = ?, role = ? WHERE id = ?", (role_id, base_role, user["id"]))
+
+
+def individual_permissions(db, user, keys):
+    db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 0)",
+               (user["id"],))
+    db.executemany("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, ?)",
+                   [(user["id"], key) for key in keys])
+
+
+def may_create(app, db, user):
+    from bananawiki.wiki.features.canvas import access
+
+    current = db.one("SELECT * FROM users WHERE id = ?", (user["id"],))
+    return run(app, lambda: (access.can_create(current), access.can_open_canvas(current)))
+
+
+@pytest.mark.parametrize(("setting", "expected"), [
+    ("admin", {"admin": True, "editor": False, "user": False, "role editor": True, "role editor without": False,
+               "role user": True, "individual user": True, "individual editor without": False}),
+    ("editor", {"admin": True, "editor": True, "user": False, "role editor": True, "role editor without": False,
+                "role user": True, "individual user": True, "individual editor without": False}),
+    ("all", {"admin": True, "editor": True, "user": False, "role editor": True, "role editor without": False,
+             "role user": True, "individual user": True, "individual editor without": False}),
+])
+def test_who_may_create_under_each_write_setting(app, db, make_user, setting, expected):
+    editor_keys, user_keys = perms.defaults("editor"), perms.defaults("user")
+    people = {"admin": make_user("boss9", role="admin"), "editor": make_user("editor9", role="editor"),
+              "user": make_user("plain9")}
+    people["role editor"] = make_user("roled1", role="editor")
+    custom_role(db, people["role editor"], editor_keys)
+    people["role editor without"] = make_user("roled2", role="editor")
+    custom_role(db, people["role editor without"], editor_keys - {"canvas.create"})
+    people["role user"] = make_user("roled3")
+    custom_role(db, people["role user"], user_keys | {"canvas.create"}, base_role="user")
+    people["individual user"] = make_user("solo1")
+    individual_permissions(db, people["individual user"], user_keys | {"canvas.create"})
+    people["individual editor without"] = make_user("solo2", role="editor")
+    individual_permissions(db, people["individual editor without"], editor_keys - {"canvas.create"})
+    settings(db, canvas_write_access=setting)
+
+    found = {name: may_create(app, db, user) for name, user in people.items()}
+    assert {name: created for name, (created, _opens) in found.items()} == expected
+    # Whoever may create also opens the list (and its sidebar link); nobody else here has a way in.
+    assert all(opens == created for created, opens in found.values())
+    # Nobody without canvas.create gets in through the list either; open access needs the permission too.
+    settings(db, canvas_open_access=1)
+    assert may_create(app, db, people["user"])[0] is False
+    assert may_create(app, db, people["role editor without"])[0] is False
+
+
+def test_custom_role_lets_one_editor_create_while_creation_is_for_admins(client, login, people, app, db):
+    settings(db, canvas_access="admin", canvas_write_access="admin")
+    public = make_canvas(app, people["admin"], "Teacher map", visibility="public")
+    as_(client, login, people["owner"])
+    assert client.get("/canvas").status_code == 403
+    assert client.post("/canvas/create", data={"title": "Nope"}).status_code == 403
+
+    as_(client, login, people["admin"])
+    created = client.post("/admin/roles/create", data={
+        "name": "Map makers", "description": "", "base_role": "editor",
+        "permissions": sorted(perms.defaults("editor"))})
+    assert created.status_code == 302
+    role_id = db.scalar("SELECT id FROM custom_roles WHERE name = 'Map makers'")
+    client.post(f"/admin/roles/{role_id}/assign", data={"user_id": people["owner"]["id"]})
+
+    as_(client, login, people["owner"])
+    listing = client.get("/canvas")
+    assert listing.status_code == 200 and b"canvas-create-dialog" in listing.data
+    assert b"Teacher map" not in listing.data  # creating does not open other people's canvases
+    response = client.post("/canvas/create", data={"title": "Class map"})
+    assert response.status_code == 302 and "/canvas/class-map" in response.headers["Location"]
+    export = client.get("/canvas/class-map/export?format=json")
+    imported = client.post("/canvas/import", data={"import_file": (io.BytesIO(export.data), "m.canvas.json")},
+                           content_type="multipart/form-data")
+    assert imported.status_code == 302
+    assert db.scalar("SELECT COUNT(*) FROM canvas__layouts WHERE creator_id = ?", (people["owner"]["id"],)) == 2
+    assert client.get(f"/canvas/{public['slug']}").status_code == 404
+
+    # Another editor keeps only the default grant and stays out.
+    as_(client, login, people["editor"])
+    assert client.get("/canvas").status_code == 403
+    assert client.post("/canvas/create", data={"title": "Nope"}).status_code == 403
+
+
+def test_individual_permissions_let_one_user_create_while_creation_is_for_admins(client, login, people, app, db):
+    as_(client, login, people["admin"])
+    keys = sorted(perms.defaults("user") | {"canvas.create"})
+    saved = client.post(f"/admin/users/{people['user']['id']}/permissions", data={"permissions": keys})
+    assert saved.status_code == 302
+    as_(client, login, people["user"])
+    assert b"canvas-create-dialog" in client.get("/canvas").data
+    assert client.post("/canvas/create", data={"title": "My notes"}).status_code == 302
+    assert db.scalar("SELECT creator_id FROM canvas__layouts WHERE slug = 'my-notes'") == people["user"]["id"]
+
+    # Resetting to the role defaults takes it back.
+    as_(client, login, people["admin"])
+    client.post(f"/admin/users/{people['user']['id']}/permissions", data={"action": "reset"})
+    as_(client, login, people["user"])
+    assert client.post("/canvas/create", data={"title": "Again"}).status_code == 403
+    listing = client.get("/canvas")  # still opens: they own a canvas
+    assert listing.status_code == 200 and b"canvas-create-dialog" not in listing.data
+
+
+def test_limiting_an_editors_categories_does_not_authorize_canvases(client, login, people, app, db):
+    docs = db.insert("categories", {"name": "Docs"})
+    editor = people["editor"]
+    as_(client, login, people["admin"])
+    assert b"Create canvases" in client.get(f"/admin/users/{editor['id']}/editor-access").data  # the note
+    client.post(f"/admin/users/{editor['id']}/editor-access", data={"restricted": "1", "category_ids": [str(docs)]})
+    assert b"Create canvases" not in client.get(f"/admin/users/{editor['id']}/editor-access").data
+    form = client.get(f"/admin/users/{editor['id']}/permissions").data
+    assert b'value="canvas.create">' in form and b'value="page.create" checked' in form
+    assert may_create(app, db, editor) == (False, False)
+
+    # Where every editor may create, the limited one stops until an administrator ticks it again.
+    settings(db, canvas_write_access="editor")
+    assert may_create(app, db, editor)[0] is False
+    assert may_create(app, db, people["owner"])[0] is True
+    keys = sorted(perms.defaults("editor"))
+    client.post(f"/admin/users/{editor['id']}/permissions",
+                data={"permissions": keys, "write_restricted": "1", "write_category_ids": [str(docs)]})
+    assert may_create(app, db, editor)[0] is True
+    settings(db, canvas_write_access="admin")  # ticked there, it is a choice
+    assert may_create(app, db, editor) == (True, True)
 
 
 def test_rename_keeps_slug(client, login, people, app, db):
