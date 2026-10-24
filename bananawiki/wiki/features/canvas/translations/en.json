@@ -171,6 +171,7 @@
   "canvas.keys.snap": "G turns snapping to the grid on or off (hold Alt while dragging to place freely); L locks or unlocks the selection.",
   "canvas.keys.title": "Keyboard shortcuts",
   "canvas.keys.undo": "Ctrl+Z undoes, Ctrl+Y or Ctrl+Shift+Z redoes.",
+  "canvas.keys.unlock": "L unlocks the selection when all of it is locked; Ctrl+Shift+G ungroups it.",
   "canvas.keys.zoom": "+ and − zoom, 0 fits everything on screen; Ctrl + wheel or pinch also zoom.",
   "canvas.list.archived": "Archived",
   "canvas.list.can_edit": "Editable",

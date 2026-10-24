@@ -192,6 +192,8 @@
       upload: app.dataset.uploadUrl, pages: app.dataset.pagesUrl
     };
     this.storageKey = app.dataset.storageKey;
+    /* Canvas simplifications BM mode applies to this person (data-bm, written by the server). */
+    this.simplified = (app.dataset.bm || "").split(" ").filter(Boolean);
     this.statusEl = app.querySelector("[data-status]");
     this.stage = app.querySelector("[data-canvas-stage]");
     this.session = randomId("s");
@@ -206,7 +208,8 @@
     this.failed = false;
     this.interaction = null;
     this.clipboard = null;
-    this.snap = readSetting("canvas-snap", true);
+    /* With fewer tools the grid toggle is hidden: snap stays on, whatever someone left on this browser. */
+    this.snap = this.simplifies("canvas.simple_tools") || readSetting("canvas-snap", true);
     var editor = this;
     this.scene = new Canvas.Scene(this.stage, {
       editable: this.canEdit,
@@ -617,6 +620,9 @@
 
   Editor.prototype.undo = function () { this.restore(this.undoStack, this.redoStack); };
   Editor.prototype.redo = function () { this.restore(this.redoStack, this.undoStack); };
+
+  /* Whether BM mode applies simplification *id* (such as "canvas.simple_tools") to this person. */
+  Editor.prototype.simplifies = function (id) { return this.simplified.indexOf(id) >= 0; };
 
   /* Selection */
 
@@ -1441,7 +1447,12 @@
     var key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
     var focusedNode = event.target.closest && event.target.closest(".cv-node");
     var focusedEdge = event.target.closest && event.target.closest(".cv-edge");
+    /* Fewer tools hide the grid, lock and group controls, and their keys: only the way back stays,
+     * L on a selection that is all locked (unlock) and Ctrl+Shift+G (ungroup), so nothing gets stuck. */
+    var fewerTools = this.simplifies("canvas.simple_tools");
     if (!this.canEdit) return false;
+    if (fewerTools && key === "g" && !(mod && event.shiftKey)) return false;
+    if (fewerTools && key === "l" && !this.selectedNodes().every(function (node) { return node.locked; })) return false;
     if (mod && key === "z") { if (event.shiftKey) this.redo(); else this.undo(); return true; }
     if (mod && key === "y") { this.redo(); return true; }
     if (mod && key === "a") { this.select(this.scene.nodes.map(function (n) { return n.id; }), false); return true; }

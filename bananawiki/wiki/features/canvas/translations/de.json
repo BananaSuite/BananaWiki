@@ -171,6 +171,7 @@
   "canvas.keys.snap": "G schaltet das Ausrichten am Raster ein oder aus (halte beim Ziehen Alt gedrückt, um Elemente frei zu platzieren); L sperrt oder entsperrt die Auswahl.",
   "canvas.keys.title": "Tastenkombinationen",
   "canvas.keys.undo": "Strg+Z macht den letzten Schritt rückgängig, Strg+Y oder Strg+Umschalt+Z wiederholt ihn.",
+  "canvas.keys.unlock": "L entsperrt die Auswahl, wenn sie ganz gesperrt ist; Strg+Umschalt+G hebt ihre Gruppierung auf.",
   "canvas.keys.zoom": "+ und − zoomen, 0 passt alles an den Bildschirm an; mit Strg + Mausrad oder zwei Fingern kannst du auch zoomen.",
   "canvas.list.archived": "Archiviert",
   "canvas.list.can_edit": "Bearbeitbar",

@@ -92,7 +92,10 @@ else. It replaces the 1.7 "easy wiki" setting. **Admin → BM mode**
     export, filters or keyboard help) and tickets (no priority, labels,
     colour, checklist, history or archive button);
   * fewer canvas tools (no code blocks, bring to front or back, arrange menu,
-    snapping, minimap, image export, outline or keyboard help);
+    snap toggle, minimap, image export, outline or keyboard help). Elements
+    always snap to the grid, and G and Ctrl+G do nothing. L only unlocks, and
+    Ctrl+Shift+G still ungroups, so locked or grouped elements made elsewhere
+    can still be freed;
   * a "Getting started" list on the admin dashboard until the wiki has a page
     of its own, a second member (or an invite code or open sign-up) and a
     name.
