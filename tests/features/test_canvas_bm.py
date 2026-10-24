@@ -35,7 +35,9 @@ def _canvas_page(app, make_user, login, name, **fields):
 
 
 def _simplified(page):
-    found = re.search(r'id="canvas-app"[^>]*?\sdata-bm="([^"]*)"', page, re.S)
+    """The simplifications the page names on its root element (``<html data-bm>``), which the editor reads."""
+    root = re.search(r"<html[^>]*>", page).group(0)
+    found = re.search(r'\sdata-bm="([^"]*)"', root)
     return found.group(1).split() if found else []
 
 
@@ -50,13 +52,18 @@ def bm_page(request, app, easy, make_user, login):
 def test_fewer_tools_leave_out_the_minimap_the_arrange_menu_and_their_keys(bm_page):
     assert SIMPLE_RULE in bm_page
     assert "canvas.simple_tools" in _simplified(bm_page)
-    assert all(item.startswith("canvas.") for item in _simplified(bm_page)), "only the canvas's own simplifications"
+    assert re.search(r'id="canvas-app"[^>]*\sdata-bm=', bm_page) is None, "one marker, on the page's root"
     # Left out rather than hidden: the minimap would show itself, the empty group would keep its divider.
     assert "data-minimap" not in bm_page and "data-arrange-menu" not in bm_page
     # The keyboard help, read out through the stage's description, lists only keys that still work.
     assert 'aria-describedby="canvas-keys"' in bm_page and 'id="canvas-keys"' in bm_page
     assert SNAP_HELP not in bm_page and GROUP_HELP not in bm_page
     assert UNLOCK_HELP in bm_page and "guide lines appear" in bm_page
+
+
+def test_fewer_tools_keep_the_text_outline(bm_page):
+    # The outline is the canvas for screen readers: its link stays in the page header.
+    assert re.search(r'<a class="btn btn--small" href="/canvas/[^"]+/outline">', bm_page)
 
 
 def test_the_full_canvas_keeps_every_tool(app, make_user, login):

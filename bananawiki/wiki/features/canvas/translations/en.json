@@ -283,7 +283,7 @@
   "canvas.visibility.public": "Public",
   "canvas.visibility.shared": "Shared",
   "canvas.bm.simple_tools": "Fewer canvas tools",
-  "canvas.bm.simple_tools_hint": "Keeps text, shapes, pictures, videos, links and connections; hides code, layers, arranging, the grid, the minimap, exports, the outline and the keyboard help.",
+  "canvas.bm.simple_tools_hint": "Keeps text, shapes, pictures, videos, links, connections and the outline; hides code, layers, arranging, the grid, the minimap, exports and the keyboard help.",
   "feature.canvas.description": "Visual boards of notes, shapes, images, videos, code and links to wiki pages.",
   "feature.canvas.name": "Canvas",
   "js.canvas.dialog.add": "Add: {type}",

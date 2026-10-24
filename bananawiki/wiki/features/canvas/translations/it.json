@@ -283,7 +283,7 @@
   "canvas.visibility.public": "Pubblico",
   "canvas.visibility.shared": "Condiviso",
   "canvas.bm.simple_tools": "Meno strumenti nei canvas",
-  "canvas.bm.simple_tools_hint": "Tiene testo, forme, immagini, video, link e collegamenti; nasconde codice, livelli, disposizione, griglia, mappa d'insieme, esportazioni, schema testuale e aiuto per la tastiera.",
+  "canvas.bm.simple_tools_hint": "Tiene testo, forme, immagini, video, link, collegamenti e schema testuale; nasconde codice, livelli, disposizione, griglia, mappa d'insieme, esportazioni e aiuto per la tastiera.",
   "feature.canvas.description": "Canvas visuali con note, forme, immagini, video, codice e collegamenti alle pagine della wiki.",
   "feature.canvas.name": "Canvas",
   "js.canvas.dialog.add": "Aggiungi: {type}",

@@ -17,7 +17,7 @@
   <h1>{{ layout.title }}</h1>
   <div class="page-header__actions">
     <a class="btn btn--small" href="{{ url_for('canvas.history', slug=layout.slug) }}">{{ t('canvas.view.history') }}</a>
-    <a class="btn btn--small" href="{{ url_for('canvas.outline', slug=layout.slug) }}" data-bm-hide="canvas.simple_tools">{{ t('canvas.view.outline') }}</a>
+    <a class="btn btn--small" href="{{ url_for('canvas.outline', slug=layout.slug) }}">{{ t('canvas.view.outline') }}</a>
     {% if can_edit %}
     <a class="btn btn--small" href="{{ url_for('canvas.export', slug=layout.slug) }}" data-bm-hide="canvas.simple_tools">{{ t('canvas.view.export') }}</a>
     <a class="btn btn--small" href="{{ url_for('canvas.manage', slug=layout.slug) }}">{{ t('canvas.view.settings') }}</a>
@@ -37,7 +37,6 @@
      data-pages-url="{{ url_for('canvas.page_search', slug=layout.slug) }}"
      data-render-url="{{ url_for('canvas.render_node', slug=layout.slug) }}"
      {% endif %}
-     {% if canvas_bm %}data-bm="{{ canvas_bm|join(' ') }}"{% endif %}
      data-storage-key="canvas-view-{{ layout.id }}" data-filename="{{ layout.slug }}">
   <div class="canvas-toolbar no-print" role="toolbar" aria-label="{{ t('canvas.view.toolbar') }}">
     {% if can_edit %}
