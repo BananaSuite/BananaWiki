@@ -406,6 +406,7 @@ def install(app: Flask) -> None:
             "accessibility_prefs": accessibility_prefs,
             "bm_css": bm.css,
             "bm_simplified": bm.simplified,
+            "bm_applied": bm.applied,
             "bm_active": bm.applies,
         }
 

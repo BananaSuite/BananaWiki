@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -105,6 +106,26 @@ def test_the_administrators_choice_holds_until_the_operator_changes_theirs(app_f
 def _bm_column(app, user, column="bm_mode"):
     with app.app_context(), connection_scope() as session:
         return session.scalar(f"SELECT {column} FROM users WHERE id = ?", (user["id"],))
+
+
+def _named(page):
+    """The simplifications a page names on its root element (``<html data-bm>``), for scripts and stylesheets."""
+    root = re.search(r"<html[^>]*>", page).group(0)
+    found = re.search(r'\sdata-bm="([^"]*)"', root)
+    return set(found.group(1).split()) if found else set()
+
+
+def test_pages_name_the_simplifications_that_apply_on_their_root(app, easy, admin, make_user, login):
+    assert _named(_signed_in(easy, login, admin).get("/").get_data(as_text=True)) == set(ALL_SIMPLIFICATIONS)
+    member, own = make_user("plainview"), make_user("ownview", bm_mode=1)
+    full = _signed_in(app, login, member).get("/").get_data(as_text=True)
+    assert _named(full) == set() and "data-bm=" not in re.search(r"<html[^>]*>", full).group(0)
+    assert _named(_signed_in(app, login, own).get("/").get_data(as_text=True)) == set(ALL_SIMPLIFICATIONS)
+    chief = _signed_in(easy, login, admin)
+    assert _save(chief, mode=True, features=("canvas",), off=("pages.simple_editor",)).status_code == 302
+    left = set(_in(easy, bm.applied))
+    assert "pages.simple_editor" not in left and "canvas.simple_tools" in left
+    assert _named(chief.get("/").get_data(as_text=True)) == left
 
 
 def test_one_person_can_use_bm_mode_while_the_wiki_does_not(app, make_user, login):

@@ -146,7 +146,12 @@ itself simpler in BM mode:
   so they must not be the only way to reach something important. In Python,
   `bananawiki.wiki.bm.simplified("hello_plugin.simple")` says whether it
   applies to the current person (the whole wiki's BM mode, or that person's
-  own).
+  own); in templates, `bm_simplified("hello_plugin.simple")`. The wiki's
+  pages (the ones that get those stylesheet rules) also name the
+  simplifications that apply on their root element, `<html data-bm="…">`
+  (ids separated by spaces, absent when none applies): scripts read
+  `document.documentElement.getAttribute("data-bm")`, and stylesheets can
+  restyle with `html[data-bm~="hello_plugin.simple"] …`.
 * `NavItem(..., bm_hide="hello_plugin.simple")` leaves a menu entry out while
   that simplification applies; the page stays reachable.
 

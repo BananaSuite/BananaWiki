@@ -192,8 +192,8 @@
       upload: app.dataset.uploadUrl, pages: app.dataset.pagesUrl
     };
     this.storageKey = app.dataset.storageKey;
-    /* Canvas simplifications BM mode applies to this person (data-bm, written by the server). */
-    this.simplified = (app.dataset.bm || "").split(" ").filter(Boolean);
+    /* BM mode's simplifications applying to this person (data-bm on <html>, written by the server). */
+    this.simplified = (document.documentElement.getAttribute("data-bm") || "").split(" ").filter(Boolean);
     this.statusEl = app.querySelector("[data-status]");
     this.stage = app.querySelector("[data-canvas-stage]");
     this.session = randomId("s");

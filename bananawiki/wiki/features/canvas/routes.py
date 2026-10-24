@@ -27,7 +27,7 @@ from flask import (
 from bananawiki.core.numbers import ascii_int
 
 from ....core.web import client_network
-from ... import accounts, auth, bm, settings, storage
+from ... import accounts, auth, settings, storage
 from ...i18n import t
 from ...registry import feature_blueprint
 from ..pages import service as pages
@@ -223,10 +223,8 @@ def list_order_version():
 def view(slug: str):
     layout, level = _layout(slug)
     user = auth.current_user()
-    # The editor script follows the canvas simplifications BM mode applies to this person.
-    simplified = [item for item in bm.applied() if item.startswith("canvas.")]
     return render_template("canvas/view.html", layout=layout, can_edit=level == "edit",
-                           is_owner=access.is_owner(user, layout), canvas_bm=simplified)
+                           is_owner=access.is_owner(user, layout))
 
 
 @bp.get("/canvas/<slug>/data")

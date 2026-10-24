@@ -1,10 +1,13 @@
 {#- Page shell. Blocks: title, head, body_class, topbar_actions, sidebar, main_class, content, scripts. -#}
 {%- set prefs = accessibility_prefs() -%}
+{#- BM mode's simplifications applying to this person, for scripts and stylesheets (data-bm). -#}
+{%- set bm_ids = bm_applied() -%}
 <!doctype html>
 <html lang="{{ lang }}" dir="{{ 'rtl' if rtl else 'ltr' }}" data-theme="{{ prefs.theme }}"
       data-font-scale="{{ prefs.font_scale }}" data-contrast="{{ prefs.contrast }}"
       data-reduce-motion="{{ 'true' if prefs.reduce_motion else 'false' }}"
-      data-dyslexic="{{ 'true' if prefs.dyslexic else 'false' }}" data-line-height="{{ prefs.line_height }}">
+      data-dyslexic="{{ 'true' if prefs.dyslexic else 'false' }}" data-line-height="{{ prefs.line_height }}"
+      {%- if bm_ids %} data-bm="{{ bm_ids|join(' ') }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
