@@ -37,6 +37,7 @@
      data-pages-url="{{ url_for('canvas.page_search', slug=layout.slug) }}"
      data-render-url="{{ url_for('canvas.render_node', slug=layout.slug) }}"
      {% endif %}
+     {% if canvas_bm %}data-bm="{{ canvas_bm|join(' ') }}"{% endif %}
      data-storage-key="canvas-view-{{ layout.id }}" data-filename="{{ layout.slug }}">
   <div class="canvas-toolbar no-print" role="toolbar" aria-label="{{ t('canvas.view.toolbar') }}">
     {% if can_edit %}
@@ -57,6 +58,8 @@
       {{ tool('back', t('canvas.action.back'), bm='canvas.simple_tools') }}
       {{ tool('delete', t('canvas.action.delete')) }}
     </div>
+    {#- Left out, not hidden, in BM mode: a hidden menu would leave its group's divider behind. -#}
+    {% if not bm_simplified('canvas.simple_tools') %}
     <div class="canvas-toolbar__group" data-needs-selection>
       <details class="menu canvas-menu" data-arrange-menu data-bm-hide="canvas.simple_tools">
         <summary class="btn btn--small menu__toggle">{{ t('canvas.action.arrange') }}</summary>
@@ -79,6 +82,7 @@
         </div>
       </details>
     </div>
+    {% endif %}
     <div class="canvas-toolbar__group">
       {{ tool('undo', t('canvas.action.undo')) }}
       {{ tool('redo', t('canvas.action.redo')) }}
@@ -102,7 +106,10 @@
   </div>
   <div class="canvas-frame" data-canvas-stage tabindex="0" role="application"
        aria-label="{{ t('canvas.view.stage_label', title=layout.title) }}" aria-describedby="canvas-keys">
+    {#- The minimap shows itself once its toggle is on, so BM mode leaves it out rather than hiding it. -#}
+    {% if not bm_simplified('canvas.simple_tools') %}
     <canvas class="canvas-minimap no-print" data-minimap aria-hidden="true" width="200" height="140" hidden></canvas>
+    {% endif %}
   </div>
   <details class="disclosure canvas-keys no-print" id="canvas-keys" data-bm-hide="canvas.simple_tools">
     <summary>{{ t('canvas.keys.title') }}</summary>
@@ -119,9 +126,15 @@
       <li>{{ t('canvas.keys.clipboard') }}</li>
       <li>{{ t('canvas.keys.connect') }}</li>
       <li>{{ t('canvas.keys.undo') }}</li>
+      {#- Screen readers still read this help through the stage's description: only keys that work. -#}
+      {% if bm_simplified('canvas.simple_tools') %}
+      <li>{{ t('canvas.keys.unlock') }}</li>
+      <li>{{ t('canvas.keys.guides') }}</li>
+      {% else %}
       <li>{{ t('canvas.keys.snap') }}</li>
       <li>{{ t('canvas.keys.guides') }}</li>
       <li>{{ t('canvas.keys.group') }}</li>
+      {% endif %}
       {% endif %}
     </ul>
   </details>

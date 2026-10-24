@@ -171,6 +171,7 @@
   "canvas.keys.snap": "G attiva o disattiva l'aggancio alla griglia (tieni premuto Alt mentre trascini per posizionare liberamente); L blocca o sblocca la selezione.",
   "canvas.keys.title": "Scorciatoie da tastiera",
   "canvas.keys.undo": "Ctrl+Z annulla, Ctrl+Y o Ctrl+Maiusc+Z ripete.",
+  "canvas.keys.unlock": "L sblocca la selezione quando è tutta bloccata; Ctrl+Maiusc+G la separa.",
   "canvas.keys.zoom": "+ e − ingrandiscono o riducono, 0 adatta tutto allo schermo; anche Ctrl + rotellina o il pizzico zoomano.",
   "canvas.list.archived": "Archiviato",
   "canvas.list.can_edit": "Modificabile",
