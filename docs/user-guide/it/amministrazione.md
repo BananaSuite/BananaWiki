@@ -43,8 +43,9 @@ Apri **Amministrazione** dal menu dell'account.
   canvas più semplici). Se è disattivata per la wiki, i
   singoli account possono comunque usarla: decidi se le persone possono
   cambiarla da sole e se i nuovi account partono in modalità BM, metti dentro
-  o fuori tutti in una volta, oppure cambiala per un account (e se può
-  cambiarla da sé) dalla sua pagina in **Utenti**.
+  o fuori in una volta gli account dei ruoli che spunti (utenti, editor,
+  amministratori), oppure cambiala per un account (e se può cambiarla da sé)
+  dalla sua pagina in **Utenti**.
 * **Aspetto** e **Lingue**: colori, favicon, lingue dell'interfaccia e gli
   easter egg della mascotte.
 * **Plugin**: attiva e disattiva le funzioni (anche il costruttore di pagine) e

@@ -61,7 +61,7 @@ def settings_page():
     return render_template("bm_mode/admin.html", active=bm.active(), features=_features(),
                            simplifications=_simplifications(), operator_default=bool(bm._operator_default()),
                            self_service=bm.self_service(), new_accounts=bm.new_accounts(),
-                           in_bm_mode=bm.accounts_in_bm_mode())
+                           in_bm_mode=bm.accounts_in_bm_mode(), top=_admin_service().is_top(auth.current_user()))
 
 
 @bp.post("/settings/bm-mode", endpoint="own_switch")
@@ -124,21 +124,43 @@ def account_switch(user_id: str):
     return redirect(url_for("admin.user_detail", user_id=user_id) + "#bm-mode")
 
 
+# The base roles the switch for many accounts offers; a custom role counts under its base role.
+EVERYONE_ROLES = ("user", "editor", "admin")
+
+
+def _everyone_sql(actor: dict[str, Any], roles: list[str]) -> tuple[str, list[Any]]:
+    """SQL condition on ``users``: the accounts of *roles* that *actor* may manage.
+
+    The administrator's own account counts under administrators, an owner's too.
+    """
+    condition, params = _admin_service()._manageable_sql(actor)
+    marks = ", ".join("?" for _ in roles)
+    if "admin" in roles:
+        return f"({condition} AND (role IN ({marks}) OR id = ?))", [*params, *roles, actor["id"]]
+    return f"({condition} AND role IN ({marks}))", [*params, *roles]
+
+
 @bp.post("/admin/bm-mode/everyone", endpoint="everyone")
 @auth.admin_required
 def everyone():
-    """Put every account the administrator may manage in BM mode, or take them all out."""
+    """Put the accounts of the chosen roles the administrator may manage in BM mode, or take them all out."""
     if auth.is_impersonating():
         abort(403)
     action = request.form.get("action", "")
     if action not in ("on", "off"):
         abort(400)
-    condition, params = _admin_service()._manageable_sql(auth.current_user())
+    chosen = request.form.getlist("role")
+    roles = [role for role in EVERYONE_ROLES if role in chosen]
+    if not roles:
+        auth.flash_t("bm_mode.flash.everyone_no_roles", "error")
+        return redirect(url_for("bm_mode.settings") + "#bm-everyone")
+    condition, params = _everyone_sql(auth.current_user(), roles)
     count = bm.set_everyone(action == "on", condition=condition, params=params)
-    record("bm_mode.everyone_changed", target_type="site", details={"bm_mode": action == "on", "accounts": count})
+    record("bm_mode.everyone_changed", target_type="site",
+           details={"bm_mode": action == "on", "roles": roles, "accounts": count})
     auth.flash_t("bm_mode.flash.everyone_on" if action == "on" else "bm_mode.flash.everyone_off", "success",
                  count=count)
-    return redirect(url_for("bm_mode.settings") + "#bm-people")
+    return redirect(url_for("bm_mode.settings") + "#bm-everyone")
 
 
 def user_section(target: dict[str, Any] | None = None) -> str:

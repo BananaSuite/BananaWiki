@@ -37,9 +37,10 @@ Open **Administration** from the account menu.
   with only pages, boards and canvases, shorter settings, a short admin menu,
   simpler boards and canvases). With it off
   for the wiki, single accounts can still use it: decide whether people may
-  switch it themselves and whether new accounts start in it, put everyone in
-  or out at once, or switch one account (and whether it may change it) on
-  its page under **Users**.
+  switch it themselves and whether new accounts start in it, put the accounts
+  of the roles you tick (users, editors, administrators) in or out at once,
+  or switch one account (and whether it may change it) on its page under
+  **Users**.
 * **Appearance** and **Languages**: colours, favicon, interface languages, and
   the mascot's easter eggs.
 * **Plugins**: switch features on and off (the page builder too) and order the

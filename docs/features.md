@@ -122,10 +122,15 @@ example) still apply to that person's actions.
   or no), within the usual limits (a plain administrator does not change
   owners, superusers or other administrators). Changes are recorded in the
   audit log (`bm_mode.account_changed`).
-* **Admin → BM mode → Every account at once** puts every account the
-  administrator may manage in BM mode or takes them all out
-  (`bm_mode.everyone_changed`), and *New accounts start in BM mode* (off by
-  default) decides how accounts created from then on begin.
+* **Admin → BM mode → Accounts by role** puts the accounts the
+  administrator may manage in BM mode or takes them all out, for the roles
+  ticked there: users (ticked to begin with), editors and administrators. An
+  account with a custom role counts under its base role, and the
+  administrator's own account counts only under administrators (for a plain
+  administrator, the only one that box adds). With no role ticked nothing
+  changes. The audit log records the roles (`bm_mode.everyone_changed`).
+  *New accounts start in BM mode* (off by default) decides how accounts
+  created from then on begin.
 
 ## Pages and categories
 
