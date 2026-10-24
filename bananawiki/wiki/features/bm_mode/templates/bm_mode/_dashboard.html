@@ -1,0 +1,10 @@
+<section class="card bm-start" aria-labelledby="bm-start-heading">
+  <h2 id="bm-start-heading">{{ t('bm_mode.start.title') }}</h2>
+  <p class="hint">{{ t('bm_mode.start.hint') }}</p>
+  <ol>
+    {% for step in steps %}
+    <li>{% if step.done %}<span class="badge badge--success">{{ t('bm_mode.start.done') }}</span> <span class="muted">{{ t('bm_mode.start.' ~ step.key) }}</span>
+      {% else %}<a href="{{ step.url }}">{{ t('bm_mode.start.' ~ step.key) }}</a>{% endif %}</li>
+    {% endfor %}
+  </ol>
+</section>

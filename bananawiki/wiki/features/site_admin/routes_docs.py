@@ -17,12 +17,22 @@ from ..audit import record
 from ..auth import docs
 from ..pages import categories
 from .blueprint import bp
+from .languages import default_language
+
+
+def _suggested_language() -> str:
+    """The wiki's default language when the built-in guide exists in it, else the chosen fallback."""
+    default = default_language()
+    if default in docs.LANGUAGES:
+        return default
+    fallback = settings.get("interface_language_fallback") or "en"
+    return fallback if fallback in docs.LANGUAGES else "en"
 
 
 def _choice(values) -> tuple[str, str]:
     """(variant, language) from a form or query string; 1.4 sent ``simplified=1``."""
     variant = values.get("variant") or ("simplified" if values.get("simplified") == "1" else "full")
-    language = values.get("docs_language") or settings.get("interface_language_fallback") or "en"
+    language = values.get("docs_language") or _suggested_language()
     return (variant if variant in docs.VARIANTS else "full"), (language if language in docs.LANGUAGES else "en")
 
 
@@ -67,11 +77,12 @@ def download_docs():
 @bp.post("/admin/docs-settings")
 @auth.admin_required
 def docs_settings():
+    """1.6 form: the setting now lives on Admin → Pending deletions; a saved old form still works."""
     if not registry.is_enabled("deletion_slowdown"):
         auth.flash_t("site_admin.docs.slowdown_off", "error")
         return redirect(url_for("site_admin.docs_page"))
-    bypass = 1 if request.form.get("docs_bypass_deletion_slowdown") else 0
-    settings.update({"docs_bypass_deletion_slowdown": bypass})
-    record("docs.settings_changed", details={"bypass_deletion_slowdown": bypass})
+    from ..deletion_slowdown import service as slowdown
+
+    slowdown.set_docs_bypass(bool(request.form.get("docs_bypass_deletion_slowdown")))
     auth.flash_t("common.saved", "success")
-    return redirect(url_for("site_admin.docs_page"))
+    return redirect(url_for("deletion_slowdown.pending"))

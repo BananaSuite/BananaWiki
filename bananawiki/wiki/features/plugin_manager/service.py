@@ -23,8 +23,9 @@ from flask import current_app, g, request
 
 from ....core import passwords
 from ....core.timeutil import now_sql
-from ... import auth, i18n, plugins_external, registry, settings
+from ... import auth, bm, i18n, plugins_external, registry, settings
 from ...db import db
+from ..audit import record
 
 SNAPSHOT_DIR = "plugin_safety_snapshots"
 SNAPSHOT_KEEP = 5
@@ -56,18 +57,23 @@ class Entry:
     has_files: bool = False
     legacy: bool = False
     path: Path | None = None
-    easy_wiki_hidden: bool = False
+    # Hidden by BM mode: enabling it also shows it in BM mode (see bananawiki.wiki.bm).
+    bm_hidden: bool = False
+    # The server's own configuration keeps it off whatever the switch says (see _server_lock).
+    server_off: bool = False
+    # A second switch inside the feature that is off: (translation key, endpoint of the page holding it).
+    note: tuple[str, str] | None = None
 
     @property
     def can_enable(self) -> bool:
-        return self.kind != "retired" and self.toggle != "always" and not self.stored and not self.lock \
-            and not self.error_key
+        return self.kind != "retired" and self.toggle != "always" and (not self.stored or self.bm_hidden) \
+            and not self.lock and not self.error_key
 
     @property
     def can_disable(self) -> bool:
         if self.kind == "external":
             return self.stored
-        return self.kind == "feature" and self.toggle != "always" and self.stored and not self.easy_wiki_hidden
+        return self.kind == "feature" and self.toggle != "always" and self.stored and not self.bm_hidden
 
     @property
     def removable(self) -> bool:
@@ -97,6 +103,23 @@ def can_trust_code(user: dict[str, Any] | None = None) -> bool:
     return bool(user) and auth.is_admin(user) and (user.get("role") == "owner" or bool(user.get("is_superuser")))
 
 
+def _server_lock(feature_id: str) -> str:
+    """Why the server's configuration keeps *feature_id* off, whatever its switch says ("" when it does not)."""
+    cfg = _cfg()
+    if feature_id == "page_builder" and cfg.forbid_page_builder:
+        return "plugin_manager.lock.platform_forbids"
+    if feature_id == "federation" and not cfg.federation_enabled:
+        return "plugin_manager.lock.server_off"
+    return ""
+
+
+def _feature_note(feature_id: str, enabled: bool) -> tuple[str, str] | None:
+    """A switch inside an enabled feature that still keeps it from working (the REST API's own on/off)."""
+    if feature_id == "api_service" and enabled and not settings.get("api_service_enabled"):
+        return "plugin_manager.note.api_off", "api_service.admin"
+    return None
+
+
 def _feature_entry(feature: registry.Feature, rows: dict[str, dict[str, Any]]) -> Entry:
     if feature.toggle == "always":
         stored = True
@@ -105,18 +128,21 @@ def _feature_entry(feature: registry.Feature, rows: dict[str, dict[str, Any]]) -
     else:
         row = rows.get(feature.id)
         stored = bool(row["enabled"]) if row else feature.default_enabled
-    hidden = _cfg().easy_wiki and not feature.easy_wiki
+    hidden = not bm.feature_shown(feature)
+    server = _server_lock(feature.id)
     lock = ""
-    if hidden:
-        lock = "plugin_manager.lock.easy_wiki"
-    elif _denied(feature.id):
+    if _denied(feature.id):
         lock = "plugin_manager.lock.denylisted"
+    elif server:
+        lock = server
     elif feature.toggle == "always":
         lock = "plugin_manager.lock.always"
+    enabled = registry.is_enabled(feature.id) and not server
     return Entry(
         id=feature.id, kind="feature", name=i18n.t(feature.name), description=i18n.t(feature.description, ""),
-        version=feature.version, author="BananaWiki", toggle=feature.toggle, enabled=registry.is_enabled(feature.id),
-        stored=stored, lock=lock, loaded=True, easy_wiki_hidden=hidden,
+        version=feature.version, author="BananaWiki", toggle=feature.toggle, enabled=enabled,
+        stored=stored, lock=lock, loaded=True, bm_hidden=hidden, server_off=bool(server),
+        note=_feature_note(feature.id, enabled),
     )
 
 
@@ -157,7 +183,7 @@ def _external_entry(plugin_id: str, state: plugins_external.PluginState | None,
     return entry
 
 
-def entries(*, include_hidden: bool = False) -> list[Entry]:
+def entries() -> list[Entry]:
     """Every feature, plugin and retired row, features first."""
     reg = registry.registry()
     rt = plugins_external.runtime()
@@ -182,27 +208,25 @@ def entries(*, include_hidden: bool = False) -> list[Entry]:
         for dependency in entry.requires:
             if dependency in by_id:
                 by_id[dependency].required_by.append(entry.id)
-    if not include_hidden:
-        result = [entry for entry in result if not entry.easy_wiki_hidden]
     return result
 
 
 def get(plugin_id: str) -> Entry | None:
-    return next((entry for entry in entries(include_hidden=True) if entry.id == plugin_id), None)
+    return next((entry for entry in entries() if entry.id == plugin_id), None)
 
 
 def names(ids: list[str] | tuple[str, ...]) -> list[tuple[str, str]]:
-    known = {entry.id: entry.name for entry in entries(include_hidden=True)}
+    known = {entry.id: entry.name for entry in entries()}
     return [(plugin_id, known.get(plugin_id, plugin_id)) for plugin_id in ids]
 
 
 def missing_requirements(entry: Entry) -> list[str]:
-    known = {e.id: e for e in entries(include_hidden=True)}
+    known = {e.id: e for e in entries()}
     return [dep for dep in entry.requires if not (dep in known and known[dep].stored)]
 
 
 def enabled_dependents(entry: Entry) -> list[str]:
-    known = {e.id: e for e in entries(include_hidden=True)}
+    known = {e.id: e for e in entries()}
     return [dep for dep in entry.required_by if dep in known and known[dep].stored]
 
 
@@ -212,6 +236,9 @@ def enabled_dependents(entry: Entry) -> list[str]:
 def set_state(entry: Entry, enabled: bool) -> None:
     """Switch *entry*. Built-in features change at once; external plugins at the next start."""
     if entry.kind == "feature":
+        if enabled and entry.bm_hidden:
+            bm.show_feature(entry.id)
+            record("bm_mode.feature_shown", target_type="plugin", target_id=entry.id)
         registry.set_enabled(entry.id, enabled)
         return
     if entry.kind != "external":
@@ -309,7 +336,7 @@ def sidebar_apps() -> list[dict[str, Any]]:
     apps = []
     for feature in registry.registry().ordered():
         items = [item for item in feature.nav if item.area == "apps"]
-        if not items or (_cfg().easy_wiki and not feature.easy_wiki):
+        if not items or not bm.feature_shown(feature) or _server_lock(feature.id):
             continue
         # A feature with several apps (chat: Messages and Groups) is named after all of them, as in the sidebar.
         labels = list(dict.fromkeys(i18n.t(item.label) for item in sorted(items, key=lambda item: item.order)))

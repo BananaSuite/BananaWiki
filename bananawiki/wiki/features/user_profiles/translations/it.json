@@ -1,7 +1,7 @@
 {
   "feature.user_profiles.description": "Pagine profilo pubbliche, campi del profilo personalizzati ed etichette personalizzate.",
   "feature.user_profiles.name": "Profili utente",
-  "profiles.about": "Informazioni",
+  "profiles.about": "Campi del profilo",
   "profiles.admin.crumb": "Profilo",
   "profiles.admin.delete_field_confirm": "Eliminare questo campo e tutte le risposte?",
   "profiles.admin.disable": "Disattiva pagina profilo",
@@ -21,7 +21,7 @@
   "profiles.admin.type": "Tipo",
   "profiles.admin.unpublish": "Nascondi",
   "profiles.admin.view_profile": "Vedi il profilo",
-  "profiles.edit_about": "Modifica la sezione Informazioni",
+  "profiles.edit_about": "Modifica i campi del profilo",
   "profiles.edit_fields": "Modifica i campi del profilo",
   "profiles.error.date_invalid": "Inserisci una data valida.",
   "profiles.error.disabled_by_admin": "Un amministratore ha disattivato la tua pagina profilo, quindi non può essere pubblicata.",

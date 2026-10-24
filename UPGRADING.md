@@ -1,14 +1,101 @@
 # Upgrading BananaWiki
 
+* [Upgrading from 1.7.2 to 1.7.3](#upgrading-from-172-to-173)
 * [Upgrading from 1.7.1 to 1.7.2](#upgrading-from-171-to-172)
 * [Upgrading from 1.7.0 to 1.7.1](#upgrading-from-170-to-171)
 * [Upgrading from 1.6 to 1.7](#upgrading-from-16-to-17)
 * [Upgrading from 1.4](#upgrading-from-14)
 
 Read every section between the release you run and the one you install. A
-1.6 installation that updates straight to 1.7.2 follows the 1.6 to 1.7
-section, then the 1.7.0 to 1.7.1 and 1.7.1 to 1.7.2 sections. A 1.4
-installation follows all of them.
+1.6 installation that updates straight to 1.7.3 follows the 1.6 to 1.7
+section, then the 1.7.0 to 1.7.1, 1.7.1 to 1.7.2 and 1.7.2 to 1.7.3
+sections. A 1.4 installation follows all of them.
+
+## Upgrading from 1.7.2 to 1.7.3
+
+### Databases
+
+The first start migrates the wiki database from schema 12 to 15 and the
+hosting portal's database from schema 7 to 11. Both migrations only add
+tables, columns and indexes and take well under a second. Afterwards 1.7.2
+cannot open the databases, so back up first (`sudo bananawiki backup` on a
+managed server) if you may want to go back.
+
+* Wiki 13: `platform_oauth_state` (where the wiki is in the portal's sign-out
+  events). Wiki 14: `site_settings.bm_mode`, `bm_mode_env`, `bm_choices`,
+  `bm_self_service` and `bm_new_accounts`, and `users.bm_mode` and `bm_self`
+  (BM mode for single accounts; nobody is in it after the upgrade).
+  Wiki 15: `site_settings.easter_eggs`.
+* Portal 8: `hosting_oauth_grants` (remembered consent per account and wiki)
+  and `hosting_oauth_signouts` (sign-out events, kept 30 days).
+* Portal 9: the new email, notice and easter egg settings in
+  `hosting_settings`. The current email choices carry over: *address at
+  sign-up* and *accounts without an address* are worked out from
+  `ask_email_new_signup`, `ask_email_existing_users` and `email_required`,
+  which are still written for a downgrade but no longer read. The unique index
+  `ix_accounts_active_email` becomes the plain index `ix_accounts_email`: one
+  account per address is now enforced by the portal, and stays the default.
+* Portal 10: `instances.is_main` and `main_since` (main wikis; none after the
+  upgrade).
+* Portal 11: `hosting_settings.custom_domains_policy` (`admins` by default),
+  `accounts.custom_domains_allowed`, and `instance_feature_requests` rebuilt
+  so owners can ask for a custom domain (rows and ids kept).
+
+### Easy wiki becomes BM mode
+
+`BW_EASY_WIKI=1` now starts a wiki in BM mode. Kanban boards and canvases,
+which the easy wiki hid, stay available in a simpler form; the other
+advanced features stay hidden until an administrator ticks them under
+**Admin → BM mode** or switches them on under **Admin → Plugins**. A choice
+made there holds until the operator changes `BW_EASY_WIKI` again.
+
+### Wiki settings that moved
+
+* The page builder is switched under **Admin → Plugins** only; its Site
+  settings checkbox is gone (`page_builder_enabled` is unchanged).
+  `BW_FORBID_PAGE_BUILDER` now locks it there.
+* *Delete guide pages immediately* (`docs_bypass_deletion_slowdown`) is set
+  under **Admin → Pending deletions**; Admin → Documentation links there.
+* Signed-in people choose their language on the **Account** tab of Settings;
+  the display page (**Customise**) keeps it only for visitors.
+
+### Hosting platforms
+
+* **Custom domains**: who may use them is a platform setting, *only
+  administrators* by default; wikis an administrator allowed before keep
+  their permission, and administrators' wikis always may. A custom domain is
+  served only while its wiki may use one (narrowing the policy stops routing
+  at once and keeps the records), and taking a wiki's own permission away
+  keeps its domain when the policy or its owner's account still allows it.
+* **Platform sign-in**: the first sign-in on a wiki no longer creates or links
+  an account by itself. It opens a page to create a new wiki account or
+  connect an existing one. The portal remembers consent per wiki and does not
+  ask a wiki's owner at all.
+* **Single sign-out**: hosted wikis read sign-out events from
+  `<portal>/oauth/signouts`. The portal passes `BW_PLATFORM_OAUTH_SIGNOUTS_URL`
+  the next time it writes a wiki's settings; until then the wiki derives the
+  address from `BW_PLATFORM_OAUTH_PORTAL_BASE`, so nothing needs to be done.
+* **Sign-ups**: the mode and the approval switch are one setting under
+  **Settings → Sign-ups**. `POST /admin/signup-mode` and the `signup-mode`
+  command change the mode only: they no longer clear the approval switch or
+  approve waiting accounts. Leaving approval mode from the settings page asks
+  what to do with waiting accounts.
+* **Settings forms**: scripts that post the settings page directly must use
+  the new section names: `save_account_communications` became `save_email` and
+  `save_wiki_features`, `save_grace_period` became `save_lifetime`;
+  `save_activation` became `save_signups` (the old name is still accepted).
+* `/admin/attention` redirects to the *Needs your attention* card on the
+  Overview; links in earlier emails keep working.
+* The collaborator permission *download* is no longer offered (it never had
+  an effect); stored permissions stay valid.
+
+### Cron and `bananawiki jobs run`
+
+`bananawiki jobs run` without a name now runs only the jobs that are due,
+respecting their intervals and leases, instead of every job. Installations
+with `BW_BACKGROUND_JOBS=0` should call it every minute rather than every five,
+so the one-minute jobs keep their pace. `bananawiki jobs run NAME` still runs
+that job at once.
 
 ## Upgrading from 1.7.1 to 1.7.2
 
@@ -674,7 +761,7 @@ are kept. Automatic updates upgrade the server the same way on their next run.
 ```sh
 cd /path/to/BananaWiki
 git fetch --tags
-git checkout v1.7.2       # the release tag you upgrade to
+git checkout v1.7.3       # the release tag you upgrade to
 python -m pip install --require-hashes --only-binary=:all: -r requirements.lock   # inside the wiki's virtual environment
 sudo systemctl restart bananawiki
 ```

@@ -190,8 +190,8 @@ def clean_node(raw: Any) -> dict[str, Any] | None:
         if value:
             node[key] = value
     page_id = raw.get("page_id")
-    linked_page = ascii_int(page_id) if isinstance(page_id, (int, str)) and not isinstance(page_id, bool) else None
-    if linked_page is not None:
+    linked_page = ascii_int(page_id, 19) if isinstance(page_id, (int, str)) and not isinstance(page_id, bool) else None
+    if linked_page is not None and 0 < linked_page < 2**63:  # what SQLite can hold, as page ids are
         node["page_id"] = linked_page
     page_slug = _text(raw.get("page_slug"), 200)
     if page_slug:

@@ -148,7 +148,9 @@ def test_callback_rejects_unknown_or_reused_state(oauth_client, portal):
 def test_closed_signup_needs_an_invite(oauth_client, oauth_db, portal, make_user):
     admin = make_user("chief", role="admin")
     response = _callback(oauth_client, _start(oauth_client))
-    assert response.headers["Location"].endswith("/platform-oauth/signup")
+    assert response.headers["Location"].endswith("/platform-oauth/connect")
+    page = oauth_client.get("/platform-oauth/connect").get_data(as_text=True)
+    assert 'name="invite_code"' in page and 'value="portaluser"' in page
     assert oauth_db.scalar("SELECT COUNT(*) FROM users WHERE username = 'portaluser'") == 0
     response = oauth_client.post("/platform-oauth/signup", data={"username": "portaluser", "invite_code": "NOPE"})
     assert response.status_code == 400
@@ -164,6 +166,9 @@ def test_closed_signup_needs_an_invite(oauth_client, oauth_db, portal, make_user
 def test_open_signup_provisions_and_respects_approval(oauth_client, oauth_db, portal):
     oauth_db.execute("UPDATE site_settings SET open_signup = 1, approval_required = 1")
     response = _callback(oauth_client, _start(oauth_client))
+    assert response.headers["Location"].endswith("/platform-oauth/connect"), "the first sign-in asks once"
+    assert oauth_db.scalar("SELECT COUNT(*) FROM users WHERE username = 'portaluser'") == 0
+    response = oauth_client.post("/platform-oauth/signup", data={"username": "portaluser"})
     assert response.headers["Location"].endswith("/account-status")
     assert oauth_db.scalar("SELECT approval_status FROM users WHERE username = 'portaluser'") == "pending"
     assert oauth_client.get("/_probe/private").headers["Location"].endswith("/account-status")
@@ -173,7 +178,9 @@ def test_invalid_portal_username_must_be_changed(oauth_client, oauth_db, portal)
     oauth_db.execute("UPDATE site_settings SET open_signup = 1")
     portal.profile = {"sub": "acct-9", "username": "admin"}  # reserved here
     response = _callback(oauth_client, _start(oauth_client))
-    assert response.headers["Location"].endswith("/platform-oauth/signup")
+    assert response.headers["Location"].endswith("/platform-oauth/connect")
+    page = oauth_client.get("/platform-oauth/connect").get_data(as_text=True)
+    assert 'value="admin2"' in page, "a free name is suggested"
     response = oauth_client.post("/platform-oauth/signup", data={"username": "admin"})
     assert response.status_code == 400
     response = oauth_client.post("/platform-oauth/signup", data={"username": "portal_admin"})
@@ -204,7 +211,7 @@ def test_access_token_is_never_stored(oauth_client, oauth_db, portal, make_user)
 def test_merge_requires_local_password(oauth_client, oauth_db, portal, make_user):
     local = make_user("portaluser")
     response = _callback(oauth_client, _start(oauth_client))
-    assert response.headers["Location"].endswith("/platform-oauth/merge")
+    assert response.headers["Location"].endswith("/platform-oauth/connect")
     response = oauth_client.post("/platform-oauth/merge", data={"password": "wrong password"})
     assert response.status_code == 401
     assert oauth_db.scalar("SELECT COUNT(*) FROM platform_oauth_links") == 0
@@ -223,7 +230,7 @@ def _https_callback(client):
 def test_merge_over_https_keeps_its_state_in_the_prefixed_cookie(oauth_client, oauth_db, portal, make_user):
     local = make_user("portaluser")
     response = _https_callback(oauth_client)
-    assert response.headers["Location"].endswith("/platform-oauth/merge")
+    assert response.headers["Location"].endswith("/platform-oauth/connect")
     assert any(header.startswith("__Host-bw_session=") for header in response.headers.getlist("Set-Cookie"))
     response = oauth_client.post("/platform-oauth/merge", data={"password": PASSWORD}, base_url="https://localhost")
     assert response.status_code == 302
@@ -257,12 +264,16 @@ def test_1x_portal_link_is_adopted(oauth_client, oauth_db, portal, make_user):
     assert oauth_db.scalar("SELECT user_id FROM platform_oauth_links WHERE account_id = 'acct-1'") == local["id"]
 
 
-def test_username_linked_to_other_portal_account_is_refused(oauth_client, oauth_db, portal, make_user):
+def test_username_linked_to_other_portal_account_is_not_taken_over(oauth_client, oauth_db, portal, make_user):
     local = make_user("portaluser")
     portal.links[local["id"]] = "acct-other"
     response = _callback(oauth_client, _start(oauth_client))
-    assert response.headers["Location"].endswith("/login")
+    assert response.headers["Location"].endswith("/platform-oauth/connect")
     assert oauth_db.scalar("SELECT COUNT(*) FROM user_sessions") == 0
+    assert oauth_db.scalar("SELECT COUNT(*) FROM platform_oauth_links") == 0
+    oauth_db.execute("UPDATE site_settings SET open_signup = 1")
+    page = oauth_client.get("/platform-oauth/connect").get_data(as_text=True)
+    assert 'value="portaluser2"' in page, "the name is taken: another one is suggested"
 
 
 def test_portal_failure_is_reported_without_details(oauth_client, portal):

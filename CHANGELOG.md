@@ -1,5 +1,71 @@
 # Changelog
 
+## 1.7.3 — 2026-10-24
+
+### Upgrading
+
+* Wiki databases move to schema 15 and the hosting portal's database to schema 11; neither can be opened by 1.7.2 afterwards. Several settings moved and a few behaviours changed. Read [UPGRADING.md](UPGRADING.md) first.
+
+### Cross-wiki sign-in (hosting platforms)
+
+* Signing in to a hosted wiki with the platform account asks for consent once per wiki and remembers it. A wiki's owner is not asked; collaborators are, since they are added without accepting.
+* The first sign-in on a wiki opens a connect page: create a new wiki account, or connect an existing one of any name with its password (and two-step code). When the platform user name belongs to someone else on that wiki, the page says so and suggests a free name. A wiki account already linked to another platform account is never taken over.
+* **Account → Wiki sign-ins** lists the wikis an account signs in to, with **Sign out** and **Remove access**.
+* Single sign-out: signing out everywhere, changing the password, suspension, deletion, scheduled deletion, a merge or removing a wiki's access ends that account's platform sessions on every wiki within about a minute (job `auth.platform_signouts`, portal endpoint `/oauth/signouts`, `BW_PLATFORM_OAUTH_SIGNOUTS_URL`). Sessions signed in with a wiki password are not touched.
+
+### BM mode
+
+* BM mode, the easy mode of a wiki, replaces the "easy wiki" setting. **Admin → BM mode** turns it on or off and adjusts it item by item: which features stay (Kanban and canvases now stay, in a simpler form) and what gets simpler (a shorter editor toolbar, fewer page actions, a short admin menu, simpler Kanban boards, tickets and canvas tools, a "Getting started" list). It applies to the whole wiki or, while that is off, to single accounts: people switch it for themselves under **Customise** when allowed, and administrators switch any account, every account at once, or have new accounts start in it.
+* BM mode also simplifies the sidebar (only pages, Kanban boards and canvases), the page view (no history link or difficulty tags, which also leave the page actions and the editor) and Settings (profile, user name, password, language, email address and **Customise**; the rest is behind **All settings**, and the whole page shows while something is waiting for the person). Each can be switched off under **Admin → BM mode**.
+* The hosting portal calls its choice **Easy mode (BM mode)**, the mode a wiki starts in.
+
+### Email (hosting platforms)
+
+* **Settings → Email**: an address at sign-up can be required, optional or not asked; accounts without one can be made to add one, asked once, or left alone; one address can serve one account or several; email verification can be switched off.
+* **Pause all email** stops every message at once and counts what it held back; administration pages show a banner while it is on. Also `bananawiki hosting-admin settings email-pause on|off`.
+* Each notice to account holders can be switched off. New notices: a wiki back online after a suspension, being added as a collaborator, a wiki offered to you, a changed password and a changed address. Administrators choose which pending-action queues email them.
+* A user-name reminder to an address shared by several accounts lists all of them.
+
+### Custom domains (hosting platforms)
+
+* **Settings → Custom domains** chooses who may use them: only administrators (the default), administrators and the accounts you allow (**Admin → the account → Custom domains**), or everyone; a wiki can still be allowed on its own. Owners who may not can ask for one on the wiki's **Custom domain** page; requests wait in *Needs your attention* like the other wiki features. The settings page says whether the server is ready.
+* The **Custom domain** page guides the setup: it shows the exact records for a subdomain (CNAME) or a root domain (A/AAAA, with the platform's addresses looked up when `HOSTING_CUSTOM_DOMAIN_IPS` is empty) with Copy buttons and provider tips, checks DNS every 30 seconds while open, shows what each record currently returns, and turns the domain on by itself once both records are right.
+
+### Main wikis (hosting platforms)
+
+* Administrators mark any wiki as a **main wiki** of the platform (several are allowed): it never expires, cannot be terminated or reset, is not deleted with its owner's account, is not suspended for storage automatically, and starts first after an update. Main wikis are highlighted on the admin pages only (as *Platform wiki* when an administrator owns them). Also `bananawiki hosting-admin instance main WIKI on|off`.
+
+### Easter eggs
+
+* The mascot's sunglasses, the Konami code's banana shower and the mascot's peek into "page not found" can each be switched off: per wiki under **Admin → Appearance → Easter eggs**, and for the portal under **Settings → Easter eggs**.
+
+### Editing, files and reading
+
+* Files are added in the editor: a **File** button, files dropped or pasted into the text become attachments with a link at the cursor, **Insert link** next to each file, and **Create the page and add files** on a new page. A page without files no longer shows an "Add files" box under its text.
+* Every upload shows a progress bar with Cancel. Files that are empty, too large or of a refused type are turned away before they are sent; a connection lost before the file was sent is retried. Upload temporary files left by a killed worker are removed after a day.
+* Phones: the editor toolbar is one row that scrolls sideways, search options fold into one line, search results no longer overflow, and small links have bigger tap areas.
+* Read aloud: headings, list items and table rows are read as separate sentences, web addresses as the site's name, and embeds and `[TOC]` are skipped. The highlight follows the voice from the title on and no longer pulls the page back while the reader scrolls. **Remove audio** stops playback, and a busy queue no longer leaves the panel without a button.
+* Read aloud, continued: previous/next paragraph buttons (J/L, K to play or pause, and a phone's lock-screen controls); once you are listening, click or tap a word to read from there; a small player at the bottom of the screen while you scroll; each page continues where you stopped (**Start over** to begin again). Queued pages show their place and say when no worker is running, failed audio can be retried from the page, and long pages say that the audio reads their first part. **Admin → Read aloud** warns when pages are queued and no worker has checked in, and shows the last check-in and when running jobs started.
+
+### Cleaner administration
+
+* Wiki: the page builder is switched only under **Admin → Plugins** (and locked there by `BW_FORBID_PAGE_BUILDER`); "Delete guide pages immediately" lives only on **Admin → Pending deletions**; federation and the REST API show their real state in Plugins; BM mode sits with the wiki settings in the admin menu; the "Bulk delete" link is for administrators only.
+* Wiki: "Last edited by" links only to profiles the reader may open; the empty "About" card is gone (now "Profile fields", shown when there is something to show); the language is set on the **Account** tab only, and the display page is called **Customise** everywhere; Admin → Documentation suggests the wiki's default language; Messages, Groups and People keep a fixed order in the sidebar.
+* Portal: sign-up mode and approval are one setting and no longer undo each other; settings moved to the sections they belong to; *Needs your attention* is one card on the Overview (`/admin/attention` leads there).
+* Portal: approving a requested feature from the wiki's admin page closes the request; an administrator opening a customer's wiki is pointed to Admin tools; **Move now** (administrators) and transfer offers (owners) are told apart; the collaborator "download" permission, which never worked, is no longer offered; never-expiring wikis show "Never"; collaborators allowed to start a wiki see **Start** in their list.
+
+### Security and stability
+
+* Portal: an unverified or lapsed custom-domain claim no longer keeps the real owner of a domain out; no wiki can take the portal's own address.
+* Portal: a verification link is only issued for the address it is mailed to; keeping the current session after a password change never revives a revoked one, and the browser that changed the password stays signed in.
+* Portal: per-wiki limits on analytics and account lists; ids too large for the database answer 400; suspending an account republishes routes at once; decision and attention emails are claimed before sending, so two maintenance runs never send one twice; the theme toggle no longer changes the customer's account while impersonating.
+* Portal: sign-in codes are refused for a `redirect_uri` with control characters or over 2,048 characters, and auto-issued codes are limited to 20 a minute per account.
+* Wiki: actions taken while impersonating are attributed to the administrator, and an administrator cannot act on their own account or start a merge while impersonating.
+* Wiki: passwords are hashed before the write transaction starts (sign-in changes, forced changes, resets, the REST API), so a slow hash never holds the database lock.
+* Wiki: canvas, Kanban, bulk export and plugin archives check that the member may read what they reference; out-of-range ids are refused; the Markdown import's title scan runs in linear time.
+* Wiki: SMTP errors caused by unusual addresses are reported instead of raised; savepoints and migrations roll back only when a transaction is open.
+* Jobs: a lease lasts the job's interval (15 to 60 minutes) and only its holder releases it; `bananawiki jobs run` runs only the jobs that are due, `jobs run NAME` that one at once; the desktop app waits up to two minutes for a running job when it closes. Sessions that ended more than 90 days ago are pruned.
+
 ## 1.7.2 — 2026-10-20
 
 ### Changes

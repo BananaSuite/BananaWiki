@@ -297,7 +297,9 @@ def cmd_jobs(args: argparse.Namespace) -> int:
         known = {job.name for _feature, job in scheduler.jobs()}
         if args.name and args.name not in known:
             raise CommandError(f"Unknown job {args.name!r}. Use 'jobs list'.")
-    ran = scheduler.run_due(force=True, only=args.name)
+    # A named job runs now; "jobs run" alone (the cron mode of BW_BACKGROUND_JOBS=0) runs what is due,
+    # with the same intervals and leases as the workers, so overlapping runs never repeat a job.
+    ran = scheduler.run_due(force=bool(args.name), only=args.name, command=True)
     _print({"ran": ran})
     return 0
 

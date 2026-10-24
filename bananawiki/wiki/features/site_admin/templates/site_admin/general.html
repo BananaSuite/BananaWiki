@@ -16,6 +16,9 @@
     <h2>{{ t('site_admin.section.' ~ section) }}</h2>
     <div class="form admin-settings__fields">
     {% for item in fields if item.shown() %}{% include "site_admin/_field.html" %}{% endfor %}
+    {% if section == 'content' %}
+    <p class="hint">{{ t('site_admin.settings.features_hint') }} <a href="{{ url_for('plugin_manager.index') }}">{{ t('site_admin.settings.features_link') }}</a></p>
+    {% endif %}
     {% if section == 'uploads' and platform_blacklist %}
     <p class="hint">{{ t('site_admin.settings.platform_blacklist', extensions=platform_blacklist|join(', ')) }}</p>
     {% endif %}

@@ -18,23 +18,52 @@
   {{ ui.field('global_limit_max_instances', t('hosting.settings.max_instances'), s.global_limit_max_instances, type='number', attrs={'min': 1}) }}
   {{ ui.field('global_limit_max_storage_mb', t('hosting.settings.max_storage'), s.global_limit_max_storage_mb, type='number', attrs={'min': 1}) }}
 {% endcall %}
-{% call section('save_account_communications', t('hosting.settings.accounts')) %}
-  {{ ui.check('ask_email_new_signup', t('hosting.settings.ask_email_new'), s.ask_email_new_signup) }}
-  {{ ui.check('ask_email_existing_users', t('hosting.settings.ask_email_existing'), s.ask_email_existing_users) }}
-  {{ ui.check('email_required', t('hosting.settings.email_required'), s.email_required) }}
-  {{ ui.check('email_verification_required', t('hosting.settings.verification_required'), s.email_verification_required) }}
-  {{ ui.field('email_verification_cooldown_seconds', t('hosting.settings.cooldown'), s.email_verification_cooldown_seconds, type='number', attrs={'min': 30, 'max': 3600}) }}
-  {{ ui.check('forbid_non_admin_public_wikis', t('hosting.settings.forbid_public'), s.forbid_non_admin_public_wikis) }}
-  {{ ui.check('forbid_non_admin_page_builder', t('hosting.settings.forbid_builder'), s.forbid_non_admin_page_builder) }}
-  {{ ui.check('auto_approve_public_access_requests', t('hosting.settings.auto_public'), s.auto_approve_public_access_requests) }}
-  {{ ui.check('auto_approve_page_builder_requests', t('hosting.settings.auto_builder'), s.auto_approve_page_builder_requests) }}
+{% call section('save_signups', t('hosting.settings.signups'), t('hosting.settings.signups_hint')) %}
+  <div class="field"><label for="f-mode">{{ t('hosting.settings.signup_mode') }}</label><select id="f-mode" name="signup_mode">{% for mode in ('open', 'invite', 'approval', 'closed') %}<option value="{{ mode }}"{% if mode == signup_mode %} selected{% endif %}>{{ t('hosting.signup_mode.' ~ mode) }}</option>{% endfor %}</select></div>
+  {#- With "Administrator approval" every new account waits whatever the box says, so it shows ticked. -#}
+  {{ ui.check('hosting_activation_required', t('hosting.settings.activation_required'), s.hosting_activation_required or signup_mode == 'approval', hint=t('hosting.settings.activation_required_hint')) }}
+  {{ ui.check('signup_use_case_required', t('hosting.settings.use_case_required'), s.signup_use_case_required) }}
+  {{ ui.check('hosting_activation_denied_deletion_enabled', t('hosting.settings.delete_denied'), (s.hosting_activation_denied_timeout_seconds or 0) >= 0) }}
+  {#- The stored timeout fills the fields, so saving this section for another reason keeps it (turned off,
+      the fields show the usual day). -#}
+  {% set denied_after = s.hosting_activation_denied_timeout_seconds if s.hosting_activation_denied_timeout_seconds is not none else 86400 %}
+  {{ ui.duration_fields('act_timeout', legend=t('hosting.settings.delete_denied_after'), hint=t('hosting.settings.delete_denied_hint'),
+      seconds=denied_after if denied_after|int >= 0 else 86400) }}
 {% endcall %}
-<details class="card" id="notifications" data-remember{% if request.args.get('open') == 'notifications' %} open{% endif %}><summary>{{ t('hosting.settings.notifications') }}</summary>
+{% macro choices(name, legend, options, current, hint='') %}
+<fieldset class="plain"><legend>{{ legend }}</legend>{% if hint %}<p class="hint hint--block">{{ hint }}</p>{% endif %}
+  {% for value, label in options %}<label class="check"><input type="radio" name="{{ name }}" value="{{ value }}"{% if value == current %} checked{% endif %}><span>{{ label }}</span></label>{% endfor %}
+</fieldset>
+{% endmacro %}
+{% call section('save_email', t('hosting.settings.email'), t('hosting.settings.email_hint')) %}
+  {% if not email_configured %}<div class="alert alert--warning"><div class="alert__body">{{ t('hosting.settings.email_missing') }}</div></div>{% endif %}
+  {{ ui.check('email_paused', t('hosting.settings.email_paused'), s.email_paused, hint=t('hosting.settings.email_paused_hint')) }}
+  {% if s.email_paused %}<p class="small muted">{{ tn('hosting.settings.email_paused_held', s.email_paused_held or 0, when=s.email_paused_at|datetime if s.email_paused_at else '') }}</p>{% endif %}
+  {{ choices('signup_email', t('hosting.settings.signup_email'), [('required', t('hosting.settings.signup_email.required')), ('optional', t('hosting.settings.signup_email.optional')), ('off', t('hosting.settings.signup_email.off'))], signup_email) }}
+  {{ choices('existing_email', t('hosting.settings.existing_email'), [('required', t('hosting.settings.existing_email.required')), ('optional', t('hosting.settings.existing_email.optional')), ('off', t('hosting.settings.existing_email.off'))], existing_email, hint=t('hosting.settings.existing_email_hint')) }}
+  {{ choices('email_shared', t('hosting.settings.email_shared'), [('0', t('hosting.settings.email_shared.no')), ('1', t('hosting.settings.email_shared.yes'))], '1' if s.email_shared else '0') }}
+  {% if shared_addresses %}<p class="small muted">{{ tn('hosting.settings.shared_addresses', shared_addresses) }}</p>{% endif %}
+  {{ ui.check('email_verification_required', t('hosting.settings.verification_required'), s.email_verification_required, hint=t('hosting.settings.verification_hint')) }}
+  {{ ui.field('email_verification_cooldown_seconds', t('hosting.settings.cooldown'), s.email_verification_cooldown_seconds, type='number', attrs={'min': 30, 'max': 3600}) }}
+  {{ ui.check('email_flag_block_reentry', t('hosting.settings.flag_block_reentry'), s.email_flag_block_reentry) }}
+{% endcall %}
+{% call section('save_notices', t('hosting.settings.notices'), t('hosting.settings.notices_hint')) %}
+  {% for group, items in notice_groups.items() %}
+  <fieldset class="plain"><legend>{{ t('hosting.notices.group.' ~ group) }}</legend>
+    <div class="check-grid">{% for notice in items %}{{ ui.check('notice_' ~ notice.kind, t('hosting.notices.' ~ notice.kind), notices_on[notice.kind]) }}{% endfor %}</div>
+  </fieldset>
+  {% endfor %}
+  <p class="small muted">{{ t('hosting.settings.always_sent') }}</p>
+{% endcall %}
+<details class="card" id="notifications" data-remember{% if request.args.get('open') in ('notifications', 'save_notifications') %} open{% endif %}><summary>{{ t('hosting.settings.notifications') }}</summary>
 <p class="muted small">{{ t('hosting.settings.notifications_hint') }}</p>
 {% if not email_configured %}<div class="alert alert--warning"><div class="alert__body">{{ t('hosting.settings.email_missing') }}</div></div>{% endif %}
 <form method="post" action="{{ url_for('admin.settings_page') }}" class="form">{{ ui.csrf() }}<input type="hidden" name="action" value="save_notifications">
   {{ ui.check('approval_notify_admins', t('hosting.settings.notify_admins'), s.approval_notify_admins, hint=t('hosting.settings.notify_admins_hint')) }}
   {{ ui.field('approval_notify_email', t('hosting.settings.notify_email'), s.approval_notify_email, type='email', hint=t('hosting.settings.notify_email_hint')) }}
+  <fieldset class="plain"><legend>{{ t('hosting.settings.notify_sources') }}</legend>
+    <div class="check-grid">{% for source in attention_sources %}{{ ui.check('attention_source_' ~ source.id, t(source.label), attention_emailed[source.id]) }}{% endfor %}</div>
+  </fieldset>
   <div class="field"><label for="f-nm">{{ t('hosting.settings.notify_mode') }}</label><select id="f-nm" name="approval_notify_mode">{% for m in ('immediate', 'digest', 'daily') %}<option value="{{ m }}"{% if s.approval_notify_mode == m %} selected{% endif %}>{{ t('hosting.settings.notify_' ~ m) }}</option>{% endfor %}</select></div>
   <div class="form-grid">
   {{ ui.field('approval_notify_interval_minutes', t('hosting.settings.notify_interval'), s.approval_notify_interval_minutes, type='number', hint=t('hosting.settings.notify_interval_hint'), attrs={'min': notify_interval[0], 'max': notify_interval[1]}) }}
@@ -46,15 +75,29 @@
   <span class="small muted">{{ t('hosting.attention.test_help', address=current_account.email) if current_account.email else t('hosting.attention.test_no_address') }}</span>
 </form>
 </details>
-{% call section('save_activation', t('hosting.settings.activation')) %}
-  {{ ui.check('hosting_activation_required', t('hosting.settings.activation_required'), s.hosting_activation_required) }}
-  {{ ui.check('signup_use_case_required', t('hosting.settings.use_case_required'), s.signup_use_case_required) }}
-  {{ ui.check('hosting_activation_denied_deletion_enabled', t('hosting.settings.delete_denied'), (s.hosting_activation_denied_timeout_seconds or 0) >= 0) }}
-  {#- The stored timeout fills the fields, so saving this section for another reason keeps it (turned off,
-      the fields show the usual day). -#}
-  {% set denied_after = s.hosting_activation_denied_timeout_seconds if s.hosting_activation_denied_timeout_seconds is not none else 86400 %}
-  {{ ui.duration_fields('act_timeout', legend=t('hosting.settings.delete_denied_after'), hint=t('hosting.settings.delete_denied_hint'),
-      seconds=denied_after if denied_after|int >= 0 else 86400) }}
+{% call section('save_wiki_features', t('hosting.settings.wiki_features'), t('hosting.settings.wiki_features_hint')) %}
+  {{ ui.check('forbid_non_admin_public_wikis', t('hosting.settings.forbid_public'), s.forbid_non_admin_public_wikis) }}
+  {{ ui.check('auto_approve_public_access_requests', t('hosting.settings.auto_public'), s.auto_approve_public_access_requests) }}
+  {{ ui.check('forbid_non_admin_page_builder', t('hosting.settings.forbid_builder'), s.forbid_non_admin_page_builder) }}
+  {{ ui.check('auto_approve_page_builder_requests', t('hosting.settings.auto_builder'), s.auto_approve_page_builder_requests) }}
+{% endcall %}
+{% set cd = custom_domains %}
+{% call section('save_custom_domains', t('hosting.domain_policy.title'), t('hosting.domain_policy.hint')) %}
+  {{ choices('custom_domains_policy', t('hosting.domain_policy.who'), [('admins', t('hosting.domain_policy.admins')), ('selected', t('hosting.domain_policy.selected')), ('everyone', t('hosting.domain_policy.everyone'))], cd.policy, hint=t('hosting.domain_policy.who_hint')) }}
+  <h3>{{ t('hosting.domain_policy.ready_title') }}</h3>
+  {% if cd.configured %}
+  <p><span class="badge badge--success">{{ t('hosting.domain_policy.ready') }}</span></p>
+  <dl class="kv kv--dns">
+    <dt>{{ t('hosting.domain_policy.target') }}</dt><dd class="kv-copy"><span class="mono">{{ cd.target|wbr_dots }}</span></dd>
+    <dt>{{ t('hosting.domain_policy.addresses') }}</dt><dd>{% if cd.addresses %}<span class="mono">{{ cd.addresses|join(', ') }}</span> <span class="small muted">{{ t('hosting.domain_policy.addresses_set') if cd.ips else t('hosting.domain_policy.addresses_looked_up') }}</span>{% else %}<span class="text-warning">{{ t('hosting.domain_policy.addresses_none') }}</span>{% endif %}</dd>
+    <dt>{{ t('hosting.domain_policy.in_use') }}</dt><dd>{{ t('hosting.domain_policy.in_use_value', serving=cd.serving, claimed=cd.claimed) }}</dd>
+    {% if cd.policy == 'selected' %}<dt>{{ t('hosting.domain_policy.accounts') }}</dt><dd>{{ cd.accounts }}</dd>{% endif %}
+    <dt>{{ t('hosting.domain_policy.wikis') }}</dt><dd>{{ cd.wikis }}</dd>
+  </dl>
+  <p class="small muted">{{ t('hosting.domain_policy.certificates') }}</p>
+  {% else %}
+  <div class="alert alert--warning"><div class="alert__body">{{ t('hosting.domain_policy.not_ready_port') if cd.mode != 'subdomain' else t('hosting.domain_policy.not_ready') }}</div></div>
+  {% endif %}
 {% endcall %}
 {% call section('save_admin_mfa', t('hosting.settings.admin_mfa'), t('hosting.settings.admin_mfa_hint')) %}
   {{ ui.check('admin_mfa_required', t('hosting.settings.admin_mfa_required'), s.admin_mfa_required) }}
@@ -66,14 +109,13 @@
   {{ ui.field('global_wiki_upload_max_size_mb', t('hosting.admin.upload_max_mb'), s.global_wiki_upload_max_size_mb, type='number', attrs={'min': 1, 'max': 2048}) }}
   {{ ui.field('global_wiki_blocked_extensions', t('hosting.admin.blocked_extensions'), s.global_wiki_blocked_extensions) }}
 {% endcall %}
-{% call section('save_grace_period', t('hosting.settings.grace')) %}
+{% call section('save_lifetime', t('hosting.settings.lifetime')) %}
+  {{ ui.check('owner_renewal_enabled', t('hosting.settings.owner_renewal'), s.owner_renewal_enabled, hint=t('hosting.settings.owner_renewal_hint', days=renewal_window)) }}
   {{ ui.field('grace_period_days', t('hosting.settings.grace_days'), s.grace_period_days, type='number', attrs={'min': 0, 'max': 3650}) }}
 {% endcall %}
 {% call section('save_expired_wiki_permissions', t('hosting.settings.owner_permissions')) %}
   {{ ui.check('allow_owner_delete_expired', t('hosting.settings.owner_delete_expired'), s.allow_owner_delete_expired) }}
   {{ ui.check('allow_owner_download_expired', t('hosting.settings.owner_download_expired'), s.allow_owner_download_expired) }}
-  {{ ui.check('owner_renewal_enabled', t('hosting.settings.owner_renewal'), s.owner_renewal_enabled, hint=t('hosting.settings.owner_renewal_hint', days=renewal_window)) }}
-  {{ ui.check('email_flag_block_reentry', t('hosting.settings.flag_block_reentry'), s.email_flag_block_reentry) }}
 {% endcall %}
 {% call section('save_instance_url_suffix', t('hosting.settings.suffix'), t('hosting.settings.suffix_hint', suffix=suffix)) %}
   {{ ui.field('instance_url_suffix', t('hosting.settings.suffix_value'), s.instance_url_suffix or 'hosting', attrs={'maxlength': 30}) }}
@@ -109,6 +151,9 @@
   {{ ui.field('gdrive_folder_id', t('hosting.settings.gdrive_folder'), s.gdrive_folder_id) }}
   {{ ui.field('gdrive_retention_days', t('hosting.settings.gdrive_retention'), s.gdrive_retention_days, type='number', attrs={'min': 1, 'max': 365}) }}
   {{ ui.field('gdrive_backup_time', t('hosting.settings.gdrive_time'), s.gdrive_backup_time, type='time') }}
+{% endcall %}
+{% call section('save_easter_eggs', t('hosting.settings.easter_eggs'), t('hosting.settings.easter_eggs_hint')) %}
+  {% for egg in ('shades', 'konami', 'peek') %}{{ ui.check('easter_' ~ egg, t('hosting.settings.easter.' ~ egg), eggs_on[egg]) }}{% endfor %}
 {% endcall %}
 <section class="card backups-card"><h2>{{ t('hosting.settings.backups') }}</h2>
   {% set backup = backup_status or {} %}

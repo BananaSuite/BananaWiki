@@ -1,4 +1,5 @@
-/* Portal behaviours: mobile menu, theme label, remembered sections, dismissible banners and resumable archive uploads. No inline handlers. */
+/* Portal behaviours: mobile menu, theme label, remembered sections, dismissible banners, resumable archive uploads
+   and the custom domain checklist. No inline handlers. */
 (function () {
   "use strict";
   var BW = window.BW;
@@ -124,7 +125,38 @@
         upload(form, input.files[0]);
       });
     });
+
+    // Custom domain page: look at the DNS records every half minute until the domain is verified; the server
+    // verifies it as soon as both records are right, and the page then reloads to show it active.
+    document.querySelectorAll("[data-domain-check][data-url]").forEach(watchDomain);
   });
+
+  function watchDomain(box) {
+    var url = box.getAttribute("data-url");
+    var every = Math.max(15, parseInt(box.getAttribute("data-poll"), 10) || 30) * 1000;
+    var failures = 0;
+    var timer = null;
+    function later(ms) {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(check, ms);
+    }
+    function check() {
+      if (document.hidden) { later(every); return; }  // a tab in the background waits
+      BW.fetchJSON(url, { method: "POST" }).then(function (data) {
+        failures = 0;
+        if (typeof data.html === "string") box.innerHTML = data.html;  // rendered and escaped by the portal
+        if (data.verified || data.state === "active") { window.location.reload(); return; }
+        if (data.poll > 0) later(data.poll * 1000);
+      }).catch(function (error) {
+        failures += 1;
+        var wait = error.data && error.data.poll;
+        if (error.status === 409 || failures > 5) return;  // nothing to check any more, or the server keeps failing
+        later((wait > 0 ? wait * 1000 : every) * failures);
+      });
+    }
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) later(1000); });
+    later(box.children.length ? every : 2000);  // a checklist the page already shows is fresh
+  }
 
   function post(url, data) {
     return BW.fetchJSON(url, { method: "POST", body: data });

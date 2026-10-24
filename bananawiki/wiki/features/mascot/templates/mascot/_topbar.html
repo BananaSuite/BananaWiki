@@ -2,8 +2,10 @@
 {#- Deferred, so it runs after bananawiki.js at the end of the body; kept before the button so the
     button stays next to the site name (mascot.css). -#}
 <script src="{{ asset_url('mascot/mascot.js') }}" defer></script>
+{#- The easter eggs switched off under Admin -> Appearance: data-mascot-clicks="0" (sunglasses) and
+    data-mascot-konami="off" (Konami code); see core/static/mascot/mascot.js. -#}
 <button type="button" class="mascot" data-mascot
-        data-mascot-url="{{ url_for('mascot.put_on_shades') }}" data-mascot-clicks="{{ clicks }}"
+        {% if clicks %}data-mascot-url="{{ url_for('mascot.put_on_shades') }}" {% endif %}data-mascot-clicks="{{ clicks }}"{% if not konami %} data-mascot-konami="off"{% endif %}
         aria-label="{{ t('mascot.label_shades' if shades else 'mascot.label') }}"
         title="{{ t('mascot.label_shades' if shades else 'mascot.label') }}">
   <span class="mascot__body">{{ sprite }}</span>

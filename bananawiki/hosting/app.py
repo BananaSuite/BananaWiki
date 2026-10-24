@@ -14,7 +14,7 @@ from typing import Any
 from flask import Flask, Response, g, jsonify, redirect, render_template, request, session, url_for
 from flask.sessions import SecureCookieSessionInterface
 from werkzeug.datastructures import LanguageAccept
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import BadRequest, HTTPException
 from werkzeug.http import parse_accept_header, parse_cookie
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -357,6 +357,9 @@ def _install_error_handlers(app: Flask) -> None:
     def _unexpected(error: Exception):
         if isinstance(error, HTTPException):
             return _http_error(error)
+        if isinstance(error, OverflowError):
+            # A number from the request (an id in the URL) too large for SQLite, as the wiki answers it.
+            return _http_error(BadRequest())
         if isinstance(error, DatabaseUnavailable) or is_unavailable(error):
             log.error("Storage unavailable: %s", error)
             code = 503

@@ -62,7 +62,7 @@ def _render_account(**extra):
         current_session_id=current_id, tokens=tokens, api_enabled=api_enabled,
         show_tokens=approved and (api_enabled or bool(tokens)), token_nonce=nonce,
         token_scopes=api_tokens.scopes_for(current), token_limit=api_tokens.MAX_ACTIVE,
-        email_required=settings.flag("email_required"), cooldown=accounts.cooldown_remaining(current),
+        email_required=accounts.address_required(current), cooldown=accounts.cooldown_remaining(current),
         email_configured=notifications.configured(), merges=merges.for_account(current["id"]),
         show_wiki_signins=oauth.enabled(), **extra,
     )
@@ -81,9 +81,10 @@ def account_page():
                                 or (request.form.get("email") or "").strip().lower() != (current["email"] or ""))
             if identity_changed:
                 raise ServiceError("hosting.account.password_required")
+        old_address = current.get("email") or ""
         email_changed = accounts.update_identity(current, username=request.form.get("username") or "",
                                                  email=request.form.get("email") or "",
-                                                 email_required=settings.flag("email_required"))
+                                                 email_required=accounts.address_required(current))
     except ServiceError as error:
         flash_error(error)
         return redirect(url_for("account.account"))
@@ -91,7 +92,10 @@ def account_page():
     if email_changed and notifications.verification_required():
         ok, key = notifications.send_verification(accounts.get(current["id"]), ignore_cooldown=True)  # type: ignore[arg-type]
         flash(t(key), "success" if ok else "error")
+        notifications.email_changed(current, old_address, by_account=True)
         return redirect(url_for("account.verify_email_pending"))
+    if email_changed:
+        notifications.email_changed(current, old_address, by_account=True)
     flash(t("hosting.account.saved"), "success")
     return redirect(url_for("account.account"))
 
@@ -113,8 +117,10 @@ def change_password():
     except ServiceError as error:
         flash_error(error)
         return redirect(url_for("account.account"))
-    version = accounts.set_password(current["id"], new, actor_id=current["id"], reason="Password changed")
+    version = accounts.set_password(current["id"], new, actor_id=current["id"], reason="Password changed",
+                                    keep_session_id=auth.current_session_id())
     auth.keep_current_session(current["id"], version)
+    notifications.password_changed(current["id"], by_account=True)
     flash(t("hosting.account.password_changed"), "success")
     return redirect(url_for("account.account"))
 
@@ -137,7 +143,11 @@ def delete_account():
         instances.terminate_all(current["id"], actor_id=current["id"])
         accounts.delete(current["id"])
     except ServiceError as error:
-        flash_error(error)
+        if error.key == "hosting.accounts.owns_main_wiki" and not current["is_admin"]:
+            # Whether a wiki is a main wiki is for administrators to know; the owner only hears that it is kept.
+            flash(t("hosting.account.delete_kept_wiki", slug=error.values.get("slug", "")), "error")
+        else:
+            flash_error(error)
         return redirect(url_for("account.account"))
     auth.end_session()
     flash(t("hosting.account.deleted"), "success")
@@ -176,6 +186,50 @@ def logout_everywhere():
     return redirect(url_for("account.account") + "#sessions")
 
 
+# Wikis the account signs in to (platform sign-in)
+
+
+def _platform_sign_in() -> None:
+    if not oauth.enabled():
+        abort(404)
+
+
+@bp.get("/account/wikis")
+@auth.exempt(*ACCOUNT_PAGE_GATES)
+def wiki_signins():
+    """The wikis this account signs in to with the portal: open, sign out of one or all, withdraw consent."""
+    _platform_sign_in()
+    current = account()
+    return render_template("hosting/account/wikis.html", wikis=oauth.connected_wikis(current["id"]),
+                           can_act=not auth.impersonating())
+
+
+@bp.post("/account/wikis/<instance_id>/sign-out")
+@auth.exempt(*auth.GATES)  # signing out only takes access away: never held up by an account state
+@rate_limit(20)
+def wiki_sign_out(instance_id: str):
+    _platform_sign_in()
+    _no_impersonation()
+    if oauth.sign_out_of(account()["id"], instance_id[:64]):
+        flash(t("hosting.wikis.signed_out"), "success")
+    else:
+        flash(t("hosting.wikis.not_signed_in"), "info")
+    return redirect(url_for("account.wiki_signins"))
+
+
+@bp.post("/account/wikis/<instance_id>/remove")
+@auth.exempt(*auth.GATES)
+@rate_limit(20)
+def wiki_remove_access(instance_id: str):
+    _platform_sign_in()
+    _no_impersonation()
+    if oauth.remove_access(account()["id"], instance_id[:64]):
+        flash(t("hosting.wikis.removed"), "success")
+    else:
+        flash(t("hosting.wikis.not_signed_in"), "info")
+    return redirect(url_for("account.wiki_signins"))
+
+
 @bp.post("/account/sessions/history/clear")
 @auth.exempt(*ACCOUNT_PAGE_GATES)
 @rate_limit(10)
@@ -193,25 +247,33 @@ def clear_session_history():
 @auth.exempt("contact_email", "verification", "approval")
 @rate_limit(8, 300)
 def contact_email():
+    """Add an address: required (a gate) or, once, suggested after signing in (it may be skipped)."""
     current = account()
+    required = auth.contact_email_required(current)
+    next_url = safe_next(url_for("dashboard.dashboard"), request.values.get("next"))
+    if not required and not auth.contact_email_suggested(current):
+        return redirect(next_url)
     if request.method == "GET":
-        if not auth.contact_email_required(current):
-            return redirect(url_for("dashboard.dashboard"))
-        return render_template("hosting/account/contact_email.html")
+        return render_template("hosting/account/contact_email.html", required=required,
+                               next_url=request.values.get("next") or "")
+    if request.form.get("action") == "skip":
+        if not required and not auth.impersonating():
+            accounts.dismiss_email_prompt(current["id"])
+        return redirect(next_url)
     try:
         if not accounts.verify_password(current, request.form.get("current_password") or ""):
             raise ServiceError("hosting.account.wrong_password")
         accounts.set_contact_email(current, request.form.get("email") or "")
     except ServiceError as error:
         flash_error(error)
-        return redirect(url_for("account.contact_email"))
+        return redirect(url_for("account.contact_email", next=request.values.get("next") or None))
     auth.refresh()
     if notifications.verification_required():
         ok, key = notifications.send_verification(accounts.get(current["id"]), ignore_cooldown=True)  # type: ignore[arg-type]
         flash(t(key), "success" if ok else "error")
         return redirect(url_for("account.verify_email_pending"))
     flash(t("hosting.account.contact_saved"), "success")
-    return redirect(url_for("dashboard.dashboard"))
+    return redirect(next_url)
 
 
 @bp.get("/account/verify-email")

@@ -337,7 +337,8 @@ def test_uncategorised_listing_ends_its_breadcrumb_and_offers_a_new_page(app, ad
 
 def test_page_meta_keeps_the_separator_with_the_history_link():
     template = feature_file("pages", "templates", "pages", "page.html")
-    assert '<span class="nowrap">· <a href="{{ url_for(\'pages.history\'' in template
+    # The separator sits inside the span, so BM mode's simpler page view hides it with the link.
+    assert '<span class="nowrap" data-bm-hide="pages.simple_reading">· <a href="{{ url_for(\'pages.history\'' in template
 
 
 def test_page_history_row_panel_is_not_a_menu_with_fields(app, admin_client, admin):

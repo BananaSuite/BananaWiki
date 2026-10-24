@@ -130,9 +130,14 @@ def test_bulk_action_reads_the_raw_keys_and_counts_exactly(app, admin_client, ma
 ])
 def test_state_reads_just_the_sunglasses_key(monkeypatch, raw, shades):
     _forbid_full_cleaning(monkeypatch)
+    eggs = {"sunglasses": True, "konami": True, "peek": True}
+    monkeypatch.setattr(service, "eggs", lambda: eggs)
     # Every signed-in person sees the mascot.
     assert service.state({"id": "someone", "accessibility": raw}) == {"enabled": True, "shades": shades}
     assert service.state(None) == {"enabled": False, "shades": False}
+    # With the sunglasses easter egg switched off, nobody wears them.
+    eggs["sunglasses"] = False
+    assert service.state({"id": "someone", "accessibility": raw}) == {"enabled": True, "shades": False}
 
 
 def test_top_bar_reads_the_state_once_per_page(app, client, make_user, login, monkeypatch):

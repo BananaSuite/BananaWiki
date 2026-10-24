@@ -190,31 +190,67 @@
     });
   }
 
-  // Images
+  // Images: one at a time, each with a progress bar under the editor; a picture the server would refuse
+  // (type, size) is named at once instead of after its upload.
+  var progressHost = editor.querySelector("[data-upload-progress-host]");
+  var imageRules = config.uploadRules || {};
   function sendImage(file) {
     var body = new FormData();
     body.append("file", file);
-    uploadStatus.textContent = BW.t("pages.uploading", { name: file.name });
-    return BW.fetchJSON(config.upload, { method: "POST", body: body }).then(function (data) {
-      uploadStatus.textContent = BW.t("pages.uploaded", { name: file.name });
-      return data;
-    }, function (error) {
-      uploadStatus.textContent = "";
-      throw error;
-    });
+    var row = BW.uploadRow(progressHost || editor, file.name);
+    var problem = BW.uploadProblem(file, imageRules);
+    if (problem) {
+      row.fail(problem);
+      var refused = new Error(problem);
+      refused.shown = true;
+      return Promise.reject(refused);
+    }
+    uploadStatus.textContent = "";
+    return BW.upload(config.upload, body, { onProgress: row.progress, onRetry: row.retrying, signal: row.signal })
+      .then(function (data) {
+        row.done();
+        uploadStatus.textContent = BW.t("pages.uploaded", { name: file.name });
+        return data;
+      }, function (error) {
+        row.fail(error.message, error.aborted);
+        error.shown = true;
+        throw error;
+      });
   }
+  var imageQueue = Promise.resolve();
   function upload(files) {
     if (!config.upload) return;
+    var others = Array.prototype.filter.call(files, function (file) { return !/^image\//.test(file.type); });
+    if (others.length) {
+      // Other files become attachments of the page when it has an attachment list to take them.
+      var handed = new CustomEvent("bw:editor-files", { detail: { files: others }, cancelable: true });
+      if (editor.dispatchEvent(handed)) {
+        others.forEach(function (file) { BW.toast(BW.t("pages.not_an_image", { name: file.name }), "error"); });
+      }
+    }
     Array.prototype.forEach.call(files, function (file) {
       if (!/^image\//.test(file.type)) return;
-      sendImage(file).then(function (data) {
-        var alt = file.name.replace(/\.[^.]+$/, "").replace(/[\[\]]/g, "");
-        insertBlock("![" + alt + "](" + data.url + ")");
+      imageQueue = imageQueue.then(function () {
+        return sendImage(file).then(function (data) {
+          var alt = file.name.replace(/\.[^.]+$/, "").replace(/[\[\]]/g, "");
+          insertBlock("![" + alt + "](" + data.url + ")");
+        });
       }).catch(function (error) {
-        BW.toast(error.message || BW.t("error"), "error");
+        if (!error.shown) BW.toast(error.message || BW.t("error"), "error");
       });
     });
   }
+  // Other parts of the editor page (attachments) add text at the cursor through this event.
+  editor.addEventListener("bw:editor-insert", function (event) {
+    var detail = event.detail || {};
+    if (typeof detail.text !== "string" || !detail.text) return;
+    if (!detail.inline) { insertBlock(detail.text); return; }
+    var end = area.selectionEnd;
+    var gap = end > 0 && !/\s/.test(area.value[end - 1]) ? " " : "";
+    area.setRangeText(gap + detail.text, end, end, "end");
+    area.focus();
+    changed();
+  });
   if (fileInput) fileInput.addEventListener("change", function () { upload(fileInput.files); fileInput.value = ""; });
   area.addEventListener("dragover", function (e) {
     if (config.upload && e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types, "Files") !== -1) {
@@ -483,7 +519,7 @@
       area.focus();
       changed();
     }).catch(function (error) {
-      BW.toast(error.message || BW.t("error"), "error");
+      if (!error.shown) BW.toast(error.message || BW.t("error"), "error");
     }).then(function () { fields.apply.disabled = false; });
   }
 

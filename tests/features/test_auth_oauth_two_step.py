@@ -59,7 +59,7 @@ def _local_with_two_step(oauth_app, make_user, login):
 def test_the_password_alone_does_not_link_an_account_with_two_step_verification(oauth_app, oauth_client, oauth_db,
                                                                                portal, make_user, login):
     local, secret, _codes = _local_with_two_step(oauth_app, make_user, login)
-    assert _callback(oauth_client, _start(oauth_client)).headers["Location"].endswith("/platform-oauth/merge")
+    assert _callback(oauth_client, _start(oauth_client)).headers["Location"].endswith("/platform-oauth/connect")
     response = oauth_client.post("/platform-oauth/merge", data={"password": PASSWORD})
     assert response.status_code == 302 and response.headers["Location"].endswith("/platform-oauth/merge")
     assert _links(oauth_db) == 0 and not signed_in(oauth_client)

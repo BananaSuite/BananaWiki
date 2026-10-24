@@ -15,6 +15,19 @@
 </div></div>
 {% endif %}
 {% include "hosting/admin/_attention_card.html" %}
+{% set main_wikis = instances|selectattr('is_main')|list %}
+{% if main_wikis %}
+<section class="card" id="main-wikis"><h2>{{ t('hosting.main.list_title') }}</h2>
+  <p class="small muted">{{ t('hosting.main.list_hint') }}</p>
+  <ul class="plain-list">
+    {% for inst in main_wikis %}
+    <li><a class="text-link" href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ inst.original_slug }}</a>
+      {{ ui.status(inst.status) }} <span class="small muted">{{ t('hosting.main.badge_platform') if inst.owner_admin else t('hosting.main.owned_by', owner=inst.owner_username) }}</span>
+      {% if inst.url and inst.status == 'running' %}<a class="small text-link" href="{{ inst.url }}" rel="noopener">{{ t('hosting.main.open') }}</a>{% endif %}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
 <dl class="summary-line">
   {% for key in ('accounts', 'running', 'stopped', 'suspended', 'terminated', 'pending_accounts') %}
   <div><dt>{{ t('hosting.admin.stat.' ~ key ~ ('_one' if stats[key] == 1 else '_other')) }}</dt><dd>{{ stats[key] }}</dd></div>
@@ -68,17 +81,16 @@
 {% for inst in instances %}
 <tr><td><input type="checkbox" name="instance_ids" value="{{ inst.id }}" form="inst-bulk" aria-label="{{ inst.original_slug }}"></td>
   {#- On the narrowest phones the owner moves under the name, so the status badge is not cut off. -#}
-  <td><a class="text-link" href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ inst.original_slug }}</a>{% if inst.domain_mode == 'apex' %} <span class="badge">{{ t('hosting.admin.apex_badge') }}</span>{% endif %}<span class="small muted cell-note owner-note"><span class="visually-hidden">{{ t('hosting.instance.owner') }}: </span>{{ inst.owner_username }}</span></td>
+  <td><a class="text-link" href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ inst.original_slug }}</a>{% if inst.is_main %} <span class="badge badge--primary">{{ t('hosting.main.badge_platform') if inst.owner_admin else t('hosting.main.badge') }}</span>{% endif %}{% if inst.domain_mode == 'apex' %} <span class="badge">{{ t('hosting.admin.apex_badge') }}</span>{% endif %}<span class="small muted cell-note owner-note"><span class="visually-hidden">{{ t('hosting.instance.owner') }}: </span>{{ inst.owner_username }}</span></td>
   <td class="col-owner">{{ inst.owner_username }}</td><td>{{ ui.status(inst.status, expired=inst.expired) }}{% if inst.grace_active %}<span class="small muted cell-note">{{ t('hosting.admin.retained') }}</span>{% endif %}</td>
-  <td class="small nowrap col-optional">{% if inst.status == 'terminated' %}—{% elif inst.seconds_left is never_expiring %}{{ t('hosting.instance.never') }}{% elif inst.expired %}{{ inst.expires_at|date }}{% else %}{{ inst.seconds_left|duration }}{% endif %}</td>
+  <td class="small nowrap col-optional">{% if inst.status == 'terminated' %}—{% elif inst.is_main or inst.seconds_left is never_expiring %}{{ t('hosting.instance.never') }}{% elif inst.expired %}{{ inst.expires_at|date }}{% else %}{{ inst.seconds_left|duration }}{% endif %}</td>
   <td class="small nowrap col-optional">{{ inst.storage_mb|mb }} MB</td></tr>
 {% endfor %}</tbody></table></div></section>
 <div class="panel-list">
 <details class="card" id="signup-access" data-remember><summary>{{ t('hosting.admin.signup_title') }} · {{ t('hosting.admin.invites') }}</summary>
-  <form method="post" action="{{ url_for('admin.signup_mode') }}" class="cluster">{{ ui.csrf() }}
-    <label class="visually-hidden" for="f-mode">{{ t('hosting.admin.signup_title') }}</label>
-    <select id="f-mode" name="signup_mode">{% for mode in ('open', 'invite', 'approval', 'closed') %}<option value="{{ mode }}"{% if mode == signup_mode %} selected{% endif %}>{{ t('hosting.signup_mode.' ~ mode) }}</option>{% endfor %}</select>
-    <button class="btn" type="submit">{{ t('common.save') }}</button></form>
+  {#- The mode and the approval box are changed together under Settings → Sign-ups. -#}
+  <p class="cluster">{{ t('hosting.admin.signup_current', mode=t('hosting.signup_mode.' ~ signup_mode)) }}{% if signup_approval and signup_mode != 'approval' %} · {{ t('hosting.admin.signup_with_approval') }}{% endif %}
+    <a class="text-link" href="{{ url_for('admin.settings_page', open='save_signups') }}#save_signups">{{ t('hosting.admin.signup_change') }}</a></p>
   <h3>{{ t('hosting.admin.invites') }}</h3>
   <form method="post" action="{{ url_for('admin.create_invite') }}" class="form">{{ ui.csrf() }}
     <div class="form-grid">{{ ui.field('custom_code', t('hosting.admin.invite_code'), attrs={'maxlength': 32}) }}

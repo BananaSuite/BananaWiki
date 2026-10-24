@@ -95,7 +95,7 @@ def test_attention_page_and_dashboard_card(portal, make_account, login, admin, q
     user = make_account(approval_status="pending")
     query("UPDATE accounts SET created_at = '2020-01-01 00:00:00' WHERE id = ?", (user["id"],))
     client = _client(portal, login, admin)
-    page = client.get("/admin/attention").get_data(as_text=True)
+    page = client.get("/admin/attention", follow_redirects=True).get_data(as_text=True)
     assert "Accounts waiting for approval" in page and "Oldest request arrived" in page
     assert 'href="/admin#pending-accounts"' in page
     dashboard = client.get("/admin").get_data(as_text=True)
@@ -111,7 +111,7 @@ def test_italian_labels(portal, make_account, login, admin):
     make_account(approval_status="pending")
     client = _client(portal, login, admin)
     client.post("/language", data={"language": "it"})
-    assert "Account in attesa di approvazione" in client.get("/admin/attention").get_data(as_text=True)
+    assert "Account in attesa di approvazione" in client.get("/admin/attention", follow_redirects=True).get_data(as_text=True)
 
 
 # Events and owner notices

@@ -75,6 +75,12 @@ def _run(host: str, port: int) -> None:
         _done(host)
 
 
+def pending(host: str) -> bool:
+    """Whether this process is still obtaining *host*'s first certificate (for the domain page)."""
+    with _lock:
+        return host in _active
+
+
 def schedule(host: str) -> threading.Thread | None:
     """Warm *host* in a daemon thread, unless the platform does not serve HTTPS itself or it is already running."""
     cfg = current_app.config["HOSTING"]

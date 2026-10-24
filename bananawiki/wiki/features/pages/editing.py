@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from flask import abort, redirect, render_template, request, url_for
@@ -50,6 +51,20 @@ def _create_denied(category_id: int | None):
     return response if response is not None else abort(403)
 
 
+_THEN_ANCHOR = re.compile(r"[a-z][a-z0-9-]{0,40}")
+
+
+def _after_create(page: dict[str, Any]) -> str:
+    """Where a new page goes: its view, or its editor when a button asked for that (``then=edit#anchor``).
+
+    The editor's attachment panel uses it: a page holds files only once it exists.
+    """
+    target, _hash, anchor = (request.form.get("then") or "").partition("#")
+    if target == "edit" and service.can_edit(page):
+        return url_for("pages.edit", slug=page["slug"]) + (f"#{anchor}" if _THEN_ANCHOR.fullmatch(anchor) else "")
+    return url_for("pages.view", slug=page["slug"])
+
+
 @bp.route("/create", methods=["GET", "POST"])
 @bp.route("/create-page", methods=["GET", "POST"])
 @rate_limited("create", 20)
@@ -79,7 +94,7 @@ def create():
                                can_uncategorized=service.can_create(None, user)), 400
     registry.intercept("page.saved", page=page, user=user)
     auth.flash_t("pages.flash.created", "success")
-    return redirect(url_for("pages.view", slug=page["slug"]))
+    return redirect(_after_create(page))
 
 
 # Edit

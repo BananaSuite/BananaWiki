@@ -74,15 +74,20 @@ def test_built_in_feature_cannot_be_deleted(app, admin_client):
     assert row(app, "demo") is not None
 
 
-def test_easy_wiki_hides_and_locks_advanced_features(app_factory, tmp_path, admin, login):
+def test_bm_mode_hides_advanced_features_until_an_administrator_turns_them_on(app_factory, tmp_path, admin,
+                                                                              login):
+    """BM mode (BW_EASY_WIKI starts it) hides advanced features, but never locks them away."""
     app = build(app_factory, tmp_path, BW_EASY_WIKI="1")
-    add_feature(app, "advanced", easy_wiki=False, default_enabled=False)
+    add_feature(app, "advanced", easy_wiki=False, default_enabled=True)
+    assert not _enabled(app, "advanced"), "on by its own switch, hidden by BM mode"
     client = app.test_client()
     login(client, admin)
-    assert "/admin/plugins/advanced\"" not in client.get("/admin/plugins").get_data(as_text=True)
-    assert client.get("/admin/plugins/advanced").status_code == 404
-    assert client.post("/admin/plugins/advanced/enable").status_code == 404
-    assert row(app, "advanced")["enabled"] == 0
+    assert "Hidden in BM mode" in client.get("/admin/plugins").get_data(as_text=True)
+    assert client.get("/admin/plugins/advanced").status_code == 200
+    client.post("/admin/plugins/advanced/enable")
+    assert _enabled(app, "advanced") and row(app, "advanced")["enabled"] == 1
+    client.post("/admin/plugins/advanced/disable")
+    assert not _enabled(app, "advanced")
 
 
 def test_denylisted_feature_is_locked(app_factory, tmp_path, make_user, login):

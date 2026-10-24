@@ -229,10 +229,12 @@ def test_script_never_posts_anywhere_but_the_shades_endpoint(tmp_path, url):
 
 
 @needs_node
-@pytest.mark.parametrize("clicks", ["0", "-3", "many", None])
-def test_script_survives_a_bad_click_count(tmp_path, clicks):
-    result = _run(tmp_path, _clicks(1), attributes={"data-mascot-clicks": clicks}, by_id=None)
-    assert result["posts"] == [OWN_ENDPOINT]
+@pytest.mark.parametrize("clicks", ["0", "-3", "many", "", None])
+def test_without_a_click_count_the_sunglasses_easter_egg_is_off(tmp_path, clicks):
+    # "0" is what the server renders when the egg is switched off; anything unusable counts the same.
+    result = _run(tmp_path, [*_clicks(30), "look", "eager"], attributes={"data-mascot-clicks": clicks}, by_id=None)
+    assert result["posts"] == [] and result["toasts"] == [] and not result["shades"]
+    assert result["snapshots"] == [True, False], "it still hops, and never gets eager"
 
 
 @needs_node
@@ -319,3 +321,22 @@ def test_with_less_motion_the_konami_code_only_leans_the_mascot(tmp_path, reduce
     result = _run(tmp_path, [*_keys(KONAMI), "shower", "lean", 700, "lean"], reduced=reduced,
                   reduce_switch=reduce_switch)
     assert result["snapshots"] == [[], True, False]
+
+
+@needs_node
+def test_switched_off_the_sunglasses_never_touch_the_browser_storage(tmp_path):
+    local = {"data-mascot-store": "local", "data-mascot-url": None, "data-mascot-clicks": "0"}
+    worn = {"bananawiki.mascot.shades": "1"}
+    result = _run(tmp_path, _clicks(22), attributes=local, stored=worn)
+    assert not result["shades"], "a pair kept in the browser stays off while the egg is off"
+    assert result["stored"] == worn and result["posts"] == [] and result["toasts"] == []
+
+
+@needs_node
+def test_switched_off_the_konami_code_does_nothing(tmp_path):
+    result = _run(tmp_path, [*_keys(KONAMI), "shower", "look", "lean"], attributes={"data-mascot-konami": "off"})
+    assert result["snapshots"] == [[], False, False]
+    # Any other value leaves it on, and the sunglasses keep working without it.
+    assert _run(tmp_path, [*_keys(KONAMI), "shower"], attributes={"data-mascot-konami": "on"})["snapshots"] == [[10]]
+    result = _run(tmp_path, _clicks(11), attributes={"data-mascot-konami": "off"})
+    assert result["posts"] == [OWN_ENDPOINT] and result["shades"]

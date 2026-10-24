@@ -15,7 +15,7 @@ from .. import __version__
 from ..core import web
 from ..core.assets import asset_url
 from ..core.timeutil import in_zone, parse, utcnow
-from . import attention, auth, i18n, registry, settings
+from . import attention, auth, bm, i18n, registry, settings
 from .markdown import render as render_markdown
 
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -180,15 +180,29 @@ def theme_css() -> Markup:
     return Markup("".join(blocks))
 
 
+# BM mode's shorter sidebar (pages.simple_sidebar): the page tree, then only these apps (boards and canvases).
+SIMPLE_SIDEBAR_APPS = frozenset({"kanban", "canvas"})
+
+
+def _short_sidebar_app(feature: Any) -> bool:
+    """Whether an app stays in BM mode's shorter sidebar: boards and canvases, and any feature hidden in BM
+    mode by default that the administrators chose to show there (Chat has no other way in)."""
+    if feature.id in SIMPLE_SIDEBAR_APPS:
+        return True
+    return not feature.easy_wiki and bm.choices().get(f"feature:{feature.id}") is True
+
+
 def nav_items(area: str) -> list[dict[str, Any]]:
     user = auth.current_user()
     items = []
     reg = registry.registry()
+    # Leaves out every other app, third-party plugins' included, without them marking anything.
+    short_apps = area == "apps" and bm.simplified("pages.simple_sidebar")
     for feature in reg.ordered():
-        if not registry.is_enabled(feature.id):
+        if not registry.shown(feature.id) or (short_apps and not _short_sidebar_app(feature)):
             continue
         for item in feature.nav:
-            if item.area != area:
+            if item.area != area or (item.bm_hide and bm.simplified(item.bm_hide)):
                 continue
             try:
                 if item.visible is not None and not item.visible(user):
@@ -219,7 +233,9 @@ def nav_items(area: str) -> list[dict[str, Any]]:
         item["active"] = bool(best) and item.pop("_match") == best
     order = [x.strip() for x in (settings.get("sidebar_apps_order") or "").split(",") if x.strip()]
     rank = {key: i for i, key in enumerate(order)}
-    items.sort(key=lambda item: (rank.get(item["id"].split(":", 1)[0], 1000 + item["order"]), item["label"]))
+    # A saved order ranks whole features; a feature's own links (Messages, Groups) keep their order.
+    items.sort(key=lambda item: (rank.get(item["id"].split(":", 1)[0], 1000 + item["order"]), item["order"],
+                                 item["label"]))
     return items
 
 
@@ -374,10 +390,11 @@ def install(app: Flask) -> None:
             "site": settings.load,
             "site_name": settings.site_name,
             "public_mode": settings.public_mode_active,
-            "feature_enabled": registry.is_enabled,
+            "feature_enabled": registry.shown,
             "nav_items": nav_items,
             "attention_items": attention.items,
             "slot": registry.render_slot,
+            "slot_parts": registry.slot_parts,
             "asset_url": asset_url,
             "favicon_url": favicon_url,
             "theme_css": theme_css,
@@ -387,6 +404,9 @@ def install(app: Flask) -> None:
             "request_id": g.get("request_id", ""),
             "escape": escape,
             "accessibility_prefs": accessibility_prefs,
+            "bm_css": bm.css,
+            "bm_simplified": bm.simplified,
+            "bm_active": bm.applies,
         }
 
 

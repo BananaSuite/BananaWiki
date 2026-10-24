@@ -11,12 +11,14 @@ addresses all belong to Cloudflare counts as routed and is reported as
 from __future__ import annotations
 
 import hmac
+import time
 from collections.abc import Iterable
 
 from ...core.cloudflare import all_cloudflare
 from . import DomainCheck, RuntimeFailure
 
 LIFETIME_SECONDS = 4.0
+INSPECT_SECONDS = 6.0  # all of inspect()'s lookups together
 CHALLENGE_PREFIX = "_bananawiki-challenge."
 
 
@@ -67,3 +69,59 @@ def check(domain: str, token: str, target: str, allowed_ips: Iterable[str], *,
     except exception.DNSException:
         return DomainCheck(ownership=False, routing=False, dns_error=True)
     return DomainCheck(ownership=ownership, routing=routing, proxied=proxied)
+
+
+def addresses(name: str) -> tuple[str, ...]:
+    """The A and AAAA records of *name*, sorted (empty when it has none or DNS fails)."""
+    resolver, exception = _resolver()
+    try:
+        return tuple(sorted(_addresses(resolver, name.lower().rstrip("."))))
+    except exception.DNSException:
+        return ()
+
+
+def inspect(domain: str, token: str, target: str, allowed_ips: Iterable[str], *,
+            allow_proxied: bool = True) -> dict:
+    """What DNS shows for a custom domain claim, record by record, for the domain page's checklist.
+
+    The same rules as :func:`check`, with the values found: ``txt`` (at the
+    challenge name), ``cname``, ``addresses`` and ``expected_addresses``.
+    Each lookup fails on its own, so one record that does not resolve yet does
+    not hide the others; ``dns_error`` says that some lookup failed.
+    """
+    resolver, exception = _resolver()
+    target = target.lower().rstrip(".")
+    failed = False
+    # One deadline for every lookup together: a nameserver that drops queries must not hold a portal
+    # thread for a timeout per record. After a timeout, the remaining lookups are skipped.
+    deadline = time.monotonic() + INSPECT_SECONDS
+
+    def lookup(name: str, record_type: str) -> set[str]:
+        nonlocal failed, deadline
+        if time.monotonic() >= deadline:
+            failed = True
+            return set()
+        try:
+            return _optional(resolver, name, record_type)
+        except exception.Timeout:
+            failed = True
+            deadline = 0.0
+            return set()
+        except exception.DNSException:
+            failed = True
+            return set()
+
+    txt = lookup(CHALLENGE_PREFIX + domain, "TXT")
+    cname = lookup(domain, "CNAME")
+    actual = lookup(domain, "A") | lookup(domain, "AAAA")
+    expected = set(allowed_ips) or ((lookup(target, "A") | lookup(target, "AAAA")) if target else set())
+    ownership = any(hmac.compare_digest(value.encode("utf-8"), token.encode("utf-8")) for value in txt)
+    routing = bool(target) and target in cname
+    proxied = False
+    if not routing:
+        routing = bool(actual) and bool(expected) and actual <= expected
+        if not routing and allow_proxied and all_cloudflare(actual):
+            routing = proxied = True
+    return {"txt": sorted(txt), "cname": sorted(cname), "addresses": sorted(actual),
+            "expected_addresses": sorted(expected), "ownership": ownership, "routing": routing,
+            "proxied": proxied, "dns_error": failed and not (ownership and routing)}

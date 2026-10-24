@@ -22,8 +22,7 @@ import re
 from dataclasses import dataclass
 
 _FRONT_MATTER = re.compile(r"\A---[ \t]*\n(.*?)\n---[ \t]*(?:\n|\Z)", re.DOTALL)
-# A closing run of ``#`` needs a space before it (CommonMark), so "# C#" keeps its "#".
-_H1 = re.compile(r"^[ \t]*#[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$", re.MULTILINE)
+_H1_START = re.compile(r"[ \t]*#[ \t]+")
 _BOM = "\ufeff"
 
 
@@ -79,20 +78,41 @@ def parse(text: str) -> MarkdownFile:
     return MarkdownFile(meta, text[match.end():].lstrip("\n"))
 
 
+def _h1(body: str) -> tuple[int, int, str, str] | None:
+    """``(start, end, line, text)`` of the first ``# Heading`` line, or None.
+
+    Read line by line in linear time (a regular expression with a lazy group
+    and an optional closing run took quadratic time on long runs of spaces).
+    A closing run of ``#`` needs a space before it (CommonMark), so "# C#"
+    keeps its "#".
+    """
+    position = 0
+    for line in body.split("\n"):
+        opening = _H1_START.match(line)
+        if opening:
+            text = line[opening.end():].rstrip(" \t")
+            without = text.rstrip("#")
+            if without != text and without[-1:] in (" ", "\t"):
+                text = without.rstrip(" \t")
+            if text:
+                return position, position + len(line), line, text
+        position += len(line) + 1
+    return None
+
+
 def first_heading(body: str) -> str | None:
     """The first ``# Heading`` when it opens the document (after blank lines only)."""
-    match = _H1.search(body)
-    if match and not body[:match.start()].strip():
-        return match.group(1).strip()
+    found = _h1(body)
+    if found and not body[:found[0]].strip():
+        return found[3].strip()
     return None
 
 
 def strip_heading(body: str, title: str) -> str:
     """Remove the opening ``# title`` line that export adds (and 1.4 files often have)."""
-    match = _H1.search(body)
-    if match and not body[:match.start()].strip() and (
-            match.group(0).strip() == f"# {title}" or match.group(1).strip() == title):
-        return body[match.end():].lstrip("\n")
+    found = _h1(body)
+    if found and not body[:found[0]].strip() and (found[2].strip() == f"# {title}" or found[3].strip() == title):
+        return body[found[1]:].lstrip("\n")
     return body
 
 

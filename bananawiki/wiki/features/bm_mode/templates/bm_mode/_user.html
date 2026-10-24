@@ -1,0 +1,16 @@
+{% import "macros/forms.html" as forms with context %}
+<section class="card" id="bm-mode" aria-labelledby="bm-user-heading">
+  <h2 id="bm-user-heading">{{ t('bm_mode.user.title') }}</h2>
+  {% if wiki_on %}<p class="hint">{{ t('bm_mode.user.wiki_on') }}</p>{% endif %}
+  {% if locked or impersonating %}
+  <p>{{ t('bm_mode.user.state_on') if on else t('bm_mode.user.state_off') }}</p>
+  {% if locked %}<p class="hint">{{ t(locked) }}</p>{% endif %}
+  {% else %}
+  <form class="form" method="post" action="{{ url_for('bm_mode.account_switch', user_id=target.id) }}">
+    {{ forms.csrf() }}
+    {{ forms.checkbox('bm_mode', t('bm_mode.user.switch', username=target.username), checked=on, hint=t('bm_mode.user.switch_hint')) }}
+    {{ forms.select('bm_self', t('bm_mode.user.rule'), [('', t('bm_mode.user.rule_wiki_yes') if wiki_rule else t('bm_mode.user.rule_wiki_no')), ('allow', t('bm_mode.user.rule_allow')), ('deny', t('bm_mode.user.rule_deny'))], selected=rule, id='bm-self') }}
+    <div class="btn-row"><button type="submit" class="btn">{{ t('common.save') }}</button></div>
+  </form>
+  {% endif %}
+</section>

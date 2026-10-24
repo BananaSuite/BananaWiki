@@ -15,12 +15,14 @@
   "attachments.title": "Allegati",
   "attachments.title_count": "Allegati ({count})",
   "attachments.upload": "Carica",
+  "attachments.after_create": "I file si possono allegare quando la pagina esiste.",
+  "attachments.create_and_add": "Crea la pagina e aggiungi file",
+  "attachments.hint_drop": "File fino a {size} ciascuno. Puoi anche trascinarli qui o nel testo.",
+  "attachments.insert_link": "Inserisci link",
   "feature.attachments.description": "Allega file alle pagine della wiki e scaricali uno per uno o in un file ZIP.",
   "feature.attachments.name": "Allegati",
   "js.attachments.confirm_delete": "Eliminare l'allegato {name}?",
   "js.attachments.delete": "Elimina",
   "js.attachments.done": "Caricamento completato.",
-  "js.attachments.size_kb": "{size} KB",
-  "js.attachments.too_large": "{name} è troppo grande.",
-  "js.attachments.uploading": "Caricamento di {name}…"
+  "js.attachments.insert_link": "Inserisci link"
 }

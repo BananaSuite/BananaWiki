@@ -19,7 +19,7 @@ from flask import current_app
 from ..core import passwords
 from ..core.crypto import sha256_hex
 from ..core.timeutil import is_past, now_sql, parse, sql_in, utcnow
-from . import api_tokens, attention, events, invites, settings
+from . import api_tokens, attention, events, invites, settings, signouts
 from .db import db
 from .errors import ServiceError
 
@@ -62,11 +62,36 @@ def active_by_username(username: str) -> dict[str, Any] | None:
 
 
 def by_email(address: str) -> dict[str, Any] | None:
+    """The oldest active account using *address* (several may, see :func:`.settings.email_shared`)."""
+    found = all_by_email(address, limit=1)
+    return found[0] if found else None
+
+
+def all_by_email(address: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    """The active accounts using *address*, oldest first."""
     address = (address or "").strip().lower()
     if not address:
-        return None
-    return db.one("SELECT * FROM accounts WHERE email = ? COLLATE NOCASE AND deleted_at IS NULL "
-                  "ORDER BY created_at LIMIT 1", (address,))
+        return []
+    return db.all("SELECT * FROM accounts WHERE email = ? COLLATE NOCASE AND deleted_at IS NULL "
+                  "ORDER BY created_at, rowid LIMIT ?", (address, limit))
+
+
+def shared_addresses() -> int:
+    """How many addresses more than one active account uses (shown while that is no longer allowed)."""
+    return int(db.scalar("SELECT COUNT(*) FROM (SELECT 1 FROM accounts WHERE email <> '' AND deleted_at IS NULL "
+                         "GROUP BY email COLLATE NOCASE HAVING COUNT(*) > 1)", default=0))
+
+
+def address_required(account: dict[str, Any]) -> bool:
+    """Whether *account* must keep an address: the account page refuses to clear it.
+
+    Always when every account must have one; when only the sign-up form
+    requires one, an account that has an address keeps one (it could
+    otherwise sign up with one and drop it at once).
+    """
+    if settings.existing_email() == "required":
+        return True
+    return settings.signup_email() == "required" and bool(account.get("email"))
 
 
 def all_accounts() -> list[dict[str, Any]]:
@@ -105,13 +130,21 @@ def check_username(username: str) -> str:
 
 
 def check_email(address: str, *, required: bool = False, exclude_id: str | None = None) -> str:
-    """Validate *address* for an account; one another account holds is refused.
+    """Validate *address* for an account (*exclude_id*, None for a new one).
 
-    While email verification is enforced, an address another account no
-    longer holds unverified (:func:`claim_is_stale`, roughly a verification
-    link's lifetime) is released to the new claimant (see
-    :func:`release_stale_claim`): nobody can reserve someone else's address
-    just by typing it, nor by typing it again and again (:func:`email_claim`).
+    Unless several accounts may share an address (:func:`.settings.email_shared`),
+    one another active account uses is refused. While email verification is
+    enforced, an address another account no longer holds unverified
+    (:func:`claim_is_stale`, roughly a verification link's lifetime) is
+    released to the new claimant (see :func:`release_stale_claim`): nobody
+    can reserve someone else's address just by typing it, nor by typing it
+    again and again (:func:`email_claim`).
+
+    An account keeping the address it already has is never refused, so
+    accounts that came to share one while that was allowed can still change
+    everything else. Callers check and write in one transaction
+    (``db.transaction()`` takes the write lock first), so two accounts can
+    never take the same address at once.
     """
     address = (address or "").strip().lower()
     if not address:
@@ -120,9 +153,14 @@ def check_email(address: str, *, required: bool = False, exclude_id: str | None 
         return ""
     if len(address) > 254 or not EMAIL.match(address):
         raise ServiceError("hosting.accounts.invalid_email")
-    existing = by_email(address)
-    if existing and existing["id"] != exclude_id and not release_stale_claim(existing):
-        raise ServiceError("hosting.accounts.email_taken")
+    if settings.email_shared():
+        return address
+    if exclude_id and address == (db.scalar("SELECT email FROM accounts WHERE id = ?", (exclude_id,),
+                                            default="") or "").lower():
+        return address
+    for holder in all_by_email(address):
+        if holder["id"] != exclude_id and not release_stale_claim(holder):
+            raise ServiceError("hosting.accounts.email_taken")
     return address
 
 
@@ -231,16 +269,18 @@ def create(username: str, password: str, *, is_admin: bool = False, email: str =
     """Create an approved account directly (administrators, operator tools)."""
     username = check_username(username)
     check_new_password(password)
-    if by_username(username):
-        raise ServiceError("hosting.accounts.username_taken")
-    email = check_email(email)
-    account_id = _new_id()
-    try:
-        db.insert("accounts", {"id": account_id, "username": username, "password": hash_password(password),
-                               "is_admin": 1 if is_admin else 0, "created_at": now_sql(), "email": email,
-                               **(email_claim(None, by_admin=True) if email else {})})
-    except sqlite3.IntegrityError as error:
-        raise ServiceError("hosting.accounts.username_taken") from error
+    password_hash = hash_password(password)
+    with db.transaction():
+        if by_username(username):
+            raise ServiceError("hosting.accounts.username_taken")
+        email = check_email(email)
+        account_id = _new_id()
+        try:
+            db.insert("accounts", {"id": account_id, "username": username, "password": password_hash,
+                                   "is_admin": 1 if is_admin else 0, "created_at": now_sql(), "email": email,
+                                   **(email_claim(None, by_admin=True) if email else {})})
+        except sqlite3.IntegrityError as error:
+            raise ServiceError("hosting.accounts.username_taken") from error
     return get(account_id)  # type: ignore[return-value]
 
 
@@ -336,41 +376,55 @@ def update_identity(account: dict[str, Any], *, username: str, email: str, email
                     by_admin: bool = False) -> bool:
     """Change username/email; returns True when the email changed (verification restarts)."""
     username = check_username(username)
-    other = by_username(username)
-    if other and other["id"] != account["id"]:
-        raise ServiceError("hosting.accounts.username_taken")
-    email = check_email(email, required=email_required, exclude_id=account["id"])
-    changed_email = email != (account.get("email") or "")
-    values: dict[str, Any] = {"username": username, "email": email, "email_prompt_dismissed": 1}
-    if changed_email:
-        values.update(email_verified_at=None, email_verification_token_hash="", email_verification_sent_at=None,
-                      email_verification_expires_at=None, **_RESET_CLEARED,
-                      **(email_claim(account, by_admin=by_admin) if email else {"email_claimed_at": None}))
-    try:
-        db.update("accounts", values, "id = ?", (account["id"],))
-    except sqlite3.IntegrityError as error:
-        raise ServiceError("hosting.accounts.username_taken") from error
+    with db.transaction():
+        other = by_username(username)
+        if other and other["id"] != account["id"]:
+            raise ServiceError("hosting.accounts.username_taken")
+        email = check_email(email, required=email_required, exclude_id=account["id"])
+        changed_email = email != (account.get("email") or "")
+        values: dict[str, Any] = {"username": username, "email": email, "email_prompt_dismissed": 1}
+        if changed_email:
+            values.update(email_verified_at=None, email_verification_token_hash="", email_verification_sent_at=None,
+                          email_verification_expires_at=None, **_RESET_CLEARED,
+                          **(email_claim(account, by_admin=by_admin) if email else {"email_claimed_at": None}))
+        try:
+            db.update("accounts", values, "id = ?", (account["id"],))
+        except sqlite3.IntegrityError as error:
+            raise ServiceError("hosting.accounts.username_taken") from error
     return changed_email
 
 
 def set_contact_email(account: dict[str, Any], address: str) -> None:
-    address = check_email(address, required=True, exclude_id=account["id"])
-    db.update("accounts", {"email": address, "email_prompt_dismissed": 1, "email_verified_at": None,
-                           "email_verification_token_hash": "", **email_claim(account), **_RESET_CLEARED},
-              "id = ?", (account["id"],))
+    with db.transaction():
+        address = check_email(address, required=True, exclude_id=account["id"])
+        db.update("accounts", {"email": address, "email_prompt_dismissed": 1, "email_verified_at": None,
+                               "email_verification_token_hash": "", **email_claim(account), **_RESET_CLEARED},
+                  "id = ?", (account["id"],))
 
 
-def set_password(account_id: str, password: str, *, actor_id: str | None, reason: str) -> int:
-    """Replace the password and end sessions, API/OAuth tokens and grants. Returns the session version."""
+def dismiss_email_prompt(account_id: str) -> None:
+    """The account was asked for an address it may leave out, and chose to: it is not asked again."""
+    db.execute("UPDATE accounts SET email_prompt_dismissed = 1 WHERE id = ?", (account_id,))
+
+
+def set_password(account_id: str, password: str, *, actor_id: str | None, reason: str,
+                 keep_session_id: str | None = None) -> int:
+    """Replace the password and end sessions, API/OAuth tokens and grants, on the portal and on the
+    wikis the account signed in to. Returns the session version.
+
+    *keep_session_id*: the session that changed its own password stays (the
+    caller moves it to the new version with :func:`.auth.keep_current_session`).
+    """
     from . import oauth
 
     password_hash = hash_password(password)
     with db.transaction():
         db.execute("UPDATE accounts SET password = ?, session_version = session_version + 1 WHERE id = ?",
                    (password_hash, account_id))
-        db.execute("UPDATE hosting_account_sessions SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL",
-                   (now_sql(), account_id))
+        db.execute("UPDATE hosting_account_sessions SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL "
+                   "AND id != ?", (now_sql(), account_id, keep_session_id or ""))
         api_tokens.revoke_all(account_id, actor_id, reason)
+        signouts.queue(account_id, "password_changed")
         oauth.revoke_account_credentials(account_id)
         return int(db.scalar("SELECT session_version FROM accounts WHERE id = ?", (account_id,), default=0))
 
@@ -400,13 +454,20 @@ def cooldown_remaining(account: dict[str, Any]) -> int:
 
 
 def issue_verification(account: dict[str, Any]) -> str:
-    """Store a new verification token for the account's email and return it."""
+    """Store a new verification token for the account's email and return it ("" when the address changed).
+
+    The token is stored only while the account still has the address it
+    will be mailed to: a resend that overlaps an address change must not
+    mail a link that confirms the new address to the old one.
+    """
     raw = secrets.token_urlsafe(32)
     ttl = current_app.config["HOSTING"].email.token_ttl_seconds
-    db.update("accounts", {"email_verification_token_hash": sha256_hex(raw), "email_verification_sent_at": now_sql(),
-                           "email_verification_expires_at": sql_in(seconds=ttl), "email_verified_at": None},
-              "id = ?", (account["id"],))
-    return raw
+    changed = db.execute(
+        "UPDATE accounts SET email_verification_token_hash = ?, email_verification_sent_at = ?, "
+        "email_verification_expires_at = ?, email_verified_at = NULL WHERE id = ? AND email = ?",
+        (sha256_hex(raw), now_sql(), sql_in(seconds=ttl), account["id"], account.get("email") or ""),
+    ).rowcount
+    return raw if changed == 1 else ""
 
 
 def clear_verification(account_id: str) -> None:
@@ -472,12 +533,13 @@ def flag_email(account: dict[str, Any], *, reason: str, reason_visible: bool, re
                actor_id: str) -> None:
     """Ask the user for a new address, or (with *replacement*) set one for them."""
     if replacement:
-        replacement = check_email(replacement, required=True, exclude_id=account["id"])
-        db.update("accounts", {"email": replacement, "email_verified_at": None, "email_verification_token_hash": "",
-                               **email_claim(account, by_admin=True),
-                               "email_flagged_invalid": 0, "email_flag_reason": "", "email_flagged_previous": "",
-                               "email_flag_reason_visible": 0, **_RESET_CLEARED}, "id = ?", (account["id"],))
-        events.record("account", account["id"], "email.replaced", actor_id)
+        with db.transaction():
+            replacement = check_email(replacement, required=True, exclude_id=account["id"])
+            db.update("accounts", {"email": replacement, "email_verified_at": None,
+                                   "email_verification_token_hash": "", **email_claim(account, by_admin=True),
+                                   "email_flagged_invalid": 0, "email_flag_reason": "", "email_flagged_previous": "",
+                                   "email_flag_reason_visible": 0, **_RESET_CLEARED}, "id = ?", (account["id"],))
+            events.record("account", account["id"], "email.replaced", actor_id)
         return
     db.update("accounts", {"email_flagged_invalid": 1, "email_flag_reason": reason[:REASON_MAX_LENGTH],
                            "email_flag_reason_visible": 1 if reason_visible and reason else 0,
@@ -493,10 +555,10 @@ def clear_email_flag(account_id: str) -> None:
 
 
 def replace_flagged_email(account: dict[str, Any], address: str) -> None:
-    address = check_email(address, required=True, exclude_id=account["id"])
-    if settings.flag("email_flag_block_reentry") and address == (account.get("email_flagged_previous") or ""):
-        raise ServiceError("hosting.email_flagged.same_address")
     with db.transaction():
+        address = check_email(address, required=True, exclude_id=account["id"])
+        if settings.flag("email_flag_block_reentry") and address == (account.get("email_flagged_previous") or ""):
+            raise ServiceError("hosting.email_flagged.same_address")
         db.update("accounts", {"email": address, "email_verified_at": None, **email_claim(account),
                                **_RESET_CLEARED}, "id = ?", (account["id"],))
         clear_email_flag(account["id"])
@@ -581,6 +643,7 @@ def suspend(account_id: str, *, until: str | None, reason: str, reason_visible: 
         }, "id = ?", (account_id,))
         db.execute("UPDATE hosting_account_sessions SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL",
                    (now_sql(), account_id))
+        signouts.queue(account_id, "suspended")
         _audit(account_id, "suspend", actor_id, reason or None, reason_visible and bool(reason),
                time_visible and bool(until), duration_label, until)
 
@@ -651,6 +714,8 @@ def delete(account_id: str) -> None:
         with db.transaction():
             db.execute("UPDATE hosting_account_sessions SET revoked_at = ? WHERE account_id = ? "
                        "AND revoked_at IS NULL", (now_sql(), account_id))
+            signouts.queue(account_id, "deleted")
+            db.execute("DELETE FROM hosting_oauth_grants WHERE account_id = ?", (account_id,))
             db.execute("DELETE FROM hosting_api_tokens WHERE account_id = ?", (account_id,))
             db.execute("DELETE FROM hosting_oauth_access_tokens WHERE account_id = ?", (account_id,))
             db.execute("DELETE FROM instance_collaborators WHERE account_id = ?", (account_id,))
@@ -669,9 +734,13 @@ def delete(account_id: str) -> None:
 
 def schedule_deletion(account_id: str, seconds: int, reason: str, actor_id: str) -> None:
     seconds = max(1, min(int(seconds), MAX_SCHEDULE_SECONDS))
-    db.update("accounts", {"pending_deletion": 1, "pending_deletion_at": now_sql(), "pending_deletion_seconds": seconds,
-                           "pending_deletion_reason": (reason or "")[:REASON_MAX_LENGTH]}, "id = ?", (account_id,))
-    events.record("account", account_id, "account.deletion_scheduled", actor_id, reason)
+    with db.transaction():
+        db.update("accounts", {"pending_deletion": 1, "pending_deletion_at": now_sql(),
+                               "pending_deletion_seconds": seconds,
+                               "pending_deletion_reason": (reason or "")[:REASON_MAX_LENGTH]}, "id = ?", (account_id,))
+        # Platform sign-in refuses the account from now on (oauth.account_may_sign_in): end its wiki sessions too.
+        signouts.queue(account_id, "deletion_scheduled")
+        events.record("account", account_id, "account.deletion_scheduled", actor_id, reason)
 
 
 def cancel_deletion(account_id: str, actor_id: str) -> None:
@@ -745,5 +814,11 @@ def export_data(account: dict[str, Any]) -> dict[str, Any]:
         "SELECT id, subdomain, domain_mode, status, created_at, expires_at, declared_use_case, easy_wiki "
         "FROM instances WHERE account_id = ? AND status != 'terminated'", (account["id"],),
     )
+    wiki_sign_ins = db.all(
+        "SELECT i.subdomain, g.granted_at, g.last_used_at, l.wiki_username, l.linked_at FROM instances i "
+        "LEFT JOIN hosting_oauth_grants g ON g.instance_id = i.id AND g.account_id = ? "
+        "LEFT JOIN hosting_oauth_account_links l ON l.instance_id = i.id AND l.account_id = ? "
+        "WHERE g.account_id IS NOT NULL OR l.id IS NOT NULL ORDER BY i.subdomain", (account["id"], account["id"]),
+    )
     return {"exported_at": now_sql(), "account": {k: v for k, v in account.items() if k not in _PRIVATE},
-            "instances": instances}
+            "instances": instances, "wiki_sign_ins": wiki_sign_ins}

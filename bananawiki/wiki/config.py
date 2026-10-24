@@ -258,7 +258,7 @@ def load_config(environ: dict[str, str] | None = None, **overrides: object) -> C
     secure_raw = env.raw("BW_SECURE_COOKIES")
     oauth_keys = (
         "CLIENT_ID", "CLIENT_SECRET", "AUTHORIZE_URL", "TOKEN_URL", "USERINFO_URL", "PORTAL_BASE",
-        "LINK_URL", "LINK_STATUS_URL", "UNLINK_URL", "VERIFY_URL",
+        "LINK_URL", "LINK_STATUS_URL", "UNLINK_URL", "VERIFY_URL", "SIGNOUTS_URL",
     )
     platform_oauth: dict[str, str] = {}
     if env.bool("BW_PLATFORM_OAUTH_ENABLED", False):

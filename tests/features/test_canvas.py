@@ -254,10 +254,13 @@ def test_nav_link_and_embed_script_slot(client, login, people, app, db):
         assert registry.is_enabled("canvas")
 
 
-def test_easy_wiki_hides_canvas(app_factory):
+def test_bm_mode_keeps_canvases_in_their_simple_form(app_factory):
     easy = app_factory(environ={"BW_EASY_WIKI": "1"})
     with easy.test_request_context(), connection_scope():
-        assert not registry.is_enabled("canvas")
+        from bananawiki.wiki import bm
+
+        assert bm.active() and registry.is_enabled("canvas") and not registry.is_enabled("chat")
+        assert "canvas.simple_tools" in bm.applied()
 
 
 def test_canvas_export_hides_pages_the_exporter_cannot_read(app, client, db, login, make_user):

@@ -298,14 +298,31 @@
       event.preventDefault();
       var button = form.querySelector('button[type="submit"]');
       button.disabled = true;
-      BW.fetchJSON(form.action, { method: "POST", body: new FormData(form) }).then(function () {
+      // A message with a file shows the file's progress (with Cancel) above the composer.
+      var chosen = file && file.files && file.files[0];
+      var row = null;
+      if (chosen) {
+        var host = form.querySelector("[data-upload-progress-host]");
+        if (!host) {
+          host = el("div", "upload-progress-host");
+          host.setAttribute("data-upload-progress-host", "");
+          form.insertBefore(host, form.firstChild);
+        }
+        row = BW.uploadRow(host, chosen.name);
+      }
+      var sending = row
+        ? BW.upload(form.action, new FormData(form), { onProgress: row.progress, onRetry: row.retrying, signal: row.signal })
+        : BW.fetchJSON(form.action, { method: "POST", body: new FormData(form) });
+      sending.then(function () {
+        if (row) row.done();
         input.value = "";
         if (file) { file.value = ""; if (label) label.textContent = labelText; }
         self.delay = ACTIVE_DELAY;
         self.scrollToBottom();
         self.poll();
       }).catch(function (error) {
-        BW.toast(error.message || BW.t("error"), "error");
+        if (row) row.fail(error.message, error.aborted);
+        else BW.toast(error.message || BW.t("error"), "error");
       }).then(function () {
         button.disabled = false;
         input.focus();

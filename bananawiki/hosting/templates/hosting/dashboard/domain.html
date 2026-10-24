@@ -8,37 +8,138 @@
 <nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('admin.instance', instance_id=instance.id) }}">{{ instance.subdomain }}</a></nav>
 {% else %}<nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('dashboard.instance_detail', instance_id=instance.id) }}">{{ instance.subdomain }}</a></nav>{% endif %}
 <h1>{{ t('hosting.domains.title') }}</h1>
-{% if current_account.is_admin %}
+{% set can_act = not impersonating %}
+
+{#- Administrators: why this wiki may (or may not) use a custom domain, and its own permission. -#}
+{% if current_account.is_admin and not impersonating %}
 <section class="card"><h2>{{ t('hosting.domains.permission') }}</h2>
-  {{ ui.post(url_for('admin.domain_permission', instance_id=instance.id), t('hosting.domains.revoke') if instance.custom_domain_allowed else t('hosting.domains.allow'), 'btn', hidden={'allowed': '0' if instance.custom_domain_allowed else '1'}) }}</section>
+  <p>{% if reason %}{{ t('hosting.domains.reason.' ~ reason) }}{% else %}{{ t('hosting.domains.reason.none', policy=t('hosting.domain_policy.' ~ policy)) }}{% endif %}</p>
+  {% if pending_request %}<p class="small"><span class="badge badge--warning">{{ t('hosting.features.status.pending') }}</span> {{ pending_request.reason }}</p>{% endif %}
+  {% if not owner_is_admin %}
+  {{ ui.post(url_for('admin.domain_permission', instance_id=instance.id), t('hosting.domains.revoke') if instance.custom_domain_allowed else (t('hosting.domains.approve_request') if pending_request else t('hosting.domains.allow')), 'btn btn--small' if instance.custom_domain_allowed else 'btn btn--small btn--primary', hidden={'allowed': '0' if instance.custom_domain_allowed else '1'}) }}
+  {% if instance.custom_domain_allowed and reason != 'wiki' %}<p class="small muted">{{ t('hosting.domains.revoke_still_allowed') }}</p>{% endif %}
+  {% endif %}
+  <p class="small muted">{{ tm('hosting.domains.policy_link', settings=link(url_for('admin.settings_page', open='save_custom_domains') ~ '#save_custom_domains', t('hosting.domain_policy.settings_link'))) }}</p>
+</section>
 {% endif %}
-{% if not configured %}<p class="muted">{{ t('hosting.domains.not_configured') }}</p>
-{% elif not instance.custom_domain_allowed %}<p class="muted">{{ t('hosting.domains.not_allowed') }}</p>
+
+{% if not configured %}
+<section class="card"><p>{{ t('hosting.domains.not_configured') }}</p></section>
+
+{% elif not reason %}
+{#- Not allowed yet: ask the platform's administrators, here. -#}
+<section class="card"><h2>{{ t('hosting.domains.ask_title') }}</h2>
+  <p>{{ t('hosting.domains.not_allowed') }}</p>
+  {% if pending_request %}
+  <p><span class="badge badge--warning">{{ t('hosting.features.status.pending') }}</span> {{ t('hosting.domains.ask_pending') }}</p>
+  {% if can_act and instance.account_id == current_account.id %}{{ ui.post(url_for('dashboard.cancel_feature', instance_id=instance.id, request_id=pending_request.id), t('hosting.features.cancel_request'), hidden={'back': 'domain'}) }}{% endif %}
+  {% elif can_act and instance.account_id == current_account.id %}
+  <p class="small muted">{{ t('hosting.domains.ask_intro') }}</p>
+  <form method="post" action="{{ url_for('dashboard.request_feature', instance_id=instance.id, feature='custom_domain') }}" class="form">{{ ui.csrf() }}<input type="hidden" name="back" value="domain">
+    {{ ui.textarea('reason', t('hosting.domains.ask_reason'), required=true, hint=t('hosting.domains.ask_reason_hint'), attrs={'minlength': 20, 'maxlength': 2000, 'rows': 3}, id='f-domain-reason') }}
+    <p><button class="btn btn--primary" type="submit">{{ t('hosting.domains.ask') }}</button></p></form>
+  {% if contact_email %}<p class="small muted">{{ tm('hosting.domains.ask_or_contact', contact=link('mailto:' ~ contact_email, contact_email)) }}</p>{% endif %}
+  {% elif contact_email %}<p class="small muted">{{ tm('hosting.domains.ask_contact', contact=link('mailto:' ~ contact_email, contact_email)) }}</p>
+  {% endif %}
+  {% for req in history if req.status in ('denied', 'approved') %}{% if loop.first %}<p class="small muted">{{ t('hosting.domains.last_answer', status=t('hosting.features.status.' ~ req.status)) }}{% if req.review_note %}: {{ req.review_note }}{% endif %}</p>{% endif %}{% endfor %}
+</section>
+
 {% elif binding %}
-{#- A domain that was verified once and whose proof ran out has lapsed: it is not "not active yet". -#}
-{% set lapsed = not active and binding.verified_at and binding.verified_until and binding.verified_until is past %}
+{#- The domain: its state, then (until it is active) the records to create and a live check. -#}
 <section class="card">
   <div class="card__header"><h2>{{ binding.domain }}</h2>
-    {% if active %}<span class="badge badge--success">{{ t('hosting.domains.status_active') }}</span>
-    {% elif lapsed %}<span class="badge badge--warning">{{ t('hosting.domains.status_lapsed') }}</span>
+    {% if state == 'active' %}<span class="badge badge--success">{{ t('hosting.domains.status_active') }}</span>
+    {% elif state == 'lapsed' %}<span class="badge badge--warning">{{ t('hosting.domains.status_lapsed') }}</span>
     {% else %}<span class="badge">{{ t('hosting.domains.status_pending') }}</span>{% endif %}</div>
-  {% if lapsed %}<div class="alert alert--warning"><div class="alert__body">{{ tm('hosting.domains.lapsed', date=nowrap(binding.verified_until|datetime)) }}</div></div>
-  {% else %}<p>{{ t('hosting.domains.active') if active else t('hosting.domains.inactive') }}</p>{% endif %}
-  {#- Each value on its own, with a Copy button beside it; host names break only after their dots. -#}
+  {% if state == 'active' %}
+  <p>{{ tm('hosting.domains.active_at', url=link('https://' ~ binding.domain, 'https://' ~ binding.domain)) }}</p>
+  <p class="small muted">{{ t('hosting.domains.certificate_pending') if certificate_pending else t('hosting.domains.certificate_hint') }}</p>
+  <dl class="kv">
+    <dt>{{ t('hosting.domains.verified_since') }}</dt><dd>{{ binding.verified_at|datetime }}</dd>
+    {% if binding.last_checked_at %}<dt>{{ t('hosting.domains.last_checked') }}</dt><dd>{{ binding.last_checked_at|datetime }}</dd>{% endif %}
+  </dl>
+  <p class="small muted">{{ t('hosting.domains.kept_checked') }}</p>
+  {% elif state == 'lapsed' %}
+  <div class="alert alert--warning"><div class="alert__body">{{ tm('hosting.domains.lapsed', date=nowrap(binding.verified_until|datetime)) }}</div></div>
+  {% else %}
+  <p>{{ t('hosting.domains.inactive_steps') }}</p>
+  {% endif %}
+</section>
+
+{% set g = guide %}
+<section class="card" id="domain-records">
+  {% if state == 'active' %}<details class="disclosure"><summary><h2>{{ t('hosting.domains.records_title') }}</h2></summary>{% else %}<h2>{{ t('hosting.domains.records_title') }}</h2>{% endif %}
+  <p class="small">{% if g.root %}{{ tm('hosting.domains.kind_root', domain=strong(g.domain)) }}{% else %}{{ tm('hosting.domains.kind_subdomain', domain=strong(g.domain), zone=strong(g.zone)) }}{% endif %}
+    {%- if g.domain.count('.') >= 2 %} <a class="text-link" href="{{ url_for('dashboard.instance_domain', instance_id=instance.id, kind='subdomain' if g.root else 'root') }}#domain-records">{{ t('hosting.domains.kind_switch_sub') if g.root else t('hosting.domains.kind_switch_root') }}</a>{% endif %}</p>
+  <p class="small muted">{{ t('hosting.domains.records_intro', zone=g.zone) }}</p>
+
+  {% for step in ('proof', 'point') %}
+  <h3>{{ loop.index }}. {{ t('hosting.domains.step.' ~ step) }}</h3>
+  <p class="small muted">{{ t('hosting.domains.step.' ~ step ~ '_hint') if step == 'proof' else (t('hosting.domains.step.point_root') if g.root else t('hosting.domains.step.point_sub')) }}</p>
+  {% for record in g.records if record.step == step %}
   <dl class="kv kv--dns">
-    <dt>{{ t('hosting.domains.txt_name') }}</dt><dd class="kv-copy"><span class="mono">{{ ('_bananawiki-challenge.' ~ binding.domain)|wbr_dots }}</span> <button type="button" class="btn btn--small" data-copy="_bananawiki-challenge.{{ binding.domain }}">{{ t('common.copy') }}</button></dd>
-    <dt>{{ t('hosting.domains.txt_value') }}</dt><dd class="kv-copy"><span class="mono">{{ binding.verification_token }}</span> <button type="button" class="btn btn--small" data-copy="{{ binding.verification_token }}">{{ t('common.copy') }}</button></dd>
-    <dt>CNAME</dt><dd class="kv-copy"><span class="mono">{{ binding.domain|wbr_dots }}</span></dd>
-    <dt>{{ t('hosting.domains.cname_target') }}</dt><dd class="kv-copy"><span class="mono">{{ target|wbr_dots }}</span> <button type="button" class="btn btn--small" data-copy="{{ target }}">{{ t('common.copy') }}</button></dd>
-    {% if ips %}<dt>A / AAAA</dt><dd class="kv-copy"><span class="mono">{{ ips|join(', ') }}</span> <button type="button" class="btn btn--small" data-copy="{{ ips|join(' ') }}">{{ t('common.copy') }}</button></dd>{% endif %}</dl>
-  {% if allow_proxied %}<p class="muted small">{{ t('hosting.domains.cloudflare_hint') }}</p>{% endif %}
-  <div class="btn-row">{{ ui.post(url_for('dashboard.instance_domain', instance_id=instance.id), t('hosting.domains.check_again') if active else t('hosting.domains.verify'), 'btn' if active else 'btn btn--primary', hidden={'action': 'verify'}) }}
+    <dt>{{ t('hosting.domains.field.type') }}</dt><dd><span class="mono">{{ record.type }}</span></dd>
+    <dt>{{ t('hosting.domains.field.name') }}</dt><dd class="kv-copy"><span class="mono">{{ record.name|wbr_dots }}</span> <button type="button" class="btn btn--small" data-copy="{{ record.name }}">{{ t('common.copy') }}</button></dd>
+    <dt>{{ t('hosting.domains.field.full_name') }}</dt><dd class="kv-copy"><span class="mono">{{ record.full|wbr_dots }}</span> <button type="button" class="btn btn--small" data-copy="{{ record.full }}">{{ t('common.copy') }}</button></dd>
+    <dt>{{ t('hosting.domains.cname_target') if record.type == 'CNAME' else t('hosting.domains.field.value') }}</dt><dd class="kv-copy"><span class="mono">{{ record.value|wbr_dots }}</span> <button type="button" class="btn btn--small" data-copy="{{ record.value }}">{{ t('common.copy') }}</button></dd>
+    <dt>TTL</dt><dd>{{ t('hosting.domains.field.ttl_value') }}</dd>
+  </dl>
+  {% endfor %}
+  {% if step == 'point' %}
+  {% if g.root and not g.addresses %}<div class="alert alert--warning"><div class="alert__body">{{ t('hosting.domains.no_addresses', target=g.target) }}</div></div>{% endif %}
+  {% if g.root %}<p class="small muted">{{ t('hosting.domains.alias_hint', target=g.target) }}</p>
+  {% elif g.addresses %}<p class="small muted">{{ t('hosting.domains.addresses_alternative', addresses=g.addresses|join(', ')) }}</p>{% endif %}
+  {% if g.www %}<p class="small muted">{{ t('hosting.domains.www_hint', domain=g.domain) }}</p>{% endif %}
+  {% endif %}
+  {% endfor %}
+
+  {% if state != 'active' %}
+  <h3>3. {{ t('hosting.domains.step.check') }}</h3>
+  <p class="small muted">{{ t('hosting.domains.step.check_hint', seconds=poll_seconds) }}</p>
+  <div data-domain-check{% if can_act %} data-url="{{ url_for('dashboard.domain_check', instance_id=instance.id) }}" data-poll="{{ poll_seconds }}"{% endif %} aria-live="polite">
+    {% if checks %}{% include "hosting/dashboard/_domain_checks.html" %}{% endif %}
+  </div>
+  {% if can_act %}
+  <div class="btn-row">{{ ui.post(url_for('dashboard.instance_domain', instance_id=instance.id), t('hosting.domains.check_now'), 'btn btn--primary', hidden={'action': 'check'}) }}</div>
+  {% endif %}
+  {% endif %}
+
+  <details class="disclosure"><summary>{{ t('hosting.domains.tips_title') }}</summary>
+    <h4>Cloudflare</h4>
+    <p class="small">{{ t('hosting.domains.tips_cloudflare') }}</p>
+    {% if g.allow_proxied %}<p class="small">{{ t('hosting.domains.cloudflare_hint') }}</p>{% endif %}
+    <h4>{{ t('hosting.domains.tips_other_title') }}</h4>
+    <ul class="plain-list small">
+      <li>{{ t('hosting.domains.tips_at') }}</li>
+      <li>{{ t('hosting.domains.tips_zone', zone=g.zone) }}</li>
+      <li>{{ t('hosting.domains.tips_dot') }}</li>
+      <li>{{ t('hosting.domains.tips_wait') }}</li>
+      <li>{{ t('hosting.domains.tips_one') }}</li>
+    </ul>
+  </details>
+  {% if state == 'active' %}</details>{% endif %}
+</section>
+
+{% if can_act %}
+<section class="card"><div class="btn-row">
+  {% if state != 'pending' %}{{ ui.post(url_for('dashboard.instance_domain', instance_id=instance.id), t('hosting.domains.check_again'), 'btn', hidden={'action': 'verify'}) }}{% endif %}
   {{ ui.post(url_for('dashboard.instance_domain', instance_id=instance.id), t('hosting.domains.remove'), 'btn btn--danger-quiet', confirm=t('hosting.common.are_you_sure'), hidden={'action': 'remove'}) }}</div></section>
+{% endif %}
+
 {% else %}
+{#- Allowed, no domain yet: which kind of name, then the form. -#}
 <section class="card"><h2>{{ t('hosting.domains.claim') }}</h2>
-<p class="muted small">{{ t('hosting.domains.claim_intro') }}</p>
+<p>{{ t('hosting.domains.claim_intro') }}</p>
+<ul class="plain-list small">
+  <li>{{ tm('hosting.domains.claim_sub', example=strong('docs.example.org')) }}</li>
+  <li>{{ tm('hosting.domains.claim_root', example=strong('example.org')) }}</li>
+</ul>
+{% if can_act %}
 <form method="post" class="form">{{ ui.csrf() }}<input type="hidden" name="action" value="claim">
-  {{ ui.field('domain', t('hosting.domains.domain'), required=true, hint=t('hosting.domains.domain_hint'), attrs={'maxlength': 253}) }}
-  <p><button class="btn btn--primary" type="submit">{{ t('hosting.domains.claim') }}</button></p></form></section>
+  {{ ui.field('domain', t('hosting.domains.domain'), required=true, hint=t('hosting.domains.domain_hint'), attrs={'maxlength': 253, 'autocapitalize': 'none', 'spellcheck': 'false'}) }}
+  <p><button class="btn btn--primary" type="submit">{{ t('hosting.domains.claim') }}</button></p></form>
+{% endif %}
+<p class="small muted">{{ t('hosting.domains.tips_one') }}</p>
+</section>
 {% endif %}
 {% endblock %}

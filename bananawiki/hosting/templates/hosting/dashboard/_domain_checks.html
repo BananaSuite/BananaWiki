@@ -1,0 +1,16 @@
+{#- What DNS shows now, record by record (the domain page's checklist; also sent to the page every half minute). -#}
+<ul class="plain-list domain-checks">
+{% for row in checks.rows %}
+  <li><span class="badge {{ {'ok': 'badge--success', 'wrong': 'badge--danger', 'missing': 'badge--warning'}[row.status] }}">{{ t('hosting.domains.check.' ~ row.status) }}</span>
+    <strong>{{ t('hosting.domains.check.' ~ row.record) }}</strong>
+    {%- if row.status == 'ok' and row.via %} <span class="small muted">{{ t('hosting.domains.check.via_' ~ row.via) }}</span>{% endif %}
+    {%- set shown = row.found|select|list %}
+    {%- if row.status == 'wrong' and shown %}<br><span class="small">{{ t('hosting.domains.check.found') }} <span class="mono">{{ shown|join(', ') }}</span></span>
+    {%- elif row.status == 'wrong' and row.found %}<br><span class="small muted">{{ t('hosting.domains.check.found_private') }}</span>{% endif %}
+    {%- if row.status == 'missing' %}<br><span class="small muted">{{ t('hosting.domains.check.missing_' ~ row.record) }}</span>{% endif %}</li>
+{% endfor %}
+</ul>
+{% if checks.dns_error %}<p class="small muted">{{ t('hosting.domains.check.dns_error') }}</p>{% endif %}
+{% if checks.error %}<p class="small" role="status">{{ t(checks.error) }}</p>{% endif %}
+{% if checks.proxied %}<p class="small muted">{{ t('hosting.domains.verified_proxied') }}</p>{% endif %}
+<p class="small muted">{{ t('hosting.domains.check.checked_at', time=checks.checked_at|datetime) }}</p>

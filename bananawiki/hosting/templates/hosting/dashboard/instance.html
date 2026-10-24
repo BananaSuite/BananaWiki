@@ -7,7 +7,7 @@
 {% block content %}
 <nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}">{% if active_page == 'admin' %}<a href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ t('hosting.instance.admin_tools') }}</a>{% else %}<a href="{{ url_for('dashboard.dashboard') }}">{{ t('hosting.dashboard.title') }}</a>{% endif %}</nav>
 <div class="page-header"><h1>{{ inst.original_slug }}</h1>{{ ui.status(inst.status, expired=inst.expired) }}
-  <div class="page-header__actions btn-row">{% if inst.url and inst.status == 'running' and not inst.expired %}<a class="btn btn--primary" href="{{ inst.url }}" rel="noopener">{{ t('hosting.instance.open_wiki') }}</a>{% elif inst.status == 'stopped' and 'start_stop' in permissions and not inst.expired %}{{ ui.post(url_for('dashboard.restart', instance_id=inst.id), t('hosting.instance.start'), 'btn btn--primary') }}{% endif %}
+  <div class="page-header__actions btn-row">{% if inst.url and inst.status == 'running' and not inst.expired %}<a class="btn btn--primary" href="{{ wiki_open_url(inst) }}" rel="noopener">{{ t('hosting.instance.open_wiki') }}</a>{% elif inst.status == 'stopped' and 'start_stop' in permissions and not inst.expired %}{{ ui.post(url_for('dashboard.restart', instance_id=inst.id), t('hosting.instance.start'), 'btn btn--primary') }}{% endif %}
   {% if current_account.is_admin and active_page == 'dashboard' %}<a class="btn" href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ t('hosting.instance.admin_tools') }}</a>{% endif %}</div></div>
 
 {% if transfer and is_owner %}
@@ -51,7 +51,7 @@
 
 {% if inst.status in ('provisioning', 'provisioning_failed') %}
 <section class="card"><p>{{ t('hosting.instances.provisioning_notice') }}</p>
-{% if 'terminate' in permissions %}{{ ui.post(url_for('dashboard.terminate', instance_id=inst.id), t('hosting.instance.terminate'), 'btn btn--small btn--danger', confirm=t('hosting.instance.terminate_confirm')) }}{% endif %}</section>
+{% if 'terminate' in permissions and active_page != 'admin' %}{{ ui.post(url_for('dashboard.terminate', instance_id=inst.id), t('hosting.instance.terminate'), 'btn btn--small btn--danger', confirm=t('hosting.instance.terminate_confirm')) }}{% endif %}</section>
 {% endif %}
 {% if inst.status not in ('terminated', 'provisioning', 'provisioning_failed') %}
 {% if 'analytics' in permissions or 'manage_collaborators' in permissions or (manager and domains_configured) %}
@@ -61,6 +61,10 @@
   {% if manager and domains_configured %}<a href="{{ url_for('dashboard.instance_domain', instance_id=inst.id) }}">{{ t('hosting.domains.title') }}</a>{% endif %}
 </nav>
 {% endif %}
+{#- An administrator looking at someone else's wiki runs it from Admin tools: one set of controls, one behaviour. -#}
+{% if active_page == 'admin' %}
+<section class="card" id="wiki-maintenance"><p>{{ tm('hosting.instance.controls_in_admin', link=link(url_for('admin.instance', instance_id=inst.id), t('hosting.instance.admin_tools'))) }}</p></section>
+{% else %}
 {% if (inst.status == 'running' and 'start_stop' in permissions and not inst.expired) or 'reset_password' in permissions or 'toggle_mode' in permissions %}
 <details class="card" id="wiki-maintenance">
   <summary>{{ t('hosting.instance.maintenance') }}</summary>
@@ -74,6 +78,7 @@
     {% if 'reset_password' in permissions %}{{ ui.post(url_for('dashboard.reset_password', instance_id=inst.id), t('hosting.instance.reset_password'), confirm=t('hosting.instance.reset_password_confirm')) }}{% endif %}
     {% if 'toggle_mode' in permissions %}{{ ui.post(url_for('dashboard.toggle_easy_wiki', instance_id=inst.id), t('hosting.instance.to_full') if inst.easy_wiki else t('hosting.instance.to_easy'), hidden={'enable': '0' if inst.easy_wiki else '1'}) }}{% endif %}
   </div>
+  {% if 'toggle_mode' in permissions %}<p class="small muted">{{ t('hosting.instance.mode_hint') }}</p>{% endif %}
 </details>
 {% endif %}
 {#- The platform may keep owners from terminating an expired wiki: then the button is not offered. -#}
@@ -86,6 +91,7 @@
     {% if can_terminate %}{{ ui.post(url_for('dashboard.terminate', instance_id=inst.id), t('hosting.instance.terminate'), 'btn btn--small btn--danger', confirm=t('hosting.instance.terminate_confirm')) }}{% endif %}
   </div>
 </details>
+{% endif %}
 {% endif %}
 {% if not is_owner and not current_account.is_admin %}
 <div class="btn-row leave-row">{{ ui.post(url_for('dashboard.remove_collaborator', instance_id=inst.id, collab_account_id=current_account.id), t('hosting.collaborators.leave'), 'btn btn--small', confirm=t('hosting.common.are_you_sure')) }}</div>
@@ -112,6 +118,15 @@
   {% endif %}
   </div></div>
 {% endfor %}
+{% if domains_configured %}
+  <div class="setting-row">
+  <h3>{{ t('hosting.features.custom_domain') }}</h3>
+  <div>
+  {% if domain_allowed %}<p class="small muted">{{ t('hosting.features.available') }} <a class="text-link" href="{{ url_for('dashboard.instance_domain', instance_id=inst.id) }}">{{ t('hosting.domains.set_up') }}</a></p>
+  {% elif 'custom_domain' in pending_features %}<p class="small muted">{{ t('hosting.features.pending') }}</p>
+  {% else %}<p class="small"><a class="text-link" href="{{ url_for('dashboard.instance_domain', instance_id=inst.id) }}">{{ t('hosting.domains.ask_link') }}</a></p>{% endif %}
+  </div></div>
+{% endif %}
 {% if feature_history %}<h3 class="feature-history__title">{{ t('hosting.features.history') }}</h3>
 {#- On phones each request is a block, with its Cancel button under it instead of off-screen. -#}
 <div class="table-wrap"><table class="table table--stack"><thead><tr><th>{{ t('hosting.features.feature') }}</th><th>{{ t('hosting.instance.status') }}</th><th>{{ t('hosting.features.note') }}</th><th><span class="visually-hidden">{{ t('hosting.admin.actions') }}</span></th></tr></thead><tbody>

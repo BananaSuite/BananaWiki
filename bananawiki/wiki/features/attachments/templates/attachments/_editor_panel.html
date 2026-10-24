@@ -1,29 +1,40 @@
 {#- Attachments in the page editor (inside the editor form: no nested forms, the script does the work).
-    Context: page, attachments, can_view, can_upload, deletable, max_bytes. -#}
-<fieldset class="attachments attachments--editor" data-attachments
-  data-upload-url="{{ url_for('attachments.api_upload', page_id=page.id) if can_upload else '' }}"
-  data-max-bytes="{{ max_bytes }}">
+    Context: page (none while the page is being created), attachments, can_view, can_upload, deletable,
+    max_bytes, rules. -#}
+<fieldset class="attachments attachments--editor" id="editor-attachments" data-attachments
+  data-upload-url="{{ url_for('attachments.api_upload', page_id=page.id) if page and can_upload else '' }}"
+  data-max-bytes="{{ max_bytes }}" data-upload-rules='{{ rules|tojson }}'>
   <legend>{{ t('attachments.title') }}</legend>
+  {% if page %}
   <ul class="attachments__list" data-attachments-list>
     {% for a in attachments %}
     <li class="attachments__item" data-attachment>
-      {% if can_view %}<a href="{{ url_for('attachments.download', slug=page.slug, attachment_id=a.id) }}" download>{{ a.original_name }}</a>{% else %}<span>{{ a.original_name }}</span>{% endif %}
+      {% if can_view %}<a href="{{ url_for('attachments.download', slug=page.slug, attachment_id=a.id) }}" download data-attachment-link>{{ a.original_name }}</a>{% else %}<span>{{ a.original_name }}</span>{% endif %}
       <span class="small muted">{{ a.file_size|filesize }}</span>
-      {% if a.id in deletable %}<button type="button" class="btn btn--small btn--danger-quiet" data-attachment-delete="{{ url_for('attachments.api_delete', attachment_id=a.id) }}" data-name="{{ a.original_name }}">{{ t('common.delete') }}</button>{% endif %}
+      <span class="attachments__actions">
+        {% if can_view %}<button type="button" class="btn btn--small btn--ghost" data-attachment-insert hidden>{{ t('attachments.insert_link') }}</button>{% endif %}
+        {% if a.id in deletable %}<button type="button" class="btn btn--small btn--danger-quiet" data-attachment-delete="{{ url_for('attachments.api_delete', attachment_id=a.id) }}" data-name="{{ a.original_name }}">{{ t('common.delete') }}</button>{% endif %}
+      </span>
     </li>
     {% endfor %}
   </ul>
   {% if can_upload %}
-  <div class="cluster cluster--baseline">
+  <div class="attachments__drop" data-attachments-drop>
     {#- The input sits inside its label: a for= would name the first element with that id, which can be
         a heading of the preview above. -#}
     <label class="btn btn--small">
       <span>{{ t('attachments.add') }}</span>
       <input id="attachments-editor-input" class="visually-hidden" type="file" multiple data-attachments-input>
     </label>
-    <span class="small muted cluster__text" data-attachments-status aria-live="polite">{{ t('attachments.hint', size=max_bytes|filesize) }}</span>
+    <span class="small muted cluster__text" data-attachments-status aria-live="polite">{{ t('attachments.hint_drop', size=max_bytes|filesize) }}</span>
   </div>
-  <noscript><p class="hint"><a href="{{ url_for('pages.view', slug=page.slug) }}#attachments">{{ t('attachments.manage_on_page') }}</a></p></noscript>
+  <div class="upload-progress-host" data-attachments-progress></div>
+  <noscript><p class="hint"><a href="{{ url_for('pages.view', slug=page.slug, attach=1) }}#attachments">{{ t('attachments.manage_on_page') }}</a></p></noscript>
+  {% endif %}
+  {% else %}
+  {#- A page that does not exist yet cannot hold files: creating it opens its editor right at this list. -#}
+  <p class="hint">{{ t('attachments.after_create') }}</p>
+  <div class="btn-row"><button class="btn btn--small" type="submit" name="then" value="edit#editor-attachments" data-attachments-create>{{ t('attachments.create_and_add') }}</button></div>
   {% endif %}
 </fieldset>
 <link rel="stylesheet" href="{{ asset_url('attachments.css', blueprint='attachments') }}">

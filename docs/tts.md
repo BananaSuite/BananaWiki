@@ -14,11 +14,31 @@ Nothing here is required: without Piper the wiki works normally and
 1. **Generate** (or an edit, when automatic generation is on) only adds a
    row to `tts_generations`.
 2. A worker picks up queued rows, synthesises the text, converts it to MP3
-   when ffmpeg is available, and stores the file in `BW_TTS_FOLDER`.
+   when ffmpeg is available, and stores the file in `BW_TTS_FOLDER`. The
+   voice reads the title, then each heading, list item and table row as a
+   sentence of its own (table cells separated by commas); web addresses are
+   read as the site's name, and embeds (`[[video …]]`, `[[canvas …]]`,
+   `[[kanban …]]`) and `[TOC]` are skipped. Whether audio is out of date is
+   still decided on the 1.4 text, so existing audio stays valid.
 3. Editing a page invalidates its audio; a page that had audio gets fresh
    audio queued. Deleting a page removes its files.
 4. The `tts.sweep` job (every 6 hours) deletes files no row refers to and
    refreshes audio that fell out of date.
+
+## Listening
+
+While audio is ready, the word being read is highlighted and the page follows
+it, waiting while you scroll on your own; untick **Highlight as it reads** to
+stop both. Once you are listening, click or tap a word to read from there. The
+previous/next paragraph buttons move between paragraphs, as do J and L while
+the player has focus (K plays or pauses) and a phone's lock-screen and
+headphone controls. While the audio plays and the player is out of view, a
+small player stays at the bottom of the screen. Each page continues where you
+stopped (kept in your browser for the last 30 pages), with **Start over**.
+The audio reads at most the first 20,000 characters of a page; on longer
+pages the player says so and the highlighting stops where the audio does.
+Queued pages show how many jobs come first, and failed audio can be tried
+again from the page.
 
 ## Install
 
@@ -88,6 +108,11 @@ One page cannot stop the worker or hold the queue for good:
   the queue. The third time, it fails ("The worker stopped 3 times ...")
   instead of stopping the next worker too. **Retry** on the admin page queues
   it again from scratch.
+* Every worker touches `.worker-heartbeat` in `BW_TTS_FOLDER` when it starts
+  and every 30 seconds. When pages are queued and no worker has checked in for
+  3 minutes, **Admin → Read aloud** warns and readers are told it may take a
+  while. The System table shows the last check-in. A worker run from cron
+  with `--once` checks in only while it runs.
 
 ## Settings
 

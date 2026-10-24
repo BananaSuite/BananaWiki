@@ -7,7 +7,7 @@ route modules below only add the web interface on top of it.
 from flask import render_template, request
 
 from ... import auth, settings
-from ...registry import Feature, Job
+from ...registry import Feature, Job, Simplification
 from . import (  # noqa: F401 - register routes
     api,
     category_routes,
@@ -61,5 +61,11 @@ FEATURE = Feature(
         Job("pages.prune_editing_sessions", 900, presence.prune),
     ],
     slots={"sidebar.navigation": _sidebar_navigation},
+    simplifications=[
+        Simplification("pages.simple_editor", "pages.bm.simple_editor", "pages.bm.simple_editor_hint"),
+        Simplification("pages.simple_actions", "pages.bm.simple_actions", "pages.bm.simple_actions_hint"),
+        Simplification("pages.simple_reading", "pages.bm.simple_reading", "pages.bm.simple_reading_hint"),
+        Simplification("pages.simple_sidebar", "pages.bm.simple_sidebar", "pages.bm.simple_sidebar_hint"),
+    ],
     order=10,
 )

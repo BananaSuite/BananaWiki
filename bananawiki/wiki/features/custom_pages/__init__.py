@@ -14,5 +14,7 @@ FEATURE = Feature(
     blueprints=[bp],
     nav=[NavItem("custom_pages.nav", "custom_pages.admin_list", icon="file", area="admin", order=60,
                  visible=lambda user: can_manage(user))],
+    # A published page's document and files: the page itself (the catch-all) stays visible to everyone.
+    content_endpoints=("custom_pages.document", "custom_pages.file_download"),
     init_app=register_catch_all,
 )

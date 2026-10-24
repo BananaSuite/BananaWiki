@@ -200,13 +200,17 @@ def current_session_id() -> str | None:
 
 
 def keep_current_session(account_id: str, version: int) -> None:
-    """After a password change: move this session to the new version, revoke the rest."""
+    """After a password change: move this session to the new version, revoke the rest.
+
+    A session revoked meanwhile (signed out from another device, or ended by
+    a concurrent password change) stays revoked: this never brings one back.
+    """
     current = current_session_id()
     db.execute("UPDATE hosting_account_sessions SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL "
                "AND id != ?", (now_sql(), account_id, current or ""))
     if current:
-        db.execute("UPDATE hosting_account_sessions SET session_version = ?, revoked_at = NULL WHERE id = ?",
-                   (version, current))
+        db.execute("UPDATE hosting_account_sessions SET session_version = ? WHERE id = ? AND account_id = ? "
+                   "AND revoked_at IS NULL", (version, current, account_id))
     session[VERSION_KEY] = version
 
 
@@ -268,8 +272,15 @@ def wants_json() -> bool:
 
 
 def contact_email_required(account: dict[str, Any]) -> bool:
+    """Whether *account* must add an address before anything else (``existing_email`` is ``required``)."""
     return bool(not account.get("email") and not account.get("email_flagged_invalid")
-                and settings.flag("email_required") and settings.flag("ask_email_existing_users"))
+                and settings.existing_email() == "required")
+
+
+def contact_email_suggested(account: dict[str, Any]) -> bool:
+    """Whether *account* is asked once for an address it may leave out (``existing_email`` is ``optional``)."""
+    return bool(not account.get("email") and not account.get("email_flagged_invalid")
+                and not account.get("email_prompt_dismissed") and settings.existing_email() == "optional")
 
 
 def pending_gate(account: dict[str, Any], view: Callable | None) -> str | None:

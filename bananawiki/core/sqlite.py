@@ -202,7 +202,8 @@ def _migration_transaction(conn: sqlite3.Connection) -> Iterator[None]:
                 )
             conn.execute("COMMIT")
         except BaseException:
-            conn.execute("ROLLBACK")
+            if conn.in_transaction:  # SQLite may have rolled back already (disk full): keep the real error
+                conn.execute("ROLLBACK")
             raise
     finally:
         conn.execute("PRAGMA foreign_keys=ON")
@@ -491,8 +492,11 @@ class Session:
                 yield self
                 self.conn.execute(f"RELEASE {name}")
             except BaseException:
-                self.conn.execute(f"ROLLBACK TO {name}")
-                self.conn.execute(f"RELEASE {name}")
+                # SQLite may have rolled the whole transaction back itself (disk full, I/O error): then the
+                # savepoint is gone, and the original error is the one to report.
+                if self.conn.in_transaction:
+                    self.conn.execute(f"ROLLBACK TO {name}")
+                    self.conn.execute(f"RELEASE {name}")
                 raise
             finally:
                 self._depth -= 1

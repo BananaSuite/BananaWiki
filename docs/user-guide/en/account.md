@@ -9,15 +9,29 @@ enabled you can **publish** your profile so other members see it, and fill in
 the profile fields your wiki defined. **My profile** shows it as others see
 it.
 
-## Display preferences
+## Customise
 
-Open **Customise** in the top bar for your **Display preferences**. These change
+Open **Customise** in the top bar (or the **Customise** tab of Settings). These change
 how the wiki looks for you only: light or dark theme, text size, line and
 letter spacing, content and sidebar width, contrast, your own colours, a
 background picture, a dyslexia-friendly font, reduced motion, and how
 strongly bold text, links, headings and code stand out. **Reset display
 preferences** returns to the site's defaults and removes your background
 picture; your language and mascot choices stay as they are.
+
+**BM mode** is the easy mode: simpler screens (a shorter editor toolbar, fewer
+menus) and fewer features to find your way through. When your wiki allows
+it, you switch it on or off for your own account here; otherwise the page
+says that your administrators decide. When the whole wiki uses BM mode,
+everyone is in it.
+
+In BM mode the sidebar shows the pages, Kanban boards and canvases only,
+pages leave out the link to their history and their difficulty tag, and
+Settings shows your profile, user name, password, language, email address
+and **Customise**. The rest (sessions, two-step verification, your data,
+account merges, deleting the account) is under **All settings** at the bottom
+of the Settings page. Your administrators choose which of these
+simplifications apply.
 
 Some wikis show a mascot, a banana, in place of the logo in the top bar.
 Clicking it makes it hop; the site name next to it leads to the home page. It
@@ -27,7 +41,8 @@ found out how to put sunglasses on it, you can take them off here under
 
 ## Language
 
-Choose the interface language in Settings: English, Italian, German and any
+Choose the interface language on the **Account** tab of Settings (before
+you sign in, **Customise** has it too): English, Italian, German and any
 language the administrators added, as long as they have not switched it off.
 Pages themselves are not translated.
 

@@ -41,11 +41,11 @@
       },
       {
         "heading": "Administration",
-        "html": "<p>The interface is available in English, Italian and German, and administrators can add another language. <strong>Easy mode</strong>, which you can tick when you create the wiki, switches off the advanced features for groups that only need pages. Members can start a guided tour from their settings, and administrators can show it to everyone who joins.</p><p>The <strong>REST API</strong> gives scripts access through tokens limited to chosen areas. The <strong>Custom pages</strong> plugin publishes content at an address you pick. Every member can download their own data from their settings, and <a href=\"/help/exports-backups\">Site migration</a> exports the whole wiki as one archive.</p>"
+        "html": "<p>The interface is available in English, Italian and German, and administrators can add another language. <strong>Easy mode (BM mode)</strong>, which you can tick when you create the wiki, starts it in BM mode, the wiki's easy mode: fewer features and simpler screens for groups that mostly need pages. The wiki's administrators adjust it under <strong>Administration → BM mode</strong>, and each member can choose the simple or the full interface for themselves. Members can start a guided tour from their settings, and administrators can show it to everyone who joins.</p><p>The <strong>REST API</strong> gives scripts access through tokens limited to chosen areas. The <strong>Custom pages</strong> plugin publishes content at an address you pick. Every member can download their own data from their settings, and <a href=\"/help/exports-backups\">Site migration</a> exports the whole wiki as one archive.</p>"
       },
       {
         "heading": "Switched on from the start",
-        "html": "<p>A new wiki starts with Announcements, Assessments, Attachments, Audit log, Badges, Canvas, Chats and groups, Difficulty tags, Drafts, Kanban boards, Mascot, Page history, Personal data export, Read aloud and User profiles enabled. The <strong>Recommended</strong> setup, offered when the wiki opens for the first time, keeps exactly these. In <strong>Easy mode</strong>, Assessments, Canvas, Chats and groups, Kanban boards and Read aloud are not available. The other plugins are one click away; see <a href=\"/help/plugins\">Managing plugins</a>.</p>"
+        "html": "<p>A new wiki starts with Announcements, Assessments, Attachments, Audit log, Badges, Canvas, Chats and groups, Difficulty tags, Drafts, Kanban boards, Mascot, Page history, Personal data export, Read aloud and User profiles enabled. The <strong>Recommended</strong> setup, offered when the wiki opens for the first time, keeps exactly these. In <strong>Easy mode (BM mode)</strong>, Assessments, Chats and groups and Read aloud start hidden, and Canvas and Kanban boards start in a simpler form; administrators can show any of them under <strong>Administration → BM mode</strong>. The other plugins are one click away; see <a href=\"/help/plugins\">Managing plugins</a>.</p>"
       }
     ]
   },
@@ -140,7 +140,7 @@
       },
       {
         "heading": "Wiki actions",
-        "html": "<p>On a wiki's page, under <strong>Wiki controls</strong>, <strong>Stop</strong> takes the wiki offline and keeps its files, and <strong>Start</strong> brings the same wiki back. <strong>Terminate</strong>, under <strong>Reset or terminate wiki</strong>, takes the wiki offline and keeps its data for the retention period shown in the portal; deleting it permanently, or the end of that period, removes the data for good.</p><p><strong>Reset admin password</strong> gives the wiki's administrator a new temporary password, signs that account out everywhere and turns off its two-step verification: use it when you are locked out of your wiki, even after losing your authenticator app and recovery codes. Once you are back in, turn two-step verification on again in the wiki's settings.</p>"
+        "html": "<p>On a wiki's page, under <strong>Wiki controls</strong>, <strong>Stop</strong> takes the wiki offline and keeps its files; a stopped wiki shows a <strong>Start</strong> button at the top of its page and in the list of your wikis, which brings the same wiki back. <strong>Terminate</strong>, under <strong>Reset or terminate wiki</strong>, takes the wiki offline and keeps its data for the retention period shown in the portal; deleting it permanently, or the end of that period, removes the data for good.</p><p><strong>Reset admin password</strong> gives the wiki's administrator a new temporary password, signs that account out everywhere and turns off its two-step verification: use it when you are locked out of your wiki, even after losing your authenticator app and recovery codes. Once you are back in, turn two-step verification on again in the wiki's settings.</p>"
       }
     ]
   },
@@ -211,11 +211,11 @@
     "sections": [
       {
         "heading": "Permission and DNS",
-        "html": "<p>A platform administrator must permit custom domains for your wiki. Then open <strong>Custom domain</strong> on the wiki's page, add the hostname, and copy the exact TXT verification record and serving record shown in the portal to your DNS provider. Keep those records in place.</p>"
+        "html": "<p>Open <strong>Custom domain</strong> on the wiki's page. If your wiki may not use one yet, ask for it there: the platform's administrators answer on that page and by email. Once it is allowed, add the domain: a subdomain such as docs.example.org (one CNAME record) or your root domain such as example.org (A/AAAA records). The page shows each record the way DNS providers ask for it (type, name, value) with Copy buttons, and tips for Cloudflare and other providers. Keep those records in place.</p>"
       },
       {
         "heading": "Verification and HTTPS",
-        "html": "<p>Request verification after DNS changes are visible. A hostname that is not verified within an hour expires: add it again and replace the TXT value with the new one the portal shows. HTTPS becomes available after verification and certificate issuance. If permission is revoked, verification lapses, or the wiki is suspended, the custom domain stops routing. The <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/hosting.md\">technical DNS guide</a> explains the checks.</p>"
+        "html": "<p>While the page is open it checks your records every half minute, shows which are found, missing or wrong, and turns the domain on as soon as both are right; <strong>Check DNS now</strong> checks at once. A hostname that is not verified within an hour expires: add it again and replace the TXT value with the new one the portal shows. HTTPS becomes available within a minute of verification. If permission is revoked, verification lapses, or the wiki is suspended, the custom domain stops routing. The <a href=\"https://github.com/BananaSuite/BananaWiki/blob/main/docs/hosting.md\">technical DNS guide</a> explains the checks.</p>"
       }
     ]
   },

@@ -1,7 +1,9 @@
-{#- Tabs shared by the account settings pages. Expects `tab`. -#}
+{#- Tabs shared by the account settings pages. Expects `tab`; `short_settings` comes from the users blueprint
+    (BM mode's short settings: Sessions leaves the tabs unless it is the page being shown). -#}
+{% set bm_short = 'data-bm-hide="users.simple_settings"'|safe if short_settings else '' %}
 <nav class="tabs" aria-label="{{ t('users.settings.sections') }}">
   <a href="{{ url_for('users.settings') }}"{% if tab == 'account' %} aria-current="page"{% endif %}>{{ t('users.tab.account') }}</a>
   {% if has_permission('profile.edit_own') %}<a href="{{ url_for('users.edit_profile') }}"{% if tab == 'profile' %} aria-current="page"{% endif %}>{{ t('users.tab.profile') }}</a>{% endif %}
   <a href="{{ url_for('users.display') }}"{% if tab == 'display' %} aria-current="page"{% endif %}>{{ t('users.tab.display') }}</a>
-  <a href="{{ url_for('users.sessions_page') }}"{% if tab == 'sessions' %} aria-current="page"{% endif %}>{{ t('users.tab.sessions') }}</a>
+  <a href="{{ url_for('users.sessions_page') }}"{% if tab == 'sessions' %} aria-current="page"{% else %} {{ bm_short }}{% endif %}>{{ t('users.tab.sessions') }}</a>
 </nav>

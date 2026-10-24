@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from flask import render_template
+from flask import render_template, request
 
-from ... import auth
+from ... import auth, storage
 from . import service
 
 
@@ -26,21 +26,34 @@ def _context(page: dict[str, Any]) -> dict[str, Any] | None:
         "can_upload": can_upload,
         "deletable": {a["id"] for a in attachments if service.can_delete(a, page, user)},
         "max_bytes": service.max_bytes(),
+        "rules": storage.client_rules(None, service.max_bytes()),
     }
 
 
 def page_panel(page: dict[str, Any]) -> str:
-    """Attachment list with download, upload and delete forms (``page.below_content``)."""
+    """Attachment list with download, upload and delete forms (``page.below_content``).
+
+    A page without files shows nothing: files are added in the editor. The
+    editor's no-script link (``?attach=1``) still opens the upload form here.
+    """
     context = _context(page)
-    return render_template("attachments/_page_panel.html", **context) if context else ""
+    if not context or (not context["attachments"] and request.args.get("attach") != "1"):
+        return ""
+    return render_template("attachments/_page_panel.html", **context)
 
 
 def editor_panel(page: dict[str, Any] | None) -> str:
     """Attachment list with script-driven upload and delete (``editor.below_form``).
 
-    New pages have no attachments yet; files are added after the first save.
+    A page being created has no files yet: its panel offers to create the page
+    and come back to the editor, where files can then be added.
     """
     if page is None:
-        return ""
+        user = auth.current_user()
+        if user is None or not auth.has_permission("attachment.upload", user):
+            return ""
+        return render_template("attachments/_editor_panel.html", page=None, attachments=[], can_view=False,
+                               can_upload=True, deletable=set(), max_bytes=service.max_bytes(),
+                               rules=storage.client_rules(None, service.max_bytes()))
     context = _context(page)
     return render_template("attachments/_editor_panel.html", **context) if context else ""

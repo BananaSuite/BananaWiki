@@ -8,20 +8,29 @@ place at start-up.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from flask import current_app, g, has_request_context
 
 from ..core import crypto
+from ..core.timeutil import now_sql
 from .db import db
 
 SIGNUP_MODES = ("open", "invite", "approval", "closed")
+# Whether an address is asked for: at sign-up (signup_email) and of accounts without one (existing_email).
+EMAIL_POLICIES = ("required", "optional", "off")
+# The portal's easter eggs: key -> settings column (all on unless an administrator turns one off).
+EASTER_EGGS = {"shades": "easter_shades", "konami": "easter_konami", "peek": "easter_peek"}
 APPROVAL_NOTIFY_MODES = ("immediate", "digest", "daily")
 NOTIFY_INTERVAL_MINUTES = (5, 4320)
 TTS_MODES = ("all", "whitelist", "blacklist")
 DEFAULT_GRACE_PERIOD_DAYS = 30
+# Who may use custom domains besides administrators: nobody else, the accounts an administrator allows, everyone.
+CUSTOM_DOMAIN_POLICIES = ("admins", "selected", "everyone")
 
 WRITABLE = frozenset({
+    "custom_domains_policy",
     "global_limit_enabled", "global_limit_max_instances", "global_limit_max_storage_mb",
     "global_wiki_upload_max_size_mb", "global_wiki_blocked_extensions", "bot_protection_enabled",
     "grace_period_days", "signup_mode", "ask_email_new_signup", "ask_email_existing_users", "email_required",
@@ -36,6 +45,8 @@ WRITABLE = frozenset({
     "allow_owner_download_expired", "email_flag_block_reentry", "instance_url_suffix", "instance_suffix_disabled",
     "api_enabled", "gdrive_backup_enabled", "gdrive_credentials_path", "gdrive_folder_id",
     "gdrive_retention_days", "gdrive_backup_time", "admin_mfa_required", "owner_renewal_enabled",
+    "signup_email", "existing_email", "email_shared", "email_paused", "email_paused_at", "email_paused_held",
+    "email_notices", "attention_email_sources", *EASTER_EGGS.values(),
 })
 
 
@@ -121,6 +132,74 @@ def approval_notify_daily_hour() -> int:
         return min(23, max(0, int(get("approval_notify_daily_hour", 8))))
     except (TypeError, ValueError):
         return 8
+
+
+def signup_email() -> str:
+    """Whether the sign-up form asks for an address: ``required``, ``optional`` or ``off``."""
+    value = get("signup_email", "optional")
+    return value if value in EMAIL_POLICIES else "optional"
+
+
+def existing_email() -> str:
+    """What accounts without an address are asked: ``required`` (they must add one), ``optional`` or ``off``."""
+    value = get("existing_email", "off")
+    return value if value in EMAIL_POLICIES else "off"
+
+
+def email_policy_columns(signup: str, existing: str) -> dict[str, int]:
+    """The 1.4 columns that say the same as *signup* and *existing*, kept current for older releases."""
+    return {"ask_email_new_signup": int(signup != "off"), "ask_email_existing_users": int(existing != "off"),
+            "email_required": int("required" in (signup, existing))}
+
+
+def email_shared() -> bool:
+    """Whether several accounts may use the same address."""
+    return flag("email_shared")
+
+
+def email_paused() -> bool:
+    """Whether an administrator paused every email (nothing is sent to anyone, nothing is kept for later)."""
+    return flag("email_paused")
+
+
+def set_email_paused(paused: bool) -> None:
+    """Pause or resume every email; pausing starts the count of messages held back from zero."""
+    if paused == email_paused():
+        return
+    if paused:
+        update(email_paused=1, email_paused_at=now_sql(), email_paused_held=0)
+    else:
+        update(email_paused=0)
+
+
+def count_held_back() -> None:
+    """One more message was not sent because email is paused."""
+    db.execute("UPDATE hosting_settings SET email_paused_held = email_paused_held + 1 WHERE id = 1")
+
+
+def switches(key: str) -> dict[str, bool]:
+    """A JSON column of ``name -> 0/1`` (``email_notices``, ``attention_email_sources``); unreadable: {}."""
+    try:
+        value = json.loads(get(key, "") or "{}")
+    except ValueError:
+        return {}
+    return {str(name): bool(on) for name, on in value.items()} if isinstance(value, dict) else {}
+
+
+def switched_on(key: str, name: str) -> bool:
+    """Whether *name* is on in the JSON column *key*; anything not stored is on."""
+    return switches(key).get(name, True)
+
+
+def custom_domains_policy() -> str:
+    """Who may use custom domains (:data:`CUSTOM_DOMAIN_POLICIES`); anything unknown means administrators only."""
+    value = str(get("custom_domains_policy") or "admins")
+    return value if value in CUSTOM_DOMAIN_POLICIES else "admins"
+
+
+def easter_eggs() -> dict[str, bool]:
+    """``{"shades", "konami", "peek"} -> on`` for the portal's own pages."""
+    return {egg: flag(column, True) for egg, column in EASTER_EGGS.items()}
 
 
 def verification_cooldown() -> int:

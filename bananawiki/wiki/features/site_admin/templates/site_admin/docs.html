@@ -43,11 +43,8 @@
 {% if slowdown %}
 <section class="card">
   <h2>{{ t('site_admin.docs.settings') }}</h2>
-  <form method="post" action="{{ url_for('site_admin.docs_settings') }}" class="form">
-    {{ forms.csrf() }}
-    {{ forms.checkbox('docs_bypass_deletion_slowdown', t('site_admin.docs.bypass'), checked=bypass, hint=t('site_admin.docs.bypass_hint')) }}
-    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
-  </form>
+  <p>{{ t('site_admin.docs.bypass_on' if bypass else 'site_admin.docs.bypass_off') }}</p>
+  <p><a class="btn btn--small" href="{{ url_for('deletion_slowdown.pending') }}#docs-bypass">{{ t('site_admin.docs.bypass_link') }}</a></p>
 </section>
 {% endif %}
 {% endblock %}

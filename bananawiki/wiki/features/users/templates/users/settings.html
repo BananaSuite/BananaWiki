@@ -5,6 +5,9 @@
 {% block content %}
 <header class="page-header"><h1>{{ t('users.settings.title') }}</h1></header>
 {% include "users/_tabs.html" %}
+{#- BM mode's short settings: what is marked with bm_short is hidden (users.simple_settings); "All settings"
+    (?all=1) shows the page without the marks. -#}
+{% set bm_short = 'data-bm-hide="users.simple_settings"'|safe if short_settings else '' %}
 <div class="section-stack users-settings">
   <section class="form-section" aria-labelledby="status-heading">
     <h2 id="status-heading">{{ t('users.settings.status') }}</h2>
@@ -15,7 +18,7 @@
     </p>
     <p class="btn-row">
       <a class="btn" href="{{ url_for('users.my_profile') }}">{{ t('users.settings.view_profile') }}</a>
-      <a class="btn" href="{{ url_for('users.merge_pending') }}">{{ t('users.merge.title') }}</a>
+      <a class="btn" href="{{ url_for('users.merge_pending') }}" {{ bm_short }}>{{ t('users.merge.title') }}</a>
     </p>
   </section>
 
@@ -61,7 +64,7 @@
   </section>
 
   {% if is_admin and (user.role == 'owner' or may_become_owner) %}
-  <section class="form-section" aria-labelledby="owner-heading">
+  <section class="form-section" aria-labelledby="owner-heading" {{ bm_short }}>
     <h2 id="owner-heading">{{ t('users.settings.owner_status') }}</h2>
     <p class="hint">{{ t('users.settings.owner_on' if user.role == 'owner' else 'users.settings.owner_off') }}</p>
     <form method="post" action="{{ url_for('users.toggle_owner') }}" class="form">
@@ -72,10 +75,12 @@
   </section>
   {% endif %}
 
-  {{ slot('account.settings_sections') }}
+  {% for feature_id, section in slot_parts('account.settings_sections') %}
+  {% if short_settings and feature_id not in short_settings_keep %}<div class="section-stack" {{ bm_short }}>{{ section }}</div>{% else %}{{ section }}{% endif %}
+  {% endfor %}
 
   {% if not user.is_superuser %}
-  <section class="form-section form-section--danger" aria-labelledby="delete-heading">
+  <section class="form-section form-section--danger" aria-labelledby="delete-heading" {{ bm_short }}>
     <h2 id="delete-heading">{{ t('users.settings.delete_account') }}</h2>
     <p>{{ t('users.settings.delete_warning') }}</p>
     <form method="post" action="{{ url_for('users.delete_account') }}" class="form" data-confirm="{{ t('users.settings.delete_confirm') }}">
@@ -84,6 +89,11 @@
       <div><button class="btn btn--danger" type="submit">{{ t('users.settings.delete_account') }}</button></div>
     </form>
   </section>
+  {% endif %}
+
+  {% if short_settings %}
+  <p class="users-settings__all"><a class="text-link" href="{{ url_for('users.settings', all=1) }}">{{ t('users.settings.all') }}</a>
+    <span class="muted small">{{ t('users.settings.all_hint') }}</span></p>
   {% endif %}
 </div>
 {% endblock %}

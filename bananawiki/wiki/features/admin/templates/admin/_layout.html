@@ -23,7 +23,7 @@
     {% set groups.people = groups.people + [item] %}
   {% elif item.id in ['site_admin:site_admin.migration_page', 'site_admin:site_admin.server_page'] or feature_id in ['audit', 'api_service', 'federation'] %}
     {% set groups.system = groups.system + [item] %}
-  {% elif feature_id in ['site_admin', 'attention', 'plugin_manager'] %}
+  {% elif feature_id in ['site_admin', 'attention', 'plugin_manager', 'bm_mode'] %}
     {% set groups.wiki = groups.wiki + [item] %}
   {% elif feature_id in ['assessments', 'announcements', 'bulk_manage', 'custom_pages', 'chat', 'canvas', 'deletion_slowdown', 'page_export', 'page_governance', 'page_builder', 'tts', 'contributions'] %}
     {% set groups.content = groups.content + [item] %}

@@ -31,6 +31,7 @@ from flask import current_app
 from werkzeug.datastructures import FileStorage
 
 from ....core.timeutil import now_sql
+from ....core.zipcheck import readable_member
 from ... import accounts, storage
 from ...db import db
 from ..pages import access as page_access
@@ -257,7 +258,9 @@ def _check_archive(members: list[zipfile.ZipInfo]) -> list[zipfile.ZipInfo]:
         raise ImportRefused("page_export.import.too_large_unpacked")
     for member in wanted:
         if member.file_size > 1024 * 1024 and member.file_size > MAX_RATIO * max(member.compress_size, 1):
-            raise ImportRefused("page_export.import.suspicious")
+            raise ImportRefused("page_export.import.suspicious", name=member.filename)
+        if not readable_member(member):  # bzip2/LZMA: one read can unpack far more than it asks for
+            raise ImportRefused("page_export.import.suspicious", name=member.filename)
     return wanted
 
 

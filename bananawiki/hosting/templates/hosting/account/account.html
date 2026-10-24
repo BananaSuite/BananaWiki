@@ -22,8 +22,8 @@
   <a href="#password">{{ t('hosting.account.change_password') }}</a>
   <a href="#security">{{ t('hosting.mfa.title') }}</a>
   <a href="#sessions">{{ t('hosting.account.sessions.title') }}</a>
-  {% if show_tokens %}
   {% if show_notifications %}<a href="#notifications">{{ t('hosting.account.notifications.title') }}</a>{% endif %}
+  {% if show_tokens %}
   <a href="#api-tokens">{{ t('hosting.api_tokens.title') }}</a>
   {% endif %}
   {% if can_merge or can_export or show_wiki_signins %}<a href="#more">{{ t('hosting.account.more') }}</a>{% endif %}
@@ -74,7 +74,6 @@
   </div>{% endif %}
 </details>
 
-{% if show_tokens %}
 {% if show_notifications %}
 <section class="card" id="notifications">
   <h2>{{ t('hosting.account.notifications.title') }}</h2>
@@ -85,6 +84,7 @@
   </form>
 </section>
 {% endif %}
+{% if show_tokens %}
 
 <details class="card" id="api-tokens" {% if new_token %}open{% endif %}>
   <summary>{{ t('hosting.api_tokens.title') }}</summary>
@@ -123,7 +123,7 @@
     {% if can_merge %}<a class="btn" href="{{ url_for('account.merge_request') }}">{{ t('hosting.merges.request_title') }}</a>
     {% if merges %}<a class="btn" href="{{ url_for('account.merge_pending') }}">{{ t('hosting.merges.pending_title') }}</a>{% endif %}{% endif %}
     {% if can_export %}{{ ui.post(url_for('account.export_account'), t('hosting.account.export'), 'btn') }}{% endif %}
-    {% if show_wiki_signins %}{{ ui.post(url_for('oauth.revoke'), t('hosting.oauth.revoke_all'), 'btn') }}{% endif %}
+    {% if show_wiki_signins %}<a class="btn" href="{{ url_for('account.wiki_signins') }}">{{ t('hosting.wikis.title') }}</a>{% endif %}
   </div>
 </details>
 {% endif %}

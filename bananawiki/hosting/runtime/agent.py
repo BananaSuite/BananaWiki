@@ -965,6 +965,16 @@ class AgentRuntime:
         return dnscheck.check(domain, token, cfg.custom_domain_target, cfg.custom_domain_ips,
                               allow_proxied=cfg.custom_domain_allow_proxied)
 
+    def inspect_domain(self, domain: str, token: str) -> dict[str, Any]:
+        """Record by record, what DNS shows for a claim (the domain page's checklist; see dnscheck.inspect)."""
+        cfg = self._cfg()
+        return dnscheck.inspect(domain, token, cfg.custom_domain_target, cfg.custom_domain_ips,
+                                allow_proxied=cfg.custom_domain_allow_proxied)
+
+    def lookup_addresses(self, name: str) -> tuple[str, ...]:
+        """The A/AAAA addresses of *name* (the platform's own, shown to owners of root domains)."""
+        return dnscheck.addresses(name)
+
     def sync_routes(self, specs: Sequence[TenantSpec]) -> dict[str, Any] | None:
         if self._cfg().hosting_mode != "subdomain":
             return None

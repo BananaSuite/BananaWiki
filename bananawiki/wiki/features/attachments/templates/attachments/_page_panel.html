@@ -1,9 +1,10 @@
-{#- Attachments under a wiki page. Context: page, attachments, can_view, can_upload, deletable, max_bytes. -#}
+{#- Attachments under a wiki page. Context: page, attachments, can_view, can_upload, deletable, max_bytes, rules.
+    Only pages with files show it; files are added in the editor (or here, from the editor's no-script link). -#}
 {% import "macros/forms.html" as forms with context %}
 <link rel="stylesheet" href="{{ asset_url('attachments.css', blueprint='attachments') }}">
-{#- A page without attachments shows no panel; uploaders get a small "Add files" disclosure. -#}
 {% macro upload_form() -%}
-  <form method="post" action="{{ url_for('attachments.upload', slug=page.slug) }}" enctype="multipart/form-data" class="attachments__upload">
+  <form method="post" action="{{ url_for('attachments.upload', slug=page.slug) }}" enctype="multipart/form-data" class="attachments__upload"
+        data-upload-rules='{{ rules|tojson }}' data-max-body="{{ config.MAX_CONTENT_LENGTH or 0 }}">
     {{ forms.csrf() }}
     <label class="visually-hidden" for="attachments-files">{{ t('attachments.add') }}</label>
     <div class="inline-fields">
@@ -35,7 +36,7 @@
   {% if can_upload %}<details class="disclosure attachments__more"><summary>{{ t('attachments.add') }}</summary>{{ upload_form() }}</details>{% endif %}
 </section>
 {% elif can_upload %}
-<details class="disclosure attachments attachments--empty no-print" id="attachments">
+<details class="disclosure attachments attachments--empty no-print" id="attachments" open>
   <summary>{{ t('attachments.add') }}</summary>
   {{ upload_form() }}
 </details>

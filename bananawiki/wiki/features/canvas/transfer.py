@@ -39,6 +39,7 @@ from flask import current_app
 from werkzeug.datastructures import FileStorage
 
 from ....core.json import loads as safe_json_loads
+from ....core.zipcheck import readable_member
 from ... import storage
 from ...i18n import t
 from . import model
@@ -215,6 +216,10 @@ def _read_bundle(bundle: zipfile.ZipFile) -> tuple[str, str, dict[str, Any], lis
         if info.is_dir():
             continue
         if name.startswith("/") or ".." in name.split("/"):
+            raise CanvasImportError("canvas.import.invalid")
+        if not readable_member(info):
+            # bzip2 or LZMA members can unpack far more than one read asks for (a decompression bomb),
+            # as kanban and site imports refuse them too.
             raise CanvasImportError("canvas.import.invalid")
         if name == "canvas.json":
             json_member = info

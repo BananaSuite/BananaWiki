@@ -159,6 +159,10 @@ def _idempotency(user: dict[str, Any], token: dict[str, Any]):
     except RequestEntityTooLarge:
         return ApiError(413, "body_too_large").response()
     fingerprint = idempotency.request_hash(request.method, request.path, request.query_string, body)
+    # The transaction below holds the write lock for the whole view: views that hash passwords do it first.
+    prehash = getattr(current_app.view_functions.get(request.endpoint or ""), "_api_prehash_passwords", None)
+    if prehash is not None:
+        g.api_password_hashes = prehash(body)
     # The operation and its replay record must commit together. Otherwise a
     # worker dying after a service commits can leave a successful mutation
     # without a record, and the client's retry runs it a second time.

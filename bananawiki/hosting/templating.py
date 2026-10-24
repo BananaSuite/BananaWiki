@@ -14,7 +14,7 @@ from ..core import mascot, web
 from ..core.assets import asset_url
 from ..core.i18n import _PLACEHOLDER
 from ..core.timeutil import is_past, parse, utcnow
-from . import attention, auth, i18n, notifications, urls
+from . import attention, auth, i18n, notifications, settings, urls
 
 
 def format_datetime(value: Any, fmt: str = "%Y-%m-%d %H:%M UTC") -> str:
@@ -141,6 +141,14 @@ def wbr_dots(text: Any) -> Markup:
     return Markup("<wbr>").join(Markup('<span class="host-part">{}</span>').format(part) for part in parts)
 
 
+def easter_eggs() -> dict[str, bool]:
+    """The portal's easter eggs that are on; all of them when the settings cannot be read (an error page)."""
+    try:
+        return settings.easter_eggs()
+    except Exception:  # noqa: BLE001 - an error page must render even when the database does not answer
+        return dict.fromkeys(settings.EASTER_EGGS, True)
+
+
 def wbr_settings(text: Any) -> Markup:
     """Text that names settings (``BW_HOSTING_TENANT_QUOTAS=required``): on a narrow screen such a token may
     break after its ``=``, not inside the value."""
@@ -249,7 +257,8 @@ def device(user_agent: Any) -> str:
 
 
 def theme() -> str:
-    account = auth.current_account()
+    # An administrator impersonating someone keeps their own theme (see public.set_theme).
+    account = g.get("real_account") if auth.impersonating() else auth.current_account()
     if account and account.get("theme_mode") in ("dark", "light"):
         return account["theme_mode"]
     cookie = request.cookies.get("bw_theme")
@@ -353,6 +362,16 @@ def _json_script(value: Any) -> Markup:
     return Markup(text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"))
 
 
+def wiki_open_url(item: dict[str, Any]) -> str:
+    """Where "Open wiki" leads: through platform sign-in when the wiki offers it, else its address."""
+    from . import oauth
+
+    url = item.get("url") or ""
+    if not url or auth.impersonating():
+        return url
+    return oauth.signin_url(item, url)
+
+
 def install(app: Flask) -> None:
     app.jinja_env.filters.update(datetime=format_datetime, date=lambda v: format_datetime(v, "%Y-%m-%d"),
                                  datetime_html=datetime_html,
@@ -377,6 +396,7 @@ def install(app: Flask) -> None:
             "request_id": g.get("request_id", ""), "attention_items": attention_items,
             "attention_banner": attention_banner, "notice_text": notifications.notice_text,
             "tm": tm, "link": link, "nowrap": nowrap, "strong": strong, "gate_pending": gate_pending, "subject_name": subject_name, "field_error": field_error,
-            "inline_error": inline_error, "gate_allows": gate_allows,
+            "inline_error": inline_error, "gate_allows": gate_allows, "wiki_open_url": wiki_open_url,
             "email_ready": notifications.configured, "mascot": mascot,
+            "email_paused": settings.email_paused, "easter_eggs": easter_eggs,
         }

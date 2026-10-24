@@ -317,7 +317,8 @@ def _pages(raw: dict[str, Any], complete: bool, version: int) -> dict[str, Any]:
     if not all(_REF.fullmatch(slug) for slug in slugs if slug):
         raise DocumentError("page_builder.error.pages")
     category = raw.get("category_id")
-    if category is not None and (isinstance(category, bool) or not isinstance(category, int) or category < 1):
+    if category is not None and (isinstance(category, bool) or not isinstance(category, int)
+                                 or not 1 <= category < 2**63):
         raise DocumentError("page_builder.error.pages")
     slugs = list(dict.fromkeys(slug for slug in slugs if slug))
     if complete and ((source == "selected" and not slugs) or (source == "category" and category is None)):
@@ -492,7 +493,8 @@ def _page_entries(block: dict[str, Any], current_page_id: int | None, room: int)
                     break
     else:
         category = block["category_id"] if block["source"] == "category" else "any"
-        if category is None:
+        # None, or a category id saved before ids were bounded (no category has it).
+        if category is None or (category != "any" and not 0 < category < 2**63):
             return []
         limit = min(block["limit"], room)
         rows = [row for row in pages.list_visible(category_id=category, order="recent", limit=limit + 1)

@@ -11,7 +11,7 @@ from flask import Blueprint, abort, current_app, jsonify, redirect, render_templ
 from ....core.web import client_network, safe_next
 from ... import auth
 from ...i18n import t
-from . import service, summaries
+from . import service, summaries, uploads
 
 bp = Blueprint("pages", __name__, template_folder="templates", static_folder="static",
                static_url_path="/static/pages")
@@ -35,6 +35,12 @@ def rate_limited(bucket: str, limit: int, window: int = 60) -> Callable[[Callabl
         return wrapper
 
     return decorate
+
+
+@bp.app_template_global("image_upload_rules")
+def image_upload_rules() -> dict[str, object]:
+    """The editor's checks before it sends a picture (see :func:`.uploads.client_rules`)."""
+    return uploads.client_rules()
 
 
 @bp.app_template_global("page_history_message")

@@ -73,9 +73,16 @@ l'originale resta, perché altre pagine o versioni precedenti potrebbero
 usarlo. Le GIF e le immagini di altri siti non si ritagliano. Un'immagine con
 queste opzioni è scritta nel testo come tag `<img>`.
 
-Se gli allegati sono attivi, l'editor e la pagina hanno una sezione
-**Allegati** per altri file (PDF, documenti, archivi, audio, video). La wiki
-può limitare i tipi di file, le dimensioni e quanto puoi caricare al giorno.
+Se gli allegati sono attivi, l'editor ha una sezione **Allegati** per altri
+file (PDF, documenti, archivi, audio, video): premi **File** nella barra,
+trascina i file sull'elenco oppure trascinali o incollali nel testo, dove viene
+inserito un collegamento a ciascun file nel punto del cursore. **Inserisci
+link** accanto a un file fa lo stesso in seguito. Una pagina nuova
+offre **Crea la pagina e aggiungi file**, che salva la pagina e ti riporta al suo editor.
+Ogni caricamento mostra il suo avanzamento e si può annullare; la pagina
+elenca i suoi file sotto il testo quando ne ha. La wiki può limitare i tipi di
+file, le dimensioni e quanto puoi caricare al giorno, e lo dice prima di
+inviare un file che rifiuterebbe.
 
 ## Bozze
 

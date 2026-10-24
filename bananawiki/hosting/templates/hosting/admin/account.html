@@ -56,6 +56,20 @@
 {% endif %}
 </div>
 {% endif %}
+{% if not target.deleted_at %}
+<section class="card" id="custom-domains"><h2>{{ t('hosting.domain_policy.account_title') }}</h2>
+  {% if target.is_admin %}<p>{{ t('hosting.domain_policy.account_admin') }}</p>
+  {% elif domain_policy == 'everyone' %}<p>{{ t('hosting.domain_policy.account_everyone') }}</p>
+  {% else %}
+  <p>{{ t('hosting.domain_policy.account_on') if target.custom_domains_allowed else t('hosting.domain_policy.account_off') }}</p>
+  {% if domain_policy == 'admins' %}<p class="small muted">{{ tm('hosting.domain_policy.account_moot', settings=link(url_for('admin.settings_page', open='save_custom_domains') ~ '#save_custom_domains', t('hosting.domain_policy.settings_link'))) }}</p>{% endif %}
+  {% endif %}
+  {% if not target.is_admin %}
+  {{ ui.post(url_for('admin.account_custom_domains', account_id=target.id), t('hosting.domain_policy.account_revoke') if target.custom_domains_allowed else t('hosting.domain_policy.account_grant'), hidden={'allowed': '0' if target.custom_domains_allowed else '1'}) }}
+  {% endif %}
+  {% if not domains_configured %}<p class="small muted">{{ t('hosting.domains.not_configured') }}</p>{% endif %}
+</section>
+{% endif %}
 <section class="card"><h2>{{ t('hosting.admin.instances') }}</h2><ul class="plain-list">{% for inst in owned %}<li><a href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ inst.original_slug }}</a> {{ ui.status(inst.status) }}</li>{% else %}<li class="muted">{{ t('hosting.admin.no_wikis') }}</li>{% endfor %}</ul></section>
 <details class="card" id="panel-5" data-remember><summary>{{ t('hosting.admin.history') }}</summary>
 {{ ui.history(history, events, 'account') }}</details>

@@ -1,31 +1,67 @@
 {#- "Listen to this page" player (slot page.below_content). Behaviour lives in static/tts.js. A page without
-    text has nothing to read aloud. -#}
+    text has nothing to read aloud.
+
+    Nothing here is named or labelled through an id: the page's own headings come first and could take it
+    (see tests/features/test_content_ids.py), so the section has an aria-label and the speed label holds its
+    select. The small player at the bottom of the screen (data-tts-mini) appears while the audio plays and
+    this panel is scrolled out of view. -#}
+{% macro glyph(name) -%}
+<svg class="icon" width="18" height="18" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" focusable="false">
+{%- if name == 'previous' %}<path d="M4 4h2v12H4zM16 4.6v10.8L7.5 10z"/>
+{%- elif name == 'next' %}<path d="M14 4h2v12h-2zM4 4.6v10.8L12.5 10z"/>
+{%- elif name == 'play' %}<path d="M6 3.8v12.4L16 10z"/>
+{%- elif name == 'pause' %}<path d="M5 4h3.5v12H5zm6.5 0H15v12h-3.5z"/>
+{%- else %}<path d="M10 3.5 4 9.5h3.5V16h5V9.5H16z"/>{% endif -%}
+</svg>
+{%- endmacro %}
 {% if page.content|trim %}
 <link rel="stylesheet" href="{{ asset_url('tts.css', blueprint='tts') }}">
-<section class="card tts-panel" data-tts-panel aria-labelledby="tts-title-{{ page.id }}">
-  <script type="application/json" data-tts-config>{{ {"urls": urls, "state": state, "speedDownload": speed_download}|json_script }}</script>
+<section class="card tts-panel" data-tts-panel aria-label="{{ t('tts.panel.title') }}">
+  <script type="application/json" data-tts-config>{{ {"urls": urls, "state": state, "speedDownload": speed_download, "title": page.title}|json_script }}</script>
   <div class="tts-panel__bar">
-    <h2 class="tts-panel__title" id="tts-title-{{ page.id }}">{{ t('tts.panel.title') }}</h2>
-    <p class="tts-panel__status muted small" data-tts-status role="status" aria-live="polite"></p>
+    <h2 class="tts-panel__title">{{ t('tts.panel.title') }}</h2>
+    <p class="tts-panel__status muted small" data-tts-status role="status" aria-live="polite" tabindex="-1"></p>
     <div class="tts-panel__controls">
-      <label class="tts-panel__speed small" for="tts-speed-{{ page.id }}">{{ t('tts.panel.speed') }}
-        <select id="tts-speed-{{ page.id }}" data-tts-speed>
+      <label class="tts-panel__speed small">{{ t('tts.panel.speed') }}
+        <select data-tts-speed>
           {% for speed in speeds %}
           <option value="{{ speed_tag(speed) }}"{% if speed == default_speed %} selected{% endif %}>{{ speed_tag(speed) }}×</option>
           {% endfor %}
         </select>
       </label>
-      <button type="button" class="btn btn--primary btn--small" data-tts-generate hidden>{{ t('tts.panel.generate') }}</button>
+      <button type="button" class="btn btn--primary btn--small" data-tts-generate hidden data-label-retry="{{ t('tts.panel.retry') }}">{{ t('tts.panel.generate') }}</button>
       <button type="button" class="btn btn--ghost btn--small" data-tts-cancel hidden>{{ t('tts.panel.remove') }}</button>
     </div>
   </div>
   <div class="tts-panel__player" data-tts-player hidden>
-    <audio class="tts-panel__audio" controls preload="none" data-tts-audio></audio>
+    <audio class="tts-panel__audio" controls preload="none" data-tts-audio aria-label="{{ t('tts.panel.audio') }}"></audio>
     <div class="tts-panel__actions">
+      <span class="tts-panel__skip">
+        <button type="button" class="btn btn--small btn--icon" data-tts-previous aria-keyshortcuts="J" disabled
+                aria-label="{{ t('tts.panel.previous') }}" title="{{ t('tts.panel.previous') }} (J)">{{ glyph('previous') }}</button>
+        <button type="button" class="btn btn--small btn--icon" data-tts-next aria-keyshortcuts="L" disabled
+                aria-label="{{ t('tts.panel.next') }}" title="{{ t('tts.panel.next') }} (L)">{{ glyph('next') }}</button>
+      </span>
       <label class="check small"><input type="checkbox" data-tts-follow checked><span>{{ t('tts.panel.follow') }}</span></label>
       <a class="btn btn--small" href="{{ urls.download }}" data-tts-download download>{{ t('tts.panel.download') }}</a>
       <span class="muted small" data-tts-meta></span>
     </div>
+    <p class="tts-panel__note small" data-tts-resume hidden><span data-tts-resume-text></span>
+      <button type="button" class="btn-link" data-tts-restart>{{ t('tts.panel.start_over') }}</button></p>
+    <p class="tts-panel__note small" data-tts-cut hidden>{{ t('tts.panel.cut_short') }}</p>
+    <p class="tts-panel__hint small muted">{{ t('tts.panel.hint') }} <span class="tts-panel__keys">{{ t('tts.panel.keys') }}</span></p>
+  </div>
+  <div class="tts-mini" data-tts-mini hidden role="group" aria-label="{{ t('tts.panel.title') }}">
+    <button type="button" class="btn btn--ghost btn--icon" data-tts-previous disabled
+            aria-label="{{ t('tts.panel.previous') }}" title="{{ t('tts.panel.previous') }}">{{ glyph('previous') }}</button>
+    <button type="button" class="btn btn--primary btn--icon tts-mini__toggle" data-tts-toggle aria-keyshortcuts="K"
+            data-label-play="{{ t('tts.panel.play') }}" data-label-pause="{{ t('tts.panel.pause') }}"
+            aria-label="{{ t('tts.panel.play') }}" title="{{ t('tts.panel.play') }}"><span data-tts-glyph="play">{{ glyph('play') }}</span><span data-tts-glyph="pause" hidden>{{ glyph('pause') }}</span></button>
+    <button type="button" class="btn btn--ghost btn--icon" data-tts-next disabled
+            aria-label="{{ t('tts.panel.next') }}" title="{{ t('tts.panel.next') }}">{{ glyph('next') }}</button>
+    <span class="tts-mini__time small" data-tts-time aria-hidden="true"></span>
+    <button type="button" class="btn btn--ghost btn--icon" data-tts-show
+            aria-label="{{ t('tts.panel.show_player') }}" title="{{ t('tts.panel.show_player') }}">{{ glyph('up') }}</button>
   </div>
 </section>
 <script src="{{ asset_url('tts.js', blueprint='tts') }}" defer></script>

@@ -413,6 +413,10 @@
   "js.kanban.due_overdue_on": "Überfällig seit {date}",
   "js.kanban.due_soon_on": "Bald fällig: {date}",
   "kanban.mine.due_overdue": "Überfällig seit {date}",
+  "kanban.bm.simple_board": "Einfachere Boards",
+  "kanban.bm.simple_board_hint": "Blendet die Auswahl mehrerer Karten, Filter und Zeilen, die Aktivität, archivierte Karten, den Verlauf, Exporte und die Tastaturhilfe aus.",
+  "kanban.bm.simple_tickets": "Einfachere Karten",
+  "kanban.bm.simple_tickets_hint": "Behält Titel, Beschreibung, Spalte, Personen, Fälligkeit, Kommentare und Dateien; blendet Priorität, Labels, Farbe, Checkliste, Verlauf und Archivieren aus.",
   "js.kanban.column_name": "Name der Spalte …",
   "js.kanban.list.moved": "{title} an Position {position} von {total} verschoben."
 }

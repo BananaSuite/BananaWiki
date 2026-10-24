@@ -11,6 +11,11 @@ digests and may carry a PKCE S256 challenge, which the token request must
 then satisfy. Access tokens are opaque, stored as SHA-256 digests, live one
 hour and are checked against the database on every use, so revoking them and
 suspending or deleting the account take effect at once.
+
+Consent is asked once per wiki and remembered in ``hosting_oauth_grants``
+(the owner's own wikis never ask): later sign-ins go straight back to the
+wiki. An account sees and withdraws its grants on **Account → Wikis**, which
+also signs it out of wikis through :mod:`.signouts`.
 """
 
 from __future__ import annotations
@@ -28,13 +33,16 @@ from flask import current_app
 from ..core import crypto
 from ..core.crypto import sha256_hex
 from ..core.timeutil import now_sql, sql_in
-from . import accounts, settings, urls
+from . import accounts, settings, signouts, urls
 from .db import db
 from .runtime import OAuthClient
 
 CODE_SECONDS = 300
 TOKEN_SECONDS = 3600
 SCOPE = "openid profile"
+# Codes issued without a click (remembered consent) per account and minute: a page that loads the
+# authorize URL in a loop gets the consent page instead of filling the code table.
+AUTO_CODES_PER_MINUTE = 20
 
 
 def enabled() -> bool:
@@ -100,6 +108,9 @@ def authenticate_client(client_id: str, secret: str) -> dict[str, Any] | None:
 
 
 def _origin(url: str) -> str | None:
+    # urlsplit drops tabs and line breaks, so such a URI would pass the check and break the Location header.
+    if not url or len(url) > 2048 or any(ord(char) < 32 or ord(char) == 127 for char in url):
+        return None
     try:
         parts = urlsplit(url)
     except ValueError:
@@ -118,8 +129,9 @@ def redirect_allowed(inst: dict[str, Any], redirect_uri: str) -> bool:
     platform = _origin(urls.instance_url(inst))
     if platform:
         allowed.add(platform)
-    domain = db.scalar("SELECT domain FROM instance_custom_domains WHERE instance_id = ? AND verified_at IS NOT NULL "
-                       "AND verified_until > ?", (inst["id"], now_sql()))
+    from . import domains
+
+    domain = domains.active_domain(inst["id"])
     if domain:
         allowed.add(f"https://{domain.lower()}")
     return origin in allowed
@@ -177,6 +189,8 @@ def redeem_code(code: str, client_id: str, redirect_uri: str, verifier: str) -> 
             "token_hash": sha256_hex(token), "client_id": client_id, "account_id": row["account_id"],
             "scope": SCOPE, "expires_at": sql_in(seconds=TOKEN_SECONDS), "created_at": now_sql(),
         })
+        db.execute("UPDATE hosting_oauth_grants SET last_used_at = ? WHERE account_id = ? AND instance_id = "
+                   "(SELECT id FROM instances WHERE oauth_client_id = ?)", (now_sql(), row["account_id"], client_id))
     return token
 
 
@@ -209,6 +223,14 @@ def revoke_account_tokens(account_id: str) -> int:
     return db.execute("DELETE FROM hosting_oauth_access_tokens WHERE account_id = ?", (account_id,)).rowcount
 
 
+def sign_out_everywhere(account_id: str) -> int:
+    """End the account's platform sessions on every wiki and drop its access tokens; returns how many wikis."""
+    with db.transaction():
+        asked = signouts.queue(account_id, "signed_out")
+        revoke_account_tokens(account_id)
+    return asked
+
+
 def revoke_account_credentials(account_id: str) -> None:
     """Retire access tokens and unused grants when the account's password changes."""
     db.execute("DELETE FROM hosting_oauth_authorization_codes WHERE account_id = ?", (account_id,))
@@ -221,3 +243,80 @@ def account_authorized_client(account_id: str, client_id: str) -> bool:
         return False
     return bool(db.scalar("SELECT 1 FROM hosting_oauth_access_tokens WHERE account_id = ? AND client_id = ? "
                           "AND expires_at > ?", (account_id, client_id, now_sql())))
+
+
+# Remembered consent and connected wikis
+
+
+def consent_remembered(account: dict[str, Any], inst: dict[str, Any]) -> bool:
+    """Whether *account* already allowed *inst* to know who it is (always for the wiki's owner)."""
+    if inst.get("account_id") == account["id"]:
+        return True
+    return bool(db.scalar("SELECT 1 FROM hosting_oauth_grants WHERE account_id = ? AND instance_id = ?",
+                          (account["id"], inst["id"])))
+
+
+def remember_consent(account_id: str, instance_id: str) -> None:
+    db.execute("INSERT OR IGNORE INTO hosting_oauth_grants (account_id, instance_id, granted_at) VALUES (?, ?, ?)",
+               (account_id, instance_id, now_sql()))
+
+
+def _end_wiki_access(account_id: str, inst: dict[str, Any], reason: str) -> int:
+    db.execute("DELETE FROM hosting_oauth_authorization_codes WHERE account_id = ? AND client_id = ?",
+               (account_id, inst.get("oauth_client_id") or ""))
+    asked = signouts.queue(account_id, reason, instance_id=inst["id"])
+    db.execute("DELETE FROM hosting_oauth_access_tokens WHERE account_id = ? AND client_id = ?",
+               (account_id, inst.get("oauth_client_id") or ""))
+    return asked
+
+
+def sign_out_of(account_id: str, instance_id: str) -> bool:
+    """Sign *account_id* out of one wiki (its consent stays); False when the account is unknown there."""
+    with db.transaction():
+        inst = db.one("SELECT * FROM instances WHERE id = ?", (instance_id,))
+        return inst is not None and _end_wiki_access(account_id, inst, "signed_out") > 0
+
+
+def remove_access(account_id: str, instance_id: str) -> bool:
+    """Withdraw consent for one wiki and sign out of it; the next sign-in asks again.
+
+    The link between the portal account and the wiki account stays, so signing
+    in again later reaches the same wiki account. False when there was nothing to remove.
+    """
+    with db.transaction():
+        inst = db.one("SELECT * FROM instances WHERE id = ?", (instance_id,))
+        if inst is None:
+            return False
+        asked = _end_wiki_access(account_id, inst, "access_removed")  # while the grant still names the wiki
+        removed = db.execute("DELETE FROM hosting_oauth_grants WHERE account_id = ? AND instance_id = ?",
+                             (account_id, instance_id)).rowcount
+    return bool(removed or asked)
+
+
+def connected_wikis(account_id: str) -> list[dict[str, Any]]:
+    """The wikis *account_id* signed in to or is linked to, newest sign-in first (terminated ones left out)."""
+    rows = db.all(
+        "SELECT i.*, g.granted_at, g.last_used_at, l.wiki_username, l.linked_at, "
+        "(i.account_id = ?) AS is_owner FROM instances i "
+        "LEFT JOIN hosting_oauth_grants g ON g.instance_id = i.id AND g.account_id = ? "
+        "LEFT JOIN hosting_oauth_account_links l ON l.instance_id = i.id AND l.account_id = ? "
+        "WHERE i.status != 'terminated' AND (g.account_id IS NOT NULL OR l.id IS NOT NULL) "
+        "ORDER BY COALESCE(g.last_used_at, l.linked_at, g.granted_at) DESC, i.subdomain",
+        (account_id, account_id, account_id),
+    )
+    return [{**row, "name": urls.original_slug(row["subdomain"]) or row["subdomain"], "url": urls.instance_url(row),
+             "signin_url": signin_url(row)} for row in rows]
+
+
+def signin_url(inst: dict[str, Any], base: str | None = None) -> str:
+    """The address that opens the wiki signed in through the portal ("" when the wiki has no address).
+
+    Plain *base* (default: the wiki's platform address) while platform sign-in
+    is off, or before the wiki received credentials: a wiki gets them when it
+    starts, so one that was running when an administrator turned platform
+    sign-in on has no sign-in page yet.
+    """
+    base = urls.instance_url(inst) if base is None else base
+    if not base or not enabled() or not inst.get("oauth_client_id") or inst.get("status") == "terminated":
+        return base
+    return base.rstrip("/") + "/platform-oauth/login"

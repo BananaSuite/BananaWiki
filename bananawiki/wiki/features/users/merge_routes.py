@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from flask import redirect, render_template, request, url_for
+from flask import abort, redirect, render_template, request, url_for
 
 from ... import accounts, auth
 from ..admin.service import protection_error
@@ -24,6 +24,8 @@ def merge_request(username: str | None = None):
     user = auth.current_user()
     other_name = request.form.get("other_username", username or "").strip()
     if request.method == "POST":
+        if auth.is_impersonating():
+            abort(403)
         other = accounts.by_username(other_name)
         if other is None:
             auth.flash_t("users.merge.error.no_such_user", "error")
@@ -48,6 +50,8 @@ def merge_pending():
 
 @bp.post("/settings/merge/approve/<int:merge_id>")
 def merge_confirm(merge_id: int):
+    if auth.is_impersonating():
+        abort(403)
     try:
         merge.confirm(merge_id, auth.current_user(), request.form.get("password"))
     except merge.MergeError as error:

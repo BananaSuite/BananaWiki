@@ -4,6 +4,7 @@ from ...registry import Feature, Job
 from . import (  # noqa: F401 - the route modules register views
     jobs,
     onboarding,
+    platform_oauth,
     routes,
     routes_oauth,
     routes_onboarding,
@@ -27,6 +28,7 @@ FEATURE = Feature(
         "account.settings_sections": slots.account_settings_sections,
         "admin.user_detail": slots.admin_user_detail,
     },
-    jobs=[Job("auth.prune_rate_limits", 3600, jobs.prune_rate_limits)],
+    jobs=[Job("auth.prune_rate_limits", 3600, jobs.prune_rate_limits),
+          Job("auth.platform_signouts", 60, platform_oauth.apply_signouts)],
     order=0,
 )

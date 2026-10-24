@@ -7,6 +7,7 @@
   <p>{{ tm('hosting.oauth.body', wiki=strong(instance.subdomain), username=strong(current_account.username)) }}</p>
   {% set address = instance_url(instance) %}{% if address %}<p class="small"><span class="muted">{{ t('hosting.instance.url') }}:</span> <span class="mono">{{ address }}</span></p>{% endif %}
   <p class="small muted">{{ t('hosting.oauth.shared') }}</p>
+  <p class="small muted">{{ t('hosting.oauth.remembered') }}</p>
   <form method="post" class="btn-row">{{ ui.csrf() }}
     <button class="btn btn--primary" type="submit" name="action" value="allow">{{ t('hosting.oauth.allow') }}</button>
     <button class="btn" type="submit" name="action" value="deny">{{ t('hosting.oauth.deny') }}</button>

@@ -65,8 +65,12 @@ def _wiki_sql(setup, sql: str, params: tuple = ()) -> list[dict]:
         session.conn.close()
 
 
-def _sign_in(setup, login, account):
-    """A browser signs in to the portal as *account*, then to the wiki with it; returns the wiki client."""
+def _sign_in(setup, login, account, *, create=True):
+    """A browser signs in to the portal as *account*, then to the wiki with it; returns the wiki client.
+
+    On a first sign-in the wiki asks what to do: with *create* the browser
+    creates a wiki account named like the portal account.
+    """
     browser, wiki = setup["portal"].test_client(), setup["wiki"].test_client()
     login(browser, account)
     start = wiki.get("/platform-oauth/login", base_url=setup["url"])
@@ -74,7 +78,10 @@ def _sign_in(setup, login, account):
     consent = browser.post(f"{authorize.path}?{authorize.query}", data={"action": "allow"})
     callback = urlsplit(consent.headers["Location"])
     assert parse_qs(callback.query).get("code"), consent.headers["Location"]
-    wiki.get(f"{callback.path}?{callback.query}", base_url=setup["url"])
+    answer = wiki.get(f"{callback.path}?{callback.query}", base_url=setup["url"])
+    if create and answer.headers.get("Location", "").endswith("/platform-oauth/connect"):
+        created = wiki.post("/platform-oauth/signup", data={"username": account["username"]}, base_url=setup["url"])
+        assert created.status_code == 302, created.get_data(as_text=True)
     return wiki
 
 
@@ -121,7 +128,7 @@ def test_a_stale_portal_link_does_not_take_a_wiki_account_over(setup, make_accou
     # A second portal row for the same wiki account, as an unlink that missed it could leave behind.
     query("INSERT INTO hosting_oauth_account_links (instance_id, account_id, wiki_user_id, wiki_username) "
           "VALUES (?, ?, ?, 'stale')", (setup["inst"]["id"], stranger["id"], wiki_user["id"]))
-    wiki = _sign_in(setup, login, stranger)
+    wiki = _sign_in(setup, login, stranger, create=False)
     assert wiki.get("/_probe/private", base_url=setup["url"]).status_code == 302
     assert _wiki_sql(setup, "SELECT account_id, user_id FROM platform_oauth_links") == \
         [{"account_id": owner["id"], "user_id": wiki_user["id"]}]

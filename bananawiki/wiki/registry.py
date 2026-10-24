@@ -54,6 +54,23 @@ class NavItem:
     # Other endpoints (without URL arguments) whose pages, and the pages below them, also mark
     # the link as the current page, e.g. a section that spans two URL prefixes.
     active_endpoints: tuple[str, ...] = ()
+    # A BM mode simplification (see :mod:`bananawiki.wiki.bm`) that leaves the link out while it applies.
+    bm_hide: str = ""
+
+
+@dataclass(frozen=True)
+class Simplification:
+    """Something BM mode makes simpler (see :mod:`bananawiki.wiki.bm`), on by default while it applies.
+
+    Templates and scripts mark what it hides with ``data-bm-hide="<id>"``
+    (several ids separated by spaces); :func:`bananawiki.wiki.bm.css` hides
+    them. ``id`` is ``<feature>.<name>`` in lower case.
+    """
+
+    id: str
+    label: str  # translation key
+    description: str = ""  # translation key
+    default: bool = True
 
 
 @dataclass(frozen=True)
@@ -95,7 +112,9 @@ class Feature:
     toggle: Literal["always", "plugin", "setting"] = "plugin"
     setting: str | None = None  # site_settings column when toggle == "setting"
     default_enabled: bool = True
-    easy_wiki: bool = True  # available when BW_EASY_WIKI is set
+    # Shown in BM mode unless an administrator hides it there (False: hidden until one shows it).
+    # Named after the easy wiki mode that BM mode replaced.
+    easy_wiki: bool = True
     blueprints: list[Blueprint] = field(default_factory=list)
     nav: list[NavItem] = field(default_factory=list)
     jobs: list[Job] = field(default_factory=list)
@@ -103,6 +122,10 @@ class Feature:
     slots: dict[str, Callable[..., str]] = field(default_factory=dict)
     interceptors: dict[str, Callable[..., Any]] = field(default_factory=dict)
     attention: list[AttentionSource] = field(default_factory=list)
+    simplifications: list[Simplification] = field(default_factory=list)
+    # Endpoints that serve the wiki's content to every reader (a custom page's document and files):
+    # one person's own BM mode never hides them, as the page that embeds them stays visible.
+    content_endpoints: tuple[str, ...] = ()
     init_app: Callable[[Any], None] | None = None
     version: str = __version__  # built-in features ship with the application
     order: int = 100
@@ -161,7 +184,9 @@ def is_enabled(feature_id: str) -> bool:
     if feature is None:
         return False
     cfg = current_app.config["BW"]
-    if cfg.easy_wiki and not feature.easy_wiki:
+    from . import bm
+
+    if not bm.feature_shown(feature):
         return False
     if feature_id in cfg.managed_plugin_denylist:
         return False
@@ -172,6 +197,21 @@ def is_enabled(feature_id: str) -> bool:
 
         return bool(settings.get(feature.setting or f"{feature_id}_enabled", feature.default_enabled))
     return _plugin_states().get(feature_id, feature.default_enabled)
+
+
+def shown(feature_id: str) -> bool:
+    """:func:`is_enabled`, and not hidden from the person looking by their own BM mode.
+
+    For what a person sees and opens: menus, feature pages and template
+    slots. Events, interceptors, permissions and jobs keep using
+    :func:`is_enabled`, so a feature hidden from one person still does its
+    work for the wiki (and still checks that person's actions).
+    """
+    if not is_enabled(feature_id):
+        return False
+    from . import bm
+
+    return not bm.hidden_for_viewer(registry().features.get(feature_id))
 
 
 class SwitchRefused(ValueError):
@@ -248,6 +288,8 @@ def require_feature(feature_id: str) -> Callable[[], Any]:
 
                 return jsonify({"error": i18n.t("error.feature_disabled")}), 404
             abort(404)
+        if not shown(feature_id) and request.endpoint not in registry().features[feature_id].content_endpoints:
+            abort(404)  # hidden from this person by their own BM mode (never for the REST API)
         return None
 
     return check
@@ -325,13 +367,17 @@ def prepare(point: str, **context: Any) -> None:
             raise
 
 
-def render_slot(slot: str, **context: Any) -> str:
-    """HTML contributed by enabled features to a named template slot."""
+def slot_parts(slot: str, **context: Any) -> list[tuple[str, Any]]:
+    """What each enabled feature contributes to a template slot, as ``(feature id, HTML)`` pairs.
+
+    For pages that treat the contributions differently, such as the settings
+    page, which keeps some of them in BM mode's short version.
+    """
     from markupsafe import Markup
 
     parts = []
     for feature_id, render in registry()._slots.get(slot, []):
-        if not is_enabled(feature_id):
+        if not shown(feature_id):
             continue
         try:
             html = render(**context)
@@ -339,8 +385,15 @@ def render_slot(slot: str, **context: Any) -> str:
             log.exception("Slot %s in feature %s failed", slot, feature_id)
             continue
         if html:
-            parts.append(str(html))
-    return Markup("".join(parts))
+            parts.append((feature_id, Markup(str(html))))
+    return parts
+
+
+def render_slot(slot: str, **context: Any) -> str:
+    """HTML contributed by enabled features to a named template slot."""
+    from markupsafe import Markup
+
+    return Markup("".join(str(html) for _feature_id, html in slot_parts(slot, **context)))
 
 
 # Background jobs
@@ -385,7 +438,12 @@ class Scheduler:
             except Exception:  # noqa: BLE001
                 log.exception("Job scheduler tick failed")
 
-    def run_due(self, *, force: bool = False, only: str | None = None) -> list[str]:
+    def run_due(self, *, force: bool = False, only: str | None = None, command: bool = False) -> list[str]:
+        """Run the jobs that are due (every job with *force*), each under its lease.
+
+        *command*: run from ``bananawiki jobs run`` (cron with ``BW_BACKGROUND_JOBS=0``), which starts
+        no worker, so the start-up delays do not apply; intervals and leases still do.
+        """
         from ..core.timeutil import now_sql, sql_in
         from .db import connection_scope
 
@@ -393,9 +451,11 @@ class Scheduler:
         elapsed = time.monotonic() - self._started_at
         with self.app.app_context(), connection_scope() as session:
             for feature, job in self.jobs():
+                if self._stop.is_set() and not command:
+                    break  # shutting down (the desktop app waits for this thread before releasing its folder)
                 if only and job.name != only:
                     continue
-                if not force and elapsed < job.initial_delay:
+                if not force and not command and elapsed < job.initial_delay:
                     continue
                 if not is_enabled(feature.id):
                     continue
@@ -410,7 +470,7 @@ class Scheduler:
                     session.execute(
                         "INSERT INTO job_runs (name, held_by, lease_until) VALUES (?, ?, ?) "
                         "ON CONFLICT(name) DO UPDATE SET held_by = excluded.held_by, lease_until = excluded.lease_until",
-                        (job.name, self.owner, sql_in(seconds=max(300, job.interval))),
+                        (job.name, self.owner, sql_in(seconds=lease_seconds(job))),
                     )
                 status, error = "ok", None
                 try:
@@ -418,10 +478,16 @@ class Scheduler:
                 except Exception as exc:  # noqa: BLE001
                     status, error = "error", "".join(traceback.format_exception_only(type(exc), exc)).strip()
                     log.exception("Job %s failed", job.name)
-                session.execute(
-                    "UPDATE job_runs SET held_by = NULL, lease_until = NULL, last_run_at = ?, last_status = ?, "
-                    "last_error = ? WHERE name = ?",
-                    (now_sql(), status, error, job.name),
-                )
+                session.execute("UPDATE job_runs SET last_run_at = ?, last_status = ?, last_error = ? WHERE name = ?",
+                                (now_sql(), status, error, job.name))
+                # Only this run's lease: a run that outlived it must not free another worker's.
+                session.execute("UPDATE job_runs SET held_by = NULL, lease_until = NULL WHERE name = ? AND held_by = ?",
+                                (job.name, self.owner))
                 ran.append(job.name)
         return ran
+
+
+def lease_seconds(job: Job) -> int:
+    """How long a run holds its job: long enough for slow mail or federation peers (15 minutes), and at
+    most an hour, so a daily job whose worker was killed runs again within the hour rather than the next day."""
+    return max(900, min(job.interval, 3600))

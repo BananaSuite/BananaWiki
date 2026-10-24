@@ -35,15 +35,19 @@ def record(bucket: str, key: str | None = None) -> None:
     HostingLimiter(_session()).record(key or client_network(), bucket)
 
 
-def rate_limit(limit: int, window: int = 60) -> Callable[[Callable], Callable]:
-    """Limit unsafe requests to a view per client network (GET is never counted)."""
+def rate_limit(limit: int, window: int = 60, *, count_get: bool = False) -> Callable[[Callable], Callable]:
+    """Limit unsafe requests to a view per client network.
+
+    GET is not counted, unless *count_get*: for pages whose every view costs
+    work elsewhere (a task in a wiki's container), so reloading them is limited too.
+    """
 
     def decorate(view: Callable) -> Callable:
         bucket = f"hosting_{view.__module__.rsplit('.', 1)[-1]}_{view.__name__}"
 
         @functools.wraps(view)
         def wrapper(*args: Any, **kwargs: Any):
-            if request.method not in ("GET", "HEAD") and not hit(bucket, limit, window):
+            if (count_get or request.method not in ("GET", "HEAD")) and not hit(bucket, limit, window):
                 abort(429)
             return view(*args, **kwargs)
 

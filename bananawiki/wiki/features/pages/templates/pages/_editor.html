@@ -1,7 +1,7 @@
 {#- Markdown editor widget. Context: content, can_upload, page (or none). -#}
 {% from "pages/_editor_actions.html" import dialog_actions with context %}
 <div class="editor" data-editor>
-  <div class="toolbar" role="toolbar" aria-label="{{ t('pages.editor.toolbar') }}">
+  <div class="toolbar" role="toolbar" aria-label="{{ t('pages.editor.toolbar') }}" data-scroll-cue>
     {% for action, label, text in [
       ('bold', 'pages.editor.bold', 'B'), ('italic', 'pages.editor.italic', 'I')] %}
     <button type="button" class="btn btn--ghost btn--small" data-md="{{ action }}" title="{{ t(label) }}" aria-label="{{ t(label) }}">{{ text }}</button>
@@ -16,7 +16,7 @@
           ('quote', 'pages.editor.quote'), ('strike', 'pages.editor.strike'), ('code', 'pages.editor.code'),
           ('codeblock', 'pages.editor.codeblock'), ('hr', 'pages.editor.rule'),
           ('outdent', 'pages.editor.outdent'), ('indent', 'pages.editor.indent')] %}
-        <button type="button" data-md="{{ action }}">{{ t(label) }}</button>
+        <button type="button" data-md="{{ action }}"{% if action != 'ol' %} data-bm-hide="pages.simple_editor"{% endif %}>{{ t(label) }}</button>
         {% endfor %}
         <hr>
         <button type="button" data-editor-fullscreen aria-pressed="false">{{ t('pages.editor.fullscreen') }}</button>
@@ -26,7 +26,9 @@
     <button type="button" class="btn btn--ghost btn--small" data-dialog-open="dlg-link" data-md-dialog="link">{{ t('pages.editor.link') }}</button>
     {#- Uploads a picture, or opens the options of the one at the cursor. -#}
     <button type="button" class="btn btn--ghost btn--small" data-md="image" title="{{ t('pages.editor.image_title' if can_upload else 'pages.editor.image_title_edit') }}">{{ t('pages.editor.image') }}</button>
-    <details class="menu">
+    {#- Shown by the attachments script when the page can hold files: picks files for its list. -#}
+    <button type="button" class="btn btn--ghost btn--small" data-editor-attach hidden title="{{ t('pages.editor.file_title') }}">{{ t('pages.editor.file') }}</button>
+    <details class="menu" data-bm-hide="pages.simple_editor">
       <summary class="btn btn--ghost btn--small menu__toggle">{{ t('pages.editor.insert') }}</summary>
       <div class="menu__panel">
         <button type="button" data-dialog-open="dlg-table" data-md-dialog="table">{{ t('pages.editor.table') }}</button>
@@ -47,6 +49,7 @@
     </div>
     <div class="editor__preview prose" id="editor-preview" data-preview role="region" aria-live="polite" aria-label="{{ t('pages.editor.preview') }}"></div>
   </div>
+  <div class="upload-progress-host" data-upload-progress-host></div>
   <div class="editor__status small muted">
     <span data-word-count></span>
     {#- Before the hint: the empty status takes no room at the right edge. -#}
@@ -131,6 +134,7 @@
 <script type="application/json" id="editor-config">{{ {
   'preview': url_for('pages.api_preview'),
   'upload': url_for('pages.api_upload') if can_upload else '',
+  'uploadRules': image_upload_rules() if can_upload else {},
   'pageSearch': url_for('pages.api_pages_search'),
   'heartbeat': url_for('pages.api_editing_heartbeat', slug=page.slug) if page else '',
   'stop': url_for('pages.api_editing_stop', slug=page.slug) if page else '',

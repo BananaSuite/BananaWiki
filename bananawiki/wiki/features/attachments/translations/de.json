@@ -15,12 +15,14 @@
   "attachments.title": "Anhänge",
   "attachments.title_count": "Anhänge ({count})",
   "attachments.upload": "Hochladen",
+  "attachments.after_create": "Dateien lassen sich anhängen, sobald die Seite existiert.",
+  "attachments.create_and_add": "Seite erstellen und Dateien hinzufügen",
+  "attachments.hint_drop": "Bis zu {size} pro Datei. Du kannst sie auch hierher oder in den Text ziehen.",
+  "attachments.insert_link": "Link einfügen",
   "feature.attachments.description": "Dateien an Wiki-Seiten anhängen und einzeln oder als ZIP-Archiv herunterladen.",
   "feature.attachments.name": "Anhänge",
   "js.attachments.confirm_delete": "Möchtest du den Anhang {name} wirklich löschen?",
   "js.attachments.delete": "Löschen",
   "js.attachments.done": "Upload abgeschlossen.",
-  "js.attachments.size_kb": "{size} KB",
-  "js.attachments.too_large": "{name} ist zu groß.",
-  "js.attachments.uploading": "{name} wird hochgeladen …"
+  "js.attachments.insert_link": "Link einfügen"
 }

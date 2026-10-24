@@ -24,7 +24,7 @@ FEATURE = Feature(
     toggle="plugin",
     default_enabled=True,
     blueprints=[bp],
-    nav=[NavItem("audit.nav", "audit.index", icon="list", area="admin", order=45, visible=_is_admin)],
+    nav=[NavItem("audit.nav", "audit.index", icon="list", area="admin", bm_hide="admin.short_menu", order=45, visible=_is_admin)],
     events=EVENTS,
     interceptors={"feature.switch": refuse_switch, "feature.switched": record_switch},
     jobs=[Job("audit.prune", 86400, prune, initial_delay=600)],

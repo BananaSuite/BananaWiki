@@ -9,6 +9,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token() }}">
+  <meta name="bw-max-body" content="{{ config.MAX_CONTENT_LENGTH or 0 }}">
   <meta name="color-scheme" content="dark light">
   <title>{% block title %}{{ site_name() }}{% endblock %}{% if self.title() != site_name() %} · {{ site_name() }}{% endif %}</title>
   <link rel="icon" href="{{ favicon_url() }}">
@@ -16,7 +17,7 @@
   <link rel="stylesheet" href="{{ asset_url('css/bananawiki.css') }}">
   <link rel="stylesheet" href="{{ asset_url('css/content.css') }}">
   <link rel="stylesheet" href="{{ asset_url('css/pygments.css') }}">
-  <style nonce="{{ csp_nonce() }}">{{ theme_css() }}</style>
+  <style nonce="{{ csp_nonce() }}">{{ theme_css() }}{{ bm_css() }}</style>
   {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">

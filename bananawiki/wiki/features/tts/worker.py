@@ -80,6 +80,7 @@ class Worker:
     # Threads
 
     def start(self, *, daemon: bool = True) -> None:
+        self._beat()
         for index in range(self.threads):
             thread = threading.Thread(target=self._loop, name=f"bananawiki-tts-{index}", daemon=daemon)
             thread.start()
@@ -136,8 +137,17 @@ class Worker:
                 return
             self.stop.wait(IDLE_INTERVAL if reason else self.poll_interval)
 
+    def _beat(self) -> None:
+        """Tell readers and administrators that a worker is running (see service.worker_running)."""
+        try:
+            with self.app.app_context():
+                service.touch_heartbeat()
+        except Exception:  # noqa: BLE001 - storage unavailable: the next beat tries again
+            log.debug("Read-aloud heartbeat failed", exc_info=True)
+
     def _heartbeat(self) -> None:
         while not self.stop.wait(HEARTBEAT_INTERVAL):
+            self._beat()
             try:
                 with self.app.app_context(), connection_scope():
                     with self._lock:

@@ -70,7 +70,7 @@
   "users.display.theme": "Design",
   "users.display.theme_dark": "Dunkel",
   "users.display.theme_light": "Hell",
-  "users.display.title": "Anzeigeeinstellungen",
+  "users.display.title": "Anpassen",
   "users.display.wide": "Weit",
   "users.error.birth_date_invalid": "Gib ein gültiges Geburtsdatum in der Vergangenheit ein.",
   "users.error.image_uploads_too_fast": "Zu viele hochgeladene Bilder in kurzer Zeit. Warte ein paar Minuten und versuche es erneut.",
@@ -226,10 +226,14 @@
   "users.settings.title": "Einstellungen",
   "users.settings.username_mentions_hint": "Seiten werden nicht geändert: Erwähnungen deines alten Namens führen weiterhin zu deinem Profil, und niemand sonst kann diesen Namen übernehmen, solange ein Administrator ihn nicht freigibt.",
   "users.settings.view_profile": "Profil ansehen",
+  "users.settings.all": "Alle Einstellungen",
+  "users.settings.all_hint": "Sitzungen, Bestätigung in zwei Schritten, deine Daten und mehr.",
   "users.suspended.reactivate": "Mein Konto wieder aktivieren",
   "users.suspended.reactivate_confirm": "Möchtest du die Sperre deines eigenen Kontos aufheben?",
   "users.tab.account": "Konto",
-  "users.tab.display": "Anzeige",
+  "users.tab.display": "Anpassen",
   "users.tab.profile": "Profil",
-  "users.tab.sessions": "Sitzungen"
+  "users.tab.sessions": "Sitzungen",
+  "users.bm.simple_settings": "Kürzere Einstellungen",
+  "users.bm.simple_settings_hint": "Die Einstellungen zeigen Profil, Benutzernamen, Passwort, Sprache, E-Mail-Adresse und Anpassen; Sitzungen, Bestätigung in zwei Schritten, API-Tokens, Datenexport, Kontozusammenführungen und das Löschen des Kontos liegen unter „Alle Einstellungen“. Was die Person zuerst erledigen muss, bleibt sichtbar."
 }

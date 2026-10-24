@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from flask import has_request_context
+
 from bananawiki.core.numbers import ascii_int
 
 from ....core.timeutil import now_sql, to_sql, utcnow
@@ -70,13 +72,30 @@ def require_manageable(actor: dict[str, Any], target: dict[str, Any]) -> None:
         raise AccountError(error)
 
 
+def _impersonating() -> bool:
+    return has_request_context() and auth.is_impersonating()
+
+
+def _acting_id(actor: dict[str, Any]) -> str:
+    """Who to record as having done an action: the real administrator while impersonating *actor*."""
+    real = auth.real_user() if _impersonating() else None
+    return real["id"] if real else actor["id"]
+
+
 def _current_accounts(actor: dict[str, Any], target: dict[str, Any], *, manageable: bool = True
                       ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Reload account authority inside the caller's write transaction.
 
     A request's snapshots may precede a promotion, suspension or password
     reset. Check those changes before changing another account.
+
+    While impersonating, an administrator never acts on the impersonated
+    account itself: what that account may do to itself (an owner stepping
+    down, renaming itself, signing everyone out) is for its owner alone,
+    and the protection of owners would otherwise be one impersonation away.
     """
+    if _impersonating() and actor["id"] == target["id"]:
+        raise AccountError("admin.users.error.impersonating")
     current_actor = accounts.by_id(actor["id"])
     current_target = accounts.by_id(target["id"])
     if current_actor is None or current_target is None or not auth.is_admin(current_actor) \
@@ -88,7 +107,9 @@ def _current_accounts(actor: dict[str, Any], target: dict[str, Any], *, manageab
 
 
 def _audit(action: str, actor: dict[str, Any], target: dict[str, Any], **details: Any) -> None:
-    record(action, actor_id=actor["id"], target_type="user", target_id=target["id"],
+    if _impersonating() and auth.current_user():
+        details = {**details, "acting_as": auth.current_user()["username"]}  # type: ignore[index]
+    record(action, actor_id=_acting_id(actor), target_type="user", target_id=target["id"],
            details={"username": target["username"], **details})
 
 
@@ -295,7 +316,7 @@ def rename(actor: dict[str, Any], target: dict[str, Any], new_username: str) -> 
     try:
         with db.transaction():
             actor, target = _current_accounts(actor, target)
-            return accounts.rename(target, new_username, changed_by=actor["id"])
+            return accounts.rename(target, new_username, changed_by=_acting_id(actor))
     except AccountError as error:
         raise _name_error(error, new_username) from None
 
@@ -331,10 +352,11 @@ def change_role(actor: dict[str, Any], target: dict[str, Any], new_role: str) ->
         db.execute("UPDATE users SET role = ?, custom_role_id = NULL WHERE id = ?", (new_role, target["id"]))
         clear_overrides(target["id"])
         if new_role != target["role"]:
-            record_role_change(target["id"], target["role"], new_role, actor["id"])
+            record_role_change(target["id"], target["role"], new_role, _acting_id(actor))
     updated = get_user(target["id"])
     if new_role != target["role"]:
-        emit("user.role_changed", user=updated, old_role=target["role"], new_role=new_role, changed_by=actor["id"])
+        emit("user.role_changed", user=updated, old_role=target["role"], new_role=new_role,
+             changed_by=_acting_id(actor))
     return updated  # type: ignore[return-value]
 
 
@@ -348,12 +370,12 @@ def assign_custom_role(actor: dict[str, Any], target: dict[str, Any], role: dict
                    (role["id"], role["base_role"], target["id"]))
         clear_overrides(target["id"])
         if role["base_role"] != target["role"]:
-            record_role_change(target["id"], target["role"], role["base_role"], actor["id"])
+            record_role_change(target["id"], target["role"], role["base_role"], _acting_id(actor))
     _audit("user.custom_role_assigned", actor, target, custom_role=role["name"], custom_role_id=role["id"])
     updated = get_user(target["id"])
     if role["base_role"] != target["role"]:
         emit("user.role_changed", user=updated, old_role=target["role"], new_role=role["base_role"],
-             changed_by=actor["id"])
+             changed_by=_acting_id(actor))
     return updated  # type: ignore[return-value]
 
 
@@ -411,11 +433,11 @@ def suspend(actor: dict[str, Any], target: dict[str, Any], *, until: str | None,
         db.insert("suspension_audit", {
             "user_id": target["id"], "action": "suspend", "reason": reason or None,
             "reason_visible": int(reason_visible), "time_visible": int(time_visible), "duration": label,
-            "suspended_until": until, "performed_by": actor["id"], "imposed_by_top": int(is_top(actor)),
+            "suspended_until": until, "performed_by": _acting_id(actor), "imposed_by_top": int(is_top(actor)),
             "created_at": now_sql(),
         })
         auth.revoke_sessions(target["id"])
-    emit("user.suspended", user=get_user(target["id"]), until=until, actor_id=actor["id"])
+    emit("user.suspended", user=get_user(target["id"]), until=until, actor_id=_acting_id(actor))
 
 
 def unsuspend(actor: dict[str, Any], target: dict[str, Any]) -> None:
@@ -426,7 +448,7 @@ def unsuspend(actor: dict[str, Any], target: dict[str, Any]) -> None:
             "suspend_reason_visible": 0, "suspend_time_visible": 0,
         }, "id = ?", (target["id"],))
         db.insert("suspension_audit", {
-            "user_id": target["id"], "action": "unsuspend", "performed_by": actor["id"], "created_at": now_sql(),
+            "user_id": target["id"], "action": "unsuspend", "performed_by": _acting_id(actor), "created_at": now_sql(),
         })
     _audit("user.unsuspended", actor, target)
 
@@ -447,7 +469,7 @@ def approve(actor: dict[str, Any], target: dict[str, Any]) -> None:
         changed = db.execute(
             "UPDATE users SET approval_status = 'approved', approved_by = ?, approved_denied_at = ? "
             "WHERE id = ? AND approval_status = 'pending'",
-            (actor["id"], now_sql(), target["id"]),
+            (_acting_id(actor), now_sql(), target["id"]),
         ).rowcount
         if not changed:
             raise AccountError("admin.approval.error.not_pending")
@@ -462,7 +484,7 @@ def deny(actor: dict[str, Any], target: dict[str, Any]) -> None:
         changed = db.execute(
             "UPDATE users SET approval_status = 'denied', denied_by = ?, denied_at = ?, approved_denied_at = ?, "
             "denied_notified = 0 WHERE id = ? AND approval_status = 'pending'",
-            (actor["id"], now, now, target["id"]),
+            (_acting_id(actor), now, now, target["id"]),
         ).rowcount
         if not changed:
             raise AccountError("admin.approval.error.not_pending")
@@ -477,14 +499,17 @@ def reset_password(actor: dict[str, Any], target: dict[str, Any], password: str,
 
     One's own password is changed in the account settings, which ask for the current one.
     """
+    # Hashed before the write lock is taken: it is the slow part.
+    hashed = accounts.hash_new_password(password, username=target.get("username"), email=target.get("email"))
     with db.transaction():
         actor, target = _current_accounts(actor, target)
         _require_other(actor, target, "admin.password.error.use_settings")
         if keep_original and not target.get("original_password_backup"):
             db.execute("UPDATE users SET original_password_backup = ? WHERE id = ?",
                        (target["password"], target["id"]))
-        accounts.set_password(target["id"], password, require_change=require_change, keep_backup=keep_original)
-    emit("user.password_reset", user=get_user(target["id"]), actor_id=actor["id"])
+        accounts.set_password(target["id"], password, require_change=require_change, keep_backup=keep_original,
+                              password_hash=hashed)
+    emit("user.password_reset", user=get_user(target["id"]), actor_id=_acting_id(actor))
 
 
 def restore_password(actor: dict[str, Any], target: dict[str, Any]) -> None:
@@ -500,14 +525,14 @@ def restore_password(actor: dict[str, Any], target: dict[str, Any]) -> None:
             (target["id"],),
         )
         auth.revoke_sessions(target["id"])
-    emit("user.password_reset", user=get_user(target["id"]), actor_id=actor["id"])
+    emit("user.password_reset", user=get_user(target["id"]), actor_id=_acting_id(actor))
 
 
 def delete_user(actor: dict[str, Any], target: dict[str, Any]) -> None:
     with db.transaction():
         actor, target = _current_accounts(actor, target)
         _require_other(actor, target, "admin.users.error.self_delete")
-        accounts.delete(target, deleted_by=actor["id"])
+        accounts.delete(target, deleted_by=_acting_id(actor))
 
 
 def toggle_chat(actor: dict[str, Any], target: dict[str, Any]) -> bool:
@@ -581,7 +606,7 @@ def mass_logout(actor: dict[str, Any]) -> int:
             f"AND user_id IN (SELECT id FROM users WHERE {condition})",
             [*params, *manageable],
         ).rowcount
-    record("sessions.mass_logout", actor_id=actor["id"], details={"sessions": count})
+    record("sessions.mass_logout", actor_id=_acting_id(actor), details={"sessions": count})
     return count
 
 
@@ -646,7 +671,7 @@ def release_name(actor: dict[str, Any], target: dict[str, Any],
     """Release a former name reserved for *target* (:func:`accounts.release_name`)."""
     with db.transaction():
         actor, target = _current_accounts(actor, target)
-        return accounts.release_name(target, username, released_by=actor["id"])
+        return accounts.release_name(target, username, released_by=_acting_id(actor))
 
 
 # Per-user permission overrides

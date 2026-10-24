@@ -8,6 +8,7 @@ import tempfile
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 from flask import (
     Blueprint,
@@ -15,6 +16,7 @@ from flask import (
     abort,
     current_app,
     flash,
+    jsonify,
     make_response,
     redirect,
     render_template,
@@ -23,12 +25,16 @@ from flask import (
 )
 
 from ...core.timeutil import is_past, utcnow
-from .. import accounts, collaborators, domains, features, instances, settings, urls
+from .. import accounts, auth, certwarm, collaborators, domains, features, instances, limits, settings, urls
 from ..errors import ServiceError
 from ..i18n import t
 from ..limits import rate_limit
 from ..runtime import RuntimeFailure, TenantPolicy
 from .common import account, back, detail_url, flash_error, instance_for, owner_locked
+
+# Views that run a task in a wiki's container, per wiki and minute.
+ANALYTICS_PER_MINUTE = 6
+USER_LISTS_PER_MINUTE = 20
 
 bp = Blueprint("dashboard", __name__)
 
@@ -37,6 +43,10 @@ bp = Blueprint("dashboard", __name__)
 def dashboard():
     current = account()
     items = instances.dashboard_list(current)
+    for item in items:
+        # The list's Start button follows the same permission as the wiki's own page.
+        item["can_start"] = item["role"] == "owner" or "start_stop" in collaborators.permissions_from(
+            item.get("collab_role"), item.get("collab_permissions"))
     stats = {status: sum(1 for i in items if i["status"] == status) for status in instances.STATUSES}
     # An expired wiki keeps its container state but is offline: it is not counted as running (or stopped).
     for status in ("running", "stopped"):
@@ -115,7 +125,10 @@ def instance_detail(instance_id: str):
     item = instances.describe(inst)
     legacy_password = instances.take_legacy_password(inst) if manager else ""
     users, users_total = [], 0
-    if manager and inst["status"] != "terminated" and instances.provisioning_ready(inst):
+    # Listing the wiki's accounts runs a task in its container: at most a few times a minute per wiki,
+    # however often the page is reloaded (the page shows without the list meanwhile).
+    if manager and inst["status"] != "terminated" and instances.provisioning_ready(inst) \
+            and limits.hit("hosting_wiki_list_users", USER_LISTS_PER_MINUTE, 60, key=inst["id"]):
         try:
             users, users_total = instances.runtime().list_users(instances.spec(inst, with_policy=False), limit=50)
         except (RuntimeFailure, ValueError):
@@ -131,6 +144,7 @@ def instance_detail(instance_id: str):
         feature_restricted={f: features.restricted(f) for f in features.FEATURES},
         owner=accounts.get(inst["account_id"]),
         domain=domains.binding(inst["id"]), domains_configured=domains.configured(),
+        domain_allowed=domains.allowed(inst),
         owner_can_delete_expired=settings.flag("allow_owner_delete_expired"),
         owner_can_download=settings.flag("allow_owner_download_expired"),
         upload_policy=instances.upload_policy(inst),
@@ -195,12 +209,20 @@ def terminate(instance_id: str):
     if _expired_block(inst):
         flash(t("hosting.instances.expired_no_delete"), "error")
         return redirect(detail_url(instance_id))
+    viewer = account()
+    # An administrator ending someone else's wiki does what Admin tools does: recorded as theirs, owner told.
+    by_admin = bool(viewer["is_admin"]) and inst["account_id"] != viewer["id"]
     try:
-        instances.terminate(inst, actor_id=account()["id"])
+        instances.terminate(inst, actor_id=viewer["id"], reason="admin" if by_admin else "manual")
         flash(t("hosting.instances.terminated_done", slug=inst["subdomain"]), "success")
     except ServiceError as error:
         flash_error(error)
         return redirect(detail_url(instance_id))
+    if by_admin:
+        from .. import notifications
+
+        notifications.notify_account(accounts.get(inst["account_id"]), "instance_terminated", slug=inst["subdomain"])
+        return redirect(url_for("admin.instance", instance_id=instance_id))
     return redirect(url_for("dashboard.dashboard"))
 
 
@@ -272,6 +294,8 @@ def request_feature(instance_id: str, feature: str):
         flash(t(key, feature=t(f"hosting.features.{feature}")), "success")
     except ServiceError as error:
         flash_error(error)
+    if feature == "custom_domain" and request.form.get("back") == "domain":
+        return redirect(url_for("dashboard.instance_domain", instance_id=instance_id))
     return redirect(detail_url(instance_id))
 
 
@@ -284,13 +308,19 @@ def cancel_feature(instance_id: str, request_id: int):
         flash(t("hosting.features.cancelled"), "success")
     except ServiceError as error:
         flash_error(error)
+    if request.form.get("back") == "domain":
+        return redirect(url_for("dashboard.instance_domain", instance_id=instance_id))
     return redirect(detail_url(instance_id))
 
 
 @bp.get("/instances/<instance_id>/analytics")
-@rate_limit(30)
+@rate_limit(30, count_get=True)
 def analytics(instance_id: str):
     inst = instance_for(instance_id, "analytics")
+    # Each view runs a task in the wiki's container (a one-off container for a stopped wiki).
+    if not limits.hit("hosting_wiki_analytics", ANALYTICS_PER_MINUTE, 60, key=inst["id"]):
+        flash(t("hosting.analytics.unavailable"), "error")
+        return redirect(detail_url(instance_id))
     try:
         days = max(1, min(365, int(request.args.get("days") or 30)))
     except ValueError:
@@ -423,7 +453,8 @@ def collaborators_page(instance_id: str):
                            collaborators=collaborators.list_for(inst["id"]),
                            transfer=collaborators.pending_transfer(inst["id"]),
                            permissions=collaborators.PERMISSIONS,
-                           can_transfer=inst["account_id"] == account()["id"] or account()["is_admin"])
+                           is_admin_view=bool(account()["is_admin"]) and inst["account_id"] != account()["id"],
+                           can_transfer=inst["account_id"] == account()["id"])
 
 
 def _collab_back(instance_id: str):
@@ -479,7 +510,8 @@ def remove_collaborator(instance_id: str, collab_account_id: str):
 def start_transfer(instance_id: str):
     viewer = account()
     inst = instance_for(instance_id)
-    if inst["account_id"] != viewer["id"] and not viewer["is_admin"]:
+    # Only the owner offers the wiki; administrators move it at once from Admin tools (Name and owner).
+    if inst["account_id"] != viewer["id"]:
         abort(403)
     try:
         collaborators.start_transfer(inst, viewer, request.form.get("username") or "")
@@ -527,14 +559,55 @@ def cancel_transfer(transfer_id: int):
 # Custom domain
 
 
-@bp.route("/instances/<instance_id>/domain", methods=["GET", "POST"])
-@rate_limit(6)
-def instance_domain(instance_id: str):
+DOMAIN_CHECKS_PER_MINUTE = 6  # per wiki: the page checks every half minute, plus "Check DNS now"
+DOMAIN_POLL_SECONDS = 30
+
+
+def _domain_wiki(instance_id: str) -> dict[str, Any]:
+    """The wiki whose custom domain the viewer manages: its owner, or an administrator."""
     viewer = account()
     inst = instance_for(instance_id)
     if inst["account_id"] != viewer["id"] and not viewer["is_admin"]:
         abort(404)
+    return inst
+
+
+def _domain_state(inst: dict[str, Any], record: dict[str, Any] | None) -> str:
+    if record is None:
+        return "none"
+    if domains.active_domain(inst["id"]):
+        return "active"
+    if record.get("verified_at") and record.get("verified_until") and is_past(record["verified_until"]):
+        return "lapsed"
+    return "pending"
+
+
+def _domain_page(inst: dict[str, Any], *, checks: dict[str, Any] | None = None):
+    record = domains.binding(inst["id"])
+    owner = accounts.get(inst["account_id"]) or {}
+    reason = domains.permission(inst, owner)
+    state = _domain_state(inst, record) if reason else "none"
+    kind = request.args.get("kind", "")
+    return render_template(
+        "hosting/dashboard/domain.html", instance=inst, binding=record, state=state, active=state == "active",
+        configured=domains.configured(), reason=reason, policy=settings.custom_domains_policy(),
+        guide=domains.guide(record, kind if kind in ("root", "subdomain") else "") if record else None,
+        checks=checks, pending_request=features.pending_request(inst["id"], "custom_domain"),
+        poll_seconds=DOMAIN_POLL_SECONDS, impersonating=auth.impersonating(),
+        owner_is_admin=bool(owner.get("is_admin")),
+        certificate_pending=bool(record and state == "active" and certwarm.pending(record["domain"])),
+        history=[row for row in features.history(inst["id"]) if row["feature"] == "custom_domain"][:5],
+    )
+
+
+@bp.route("/instances/<instance_id>/domain", methods=["GET", "POST"])
+@rate_limit(6)
+def instance_domain(instance_id: str):
+    inst = _domain_wiki(instance_id)
+    viewer = account()
     if request.method == "POST":
+        if auth.impersonating():
+            abort(403)  # changes made while looking as the customer would read as theirs
         action = request.form.get("action", "claim")
         try:
             if action == "remove":
@@ -545,6 +618,17 @@ def instance_domain(instance_id: str):
                 flash(t("hosting.domains.verified"), "success")
                 if verified.get("proxied"):
                     flash(t("hosting.domains.verified_proxied"), "info")
+            elif action == "check":
+                if not limits.hit("hosting_domain_check", DOMAIN_CHECKS_PER_MINUTE, 60, key=inst["id"]):
+                    flash(t("hosting.domains.check_wait"), "error")
+                    return redirect(url_for("dashboard.instance_domain", instance_id=instance_id))
+                checks = domains.check_now(inst, viewer["id"])
+                if checks["verified"]:
+                    flash(t("hosting.domains.verified"), "success")
+                    if checks["proxied"]:
+                        flash(t("hosting.domains.verified_proxied"), "info")
+                    return redirect(url_for("dashboard.instance_domain", instance_id=instance_id))
+                return _domain_page(inst, checks=checks)
             elif action == "claim":
                 domains.claim(inst, request.form.get("domain") or "", viewer["id"])
                 flash(t("hosting.domains.claimed"), "success")
@@ -553,9 +637,31 @@ def instance_domain(instance_id: str):
         except ServiceError as error:
             flash_error(error)
         return redirect(url_for("dashboard.instance_domain", instance_id=instance_id))
-    cfg = current_app.config["HOSTING"]
-    binding = domains.binding(inst["id"])
-    return render_template("hosting/dashboard/domain.html", instance=inst, binding=binding,
-                           active=bool(binding and domains.resolve(binding["domain"])),
-                           configured=domains.configured(), target=cfg.custom_domain_target,
-                           ips=cfg.custom_domain_ips, allow_proxied=cfg.custom_domain_allow_proxied)
+    return _domain_page(inst)
+
+
+@bp.post("/instances/<instance_id>/domain/check")
+@rate_limit(12)
+def domain_check(instance_id: str):
+    """The domain page's DNS checklist, refreshed every half minute while the domain is not verified.
+
+    Verifies the domain as soon as both records are right, unless an
+    administrator is looking as the customer. JSON: ``state``, ``verified``,
+    ``poll`` (seconds until the next check, 0 to stop) and ``html`` (the
+    checklist).
+    """
+    inst = _domain_wiki(instance_id)
+    if not limits.hit("hosting_domain_check", DOMAIN_CHECKS_PER_MINUTE, 60, key=inst["id"]):
+        return jsonify({"error": t("hosting.domains.check_wait"), "poll": 60}), 429
+    try:
+        checks = domains.check_now(inst, account()["id"], may_verify=not auth.impersonating())
+    except ServiceError as error:
+        if error.key.startswith("hosting.runtime."):  # the lookup itself failed this time: try again later
+            return jsonify({"error": t(error.key, **error.values), "poll": 60}), 503
+        return jsonify({"error": t(error.key, **error.values), "poll": 0}), 409
+    record = domains.binding(inst["id"])
+    state = _domain_state(inst, record)
+    html = render_template("hosting/dashboard/_domain_checks.html", checks=checks,
+                           guide=domains.guide(record) if record else None)
+    return jsonify({"state": state, "verified": checks["verified"], "html": html,
+                    "poll": 0 if state == "active" else DOMAIN_POLL_SECONDS})

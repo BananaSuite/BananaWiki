@@ -73,6 +73,15 @@ def _check_quota(user: dict[str, Any], size: int) -> dict[str, Any]:
     return {"upload_window_start": start_sql, "upload_window_count": count + 1, "upload_window_bytes": used + size}
 
 
+def max_image_bytes() -> int:
+    return storage.max_upload_bytes(current_app.config["BW"].max_content_length)
+
+
+def client_rules() -> dict[str, object]:
+    """What :func:`save_image` accepts, for the editor to check a picture before sending it."""
+    return storage.client_rules(IMAGE_EXTENSIONS, max_image_bytes())
+
+
 def save_image(upload: FileStorage | None, user: dict[str, Any]) -> dict[str, str]:
     """Store an uploaded image for *user*; return ``{url, filename}``.
 
@@ -80,8 +89,7 @@ def save_image(upload: FileStorage | None, user: dict[str, Any]) -> dict[str, st
     """
     if int(settings.get("upload_quota_per_day_count", 0) or 0):
         _check_quota(user, 0)
-    limit = storage.max_upload_bytes(current_app.config["BW"].max_content_length)
-    stored = storage.save(upload, "uploads", allowed=IMAGE_EXTENSIONS, max_bytes=limit, images_only=True)
+    stored = storage.save(upload, "uploads", allowed=IMAGE_EXTENSIONS, max_bytes=max_image_bytes(), images_only=True)
     try:
         with db.transaction():
             counters = _check_quota(user, stored.size)

@@ -22,6 +22,7 @@ from pathlib import Path
 
 from ....core.json import loads as safe_json_loads
 from ....core.timeutil import now_sql
+from ....core.zipcheck import readable_member
 from ... import plugins_external, registry
 from ...db import db
 from ...plugins_external import Manifest, ManifestError
@@ -57,6 +58,8 @@ def _check_member(info: zipfile.ZipInfo, parts: tuple[str, ...]) -> None:
         raise ManifestError("plugin_manager.zip.link")
     if info.flag_bits & 0x1:
         raise ManifestError("plugin_manager.zip.encrypted")
+    if not info.is_dir() and not readable_member(info):  # bzip2/LZMA or patched: not unpacked in bounded memory
+        raise ManifestError("plugin_manager.zip.ratio")
     if parts[-1].lower().endswith(FORBIDDEN_SUFFIXES):
         raise ManifestError("plugin_manager.zip.compiled", name=parts[-1])
     if info.file_size > MAX_FILE_SIZE:

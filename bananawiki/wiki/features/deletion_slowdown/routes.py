@@ -48,7 +48,7 @@ def purge(page_id: int):
 @bp.post("/admin/pending-deletions/settings")
 @auth.admin_required
 def save_settings():
-    settings.update({"docs_bypass_deletion_slowdown": 1 if request.form.get("docs_bypass_deletion_slowdown") == "1"
-                     else 0})
+    """The only place for this setting (the blueprint answers 404 while the feature is off)."""
+    service.set_docs_bypass(request.form.get("docs_bypass_deletion_slowdown") == "1")
     auth.flash_t("common.saved", "success")
     return redirect(url_for("deletion_slowdown.pending"))

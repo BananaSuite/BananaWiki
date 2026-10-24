@@ -24,6 +24,12 @@ Version history
      without it, an index of page history by date, and the new default
      colours for themes that still have the old ones. See
      :mod:`.v12_idempotency_tokens`.
+13   Single sign-out from the hosting portal: the last sign-out fetched
+     (``platform_oauth_state``). See :mod:`.v13_platform_signouts`.
+14   BM mode, which replaced the easy wiki switch: ``site_settings.bm_mode``,
+     ``bm_mode_env`` and ``bm_choices``. See :mod:`.v14_bm_mode`.
+15   Easter eggs switched off one by one: ``site_settings.easter_eggs``.
+     See :mod:`.v15_easter_eggs`.
 
 A 1.4 database at version 3 upgrades in place. New databases are created from
 ``baseline_v3.sql`` followed by every later migration, so fresh and upgraded
@@ -47,6 +53,9 @@ from . import (
     v10_chat_blocks,
     v11_kanban_done_columns,
     v12_idempotency_tokens,
+    v13_platform_signouts,
+    v14_bm_mode,
+    v15_easter_eggs,
 )
 
 APPLICATION_ID = 0x42574B49  # "BWKI", unchanged from 1.4
@@ -61,6 +70,9 @@ MIGRATIONS = (
     v10_chat_blocks.upgrade,  # 9 -> 10
     v11_kanban_done_columns.upgrade,  # 10 -> 11
     v12_idempotency_tokens.upgrade,  # 11 -> 12
+    v13_platform_signouts.upgrade,  # 12 -> 13
+    v14_bm_mode.upgrade,  # 13 -> 14
+    v15_easter_eggs.upgrade,  # 14 -> 15
 )
 LATEST = BASELINE + len(MIGRATIONS)
 

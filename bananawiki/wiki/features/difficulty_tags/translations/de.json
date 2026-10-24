@@ -19,6 +19,8 @@
   "difficulty_tags.level.extra": "Extra",
   "difficulty_tags.level.intermediate": "Mittel",
   "difficulty_tags.level.none": "Kein Label",
+  "difficulty_tags.bm.hide_tags": "Keine Schwierigkeitsgrade",
+  "difficulty_tags.bm.hide_tags_hint": "Blendet die Schwierigkeitsgrade auf Seiten, die Aktion „Label“ und die Felder dafür im Editor aus; die Grade selbst bleiben gespeichert.",
   "feature.difficulty_tags.description": "Seiten mit einem Schwierigkeitsgrad oder einem eigenen farbigen Label kennzeichnen.",
   "feature.difficulty_tags.name": "Schwierigkeitsgrade"
 }

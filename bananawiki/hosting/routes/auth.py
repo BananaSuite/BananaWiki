@@ -88,9 +88,8 @@ def complete_login(account: dict, next_url: str | None, method: str):
     gate = auth.pending_gate(account, None)
     if gate:
         response = redirect(url_for(gate))
-    elif (settings.flag("ask_email_existing_users") and not account.get("email")
-          and not account.get("email_prompt_dismissed")):
-        response = redirect(url_for("account.account"))
+    elif auth.contact_email_suggested(account):
+        response = redirect(url_for("account.contact_email", next=safe_next("", next_url) or None))
     else:
         response = redirect(safe_next(url_for("dashboard.dashboard"), next_url))
     auth.set_device_cookie(response, accounts.get(account["id"]) or account)
@@ -272,8 +271,8 @@ def signup():
     approval = not first and settings.approval_required()
     context = {
         "first": first, "mode": mode, "approval": approval, "form_time": form_token(),
-        "ask_email": settings.flag("ask_email_new_signup"),
-        "email_required": settings.flag("ask_email_new_signup") and settings.flag("email_required"),
+        "ask_email": settings.signup_email() != "off",
+        "email_required": settings.signup_email() == "required",
         "use_case_required": approval and settings.flag("signup_use_case_required"),
         "bootstrap_token": request.values.get("bootstrap_token", "") if first else "", "form": request.form,
     }
@@ -290,7 +289,8 @@ def signup():
             raise ServiceError("hosting.form.rejected")
         if request.form.get("accept_terms") != "1":
             raise ServiceError("hosting.signup.terms_required")
-        email = request.form.get("email") or ""
+        # A form that does not ask for an address cannot give one (an old page, or a crafted request).
+        email = (request.form.get("email") or "") if context["ask_email"] else ""
         if context["email_required"] and not email.strip():
             raise ServiceError("hosting.accounts.email_required")
         use_case = (request.form.get("signup_use_case") or "").strip()
@@ -341,6 +341,9 @@ def _recovery_allowed(kind: str) -> bool:
     about accounts (see :mod:`bananawiki.hosting.email` for the budgets).
     """
     contact = current_app.config["HOSTING"].contact_email
+    if notifications.configured() and settings.email_paused():
+        flash(t("hosting.recovery.email_paused", contact=contact), "error")
+        return False
     if notifications.configured() and hosting_email.recovery_paused(current_app.config["HOSTING"].email, kind):
         flash(t("hosting.recovery.paused", contact=contact), "error")
         return False
@@ -367,10 +370,12 @@ def forgot_username():
         if not accounts.EMAIL.match(address):
             flash(t("hosting.accounts.invalid_email"), "error")
         else:
-            account = accounts.by_email(address)
-            if account and account.get("email_verified_at") and notifications.configured():
-                notifications.send(account["email"], "username", username=account["username"],
-                                   detail_value=account["username"])
+            # Several accounts may use one address: one message names them all (only confirmed ones).
+            holders = [row for row in accounts.all_by_email(address) if row.get("email_verified_at")]
+            if holders and notifications.configured():
+                notifications.send(holders[0]["email"], "username",
+                                   username=holders[0]["username"] if len(holders) == 1 else "",
+                                   detail_value=", ".join(row["username"] for row in holders))
             flash(t("hosting.forgot_username.sent"), "info")
     return render_template("hosting/auth/forgot_username.html")
 

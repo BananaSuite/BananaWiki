@@ -120,6 +120,15 @@
   .editor .toolbar { border-bottom: 1px solid var(--border-strong); border-radius: var(--radius); }
   .editor__textarea { border-radius: var(--radius-sm); }
 }
+/* On a phone the toolbar is one row that scrolls sideways (fading at the edge with more buttons, see
+   data-scroll-cue): wrapped into two rows it would keep twice the height stuck above the text while typing. */
+@media (max-width: 600px) {
+  .editor .toolbar { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .editor .toolbar::-webkit-scrollbar { display: none; }
+  .editor .toolbar > * { flex: 0 0 auto; }
+  .editor .toolbar:has(details[open]) { -webkit-mask-image: none; mask-image: none; }
+  .editor__status-hint { display: none; }
+}
 /* Pictures in the preview open their options (editor.js). */
 .editor__preview img:not(.bw-embed img, .bw-video img) { cursor: pointer; }
 .editor__preview img:not(.bw-embed img, .bw-video img):hover { outline: 2px solid var(--bw-primary); outline-offset: 2px; }
@@ -175,8 +184,11 @@
 .page-actions-menu .page-actions-menu__tools > .menu > summary:hover { background: var(--surface-2); }
 .page-actions-menu__tools > .menu > .menu__panel { position: static; min-width: 0; margin-left: .65rem; padding: 0; border: 0; border-left: 1px solid var(--border); border-radius: 0; box-shadow: none; }
 .search-form { margin-bottom: 1.75rem; }
+.search-options { border-block: 0; padding-block: 0; margin-top: .75rem; }
+.search-options > summary { color: var(--muted); font-size: var(--font-size-ui); width: max-content; }
+.search-options[open] > summary { margin-bottom: .75rem; }
 .search-results { gap: 0; margin-bottom: 1.5rem; border-top: 1px solid var(--border); }
-.search-result { padding: .85rem 0; border-bottom: 1px solid var(--border); }
+.search-result { padding: .85rem 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .search-result__title { font-weight: 600; }
 .search-result p { margin: .25rem 0 0; color: var(--muted); }
 @media (max-width: 1099px) {
@@ -185,3 +197,7 @@
   .wiki-page__aside--contents-only, .wiki-page__aside .toc-card { display: none; }
 }
 @media (max-width: 600px) { .bw-nav .sidebar__section-title .nav-create, .nav-manage a { min-height: 2.75rem; display: inline-flex; align-items: center; } }
+@media (pointer: coarse) {
+  .toc-list a { padding-block: .6rem; }
+  .search-result__title, .page-edit-info a { padding-block: .7rem; }
+}

@@ -1,8 +1,9 @@
 """General site settings: name, time zone, access modes, sign-in, uploads and exports.
 
-Settings that belong to one feature (chat, kanban, page governance, text to
-speech, …) live on that feature's own admin page; this page holds the
-site-wide ones.
+Settings that belong to one feature (chat, page governance, text to speech,
+…) live on that feature's own admin page; this page holds the site-wide ones.
+Features themselves, the visual page builder included, are switched on and
+off under Admin → Plugins only.
 """
 
 from __future__ import annotations
@@ -28,10 +29,6 @@ def _cfg():
 
 def _public_mode_locked() -> str | None:
     return "site_admin.locked.public_mode" if _cfg().forbid_public_mode else None
-
-
-def _page_builder_locked() -> str | None:
-    return "site_admin.locked.page_builder" if _cfg().forbid_page_builder else None
 
 
 def _platform_owned() -> str | None:
@@ -106,7 +103,6 @@ SECTIONS: list[tuple[str, list[Field]]] = [
         Field("draft_expiration_hours", "number", minimum=0, maximum=8760),
         Field("pdf_export_enabled", "flag"),
         Field("markdown_export_enabled", "flag"),
-        Field("page_builder_enabled", "flag", locked=_page_builder_locked),
         Field("profile_contribution_chart_enabled", "flag", visible=_profiles_enabled),
     ]),
 ]

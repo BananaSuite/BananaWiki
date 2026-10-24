@@ -394,19 +394,65 @@ Names that would collide with platform records (`www`, `mail`, `admin`,
 
 ## Custom domains
 
-An administrator allows custom domains per wiki. The owner then claims a host
-name on the wiki's **Domain** page, publishes a TXT record
-`_bananawiki-challenge.<domain>` with the given token and a CNAME to
-`HOSTING_CUSTOM_DOMAIN_TARGET` (or A/AAAA records to
-`HOSTING_CUSTOM_DOMAIN_IPS`), and presses **Verify**. A verification is valid
-for 24 hours and renewed by the maintenance service; when the proof
-disappears, routing stops. Unverified claims expire after an hour, so a claim
-cannot reserve a name. A domain whose proof lapsed more than 7 days ago (the
-DNS moved away, the domain changed hands) can be claimed by another wiki with
-a TXT token of its own; the old binding is removed only when that wiki
-verifies the domain with its token. Until then the old owner keeps the
-binding, and the maintenance service renews it as soon as their own records
-are back. Caddy asks the portal's `/internal/domains/authorize`
+A wiki can answer on a domain its owner has (`docs.example.org`, or a root
+domain such as `example.org`) besides its platform address.
+
+**Setting it up on the server.** Choose a host name customers point their
+domains at, for example `domains.example.com`, give it A/AAAA records to the
+server and set `HOSTING_CUSTOM_DOMAIN_TARGET` to it (subdomain mode only).
+Root domains cannot have a CNAME: their owners use A/AAAA records to
+`HOSTING_CUSTOM_DOMAIN_IPS`, or, when that is empty, to the addresses the
+target itself resolves to (looked up and shown on the domain page, and
+accepted by the check). Certificates for custom domains always come from
+Let's Encrypt on demand, whatever `--tls` mode the platform's own names use,
+so ports 80 and 443 must be reachable from everywhere. **Settings → Custom
+domains** says whether the server is ready, which addresses root domains
+should use and how many wikis use a custom domain.
+
+**Who may use one** (**Settings → Custom domains**): only administrators
+(the default), administrators and the accounts an administrator allows
+(**Admin → the account → Custom domains**), or everyone. Administrators'
+wikis always may, and an administrator can also allow one wiki on its
+**Custom domain** page. An owner who may not asks for one on that page (a
+reason of 20 to 2,000 characters); the request waits in *Needs your
+attention* like the other wiki features, approving it allows that wiki, and
+the owner hears about the decision on the portal and by email. Choosing a
+narrower policy, or taking an account's permission away, stops routing those
+domains at once: their records stay, and they answer again when the wiki is
+allowed again (after a new check once the 24-hour verification has run
+out). Taking a wiki's own permission away removes its domain unless the
+policy or its owner's account still allows it. Every change is recorded in
+the moderation history.
+
+**The owner's guide.** The **Custom domain** page asks for the domain (one
+per wiki: for `www` as well, the owner redirects it to the other name at their
+provider), then shows the records to create, each with its type, its name
+relative to the zone (`docs`, `@`, `_bananawiki-challenge.docs`) and in full,
+its value and a Copy button: a TXT record `_bananawiki-challenge.<domain>`
+with a token, and a CNAME to `HOSTING_CUSTOM_DOMAIN_TARGET` for a subdomain or
+A/AAAA records for a root domain (with a note on ALIAS/ANAME and CNAME
+flattening). The zone is guessed from the name (`example.co.uk` included) and
+the owner can correct it. Tips cover Cloudflare and other providers. While the
+page is open it checks the records every 30 seconds (at most 6 checks a
+minute per wiki), lists each as found, missing or wrong with what DNS shows,
+and verifies the domain as soon as both are right; **Check DNS now** checks
+at once and works without JavaScript. An administrator looking as the owner
+sees the checklist but never verifies or changes the domain. Names ending like
+a private network's (`.lan`, `.home`, `.corp`, `.internal`, `.home.arpa`,
+`.consul` …) are refused, unless the platform itself lives under that ending
+(an intranet platform at `wiki.lan`), and the checklist never repeats a private, loopback
+or link-local address it finds, so the portal's own resolver is not a window
+into the server's network. The lookups of one check share a 6-second
+deadline, and a check that fails for a moment keeps the page checking.
+
+A verification is valid for 24 hours and renewed by the maintenance service;
+when the proof disappears, routing stops. Unverified claims expire after an
+hour, so a claim cannot reserve a name. A domain whose proof lapsed more than
+7 days ago (the DNS moved away, the domain changed hands) can be claimed by
+another wiki with a TXT token of its own; the old binding is removed only when
+that wiki verifies the domain with its token. Until then the old owner keeps
+the binding, and the maintenance service renews it as soon as their own
+records are back. Caddy asks the portal's `/internal/domains/authorize`
 (on loopback, not subject to the portal's request limit; the public listeners
 answer 404 for `/internal/*`) before it requests a certificate; the portal
 logs each refused name (`Certificate refused for …`, once a minute at most).
@@ -439,12 +485,16 @@ addresses, the limits per address are best effort everywhere (same section).
 
 ## Accounts
 
-* **Sign-up modes** (platform settings): open, invite codes, approval by an
-  administrator, or closed. The
-  first account is the administrator and needs `HOSTING_BOOTSTRAP_TOKEN`.
+* **Sign-up modes** (**Settings → Sign-ups**, together with the approval
+  switch): open, invite codes, approval by an administrator, or closed. In
+  approval mode new accounts always need approval. Leaving approval mode while
+  accounts are waiting asks first whether to keep them waiting or approve
+  them all; the Overview only shows the current mode. The first account is the
+  administrator and needs `HOSTING_BOOTSTRAP_TOKEN`.
 * Email verification, password and user-name recovery, and notices by email
   through Brevo, Resend or SMTP (`HOSTING_EMAIL_*`), with daily limits (see
-  [Abuse and capacity](#abuse-and-capacity)).
+  [Abuse and capacity](#abuse-and-capacity)) and the choices under
+  [Email](#email).
 * Two-step verification with an authenticator app and one-time recovery codes
   (administrators can be required to use it: until an administrator turns it
   on, the portal only offers to do so, and that account has no administrator
@@ -474,6 +524,43 @@ addresses, the limits per address are best effort everywhere (same section).
   wiki feature, account merge), the owner sees a notice at the top of the
   portal until they dismiss it, and gets an email when they have an address.
 
+### Email
+
+**Settings → Email** decides what the portal asks for and sends:
+
+* **Address at sign-up**: required, optional or not asked (the default). A
+  form that does not ask ignores an address posted anyway.
+* **Accounts without an address**: must add one (a page they cannot skip;
+  administrators can still open the settings), are asked once after signing in
+  and may skip, or are not asked.
+* **One address on several accounts**: not allowed (the default) or allowed.
+  The check ignores case and runs in the same transaction as the save, so two
+  sign-ups racing for one address cannot both get it. Switching to *not
+  allowed* keeps addresses that are already shared working (the page counts
+  them); only new and changed addresses are checked. A user-name reminder to
+  a shared address lists every confirmed account on it, and an unknown address
+  gets the same answer as a known one.
+* **Email verification**: on or off, with the wait between two links and
+  *Do not accept a flagged address again*. Off, nobody waits at **Confirm your
+  email**.
+* **Pause all email**: sends nothing to anyone and keeps nothing for later;
+  the page counts the messages held back since the pause began. While it is
+  on, every administration page says so, the test button reports it,
+  verification is not required (it resumes with email) and the recovery forms
+  tell everyone to write to the contact address. Operators can also run
+  `bananawiki hosting-admin settings email-pause on|off`.
+* **Notices to account holders**: one switch per notice, for example a wiki
+  created, suspended, back online, expiring, expired or terminated, an account
+  suspended, approved or denied, a decision on a request, a wiki offered to
+  you, being added as a collaborator, a changed password or address.
+  Confirmation links, password resets and user-name reminders are always sent
+  unless email is paused. A notice an administrator causes is written in the
+  recipient's language.
+* **Notices for administrators**: see [Administration](#administration).
+
+Every save of the platform settings is recorded in the moderation history
+with the names of the settings that changed (never their values).
+
 ### Abuse and capacity
 
 With open sign-up, anyone can create accounts, and every wiki holds a place
@@ -499,10 +586,11 @@ everyone else; for a public, internet-facing platform, also consider the
   limit cannot accept another wiki.
 * **Expiry**: wikis of customers expire after `INSTANCE_DURATION_DAYS`, so
   abandoned ones give their place back (see [Wikis](#wikis)).
-* **Email addresses**: while verification is required, an unconfirmed
-  address is released to another account after the verification link
-  expires (at most twice `HOSTING_EMAIL_TOKEN_TTL_SECONDS`). A confirmed
-  address is never taken away.
+* **Email addresses**: while one address may serve only one account and
+  verification is required, an unconfirmed address is released to another
+  account after the verification link expires (at most twice
+  `HOSTING_EMAIL_TOKEN_TTL_SECONDS`). A confirmed address is never taken
+  away.
 
 #### Email budgets
 
@@ -519,14 +607,15 @@ and restart shares them. All limits are per 24 hours.
 
 When a budget is spent, the message is refused and the user is told to try
 again later. When the recovery share is spent, the "forgot" forms say so to
-everyone and administrators see **Account recovery emails are paused** on
-`/admin/attention` and in the attention email. Someone who knows enough user
+everyone and administrators see **Account recovery emails are paused** in
+*Needs your attention* on the Overview and in the attention email. Someone who knows enough user
 names and their verified addresses, and has a few networks, can use up the
 recovery share for a day: raise `HOSTING_EMAIL_DAILY_LIMIT` if that happens.
 
 Email verification stays required when the budget is spent (it is skipped
-only when no email provider is configured), so new sign-ups and address
-changes wait at **Confirm your email** until the next day. Keep the daily
+only when it is switched off, when no email provider is configured or while
+all email is paused), so new sign-ups and address changes wait at **Confirm
+your email** until the next day. Keep the daily
 limit well above what the platform needs, and watch the portal's log for
 `not sent: daily_limit` warnings.
 
@@ -535,24 +624,33 @@ limit well above what the platform needs, and watch the portal's log for
 Owners create wikis on the dashboard (`/instances/create`) up to
 `MAX_INSTANCES_PER_ACCOUNT`, and for each one can:
 
-* open it, see its status, storage and traffic, read its logs;
-* stop, restart, terminate, reset its content, reset its administrator's
-  password, rename it. Resetting the administrator's password also signs
+* open it, see its status, storage and traffic (logs and renaming are for
+  administrators);
+* start it (the button at the top of a stopped wiki's page and in the wiki
+  list), stop, restart, terminate, reset its content, reset its
+  administrator's password. Resetting the administrator's password also signs
   that account out everywhere and turns off its two-step verification on the
   wiki (recorded in the wiki's audit log and the portal's moderation
   history): it is the way back in for an owner who lost the authenticator
   app and the recovery codes, who has no shell to run
   `bananawiki reset-two-step` in the tenant;
-* switch the easy wiki mode;
-* invite collaborators with full access or chosen permissions, and transfer
+* choose **Easy mode (BM mode)**, the mode the wiki starts in; its
+  administrators then adjust it under **Administration → BM mode**, and a
+  later switch on the portal restarts the wiki in the chosen mode;
+* invite collaborators with full access or chosen permissions (collaborators
+  who may start and stop the wiki also see **Start** in their wiki list), and
+  transfer
   ownership (the recipient accepts, and chooses whether the previous owner
   keeps view-only access or none, the default; the previous owner never
   keeps the right to stop, reset, download or delete the wiki, and the
   wiki's administrator password is not changed, so the new owner should
   reset it);
-* request restricted features (public access, page builder, custom domain),
-  which an administrator approves;
-* download an export of the wiki.
+* request restricted features (public access, page builder, a
+  [custom domain](#custom-domains) when the platform does not allow one
+  already), which an administrator approves, and set up a custom domain with
+  the guided page;
+* download an export of the wiki once it is terminated, when the platform
+  allows it (*Owners may download expired wikis*).
 
 While public access is restricted (by default, for owners who are not
 platform administrators) and not approved, a wiki runs with
@@ -594,15 +692,36 @@ the owner's account is suspended. An administrator who reactivates a wiki
 that is still over its limit is warned that the next pass will suspend it
 again.
 
-Platform sign-in: every wiki is an OAuth client of the portal, so owners and
-collaborators sign in to their wikis with their portal account
-(`/platform-oauth/login` on the wiki). New wiki accounts created this way
-follow the wiki's own sign-up policy. When the portal user name already
-exists on the wiki, the portal account is linked to it only after its wiki
-password and, when that account uses two-step verification, its code (an
-authenticator or recovery code, counted like a sign-in's); the wiki then
-signs it in without asking for the code again. Signing in through the portal
-later asks for the code as well.
+### Platform sign-in
+
+Every wiki is an OAuth client of the portal, so owners and collaborators sign
+in to their wikis with their portal account (`/platform-oauth/login` on the
+wiki). Only wikis on the same platform take part; there is no sign-in across
+platforms.
+
+* **Consent**: the portal asks once per wiki and remembers the answer. A
+  wiki's owner is not asked. Collaborators are asked, since they are added
+  without accepting anything. A wiki can ask again with `prompt=consent`;
+  without asking, one account gets at most 20 sign-in codes a minute.
+* **First sign-in on a wiki** opens a connect page with two choices: create a
+  new wiki account (the portal user name is suggested; when somebody else
+  already has it, the page says so and suggests a free one such as `alex2`),
+  or connect an existing wiki account of any name with its password and, when
+  it uses two-step verification, its code (counted like a sign-in's). A wiki
+  account linked to another portal account is never taken over. New accounts
+  follow the wiki's own sign-up policy. Later sign-ins through the portal ask
+  for the wiki's two-step code as well.
+* **Account → Wiki sign-ins** (`/account/wikis`) lists every wiki the account
+  signs in to, with the wiki account, the last sign-in and whether the wiki
+  asks again: **Sign out** ends its sessions on that wiki, **Remove access**
+  also forgets the consent. Both are refused while impersonating.
+* **Single sign-out**: *Sign out everywhere*, a password change, suspension,
+  deletion or scheduled deletion of the account, a merge and removing a wiki's access are queued as sign-out events
+  (`hosting_oauth_signouts`, kept 30 days). Each wiki reads its own events
+  every minute (`GET /oauth/signouts` with its client credentials, job
+  `auth.platform_signouts`) and ends that account's sessions which were signed
+  in through the portal before the event. Sessions signed in with a wiki
+  password are left alone.
 
 ## Administration
 
@@ -612,30 +731,72 @@ later asks for the code as well.
 * wikis: every lifecycle action above plus suspend (the expiry clock stops),
   extend, set storage limits and upload policy, move between owners,
   duplicate, restart, bulk actions, import an archive (chunked upload),
-  quarantine a wiki's plugins and restore plugin snapshots;
+  quarantine a wiki's plugins and restore plugin snapshots, switch Easy mode
+  (BM mode) in the **Lifecycle** card. **Name and owner → Move now** moves a
+  wiki at once, without the recipient accepting; owners offer transfers from
+  **Collaborators** instead. **Allow** on a feature someone requested
+  approves that request. An administrator who opens a customer's wiki page
+  (the owner view) is pointed to these tools;
 * feature requests, invite codes, banners, merge requests, moderation history
   (kept for `HOSTING_EVENT_RETENTION_DAYS`, 10 years by default, then deleted
   by the maintenance service);
 * **needs your attention**: the *Admin* link carries a red dot with the number
   of requests waiting (accounts to approve, wiki feature requests, account
   merges both owners confirmed), the first page after an administrator signs
-  in shows a banner, and `/admin/attention` plus the top of the dashboard list
-  every queue with how long the oldest item has waited;
-* **notification emails** (platform settings → *Notifications for
+  in shows a banner, and the *Needs your attention* card at the top of the
+  Overview lists every queue with how long the oldest item has waited
+  (`/admin/attention` leads there);
+* **notification emails** (**Settings → Email** → *Notices for
   administrators*): every administrator with an address (each can opt out on
   their account page) and/or one extra address, **immediately** for each new
   request, as a **digest** at most every N minutes, or as a **daily summary**
-  (hour in UTC). They are sent by the maintenance service (`attention emails`
+  (hour in UTC), for the queues switched on there (all by default; a queue
+  switched back on is included at the next check). They are sent by the maintenance service (`attention emails`
   step, every `--interval` seconds, 300 by default), in each administrator's
   language, with the throttling state in `hosting_attention_recipients`. A
   *Send a test email* button (five per hour) checks delivery;
-* platform settings: sign-up mode and approval, URL suffix, grace periods,
-  default limits, email, the shared GPU speech server, MFA requirements, the
-  REST API switch, Google Drive backups;
+* platform settings: sign-ups (mode and approval), [email](#email), wiki
+  lifetime (grace period and renewal), wiki features (who may make wikis
+  public or use the page builder, automatic approvals),
+  [custom domains](#custom-domains) (who may use them, whether the server is
+  ready), URL suffix, default
+  limits, the shared GPU speech server, MFA requirements, the REST API
+  switch, Google Drive backups and **easter eggs** (the mascot's sunglasses,
+  the Konami code's banana shower and its peek into "page not found", each on
+  by default);
+* **main wikis**: see [Main wikis](#main-wikis);
 * **platform export and restore**: an encrypted archive of `hosting.db`, the
   portal key, every tenant directory and the wikis' plugin quarantines, and
   the backup key to decrypt it (download it and keep it apart from the
   backups).
+
+### Main wikis
+
+Administrators keep wikis for the platform (its help centre, a community
+wiki) by marking them as **main wikis**: **Admin → the wiki → Main wiki →
+Make it a main wiki**, or `bananawiki hosting-admin instance main WIKI on`.
+There can be several, and any wiki can be marked, whoever owns it. A main
+wiki:
+
+* never expires: its end date goes away and none can be set, and the expiry
+  pass skips it even if one is written into the database;
+* is never terminated or reset, by its owner, an administrator, a bulk action
+  or the command line, until an administrator takes the mark away;
+* is not deleted with its owner's account: deleting that account (or
+  scheduling its deletion) is refused unless its wikis are moved to another
+  account, and a main wiki moved that way stays a main wiki;
+* is not suspended automatically for storage (administrators see its usage
+  and raise its limit);
+* starts first when the maintenance service brings wikis back after an
+  update or a reboot.
+
+Main wikis are listed at the top of the Overview and of the wiki list. One
+owned by an administrator is shown as a *Platform wiki*, another as the
+*Main wiki* of its owner. Only administrators see the mark: owners,
+collaborators, the REST API and personal data exports do not show it, and an
+owner who tries to terminate or reset it is told to ask an administrator.
+Taking the mark away (recorded in the moderation history, like setting it)
+leaves the wiki without an end date until an administrator sets one.
 
 ## Backups
 

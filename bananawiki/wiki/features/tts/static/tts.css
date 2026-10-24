@@ -14,12 +14,35 @@
 .tts-panel__speed { display: inline-flex; align-items: center; gap: .4rem; }
 .tts-panel__audio { width: 100%; color-scheme: light dark; }
 .tts-panel__player { display: grid; gap: .5rem; }
+.tts-panel__skip { display: inline-flex; gap: .25rem; }
+.tts-panel__note, .tts-panel__hint { margin: 0; }
+/* Keys mean nothing on a phone or tablet without a keyboard. */
+@media (hover: none) and (pointer: coarse) { .tts-panel__keys { display: none; } }
 [data-tts-content] [data-tts-word].is-current {
   background: color-mix(in srgb, var(--bw-accent) 32%, transparent);
   border-radius: var(--radius-sm);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--bw-accent) 32%, transparent);
 }
-html[data-reduce-motion="true"] [data-tts-word].is-current { transition: none; }
+/* While the audio is ready, a word can be clicked to read from there. */
+.tts-seekable [data-tts-word]:hover { cursor: pointer; border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bw-accent) 14%, transparent); }
+.tts-seekable a [data-tts-word]:hover, .tts-seekable button [data-tts-word]:hover { cursor: inherit; background: none; }
+@media (forced-colors: active) {
+  [data-tts-content] [data-tts-word].is-current { forced-color-adjust: none; background: Highlight; color: HighlightText;
+    box-shadow: none; outline: 2px solid Highlight; }
+}
+
+/* The small player: at the bottom of the screen while the audio plays and the panel is out of view. */
+.tts-mini { position: fixed; z-index: 45; inset-inline: 0; margin-inline: auto; width: max-content; max-width: calc(100vw - 1.5rem);
+  bottom: calc(.75rem + env(safe-area-inset-bottom, 0px)); display: flex; align-items: center; gap: .25rem;
+  padding: .3rem .45rem; background: var(--surface); color: var(--bw-text); border: 1px solid var(--border-strong, var(--border));
+  border-radius: 999px; box-shadow: var(--shadow); }
+.tts-mini .btn--icon { border-radius: 999px; }
+.tts-mini__toggle { min-width: 2.5rem; min-height: 2.5rem; }
+.tts-mini__time { padding-inline: .35rem; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted, inherit); }
+@media (pointer: coarse) { .tts-mini .btn--icon { min-width: 2.75rem; min-height: 2.75rem; } }
+@media (max-width: 360px) { .tts-mini__time { display: none; } }
+@media print { .tts-mini { display: none !important; } }
 
 .tts-stats { margin-bottom: 1rem; }
 /* Five small stats: one row on desktop, two per row on phones (like the leaderboard). */

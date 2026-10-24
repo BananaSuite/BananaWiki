@@ -48,7 +48,7 @@ def strict(tmp_path_factory):
         tmp_path, HOSTING_TERMS_REQUIRED_VERSION=accounts.TERMS_VERSION))
     with portal.app_context(), connection_scope(portal.extensions["bananawiki.hosting.database"]) as db:
         accounts.create("root", PASSWORD, is_admin=True)
-        db.execute("UPDATE hosting_settings SET email_required = 1, ask_email_existing_users = 1, "
+        db.execute("UPDATE hosting_settings SET existing_email = 'required', "
                    "email_verification_required = 1, admin_mfa_required = 1, api_enabled = 1, "
                    "platform_oauth_enabled = 1 WHERE id = 1")
     return portal

@@ -12,6 +12,7 @@ languages the administrator enabled (``site_settings.tts_enabled_languages``).
 from __future__ import annotations
 
 import hashlib
+import html
 import importlib.util
 import logging
 import re
@@ -19,6 +20,7 @@ import threading
 import unicodedata
 from collections import OrderedDict
 from collections.abc import Iterable
+from urllib.parse import urlsplit
 
 log = logging.getLogger("bananawiki.tts")
 
@@ -232,7 +234,16 @@ def _drop_ref_def(match: re.Match[str]) -> str:
 
 
 def normalize_text(title: str | None, content: str | None) -> str:
-    """The plain text that is read aloud: Markdown and HTML removed, code dropped."""
+    """The plain text that is read aloud: Markdown and HTML removed, code dropped.
+
+    Frozen since 1.4: its result is what an audio file's hash covers
+    (:func:`content_hash`), so changing it would make every stored audio stale.
+    """
+    return _normalized(title, content)[:MAX_INPUT_CHARS]
+
+
+def _normalized(title: str | None, content: str | None) -> str:
+    """:func:`normalize_text` before it is cut to :data:`MAX_INPUT_CHARS`."""
     title = (title or "").strip()
     body = (content or "")[:MAX_SOURCE_CHARS]
     body = _FENCED_CODE.sub(" ", body)
@@ -248,8 +259,7 @@ def normalize_text(title: str | None, content: str | None) -> str:
     body = _STRAY_PUNCT.sub(" ", body)
     body = unicodedata.normalize("NFC", body)
     body = _SPACES.sub(" ", body).strip()
-    spoken = (f"{title}. {body}" if body else title) if title else body
-    return spoken[:MAX_INPUT_CHARS]
+    return (f"{title}. {body}" if body else title) if title else body
 
 
 SPOKEN_CACHE_SIZE = 64
@@ -280,6 +290,186 @@ def spoken_text(title: str | None, content: str | None) -> str:
 
 def content_hash(spoken: str, language: str) -> str:
     return hashlib.sha256(((spoken or "") + "\x00" + language).encode("utf-8")).hexdigest()
+
+
+# What the voice reads
+#
+# :func:`normalize_text` is frozen (its output is hashed, and 1.4 audio must
+# stay valid), but it runs headings, list items and table cells together
+# without a pause and spells out web addresses. The voice reads
+# :func:`speech_text` instead: the same text with every block ending like a
+# sentence, addresses reduced to their site name and embeds left out. Both
+# come from the same title and content, so the hash still says when the
+# audio is out of date.
+
+# Line breaks the Markdown renderer makes (nl2br) end nothing: only these tags end a block.
+_BLOCK_TAG = re.compile(r"</?(?:p|div|li|ul|ol|h[1-6]|tr|table|blockquote|section|article|details|summary|"
+                        r"figure|figcaption|dl|dt|dd|hr|pre)\b[^>]*>", re.IGNORECASE)
+# Shortcodes become players or boards on the page; [TOC] becomes the contents list (not read).
+_SPEECH_DROP = re.compile(r"\[\[[ \t]*(?:video|canvas|kanban)\b[^\]\n]{0,500}\]\]|\[TOC\]", re.IGNORECASE)
+_BARE_URL = re.compile(r"\b(?:https?://|www\.)[^\s<>\"'()\[\]]+", re.IGNORECASE)
+_MENTION_AT = re.compile(r"(?<![\w@./])@(?=[A-Za-z0-9_])")
+_HEADING_LINE = re.compile(r"^[ \t]{0,3}#{1,6}(?:[ \t]|$)")
+_ITEM_LINE = re.compile(r"^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+")
+_QUOTE_LINE = re.compile(r"^[ \t]*>")
+_SETEXT_LINE = re.compile(r"[ \t]*=+[ \t]*")
+_BLOCK_ENDS = (".", "!", "?", "…", ":", ";", ",", "。", "！", "？", "；", "：", "，", "、")
+
+
+def _site_name(match: re.Match[str]) -> str:
+    """``https://www.example.org/a/b?c`` -> ``example.org``: what a reader says for an address."""
+    url = match.group(0)
+    if url.lower().startswith("www."):
+        url = "http://" + url
+    try:
+        host = urlsplit(url).hostname or ""
+    except ValueError:
+        host = ""
+    return " " + (host[4:] if host.startswith("www.") else host) + " "
+
+
+def _spoken_block(lines: list[str]) -> str:
+    body = _LINE_PREFIX.sub("", "\n".join(lines))
+    body = _EMPHASIS.sub(r"\2", body)
+    body = _STRAY_PUNCT.sub(" ", body)
+    body = _SPACES.sub(" ", unicodedata.normalize("NFC", body)).strip()
+    if body and not body.endswith(_BLOCK_ENDS):
+        body += "."
+    return body
+
+
+def _table_row(line: str) -> str:
+    cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+    return ", ".join(cell for cell in cells if cell)
+
+
+def _hashed_source(title: str | None, content: str | None) -> tuple[str, bool]:
+    """The part of *content* the audio's hash covers, and whether that is less than all of it.
+
+    The hash covers the first :data:`MAX_INPUT_CHARS` of :func:`normalize_text`.
+    The voice must not read beyond them (an edit there would leave stale
+    audio counted as current), so on a longer page the longest beginning of
+    the content whose normalised text still fits is found by bisection.
+    """
+    body = (content or "")[:MAX_SOURCE_CHARS]
+    cut_source = len(content or "") > MAX_SOURCE_CHARS
+    if len(_normalized(title, body)) <= MAX_INPUT_CHARS:
+        return body, cut_source
+
+    def fits(length: int) -> bool:
+        return len(_normalized(title, body[:length])) <= MAX_INPUT_CHARS
+
+    low, high = 0, MAX_INPUT_CHARS  # grow the bracket first: most pages are cut close to the limit
+    while high < len(body) and fits(high):
+        low, high = high, min(len(body), high * 2)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if fits(middle):
+            low = middle
+        else:
+            high = middle - 1
+    # End between words, never inside one (a shorter beginning still fits).
+    space = max(body.rfind(" ", 0, low + 1), body.rfind("\n", 0, low + 1))
+    if space > low // 2:
+        low = space
+    return body[:low], True
+
+
+SPEECH_CACHE_SIZE = 32
+_speech_cache: OrderedDict[tuple[str, bytes], tuple[str, bool]] = OrderedDict()
+
+
+def speech_info(title: str | None, content: str | None) -> tuple[str, bool]:
+    """:func:`speech_text` and whether the audio stops before the end of the page (cached like
+    :func:`spoken_text`, since page views ask for it too)."""
+    key = (title or "", hashlib.sha256((content or "").encode("utf-8", "surrogatepass")).digest())
+    with _spoken_lock:
+        cached = _speech_cache.get(key)
+        if cached is not None:
+            _speech_cache.move_to_end(key)
+            return cached
+    source, cut = _hashed_source(title, content)
+    speech, capped = _speech(title, source)
+    result = (speech, cut or capped)
+    with _spoken_lock:
+        _speech_cache[key] = result
+        while len(_speech_cache) > SPEECH_CACHE_SIZE:
+            _speech_cache.popitem(last=False)
+    return result
+
+
+def speech_text(title: str | None, content: str | None) -> str:
+    """The text the voice reads for a page: :func:`normalize_text` with pauses where blocks end.
+
+    It never reads past what the audio's hash covers (see :func:`_hashed_source`).
+    """
+    return speech_info(title, content)[0]
+
+
+def _speech(title: str | None, content: str | None) -> tuple[str, bool]:
+    """The text the voice reads, and whether it had to be cut to :data:`MAX_INPUT_CHARS`.
+
+    Headings, list items, table rows and paragraphs each end like a
+    sentence (a full stop is added where they have none), table cells are
+    separated by commas, web addresses become their site name, video,
+    canvas and Kanban shortcodes and ``[TOC]`` are left out, HTML entities
+    are decoded and mentions lose their "@". Linear in the length of the
+    content, like :func:`normalize_text`, and at most :data:`MAX_INPUT_CHARS`
+    long (cut at a space).
+    """
+    title = _SPACES.sub(" ", (title or "")).strip()
+    body = (content or "")[:MAX_SOURCE_CHARS].replace("\r\n", "\n").replace("\r", "\n")
+    body = _FENCED_CODE.sub("\n\n", body)
+    body = _REF_DEF.sub(_drop_ref_def, body)
+    body = _through_last(")", _IMAGE, r"\1\2", body)
+    body = _through_last(")", _LINK, r"\1\2", body)
+    body = _INLINE_CODE.sub(r"\1", body)
+    body = _through_last(">", _BLOCK_TAG, "\n\n", body)
+    body = _through_last(">", _HTML_TAG, " ", body)
+    body = html.unescape(body)
+    body = _SPEECH_DROP.sub(" ", body)
+    body = _BARE_URL.sub(_site_name, body)
+    body = _MENTION_AT.sub("", body)
+    blocks: list[str] = []
+    current: list[str] = []
+    length = 0
+
+    def flush() -> None:
+        nonlocal length
+        if current:
+            block = _spoken_block(current)
+            if block:
+                blocks.append(block)
+                length += len(block) + 1
+            current.clear()
+
+    for line in body.split("\n"):
+        if length > MAX_INPUT_CHARS:
+            break
+        if not line.strip() or any(rule.fullmatch(line) for rule in (_RULE, _TABLE_SEP, _SETEXT_LINE)):
+            flush()
+        elif line.lstrip().startswith("|"):
+            flush()
+            current.append(_table_row(line))
+            flush()
+        elif _HEADING_LINE.match(line):
+            flush()
+            current.append(line)
+            flush()
+        elif _ITEM_LINE.match(line) or (_QUOTE_LINE.match(line) and current and not _QUOTE_LINE.match(current[0])):
+            flush()
+            current.append(line)
+        else:
+            current.append(line)
+    flush()
+    if title and not title.endswith(_BLOCK_ENDS):
+        title += "."
+    spoken = " ".join(([title] if title else []) + blocks)
+    capped = len(spoken) > MAX_INPUT_CHARS or length > MAX_INPUT_CHARS
+    if len(spoken) > MAX_INPUT_CHARS:
+        cut = spoken.rfind(" ", 0, MAX_INPUT_CHARS + 1)
+        spoken = spoken[:cut if cut > MAX_INPUT_CHARS // 2 else MAX_INPUT_CHARS].rstrip()
+    return spoken, capped
 
 
 # Pieces for the synthesiser

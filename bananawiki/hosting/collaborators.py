@@ -41,6 +41,11 @@ def _permissions(row: dict[str, Any]) -> set[str]:
         return {"view"}
 
 
+def permissions_from(role: str | None, permissions: str | None) -> set[str]:
+    """What a collaborator with this stored *role* and *permissions* (JSON) may do; nothing without a role."""
+    return _permissions({"role": role, "permissions": permissions}) if role else set()
+
+
 def membership(instance_id: str, account_id: str) -> dict[str, Any] | None:
     return db.one("SELECT * FROM instance_collaborators WHERE instance_id = ? AND account_id = ?",
                   (instance_id, account_id))
@@ -95,6 +100,7 @@ def add(inst: dict[str, Any], actor: dict[str, Any], username: str, role: str, p
     except sqlite3.IntegrityError as error:
         raise ServiceError("hosting.collaborators.exists") from error
     events.record("instance", inst["id"], "collaborator.added", actor["id"], target["username"])
+    _tell(target, "collaborator_added", inst, actor)
 
 
 def _editable(inst: dict[str, Any], actor: dict[str, Any], member: dict[str, Any] | None) -> dict[str, Any]:
@@ -171,6 +177,18 @@ def start_transfer(inst: dict[str, Any], actor: dict[str, Any], username: str) -
             "status": "pending", "created_at": now_sql(),
         })
         events.record("instance", inst["id"], "transfer.started", actor["id"], target["username"])
+    _tell(target, "transfer_offered", inst, actor)
+
+
+def _tell(target: dict[str, Any], kind: str, inst: dict[str, Any], actor: dict[str, Any]) -> None:
+    """Email *target* that *actor* added them to the wiki or offered it to them (best effort)."""
+    from . import notifications, urls
+
+    # Charged to the account that acted (administrators excepted), so adding and removing people cannot
+    # spend the platform's daily email budget.
+    notifications.notify_account(target, kind, charge=None if acts_as_admin(actor) else actor["id"],
+                                 slug=urls.original_slug(inst["subdomain"]) or inst["subdomain"],
+                                 by=actor.get("username", ""), action_url=urls.external_url("dashboard.dashboard"))
 
 
 def accept_transfer(transfer_id: int, account: dict[str, Any], *, previous_owner: str = "none") -> str:

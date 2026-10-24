@@ -1,0 +1,47 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('bm_mode.title') }}{% endblock %}
+{% block admin_content %}
+<header class="page-header"><h1>{{ t('bm_mode.title') }}</h1></header>
+<p>{{ t('bm_mode.intro') }}</p>
+<form class="form section-stack" method="post" action="{{ url_for('bm_mode.settings') }}">
+  {{ forms.csrf() }}
+  <section class="form-section" aria-labelledby="bm-switch-heading">
+    <h2 id="bm-switch-heading">{{ t('bm_mode.switch_title') }}</h2>
+    {{ forms.checkbox('bm_mode', t('bm_mode.switch'), checked=active, hint=t('bm_mode.switch_hint')) }}
+    {% if operator_default %}<p class="hint">{{ t('bm_mode.operator_default') }}</p>{% endif %}
+  </section>
+  <section class="form-section" id="bm-people" aria-labelledby="bm-people-heading">
+    <h2 id="bm-people-heading">{{ t('bm_mode.people.title') }}</h2>
+    <p class="hint">{{ t('bm_mode.people.hint') }}</p>
+    {{ forms.checkbox('bm_self_service', t('bm_mode.people.self_service'), checked=self_service, hint=t('bm_mode.people.self_service_hint')) }}
+    {{ forms.checkbox('bm_new_accounts', t('bm_mode.people.new_accounts'), checked=new_accounts, hint=t('bm_mode.people.new_accounts_hint')) }}
+    <p class="muted">{{ tn('bm_mode.people.count', in_bm_mode) }}</p>
+  </section>
+  <section class="form-section" aria-labelledby="bm-features-heading">
+    <h2 id="bm-features-heading">{{ t('bm_mode.features_title') }}</h2>
+    <p class="hint">{{ t('bm_mode.features_hint') }}</p>
+    <div class="check-grid">
+      {% for item in features %}
+      {{ forms.checkbox('feature_' ~ item.id, item.name, checked=item.shown, hint=(t('bm_mode.off_by_default') if not item.default else '')) }}
+      {% endfor %}
+    </div>
+  </section>
+  <section class="form-section" aria-labelledby="bm-simplify-heading">
+    <h2 id="bm-simplify-heading">{{ t('bm_mode.simplifications_title') }}</h2>
+    <p class="hint">{{ t('bm_mode.simplifications_hint') }}</p>
+    {% for item in simplifications %}
+    {{ forms.checkbox('simplify_' ~ item.id, item.feature ~ ': ' ~ item.label, checked=item.on, hint=item.description) }}
+    {% else %}<p class="muted">{{ t('bm_mode.no_simplifications') }}</p>{% endfor %}
+  </section>
+  <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('common.save') }}</button></div>
+</form>
+<section class="card" aria-labelledby="bm-everyone-heading">
+  <h2 id="bm-everyone-heading">{{ t('bm_mode.everyone.title') }}</h2>
+  <p class="hint">{{ t('bm_mode.everyone.hint') }}</p>
+  <div class="btn-row">
+    {{ forms.post_button(url_for('bm_mode.everyone'), t('bm_mode.everyone.on'), 'btn', confirm=t('bm_mode.everyone.on_confirm'), hidden={'action': 'on'}) }}
+    {{ forms.post_button(url_for('bm_mode.everyone'), t('bm_mode.everyone.off'), 'btn', confirm=t('bm_mode.everyone.off_confirm'), hidden={'action': 'off'}) }}
+  </div>
+</section>
+{% endblock %}

@@ -18,6 +18,16 @@ Configured by ``BW_PLATFORM_OAUTH_*`` (see ``config.platform_oauth``). The rules
   the portal's origin only; private addresses (and plain HTTP) are allowed
   only when the configured portal itself is on a private network.
 * Errors shown to people are translated messages; details go to the log.
+* The first platform sign-in on this wiki asks what to do (``/platform-oauth/connect``):
+  create a new wiki account (a free name is suggested when the portal name is
+  taken, reserved or invalid here) or connect an account the person already
+  has here, proven with its password and two-step code. Nothing is matched by
+  user name alone.
+* Single sign-out: the ``auth.platform_signouts`` job fetches the portal's
+  sign-outs (``/oauth/signouts``) and ends the platform sessions (those with
+  ``auth_method`` ``platform_oauth…``) of the linked wiki account that
+  started before each sign-out. Sessions started with the wiki's own password
+  are the wiki's business and stay.
 """
 
 from __future__ import annotations
@@ -35,7 +45,8 @@ from urllib.parse import urlencode, urlsplit
 from flask import current_app, session, url_for
 
 from ....core import crypto, http
-from ....core.timeutil import now_sql
+from ....core.timeutil import now_sql, parse, to_sql
+from ... import accounts
 from ...db import db
 
 log = logging.getLogger("bananawiki.platform_oauth")
@@ -307,3 +318,145 @@ def unlink(user: dict[str, Any]) -> None:
     # The wiki account too: after a merge on the portal its link there names another account.
     _portal_post("unlink_url", {"account_id": existing["account_id"], "wiki_user_id": user["id"]})
     db.execute("DELETE FROM platform_oauth_links WHERE user_id = ?", (user["id"],))
+
+
+# Choosing a wiki user name
+
+
+def name_problem(username: str) -> str | None:
+    """Why *username* cannot be used for a new account here (a translation key), or None."""
+    try:
+        accounts.validate_username(username)
+    except accounts.AccountError as error:
+        return error.key
+    return "auth.error.username_taken" if accounts.username_taken(username) else None
+
+
+def suggest_username(portal_username: str) -> str:
+    """A name a new wiki account can take: the portal's when it is free, else the closest free one."""
+    base = "".join(char if char.isascii() and (char.isalnum() or char in "_-") else "_"
+                   for char in (portal_username or "").strip())[:44].strip("_-") or "member"
+    if len(base) < 3:
+        base = (base + "_member")[:44]
+    if name_problem(base) is None:
+        return base
+    for number in range(2, 100):
+        candidate = f"{base}{number}"
+        if name_problem(candidate) is None:
+            return candidate
+    while True:
+        candidate = f"{base[:40]}_{secrets.token_hex(3)}"
+        if name_problem(candidate) is None:
+            return candidate
+
+
+# Single sign-out
+
+SIGNOUT_PAGES_PER_RUN = 10
+SIGNOUT_REASON = "platform_signout"
+
+
+def signouts_url(cfg: dict[str, str]) -> str:
+    return cfg.get("signouts_url") or cfg["portal_base"].rstrip("/") + "/oauth/signouts"
+
+
+def _signout_cursor() -> int:
+    value = db.scalar("SELECT signout_cursor FROM platform_oauth_state WHERE id = 1")
+    return int(value or 0)
+
+
+def _save_signout_cursor(cursor: int) -> None:
+    db.execute(
+        "INSERT INTO platform_oauth_state (id, signout_cursor, signouts_checked_at) VALUES (1, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET signout_cursor = excluded.signout_cursor, "
+        "signouts_checked_at = excluded.signouts_checked_at",
+        (cursor, now_sql()),
+    )
+
+
+def end_platform_sessions(user_id: str, started_before: str) -> int:
+    """End *user_id*'s sessions that began through platform sign-in at or before *started_before*."""
+    return db.execute(
+        "UPDATE user_sessions SET revoked_at = ?, revoked_reason = ? WHERE user_id = ? AND revoked_at IS NULL "
+        "AND auth_method LIKE 'platform_oauth%' AND created_at <= ?",
+        (now_sql(), SIGNOUT_REASON, user_id, started_before),
+    ).rowcount
+
+
+def _signed_out_user(account_id: str, wiki_user_id: str) -> str | None:
+    """The wiki account a sign-out of portal account *account_id* is about, or None.
+
+    The link stored here decides. The portal's ``wiki_user_id`` is used only
+    for an account without a link here (a link made by 1.4, which only the
+    portal knows): never to sign out an account linked to someone else.
+    """
+    user = linked_user(account_id)
+    if user is not None:
+        return user["id"]
+    if wiki_user_id and link_of(wiki_user_id) is None and db.scalar("SELECT 1 FROM users WHERE id = ?",
+                                                                      (wiki_user_id,)):
+        return wiki_user_id
+    return None
+
+
+def _valid_event(event: Any, cursor: int) -> tuple[int, str, str, str] | None:
+    if not isinstance(event, dict):
+        return None
+    event_id, account_id = event.get("id"), event.get("account_id")
+    raw_at = event.get("at")
+    wiki_user_id, at = event.get("wiki_user_id") or "", parse(raw_at, bounded=True) if isinstance(raw_at, str) else None
+    if (type(event_id) is not int or not cursor < event_id < 2**63 or not isinstance(account_id, str)
+            or not account_id or len(account_id) > 200 or not isinstance(wiki_user_id, str)
+            or len(wiki_user_id) > 128 or at is None):
+        return None
+    # Never later than now: a sign-out cannot reach sessions that start after it is applied.
+    return event_id, account_id, wiki_user_id, min(to_sql(at), now_sql())
+
+
+def apply_signouts() -> int:
+    """Job: carry out the portal's sign-outs for this wiki; returns how many sessions ended.
+
+    Does nothing without platform sign-in. A portal without this endpoint
+    (404) is left alone; other failures are logged without what the portal
+    sent and retried on the next run, from the same cursor.
+    """
+    cfg = config()
+    if cfg is None:
+        return 0
+    url, cursor, ended = signouts_url(cfg), _signout_cursor(), 0
+    for _page in range(SIGNOUT_PAGES_PER_RUN):
+        query = {"after": cursor, **({"instance_id": instance_id()} if instance_id() else {})}
+        try:
+            status, data = _call("GET", f"{url}?{urlencode(query)}", client_auth=True)
+        except OAuthError as error:
+            log.warning("Platform sign-outs could not be fetched: %s", error)
+            return ended
+        if status == 404:
+            return ended
+        if status != 200 or not isinstance(data, dict) or not isinstance(data.get("events"), list):
+            log.warning("Platform sign-outs could not be fetched: the portal answered %s", status)
+            return ended
+        latest = data.get("latest")
+        if type(latest) is int and 0 <= latest < cursor:
+            # The portal was restored from an older backup: its ids start over. Fetching sign-outs
+            # again is harmless (they only reach sessions that started before them).
+            log.info("Platform sign-out cursor %s is beyond the portal's latest %s; starting again", cursor, latest)
+            cursor = 0
+            _save_signout_cursor(cursor)
+            continue
+        events = [_valid_event(event, cursor) for event in data["events"]]
+        if any(event is None for event in events):
+            log.warning("Platform sign-outs refused: the portal sent an invalid event")
+            return ended
+        with db.transaction():
+            for event_id, account_id, wiki_user_id, at in sorted(events):  # type: ignore[type-var]
+                user_id = _signed_out_user(account_id, wiki_user_id)
+                if user_id is not None:
+                    ended += end_platform_sessions(user_id, at)
+                cursor = max(cursor, event_id)
+            _save_signout_cursor(cursor)
+        if not data.get("more") or not events:
+            break
+    if ended:
+        log.info("Platform sign-out ended %s session(s)", ended)
+    return ended

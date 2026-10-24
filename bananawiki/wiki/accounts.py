@@ -16,6 +16,7 @@ from flask import current_app
 
 from ..core import passwords
 from ..core.timeutil import now_sql
+from . import bm
 from .db import db
 from .registry import emit, prepare
 
@@ -176,6 +177,7 @@ def create(
             "invite_code": invite_code,
             "force_password_change": 1 if force_password_change else 0,
             "created_at": now_sql(),
+            "bm_mode": 1 if bm.new_accounts() else 0,  # whether new accounts start in BM mode
         }
         values.update(extra or {})
         db.insert("users", values)
@@ -186,20 +188,33 @@ def create(
     return user
 
 
+def hash_new_password(new_password: str | None, *, username: str | None, email: str | None = None) -> str:
+    """Check a new password against the policy and hash it, for :func:`set_password`'s *password_hash*.
+
+    Callers that change a password inside a transaction of their own hash it
+    first with this, so the slow hash never holds the database's write lock.
+    """
+    return hash_password(validate_password(new_password, username=username, email=email))
+
+
 def set_password(user_id: str, new_password: str, *, keep_session_id: str | None = None,
                  require_change: bool = False, expected_password_hash: str | None = None,
-                 keep_backup: bool = False) -> None:
+                 keep_backup: bool = False, password_hash: str | None = None) -> None:
     """Change a password and sign the account out everywhere else.
 
     The password an administrator saved before setting a temporary one
     (``original_password_backup``) is dropped unless *keep_backup*: once
     anyone sets another password, restoring the old one would undo it.
+    *password_hash* is *new_password* already checked and hashed by
+    :func:`hash_new_password`.
     """
     from .auth import revoke_sessions
 
-    account = by_id(user_id) or {}
-    hashed = hash_password(validate_password(new_password, username=account.get("username"),
-                                             email=account.get("email")))
+    if password_hash is not None:
+        hashed = password_hash
+    else:
+        account = by_id(user_id) or {}
+        hashed = hash_new_password(new_password, username=account.get("username"), email=account.get("email"))
     with db.transaction():
         if expected_password_hash is not None and db.scalar(
             "SELECT password FROM users WHERE id = ?", (user_id,)

@@ -6,8 +6,12 @@ from typing import Any
 
 from flask import render_template
 
-from ... import auth
+from ... import auth, bm
 from . import service
+
+# BM mode: no tags on pages, in their actions or in the editor. The badge and the editor fields are marked
+# (data-bm-hide); the "Tag" action is left out, as a hidden one would leave an empty section in the menu.
+HIDE_TAGS = "difficulty_tags.hide_tags"
 
 
 def _form_context(page: dict[str, Any] | None, choices: set[str]) -> dict[str, Any]:
@@ -28,7 +32,7 @@ def badge(page: dict[str, Any]) -> str:
 def header_action(page: dict[str, Any]) -> str:
     """"Tag" button and dialog for people who may change the tag (``page.header_actions``)."""
     choices = service.allowed_choices(page)
-    if not choices:
+    if not choices or bm.simplified(HIDE_TAGS):
         return ""
     return render_template("difficulty_tags/_dialog.html", **_form_context(page, choices))
 

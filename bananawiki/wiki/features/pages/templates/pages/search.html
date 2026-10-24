@@ -8,6 +8,10 @@
     <input type="search" name="q" value="{{ q }}" maxlength="300" aria-label="{{ t('pages.search.title') }}" placeholder="{{ t('pages.nav.search_placeholder') }}" autofocus>
     <button class="btn btn--primary">{{ t('common.search') }}</button>
   </div>
+  {#- After a search with the usual options they fold into one line, so the results start higher up (phones). -#}
+  {% set customised = scope != 'all' or result_type != 'all' or sort != 'relevance' %}
+  <details class="disclosure search-options"{% if not q or customised %} open{% endif %}>
+  <summary>{{ t('pages.search.options') }}</summary>
   <div class="form-grid">
     {% for name, options, value in [('scope', ['all', 'title', 'content', 'category'], scope), ('type', ['all', 'page', 'category'], result_type), ('sort', ['relevance', 'title', 'recent'], sort)] %}
     <div class="field">
@@ -19,6 +23,7 @@
     {% endfor %}
   </div>
   <p class="hint">{{ t('pages.search.syntax') }}</p>
+  </details>
 </form>
 {% if q %}
   {% if results.categories %}

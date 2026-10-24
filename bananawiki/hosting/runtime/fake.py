@@ -38,6 +38,8 @@ class FakeRuntime:
         self.calls: list[tuple[str, str]] = []
         self.routes: list[TenantSpec] = []
         self.domain_results: dict[str, DomainCheck] = {}
+        self.domain_details: dict[str, dict[str, Any]] = {}  # inspect_domain answers, per domain
+        self.addresses: dict[str, tuple[str, ...]] = {}  # lookup_addresses answers, per host name
         self.upstreams: dict[str, tuple[str, int]] = {}
         self.backup_status: dict[str, Any] = {}
         self.storage: dict[str, Any] = {}  # what storage_protection() reports ({} = unknown)
@@ -150,6 +152,7 @@ class FakeRuntime:
     # Tenant database
 
     def list_users(self, spec: TenantSpec, *, limit: int = 200, offset: int = 0) -> tuple[list[WikiUser], int]:
+        self._record("list_users", spec.data_dir_name)
         tenant = self._tenant(spec)
         users = list(tenant.users.values())
         return users[offset:offset + limit], len(users)
@@ -257,6 +260,20 @@ class FakeRuntime:
     def check_domain(self, domain: str, token: str) -> DomainCheck:
         self._record("check_domain", domain)
         return self.domain_results.get(domain, DomainCheck(ownership=False, routing=False, dns_error=True))
+
+    def inspect_domain(self, domain: str, token: str) -> dict[str, Any]:
+        """``domain_details[domain]`` when a test set it, else the booleans of :meth:`check_domain`."""
+        self._record("inspect_domain", domain)
+        if domain in self.domain_details:
+            return dict(self.domain_details[domain])
+        check = self.domain_results.get(domain, DomainCheck(ownership=False, routing=False, dns_error=True))
+        return {"txt": [token] if check.ownership else [], "cname": [], "addresses": [], "expected_addresses": [],
+                "ownership": check.ownership, "routing": check.routing, "proxied": check.proxied,
+                "dns_error": check.dns_error}
+
+    def lookup_addresses(self, name: str) -> tuple[str, ...]:
+        self._record("lookup_addresses", name)
+        return tuple(self.addresses.get(name, ()))
 
     def sync_routes(self, specs: Sequence[TenantSpec]) -> None:
         self.calls.append(("sync_routes", str(len(specs))))
