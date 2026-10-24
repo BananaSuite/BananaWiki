@@ -44,7 +44,7 @@ Operators decide whether third-party code may run at all:
 | `BW_MANAGED_HOSTING` | Under managed hosting plugins are off unless `BW_PLUGIN_ISOLATION=container`. |
 | `BW_MANAGED_PLUGIN_DENYLIST` | Comma-separated ids that never load (features and plugins alike). |
 | `BW_EXTERNAL_PLUGINS_DIR` | Where plugins live; default `<instance>/plugins`. |
-| `BW_EASY_WIKI` | Features and plugins with `easy_wiki=False` are hidden and stay off. |
+| `BW_EASY_WIKI` | Starts the wiki in BM mode, the easy mode. BM mode never hides or shows a third-party plugin: plugins stay as **Admin → Plugins** sets them (`easy_wiki` has no effect on them), and only their simplifications apply. |
 
 ## Quick start
 
@@ -132,6 +132,26 @@ checked for you), no inline scripts, translations in `en`, `it` and `de`
 
 `init_app(app)`, when given, runs once at start-up **before** the plugin's
 blueprints are registered.
+
+#### BM mode
+
+BM mode (**Admin → BM mode**) is the easy mode of a wiki. It never switches a
+plugin on or off: showing a hidden plugin again would run its code, which
+only owners and superusers may allow, so plugins stay as **Admin → Plugins**
+sets them and `easy_wiki` has no effect on them. A plugin can still make
+itself simpler in BM mode:
+
+* `simplifications=[Simplification("hello_plugin.simple", "hello_plugin.simple_label",
+  "hello_plugin.simple_hint")]` declares something BM mode makes simpler, on by
+  default while BM mode is on (`default=False` to start it off). Mark what it
+  hides with `data-bm-hide="hello_plugin.simple"` in templates (several ids
+  separated by spaces); the wiki hides those elements with a stylesheet rule,
+  so they must not be the only way to reach something important. In Python,
+  `bananawiki.wiki.bm.simplified("hello_plugin.simple")` says whether it
+  applies to the current person (the whole wiki's BM mode, or that person's
+  own).
+* `NavItem(..., bm_hide="hello_plugin.simple")` leaves a menu entry out while
+  that simplification applies; the page stays reachable.
 
 ### Tables
 

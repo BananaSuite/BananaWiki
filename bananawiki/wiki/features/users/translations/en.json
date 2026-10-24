@@ -70,7 +70,7 @@
   "users.display.theme": "Theme",
   "users.display.theme_dark": "Dark",
   "users.display.theme_light": "Light",
-  "users.display.title": "Display preferences",
+  "users.display.title": "Customise",
   "users.display.wide": "Wide",
   "users.error.birth_date_invalid": "Enter a valid birth date in the past.",
   "users.error.image_uploads_too_fast": "Too many picture uploads in a short time. Wait a few minutes and try again.",
@@ -226,10 +226,14 @@
   "users.settings.title": "Settings",
   "users.settings.username_mentions_hint": "Pages are not changed: mentions of your old name still lead to your profile, and nobody else can take that name unless an administrator releases it.",
   "users.settings.view_profile": "View profile",
+  "users.settings.all": "All settings",
+  "users.settings.all_hint": "Sessions, two-step verification, your data and more.",
   "users.suspended.reactivate": "Reactivate my account",
   "users.suspended.reactivate_confirm": "Lift the suspension of your own account?",
   "users.tab.account": "Account",
-  "users.tab.display": "Display",
+  "users.tab.display": "Customise",
   "users.tab.profile": "Profile",
-  "users.tab.sessions": "Sessions"
+  "users.tab.sessions": "Sessions",
+  "users.bm.simple_settings": "Shorter settings",
+  "users.bm.simple_settings_hint": "Settings show the profile, the user name, the password, the language, the email address and Customise; sessions, two-step verification, API tokens, data export, account merges and deleting the account move behind \"All settings\". Anything the person must do first stays shown."
 }

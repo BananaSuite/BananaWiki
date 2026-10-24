@@ -42,6 +42,10 @@ log = logging.getLogger("bananawiki.tts")
 
 ACTIVE = ("pending", "processing")
 LEASE_SECONDS = 120
+# Every running worker touches this file in the audio folder (see worker.Worker); its age tells
+# readers and administrators whether queued pages will be read at all.
+HEARTBEAT_FILE = ".worker-heartbeat"
+WORKER_STALE_SECONDS = 180
 MAX_ATTEMPTS = 3  # claims that may end without an answer from their worker
 ORPHAN_MIN_AGE_SECONDS = 3600
 ERROR_MAX = 500
@@ -73,8 +77,9 @@ class Job:
     page_id: int
     language: str
     content_hash: str
-    spoken: str
+    spoken: str  # what the hash covers (text.normalize_text)
     retry_count: int
+    speech: str = ""  # what the voice reads (text.speech_text); the same page text, with pauses
 
 
 @dataclass(frozen=True)
@@ -113,6 +118,49 @@ def page_audio(page: dict[str, Any]) -> PageAudio:
     usable = audio_path(row) is not None and row["content_hash"] == text.content_hash(
         text.spoken_text(page.get("title"), page.get("content")), row["language"])
     return PageAudio(row, usable, False)
+
+
+def queue_ahead(row: dict[str, Any] | None) -> int:
+    """How many jobs come before *row* in the queue: those running now and those queued earlier."""
+    if row is None or row["status"] != "pending":
+        return 0
+    return int(db.scalar(
+        "SELECT COUNT(*) FROM tts_generations WHERE status = 'processing' OR (status = 'pending' AND "
+        "(requested_at < ? OR (requested_at = ? AND id < ?)))",
+        (row["requested_at"], row["requested_at"], row["id"]), default=0))
+
+
+def cut_at(page: dict[str, Any]) -> int:
+    """Where the audio of a long page stops, in characters of what the voice reads (0: it reads it all).
+
+    The text read aloud stops where the 1.4 hash does (:data:`text.MAX_INPUT_CHARS`
+    of the normalised text), so the player stops highlighting there.
+    """
+    speech, cut = text.speech_info(page.get("title"), page.get("content"))
+    return len(speech) if cut else 0
+
+
+def touch_heartbeat() -> None:
+    """A worker is alive (called by every worker when it starts and every half minute)."""
+    try:
+        path = folder() / HEARTBEAT_FILE
+        path.touch()
+        os.utime(path)
+    except OSError as error:
+        log.debug("Cannot record the read-aloud worker heartbeat: %s", error)
+
+
+def worker_seen_at() -> float | None:
+    """When a worker last said it was alive (a Unix time), or None if none ever did."""
+    try:
+        return (folder() / HEARTBEAT_FILE).stat().st_mtime
+    except OSError:
+        return None
+
+
+def worker_running() -> bool:
+    seen = worker_seen_at()
+    return seen is not None and time.time() - seen < WORKER_STALE_SECONDS
 
 
 def serialize(row: dict[str, Any] | None, *, usable: bool = False) -> dict[str, Any] | None:
@@ -445,6 +493,7 @@ def claim(scan: int = 10) -> Job | None:
         if page is None:
             continue
         spoken = text.spoken_text(page["title"], page["content"])
+        speech = text.speech_text(page["title"], page["content"])
         with db.transaction():
             row = db.one(
                 "SELECT g.page_id, g.language, g.retry_count FROM tts_generations g JOIN pages p ON p.id = g.page_id "
@@ -462,7 +511,8 @@ def claim(scan: int = 10) -> Job | None:
                 "content_hash = ?, completed_at = NULL, attempts = attempts + 1 WHERE id = ? AND status = 'pending'",
                 (now, sql_in(seconds=LEASE_SECONDS), digest, job_id),
             )
-            return Job(job_id, row["page_id"], row["language"], digest, spoken, int(row["retry_count"] or 0))
+            return Job(job_id, row["page_id"], row["language"], digest, spoken, int(row["retry_count"] or 0),
+                       speech or spoken)
     return None
 
 
@@ -583,7 +633,7 @@ def process(job: Job, synthesizer: backends.Synthesizer) -> str:
         return fail(job, backends.SynthesisError("The storage quota of this wiki is full.", retryable=False))
     target_dir = folder()
     try:
-        audio = synthesizer.synthesize(job.spoken, job.language, target_dir)
+        audio = synthesizer.synthesize(job.speech or job.spoken, job.language, target_dir)
     except backends.SynthesisError as error:
         log.warning("Speech for page %s failed: %s", job.page_id, error)
         return fail(job, error)
@@ -628,7 +678,8 @@ def sweep() -> dict[str, int]:
     except OSError:
         return result
     for entry in entries:
-        if not entry.is_file() or entry.name in keep or (stems and entry.name.startswith(stems)):
+        if not entry.is_file() or entry.name in keep or entry.name == HEARTBEAT_FILE or (
+                stems and entry.name.startswith(stems)):
             continue
         try:
             if entry.stat().st_mtime > cutoff:

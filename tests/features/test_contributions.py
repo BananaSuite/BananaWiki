@@ -279,3 +279,11 @@ def test_role_change_to_user_keeps_proposals(app, ctx, db, people, page):
     cid = service.propose(page, people["reader"], title="T", content="c", reason="r")
     registry.emit("user.role_changed", user=people["reader"], old_role="user", new_role="user", changed_by=None)
     assert service.get(cid)["status"] == "pending"
+
+
+def test_a_person_whose_bm_mode_hides_contributions_is_not_sent_to_the_proposal_form(app, people, page):
+    """The form answers 404 for them, so they get the plain refusal instead of a redirect into it."""
+    reader = {**people["reader"], "bm_mode": 1}
+    with app.test_request_context(f"/page/{page['slug']}/edit"), connection_scope():
+        as_user(reader)
+        assert registry.intercept("page.edit_denied", page=page, user=reader) is None

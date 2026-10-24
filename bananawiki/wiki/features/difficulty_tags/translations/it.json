@@ -19,6 +19,8 @@
   "difficulty_tags.level.extra": "Extra",
   "difficulty_tags.level.intermediate": "Intermedio",
   "difficulty_tags.level.none": "Nessuna etichetta",
+  "difficulty_tags.bm.hide_tags": "Nessuna etichetta di difficoltà",
+  "difficulty_tags.bm.hide_tags_hint": "Nasconde le etichette sulle pagine, l'azione \"Etichetta\" e i campi delle etichette nell'editor; le etichette restano salvate.",
   "feature.difficulty_tags.description": "Contrassegna le pagine con un livello di difficoltà o un'etichetta colorata personalizzata.",
   "feature.difficulty_tags.name": "Etichette di difficoltà"
 }

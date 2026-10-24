@@ -246,7 +246,7 @@ def test_editor_preview_cannot_take_the_editor_fields_and_dialogs(app, client, m
         html = client.get(url).get_data(as_text=True)
         assert _at(html, 'id="editor-preview"') < _at(html, '<dialog id="dlg-link"') < _at(html, 'id="edit-message"')
         assert 'for="edit-message"' not in html
-        assert re.search(r'<label class="field"><span class="label">[^<]+</span>\s*<input id="edit-message"', html)
+        assert re.search(r'<label class="field"[^>]*><span class="label">[^<]+</span>\s*<input id="edit-message"', html)
     html = client.get(f"/page/{page['slug']}/edit").get_data(as_text=True)
     for input_id in ("attachments-editor-input", "md-import-input"):
         assert f'for="{input_id}"' not in html, input_id

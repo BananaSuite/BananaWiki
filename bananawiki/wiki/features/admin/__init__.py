@@ -32,10 +32,13 @@ cards to it without owning a page.
 """
 
 from ... import attention, auth
-from ...registry import AttentionSource, Feature, Job, NavItem
+from ...registry import AttentionSource, Feature, Job, NavItem, Simplification
 from . import analytics, jobs, routes  # noqa: F401 - registers the views
 from .blueprint import bp
 from .service import pending_count, pending_oldest
+
+# BM mode: the administration menu without the pages a first wiki rarely needs (they stay reachable).
+SHORT_MENU = "admin.short_menu"
 
 
 def _is_admin(user) -> bool:
@@ -63,9 +66,11 @@ FEATURE = Feature(
         NavItem("admin.nav.dashboard", "admin.dashboard", icon="gauge", area="admin", order=0, visible=_is_admin),
         NavItem("admin.nav.users", "admin.users", icon="users", area="admin", order=10, visible=_is_admin,
                 badge=attention.badge("admin.signups")),
-        NavItem("admin.nav.roles", "admin.roles", icon="shield", area="admin", order=20, visible=_is_admin),
+        NavItem("admin.nav.roles", "admin.roles", icon="shield", area="admin", order=20, visible=_is_admin,
+                bm_hide=SHORT_MENU),
         NavItem("admin.nav.codes", "admin.codes", icon="ticket", area="admin", order=30, visible=_is_admin),
-        NavItem("admin.nav.sessions", "admin.sessions", icon="key", area="admin", order=40, visible=_is_admin),
+        NavItem("admin.nav.sessions", "admin.sessions", icon="key", area="admin", order=40, visible=_is_admin,
+                bm_hide=SHORT_MENU),
         NavItem("admin.nav.codes", "admin.codes", icon="ticket", area="user", order=80, visible=_invite_manager),
     ],
     attention=[
@@ -77,5 +82,6 @@ FEATURE = Feature(
         Job("admin.auto_logout", 300, jobs.auto_logout),
     ],
     init_app=analytics.install,
+    simplifications=[Simplification(SHORT_MENU, "admin.bm.short_menu", "admin.bm.short_menu_hint")],
     order=5,
 )

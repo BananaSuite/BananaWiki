@@ -1,0 +1,16 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.settings.pending_title') }}{% endblock %}
+{% block content %}
+{% include "hosting/admin/_nav.html" %}
+<div class="card card--narrow"><h1>{{ t('hosting.settings.pending_title') }}</h1>
+<p>{{ tn('hosting.settings.pending_body', count) }}</p>
+<form method="post" action="{{ action_url }}" class="form">{{ ui.csrf() }}
+  {% for name, value in fields %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+  <div class="btn-row">
+    <button class="btn btn--primary" type="submit" name="pending_accounts" value="keep">{{ t('hosting.settings.pending_keep') }}</button>
+    <button class="btn" type="submit" name="pending_accounts" value="approve">{{ tn('hosting.settings.pending_approve', count) }}</button>
+    <a class="text-link" href="{{ back_url }}">{{ t("common.cancel") }}</a>
+  </div>
+</form></div>
+{% endblock %}

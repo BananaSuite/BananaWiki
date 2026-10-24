@@ -14,6 +14,18 @@ Version history
      custom domains. See :mod:`.v6_account_safety`.
 7    A denied account waits one day before it is deleted (the old column
      default deleted it at once). See :mod:`.v7_denied_default`.
+8    One portal account across the platform's wikis: remembered sign-in
+     consent per wiki and the sign-outs wikis fetch. See
+     :mod:`.v8_cross_wiki_accounts`.
+9    Email policy (address at sign-up and for existing accounts, one or
+     several accounts per address), pausing every email, a switch per
+     notice and per waiting-request queue, and the portal's easter eggs.
+     See :mod:`.v9_email_policy`.
+10   Main wikis: kept for the platform, never expired, terminated or reset
+     until an administrator takes the mark away. See :mod:`.v10_main_wikis`.
+11   Who may use custom domains (administrators only, accounts an
+     administrator allows, or everyone), and owners asking for one. See
+     :mod:`.v11_custom_domain_policy`.
 
 A 1.4 database at version 2 upgrades in place. A new database is created from
 the baseline followed by every later migration, so fresh and upgraded
@@ -29,7 +41,17 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ...core.sqlite import execute_script
-from . import v3_takeover, v4_provisioning, v5_account_references, v6_account_safety, v7_denied_default
+from . import (
+    v3_takeover,
+    v4_provisioning,
+    v5_account_references,
+    v6_account_safety,
+    v7_denied_default,
+    v8_cross_wiki_accounts,
+    v9_email_policy,
+    v10_main_wikis,
+    v11_custom_domain_policy,
+)
 
 APPLICATION_ID = 0x42574850  # "BWHP", unchanged from 1.4
 BASELINE = 2
@@ -39,6 +61,10 @@ MIGRATIONS = (
     v5_account_references.upgrade,  # 4 -> 5
     v6_account_safety.upgrade,  # 5 -> 6
     v7_denied_default.upgrade,  # 6 -> 7
+    v8_cross_wiki_accounts.upgrade,  # 7 -> 8
+    v9_email_policy.upgrade,  # 8 -> 9
+    v10_main_wikis.upgrade,  # 9 -> 10
+    v11_custom_domain_policy.upgrade,  # 10 -> 11
 )
 LATEST = BASELINE + len(MIGRATIONS)
 SIGNUP_MODES = ("open", "invite", "approval", "closed")

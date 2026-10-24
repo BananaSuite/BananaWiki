@@ -44,6 +44,17 @@ def bypasses(page: dict[str, Any]) -> bool:
         and page.get("category_id") is not None and int(docs) == int(page["category_id"])
 
 
+def set_docs_bypass(on: bool) -> None:
+    """Save ``docs_bypass_deletion_slowdown`` and record the change in the audit log."""
+    from ..audit import record
+
+    value = 1 if on else 0
+    if int(settings.get("docs_bypass_deletion_slowdown") or 0) == value:
+        return
+    settings.update({"docs_bypass_deletion_slowdown": value})
+    record("docs.settings_changed", details={"bypass_deletion_slowdown": value})
+
+
 def schedule(page: dict[str, Any], actor_id: str | None) -> bool:
     """Mark *page* pending deletion. False when it already is (or is the home page)."""
     if page.get("is_home"):

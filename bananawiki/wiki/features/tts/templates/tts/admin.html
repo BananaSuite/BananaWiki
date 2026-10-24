@@ -12,6 +12,9 @@
 <div class="alert alert--warning"><div class="alert__body">{{ t('tts.blocked.disabled_by_host') }}</div></div>
 {% elif system.backend_problem %}
 <div class="alert alert--warning"><div class="alert__body">{{ t('tts.admin.backend_problem', problem=system.backend_problem) }}</div></div>
+{% elif stats.counts.pending and not system.worker_running %}
+{#- Queued pages and no worker to read them: the most common reason audio "never comes". -#}
+<div class="alert alert--warning"><div class="alert__body">{% if system.worker_seen %}{{ t('tts.admin.worker_stopped', when=system.worker_seen|time_ago) }}{% else %}{{ t('tts.admin.no_worker') }}{% endif %}</div></div>
 {% endif %}
 
 <div class="grid grid--3 tts-stats">
@@ -54,6 +57,7 @@
           <td>{{ labels.get(row.language, row.language) }}</td>
           <td>
             <span class="badge tts-badge--{{ row.status }}">{{ t('tts.status.' ~ row.status) }}</span>
+            {% if row.status == 'processing' and row.started_at %}<span class="small muted">{{ t('tts.admin.started', when=row.started_at|time_ago) }}</span>{% endif %}
             {% if row.retry_count %}<span class="small muted">{{ tn('tts.admin.retries', row.retry_count) }}</span>{% endif %}
             {% if row.error_message and row.status in ('failed', 'pending') %}<p class="small text-danger tts-error">{{ row.error_message }}</p>{% endif %}
           </td>
@@ -124,6 +128,7 @@
       <tbody>
         <tr><th scope="row">{{ t('tts.admin.sys.backend') }}</th><td>{{ t('tts.backend.' ~ system.backend) }}</td></tr>
         <tr><th scope="row">{{ t('tts.admin.sys.worker') }}</th><td>{{ tn('tts.admin.sys.worker_inline' if system.inline_worker else 'tts.admin.sys.worker_service', system.worker_count) }}</td></tr>
+        <tr><th scope="row">{{ t('tts.admin.sys.worker_seen') }}</th><td>{{ system.worker_seen|time_ago if system.worker_seen else t('tts.admin.sys.worker_never') }}</td></tr>
         <tr><th scope="row">{{ t('tts.admin.sys.limits') }}</th><td>{{ t('tts.admin.sys.limits_value', total=system.limits[0], per_user=system.limits[1]) }}</td></tr>
         <tr><th scope="row">Piper</th><td>{{ t('common.yes') if system.piper_installed else t('tts.admin.sys.not_installed') }}</td></tr>
         <tr><th scope="row">ffmpeg</th><td>{{ t('common.yes') if system.ffmpeg else t('tts.admin.sys.ffmpeg_missing') }}</td></tr>

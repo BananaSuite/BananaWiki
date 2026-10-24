@@ -413,6 +413,10 @@
   "js.kanban.due_overdue_on": "Scaduta dal {date}",
   "js.kanban.due_soon_on": "In scadenza: {date}",
   "kanban.mine.due_overdue": "Scaduta dal {date}",
+  "kanban.bm.simple_board": "Bacheche più semplici",
+  "kanban.bm.simple_board_hint": "Nasconde la selezione di più schede, filtri e righe, l'attività, le schede archiviate, la cronologia, le esportazioni e l'aiuto per la tastiera.",
+  "kanban.bm.simple_tickets": "Schede più semplici",
+  "kanban.bm.simple_tickets_hint": "Tiene titolo, descrizione, colonna, persone, scadenza, commenti e file; nasconde priorità, etichette, colore, checklist, cronologia e archiviazione.",
   "js.kanban.column_name": "Nome della colonna…",
   "js.kanban.list.moved": "{title} spostata in posizione {position} di {total}."
 }

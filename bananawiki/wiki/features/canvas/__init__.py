@@ -9,7 +9,7 @@ script is added to every page through the ``page.scripts`` slot.
 from flask import render_template
 from markupsafe import Markup
 
-from ...registry import Feature, Job, NavItem
+from ...registry import Feature, Job, NavItem, Simplification
 from . import access, service
 from .routes import bp
 
@@ -28,7 +28,6 @@ FEATURE = Feature(
     description="feature.canvas.description",
     toggle="plugin",
     default_enabled=True,
-    easy_wiki=False,
     blueprints=[bp],
     nav=[
         NavItem("canvas.nav", "canvas.index", icon="shapes", area="apps", order=40,
@@ -44,4 +43,7 @@ FEATURE = Feature(
         "page.restored": [service.on_page_restored],
     },
     slots={"page.scripts": _embed_scripts},
+    simplifications=[
+        Simplification("canvas.simple_tools", "canvas.bm.simple_tools", "canvas.bm.simple_tools_hint"),
+    ],
 )

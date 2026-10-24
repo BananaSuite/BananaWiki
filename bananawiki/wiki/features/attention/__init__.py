@@ -25,7 +25,7 @@ FEATURE = Feature(
     description="feature.attention.description",
     toggle="always",
     blueprints=[bp],
-    nav=[NavItem("attention.admin.nav", "attention.admin_settings", icon="mail", area="admin", order=45,
+    nav=[NavItem("attention.admin.nav", "attention.admin_settings", icon="mail", area="admin", bm_hide="admin.short_menu", order=45,
                  visible=lambda user: bool(user) and auth.is_admin(user))],
     jobs=[Job("attention.notify", 60, mailer.run, initial_delay=60)],
     events={

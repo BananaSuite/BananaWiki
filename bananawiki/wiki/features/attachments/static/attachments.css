@@ -8,7 +8,11 @@
 .attachments__item > a, .attachments__item > span:first-child { overflow-wrap: anywhere; min-width: 0; }
 /* The file name sits in a line of muted details: an underline marks it as a link (WCAG 1.4.1). */
 .attachments__item > a { text-decoration: underline; text-underline-offset: .2em; }
-.attachments__item form, .attachments__item button { margin-left: auto; }
+.attachments__item > form, .attachments__item > button, .attachments__actions { margin-inline-start: auto; }
+.attachments__actions { display: inline-flex; flex-wrap: wrap; gap: .35rem; }
+/* The editor's list takes files dropped on it. */
+.attachments__drop { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
+.attachments--editor.is-over { outline: 2px dashed var(--bw-primary); outline-offset: 2px; }
 .attachments__upload { display: grid; gap: .4rem; margin-top: .5rem; }
 .attachments__upload input[type="file"] { max-width: 100%; }
 .attachments--empty { margin-top: 1.5rem; font-size: var(--font-size-ui); }

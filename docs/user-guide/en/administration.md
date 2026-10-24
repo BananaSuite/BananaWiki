@@ -30,11 +30,20 @@ Open **Administration** from the account menu.
 * **Sessions**: every signed-in session; sign everyone out; daily automatic
   sign-out.
 * **Site settings**: name, time zone, public mode, sign-up and approval,
-  maintenance mode, single session, bot protection, uploads, drafts, exports,
-  page builder.
-* **Appearance** and **Languages**: colours, favicon, interface languages.
-* **Plugins**: switch features on and off and order the Apps menu.
-  Switching a feature off hides it but keeps its data and settings.
+  maintenance mode, single session, bot protection, uploads, drafts, exports.
+* **BM mode**: the easy mode. Turn it on to keep the wiki simple, then choose
+  which features stay and what gets simpler (a shorter editor toolbar, fewer
+  page actions, pages without history links or difficulty tags, a sidebar
+  with only pages, boards and canvases, shorter settings, a short admin menu,
+  simpler boards and canvases). With it off
+  for the wiki, single accounts can still use it: decide whether people may
+  switch it themselves and whether new accounts start in it, put everyone in
+  or out at once, or switch one account (and whether it may change it) on
+  its page under **Users**.
+* **Appearance** and **Languages**: colours, favicon, interface languages, and
+  the mascot's easter eggs.
+* **Plugins**: switch features on and off (the page builder too) and order the
+  Apps menu. Switching a feature off hides it but keeps its data and settings.
 * **Documentation**: add the built-in user guide (full or simplified,
   English, Italian or German) as a category of pages.
 * **Site migration**: export the whole wiki, or import one (this replaces

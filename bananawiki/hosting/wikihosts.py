@@ -199,8 +199,8 @@ class WikiHosts:
         else:
             instance_id = db.scalar(
                 "SELECT d.instance_id FROM instance_custom_domains d JOIN instances i ON i.id = d.instance_id "
-                "WHERE d.domain = ? AND d.verified_at IS NOT NULL AND d.verified_until > ? "
-                "AND i.custom_domain_allowed = 1", (host, now_sql()))
+                "JOIN accounts a ON a.id = i.account_id WHERE d.domain = ? AND d.verified_at IS NOT NULL "
+                "AND d.verified_until > ? AND " + domains.allowed_sql(), (host, now_sql()))
             inst = instances.get(instance_id) if instance_id else None
             if inst is None:
                 return None

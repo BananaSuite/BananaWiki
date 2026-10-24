@@ -26,7 +26,7 @@
   </table></div>
   {% else %}<p class="empty-state">{{ t('deletion_slowdown.empty') }}</p>{% endif %}
 </section>
-<section class="card">
+<section class="card" id="docs-bypass">
   <h2>{{ t('deletion_slowdown.settings') }}</h2>
   <form method="post" action="{{ url_for('deletion_slowdown.save_settings') }}" class="form">
     {{ forms.csrf() }}

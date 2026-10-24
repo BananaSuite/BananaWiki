@@ -340,6 +340,8 @@ def _readable_pages_by_slug(slugs: list[str], user: dict[str, Any]) -> list[dict
 
 def _pages_by(ids: list[int], slugs: list[str], columns: str) -> list[dict[str, Any]]:
     clauses, params = [], []
+    # A page id stored before ids were bounded may not fit SQLite's integers: no page has it.
+    ids = [page_id for page_id in ids if 0 < page_id < 2**63]
     if ids:
         clauses.append(f"id IN ({','.join('?' for _ in ids)})")
         params.extend(ids)

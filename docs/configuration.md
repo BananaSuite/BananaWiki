@@ -120,7 +120,7 @@ without it the cookie ends with the browser session).
 | `BW_PLUGIN_ISOLATION` | none | `container` tells a managed wiki that it runs in its own container, which allows third-party plugins. |
 | `BW_EXTERNAL_PLUGINS_DIR` | `<instance>/plugins` | See the data table above. |
 | `BW_MANAGED_PLUGIN_DENYLIST` | none | Feature and plugin ids that never load. |
-| `BW_EASY_WIKI` | `0` | Hides and keeps off the advanced features (chat, kanban, canvas, assessments, custom pages, page builder, page governance, contributions, federation, read aloud). |
+| `BW_EASY_WIKI` | `0` | Starts the wiki in [BM mode](features.md#bm-mode), the easy mode: chat, assessments, custom pages, page builder, page governance, contributions, federation and read aloud are hidden, and pages, Kanban, canvases and the admin menu are simpler, until an administrator chooses otherwise under **Admin → BM mode**. A later change of this variable wins over that choice. |
 
 ## Email
 
@@ -166,7 +166,7 @@ run yourself, leave them unset.
 | `BW_PLATFORM_INSTANCE_ID` | none | This wiki's id on the portal (used by platform sign-in). |
 | `BW_INSTANCE_EXPIRES_AT` | none | Accepted for compatibility; the portal enforces expiry. |
 | `BW_EASY_DEPLOYMENT` | `0` | Set by the desktop launcher; accepted for compatibility. |
-| `BW_PLATFORM_OAUTH_ENABLED` | `0` | Sign in with the hosting portal. When on, the portal also sets `BW_PLATFORM_OAUTH_CLIENT_ID`, `_CLIENT_SECRET`, `_AUTHORIZE_URL`, `_TOKEN_URL`, `_USERINFO_URL`, `_PORTAL_BASE`, `_LINK_URL`, `_LINK_STATUS_URL`, `_UNLINK_URL` and `_VERIFY_URL`. |
+| `BW_PLATFORM_OAUTH_ENABLED` | `0` | Sign in with the hosting portal. When on, the portal also sets `BW_PLATFORM_OAUTH_CLIENT_ID`, `_CLIENT_SECRET`, `_AUTHORIZE_URL`, `_TOKEN_URL`, `_USERINFO_URL`, `_PORTAL_BASE`, `_LINK_URL`, `_LINK_STATUS_URL`, `_UNLINK_URL`, `_VERIFY_URL` and `_SIGNOUTS_URL` (single sign-out events, read every minute by the `auth.platform_signouts` job; without it the wiki uses `<_PORTAL_BASE>/oauth/signouts`). |
 
 ## Web server (Gunicorn)
 
@@ -290,8 +290,8 @@ installations set them to `<root>/data`.
 | `HOSTING_PUBLIC_SCHEME` | `https` | Scheme of wiki links. |
 | `INSTANCE_PORT_START`, `INSTANCE_PORT_END` | 6001, 7000 | Port range in port mode. |
 | `SUBDOMAIN_MIN_LENGTH`, `SUBDOMAIN_MAX_LENGTH` | 3, 40 | Wiki name length. |
-| `HOSTING_CUSTOM_DOMAIN_TARGET` | none | Host name customers point their CNAME at. |
-| `HOSTING_CUSTOM_DOMAIN_IPS` | none | Addresses accepted for A/AAAA records of custom domains. |
+| `HOSTING_CUSTOM_DOMAIN_TARGET` | none | Host name customers point their CNAME at; custom domains are off without it. Who may use them is chosen under **Settings → Custom domains**. |
+| `HOSTING_CUSTOM_DOMAIN_IPS` | none | Addresses accepted for A/AAAA records of custom domains (root domains need them). Empty: the addresses `HOSTING_CUSTOM_DOMAIN_TARGET` resolves to, which the domain page shows to owners. |
 | `HOSTING_CUSTOM_DOMAIN_ALLOW_PROXIED` | on | Accept a custom domain whose A/AAAA records are all Cloudflare edge addresses (a record proxied by the customer's Cloudflare account); the TXT proof still proves ownership. `0` requires the CNAME or the addresses above. |
 | `HOSTING_SERVICE_NAME` | `BananaWiki Hosting` | The name your platform goes by: page titles and the top bar, emails, the maintenance page, wikis' status pages and the label authenticator apps show for new enrolments (enrolled authenticators keep their label and keep working). At most 60 characters on one line, without braces; a colon shows as a space in authenticator apps. Always write it in double quotes in `config/app.env` (`HOSTING_SERVICE_NAME="Anna's Wikis"`): the platform's commands read that file as a shell would, and refuse an unquoted apostrophe. The footer still names the software and its version. |
 | `HOSTING_CONTACT_EMAIL` | reply-to address, else `contact@<BASE_DOMAIN>` | Shown in the help centre and emails. |
@@ -368,6 +368,14 @@ passes it `BW_ALLOW_EXTERNAL_PLUGINS=0`.
 | `HOSTING_EMAIL_TOKEN_TTL_SECONDS` | 86400 (at least 300) | Lifetime of verification and reset links. |
 | `HOSTING_EMAIL_DAILY_LIMIT` | 300 (0 = none) | Messages per 24 hours in total, counted in the database for every worker; the last fifth is kept for password resets and user-name reminders. Also 15 per recipient. |
 | `HOSTING_EMAIL_ACCOUNT_DAILY_LIMIT` | 10 (0 = none) | Messages per 24 hours that one account causes itself (verification links, notices about its own actions). |
+
+What the portal asks and sends is chosen in the database, under the portal's
+**Settings → Email**, not here: whether sign-up asks for an address (required,
+optional or not asked), whether existing accounts must add one, whether one
+address may serve several accounts, email verification, which notices
+account holders and administrators receive, and **Pause all email**, which
+stops every message at once (also `bananawiki hosting-admin settings email-pause
+on|off`). See [hosting](hosting.md#email).
 
 ### Archives
 

@@ -181,9 +181,10 @@ def send_decisions() -> int:
     sent = 0
     with link_context() as links:
         for row in rows:
-            db.execute("UPDATE user_notices SET emailed_at = ? WHERE id = ? AND emailed_at IS NULL",
-                       (now_sql(), row["id"]))
-            if not row["email"] or not row["decision_emails"]:
+            claimed = db.execute("UPDATE user_notices SET emailed_at = ? WHERE id = ? AND emailed_at IS NULL",
+                                 (now_sql(), row["id"])).rowcount
+            # Another run (a second worker, or the cron command) claimed it first: it sends that one.
+            if not claimed or not row["email"] or not row["decision_emails"]:
                 continue
             ok, reason = mail.send(config, decision_message(row | {"id": row["user_id"]}, row, links=links))
             if ok:
@@ -213,8 +214,13 @@ def send_test(user: dict[str, Any]) -> tuple[bool, str]:
 
 
 def run() -> None:
-    """The job."""
-    notify_reviewers()
-    send_decisions()
-    service.store().prune()
-    service.prune_notices()
+    """The job. Each step runs whatever the one before did: a failing mail server must not stop pruning."""
+    failed = []
+    for step in (notify_reviewers, send_decisions, lambda: service.store().prune(), service.prune_notices):
+        try:
+            step()
+        except Exception:  # noqa: BLE001 - logged here, the job reports it below
+            log.exception("Attention job step %s failed", getattr(step, "__name__", "prune"))
+            failed.append(step)
+    if failed:
+        raise RuntimeError(f"{len(failed)} attention step(s) failed")

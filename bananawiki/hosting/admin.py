@@ -319,6 +319,15 @@ def cmd_instance_extend(args: argparse.Namespace) -> None:
     _print(args, {"ok": True}, f"Extended {inst['subdomain']} by {args.days} day(s).")
 
 
+def cmd_instance_main(args: argparse.Namespace) -> None:
+    inst = _instance(args.instance, args.domain_mode)
+    on = args.state == "on"
+    changed = _instances().set_main(inst, on, actor_id=None)
+    _audit("instance.main", {"instance_id": inst["id"], "main": on})
+    state = "a main wiki" if on else "no longer a main wiki"
+    _print(args, {"ok": True, "main": on, "changed": changed}, f"{inst['subdomain']} is {state}.")
+
+
 def cmd_instance_set_expiry(args: argparse.Namespace) -> None:
     inst = _instance(args.instance, args.domain_mode)
     moment = _moment(args.expires_at, "expires_at")
@@ -462,6 +471,15 @@ def cmd_settings_signup_mode(args: argparse.Namespace) -> None:
     _print(args, {"ok": True, "signup_mode": args.mode}, f"Sign-up mode: {args.mode}.")
 
 
+def cmd_settings_email_pause(args: argparse.Namespace) -> None:
+    from . import settings
+
+    settings.set_email_paused(args.state == "on")
+    _audit("settings.email_paused", {"paused": args.state == "on"})
+    _print(args, {"ok": True, "email_paused": args.state == "on"},
+           "All email is paused." if args.state == "on" else "Email is sent again.")
+
+
 def cmd_invite_list(args: argparse.Namespace) -> None:
     from . import invites
 
@@ -583,6 +601,9 @@ def parser() -> argparse.ArgumentParser:
     _suspension_options(_instance_parser(inst, "suspend", cmd_instance_suspend))
     _instance_parser(inst, "extend", cmd_instance_extend).add_argument("days", type=int)
     _instance_parser(inst, "set-expiry", cmd_instance_set_expiry).add_argument("expires_at")
+    _instance_parser(inst, "main", cmd_instance_main,
+                     help="Keep a wiki for the platform (on) or end that (off)").add_argument("state",
+                                                                                       choices=("on", "off"))
     _instance_parser(inst, "storage-limit", cmd_instance_storage_limit).add_argument("limit", help="MB or 'unlimited'")
     _instance_parser(inst, "transfer", cmd_instance_transfer).add_argument("account")
     for name, handler in (("rename", cmd_instance_rename), ("duplicate", cmd_instance_duplicate)):
@@ -625,6 +646,9 @@ def parser() -> argparse.ArgumentParser:
     p = settings.add_parser("signup-mode")
     p.add_argument("mode", choices=("open", "invite", "approval", "closed"))
     p.set_defaults(handler=cmd_settings_signup_mode)
+    p = settings.add_parser("email-pause", help="Stop (on) or resume (off) every email the portal sends")
+    p.add_argument("state", choices=("on", "off"))
+    p.set_defaults(handler=cmd_settings_email_pause)
 
     invite = groups.add_parser("invite", help="Sign-up invite codes").add_subparsers(dest="action", required=True)
     invite.add_parser("list").set_defaults(handler=cmd_invite_list)

@@ -10,6 +10,7 @@ Admin: ``/admin/tts`` (``/admin/tts-status`` redirects there).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -71,6 +72,11 @@ def status_payload(page: dict[str, Any]) -> dict[str, Any]:
         "blocked_reason": blocked,
         "blocked_message": t(f"tts.blocked.{blocked}") if blocked else "",
         "can_cancel": bool(user) and pages.can_edit(page) and audio.row is not None,
+        # While queued: the jobs before this one, and whether any worker will pick them up.
+        "queue_ahead": service.queue_ahead(audio.row) if audio.in_flight else 0,
+        "worker_running": service.worker_running() if audio.in_flight else True,
+        # A long page is read up to this many characters (0: all of it).
+        "cut_at": service.cut_at(page) if audio.usable else 0,
     }
 
 
@@ -172,6 +178,12 @@ def download(slug: str):
 # Admin
 
 
+def _worker_seen() -> str | None:
+    """When a worker last checked in, as a UTC time for ``time_ago`` (None: never)."""
+    seen = service.worker_seen_at()
+    return datetime.fromtimestamp(seen, UTC).strftime("%Y-%m-%d %H:%M:%S") if seen else None
+
+
 def _system_status() -> dict[str, Any]:
     cfg = options.config()
     backend = backends.current()
@@ -192,6 +204,8 @@ def _system_status() -> dict[str, Any]:
         "gpu_from_env": bool(cfg.gpu_url and cfg.gpu_token),
         "gpu_env_token_only": bool(cfg.gpu_token and not cfg.gpu_url),
         "limits": service.manual_limits(),
+        "worker_seen": _worker_seen(),
+        "worker_running": service.worker_running(),
     }
 
 

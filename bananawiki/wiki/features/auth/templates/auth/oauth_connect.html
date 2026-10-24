@@ -1,0 +1,59 @@
+{% extends "base_minimal.html" %}
+{% block title %}{{ t('auth.oauth.connect.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow stack">
+  <h1>{{ t('auth.oauth.connect.title') }}</h1>
+  <p>{{ t('auth.oauth.connect.intro', name=pending.username) }}</p>
+
+  <section class="stack" aria-labelledby="connect-new-title">
+    <h2 id="connect-new-title">{{ t('auth.oauth.connect.new_title') }}</h2>
+    {% if not signup_available %}
+    <p>{{ t('auth.signup.error.closed') }} {{ t('auth.oauth.connect.existing_only') }}</p>
+    {% else %}
+    {% if same_name_exists %}<p>{{ t('auth.oauth.connect.name_taken', name=pending.username) }}</p>
+    {% elif name_problem %}<p>{{ t('auth.oauth.connect.name_not_allowed', name=pending.username, reason=t(name_problem)) }}</p>{% endif %}
+    {% if invite_required %}<p class="muted">{{ t('auth.oauth.connect.invite_notice') }}</p>{% endif %}
+    {% if approval_required %}<p class="muted">{{ t('auth.signup.approval_notice') }}</p>{% endif %}
+    {% if create_error %}<div class="alert alert--error" role="alert"><div class="alert__body">{{ create_error }}</div></div>{% endif %}
+    <form method="post" action="{{ url_for('auth.platform_oauth_signup') }}" class="form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field">
+        <label for="new-username">{{ t('auth.field.username') }}</label>
+        <input id="new-username" name="username" value="{{ username }}" required minlength="3" maxlength="50"
+               pattern="[A-Za-z0-9_\-]+" autocomplete="username" aria-describedby="new-username-hint"
+               {% if create_error %}aria-invalid="true" autofocus{% endif %}>
+        <p class="hint" id="new-username-hint">{{ t('auth.hint.username') }}</p>
+      </div>
+      {% if invite_required %}
+      <div class="field">
+        <label for="invite_code">{{ t('auth.signup.invite_code') }}</label>
+        <input id="invite_code" name="invite_code" value="{{ invite }}" required maxlength="40" class="mono" autocomplete="one-time-code">
+      </div>
+      {% endif %}
+      <button class="btn btn--primary" type="submit">{{ t('auth.oauth.connect.create_submit') }}</button>
+    </form>
+    {% endif %}
+  </section>
+
+  <section class="stack" aria-labelledby="connect-existing-title">
+    <h2 id="connect-existing-title">{{ t('auth.oauth.connect.existing_title') }}</h2>
+    <p>{% if same_name_free %}{{ t('auth.oauth.connect.existing_same_name', name=existing_username) }} {% endif %}{{ t('auth.oauth.connect.existing_body') }}</p>
+    {% if existing_error %}<div class="alert alert--error" role="alert"><div class="alert__body">{{ existing_error }}</div></div>{% endif %}
+    <form method="post" action="{{ url_for('auth.platform_oauth_merge') }}" class="form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field">
+        <label for="existing-username">{{ t('auth.field.username') }}</label>
+        <input id="existing-username" name="username" value="{{ existing_username }}" required maxlength="50"
+               autocomplete="username" autocapitalize="none" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="existing-password">{{ t('auth.field.password') }}</label>
+        <input id="existing-password" name="password" type="password" autocomplete="current-password" required maxlength="1024"
+               {% if existing_error %}aria-invalid="true" autofocus{% endif %}>
+      </div>
+      <button class="btn" type="submit">{{ t('auth.oauth.merge_submit') }}</button>
+    </form>
+  </section>
+  <p class="small"><a href="{{ url_for('auth.login') }}">{{ t('auth.session_conflict.back') }}</a></p>
+</div>
+{% endblock %}

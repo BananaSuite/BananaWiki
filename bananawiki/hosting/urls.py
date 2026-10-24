@@ -57,7 +57,21 @@ def validate_slug(value: str, *, account_is_admin: bool, domain_mode: str = "hos
         raise ServiceError("hosting.slug.invalid_chars")
     if slug in reserved():
         raise ServiceError("hosting.slug.reserved", slug=slug)
+    # The address the wiki would get must not be one of the platform's own (the portal could be
+    # PORTAL_DOMAIN=app-hosting.<base>, which "app" plus the default suffix would also give).
+    host = platform_host({"subdomain": slug, "domain_mode": domain_mode})
+    if host and host in platform_hosts():
+        raise ServiceError("hosting.slug.reserved", slug=slug)
     return slug
+
+
+def platform_hosts() -> frozenset[str]:
+    """Host names the platform itself answers on, which no wiki may get as its address."""
+    cfg = config()
+    hosts = {cfg.base_domain, cfg.effective_portal_domain, cfg.custom_domain_target}
+    if cfg.base_domain:
+        hosts.add("www." + cfg.base_domain)
+    return frozenset(host.lower().rstrip(".") for host in hosts if host)
 
 
 def data_dir_name(slug: str, domain_mode: str) -> str:

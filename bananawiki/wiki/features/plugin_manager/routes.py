@@ -32,7 +32,7 @@ def _back():
 
 def _entry_or_404(plugin_id: str) -> service.Entry:
     entry = service.get(plugin_id)
-    if entry is None or entry.easy_wiki_hidden:
+    if entry is None:
         abort(404)
     return entry
 

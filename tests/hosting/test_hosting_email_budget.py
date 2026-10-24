@@ -92,7 +92,7 @@ def test_password_resets_use_the_reserve_and_the_budget_is_shared_by_every_worke
 
 def test_an_address_left_unverified_does_not_block_its_owner(tmp_path):
     portal = _portal(tmp_path)
-    _query(portal, "UPDATE hosting_settings SET email_verification_required = 1, ask_email_new_signup = 1 WHERE id = 1")
+    _query(portal, "UPDATE hosting_settings SET email_verification_required = 1, signup_email = 'optional' WHERE id = 1")
     _make_account(portal, "root")
     squatter = _make_account(portal, "squatter", email="ceo@victim.example")
     client = portal.test_client()
@@ -126,7 +126,7 @@ def test_a_verified_address_is_never_released(tmp_path):
 
 def _verification_portal(tmp_path, **environ):
     portal = _portal(tmp_path, **environ)
-    _query(portal, "UPDATE hosting_settings SET email_verification_required = 1, ask_email_new_signup = 1 WHERE id = 1")
+    _query(portal, "UPDATE hosting_settings SET email_verification_required = 1, signup_email = 'optional' WHERE id = 1")
     _make_account(portal, "root")
     return portal
 
@@ -363,7 +363,7 @@ def test_a_spent_recovery_share_is_said_and_shown_to_administrators(tmp_path):
         assert len(outbox) == email.recovery_reserve(30)
         admin = _make_account(portal, "boss")
         _query(portal, "UPDATE accounts SET is_admin = 1 WHERE id = ?", (admin["id"],))
-        page = _login(portal, admin, "10.9.200.1").get("/admin/attention").get_data(as_text=True)
+        page = _login(portal, admin, "10.9.200.1").get("/admin/attention", follow_redirects=True).get_data(as_text=True)
     assert pages == [(429, True)] * 4
     assert "Account recovery emails are paused" in page
 

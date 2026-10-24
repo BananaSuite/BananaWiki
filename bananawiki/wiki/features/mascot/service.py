@@ -6,6 +6,13 @@ preferences (``users.accessibility``: ``mascot_shades``), so they need no table
 of their own and survive "reset display settings". Only that key is read and
 written here: every other saved preference stays exactly as stored, including
 an old ``mascot_enabled`` key, which is ignored.
+
+Easter eggs
+-----------
+Administrators switch each easter egg off or on again under Admin ->
+Appearance (``site_settings.easter_eggs``, JSON of egg id -> 0/1; an egg it
+does not name is on). While the sunglasses are off nobody's show, but each
+account keeps its choice for when they are on again.
 """
 
 from __future__ import annotations
@@ -13,8 +20,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from ... import settings
 from ...db import db
 from ..users import preferences
+
+# Every easter egg, in the order the settings list them: the sunglasses after enough clicks on the mascot,
+# the Konami code's shower of bananas and the mascot peeking into the "page not found" card.
+EGGS = ("sunglasses", "konami", "peek")
 
 # Administrator actions: what each one writes on every account.
 BULK_ACTIONS: dict[str, dict[str, int]] = {
@@ -33,11 +45,45 @@ def _flag(saved: dict[str, Any], key: str) -> int:
     return value if value in (0, 1) else default
 
 
+def _saved_eggs() -> dict[str, Any]:
+    try:
+        saved = json.loads(settings.get("easter_eggs", "") or "{}")
+    except ValueError:
+        return {}
+    return saved if isinstance(saved, dict) else {}
+
+
+def _egg_on(value: Any) -> bool:
+    # Only a stored 0 (or false) switches an egg off: anything unreadable leaves it as it was installed.
+    return isinstance(value, str) or value is None or value != 0
+
+
+def eggs() -> dict[str, bool]:
+    """Which easter eggs are on, by id (see :data:`EGGS`)."""
+    saved = _saved_eggs()
+    return {egg: _egg_on(saved.get(egg, 1)) for egg in EGGS}
+
+
+def save_eggs(chosen: dict[str, bool]) -> dict[str, bool]:
+    """Switch the eggs named in *chosen* on or off; returns the ones that changed, with their new state."""
+    current = eggs()
+    changed = {egg: bool(on) for egg, on in chosen.items() if egg in EGGS and bool(on) != current[egg]}
+    if changed:
+        # Ids a later version added stay as stored, so going back and forth between versions loses nothing.
+        stored = {**_saved_eggs(), **{egg: int(on) for egg, on in {**current, **changed}.items()}}
+        settings.update({"easter_eggs": json.dumps(stored, sort_keys=True)})
+    return changed
+
+
 def state(user: dict[str, Any] | None) -> dict[str, bool]:
-    """Whether *user* sees the mascot (when signed in), and with sunglasses (on every page, so one key is read)."""
+    """Whether *user* sees the mascot (when signed in), and with sunglasses (on every page, so one key is read).
+
+    While the sunglasses easter egg is off nobody has them on; the account's own choice is kept.
+    """
     if user is None:
         return {"enabled": False, "shades": False}
-    return {"enabled": True, "shades": bool(_flag(preferences.stored(user), "mascot_shades"))}
+    shades = bool(_flag(preferences.stored(user), "mascot_shades")) and eggs()["sunglasses"]
+    return {"enabled": True, "shades": shades}
 
 
 def update(user: dict[str, Any], **values: int) -> None:

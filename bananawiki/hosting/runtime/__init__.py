@@ -116,8 +116,9 @@ class OAuthClient:
     (``/oauth/token``), ``..._USERINFO_URL`` (``/oauth/userinfo``),
     ``..._VERIFY_URL`` (``/oauth/verify``), ``..._LINK_URL`` (``/oauth/link``),
     ``..._UNLINK_URL`` (``/oauth/unlink``), ``..._LINK_STATUS_URL``
-    (``/oauth/link-status``) and ``BW_PLATFORM_INSTANCE_ID``. Without an
-    ``OAuthClient`` the tenant gets ``BW_PLATFORM_OAUTH_ENABLED=0``.
+    (``/oauth/link-status``), ``..._SIGNOUTS_URL`` (``/oauth/signouts``) and
+    ``BW_PLATFORM_INSTANCE_ID``. Without an ``OAuthClient`` the tenant gets
+    ``BW_PLATFORM_OAUTH_ENABLED=0``.
     """
 
     client_id: str
@@ -129,7 +130,7 @@ class OAuthClient:
         base = self.portal_base.rstrip("/")
         return {name: f"{base}/oauth/{path}" for name, path in (
             ("authorize", "authorize"), ("token", "token"), ("userinfo", "userinfo"), ("verify", "verify"),
-            ("link", "link"), ("unlink", "unlink"), ("link_status", "link-status"),
+            ("link", "link"), ("unlink", "unlink"), ("link_status", "link-status"), ("signouts", "signouts"),
         )}
 
 

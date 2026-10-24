@@ -9,16 +9,30 @@ i profili sono attivi puoi **pubblicare** il profilo perché gli altri membri
 lo vedano e compilare i campi del profilo definiti dalla tua wiki. **Il mio
 profilo** lo mostra come lo vedono gli altri.
 
-## Preferenze di visualizzazione
+## Personalizza
 
-Apri **Personalizza** nella barra superiore per le tue **Preferenze di
-visualizzazione**. Queste cambiano l'aspetto della wiki solo per te: tema
+Apri **Personalizza** nella barra superiore (o la scheda **Personalizza**
+delle Impostazioni). Queste cambiano l'aspetto della wiki solo per te: tema
 chiaro o scuro, dimensione del testo, interlinea e spaziatura delle lettere,
 larghezza del contenuto e della barra laterale, contrasto, colori personali,
 un'immagine di sfondo, un carattere adatto alla dislessia, meno animazioni e
 quanto risaltano grassetto, collegamenti, titoli e codice. **Ripristina le
 preferenze di visualizzazione** torna a quelle del sito e rimuove l'immagine
 di sfondo; la lingua e le scelte sulla mascotte restano come sono.
+
+La **modalità BM** è la modalità facile: schermate più semplici (una barra
+dell'editor più corta, meno menu) e meno funzioni tra cui orientarsi. Se la
+tua wiki lo consente, la attivi o la disattivi qui per il tuo account;
+altrimenti la pagina dice che decidono gli amministratori. Quando tutta la
+wiki usa la modalità BM, ci sono dentro tutti.
+
+In modalità BM la barra laterale mostra solo pagine, Kanban e canvas, le
+pagine non mostrano il collegamento alla cronologia né l'etichetta di
+difficoltà e le Impostazioni mostrano profilo, nome utente, password, lingua,
+indirizzo email e **Personalizza**. Il resto (sessioni, verifica in due
+passaggi, i tuoi dati, unione di account, eliminazione dell'account) è in
+**Tutte le impostazioni**, in fondo alla pagina delle Impostazioni. Gli
+amministratori scelgono quali di queste semplificazioni valgono.
 
 Se la tua wiki ha la mascotte, una banana al posto del logo nella barra
 superiore, un clic la fa saltare; il nome del sito accanto porta alla pagina
@@ -28,7 +42,8 @@ hai scoperto come metterle gli occhiali da sole, puoi toglierglieli qui in
 
 ## Lingua
 
-Scegli la lingua dell'interfaccia nelle Impostazioni: inglese, italiano,
+Scegli la lingua dell'interfaccia nella scheda **Account** delle
+Impostazioni (prima di accedere la trovi anche in **Personalizza**): inglese, italiano,
 tedesco e le lingue aggiunte dagli amministratori, se non le hanno
 disattivate. Le pagine non vengono tradotte.
 

@@ -70,7 +70,7 @@
   "users.display.theme": "Tema",
   "users.display.theme_dark": "Scuro",
   "users.display.theme_light": "Chiaro",
-  "users.display.title": "Preferenze di visualizzazione",
+  "users.display.title": "Personalizza",
   "users.display.wide": "Ampia",
   "users.error.birth_date_invalid": "Inserisci una data di nascita valida e passata.",
   "users.error.image_uploads_too_fast": "Troppi caricamenti di immagini in poco tempo. Attendi qualche minuto e riprova.",
@@ -226,10 +226,14 @@
   "users.settings.title": "Impostazioni",
   "users.settings.username_mentions_hint": "Le pagine non vengono modificate: le menzioni del vecchio nome portano ancora al tuo profilo e nessun altro può prendere quel nome, a meno che un amministratore non lo liberi.",
   "users.settings.view_profile": "Vedi il profilo",
+  "users.settings.all": "Tutte le impostazioni",
+  "users.settings.all_hint": "Sessioni, verifica in due passaggi, i tuoi dati e altro.",
   "users.suspended.reactivate": "Riattiva il mio account",
   "users.suspended.reactivate_confirm": "Revocare la sospensione del tuo account?",
   "users.tab.account": "Account",
-  "users.tab.display": "Visualizzazione",
+  "users.tab.display": "Personalizza",
   "users.tab.profile": "Profilo",
-  "users.tab.sessions": "Sessioni"
+  "users.tab.sessions": "Sessioni",
+  "users.bm.simple_settings": "Impostazioni più brevi",
+  "users.bm.simple_settings_hint": "Le impostazioni mostrano profilo, nome utente, password, lingua, indirizzo email e Personalizza; sessioni, verifica in due passaggi, token API, esportazione dei dati, unione di account ed eliminazione dell'account passano sotto \"Tutte le impostazioni\". Ciò che la persona deve fare prima resta visibile."
 }

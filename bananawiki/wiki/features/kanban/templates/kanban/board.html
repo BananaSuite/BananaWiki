@@ -12,17 +12,17 @@
   <div class="page-header__actions">
     {% if can_write %}
     <button type="button" class="btn btn--small" data-dialog-open="kanban-edit-dialog">{{ t('kanban.board.edit') }}</button>
-    <button type="button" class="btn btn--small" id="kanban-bulk-toggle" aria-pressed="false">{{ t('kanban.bulk.toggle') }}</button>
+    <button type="button" class="btn btn--small" id="kanban-bulk-toggle" aria-pressed="false" data-bm-hide="kanban.simple_board">{{ t('kanban.bulk.toggle') }}</button>
     {% endif %}
-    {% if can_export %}<a class="btn btn--small" href="{{ url_for('kanban.export', board_id=board.id) }}">{{ t('kanban.board.export') }}</a>{% endif %}
-    <button type="button" class="btn btn--small" id="kanban-archive-toggle" aria-expanded="false" aria-controls="kanban-archive">{{ t('kanban.board.archived_tickets') }} <span class="badge" id="kanban-archive-count"{% if not data.state.archived_count %} hidden{% endif %}>{{ data.state.archived_count }}</span></button>
-    <button type="button" class="btn btn--small" id="kanban-activity-toggle" aria-expanded="false" aria-controls="kanban-activity">{{ t('kanban.board.activity') }}</button>
+    {% if can_export %}<a class="btn btn--small" href="{{ url_for('kanban.export', board_id=board.id) }}" data-bm-hide="kanban.simple_board">{{ t('kanban.board.export') }}</a>{% endif %}
+    <button type="button" class="btn btn--small" data-bm-hide="kanban.simple_board" id="kanban-archive-toggle" aria-expanded="false" aria-controls="kanban-archive">{{ t('kanban.board.archived_tickets') }} <span class="badge" id="kanban-archive-count"{% if not data.state.archived_count %} hidden{% endif %}>{{ data.state.archived_count }}</span></button>
+    <button type="button" class="btn btn--small" data-bm-hide="kanban.simple_board" id="kanban-activity-toggle" aria-expanded="false" aria-controls="kanban-activity">{{ t('kanban.board.activity') }}</button>
     {#- Less frequent actions live in a menu, like the page view's "More". -#}
     <details class="menu">
       <summary class="btn btn--small menu__toggle">{{ t('pages.actions.more') }}</summary>
       <div class="menu__panel" role="menu">
-        <a role="menuitem" href="{{ url_for('kanban.board_history', board_id=board.id) }}">{{ t('kanban.board.history') }}</a>
-        {% if can_export %}<a role="menuitem" href="{{ url_for('kanban.export', board_id=board.id, format='json') }}">{{ t('kanban.board.export_json') }}</a>{% endif %}
+        <a role="menuitem" href="{{ url_for('kanban.board_history', board_id=board.id) }}" data-bm-hide="kanban.simple_board">{{ t('kanban.board.history') }}</a>
+        {% if can_export %}<a role="menuitem" href="{{ url_for('kanban.export', board_id=board.id, format='json') }}" data-bm-hide="kanban.simple_board">{{ t('kanban.board.export_json') }}</a>{% endif %}
         <button type="button" role="menuitem" data-print>{{ t('kanban.board.print') }}</button>
         {% if is_owner %}
         <button type="button" role="menuitem" data-dialog-open="kanban-share-dialog">{{ t('kanban.board.sharing') }}</button>
@@ -50,7 +50,7 @@
 <div class="alert alert--warning" id="kanban-offline" hidden role="status">{{ t('kanban.board.offline') }}</div>
 <p class="visually-hidden" id="kanban-live" aria-live="polite"></p>
 {% if can_write %}
-<details class="disclosure kanban-keys no-print">
+<details class="disclosure kanban-keys no-print" data-bm-hide="kanban.simple_board">
   <summary>{{ t('kanban.board.keyboard_shortcuts') }}</summary>
   <p class="hint">{{ t('kanban.board.keyboard_hint') }}</p>
   <p class="hint" id="kanban-quick-add-hint">{{ t('js.kanban.add_ticket_hint') }}</p>
@@ -94,7 +94,7 @@
 {% endif %}
 
 {#- Filters and rows fold away until needed. Active filters, rows and the search shortcut open them. -#}
-<details class="disclosure kanban-tools no-print" id="kanban-tools">
+<details class="disclosure kanban-tools no-print" id="kanban-tools" data-bm-hide="kanban.simple_board">
 <summary>{{ t('kanban.filter.label') }}</summary>
 <form class="kanban-filter no-print" id="kanban-filter" role="search" aria-label="{{ t('kanban.filter.label') }}">
   <div class="kanban-filter__field kanban-filter__field--search">
@@ -167,7 +167,7 @@
         <a href="#kanban-tab-description" role="tab" data-tab="description" aria-current="page">{{ t('kanban.field.description') }}</a>
         <a href="#kanban-tab-comments" role="tab" data-tab="comments">{{ t('kanban.ticket.comments') }}</a>
         <a href="#kanban-tab-attachments" role="tab" data-tab="attachments">{{ t('kanban.ticket.attachments') }}</a>
-        <a href="#kanban-tab-history" role="tab" data-tab="history">{{ t('kanban.ticket.history') }}</a>
+        <a href="#kanban-tab-history" role="tab" data-tab="history" data-bm-hide="kanban.simple_tickets">{{ t('kanban.ticket.history') }}</a>
       </nav>
       <section id="kanban-tab-description" role="tabpanel" data-panel="description">
         <div class="prose kanban-ticket-dialog__description" id="kanban-ticket-description"></div>
@@ -180,7 +180,7 @@
           </div>
         </div>
         <button type="button" class="btn btn--small" id="kanban-ticket-description-edit" hidden>{{ t('kanban.ticket.edit_description') }}</button>
-        <section class="kanban-checklist" aria-labelledby="kanban-checklist-heading">
+        <section class="kanban-checklist" aria-labelledby="kanban-checklist-heading" data-bm-hide="kanban.simple_tickets">
           <h3 id="kanban-checklist-heading" class="kanban-checklist__heading">{{ t('kanban.ticket.checklist') }} <span class="small muted" id="kanban-checklist-progress"></span></h3>
           <progress id="kanban-checklist-bar" class="kanban-checklist__bar" max="1" value="0" hidden aria-labelledby="kanban-checklist-heading"></progress>
           <ul class="kanban-checklist__items" id="kanban-ticket-checklist"></ul>
@@ -201,6 +201,7 @@
       </section>
       <section id="kanban-tab-attachments" role="tabpanel" data-panel="attachments" hidden>
         <ul class="kanban-files" id="kanban-ticket-attachments"></ul>
+        <div class="upload-progress-host" id="kanban-upload-progress"></div>
         <div id="kanban-upload" hidden>
           {#- The input sits inside its label: a for= would name the first element with that id, which
               can be a heading of a comment above. -#}
@@ -217,22 +218,22 @@
     </div>
     <aside class="kanban-ticket-dialog__side">
       <div class="field"><label for="kanban-ticket-column">{{ t('kanban.field.column') }}</label><select id="kanban-ticket-column"></select></div>
-      <div class="field"><label for="kanban-ticket-priority">{{ t('kanban.field.priority') }}</label>
+      <div class="field" data-bm-hide="kanban.simple_tickets"><label for="kanban-ticket-priority">{{ t('kanban.field.priority') }}</label>
         <select id="kanban-ticket-priority">
           {% for p in ('low', 'medium', 'high', 'critical') %}<option value="{{ p }}">{{ t('kanban.priority.' ~ p) }}</option>{% endfor %}
         </select></div>
       <fieldset class="kanban-assignees"><legend>{{ t('kanban.field.assignees') }}</legend><div id="kanban-ticket-assignees"></div></fieldset>
       <div class="field"><label for="kanban-ticket-due">{{ t('kanban.field.due_date') }}</label><input type="date" id="kanban-ticket-due"></div>
-      <div class="field"><label for="kanban-ticket-labels">{{ t('kanban.field.labels') }}</label>
+      <div class="field" data-bm-hide="kanban.simple_tickets"><label for="kanban-ticket-labels">{{ t('kanban.field.labels') }}</label>
         <input type="text" id="kanban-ticket-labels" maxlength="400" aria-describedby="kanban-ticket-labels-hint">
         <p class="hint" id="kanban-ticket-labels-hint">{{ t('kanban.ticket.labels_hint') }}</p></div>
-      <div class="field"><label for="kanban-ticket-color">{{ t('kanban.field.color') }}</label>
+      <div class="field" data-bm-hide="kanban.simple_tickets"><label for="kanban-ticket-color">{{ t('kanban.field.color') }}</label>
         <div class="input-group"><input type="color" id="kanban-ticket-color" value="#4caf50">
           <button type="button" class="btn btn--small" id="kanban-ticket-color-clear">{{ t('kanban.ticket.no_color') }}</button></div></div>
       <p class="small muted" id="kanban-ticket-created"></p>
       <div class="btn-row">
         <button type="button" class="btn btn--primary btn--small" id="kanban-ticket-save">{{ t('common.save') }}</button>
-        <button type="button" class="btn btn--small" id="kanban-ticket-archive" hidden>{{ t('kanban.ticket.archive') }}</button>
+        <button type="button" class="btn btn--small" id="kanban-ticket-archive" hidden data-bm-hide="kanban.simple_tickets">{{ t('kanban.ticket.archive') }}</button>
         <button type="button" class="btn btn--small" id="kanban-ticket-restore" hidden>{{ t('kanban.ticket.restore') }}</button>
         <button type="button" class="btn btn--danger-quiet btn--small" id="kanban-ticket-delete">{{ t('common.delete') }}</button>
       </div>

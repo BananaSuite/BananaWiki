@@ -296,6 +296,11 @@ def _store_bundled(parsed: _Parsed, columns: list[dict[str, Any]], saved: dict[s
                     raise KanbanError("kanban.error.import_invalid") from error
 
 
+def _as_list(value: Any) -> list[Any]:
+    """*value* when the imported file holds a list there, else an empty list."""
+    return value if isinstance(value, list) else []
+
+
 def import_board(user: dict[str, Any], upload: FileStorage | None) -> dict[str, Any]:
     if upload is None or not upload.filename:
         raise KanbanError("kanban.error.import_invalid")
@@ -303,9 +308,12 @@ def import_board(user: dict[str, Any], upload: FileStorage | None) -> dict[str, 
     saved: dict[str, storage.StoredFile] = {}
     try:
         columns = []
-        for item in parsed.document.get("columns", [])[:MAX_COLUMNS]:
+        for item in _as_list(parsed.document.get("columns"))[:MAX_COLUMNS]:
             if isinstance(item, dict):
-                tickets = [ticket for ticket in item.get("tickets") or [] if isinstance(ticket, dict)]
+                tickets = [ticket for ticket in _as_list(item.get("tickets")) if isinstance(ticket, dict)]
+                for ticket in tickets:  # lists the rest of the import iterates, whatever the file holds
+                    for key in ("attachments", "assignee_usernames"):
+                        ticket[key] = _as_list(ticket.get(key))
                 columns.append({"title": item.get("title"), "wip_limit": item.get("wip_limit"),
                                 "done": item.get("done"), "tickets": tickets})
         if sum(len(column["tickets"]) for column in columns) > MAX_TICKETS:

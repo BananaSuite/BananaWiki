@@ -146,7 +146,9 @@ def change_language():
 def set_theme():
     mode = (request.form.get("theme_mode") or "").strip().lower()
     if mode in ("dark", "light", "default"):
-        accounts.set_theme(auth.current_account()["id"], mode)  # type: ignore[index]
+        # While impersonating, the theme is the administrator's own display choice: the customer's stays as it is.
+        owner = g.get("real_account") if auth.impersonating() else auth.current_account()
+        accounts.set_theme(owner["id"], mode)  # type: ignore[index]
     response = make_response(_back_to_referrer(url_for("dashboard.dashboard")))
     return response
 

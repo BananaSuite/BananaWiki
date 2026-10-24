@@ -61,9 +61,10 @@ FEATURE = Feature(
     easy_wiki=False,
     blueprints=[bp],
     nav=[
-        NavItem("chat.nav.messages", "chat.dm_list", icon="message", area="apps", order=40,
+        # Messages and Groups sit together, after the boards and canvases and before People.
+        NavItem("chat.nav.messages", "chat.dm_list", icon="message", area="apps", order=42,
                 visible=lambda user: bool(user) and policy.dm_allowed(user), badge=_dm_unread),
-        NavItem("chat.nav.groups", "chat.group_list", icon="messages", area="apps", order=41,
+        NavItem("chat.nav.groups", "chat.group_list", icon="messages", area="apps", order=43,
                 visible=lambda user: bool(user) and policy.group_allowed(user), badge=_group_unread),
         NavItem("chat.nav.admin", "chat.admin_chats", icon="message", area="admin", order=60,
                 visible=lambda user: bool(user) and auth.is_admin(user), active_endpoints=("chat.admin_groups",),

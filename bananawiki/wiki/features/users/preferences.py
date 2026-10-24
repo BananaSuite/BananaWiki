@@ -14,6 +14,9 @@ exact shape BananaWiki 1.4 used, so saved choices survive the upgrade:
   :data:`OWNED_KEYS`). An old ``mascot_enabled`` key is ignored and dropped at
   the next save.
 
+Whether an account is in BM mode is not a display preference: it is
+``users.bm_mode``, which administrators may control (:mod:`bananawiki.wiki.bm`).
+
 The page shell reads the coarse switches (``templating.accessibility_prefs``);
 :func:`custom_css` renders everything finer as CSS custom properties.
 """

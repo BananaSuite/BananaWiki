@@ -753,6 +753,22 @@ progress.progress { appearance: none; -webkit-appearance: none; display: block; 
 progress.progress::-webkit-progress-bar { background: var(--surface-3); border-radius: 999px; }
 progress.progress::-webkit-progress-value { background: var(--bw-primary); border-radius: 999px; }
 progress.progress::-moz-progress-bar { background: var(--bw-primary); border-radius: 999px; }
+/* One file being sent (wiki/static/js/bananawiki.js, BW.uploadRow): name and numbers, the bar, Cancel. */
+.upload-progress-host:empty { display: none; }
+.upload-progress-host { display: grid; gap: .5rem; margin-block: .5rem; }
+.upload-progress { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .3rem .75rem;
+  padding: .5rem .75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2);
+  font-size: var(--font-size-ui); }
+.upload-progress__head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .1rem .75rem; min-width: 0;
+  grid-column: 1 / -1; }
+.upload-progress__name { font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.upload-progress__numbers { color: var(--muted); font-variant-numeric: tabular-nums; }
+.upload-progress > progress { grid-column: 1; }
+.upload-progress__cancel { grid-column: 2; }
+.upload-progress__error { grid-column: 1; color: var(--danger); overflow-wrap: anywhere; }
+.upload-progress.is-done { border-color: color-mix(in srgb, var(--success) 50%, var(--border)); }
+.upload-progress.is-failed { border-color: color-mix(in srgb, var(--danger) 55%, var(--border)); background: var(--danger-bg); }
+.upload-progress.is-cancelled .upload-progress__error { color: var(--muted); }
 /* Short lists of chips or names (groups on a profile, blocked people). */
 .chat-badge-list { list-style: none; padding: 0; margin: 0; gap: .5rem; }
 /* A visually hidden file input inside a button-styled label shows its focus on the label. */
@@ -775,6 +791,10 @@ label.btn:has(> input.visually-hidden:focus-visible), .btn:has(> input.visually-
 @media (pointer: coarse) {
   .btn, .nav-list a, .nav-tree summary, .disclosure > summary, .menu__panel a, .menu__panel button { min-height: 2.75rem; }
   .sidebar__section-title .btn { min-height: 2.75rem; padding-inline: .6rem; }
+  .topbar__brand { min-height: 2.75rem; }
+  /* Small text links get a finger-sized tap area without moving anything: an inline link's padding
+     does not change the height of its line. */
+  .breadcrumbs a, .site-footer a { padding-block: .75rem; }
 }
 @media (max-width: 600px) {
   .topbar { padding-inline: .65rem; gap: .4rem; }

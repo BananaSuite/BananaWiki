@@ -1,0 +1,16 @@
+{% import "macros/forms.html" as forms with context %}
+<section class="form-section" id="bm-mode" aria-labelledby="bm-own-heading">
+  <h2 id="bm-own-heading">{{ t('bm_mode.own.title') }}</h2>
+  <p class="hint">{{ t('bm_mode.own.hint') }}</p>
+  {% if wiki_on %}
+  <p>{{ t('bm_mode.own.wiki_on') }}</p>
+  {% elif may_switch %}
+  <form class="form" method="post" action="{{ url_for('bm_mode.own_switch') }}">
+    {{ forms.csrf() }}
+    {{ forms.checkbox('bm_mode', t('bm_mode.own.switch'), checked=on) }}
+    <div class="btn-row"><button type="submit" class="btn">{{ t('common.save') }}</button></div>
+  </form>
+  {% else %}
+  <p>{{ t('bm_mode.own.on_by_admin') if on else t('bm_mode.own.off_by_admin') }}</p>
+  {% endif %}
+</section>

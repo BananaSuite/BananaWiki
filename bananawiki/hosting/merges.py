@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..core.timeutil import now_sql
-from . import accounts, api_tokens, attention, events
+from . import accounts, api_tokens, attention, events, signouts
 from .db import db
 from .errors import ServiceError
 
@@ -139,6 +139,8 @@ def _merge(source_id: str, target_id: str, admin: dict[str, Any]) -> int:
                "(SELECT id FROM instances WHERE account_id = ?)", (target_id, target_id))
     # The source may be deleted later: what it invited stays attributed to the merged account.
     db.execute("UPDATE instance_collaborators SET invited_by = ? WHERE invited_by = ?", (target_id, source_id))
+    # The source's sessions on wikis end (as on the portal) while its links still name the wiki accounts.
+    signouts.queue(source_id, "merged")
     db.execute("DELETE FROM hosting_oauth_account_links WHERE account_id = ? AND instance_id IN "
                "(SELECT instance_id FROM hosting_oauth_account_links WHERE account_id = ?)", (source_id, target_id))
     db.execute("UPDATE hosting_oauth_account_links SET account_id = ? WHERE account_id = ?", (target_id, source_id))
@@ -148,6 +150,11 @@ def _merge(source_id: str, target_id: str, admin: dict[str, Any]) -> int:
     db.execute("UPDATE hosting_account_sessions SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL",
                (now_sql(), source_id))
     db.execute("DELETE FROM hosting_oauth_access_tokens WHERE account_id = ?", (source_id,))
+    # Consent the source gave carries over to the target, which now holds its wiki links.
+    db.execute("INSERT OR IGNORE INTO hosting_oauth_grants (account_id, instance_id, granted_at, last_used_at) "
+               "SELECT ?, instance_id, granted_at, last_used_at FROM hosting_oauth_grants WHERE account_id = ?",
+               (target_id, source_id))
+    db.execute("DELETE FROM hosting_oauth_grants WHERE account_id = ?", (source_id,))
     api_tokens.revoke_all(source_id, admin["id"], "Account merged into another")
     db.insert("hosting_account_merge_logs", {"target_account_id": target_id, "source_account_id": source_id,
                                              "merged_by": admin["id"], "instances_transferred": moved,
@@ -166,7 +173,16 @@ def execute(merge_id: int, admin: dict[str, Any]) -> int:
         db.update("hosting_account_merge_requests", {"status": "merged", "completed_at": now_sql()}, "id = ?",
                   (merge_id,))
         attention.decided(row["target_account_id"], "merges.awaiting", "approved", object_id=merge_id)
+    _republish(moved)
     return moved
+
+
+def _republish(moved: int) -> None:
+    """After the transaction: moved wikis now belong to another account, which decides their custom domains."""
+    if moved:
+        from . import instances
+
+        instances.sync_routes()
 
 
 def admin_merge(source_username: str, target_username: str, admin: dict[str, Any]) -> int:
@@ -181,4 +197,5 @@ def admin_merge(source_username: str, target_username: str, admin: dict[str, Any
             "('pending', 'approved') AND (source_account_id IN (?, ?) OR target_account_id IN (?, ?))",
             (now_sql(), source["id"], target["id"], source["id"], target["id"]),
         )
+    _republish(moved)
     return moved

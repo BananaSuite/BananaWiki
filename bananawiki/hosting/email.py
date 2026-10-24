@@ -24,6 +24,10 @@ so they hold across workers and restarts:
   per IPv6 /48, counted by the recovery forms whether or not an account
   matches, so one client cannot spend the recovery part.
 
+While an administrator has paused email (``hosting_settings.email_paused``)
+nothing is sent at all: :func:`send` answers ``paused``, keeps nothing for
+later and counts the message for the settings page.
+
 A refused message is reported to the caller (``daily_limit``,
 ``recipient_limit`` or ``account_limit``), never queued; a message the
 provider did not accept does not count. Once the recovery part (or the
@@ -40,6 +44,7 @@ from dataclasses import replace
 from ..core import mail
 from ..core.mail import Message, capture_outbox
 from ..core.timeutil import now_sql, sql_in
+from . import settings as platform_settings
 from .config import EmailSettings, HostingConfig
 from .db import db
 
@@ -154,6 +159,10 @@ def send(cfg: HostingConfig, message: Message, footer: str, *, kind: str = "",
     settings = mail_settings(cfg.email)
     if not mail.is_configured(settings):
         return False, "not_configured"
+    if platform_settings.email_paused():
+        platform_settings.count_held_back()
+        log.info("Email %s not sent: email is paused", kind or "message")
+        return False, "paused"
     try:
         recipient = mail.normalize_address(message.to)
     except mail.MailError as error:

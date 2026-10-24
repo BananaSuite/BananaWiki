@@ -464,6 +464,7 @@ def _install_request_pipeline(app: Flask, cfg: Config) -> None:
 
     @app.after_request
     def _after(response: Response) -> Response:
+        response = _upload_redirect(response)
         policy: web.SecurityPolicy = app.extensions.setdefault("bananawiki.csp", web.SecurityPolicy())
         web.apply_security_headers(response, policy, hsts=cfg.is_production)
         # send_file's own "no-cache" (also with max_age=0) still lets caches keep a copy.
@@ -475,6 +476,24 @@ def _install_request_pipeline(app: Flask, cfg: Config) -> None:
             response.headers.pop("Expires", None)
         response.headers.setdefault("X-Request-ID", g.get("request_id", ""))
         return response
+
+
+def _upload_redirect(response: Response) -> Response:
+    """A form sent by script with a progress bar (``X-BW-Upload: 1``) gets ``{"redirect": url}`` instead of a 3xx.
+
+    The browser would follow a redirect inside the script's request, and the
+    page it then loads would show (and use up) the flash messages; the
+    script goes to the address itself instead. Cookies the view set stay.
+    """
+    if request.headers.get("X-BW-Upload") != "1" or response.status_code not in (301, 302, 303, 307, 308):
+        return response
+    location = response.headers.get("Location", "")
+    if not location:
+        return response
+    answer = jsonify({"redirect": location})
+    for value in response.headers.getlist("Set-Cookie"):
+        answer.headers.add("Set-Cookie", value)
+    return answer
 
 
 def _too_many_requests():

@@ -1,6 +1,6 @@
 """Kanban boards: columns, tickets, comments, attachments, history, sharing and embeds."""
 
-from ...registry import Feature, Job, NavItem
+from ...registry import Feature, Job, NavItem, Simplification
 from . import api  # noqa: F401 - registers the JSON routes on the blueprint
 from .embed import page_scripts
 from .events import prune
@@ -14,7 +14,6 @@ FEATURE = Feature(
     description="feature.kanban.description",
     toggle="plugin",
     default_enabled=True,
-    easy_wiki=False,
     blueprints=[bp],
     nav=[NavItem("kanban.nav", "kanban.index", icon="columns", area="apps", order=40, visible=nav_visible)],
     jobs=[
@@ -24,4 +23,8 @@ FEATURE = Feature(
     events={"user.deleted": [forget_user]},
     interceptors={"user.delete": hand_over},
     slots={"page.scripts": page_scripts},
+    simplifications=[
+        Simplification("kanban.simple_board", "kanban.bm.simple_board", "kanban.bm.simple_board_hint"),
+        Simplification("kanban.simple_tickets", "kanban.bm.simple_tickets", "kanban.bm.simple_tickets_hint"),
+    ],
 )

@@ -1,7 +1,7 @@
 {
   "feature.user_profiles.description": "Public profile pages, custom profile fields and custom tags.",
   "feature.user_profiles.name": "User profiles",
-  "profiles.about": "About",
+  "profiles.about": "Profile fields",
   "profiles.admin.crumb": "Profile",
   "profiles.admin.delete_field_confirm": "Delete this field and every answer to it?",
   "profiles.admin.disable": "Disable profile page",
@@ -21,7 +21,7 @@
   "profiles.admin.type": "Type",
   "profiles.admin.unpublish": "Hide",
   "profiles.admin.view_profile": "View profile",
-  "profiles.edit_about": "Edit the About section",
+  "profiles.edit_about": "Edit profile fields",
   "profiles.edit_fields": "Edit profile fields",
   "profiles.error.date_invalid": "Enter a valid date.",
   "profiles.error.disabled_by_admin": "An administrator disabled your profile page, so it cannot be published.",

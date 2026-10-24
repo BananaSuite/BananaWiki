@@ -19,6 +19,8 @@
   "difficulty_tags.level.extra": "Extra",
   "difficulty_tags.level.intermediate": "Intermediate",
   "difficulty_tags.level.none": "No tag",
+  "difficulty_tags.bm.hide_tags": "No difficulty tags",
+  "difficulty_tags.bm.hide_tags_hint": "Hides the tags on pages, the \"Tag\" action and the tag fields in the editor; the tags themselves are kept.",
   "feature.difficulty_tags.description": "Label pages with a difficulty level or a custom coloured tag.",
   "feature.difficulty_tags.name": "Difficulty tags"
 }

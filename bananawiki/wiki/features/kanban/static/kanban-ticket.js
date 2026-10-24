@@ -592,13 +592,18 @@
   });
 
   // Attachments
+  // Each file shows a progress bar (with Cancel) under the ticket's file list while it is sent.
   function upload(file) {
     var form = new FormData();
     form.append("file", file);
-    return K.api("/tickets/" + current.id + "/attachments", "POST", form).then(function (stored) {
+    var row = BW.uploadRow($("kanban-upload-progress"), file.name);
+    return BW.upload("/api/kanban/tickets/" + current.id + "/attachments", form, {
+      headers: { "X-Kanban-Session": K.session }, onProgress: row.progress, onRetry: row.retrying, signal: row.signal
+    }).then(function (stored) {
+      row.done();
       bumpCount("attachment_count", 1);
       return stored;
-    }).catch(function (error) { K.fail(error); throw error; });
+    }, function (error) { row.fail(error.message, error.aborted); throw error; });
   }
 
   function loadAttachments() {

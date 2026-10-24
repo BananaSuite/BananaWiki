@@ -10,7 +10,8 @@
     <h2 id="look-heading">{{ t('users.display.appearance') }}</h2>
     <div class="form-grid">
       {{ forms.select('theme_mode', t('users.display.theme'), [('default', t('users.display.site_default')), ('dark', t('users.display.theme_dark')), ('light', t('users.display.theme_light'))], display_prefs.theme_mode) }}
-      {{ forms.select('interface_language', t('auth.field.language'), [('default', t('users.display.site_default'))] + languages.items()|list, display_prefs.interface_language) }}
+      {#- Signed-in people choose their language on the Account tab; visitors only have this page. -#}
+      {% if not current_user %}{{ forms.select('interface_language', t('auth.field.language'), [('default', t('users.display.site_default'))] + languages.items()|list, display_prefs.interface_language) }}{% endif %}
       {{ forms.select('font_scale', t('users.display.text_size'), [(0.85, 'XS'), (0.9, 'S'), (1.0, 'M'), (1.1, 'L'), (1.2, 'XL'), (1.35, 'XXL')], display_prefs.font_scale) }}
       {{ forms.select('contrast', t('users.display.contrast'), [(0, t('users.display.off'))] + [(1, '1'), (2, '2'), (3, '3'), (4, '4'), (5, t('users.display.maximum'))], display_prefs.contrast) }}
       {{ forms.select('line_height', t('users.display.line_spacing'), [(0, t('users.display.normal')), (1, t('users.display.wide')), (2, t('users.display.extra_wide'))], display_prefs.line_height) }}

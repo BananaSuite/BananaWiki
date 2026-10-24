@@ -6,7 +6,7 @@ import html
 import re
 from typing import Any
 
-from flask import current_app, url_for
+from flask import current_app, g, url_for
 from markupsafe import Markup
 
 from ... import markdown, registry
@@ -40,8 +40,28 @@ def table_of_contents(rendered: str) -> list[dict[str, Any]]:
 
 
 def profile_url(username: str | None) -> str | None:
-    """Link to a user's profile when the profiles feature provides one."""
+    """Link to *username*'s profile, only when the person viewing may open it.
+
+    Profiles stay hidden until their owner publishes them, so a link to
+    every author would lead most readers to "page not found"; without a link
+    the name is shown as plain text. Answers are kept for the request (page
+    history lists the same editors many times).
+    """
     if not username or "users.profile" not in current_app.view_functions:
+        return None
+    known = g.setdefault("_profile_links", {})
+    if username not in known:
+        known[username] = _visible_profile_url(username)
+    return known[username]
+
+
+def _visible_profile_url(username: str) -> str | None:
+    from ... import accounts, auth
+    from ..users import service as profiles
+
+    target = accounts.by_username(username)
+    if target is None or not profiles.can_view_profile(target, profiles.get_profile(target["id"]),
+                                                       auth.current_user()):
         return None
     try:
         return url_for("users.profile", username=username)

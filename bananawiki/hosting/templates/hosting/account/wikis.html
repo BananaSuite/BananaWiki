@@ -1,0 +1,36 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.wikis.title') }}{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('account.account') }}#more">{{ t('hosting.nav.account') }}</a></nav>
+<h1>{{ t('hosting.wikis.title') }}</h1>
+<p>{{ t('hosting.wikis.intro', service=service_name) }}</p>
+{% if wikis %}
+<div class="table-wrap"><table class="table table--stack">
+  <thead><tr><th>{{ t('hosting.wikis.wiki') }}</th><th>{{ t('hosting.wikis.wiki_account') }}</th><th>{{ t('hosting.wikis.last_sign_in') }}</th><th><span class="visually-hidden">{{ t('hosting.admin.actions') }}</span></th></tr></thead>
+  <tbody>
+  {% for wiki in wikis %}
+  <tr>
+    <td><strong>{{ wiki.name }}</strong>{% if wiki.is_owner %} <span class="badge">{{ t('hosting.wikis.owner') }}</span>{% endif %}
+      {% if wiki.url %}<br><span class="small mono muted">{{ wiki.url }}</span>{% endif %}
+      {% if not wiki.granted_at and not wiki.is_owner %}<br><span class="small muted">{{ t('hosting.wikis.asks_again') }}</span>{% endif %}</td>
+    <td data-label="{{ t('hosting.wikis.wiki_account') }}">{% if wiki.wiki_username %}<span class="mono">{{ wiki.wiki_username }}</span>{% else %}<span class="muted">{{ t('hosting.wikis.not_linked') }}</span>{% endif %}</td>
+    <td class="nowrap" data-label="{{ t('hosting.wikis.last_sign_in') }}">{{ wiki.last_used_at|time_ago if wiki.last_used_at else t('hosting.wikis.never') }}</td>
+    <td class="actions"><div class="btn-row">
+      {% if wiki.signin_url and wiki.status == 'running' %}<a class="btn btn--small" href="{{ wiki.signin_url }}" rel="noopener">{{ t('hosting.instance.open_wiki') }}</a>{% endif %}
+      {% if can_act %}
+      {{ ui.post(url_for('account.wiki_sign_out', instance_id=wiki.id), t('hosting.wikis.sign_out')) }}
+      {% if wiki.granted_at and not wiki.is_owner %}{{ ui.post(url_for('account.wiki_remove_access', instance_id=wiki.id), t('hosting.wikis.remove'), 'btn btn--small btn--danger-quiet', confirm=t('hosting.wikis.remove_confirm')) }}{% endif %}
+      {% endif %}
+    </div></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="empty-state">{{ t('hosting.wikis.none') }}</p>{% endif %}
+<section class="card">
+  <h2>{{ t('hosting.oauth.revoke_all') }}</h2>
+  <p class="hint">{{ t('hosting.wikis.sign_out_all_hint') }}</p>
+  {% if can_act %}<p>{{ ui.post(url_for('oauth.revoke'), t('hosting.oauth.revoke_all'), 'btn btn--danger-quiet', confirm=t('hosting.common.are_you_sure'), hidden={'next': url_for('account.wiki_signins')}) }}</p>{% endif %}
+</section>
+{% endblock %}

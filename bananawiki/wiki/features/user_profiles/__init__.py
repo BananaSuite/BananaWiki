@@ -24,7 +24,7 @@ def _profile_sections(profile_user) -> str:
         "user_profiles/_profile_sections.html", profile_user=profile_user, is_own=viewer["id"] == profile_user["id"],
         fields=service.shown_values(profile_user["id"], include_hidden=privileged),
         tags=service.tags(profile_user["id"]) if privileged else [],
-        can_moderate=service.can_moderate(profile_user, viewer),
+        can_moderate=service.can_moderate(profile_user, viewer), has_definitions=bool(service.definitions()),
     )
 
 
@@ -42,7 +42,7 @@ FEATURE = Feature(
     description="feature.user_profiles.description",
     toggle="plugin",
     blueprints=[bp],
-    nav=[NavItem("profiles.admin.nav", "user_profiles.admin_definitions", icon="id-card", area="admin", order=62,
+    nav=[NavItem("profiles.admin.nav", "user_profiles.admin_definitions", icon="id-card", area="admin", bm_hide="admin.short_menu", order=62,
                  visible=lambda user: bool(user) and auth.is_admin(user))],
     slots={
         "profile.sections": _profile_sections,

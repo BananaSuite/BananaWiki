@@ -20,6 +20,7 @@ import mimetypes
 import os
 import re
 import secrets
+import stat
 import tempfile
 import threading
 import time
@@ -159,6 +160,29 @@ def extension_allowed(ext: str, allowed: set[str] | frozenset[str] | None) -> bo
     return True
 
 
+def client_rules(allowed: set[str] | frozenset[str] | None = None, max_bytes: int = 0) -> dict[str, object]:
+    """What :func:`extension_allowed` and the size limit accept, for scripts to check a file before sending it.
+
+    ``{"maxBytes": n, "allow": [...] or absent, "deny": [...]}``; the server
+    checks again, so this only spares people a refused upload.
+    """
+    cfg = current_app.config["BW"]
+    deny = set(cfg.platform_upload_blacklist) | _csv(settings.get("platform_upload_blacklist"))
+    allow = set(allowed) if allowed is not None else None
+    mode = settings.get("upload_mode") or "allow_all"
+    if mode == "whitelist":
+        listed = _csv(settings.get("upload_whitelist"))
+        allow = listed if allow is None else allow & listed
+    elif mode == "blacklist":
+        deny |= _csv(settings.get("upload_blacklist"))
+    rules: dict[str, object] = {"deny": sorted(deny)}
+    if allow is not None:
+        rules["allow"] = sorted(allow - deny)
+    if max_bytes:
+        rules["maxBytes"] = int(max_bytes)
+    return rules
+
+
 def max_upload_bytes(default: int) -> int:
     configured = settings.get("upload_max_size_mb")
     if configured:
@@ -199,6 +223,40 @@ def storage_used(ttl: float = 60.0) -> int:
                     total += info.st_size
     _usage_cache[cfg.instance_dir] = (time.monotonic(), total)
     return total
+
+
+TEMP_PREFIXES = (".upload-", ".write-", ".restore-")
+TEMP_MAX_AGE_SECONDS = 86400
+
+
+def sweep_stale_temp_files(max_age: int = TEMP_MAX_AGE_SECONDS) -> int:
+    """Delete half-written files a worker left behind when it was killed mid-write; returns how many.
+
+    Writes go to ``.upload-*``, ``.write-*`` or ``.restore-*`` files that are
+    renamed when complete, so one older than a day belongs to no write any
+    more. They are invisible to the wiki (and to its storage total) but take
+    disk space, under managed hosting from the wiki's own hard quota.
+    """
+    cfg = current_app.config["BW"]
+    cutoff = time.time() - max_age
+    removed = 0
+    for name in FOLDERS:
+        root = Path(getattr(cfg.folders, name))
+        if not root.is_dir():
+            continue
+        for dirpath, _dirs, files in os.walk(root):
+            for filename in files:
+                if not filename.startswith(TEMP_PREFIXES):
+                    continue
+                path = os.path.join(dirpath, filename)
+                try:
+                    info = os.lstat(path)
+                    if stat.S_ISREG(info.st_mode) and info.st_mtime < cutoff:
+                        os.unlink(path)
+                        removed += 1
+                except OSError:
+                    continue
+    return removed
 
 
 def quota_allows(extra_bytes: int) -> bool:

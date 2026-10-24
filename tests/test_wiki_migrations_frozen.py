@@ -1,8 +1,8 @@
-"""Wiki schema versions 8 to 12 are frozen in their migration modules.
+"""Wiki schema versions 8 to 15 are frozen in their migration modules.
 
 A migration that called a feature's schema function would change meaning
 whenever that function changed: databases upgraded before and after the edit
-would end up with different schemas. Versions 8-12 therefore carry their own
+would end up with different schemas. Versions 8-15 therefore carry their own
 DDL, and the schema they produce is pinned here (the text SQLite keeps for
 each table and index they create, and the definition of each column they add),
 all of it: anything else they add fails the test too.
@@ -21,7 +21,8 @@ from bananawiki.wiki import migrations
 from bananawiki.wiki.templating import THEME_DEFAULTS
 
 FROZEN = ("v8_tokens_and_chat_safety", "v9_two_step", "v10_chat_blocks", "v11_kanban_done_columns",
-          "v12_idempotency_tokens")
+          "v12_idempotency_tokens", "v13_platform_signouts", "v14_bm_mode",
+          "v15_easter_eggs")
 
 CREATED = {
     "chat__reports": (
@@ -48,6 +49,10 @@ CREATED = {
     ),
     "idx_chat_blocks_blocked": "CREATE INDEX idx_chat_blocks_blocked ON chat__blocks(blocked_id)",
     "idx_page_history_created": "CREATE INDEX idx_page_history_created ON page_history(created_at)",
+    "platform_oauth_state": (
+        "CREATE TABLE platform_oauth_state (id INTEGER PRIMARY KEY CHECK (id = 1), "
+        "signout_cursor INTEGER NOT NULL DEFAULT 0, signouts_checked_at TEXT)"
+    ),
 }
 # (table, column) -> (type, not null, default)
 ADDED = {
@@ -59,8 +64,16 @@ ADDED = {
     ("users", "device_epoch_stamp"): ("TEXT", 0, None),
     ("chat_messages", "withheld"): ("INTEGER", 1, "0"),
     ("kanban_columns", "is_done"): ("INTEGER", 1, "0"),
+    ("site_settings", "bm_mode"): ("INTEGER", 0, None),
+    ("site_settings", "bm_mode_env"): ("INTEGER", 0, None),
+    ("site_settings", "bm_choices"): ("TEXT", 1, "'{}'"),
+    ("site_settings", "bm_self_service"): ("INTEGER", 1, "1"),
+    ("site_settings", "bm_new_accounts"): ("INTEGER", 1, "0"),
+    ("users", "bm_mode"): ("INTEGER", 1, "0"),
+    ("users", "bm_self"): ("TEXT", 1, "''"),
+    ("site_settings", "easter_eggs"): ("TEXT", 1, "'{}'"),
 }
-FROZEN_UPTO = 12
+FROZEN_UPTO = 15
 
 
 def _database(path: Path, upto: int | None = None) -> Database:
@@ -115,7 +128,7 @@ def test_frozen_migrations_do_not_call_feature_code(name):
     assert not [module for module in imported if "features" in module.split(".")], imported
 
 
-def test_versions_8_to_12_create_the_pinned_schema(tmp_path):
+def test_versions_8_to_15_create_the_pinned_schema(tmp_path):
     fresh = _database(tmp_path / "fresh.db")
     fresh.initialize()
     schema = _schema(fresh)
@@ -125,7 +138,7 @@ def test_versions_8_to_12_create_the_pinned_schema(tmp_path):
         assert _column(fresh, table, column) == definition, (table, column)
 
 
-def test_versions_8_to_12_add_nothing_but_the_pinned_schema(tmp_path):
+def test_versions_8_to_15_add_nothing_but_the_pinned_schema(tmp_path):
     _version_3(tmp_path / "old.db")
     _database(tmp_path / "old.db", upto=7).initialize()
     names, columns = _objects_and_columns(_database(tmp_path / "old.db", upto=7))
@@ -183,7 +196,7 @@ def test_version_12_gives_untouched_themes_the_new_default_colours(tmp_path):
     assert _database(tmp_path / "old.db", upto=11).initialize() == 8
     assert _colours(_database(tmp_path / "old.db", upto=11))["primary_color"] == "#8fa0d4"
     old = _database(tmp_path / "old.db")
-    assert old.initialize() == 1
+    assert old.initialize() == migrations.LATEST - 11
     assert _colours(old) == new
 
 

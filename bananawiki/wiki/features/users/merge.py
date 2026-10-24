@@ -100,13 +100,23 @@ def _check_pair(source: dict[str, Any], target: dict[str, Any]) -> None:
         raise MergeError("users.merge.error.last_admin")
 
 
+def _check_password(user: dict[str, Any], password: str | None) -> None:
+    """The account's own password, counted against its per-account limit (outside any transaction:
+    a wrong password must stay counted, and hashing must not hold the database's write lock)."""
+    try:
+        correct = service.password_ok(user, password)
+    except service.ProfileError as error:
+        raise MergeError(error.key) from None
+    if not correct:
+        raise MergeError("auth.error.current_password_wrong")
+
+
 def create(user: dict[str, Any], other: dict[str, Any], *, into_mine: bool, reason: str,
            password: str | None) -> dict[str, Any]:
     """Request a merge between *user* and *other*; *user*'s side is confirmed at once."""
     source, target = (other, user) if into_mine else (user, other)
     _check_pair(source, target)
-    if not service.password_ok(user, password):
-        raise MergeError("auth.error.current_password_wrong")
+    _check_password(user, password)
     with db.transaction():
         busy = db.scalar(
             "SELECT 1 FROM account_merge_requests WHERE status IN ('pending', 'approved_by_both') "
@@ -136,15 +146,23 @@ def _clear_pending(request_row: dict[str, Any]) -> None:
 
 
 def confirm(merge_id: int, user: dict[str, Any], password: str | None) -> dict[str, Any]:
-    """The other account's owner confirms with their password."""
-    with db.transaction():
-        row = get(merge_id)
+    """The other account's owner confirms with their password.
+
+    The password is checked before the transaction, so a wrong one stays
+    counted against the account's limit; the request is checked again inside it.
+    """
+
+    def check(row: dict[str, Any] | None) -> dict[str, Any]:
         if row is None or user["id"] not in (row["source_user_id"], row["target_user_id"]):
             raise MergeError("users.merge.error.not_found")
         if row["status"] != "pending":
             raise MergeError("users.merge.error.not_pending")
-        if not service.password_ok(user, password):
-            raise MergeError("auth.error.current_password_wrong")
+        return row
+
+    check(get(merge_id))
+    _check_password(user, password)
+    with db.transaction():
+        row = check(get(merge_id))
         side = "source_approved" if user["id"] == row["source_user_id"] else "target_approved"
         db.execute(f"UPDATE account_merge_requests SET {side} = 1 WHERE id = ?", (merge_id,))
         db.execute(

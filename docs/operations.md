@@ -746,7 +746,10 @@ two-step verification and API tokens stop working.
 
 Features register periodic jobs. A scheduler thread in each web worker runs
 the jobs that are due; a lease in the `job_runs` table makes sure a job runs
-in one worker at a time. Jobs of a switched-off feature do not run.
+in one worker at a time. The lease lasts the job's interval, at least 15
+minutes and at most an hour, and only the worker holding it can release it,
+so a job that outlives its lease is not run twice at once. Jobs of a
+switched-off feature do not run.
 
 | Job | Every | What it does |
 |---|---|---|
@@ -758,7 +761,8 @@ in one worker at a time. Jobs of a switched-off feature do not run.
 | `attachments.cleanup` | 1 day | Removes attachment files no row points at, and 1.4 database copies of them. |
 | `attention.notify` | 1 min | Emails administrators and reviewers about waiting requests (immediately, as a digest or daily, when switched on in **Admin → Notifications**) and people about decisions on their requests; reacts to new requests within a minute and otherwise polls the counts every 5 minutes; forgets notices after 90 days. |
 | `audit.prune` | 1 day | Applies the audit log retention. |
-| `auth.prune_rate_limits` | 1 hour | Removes old rate-limit records. |
+| `auth.platform_signouts` | 1 min | Hosted wikis with platform sign-in: reads the portal's sign-out events and ends the sessions they name (see [hosting](hosting.md#platform-sign-in)). |
+| `auth.prune_rate_limits` | 1 hour | Removes old rate-limit records, used form tokens and sessions that ended more than 90 days ago. |
 | `badges.evaluate` | 15 min | Awards automatic badges. |
 | `canvas.prune` | 1 hour | Trims canvas operation logs and histories (200 entries, 32 MB per canvas). |
 | `chat.retention` | 1 hour | Applies the chat retention policy when due. |
@@ -773,7 +777,7 @@ in one worker at a time. Jobs of a switched-off feature do not run.
 | `page_governance.cleanup` | 1 hour | Ends expired reservations and cooldowns. |
 | `pages.cleanup_uploads` | 6 hours | Deletes images no page, draft or other text mentions (older than 24 hours). |
 | `pages.prune_editing_sessions` | 15 min | Forgets stale "who is editing" markers. |
-| `site_admin.cleanup_exports` | 1 hour | Removes leftover export files. |
+| `site_admin.cleanup_exports` | 1 hour | Removes leftover export files and upload temporary files (`.upload-*`) older than a day, left by a worker killed mid-upload. |
 | `temporary_accounts.expire` | 5 min | Applies scheduled page/account deletions, visibility changes and role reverts. |
 | `tts.sweep` | 6 hours | Removes unused audio files and refreshes outdated audio. |
 | `users.collect_orphan_images` | 1 day | Removes unused avatars and backgrounds. |
@@ -785,9 +789,13 @@ test email**. The throttling state is in `attention_recipients` (one row per
 person: what they were last told) and `attention_events` (new requests, kept
 30 days); deleting the rows of one person makes the next run treat them as new.
 
-`bananawiki jobs list` prints them; `bananawiki jobs run [NAME]` runs every
-job (or one) now. With `BW_BACKGROUND_JOBS=0` the web workers run no jobs;
-then call `bananawiki jobs run` from cron (for example every five minutes).
+`bananawiki jobs list` prints them. `bananawiki jobs run` runs every job that
+is due, respecting intervals and leases, so it is safe to call from cron
+while workers run jobs too; `bananawiki jobs run NAME` runs that one job now,
+due or not. With `BW_BACKGROUND_JOBS=0` the web workers run no jobs; then call
+`bananawiki jobs run` from cron (every minute, so one-minute jobs such as
+`auth.platform_signouts` keep their pace). The desktop app waits up to two
+minutes for a running job before it closes the data folder.
 
 ## Maintenance mode
 

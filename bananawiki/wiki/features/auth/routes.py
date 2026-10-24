@@ -235,8 +235,15 @@ def suspended_delete():
         return redirect("/")
     if not _suspended_deletion_allowed(user):
         abort(403)
-    password = request.form.get("password") or ""
-    if len(password) > passwords.MAX_LENGTH or not passwords.verify_password(user["password"], password):
+    from ..users.service import ProfileError, password_ok
+
+    try:
+        # Counted against the account's limit like every other password check of a signed-in account.
+        correct = password_ok(user, request.form.get("password"))
+    except ProfileError as exc:
+        auth.flash_t(exc.key, "error")
+        return redirect(url_for("auth.account_status"))
+    if not correct:
         auth.flash_t("auth.error.current_password_wrong", "error")
         return redirect(url_for("auth.account_status"))
     if user["role"] in ADMIN_ROLES and _other_active_admins(user["id"]) == 0:
@@ -297,11 +304,14 @@ def force_password_change():
             error = t("auth.error.password_unchanged")
         else:
             try:
+                # Checked and hashed before the write lock is taken: the hash is the slow part.
+                hashed = accounts.hash_new_password(new, username=new_username or user["username"],
+                                                    email=user.get("email"))
                 with db.transaction():
                     if new_username and new_username != user["username"]:
                         accounts.rename(user, new_username, changed_by=user["id"])
                     accounts.set_password(user["id"], new, keep_session_id=auth.current_session_id(),
-                                          expected_password_hash=user["password"])
+                                          expected_password_hash=user["password"], password_hash=hashed)
             except accounts.AccountError as exc:
                 error = t(exc.key, **exc.values)
             else:

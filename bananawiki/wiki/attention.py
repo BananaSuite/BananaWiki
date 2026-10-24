@@ -26,7 +26,7 @@ from typing import Any
 from flask import g, has_request_context, url_for
 
 from . import auth
-from .registry import AttentionSource, emit, is_enabled, registry
+from .registry import AttentionSource, emit, registry, shown
 
 log = logging.getLogger("bananawiki.attention")
 
@@ -35,10 +35,15 @@ WARNING = "warning"  # a notice about the person's own account (:func:`warned`),
 
 
 def sources() -> list[AttentionSource]:
-    """Every queue of an enabled feature, in display order."""
+    """Every queue of an enabled feature, in display order.
+
+    Outside a request (emails) that is every enabled feature; in one, a
+    feature hidden from the person by their own BM mode is left out too, as
+    its pages answer 404 for them.
+    """
     found = []
     for feature in registry().ordered():
-        if feature.attention and is_enabled(feature.id):
+        if feature.attention and shown(feature.id):
             found.extend(feature.attention)
     return sorted(found, key=lambda source: (source.order, source.id))
 

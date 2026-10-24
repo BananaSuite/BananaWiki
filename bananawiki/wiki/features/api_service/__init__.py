@@ -48,7 +48,7 @@ FEATURE = Feature(
     toggle="plugin",
     default_enabled=False,
     blueprints=[api_bp, web_bp],
-    nav=[NavItem("api_service.nav.admin", "api_service.admin", icon="plug", area="admin", order=80,
+    nav=[NavItem("api_service.nav.admin", "api_service.admin", icon="plug", area="admin", bm_hide="admin.short_menu", order=80,
                  visible=lambda user: bool(user) and is_admin(user),
                  badge=attention.badge(webhooks.ATTENTION_SOURCE))],
     jobs=[

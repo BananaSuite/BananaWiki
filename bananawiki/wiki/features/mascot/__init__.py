@@ -6,14 +6,16 @@ the eleventh click puts sunglasses on it, and they stay until the person clicks
 eleven more times or takes them off under "Customise". Administrators can put
 them on or take them off for everyone at once from Appearance. See
 :mod:`.service` for where they are stored. The Konami code sends a shower of
-small bananas, and on the "page not found" card the mascot peeks in.
+small bananas, and on the "page not found" card the mascot peeks in. Each of
+these easter eggs can be switched off under Admin -> Appearance
+(:func:`.service.eggs`); switching the plugin off removes them all.
 
 Slots filled here
 -----------------
 * ``topbar.brand`` - the mascot in place of the logo, with its stylesheet and script, for
   signed-in people.
 * ``account.display_sections`` - "Take the sunglasses off" under "Customise", only while they are on.
-* ``admin.appearance`` - the sunglasses actions for every account.
+* ``admin.appearance`` - the sunglasses actions for every account and the easter egg switches.
 * ``error.card`` - the mascot peeking into the "page not found" card.
 """
 
@@ -33,8 +35,10 @@ def topbar() -> str:
     if not state["enabled"]:
         return ""
     shades = state["shades"]
+    eggs = service.eggs()
     return render_template("mascot/_topbar.html", sprite=sprite.svg("shades" if shades else "normal"),
-                           shades=shades, clicks=sprite.CLICKS_FOR_SHADES)
+                           shades=shades, clicks=sprite.CLICKS_FOR_SHADES if eggs["sunglasses"] else 0,
+                           konami=eggs["konami"])
 
 
 def display_section() -> str:
@@ -46,13 +50,15 @@ def display_section() -> str:
 
 def error_card(code: int | str = 0) -> str:
     state = service.state(auth.current_user())
-    if not state["enabled"] or str(code) != "404":
+    if not state["enabled"] or str(code) != "404" or not service.eggs()["peek"]:
         return ""
     return render_template("mascot/_peek.html", sprite=sprite.svg("shades" if state["shades"] else "normal"))
 
 
 def admin_section() -> str:
-    return render_template("mascot/_admin.html", sprite=sprite.svg)
+    eggs = service.eggs()
+    return render_template("mascot/_admin.html", sprite=sprite.svg, eggs=eggs, egg_ids=service.EGGS,
+                           clicks=sprite.CLICKS_FOR_SHADES)
 
 
 FEATURE = Feature(

@@ -35,7 +35,7 @@
   {% if attention_now.login_total %}
   <div class="banner banner--attention banner--dismissible" role="status">
     <span class="banner__text">{{ t('hosting.attention.banner_one' if attention_now.login_total == 1 else 'hosting.attention.banner_other', count=attention_now.login_total) }}</span>
-    <a class="btn btn--small btn--primary" href="{{ url_for('admin.attention') }}">{{ t('hosting.attention.review_now') }}</a>
+    <a class="btn btn--small btn--primary" href="{{ url_for('admin.dashboard') }}#attention">{{ t('hosting.attention.review_now') }}</a>
     <button type="button" class="alert__close" data-dismiss aria-label="{{ t('common.close') }}">×</button>
   </div>
   {% endif %}
@@ -50,8 +50,10 @@
   </div>
   {% endfor %}
   <header class="topbar hosting-topbar">
-    {#- The sunglasses are kept in this browser only (mascot.js, data-mascot-store="local"). -#}
-    <button type="button" class="mascot" data-mascot data-mascot-store="local" data-mascot-clicks="{{ mascot.CLICKS_FOR_SHADES }}"
+    {#- The sunglasses are kept in this browser only (mascot.js, data-mascot-store="local"). An easter egg
+        switched off under Settings → Easter eggs: no clicks put the sunglasses on (0), no banana shower. -#}
+    {% set eggs = easter_eggs() %}
+    <button type="button" class="mascot" data-mascot data-mascot-store="local" data-mascot-clicks="{{ mascot.CLICKS_FOR_SHADES if eggs.shades else 0 }}"{% if not eggs.konami %} data-mascot-konami="off"{% endif %}
             aria-label="{{ t('js.mascot.label') }}" title="{{ t('js.mascot.label') }}"><span class="mascot__body">{{ mascot.svg('normal') }}</span></button>
     <a class="topbar__brand" href="{{ url_for('public.index') }}"><span>{{ service_name }}</span></a>
     <div class="topbar__spacer"></div>

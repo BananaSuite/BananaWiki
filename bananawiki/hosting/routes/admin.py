@@ -118,8 +118,10 @@ def dashboard():
         stats[status] = sum(1 for inst in wikis if inst["status"] == status and not inst.get("expired"))
     return render_template(
         "hosting/admin/dashboard.html", stats=stats, pending=accounts.pending(),
-        feature_queue=features.pending_queue(), signup_mode=settings.signup_mode(), invites=invites.list_all(),
+        feature_queue=features.pending_queue(), signup_mode=settings.signup_mode(),
+        signup_approval=settings.approval_required(), invites=invites.list_all(),
         accounts=accounts.all_accounts(), instances=wikis, storage=_storage_protection(),
+        attention_entries=attention.items(account(), with_oldest=True),
     )
 
 
@@ -136,9 +138,8 @@ def _storage_protection() -> dict[str, Any]:
 @bp.get("/admin/attention", endpoint="attention")
 @auth.admin_required
 def attention_page():
-    entries = attention.items(account(), with_oldest=True)
-    return render_template("hosting/admin/attention.html", entries=entries,
-                           total=sum(entry["count"] for entry in entries))
+    """What waits for administrators is listed on the Overview; this address (in emails and docs) leads there."""
+    return redirect(url_for("admin.dashboard") + "#attention")
 
 
 @bp.post("/admin/notifications/test")
@@ -174,7 +175,8 @@ def account_page(account_id: str):
                            history=accounts.suspension_history(account_id),
                            events=events.recent("account", account_id, 50),
                            deletion_remaining=remaining,
-                           deletion_at=sql_in(seconds=remaining) if remaining is not None else None)
+                           deletion_at=sql_in(seconds=remaining) if remaining is not None else None,
+                           domain_policy=settings.custom_domains_policy(), domains_configured=domains.configured())
 
 
 @bp.post("/admin/accounts/create")
@@ -319,6 +321,9 @@ def schedule_deletion(account_id: str):
     target = _account_or_404(account_id)
     try:
         _not_self(target)
+        main = instances.owns_main_wiki(account_id)
+        if main:  # deleting the account would end that wiki: move it or take the mark away first
+            raise ServiceError("hosting.accounts.owns_main_wiki", slug=main)
         seconds = seconds_from_form("deletion") or 86400
         reason = (request.form.get("deletion_reason") or "").strip()
         accounts.schedule_deletion(account_id, seconds, reason, account()["id"])
@@ -362,6 +367,8 @@ def suspend_account(account_id: str):
     except ServiceError as error:
         flash_error(error)
         return back(url_for("admin.account_page", account_id=account_id))
+    # The account's wikis stop being routed now, not at the next maintenance pass.
+    instances.sync_routes()
     if request.form.get("notify_user", "1") != "0":
         notifications.notify_account(target, "account_suspended", reason=reason if reason_visible else "",
                                      until=until if time_visible and until else "")
@@ -378,6 +385,7 @@ def unsuspend_account(account_id: str):
     restored = kept = held = 0
     if request.form.get("unsuspend_instances") == "1":
         restored, kept, held = instances.unsuspend_with_account(account_id, actor_id=account()["id"])
+    instances.sync_routes()
     if request.form.get("notify_user", "1") != "0":
         notifications.notify_account(target, "account_restored")
     _done("hosting.admin.account_unsuspended", username=target["username"], count=restored)
@@ -412,6 +420,10 @@ def edit_account(account_id: str):
         return back(url_for("admin.account_page", account_id=account_id))
     if email_changed and notifications.verification_required():
         notifications.send_verification(accounts.get(account_id), ignore_cooldown=True)  # type: ignore[arg-type]
+    if email_changed:
+        notifications.email_changed(target, target["email"] or "", by_account=False)
+    if password:
+        notifications.password_changed(account_id, by_account=False)
     _done("hosting.admin.account_edited", username=username)
     return back(url_for("admin.account_page", account_id=account_id))
 
@@ -483,16 +495,21 @@ def deny_account(account_id: str):
 @auth.admin_required
 @rate_limit(20)
 def signup_mode():
+    """Change the sign-up mode alone (the form before 1.7 and scripts; Settings → Sign-ups has the full form).
+
+    The approval box stays as it is: choosing another mode never ends
+    approval behind the administrator's back, nor approves anyone unasked.
+    """
     mode = (request.form.get("signup_mode") or "").strip().lower()
     if mode not in settings.SIGNUP_MODES:
         flash(t("hosting.admin.invalid_signup_mode"), "error")
         return _dashboard()
-    was_approval = settings.approval_required()
-    settings.update(signup_mode=mode, hosting_activation_required=1 if mode == "approval" else 0)
-    if was_approval and mode != "approval":
-        count = accounts.approve_all_pending(account()["id"])
-        if count:
-            flash(tn("hosting.admin.auto_approved", count), "info")
+    before = dict(settings.load(fresh=True))
+    try:
+        _change_signups(mode, 1 if settings.flag("hosting_activation_required") else 0)
+    except _ConfirmPending as pending:
+        return _confirm_pending(pending.count, url_for("admin.signup_mode"), url_for("admin.dashboard"))
+    _record_settings_change(before)
     _done("hosting.admin.signup_mode_saved", mode=t(f"hosting.signup_mode.{mode}"))
     return _dashboard()
 
@@ -546,6 +563,7 @@ def instance(instance_id: str):
         users=users, users_total=total, quarantined=quarantined, snapshots=snapshots,
         history=instances.suspension_history(instance_id), upload_policy=instances.upload_policy(inst),
         feature_history=features.history(instance_id), domain=domains.binding(instance_id),
+        domain_reason=domains.permission(inst), domains_configured=domains.configured(),
         events=events.recent("instance", instance_id, 50), collaborators=collaborators.list_for(instance_id),
     )
 
@@ -590,6 +608,25 @@ def restart_instance(instance_id: str):
 @rate_limit(10)
 def force_restart(instance_id: str):
     return _instance_action(instance_id, lambda i: instances.restart(i, actor_id=_actor()), "hosting.instances.started")
+
+
+@bp.post("/admin/instances/<instance_id>/toggle-easy-wiki")
+@auth.admin_required
+@rate_limit(10)
+def toggle_easy_wiki(instance_id: str):
+    enable = request.form.get("enable") == "1"
+    return _instance_action(instance_id, lambda i: instances.set_easy_wiki(i, enable, actor_id=_actor()),
+                            "hosting.instances.mode_changed")
+
+
+@bp.post("/admin/instances/<instance_id>/main")
+@auth.admin_required
+@rate_limit(10)
+def set_main(instance_id: str):
+    """Mark a wiki as a main wiki of the platform, or take the mark away."""
+    on = request.form.get("main") == "1"
+    return _instance_action(instance_id, lambda i: instances.set_main(i, on, actor_id=_actor()),
+                            "hosting.main.set_done" if on else "hosting.main.unset_done")
 
 
 @bp.post("/admin/instances/<instance_id>/extend")
@@ -740,6 +777,8 @@ def unsuspend_instance(instance_id: str):
     except ServiceError as error:
         flash_error(error)
         return admin_back(instance_id)
+    notifications.notify_account(accounts.get(inst["account_id"]), "instance_unsuspended",
+                                 slug=urls.original_slug(inst["subdomain"]) or inst["subdomain"])
     _done("hosting.admin.instance_unsuspended")
     # Maintenance suspends a wiki that is still over its limit again at its next pass: say so now.
     overrun = instances.storage_overrun(instances.get(instance_id) or inst)
@@ -1005,11 +1044,28 @@ def toggle_public(instance_id: str):
 @auth.admin_required
 @rate_limit(20)
 def domain_permission(instance_id: str):
+    """Allow this one wiki a custom domain (approving the owner's request if one waits), or take that away."""
     inst = _instance_or_404(instance_id)
-    domains.set_permission(inst, request.form.get("allowed") == "1", _actor())
-    instances.sync_routes()
-    _done("hosting.admin.domain_permission_saved")
+    try:
+        features.set_entitlement(inst, "custom_domain", request.form.get("allowed") == "1", account())
+        _done("hosting.admin.domain_permission_saved")
+    except ServiceError as error:
+        flash_error(error)
     return back(url_for("dashboard.instance_domain", instance_id=instance_id))
+
+
+@bp.post("/admin/accounts/<account_id>/custom-domains")
+@auth.admin_required
+@rate_limit(20)
+def account_custom_domains(account_id: str):
+    """Let an account use custom domains while the policy allows selected accounts (or stop it)."""
+    target = _account_or_404(account_id)
+    if request.form.get("allowed") not in ("0", "1"):
+        abort(400)
+    if domains.set_account_permission(target, request.form.get("allowed") == "1", _actor()):
+        instances.sync_routes()  # its wikis' domains answer, or stop answering, at once
+    _done("hosting.admin.account_domains_saved", username=target["username"])
+    return redirect(url_for("admin.account_page", account_id=account_id) + "#custom-domains")
 
 
 @bp.post("/admin/instances/<instance_id>/rotate-oauth-credentials")
@@ -1279,12 +1335,24 @@ def _save_settings(action: str) -> str:
                         global_limit_max_storage_mb=int_field("global_limit_max_storage_mb", 5000, minimum=1))
     elif action == "save_bot_protection":
         settings.update(bot_protection_enabled=_checked("bot_protection_enabled"))
-    elif action == "save_account_communications":
+    elif action == "save_email":
+        signup, existing = request.form.get("signup_email", ""), request.form.get("existing_email", "")
+        if signup not in settings.EMAIL_POLICIES or existing not in settings.EMAIL_POLICIES:
+            raise ServiceError("hosting.form.invalid_choice")
+        settings.update(
+            signup_email=signup, existing_email=existing, **settings.email_policy_columns(signup, existing),
+            email_shared=1 if request.form.get("email_shared") == "1" else 0,
+            email_verification_required=_checked("email_verification_required"),
+            email_verification_cooldown_seconds=int_field("email_verification_cooldown_seconds", 60, minimum=30, maximum=3600),
+            email_flag_block_reentry=_checked("email_flag_block_reentry"),
+        )
+        settings.set_email_paused(bool(_checked("email_paused")))
+    elif action == "save_notices":
+        settings.update(email_notices=json.dumps(
+            {notice.kind: _checked(f"notice_{notice.kind}") for notice in notifications.NOTICES}))
+    elif action == "save_wiki_features":
         before = (settings.flag("forbid_non_admin_public_wikis", True), settings.flag("forbid_non_admin_page_builder", True))
         settings.update(
-            ask_email_new_signup=_checked("ask_email_new_signup"), ask_email_existing_users=_checked("ask_email_existing_users"),
-            email_required=_checked("email_required"), email_verification_required=_checked("email_verification_required"),
-            email_verification_cooldown_seconds=int_field("email_verification_cooldown_seconds", 60, minimum=30, maximum=3600),
             forbid_non_admin_public_wikis=_checked("forbid_non_admin_public_wikis"),
             forbid_non_admin_page_builder=_checked("forbid_non_admin_page_builder"),
             auto_approve_public_access_requests=_checked("auto_approve_public_access_requests"),
@@ -1293,6 +1361,15 @@ def _save_settings(action: str) -> str:
         after = (settings.flag("forbid_non_admin_public_wikis", True), settings.flag("forbid_non_admin_page_builder", True))
         if before != after and _apply_to_all_running():
             flash(t("hosting.admin.some_restarts_failed"), "error")
+    elif action == "save_custom_domains":
+        policy = request.form.get("custom_domains_policy", "")
+        if policy not in settings.CUSTOM_DOMAIN_POLICIES:
+            raise ServiceError("hosting.form.invalid_choice")
+        if policy != settings.custom_domains_policy():
+            settings.update(custom_domains_policy=policy)
+            instances.sync_routes()  # domains of wikis that gained or lost the permission answer, or stop, at once
+    elif action == "save_easter_eggs":
+        settings.update(**{column: _checked(f"easter_{egg}") for egg, column in settings.EASTER_EGGS.items()})
     elif action == "save_notifications":
         notify = (request.form.get("approval_notify_email") or "").strip()
         if notify and (len(notify) > 254 or not accounts.EMAIL.match(notify)):
@@ -1307,24 +1384,24 @@ def _save_settings(action: str) -> str:
             approval_notify_interval_minutes=int_field("approval_notify_interval_minutes", 360, minimum=low,
                                                        maximum=high),
             approval_notify_daily_hour=int_field("approval_notify_daily_hour", 8, minimum=0, maximum=23),
+            attention_email_sources=json.dumps(
+                {source.id: _checked(f"attention_source_{source.id}") for source in attention.SOURCES}),
         )
     elif action == "save_wiki_upload_policy":
         settings.update(global_wiki_upload_max_size_mb=int_field("global_wiki_upload_max_size_mb", 100, minimum=1, maximum=2048),
                         global_wiki_blocked_extensions=(request.form.get("global_wiki_blocked_extensions") or "").strip()[:2000])
         if _apply_to_all_running():
             flash(t("hosting.admin.some_restarts_failed"), "error")
-    elif action == "save_grace_period":
-        settings.update(grace_period_days=int_field("grace_period_days", 30, minimum=0, maximum=3650))
-    elif action == "save_activation":
-        was = settings.approval_required()
-        activation = _checked("hosting_activation_required")
+    elif action == "save_lifetime":
+        settings.update(grace_period_days=int_field("grace_period_days", 30, minimum=0, maximum=3650),
+                        owner_renewal_enabled=_checked("owner_renewal_enabled"))
+    elif action in ("save_signups", "save_activation"):  # save_activation: the form before 1.7
+        mode = request.form.get("signup_mode") or settings.signup_mode()
+        if mode not in settings.SIGNUP_MODES:
+            raise ServiceError("hosting.form.invalid_choice")
         timeout = seconds_from_form("act_timeout") if request.form.get("hosting_activation_denied_deletion_enabled") else -1
-        settings.update(hosting_activation_required=activation, hosting_activation_denied_timeout_seconds=timeout,
+        _change_signups(mode, _checked("hosting_activation_required"), hosting_activation_denied_timeout_seconds=timeout,
                         signup_use_case_required=_checked("signup_use_case_required"))
-        if was and not settings.approval_required():
-            count = accounts.approve_all_pending(account()["id"])
-            if count:
-                flash(tn("hosting.admin.auto_approved", count), "info")
     elif action == "save_instance_url_suffix":
         suffix = (request.form.get("instance_url_suffix") or "").strip().lower()
         from ..config import valid_suffix
@@ -1352,9 +1429,7 @@ def _save_settings(action: str) -> str:
         settings.update(admin_mfa_required=_checked("admin_mfa_required"))
     elif action == "save_expired_wiki_permissions":
         settings.update(allow_owner_delete_expired=_checked("allow_owner_delete_expired"),
-                        allow_owner_download_expired=_checked("allow_owner_download_expired"),
-                        owner_renewal_enabled=_checked("owner_renewal_enabled"),
-                        email_flag_block_reentry=_checked("email_flag_block_reentry"))
+                        allow_owner_download_expired=_checked("allow_owner_download_expired"))
     elif action == "save_tts_policy":
         mode = request.form.get("global_tts_mode", "all")
         settings.update(global_tts_enabled=_checked("global_tts_enabled"),
@@ -1384,29 +1459,120 @@ def _save_settings(action: str) -> str:
     return "hosting.admin.settings_saved"
 
 
+class _ConfirmPending(Exception):
+    """Leaving approval while accounts wait: the administrator says what happens to them first."""
+
+    def __init__(self, count: int) -> None:
+        super().__init__(count)
+        self.count = count
+
+
+PENDING_CHOICES = ("approve", "keep")
+
+
+def _change_signups(mode: str, activation: int, **other: Any) -> None:
+    """Apply a sign-up mode and the approval box (plus *other* settings of the same form).
+
+    Approval applies in "Administrator approval" mode whatever the box says.
+    When a change ends approval while accounts still wait, nothing changes
+    until the administrator chose (``pending_accounts``) to approve them all
+    or to keep them waiting for a decision each (:class:`_ConfirmPending`).
+    """
+    was = settings.approval_required()
+    waiting = len(accounts.pending()) if was and mode != "approval" and not activation else 0
+    choice = request.form.get("pending_accounts", "")
+    if waiting and choice not in PENDING_CHOICES:
+        raise _ConfirmPending(waiting)
+    settings.update(signup_mode=mode, hosting_activation_required=activation, **other)
+    if waiting and choice == "approve":
+        count = accounts.approve_all_pending(account()["id"])
+        if count:
+            flash(tn("hosting.admin.auto_approved", count), "info")
+    elif waiting:
+        flash(tn("hosting.admin.pending_kept", waiting), "info")
+
+
+def _confirm_pending(count: int, action_url: str, back_url: str):
+    """Ask what happens to *count* accounts still waiting, repeating the form that was sent."""
+    fields = [(name, value) for name, value in request.form.items(multi=True)
+              if name not in ("csrf_token", "pending_accounts")]
+    return render_template("hosting/admin/confirm_pending.html", count=count, fields=fields,
+                           action_url=action_url, back_url=back_url)
+
+
+# Settings that never mean an administrator's choice (counters and timestamps the portal keeps).
+_NOT_CHOICES = frozenset({"email_paused_held", "email_paused_at", "approval_notify_last_digest_at"})
+
+
+def _record_settings_change(before: dict[str, Any]) -> None:
+    """Log which settings an administrator changed (names only: some values are secrets)."""
+    after = settings.load(fresh=True)
+    changed = sorted(key for key, value in after.items() if key not in _NOT_CHOICES and before.get(key) != value)
+    if changed:
+        actor = auth.real_account() or account()
+        events.record("account", actor["id"], "settings.changed", actor["id"], ", ".join(changed))
+
+
+def _settings_context() -> dict[str, Any]:
+    current = settings.load()
+    groups = {group: [notice for notice in notifications.NOTICES if notice.group == group]
+              for group in notifications.NOTICE_GROUPS}
+    return {
+        "settings": current, "gpu_token_set": bool(settings.get("global_tts_gpu_auth_token")),
+        "suffix": urls.instance_suffix(), "email_configured": notifications.configured(),
+        "notify_interval": settings.NOTIFY_INTERVAL_MINUTES, "renewal_window": instances.RENEWAL_WINDOW_DAYS,
+        "backup_status": instances.runtime().platform_backup_status(),
+        "signup_mode": settings.signup_mode(), "email_policies": settings.EMAIL_POLICIES,
+        "signup_email": settings.signup_email(), "existing_email": settings.existing_email(),
+        "shared_addresses": 0 if settings.email_shared() else accounts.shared_addresses(),
+        "notice_groups": groups, "notices_on": {notice.kind: notifications.notice_enabled(notice.kind)
+                                                for notice in notifications.NOTICES},
+        "always_sent": notifications.ALWAYS_SENT, "attention_sources": attention.SOURCES,
+        "attention_emailed": {source.id: notifications.attention_source_emailed(source.id)
+                              for source in attention.SOURCES},
+        "eggs_on": settings.easter_eggs(),
+        "custom_domains": _custom_domain_readiness(),
+    }
+
+
+def _custom_domain_readiness() -> dict[str, Any]:
+    """What the settings page says about custom domains: the policy, whether the server is ready, how many use them."""
+    cfg = current_app.config["HOSTING"]
+    return {"policy": settings.custom_domains_policy(), "mode": cfg.hosting_mode,
+            "target": cfg.custom_domain_target, "ips": cfg.custom_domain_ips,
+            "addresses": domains.platform_addresses() if domains.configured() else (),
+            "allow_proxied": cfg.custom_domain_allow_proxied, "configured": domains.configured(),
+            **domains.policy_counts()}
+
+
 @bp.route("/admin/settings", methods=["GET", "POST"])
 @bp.route("/global-settings", methods=["GET", "POST"])
 @auth.admin_required
+@auth.exempt("contact_email")  # an administrator can always reach the setting that asks everyone for an address
 @rate_limit(20)
 def settings_page():
     if request.method == "POST":
         action = request.form.get("action", "")
+        before = dict(settings.load(fresh=True))
         try:
             if action in ("gdrive_test", "gdrive_backup_now", "gdrive_upload_credentials"):
                 _gdrive(action)
             else:
                 _done(_save_settings(action))
+        except _ConfirmPending as pending:
+            return _confirm_pending(pending.count, url_for("admin.settings_page"),
+                                    url_for("admin.settings_page", open="save_signups") + "#save_signups")
         except ServiceError as error:
             flash_error(error)
         except RuntimeFailure as error:
             flash(t(f"hosting.runtime.{error.code}"), "error")
-        return redirect(url_for("admin.settings_page"))
-    return render_template("hosting/admin/settings.html", settings=settings.load(),
-                           gpu_token_set=bool(settings.get("global_tts_gpu_auth_token")),
-                           suffix=urls.instance_suffix(), email_configured=notifications.configured(),
-                           notify_interval=settings.NOTIFY_INTERVAL_MINUTES,
-                           renewal_window=instances.RENEWAL_WINDOW_DAYS,
-                           backup_status=instances.runtime().platform_backup_status())
+        _record_settings_change(before)
+        section = action if re.fullmatch(r"save_[a-z_]+|gdrive_save", action) else ""
+        if action == "save_activation":
+            section = "save_signups"
+        return redirect(url_for("admin.settings_page", open=section) + f"#{section}" if section
+                        else url_for("admin.settings_page"))
+    return render_template("hosting/admin/settings.html", **_settings_context())
 
 
 def _gdrive(action: str) -> None:

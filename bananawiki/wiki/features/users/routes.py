@@ -20,7 +20,7 @@ from flask import (
 from ....core import passwords
 from ....core.timeutil import utcnow
 from ....core.web import safe_next
-from ... import accounts, auth, settings, storage
+from ... import accounts, auth, bm, settings, storage
 from ...i18n import enabled_languages, t
 from . import preferences, service, sessions
 
@@ -51,6 +51,41 @@ def _image_upload_allowed(user: dict[str, Any], upload: Any) -> bool:
         return True  # nothing to decode; storage reports the missing file
     limiter = current_app.extensions["bananawiki.limiter"]
     return limiter.hit(f"users:image-upload:{user['id']}", IMAGE_UPLOADS, IMAGE_UPLOAD_WINDOW)
+
+
+# BM mode's short settings (the users.simple_settings simplification)
+
+SIMPLE_SETTINGS = "users.simple_settings"
+# Sections other features add to the settings page that stay in the short version: the email address
+# and notification choices, and notices about the account itself (a scheduled deletion).
+SHORT_SETTINGS_KEEP = frozenset({"attention", "temporary_accounts"})
+
+
+def short_settings(user: dict[str, Any] | None) -> bool:
+    """Whether the settings pages show their short version to *user* in this request.
+
+    Never while something is waiting for them (a step a gate sends them to,
+    such as required two-step verification), and never after "All settings"
+    (``?all=1``), so everything stays one click away.
+    """
+    if user is None or request.args.get("all") == "1" or not bm.simplified(SIMPLE_SETTINGS):
+        return False
+    return auth.pending_account_step(user) is None and not _merge_waiting_for(user)
+
+
+def _merge_waiting_for(user: dict[str, Any]) -> bool:
+    """An account merge waits for *user*'s confirmation: its only way in is the button the short page hides."""
+    from ...db import db
+
+    return bool(db.scalar(
+        "SELECT 1 FROM account_merge_requests WHERE status = 'pending' AND "
+        "((source_user_id = ? AND source_approved = 0) OR (target_user_id = ? AND target_approved = 0)) LIMIT 1",
+        (user["id"], user["id"])))
+
+
+@bp.context_processor
+def _settings_context() -> dict[str, Any]:
+    return {"short_settings": short_settings(auth.current_user()), "short_settings_keep": SHORT_SETTINGS_KEEP}
 
 
 # Account
@@ -209,8 +244,12 @@ def display():
                                max_background_mb=_mib("background_image_max_upload"))
     form = request.form
     data: dict[str, Any] = {key: form.get(key, "") for key in (
-        "theme_mode", "interface_language", "font_scale", "contrast", "line_height", "letter_spacing",
+        "theme_mode", "font_scale", "contrast", "line_height", "letter_spacing",
         "sidebar_width", "content_max_width", *preferences.SEMANTIC_KEYS)}
+    # Only visitors see a language field here (people with an account use the Account tab); a form
+    # without it keeps the saved language, and an older form that still sends it is honoured.
+    if "interface_language" in form:
+        data["interface_language"] = form.get("interface_language", "")
     data["reduce_motion"] = 1 if form.get("reduce_motion") else 0
     data["dyslexic_font"] = 1 if form.get("dyslexic_font") else 0
     for key in preferences.COLOR_KEYS:

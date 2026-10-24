@@ -126,8 +126,8 @@ def work_root() -> Path:
 
 
 def cleanup_stale() -> int:
-    """Remove export and import folders older than a day (background job)."""
-    removed = 0
+    """Remove export and import folders older than a day, and half-written uploads (background job)."""
+    removed = storage.sweep_stale_temp_files()
     cutoff = time.time() - STALE_SECONDS
     for entry in work_root().iterdir():
         if entry.name.startswith((EXPORT_PREFIX, IMPORT_PREFIX)) and entry.stat().st_mtime < cutoff:

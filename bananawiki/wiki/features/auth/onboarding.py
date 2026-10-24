@@ -8,7 +8,7 @@ from typing import Any
 from flask import current_app
 
 from ....core.timeutil import now_sql
-from ... import accounts, i18n, migrations, settings
+from ... import accounts, bm, i18n, migrations, settings
 from ...db import db
 from ...registry import Feature, emit, is_enabled, registry, set_enabled, switch_refusal
 from . import docs
@@ -38,7 +38,7 @@ def switchable_features() -> list[Feature]:
     return [
         feature for feature in registry().ordered()
         if feature.toggle != "always"
-        and not (cfg.easy_wiki and not feature.easy_wiki)
+        and bm.feature_shown(feature)
         and feature.id not in cfg.managed_plugin_denylist
         and switch_refusal(feature.id, not is_enabled(feature.id)) is None
     ]

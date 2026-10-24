@@ -1,7 +1,9 @@
 """Routes: sign in with the hosting portal, account linking and unlinking.
 
-/platform-oauth/login, /platform-oauth/callback, /platform-oauth/merge,
-/platform-oauth/signup, /platform-oauth/link-callback,
+/platform-oauth/login, /platform-oauth/callback, /platform-oauth/connect (the
+first sign-in: create an account or connect an existing one),
+/platform-oauth/signup (create), /platform-oauth/merge (connect, then the
+two-step code), /platform-oauth/link-callback,
 /settings/link-platform-account, /settings/unlink-platform-account.
 Every route answers 404 while single sign-on is not configured.
 """
@@ -77,14 +79,6 @@ def platform_oauth_login():
     return redirect(oauth.authorize_url("login", next_url=safe_next("", request.args.get("next"))))
 
 
-def _can_provision_directly(username: str) -> bool:
-    try:
-        accounts.validate_username(username)
-    except accounts.AccountError:
-        return False
-    return not signup.invite_required() and not accounts.username_taken(username)
-
-
 def _provision(account_id: str, portal_username: str, username: str, invite_code: str | None):
     """Create a wiki account for a portal account, under the sign-up policy."""
     user = signup.register(username, None, invite_code=invite_code,
@@ -115,45 +109,122 @@ def platform_oauth_callback():
         if user is not None:
             return _finish(user, entry.get("next") or "")
         local = accounts.by_username(portal_username)
-        if local is not None and oauth.link_of(local["id"]) is None:
-            adopted = oauth.adopt_portal_link(local, account_id, portal_username)
-            if adopted:
-                return _finish(local, entry.get("next") or "")
-            if adopted is False:
-                raise oauth.OAuthError("auth.oauth.error.username_linked")
-        session[oauth.PENDING_KEY] = {"sub": account_id, "username": portal_username,
-                                      "next": entry.get("next") or "", "at": time.time()}
-        if local is not None:
-            return redirect(url_for("auth.platform_oauth_merge"))
-        if _can_provision_directly(portal_username):
-            return _finish(_provision(account_id, portal_username, portal_username, None), entry.get("next") or "")
-        return redirect(url_for("auth.platform_oauth_signup"))
+        # The portal may already know a link of the same-named account (made by 1.4): that settles it.
+        # A link to someone else's portal account only makes the name unavailable (see the connect page).
+        if local is not None and oauth.link_of(local["id"]) is None \
+                and oauth.adopt_portal_link(local, account_id, portal_username):
+            return _finish(local, entry.get("next") or "")
     except oauth.OAuthError as error:
         return _fail(error)
+    session.pop(MERGE_CODE_KEY, None)
+    session[oauth.PENDING_KEY] = {"sub": account_id, "username": portal_username,
+                                  "next": entry.get("next") or "", "at": time.time()}
+    return redirect(url_for("auth.platform_oauth_connect"))
+
+
+# The first platform sign-in: create a new wiki account or connect an existing one
+
+
+def _connect_page(pending: dict[str, Any], *, status: int = 200, create_error: str = "", existing_error: str = "",
+                  username: str | None = None, invite: str = "", existing_username: str | None = None):
+    """The choice offered on the first platform sign-in, with what applies to this wiki and this name."""
+    portal_name = pending["username"]
+    local = accounts.by_username(portal_name)
+    same_name_free = local is not None and oauth.link_of(local["id"]) is None
+    problem = oauth.name_problem(portal_name)
+    available = signup.signup_available()
+    context = {
+        "pending": pending, "signup_available": available, "invite_required": signup.invite_required(),
+        "approval_required": settings.approval_required(),
+        "name_problem": problem, "same_name_exists": local is not None, "same_name_free": same_name_free,
+        "username": username if username is not None else (oauth.suggest_username(portal_name) if available
+                                                            else portal_name),
+        "invite": invite, "create_error": create_error, "existing_error": existing_error,
+        "existing_username": existing_username if existing_username is not None else (
+            local["username"] if same_name_free else ""),
+    }
+    return render_template("auth/oauth_connect.html", **context), status
+
+
+@bp.get("/platform-oauth/connect")
+@auth.public
+@auth.exempt(*SIGN_IN_GATES)
+@_configured
+def platform_oauth_connect():
+    pending = _pending()
+    if pending is None:
+        return _fail(oauth.OAuthError("auth.oauth.error.expired"))
+    session.pop(MERGE_CODE_KEY, None)  # back from the code step: the choice starts again
+    return _connect_page(pending)
+
+
+@bp.route("/platform-oauth/signup", methods=["GET", "POST"])
+@auth.public
+@auth.exempt(*SIGN_IN_GATES)
+@_configured
+def platform_oauth_signup():
+    """Create a wiki account for the portal account (name choice, invite code when required)."""
+    pending = _pending()
+    if pending is None:
+        return _fail(oauth.OAuthError("auth.oauth.error.expired"))
+    if request.method == "GET":
+        return redirect(url_for("auth.platform_oauth_connect"))
+    username = (request.form.get("username") or "").strip()[:50]
+    invite = invites.normalize(request.form.get("invite_code"))
+    if not signup.signup_available():
+        return _connect_page(pending, status=400, create_error=t("auth.signup.error.closed"), username=username)
+    try:
+        if oauth.linked_user(pending["sub"]) is not None:
+            raise oauth.OAuthError("auth.oauth.error.account_taken")
+        user = _provision(pending["sub"], pending["username"], username, invite)
     except accounts.AccountError as exc:
-        auth.flash_t(exc.key, "error", **exc.values)
-        return redirect(url_for("auth.platform_oauth_signup"))
+        message = t(exc.key, **exc.values)
+        if exc.key in ("auth.error.username_taken", "auth.error.username_reserved", "auth.error.username_invalid"):
+            message = t("auth.oauth.connect.name_unavailable", reason=message, suggestion=oauth.suggest_username(username))
+        return _connect_page(pending, status=400, create_error=message, username=username, invite=invite)
+    except oauth.OAuthError as error:
+        oauth.log.warning("Platform sign-in: creating a wiki account failed: %s", error)
+        return _connect_page(pending, status=409 if error.key == "auth.oauth.error.account_taken" else 502,
+                             create_error=t(error.key), username=username, invite=invite)
+    return _finish(user, pending.get("next") or "")
 
 
-def _password_passed(pending: dict[str, Any], local: dict[str, Any]) -> bool:
-    """Whether this browser passed the password step of this merge and owes the two-step code.
+def _password_passed(pending: dict[str, Any]) -> dict[str, Any] | None:
+    """The wiki account whose password this browser gave in this connect flow, while it owes the two-step code.
 
     It lapses after a few minutes, and when the password or the two-step
     set-up changed since (the fingerprint of :func:`two_step.fingerprint`).
     """
     state = session.get(MERGE_CODE_KEY)
-    if not isinstance(state, dict) or state.get("sub") != pending["sub"] or state.get("user_id") != local["id"]:
-        return False
+    if not isinstance(state, dict) or state.get("sub") != pending["sub"]:
+        return None
     try:
         started = float(state.get("at", 0))
     except (TypeError, ValueError):
-        return False
-    return (0 <= time.time() - started <= signin.TWO_STEP_PENDING_SECONDS and two_step.enabled(local["id"])
-            and hmac.compare_digest(str(state.get("fingerprint", "")), two_step.fingerprint(local)))
+        return None
+    local = accounts.by_id(state.get("user_id"))
+    if local is None or not 0 <= time.time() - started <= signin.TWO_STEP_PENDING_SECONDS:
+        return None
+    if not two_step.enabled(local["id"]) or not hmac.compare_digest(str(state.get("fingerprint", "")),
+                                                                   two_step.fingerprint(local)):
+        return None
+    return local
+
+
+def _link_existing(pending: dict[str, Any], local: dict[str, Any]) -> None:
+    """Connect the portal account to *local*, whose credentials were just proven, or raise OAuthError."""
+    current = oauth.link_of(local["id"])
+    if current is not None and current["account_id"] != pending["sub"]:
+        raise oauth.OAuthError("auth.oauth.error.wiki_account_linked")
+    if current is not None:
+        return  # already connected to this portal account (another tab finished first)
+    if oauth.linked_user(pending["sub"]) is not None:
+        raise oauth.OAuthError("auth.oauth.error.account_taken")
+    oauth.link(local, pending["sub"], pending["username"])
 
 
 def _merge_code_step(pending: dict[str, Any], local: dict[str, Any]):
-    """The second step of a merge: link only once the account's two-step code is accepted.
+    """The second step of connecting an existing account: link only once its two-step code is accepted.
 
     The code is counted like a sign-in's (:func:`signin.check_code`), and the
     sign-in that follows does not ask for it again.
@@ -161,14 +232,16 @@ def _merge_code_step(pending: dict[str, Any], local: dict[str, Any]):
     if request.method == "POST":
         try:
             method = signin.check_code(local, request.form.get("code"))
-            oauth.link(local, pending["sub"], pending["username"])
+            _link_existing(pending, local)
         except signin.Refused as refusal:
             auth.flash_t(refusal.key, "error", **refusal.values)
             return render_template("auth/oauth_merge.html", pending=pending, local=local,
                                    code_step=True), refusal.status
         except oauth.OAuthError as error:
             session.pop(MERGE_CODE_KEY, None)
-            return _fail(error)
+            oauth.log.warning("Platform sign-in: connecting %s failed: %s", local["username"], error)
+            return _connect_page(pending, status=409, existing_error=t(error.key),
+                                 existing_username=local["username"])
         session.pop(MERGE_CODE_KEY, None)
         session.pop(oauth.PENDING_KEY, None)
         response = signin.finish_second_step(local, {"remember": False, "next": pending.get("next") or "",
@@ -183,61 +256,42 @@ def _merge_code_step(pending: dict[str, Any], local: dict[str, Any]):
 @auth.exempt(*SIGN_IN_GATES)
 @_configured
 def platform_oauth_merge():
-    """The portal username exists here: prove ownership with the wiki password to link them.
+    """Connect an account that already exists on this wiki: its user name and password, then its code.
 
-    An account with two-step verification also answers a code before the
-    link is made: the password alone must not attach a portal account to it.
+    The account may have any name (not only the portal's): someone known here
+    as "alexbanana" connects that account even when "alex" belongs to someone
+    else. An account with two-step verification also answers a code before
+    the link is made: the password alone must not attach a portal account to it.
     """
     pending = _pending()
     if pending is None:
         return _fail(oauth.OAuthError("auth.oauth.error.expired"))
-    local = accounts.by_username(pending["username"])
-    if local is None or oauth.link_of(local["id"]) is not None:
-        return redirect(url_for("auth.platform_oauth_signup"))
-    if _password_passed(pending, local):
+    local = _password_passed(pending)
+    if local is not None:
         return _merge_code_step(pending, local)
     session.pop(MERGE_CODE_KEY, None)
-    if request.method == "POST":
-        try:
-            user = signin.verify(local["username"], request.form.get("password") or "")
-            if two_step.enabled(user["id"]):
-                session[MERGE_CODE_KEY] = {"sub": pending["sub"], "user_id": user["id"], "at": time.time(),
-                                           "fingerprint": two_step.fingerprint(user)}
-                return redirect(url_for("auth.platform_oauth_merge"))
-            oauth.link(user, pending["sub"], pending["username"])
-        except signin.Refused as refusal:
-            auth.flash_t(refusal.key, "error", **refusal.values)
-            return render_template("auth/oauth_merge.html", pending=pending, local=local), refusal.status
-        except oauth.OAuthError as error:
-            return _fail(error)
-        auth.flash_t("auth.oauth.linked", "success")
-        return _finish(user, pending.get("next") or "")
-    return render_template("auth/oauth_merge.html", pending=pending, local=local)
-
-
-@bp.route("/platform-oauth/signup", methods=["GET", "POST"])
-@auth.public
-@auth.exempt(*SIGN_IN_GATES)
-@_configured
-def platform_oauth_signup():
-    """Create a wiki account for the portal account (username choice, invite code when required)."""
-    pending = _pending()
-    if pending is None:
-        return _fail(oauth.OAuthError("auth.oauth.error.expired"))
-    if not signup.signup_available():
-        return _fail(oauth.OAuthError("auth.signup.error.closed"))
-    context = {"pending": pending, "invite_required": signup.invite_required(),
-               "approval_required": settings.approval_required()}
     if request.method == "GET":
-        return render_template("auth/oauth_signup.html", username=pending["username"], invite="", **context)
-    username = (request.form.get("username") or "").strip()[:50]
-    invite = invites.normalize(request.form.get("invite_code"))
+        return redirect(url_for("auth.platform_oauth_connect"))
+    # 1.6 forms sent only the password: they were about the account named like the portal account.
+    username = (request.form.get("username") or pending["username"]).strip()[:50]
     try:
-        user = _provision(pending["sub"], pending["username"], username, invite)
-    except (accounts.AccountError, oauth.OAuthError) as exc:
-        message = t(exc.key, **getattr(exc, "values", {}))
-        return render_template("auth/oauth_signup.html", username=username, invite=invite, error=message,
-                               **context), 400
+        user = signin.verify(username, request.form.get("password") or "")
+    except signin.Refused as refusal:
+        return _connect_page(pending, status=refusal.status, existing_username=username,
+                             existing_error=t(refusal.key, **refusal.values))
+    try:
+        if two_step.enabled(user["id"]):
+            current = oauth.link_of(user["id"])
+            if current is not None and current["account_id"] != pending["sub"]:
+                raise oauth.OAuthError("auth.oauth.error.wiki_account_linked")
+            session[MERGE_CODE_KEY] = {"sub": pending["sub"], "user_id": user["id"], "at": time.time(),
+                                       "fingerprint": two_step.fingerprint(user)}
+            return redirect(url_for("auth.platform_oauth_merge"))
+        _link_existing(pending, user)
+    except oauth.OAuthError as error:
+        oauth.log.warning("Platform sign-in: connecting %s failed: %s", user["username"], error)
+        return _connect_page(pending, status=409, existing_error=t(error.key), existing_username=username)
+    auth.flash_t("auth.oauth.linked", "success")
     return _finish(user, pending.get("next") or "")
 
 

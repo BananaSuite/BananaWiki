@@ -1,7 +1,7 @@
 {
   "feature.user_profiles.description": "Öffentliche Profilseiten, eigene Profilfelder und eigene Labels.",
   "feature.user_profiles.name": "Benutzerprofile",
-  "profiles.about": "Info",
+  "profiles.about": "Profilfelder",
   "profiles.admin.crumb": "Profil",
   "profiles.admin.delete_field_confirm": "Möchtest du dieses Feld und alle Antworten darauf wirklich löschen?",
   "profiles.admin.disable": "Profilseite deaktivieren",
@@ -21,7 +21,7 @@
   "profiles.admin.type": "Typ",
   "profiles.admin.unpublish": "Ausblenden",
   "profiles.admin.view_profile": "Profil ansehen",
-  "profiles.edit_about": "Abschnitt „Info“ bearbeiten",
+  "profiles.edit_about": "Profilfelder bearbeiten",
   "profiles.edit_fields": "Profilfelder bearbeiten",
   "profiles.error.date_invalid": "Gib ein gültiges Datum ein.",
   "profiles.error.disabled_by_admin": "Ein Administrator hat deine Profilseite deaktiviert, daher kann sie nicht veröffentlicht werden.",

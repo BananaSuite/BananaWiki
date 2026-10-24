@@ -413,6 +413,10 @@
   "js.kanban.due_overdue_on": "Overdue since {date}",
   "js.kanban.due_soon_on": "Due soon: {date}",
   "kanban.mine.due_overdue": "Overdue since {date}",
+  "kanban.bm.simple_board": "Simpler boards",
+  "kanban.bm.simple_board_hint": "Hides selecting several tickets, filters and rows, the activity, archived tickets, history, exports and the keyboard help.",
+  "kanban.bm.simple_tickets": "Simpler tickets",
+  "kanban.bm.simple_tickets_hint": "Keeps title, description, column, people, due date, comments and files; hides priority, labels, colour, checklist, history and archiving.",
   "js.kanban.column_name": "Column name…",
   "js.kanban.list.moved": "{title} moved to position {position} of {total}."
 }

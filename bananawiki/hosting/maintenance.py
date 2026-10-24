@@ -49,7 +49,7 @@ from typing import Any
 from flask import Flask
 
 from ..core.timeutil import now_sql, sql_in
-from . import accounts, attention, domains, email, events, instances, notifications
+from . import accounts, attention, domains, email, events, instances, notifications, signouts
 from .db import connection_scope, db
 
 log = logging.getLogger("bananawiki.hosting.maintenance")
@@ -96,6 +96,7 @@ def _prune() -> None:
                (sql_in(days=-30), sql_in(days=-30)))
     db.execute("DELETE FROM hosting_oauth_authorization_codes WHERE expires_at < ?", (now_sql(),))
     db.execute("DELETE FROM hosting_oauth_access_tokens WHERE expires_at < ?", (now_sql(),))
+    signouts.prune()
     email.prune()
 
 
@@ -165,8 +166,9 @@ def run_once(app: Flask) -> dict[str, Any]:
 def _start_running(app: Flask) -> int:
     specs = []
     # A wiki whose creation never finished is never launched; it waits for cancellation.
+    # Main wikis first: after an update or a reboot they are back before the others.
     for row in db.all("SELECT * FROM instances WHERE status = 'running' AND provisioning_state = 'ready' "
-                      "ORDER BY created_at, id"):
+                      "ORDER BY is_main DESC, created_at, id"):
         try:
             specs.append(instances.spec(row))
         except Exception:  # noqa: BLE001 - one wiki must not keep the others down

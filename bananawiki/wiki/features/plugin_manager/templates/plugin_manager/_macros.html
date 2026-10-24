@@ -6,7 +6,8 @@
 {% elif entry.error_key and entry.stored %}<span class="pm-status pm-status--danger">{{ t('plugin_manager.status.failed') }}</span>
 {% elif entry.restart == 'enable' %}<span class="pm-status pm-status--warning">{{ t('plugin_manager.status.enable_pending') }}</span>
 {% elif entry.restart == 'disable' %}<span class="pm-status pm-status--warning">{{ t('plugin_manager.status.disable_pending') }}</span>
-{% elif entry.enabled %}<span class="pm-status pm-status--success">{{ t('common.enabled') }}</span>
+{% elif entry.server_off %}<span class="pm-status">{{ t('plugin_manager.status.server_off') }}</span>
+{% elif entry.enabled %}<span class="pm-status pm-status--success">{{ t('common.enabled') }}</span>{% if entry.note %} <a class="small" href="{{ url_for(entry.note[1]) }}">{{ t(entry.note[0]) }}</a>{% endif %}
 {% else %}<span class="pm-status">{{ t('common.disabled') }}</span>{% endif %}
 {%- endmacro %}
 
@@ -24,6 +25,7 @@
   {{ forms.post_button(url_for('plugin_manager.enable', plugin_id=entry.id), t('plugin_manager.action.enable'), 'btn btn--small') }}
 {% endif %}
 {% if entry.lock %}<span class="small muted">{{ t(entry.lock) }}</span>{% endif %}
+{% if entry.bm_hidden %}<span class="small muted">{{ t('plugin_manager.bm_hidden') }}</span>{% endif %}
 {% if entry.kind == 'retired' or (entry.kind == 'external' and not entry.has_files) %}
   {{ forms.post_button(url_for('plugin_manager.delete', plugin_id=entry.id), t('plugin_manager.action.remove_row'), 'btn btn--small btn--danger-quiet', confirm=t('plugin_manager.confirm.remove_row', name=entry.name)) }}
 {% endif %}

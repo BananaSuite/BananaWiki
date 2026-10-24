@@ -15,41 +15,114 @@ How a feature is switched:
 * **Always on**: part of the core.
 * **Operator**: an environment variable (see [configuration](configuration.md)).
 
-With `BW_EASY_WIKI=1` (the hosting platform's "easy wiki") the features marked
-*advanced* below are hidden and stay off. `BW_MANAGED_PLUGIN_DENYLIST` removes
-features entirely.
+[BM mode](#bm-mode), the easy mode, hides the features marked *hidden* in the
+last column and simplifies the ones marked *simpler*, until an administrator
+chooses otherwise. `BW_MANAGED_PLUGIN_DENYLIST` removes features entirely.
 
-| Feature | Id | Switch | Default | Advanced |
+| Feature | Id | Switch | Default | BM mode |
 |---|---|---|---|---|
-| [Pages and categories](#pages-and-categories) | `pages` | always on | on | |
+| [Pages and categories](#pages-and-categories) | `pages` | always on | on | simpler |
 | [Page history](#page-history) | `page_history` | plugin | on | |
 | [Drafts](#drafts) | `drafts` | plugin | on | |
 | [Attachments](#attachments) | `attachments` | plugin | on | |
 | [Difficulty tags](#difficulty-tags) | `difficulty_tags` | plugin | on | |
 | [Page export](#page-export) | `page_export` | always on (settings per format) | on | |
-| [Page builder](#page-builder) | `page_builder` | setting `page_builder_enabled` | off | yes |
-| [Page governance](#page-governance) | `page_governance` | plugin | off | yes |
-| [Contribution approval](#contribution-approval) | `contributions` | setting `contribution_approval_enabled` | off | yes |
+| [Page builder](#page-builder) | `page_builder` | plugin (stored as `page_builder_enabled`) | off | hidden |
+| [Page governance](#page-governance) | `page_governance` | plugin | off | hidden |
+| [Contribution approval](#contribution-approval) | `contributions` | setting `contribution_approval_enabled` | off | hidden |
 | [Deletion slowdown](#deletion-slowdown) | `deletion_slowdown` | plugin | off | |
 | [Temporary items](#temporary-items) | `temporary_accounts` | plugin | off | |
 | [Announcements](#announcements) | `announcements` | plugin | on | |
-| [Assessments](#assessments) | `assessments` | plugin | on | yes |
-| [Kanban boards](#kanban-boards) | `kanban` | plugin | on | yes |
-| [Canvases](#canvases) | `canvas` | plugin | on | yes |
-| [Chats and groups](#chats-and-groups) | `chat` | plugin | on | yes |
-| [Read aloud](#read-aloud) | `tts` | plugin | on | yes |
+| [Assessments](#assessments) | `assessments` | plugin | on | hidden |
+| [Kanban boards](#kanban-boards) | `kanban` | plugin | on | simpler |
+| [Canvases](#canvases) | `canvas` | plugin | on | simpler |
+| [Chats and groups](#chats-and-groups) | `chat` | plugin | on | hidden |
+| [Read aloud](#read-aloud) | `tts` | plugin | on | hidden |
 | [People and profiles](#people-and-profiles) | `users`, `user_profiles` | always on / plugin | on | |
 | [Badges](#badges) | `badges` | plugin | on | |
 | [Leaderboard](#leaderboard) | `leaderboard` | setting `contributor_leaderboard_enabled` | off | |
 | [Mascot](#mascot) | `mascot` | plugin | on | |
 | [Personal data export](#personal-data-export) | `user_data_export` | plugin | on | |
-| [Custom pages](#custom-pages) | `custom_pages` | plugin | off | yes |
+| [Custom pages](#custom-pages) | `custom_pages` | plugin | off | hidden |
 | [REST API](#rest-api) | `api_service` | plugin + setting `api_service_enabled` | off | |
-| [Federation](#federation) | `federation` | operator `BW_FEDERATION_ENABLED` | off | yes |
+| [Federation](#federation) | `federation` | operator `BW_FEDERATION_ENABLED` | off | hidden |
 | [Audit log](#audit-log) | `audit` | plugin | on | |
-| [Administration](#administration) | `admin`, `site_admin`, `bulk_manage`, `plugin_manager` | always on | on | |
+| [Administration](#administration) | `admin`, `site_admin`, `bulk_manage`, `plugin_manager` | always on | on | simpler |
+| [BM mode](#bm-mode) | `bm_mode` | always on | full mode | |
 | [Needs your attention and notifications](#needs-your-attention-and-notifications) | `attention` | always on (emails off by default) | on | |
 | [Sign-in and onboarding](#sign-in-and-onboarding) | `auth` | always on | on | |
+
+## BM mode
+
+BM mode is the easy mode of a wiki, for groups that want pages and little
+else. It replaces the 1.7 "easy wiki" setting. **Admin → BM mode**
+(`/admin/bm-mode`) turns it on or off and adjusts it item by item:
+
+* **Features**: one tick per feature. In BM mode the features marked *hidden*
+  in the table above start unticked; every other feature starts ticked, Kanban
+  boards and canvases included. An unticked feature behaves as if it were
+  switched off (its pages answer 404), but its own plugin switch and settings
+  are kept: switching it on under **Admin → Plugins** also ticks it here.
+  A feature a plain administrator may not switch off (the audit log) stays
+  shown for them. Third-party plugins are left as **Admin → Plugins** sets
+  them.
+* **Simplifications**, each on by default while BM mode is on (they only
+  hide controls and menu entries; every page behind them stays at its
+  address and nobody loses a permission):
+  * a shorter editor toolbar (bold, italic, a heading, bulleted and numbered
+    lists, links, images and files) without the edit summary;
+  * fewer page actions (no change of address or hiding);
+  * a simpler page view: no link to the page's history next to its author or
+    in its actions;
+  * no difficulty tags on pages, in their actions or in the editor (the tags
+    are kept; only while difficulty tags are on);
+  * a shorter sidebar: the page tree, Kanban boards and canvases, without the
+    other apps (people, messages, the leaderboard, reservations, plugins'
+    apps);
+  * shorter settings: profile, user name, password, language, email address
+    and **Customise**; sessions, two-step verification, API tokens, data
+    export, account merges, deleting the account and the other sections move
+    behind an **All settings** link. Anything the person must do first (two-step
+    verification an administrator must turn on, for example) shows the whole
+    page;
+  * a short admin menu (roles, sessions, the audit log, the REST API, bulk
+    delete, export, profile fields, notification settings and the language,
+    documentation, migration and server pages leave the menu);
+  * simpler Kanban boards (no bulk selection, archive, activity, history,
+    export, filters or keyboard help) and tickets (no priority, labels,
+    colour, checklist, history or archive button);
+  * fewer canvas tools (no code blocks, bring to front or back, arrange menu,
+    snapping, minimap, image export, outline or keyboard help);
+  * a "Getting started" list on the admin dashboard until the wiki has a page
+    of its own, a second member (or an invite code or open sign-up) and a
+    name.
+
+Changes are recorded in the audit log (`bm_mode.changed`). Hosting platforms
+start a wiki in BM mode when its owner picks **Easy mode (BM mode)**
+(`BW_EASY_WIKI=1`); a later change by the wiki's administrators holds until
+the platform's own choice changes again.
+
+**For the whole wiki or for single accounts.** While BM mode is on for the
+wiki, everyone is in it. While it is off, each account can be in BM mode on
+its own (`users.bm_mode`): that person gets the same simplifications, and the
+features BM mode hides leave their menus and answer 404 for them (published
+custom pages stay visible, as they are the wiki's content). Those features
+keep working for the wiki: their background jobs and the REST API
+run as before, and their checks (page protection and reservations, for
+example) still apply to that person's actions.
+
+* **Customise → BM mode**: people switch it for their own account when the
+  wiki allows it (*Everyone may switch BM mode on or off for their own
+  account*, on by default) and their account is not set otherwise.
+* **Admin → Users → an account → BM mode**: administrators switch it for that
+  account and decide whether it may switch it itself (as the wiki says, yes,
+  or no), within the usual limits (a plain administrator does not change
+  owners, superusers or other administrators). Changes are recorded in the
+  audit log (`bm_mode.account_changed`).
+* **Admin → BM mode → Every account at once** puts every account the
+  administrator may manage in BM mode or takes them all out
+  (`bm_mode.everyone_changed`), and *New accounts start in BM mode* (off by
+  default) decides how accounts created from then on begin.
 
 ## Pages and categories
 
@@ -118,6 +191,15 @@ exports**; 0 keeps drafts forever). Permissions: `draft.create`, `draft.view_own
 
 Files attached to a page, listed under it and in its editor, downloadable one
 by one or as a ZIP. Downloads always check that the reader may see the page.
+Files are added in the editor: the **File** button, dropping or pasting a file
+into the text (an image becomes a picture, any other file an attachment with
+a link at the cursor) or dropping it on the file list. A new page offers
+**Create the page and add files**, which saves it and returns to its editor.
+A page without files shows nothing under its text. Every upload shows a
+progress bar with a Cancel button; files that are too large, empty or of a
+refused type are turned away before they are sent. An upload cut off half way
+leaves nothing behind: nothing is stored until the whole file has arrived, and
+a temporary file left by a killed worker is removed after a day.
 
 Settings (**Admin → Site settings → Uploads**): `upload_mode` (`allow_all`,
 `whitelist` or `blacklist`) with the extension lists, `upload_max_size_mb`
@@ -150,7 +232,9 @@ custom label with a colour. Permissions: `tag.edit_difficulty`,
 
 ## Page builder
 
-A visual editor (`/page/<slug>/builder`) that builds a page from blocks. The
+A visual editor (`/page/<slug>/builder`) that builds a page from blocks,
+switched on under **Admin → Plugins** (`BW_FORBID_PAGE_BUILDER=1` locks it off
+there). The
 document is stored in `pages.builder_json` and a Markdown version in the page
 content, so search, history and exports keep working.
 
@@ -240,8 +324,9 @@ expire. **My contributions** at `/my-contributions`.
 
 Deleting a page hides it for 48 hours instead; **Admin → Pending deletions**
 restores or purges it. Holders of `page.delete` still see waiting pages. With
-`docs_bypass_deletion_slowdown`, pages of the built-in documentation category
-are deleted at once. While the feature is off, deletions are immediate and
+`docs_bypass_deletion_slowdown` (on by default, set under **Admin → Pending
+deletions**, changes recorded in the audit log), pages of the built-in
+documentation category are deleted at once. While the feature is off, deletions are immediate and
 nothing is purged; waiting pages stay waiting until it is switched on again.
 
 ## Temporary items
@@ -489,13 +574,19 @@ server, and the audio is kept until the page changes. Speeds from 0.75× to
 2×, download as audio file, automatic generation after edits (optional),
 anonymous listening in public mode (optional), and a choice of languages the
 wiki may speak. **Admin → Read aloud** shows the queue and dependencies.
+The voice reads each heading, list item and table row as a sentence of its
+own, reads web addresses as the site's name and skips embeds and the contents
+list. The highlight follows the voice from the title on and pauses for a few
+seconds while the reader scrolls elsewhere; a busy queue is checked again
+every 10 seconds until **Generate audio** is offered again.
 
 See [read aloud](tts.md) for installation and configuration.
 
 ## People and profiles
 
 * **Settings** (`/settings`): profile (real name, bio, birth date, avatar),
-  user name, password, language, display preferences (theme, text size,
+  user name, password, language (on the **Account** tab), **Customise**
+  (theme, text size,
   line and letter spacing, content and sidebar width, contrast, colours,
   background picture, dyslexia-friendly font, reduced motion, the
   [mascot](#mascot)'s sunglasses), sessions (list, end one,
@@ -556,8 +647,14 @@ records it in the audit log. Switch the plugin off (or deny it with
 `BW_MANAGED_PLUGIN_DENYLIST`) to show the logo for everyone. While it is on, the
 Konami code sends a short shower of small bananas, and the mascot peeks into
 the "page not found" card.
+Each easter egg (the sunglasses, the Konami code and the peek into "page not
+found") can be switched off for the whole wiki under **Admin → Appearance →
+Easter eggs** (recorded in the audit log). With the sunglasses off nobody wears
+them; each account's choice is kept for when they are on again. Switching the
+mascot plugin off removes them all.
 The hosting portal's top bar shows the same mascot to everyone; there the
-sunglasses are kept in the browser.
+sunglasses are kept in the browser, and the platform's administrators switch
+the same three easter eggs under **Settings → Easter eggs**.
 
 ## Personal data export
 

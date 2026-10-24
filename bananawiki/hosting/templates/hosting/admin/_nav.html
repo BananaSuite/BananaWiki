@@ -1,5 +1,6 @@
 <nav class="tabs" aria-label="{{ t('hosting.nav.admin') }}">
-  {% for endpoint, label in [('admin.dashboard', 'hosting.admin.nav.overview'), ('admin.attention', 'hosting.admin.nav.attention'), ('admin.settings_page', 'hosting.admin.nav.settings'), ('admin.banners_page', 'hosting.admin.nav.banners'), ('admin.merge_requests', 'hosting.admin.nav.merges'), ('admin.moderation', 'hosting.admin.nav.moderation'), ('admin.import_instance', 'hosting.admin.nav.import')] %}
+  {% for endpoint, label in [('admin.dashboard', 'hosting.admin.nav.overview'), ('admin.settings_page', 'hosting.admin.nav.settings'), ('admin.banners_page', 'hosting.admin.nav.banners'), ('admin.merge_requests', 'hosting.admin.nav.merges'), ('admin.moderation', 'hosting.admin.nav.moderation'), ('admin.import_instance', 'hosting.admin.nav.import')] %}
   <a href="{{ url_for(endpoint) }}"{% if request.endpoint == endpoint or (endpoint == 'admin.merge_requests' and request.endpoint == 'admin.merge_accounts') %} aria-current="page"{% endif %}>{{ t(label) }}</a>
   {% endfor %}
 </nav>
+{% if email_paused() %}<div class="alert alert--warning" role="status"><div class="alert__body">{{ t('hosting.admin.email_paused_banner') }} <a href="{{ url_for('admin.settings_page', open='save_email') }}#save_email">{{ t('hosting.admin.email_paused_link') }}</a></div></div>{% endif %}

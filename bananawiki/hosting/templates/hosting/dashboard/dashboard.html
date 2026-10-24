@@ -55,10 +55,8 @@
       </div>
       {% endif %}
       <div class="btn-row">
-        {% if item.url and item.status == 'running' and not item.expired %}<a class="btn btn--small" href="{{ item.url }}" rel="noopener">{{ t('hosting.instance.open_wiki') }}</a>{% endif %}
-        {% if item.role == 'owner' %}
-          {% if item.status == 'stopped' %}{{ ui.post(url_for('dashboard.restart', instance_id=item.id), t('hosting.instance.start'), 'btn btn--small', hidden={'next': url_for('dashboard.dashboard')}) }}{% endif %}
-        {% endif %}
+        {% if item.url and item.status == 'running' and not item.expired %}<a class="btn btn--small" href="{{ wiki_open_url(item) }}" rel="noopener">{{ t('hosting.instance.open_wiki') }}</a>{% endif %}
+        {% if item.can_start and item.status == 'stopped' and not item.expired %}{{ ui.post(url_for('dashboard.restart', instance_id=item.id), t('hosting.instance.start'), 'btn btn--small', hidden={'next': url_for('dashboard.dashboard')}) }}{% endif %}
         <a class="btn btn--small" href="{{ url_for('dashboard.instance_detail', instance_id=item.id) }}">{{ t('hosting.instance.manage') }}</a>
       </div>
     </div>

@@ -43,6 +43,8 @@ log = logging.getLogger("bananawiki.desktop")
 
 READY_TIMEOUT = 90.0
 STOP_TIMEOUT = 15.0
+# A background job that is still running gets this much longer before the folder is released.
+JOB_STOP_TIMEOUT = 120.0
 THREADS = 8
 _PACKAGE_PARENT = Path(__file__).resolve().parents[2]
 _INHERITED_BLOCKLIST = ("SECRET_KEY", "GUNICORN_CMD_ARGS", "WSGI_APP")
@@ -222,6 +224,11 @@ class _WaitressRunner:
             job_thread = getattr(scheduler, "_thread", None)
             if job_thread is not None:
                 job_thread.join(STOP_TIMEOUT)
+                if job_thread.is_alive():
+                    # A job is still writing (it stops the round after it): the data folder must not be
+                    # released, moved or restored under it.
+                    log.warning("Waiting for a background job to finish before stopping")
+                    job_thread.join(JOB_STOP_TIMEOUT)
         from ..wiki.app import close_log_file
 
         close_log_file()  # Windows keeps open files locked: the folder can be moved once stopped

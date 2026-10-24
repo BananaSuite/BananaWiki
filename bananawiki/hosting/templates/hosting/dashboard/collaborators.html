@@ -10,7 +10,8 @@
   <option value="custom"{% if role == 'custom' %} selected{% endif %}>{{ t('hosting.collaborators.custom') }}</option>
   <option value="full_access"{% if role == 'full_access' %} selected{% endif %}>{{ t('hosting.collaborators.full_access') }}</option></select></label>
 <fieldset class="plain"><legend>{{ t('hosting.collaborators.permissions') }}</legend>
-<div class="check-grid">{% for p in permissions %}{{ ui.check('permissions', t('hosting.permission.' ~ p), checked=p in selected, value=p) }}{% endfor %}</div></fieldset>
+{#- "download" stays a stored permission, but only owners can download (a terminated wiki), so it is not offered. -#}
+<div class="check-grid">{% for p in permissions if p != 'download' %}{{ ui.check('permissions', t('hosting.permission.' ~ p), checked=p in selected, value=p) }}{% endfor %}</div></fieldset>
 {% endmacro %}
 {% if collaborators %}<div class="panel-list">{% endif %}
 {% for c in collaborators %}
@@ -27,10 +28,14 @@
 <form method="post" action="{{ url_for('dashboard.add_collaborator', instance_id=instance.id) }}" class="form">{{ ui.csrf() }}
   {{ ui.field('username', t('hosting.field.username'), required=true) }}{{ perms_fields(['view']) }}
   <p><button class="btn btn--primary" type="submit">{{ t('hosting.collaborators.add') }}</button></p></form></section>
-{% if can_transfer %}
+{% if can_transfer or transfer or is_admin_view %}
 <section class="card"><h2>{{ t('hosting.transfers.title') }}</h2>
 {% if transfer %}<p>{{ t('hosting.transfers.pending', username=transfer.to_username) }}</p>
-  {{ ui.post(url_for('dashboard.cancel_transfer', transfer_id=transfer.id), t('hosting.transfers.cancel')) }}
+  {#- Only the owner who made the offer can withdraw it. -#}
+  {% if can_transfer %}{{ ui.post(url_for('dashboard.cancel_transfer', transfer_id=transfer.id), t('hosting.transfers.cancel')) }}{% endif %}
+{% elif not can_transfer %}{% if is_admin_view %}
+{#- An administrator moves someone else's wiki at once from Admin tools; an offer is the owner's to make. -#}
+<p>{{ tm('hosting.transfers.admin_moves', link=link(url_for('admin.instance', instance_id=instance.id) ~ '#panel-4', t('hosting.instance.admin_tools'))) }}</p>{% endif %}
 {% else %}
 <form method="post" action="{{ url_for('dashboard.start_transfer', instance_id=instance.id) }}" class="form" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ ui.csrf() }}
   {{ ui.field('username', t('hosting.transfers.to'), required=true, hint=t('hosting.transfers.start_hint')) }}<p><button class="btn" type="submit">{{ t('hosting.transfers.start') }}</button></p></form>

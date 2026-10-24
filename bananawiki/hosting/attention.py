@@ -12,8 +12,9 @@ The portal's approval queues (sources):
                          email until it frees up (see :mod:`.email`).
 
 Counts are one indexed ``COUNT`` each, cached for the request. The admin
-menu's red dot, the dashboard list, the banner after signing in and the
-``/admin/attention`` page read :func:`items`; the maintenance service emails
+menu's red dot, the "Needs your attention" card on the Overview (where
+``/admin/attention`` leads) and the banner after signing in read
+:func:`items`; the maintenance service emails
 administrators (see :mod:`.notifications`). Services call :func:`created` when
 a new item arrives and :func:`decided` when an owner's own request was
 approved or denied, which leaves a notice on their dashboard (and an email).

@@ -281,6 +281,8 @@
   "canvas.visibility.private": "Privat",
   "canvas.visibility.public": "Öffentlich",
   "canvas.visibility.shared": "Geteilt",
+  "canvas.bm.simple_tools": "Weniger Canvas-Werkzeuge",
+  "canvas.bm.simple_tools_hint": "Behält Text, Formen, Bilder, Videos, Links und Verbindungen; blendet Code, Ebenen, Anordnen, Raster, Minikarte, Exporte, Gliederung und Tastaturhilfe aus.",
   "feature.canvas.description": "Digitale Arbeitsflächen mit Notizen, Formen, Bildern, Videos, Code und Links zu Wiki-Seiten.",
   "feature.canvas.name": "Canvas",
   "js.canvas.dialog.add": "{type} hinzufügen",

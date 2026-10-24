@@ -121,9 +121,16 @@ def test_host_locks_are_shown_and_respected(app_factory, login):
     assert row["site_name"] == "Team Wiki"
 
 
-def test_page_builder_switch(admin_client, db):
+def test_the_page_builder_is_switched_under_plugins_only(admin_client, db):
+    """Site settings used to have a second switch that skipped BM mode, the host's lock and the audit log."""
+    page = admin_client.get("/admin/settings").get_data(as_text=True)
+    assert 'name="page_builder_enabled"' not in page and 'href="/admin/plugins"' in page
     admin_client.post("/admin/settings", data=valid_form(page_builder_enabled="1"))
+    assert settings_row(db)["page_builder_enabled"] == 0
+    admin_client.post("/admin/plugins/page_builder/enable")
     assert settings_row(db)["page_builder_enabled"] == 1
+    admin_client.post("/admin/settings", data=valid_form())
+    assert settings_row(db)["page_builder_enabled"] == 1, "saving the site settings leaves it alone"
 
 
 def test_public_notice_banner_for_visitors(app, client, db):

@@ -2,7 +2,11 @@
  * again take them off. Where to save them and how many clicks it takes are data attributes on the button itself,
  * which the top bar renders before any page content, so nothing a page contains can stand in for them. With
  * data-mascot-store="local" (no account) the sunglasses are kept in this browser instead.
- * The Konami code anywhere on the page sends a short shower of small bananas. */
+ * The Konami code anywhere on the page sends a short shower of small bananas.
+ *
+ * Each easter egg can be switched off on the button itself (wiki: Admin -> Appearance; portal: settings):
+ * no data-mascot-clicks, or "0", turns the sunglasses off (clicks only hop, nothing is saved), and
+ * data-mascot-konami="off" turns the Konami code off. */
 (function () {
   "use strict";
 
@@ -28,7 +32,9 @@
   if (!sprite) return;
   var local = button.getAttribute("data-mascot-store") === "local";
   var url = local ? null : shadesUrl(button.getAttribute("data-mascot-url"));
-  var needed = Math.max(1, parseInt(button.getAttribute("data-mascot-clicks"), 10) || 0);
+  var needed = parseInt(button.getAttribute("data-mascot-clicks"), 10);
+  var shadesEgg = needed > 0; // false for a missing, empty or "0" count
+  var konamiEgg = button.getAttribute("data-mascot-konami") !== "off";
   var clicks = 0;
   var saving = false;
   var timers = {};
@@ -81,9 +87,13 @@
     replay("mascot--shades-drop", 950);
   }
 
-  if (local && remembered()) wear(true);
+  if (local && shadesEgg && remembered()) wear(true);
 
   button.addEventListener("click", function () {
+    if (!shadesEgg) {
+      replay("mascot--hop", 450);
+      return;
+    }
     clicks += 1;
     // Past half way, the hop gets higher.
     if (clicks * 2 >= needed) button.classList.add("mascot--eager");
@@ -131,6 +141,8 @@
     document.body.appendChild(layer);
     window.setTimeout(function () { layer.parentNode.removeChild(layer); }, SHOWER_MS);
   }
+
+  if (!konamiEgg) return;
 
   var progress = 0;
   document.addEventListener("keydown", function (event) {

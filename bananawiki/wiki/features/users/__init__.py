@@ -13,7 +13,7 @@ from __future__ import annotations
 from flask import render_template
 
 from ... import attention, auth
-from ...registry import AttentionSource, Feature, Job, NavItem
+from ...registry import AttentionSource, Feature, Job, NavItem, Simplification
 from . import merge, merge_routes, preferences, service  # noqa: F401 - merge_routes registers views
 from .routes import bp
 
@@ -50,7 +50,7 @@ FEATURE = Feature(
     toggle="always",
     blueprints=[bp],
     nav=[
-        NavItem("users.nav.people", "users.members", icon="users", area="apps", order=40,
+        NavItem("users.nav.people", "users.members", icon="users", area="apps", order=45,
                 visible=_can_search_people),
         NavItem("users.nav.profile", "users.my_profile", icon="user", area="user", order=10),
         NavItem("users.nav.settings", "users.settings", icon="gear", area="user", order=20),
@@ -66,5 +66,8 @@ FEATURE = Feature(
         "page.scripts": _display_css,
         "auth.account_status": _account_status,
     },
+    simplifications=[
+        Simplification("users.simple_settings", "users.bm.simple_settings", "users.bm.simple_settings_hint"),
+    ],
     order=10,
 )

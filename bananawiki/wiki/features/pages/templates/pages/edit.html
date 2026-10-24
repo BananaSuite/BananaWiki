@@ -40,7 +40,7 @@
   </div>
   {% with can_upload=true %}{% include "pages/_editor.html" %}{% endwith %}
   {#- The field is its label (no for=): a heading "Edit message" in the preview above takes that id. -#}
-  <label class="field"><span class="label">{{ t('pages.field.summary') }}</span>
+  <label class="field" data-bm-hide="pages.simple_editor"><span class="label">{{ t('pages.field.summary') }}</span>
     <input id="edit-message" name="edit_message" maxlength="500" value="{{ edit_message }}" placeholder="{{ t('pages.hint.summary') }}"></label>
   {{ slot('editor.below_form', page=page) }}
   <div class="btn-row">{{ page_actions(t('pages.edit.submit'), cancel_url) }}</div>

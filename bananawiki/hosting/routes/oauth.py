@@ -3,7 +3,14 @@
 Browser-facing: ``/oauth/authorize`` (consent) and ``/oauth/revoke``.
 Server-to-server (called by the wiki, CSRF-exempt, never using the portal
 session): ``/oauth/token``, ``/oauth/userinfo`` (alias ``/oauth/me``),
-``/oauth/verify``, ``/oauth/link``, ``/oauth/unlink`` and ``/oauth/link-status``.
+``/oauth/verify``, ``/oauth/link``, ``/oauth/unlink``, ``/oauth/link-status``
+and ``/oauth/signouts``.
+
+Consent is asked once per wiki (never on the owner's own wikis): once given,
+``/oauth/authorize`` answers a GET with the code straight away, unless the
+wiki asks with ``prompt=consent`` or the account requested more than
+:data:`~bananawiki.hosting.oauth.AUTO_CODES_PER_MINUTE` codes that way in a
+minute.
 
 Wiki authentication for ``token``, ``link``, ``unlink`` and ``link-status``:
 HTTP Basic ``client_id:client_secret`` (preferred), or ``client_id`` and
@@ -31,8 +38,9 @@ from urllib.parse import urlencode
 
 from flask import Blueprint, abort, jsonify, redirect, render_template, request, url_for
 
-from ...core.web import allow_form_action, csrf_exempt
-from .. import accounts, auth, events, oauth
+from ...core.numbers import ascii_int
+from ...core.web import allow_form_action, csrf_exempt, safe_next
+from .. import accounts, auth, events, limits, oauth, signouts
 from ..db import db
 from ..limits import rate_limit
 
@@ -104,13 +112,23 @@ def authorize():
         return redirect(url_for("auth.login", next=request.full_path))
     if auth.pending_gate(current, None) or not oauth.account_may_sign_in(current) or auth.impersonating():
         abort(403)
+
+    def answer(query: dict[str, str]):
+        query = {**query, **({"state": state} if state else {})}
+        return redirect(f"{redirect_uri}{'&' if '?' in redirect_uri else '?'}{urlencode(query)}")
+
+    def issue():
+        oauth.remember_consent(current["id"], inst["id"])
+        return answer({"code": oauth.issue_code(client_id, current["id"], redirect_uri, challenge,
+                                                "S256" if challenge else "")})
+
     if request.method == "POST":
         if request.form.get("action") != "allow":
-            query = {"error": "access_denied", **({"state": state} if state else {})}
-            return redirect(f"{redirect_uri}{'&' if '?' in redirect_uri else '?'}{urlencode(query)}")
-        code = oauth.issue_code(client_id, current["id"], redirect_uri, challenge, "S256" if challenge else "")
-        query = {"code": code, **({"state": state} if state else {})}
-        return redirect(f"{redirect_uri}{'&' if '?' in redirect_uri else '?'}{urlencode(query)}")
+            return answer({"error": "access_denied"})
+        return issue()
+    if (args.get("prompt") != "consent" and oauth.consent_remembered(current, inst)
+            and limits.hit("oauth_auto_code", oauth.AUTO_CODES_PER_MINUTE, 60, key=current["id"])):
+        return issue()
     # The consent form is answered with a redirect to the wiki checked above.
     allow_form_action(redirect_uri)
     return render_template("hosting/oauth_consent.html", instance=inst)
@@ -272,14 +290,46 @@ def unlink():
     return jsonify({"ok": True})
 
 
+@bp.get("/oauth/signouts")
+@auth.public
+@auth.exempt(*auth.GATES)
+@_enabled
+@rate_limit(60)
+def signout_events():
+    """The sign-outs a wiki must carry out, after the id it got last (``after``), oldest first.
+
+    ``latest`` is the wiki's newest event id: a wiki whose cursor is beyond it
+    (a portal restored from an older backup) starts again from 0. Each event
+    asks the wiki to end the platform sessions of the wiki account linked to
+    ``account_id`` that started at or before ``at``.
+    """
+    inst = _authenticated_instance(request.args.to_dict())
+    if inst is None:
+        return _json_error(401, "invalid_client")
+    after = ascii_int(request.args.get("after") or "0", 19)
+    if after is None or after < 0 or after >= 2**63:
+        return _json_error(400, "invalid_cursor")
+    rows, latest = signouts.pending(inst["id"], after)
+    response = jsonify({"events": [{"id": row["id"], "account_id": row["account_id"],
+                                    "wiki_user_id": row["wiki_user_id"], "reason": row["reason"],
+                                    "at": row["created_at"]} for row in rows],
+                        "latest": latest, "more": len(rows) >= signouts.PAGE_SIZE})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @bp.post("/oauth/revoke")
 @auth.exempt(*auth.GATES)  # revoking only takes access away: never held up by an account state
 @_enabled
 @rate_limit(10)
 def revoke():
-    oauth.revoke_account_tokens(auth.current_account()["id"])  # type: ignore[index]
+    """Sign out of every wiki: the wikis end the platform sessions and every access token goes."""
+    current = auth.current_account()
+    if auth.impersonating():
+        abort(403)
+    oauth.sign_out_everywhere(current["id"])  # type: ignore[index]
     auth.flash_t("hosting.oauth.revoked", "success")
-    return redirect(url_for("account.account"))
+    return redirect(safe_next(url_for("account.account"), request.form.get("next")))
 
 
 __all__ = ["bp"]

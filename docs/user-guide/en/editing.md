@@ -68,9 +68,15 @@ and the original stays, as other pages or earlier versions may show it. GIFs
 and images from other websites are not cropped. An image with these options
 is written into the text as an `<img>` tag.
 
-If attachments are enabled, the editor and the page have an **Attachments**
-section for other files (PDF, documents, archives, audio, video). The wiki may
-limit file types, sizes and how much you can upload per day.
+If attachments are enabled, the editor has an **Attachments** section for
+other files (PDF, documents, archives, audio, video): press **File** in the
+toolbar, drop files on the list, or drop or paste them into the text, where a
+link to each file is inserted at the cursor. **Insert link** next to a file
+does the same later. A new page offers **Create the page and add files**,
+which saves the page and brings you back to its editor. Each upload shows its
+progress and can be cancelled; the page lists its files under the text once it
+has some. The wiki may limit file types, sizes and how much you can upload per
+day, and says so before sending a file it would refuse.
 
 ## Drafts
 

@@ -16,8 +16,11 @@ creates an owner or a superuser.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any
+
+from flask import g
 
 from .... import accounts, settings
 from ....db import db
@@ -78,6 +81,31 @@ def _check_current_password(value: Any) -> None:
         raise ApiError(403, "current_password_wrong")
 
 
+def prehash_passwords(body: bytes) -> dict[tuple[str, str], str]:
+    """Hashes of the new accounts' passwords in a request body, computed before the request takes the
+    database's write lock (an ``Idempotency-Key`` request holds it for the whole view).
+
+    Entries whose password the policy refuses are left out: the view then
+    refuses them as it would anyway.
+    """
+    try:
+        data = json.loads(body or b"{}")
+    except (TypeError, ValueError):
+        return {}
+    entries = data.get("users") if isinstance(data, dict) and isinstance(data.get("users"), list) else [data]
+    hashes: dict[tuple[str, str], str] = {}
+    for item in entries[:MAX_BULK_USERS]:
+        if not isinstance(item, dict):
+            continue
+        username, password = item.get("username"), item.get("password")
+        if isinstance(username, str) and isinstance(password, str) and password.strip():
+            try:
+                hashes[(username, password)] = accounts.hash_new_password(password, username=username.strip())
+            except accounts.AccountError:
+                continue
+    return hashes
+
+
 def _create(item: dict[str, Any]) -> dict[str, Any]:
     role = item.get("role") or "user"
     if role not in NEW_USER_ROLES:
@@ -85,8 +113,10 @@ def _create(item: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(item.get("username"), str):
         raise invalid("username", "required")
     extra = {"intro_required": 1} if settings.get("new_user_intro_enabled") else None
+    password = _password(item.get("password"))
+    ready = (g.get("api_password_hashes") or {}).get((item["username"], password))
     try:
-        return accounts.create(item["username"], _password(item.get("password")), role=role, extra=extra,
+        return accounts.create(item["username"], password, role=role, extra=extra, password_hash=ready,
                                force_password_change=bool(item.get("force_password_change")))
     except accounts.AccountError as error:
         raise from_service(error, 409 if error.key == "auth.error.username_taken" else 400) from None
@@ -115,6 +145,9 @@ def create_user():
     return ok(201, user=serialize.user(_create(json_body())))
 
 
+create_user._api_prehash_passwords = prehash_passwords  # type: ignore[attr-defined]
+
+
 @bp.post("/users/bulk")
 @requires("users", write=True)
 def bulk_create_users():
@@ -134,6 +167,9 @@ def bulk_create_users():
             name = item.get("username") if isinstance(item.get("username"), str) else ""
             errors.append({"username": name, "error": payload["error"], "code": payload["code"]})
     return ok(201 if created else 200, created=created, errors=errors)
+
+
+bulk_create_users._api_prehash_passwords = prehash_passwords  # type: ignore[attr-defined]
 
 
 @bp.put("/users/<user_id>")

@@ -163,6 +163,7 @@ def test_consent_page_allows_the_verified_custom_domain_it_answers_to(web, make_
     query("INSERT INTO instance_custom_domains (domain, instance_id, verification_token, created_at, verified_at, "
           "verified_until) VALUES ('docs.example.org', ?, 'token', '2026-01-01 00:00:00', '2026-01-01 00:00:00', "
           "'2999-01-01 00:00:00')", (wiki_client["wiki"]["id"],))
+    query("UPDATE instances SET custom_domain_allowed = 1 WHERE id = ?", (wiki_client["wiki"]["id"],))
     login(web, make_account())
     page = _consent_page(web, "https://docs.example.org/platform-oauth/callback", wiki_client["id"])
     assert page.status_code == 200

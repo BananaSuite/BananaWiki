@@ -25,7 +25,7 @@
             {{ t('pages.edit_info.by_system') }}
           {% endif %}
           <time datetime="{{ last_edit.at }}" title="{{ last_edit.at|datetime }}">{{ last_edit.at|time_ago }}</time>
-          {% if can_view_history and feature_enabled('page_history') %} <span class="nowrap">· <a href="{{ url_for('pages.history', slug=page.slug) }}">{{ t('pages.actions.history') }}</a></span>{% endif %}
+          {% if can_view_history and feature_enabled('page_history') %} <span class="nowrap" data-bm-hide="pages.simple_reading">· <a href="{{ url_for('pages.history', slug=page.slug) }}">{{ t('pages.actions.history') }}</a></span>{% endif %}
         </p>
         {% endif %}
       </div>
@@ -38,16 +38,16 @@
           <summary class="btn btn--small menu__toggle">{{ t('pages.actions.menu') }}</summary>
           <div class="menu__panel">
             {% if feature_actions %}<div class="page-actions-menu__tools">{{ feature_actions }}</div><hr>{% endif %}
-            {% if can_view_history and feature_enabled('page_history') %}<a href="{{ url_for('pages.history', slug=page.slug) }}">{{ t('pages.actions.history') }}</a>{% endif %}
+            {% if can_view_history and feature_enabled('page_history') %}<a href="{{ url_for('pages.history', slug=page.slug) }}" data-bm-hide="pages.simple_reading">{{ t('pages.actions.history') }}</a>{% endif %}
             {% if can_edit_metadata and not blocked %}
             <button type="button" data-dialog-open="dlg-title">{{ t('pages.actions.rename_title') }}</button>
             {% if not page.is_home %}
             <button type="button" data-dialog-open="dlg-move">{{ t('pages.actions.move') }}</button>
-            <button type="button" data-dialog-open="dlg-slug">{{ t('pages.actions.change_url') }}</button>
+            <button type="button" data-dialog-open="dlg-slug" data-bm-hide="pages.simple_actions">{{ t('pages.actions.change_url') }}</button>
             {% endif %}
             {% endif %}
             {% if can_deindex and not blocked %}
-            <form method="post" action="{{ url_for('pages.deindex', slug=page.slug) }}" data-confirm="{{ t('pages.confirm.unhide') if page.is_deindexed else t('pages.confirm.hide') }}">
+            <form method="post" action="{{ url_for('pages.deindex', slug=page.slug) }}" data-confirm="{{ t('pages.confirm.unhide') if page.is_deindexed else t('pages.confirm.hide') }}"{% if not page.is_deindexed %} data-bm-hide="pages.simple_actions"{% endif %}>
               {{ forms.csrf() }}<button type="submit">{{ t('pages.actions.unhide') if page.is_deindexed else t('pages.actions.hide') }}</button>
             </form>
             {% endif %}

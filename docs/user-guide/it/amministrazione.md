@@ -34,10 +34,22 @@ Apri **Amministrazione** dal menu dell'account.
   automatica giornaliera.
 * **Impostazioni del sito**: nome, fuso orario, modalità pubblica, iscrizione
   e approvazione, modalità manutenzione, sessione unica, protezione dai bot,
-  caricamenti, bozze, esportazioni, costruttore di pagine.
-* **Aspetto** e **Lingue**: colori, favicon, lingue dell'interfaccia.
-* **Plugin**: attiva e disattiva le funzioni e ordina il menu App.
-  Disattivare una funzione la nasconde ma ne conserva dati e impostazioni.
+  caricamenti, bozze, esportazioni.
+* **Modalità BM**: la modalità semplice. Attivala per tenere la wiki semplice,
+  poi scegli quali funzioni restano e cosa diventa più semplice (una barra
+  dell'editor più corta, meno azioni sulle pagine, pagine senza cronologia né
+  etichette di difficoltà, una barra laterale con solo pagine, Kanban e
+  canvas, impostazioni più brevi, un menu di amministrazione breve, Kanban e
+  canvas più semplici). Se è disattivata per la wiki, i
+  singoli account possono comunque usarla: decidi se le persone possono
+  cambiarla da sole e se i nuovi account partono in modalità BM, metti dentro
+  o fuori tutti in una volta, oppure cambiala per un account (e se può
+  cambiarla da sé) dalla sua pagina in **Utenti**.
+* **Aspetto** e **Lingue**: colori, favicon, lingue dell'interfaccia e gli
+  easter egg della mascotte.
+* **Plugin**: attiva e disattiva le funzioni (anche il costruttore di pagine) e
+  ordina il menu App. Disattivare una funzione la nasconde ma ne conserva dati
+  e impostazioni.
 * **Documentazione**: aggiunge la guida integrata (completa o semplificata,
   in inglese, italiano o tedesco) come categoria di pagine.
 * **Migrazione del sito**: esporta l'intera wiki oppure importane una (questo

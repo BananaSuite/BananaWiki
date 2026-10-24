@@ -86,6 +86,228 @@
     });
   };
 
+  // File sizes as people read them, like the server's filesize filter: "900 B", "2.3 KB", "5 MB".
+  BW.formatBytes = function (value) {
+    var size = Math.max(0, Number(value) || 0);
+    var units = ["B", "KB", "MB", "GB"];
+    var unit = 0;
+    while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; }
+    if (unit === 0) return Math.round(size) + " B";
+    var text = size.toFixed(1).replace(/\.0$/, "");
+    var lang = (document.documentElement.getAttribute("lang") || "en").split("-")[0];
+    if (["it", "de", "fr", "es", "pt", "nl"].indexOf(lang) !== -1) text = text.replace(".", ",");
+    return text + " " + units[unit];
+  };
+
+  // Uploads: XMLHttpRequest, because fetch() reports no upload progress.
+  //   BW.upload(url, formData, {onProgress(loaded, total), signal, retries, method}) -> Promise of the
+  //   JSON answer (like fetchJSON). A failure carries .status, .data, .aborted (cancelled) or .network.
+  // A request that lost its connection before the whole body was sent cannot have been stored, so it
+  // is sent again (twice at most); so is one the server refused as busy (503) before keeping anything.
+  var activeUploads = 0;
+  BW.uploadsActive = function () { return activeUploads > 0; };
+  function cancelledError() {
+    var error = new Error(BW.t("upload.cancelled_short"));
+    error.aborted = true;
+    error.status = 0;
+    error.sent = false;
+    return error;
+  }
+  function uploadOnce(url, body, options) {
+    return new Promise(function (resolve, reject) {
+      // Cancelled before this attempt began (during the pause before a retry): an XMLHttpRequest
+      // aborted before send() fires no event, so settle here instead of waiting for one forever.
+      if (options.signal && options.signal.aborted) { reject(cancelledError()); return; }
+      var xhr = new XMLHttpRequest();
+      var sent = false;
+      xhr.open(options.method || "POST", url, true);
+      xhr.setRequestHeader("Accept", options.accept || "application/json");
+      xhr.setRequestHeader("X-CSRF-Token", BW.csrf());
+      xhr.setRequestHeader("X-BW-Upload", "1");
+      Object.keys(options.headers || {}).forEach(function (name) { xhr.setRequestHeader(name, options.headers[name]); });
+      if (xhr.upload) {
+        xhr.upload.addEventListener("progress", function (event) {
+          if (options.onProgress) options.onProgress(event.loaded, event.lengthComputable ? event.total : 0);
+        });
+        xhr.upload.addEventListener("load", function () { sent = true; });
+      }
+      var fail = function (props) {
+        var error = new Error(props.message || BW.t("upload.network"));
+        Object.keys(props).forEach(function (key) { error[key] = props[key]; });
+        error.sent = sent;
+        reject(error);
+      };
+      xhr.addEventListener("load", function () {
+        var type = xhr.getResponseHeader("Content-Type") || "";
+        var data = xhr.responseText;
+        if (type.indexOf("application/json") !== -1) {
+          try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
+        }
+        if (xhr.status >= 200 && xhr.status < 300) { resolve(data); return; }
+        var message = (data && typeof data === "object" && data.error) || describeErrorPage(data) ||
+          (xhr.status === 413 ? BW.t("upload.too_large_server") : BW.t("error"));
+        fail({ status: xhr.status, data: data, message: message });
+      });
+      xhr.addEventListener("error", function () { fail({ network: true, status: 0 }); });
+      xhr.addEventListener("timeout", function () { fail({ network: true, status: 0 }); });
+      xhr.addEventListener("abort", function () { fail({ aborted: true, status: 0, message: BW.t("upload.cancelled_short") }); });
+      if (options.signal) options.signal.addEventListener("abort", function () { xhr.abort(); });
+      xhr.send(body);
+    });
+  }
+  // The heading of an HTML error page ("Too many requests"), for a message next to the upload.
+  function describeErrorPage(html) {
+    if (typeof html !== "string" || html.indexOf("<") === -1 || !window.DOMParser) return "";
+    try {
+      var doc = new DOMParser().parseFromString(html, "text/html");
+      var node = doc.querySelector(".error-page h1 + p, .error-page h1, main h1, h1");
+      return node ? node.textContent.replace(/\s+/g, " ").trim().slice(0, 300) : "";
+    } catch (e) { return ""; }
+  }
+  BW.upload = function (url, body, options) {
+    options = options || {};
+    var retries = options.retries === undefined ? 2 : options.retries;
+    var attempt = 0;
+    activeUploads += 1;
+    var settle = function () { activeUploads = Math.max(0, activeUploads - 1); };
+    var run = function () {
+      return uploadOnce(url, body, options).catch(function (error) {
+        var again = !error.aborted && attempt < retries && !(options.signal && options.signal.aborted) &&
+          ((error.network && !error.sent) || error.status === 503);
+        if (!again) throw error;
+        attempt += 1;
+        if (options.onRetry) options.onRetry(attempt, retries);
+        // The pause before the next attempt ends early when the upload is cancelled meanwhile.
+        return new Promise(function (resolve, reject) {
+          var timer = setTimeout(resolve, 1000 * attempt * attempt);
+          if (options.signal) {
+            options.signal.addEventListener("abort", function () { clearTimeout(timer); reject(cancelledError()); });
+          }
+        }).then(run);
+      });
+    };
+    return run().then(function (data) { settle(); return data; }, function (error) { settle(); throw error; });
+  };
+  // A leaving page drops its uploads: ask first.
+  window.addEventListener("beforeunload", function (event) {
+    if (!activeUploads) return undefined;
+    event.preventDefault();
+    event.returnValue = BW.t("upload.leave");
+    return event.returnValue;
+  });
+
+  // A progress row for one upload: BW.uploadRow(container, name) -> {progress(loaded, total), retrying(n, max),
+  // done(), fail(message), signal}. Its Cancel button aborts the request through .signal.
+  // The bar and its numbers are for sight; a polite live region says when an upload starts and ends.
+  BW.uploadRow = function (container, name) {
+    var row = document.createElement("div");
+    row.className = "upload-progress";
+    row.setAttribute("data-upload-row", "");
+    var head = document.createElement("div");
+    head.className = "upload-progress__head";
+    var label = document.createElement("span");
+    label.className = "upload-progress__name";
+    label.textContent = name;
+    var numbers = document.createElement("span");
+    numbers.className = "upload-progress__numbers";
+    head.appendChild(label);
+    head.appendChild(numbers);
+    var bar = document.createElement("progress");
+    bar.className = "progress";
+    bar.max = 100;
+    bar.setAttribute("aria-label", BW.t("upload.uploading", { name: name }));
+    var cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "btn btn--small btn--ghost upload-progress__cancel";
+    cancel.textContent = BW.t("upload.cancel");
+    cancel.setAttribute("aria-label", BW.t("upload.cancel_name", { name: name }));
+    var live = document.createElement("span");
+    live.className = "visually-hidden";
+    live.setAttribute("role", "status");
+    live.setAttribute("aria-live", "polite");
+    row.appendChild(head);
+    row.appendChild(bar);
+    row.appendChild(cancel);
+    row.appendChild(live);
+    container.appendChild(row);
+    var controller = window.AbortController ? new AbortController() : null;
+    cancel.addEventListener("click", function () { if (controller) controller.abort(); });
+    var last = 0;
+    window.setTimeout(function () { live.textContent = BW.t("upload.uploading", { name: name }); }, 50);
+    var finish = function () {
+      cancel.remove();
+      bar.remove();
+    };
+    return {
+      element: row,
+      signal: controller ? controller.signal : undefined,
+      progress: function (loaded, total) {
+        var now = Date.now();
+        if (now - last < 100 && loaded < total) return;
+        last = now;
+        if (total) {
+          var percent = Math.min(100, Math.floor(loaded * 100 / total));
+          bar.value = percent;
+          numbers.textContent = BW.t("upload.progress", {
+            loaded: BW.formatBytes(loaded), total: BW.formatBytes(total), percent: percent });
+          if (loaded >= total) numbers.textContent = BW.t("upload.processing");
+        } else {
+          bar.removeAttribute("value");
+          numbers.textContent = BW.formatBytes(loaded);
+        }
+      },
+      retrying: function (attempt, max) {
+        numbers.textContent = BW.t("upload.retrying", { attempt: attempt, max: max });
+      },
+      done: function (text) {
+        finish();
+        row.classList.add("is-done");
+        numbers.textContent = text || BW.t("upload.done_short");
+        live.textContent = BW.t("upload.done", { name: name });
+        window.setTimeout(function () { row.remove(); }, 2500);
+      },
+      fail: function (message, aborted) {
+        finish();
+        row.classList.add(aborted ? "is-cancelled" : "is-failed");
+        numbers.textContent = "";
+        var text = aborted ? BW.t("upload.cancelled", { name: name }) : BW.t("upload.failed", { name: name, reason: message || BW.t("error") });
+        var note = document.createElement("span");
+        note.className = "upload-progress__error";
+        note.textContent = text;
+        row.insertBefore(note, live);
+        live.textContent = text;
+        var dismiss = document.createElement("button");
+        dismiss.type = "button";
+        dismiss.className = "btn btn--small btn--ghost";
+        dismiss.textContent = BW.t("upload.dismiss");
+        dismiss.addEventListener("click", function () { row.remove(); });
+        row.insertBefore(dismiss, live);
+        if (aborted) window.setTimeout(function () { row.remove(); }, 4000);
+      }
+    };
+  };
+
+  // Checks a file against what the server accepts before sending it: {maxBytes, allow: [ext], deny: [ext]}.
+  // Returns the reason it would be refused (without its name), or "" when the file may go.
+  BW.uploadProblem = function (file, rules) {
+    rules = rules || {};
+    var name = file.name || "";
+    var dot = name.lastIndexOf(".");
+    var ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+    if (!file.size) return BW.t("upload.empty");
+    if (rules.maxBytes && file.size > rules.maxBytes) return BW.t("upload.too_large", { limit: BW.formatBytes(rules.maxBytes) });
+    if ((rules.allow || rules.deny) &&
+        (!ext || (rules.deny && rules.deny.indexOf(ext) !== -1) || (rules.allow && rules.allow.indexOf(ext) === -1))) {
+      return BW.t("upload.type", { ext: ext || "?" });
+    }
+    return "";
+  };
+  BW.uploadRules = function (element) {
+    var raw = element && element.getAttribute("data-upload-rules");
+    if (!raw) return {};
+    try { return JSON.parse(raw) || {}; } catch (e) { return {}; }
+  };
+
   // Move-up/down buttons: the first item's "up" and the last item's "down" cannot move and say so
   // (aria-disabled keeps them focusable, so focus is not lost after a move to either end).
   // Buttons carry data-move="up"/"-1" or "down"/"1"; items are the children of *list* matching *itemSelector*.
@@ -244,6 +466,107 @@
       setTimeout(function () { form.dataset.submitting = ""; }, 4000);
     }
   }, true);
+
+  // A form that sends files (enctype multipart/form-data; data-upload-progress="off" opts out) sends them
+  // with a progress bar and a Cancel button. The server answers such a request's redirect with
+  // {"redirect": url} (X-BW-Upload), and the page goes there as after a plain submit, so the flash
+  // messages show; a page it renders instead (a form with its errors) replaces this one. Files the
+  // server would refuse (size, type: data-upload-rules on the input or form, data-max-body on the
+  // form) are named before anything is sent.
+  function showPage(html) {
+    // The page's scripts and styles carry the nonce of the answer's own policy; this document keeps its own.
+    var own = document.querySelector("style[nonce], script[nonce]");
+    var nonce = own ? own.nonce || own.getAttribute("nonce") : "";
+    if (nonce) html = html.replace(/\snonce="[^"]*"/g, ' nonce="' + nonce + '"');
+    document.open();
+    document.write(html);
+    document.close();
+  }
+  // Going to this very page with another #fragment only scrolls: load it again so its messages show.
+  function goTo(url) {
+    var target = new URL(url, window.location.href);
+    var here = new URL(window.location.href);
+    target.hash = here.hash = "";
+    if (target.href === here.href) {
+      window.location.replace(url);
+      window.location.reload();
+    } else {
+      window.location.assign(url);
+    }
+  }
+  function isPage(text) {
+    return typeof text === "string" && /<html[\s>]/i.test(text) && text.indexOf("error-page") === -1;
+  }
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (event.defaultPrevented || !form || form.tagName !== "FORM") return;
+    if ((form.getAttribute("enctype") || "").toLowerCase() !== "multipart/form-data") return;
+    if (form.getAttribute("data-upload-progress") === "off" || form.getAttribute("target")) return;
+    if (!window.FormData || !window.XMLHttpRequest || (form.method || "").toLowerCase() !== "post") return;
+    if (form.dataset.uploading === "1") { event.preventDefault(); return; }
+    var files = [];
+    var problems = [];
+    var formRules = BW.uploadRules(form);
+    form.querySelectorAll('input[type="file"]').forEach(function (input) {
+      if (input.disabled) return;
+      var rules = input.hasAttribute("data-upload-rules") ? BW.uploadRules(input) : formRules;
+      Array.prototype.forEach.call(input.files || [], function (file) {
+        files.push(file);
+        var problem = BW.uploadProblem(file, rules);
+        if (problem) problems.push({ name: file.name, reason: problem });
+      });
+    });
+    if (!files.length) return;
+    var total = files.reduce(function (sum, file) { return sum + file.size; }, 0);
+    var limitMeta = document.querySelector('meta[name="bw-max-body"]');
+    var maxBody = parseInt(form.getAttribute("data-max-body") || (limitMeta && limitMeta.getAttribute("content")) || "0", 10);
+    if (maxBody && total > maxBody) {
+      problems.push({ name: "", reason: BW.t("upload.total_too_large", { size: BW.formatBytes(total), limit: BW.formatBytes(maxBody) }) });
+    }
+    var host = form.querySelector("[data-upload-progress-host]");
+    if (!host) {
+      host = document.createElement("div");
+      host.setAttribute("data-upload-progress-host", "");
+      host.className = "upload-progress-host";
+      form.appendChild(host);
+    }
+    event.preventDefault();
+    if (problems.length) {
+      form.dataset.submitting = "";
+      var refused = BW.uploadRow(host, files.length === 1 ? files[0].name : BW.tn("upload.files", files.length));
+      refused.fail(problems.map(function (problem) {
+        return files.length > 1 && problem.name ? problem.name + ": " + problem.reason : problem.reason;
+      }).join(" "));
+      return;
+    }
+    var submitter = event.submitter;
+    var data = new FormData(form);
+    if (submitter && submitter.name && !data.has(submitter.name)) data.append(submitter.name, submitter.value);
+    var buttons = Array.prototype.filter.call(
+      form.querySelectorAll('button[type="submit"], button:not([type]), input[type="submit"]'),
+      function (button) { return !button.disabled; });
+    buttons.forEach(function (button) { button.disabled = true; });
+    form.dataset.uploading = "1";
+    var row = BW.uploadRow(host, files.length === 1 ? files[0].name : BW.tn("upload.files", files.length));
+    BW.upload(form.getAttribute("action") || window.location.href, data, {
+      accept: "text/html,application/xhtml+xml", onProgress: row.progress, onRetry: row.retrying, signal: row.signal
+    }).then(function (answer) {
+      row.done();
+      if (answer && typeof answer === "object" && typeof answer.redirect === "string") {
+        goTo(answer.redirect);
+      } else if (isPage(answer)) {
+        showPage(answer);
+      } else {
+        window.location.reload();
+      }
+    }, function (error) {
+      form.dataset.uploading = "";
+      form.dataset.submitting = "";
+      buttons.forEach(function (button) { button.disabled = false; });
+      if (!error.aborted && isPage(error.data)) { showPage(error.data); return; }
+      row.fail(error.message, error.aborted);
+    });
+  });
 
   document.addEventListener("click", function (event) {
     var target = event.target;

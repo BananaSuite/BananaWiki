@@ -244,6 +244,9 @@ def send(settings: MailSettings | None, message: Message, *, limiter: DailyLimit
         return _smtp(settings, message, body_html)
     except MailError as error:
         return False, error.code
+    except Exception:  # noqa: BLE001 - callers expect (ok, reason): a delivery bug must not fail a request or job
+        log.exception("Email delivery failed")
+        return False, "send_failed"
 
 
 def _reply_to(settings: MailSettings) -> tuple[str, str]:
@@ -333,6 +336,11 @@ def _smtp(settings: MailSettings, message: Message, body_html: str) -> tuple[boo
         return True, ""
     except (smtplib.SMTPException, OSError) as error:
         log.error("SMTP delivery failed: %s", error)
+        return False, "smtp_failed"
+    except (UnicodeError, ValueError) as error:
+        # smtplib sends AUTH in ASCII: a user name or password with other characters raises here,
+        # which must be a failed delivery (the test button, the notification jobs), not an error.
+        log.error("SMTP delivery failed: %s", type(error).__name__)
         return False, "smtp_failed"
 
 

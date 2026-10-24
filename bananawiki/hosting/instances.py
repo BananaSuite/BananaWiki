@@ -229,14 +229,16 @@ def name_holder(slug: str, domain_mode: str) -> dict[str, Any] | None:
 def address_conflicts(suffix: str) -> list[dict[str, Any]]:
     """The live wikis that would lose their address with *suffix* (``""``: none) as the instance suffix.
 
-    Their host would also be another wiki's, or their name would be the
-    suffix, which is reserved.
+    Their host would also be another wiki's or one of the platform's own,
+    or their name would be the suffix, which is reserved.
     """
     rows = db.all("SELECT * FROM instances WHERE status != 'terminated' ORDER BY created_at, id")
     hosts = {row["id"]: urls.platform_host(row, suffix=suffix) for row in rows}
     taken = Counter(hosts.values())
+    own = urls.platform_hosts()
     return [row for row in rows if hosts[row["id"]]
-            and (taken[hosts[row["id"]]] > 1 or (suffix and row["subdomain"].lower() == suffix))]
+            and (taken[hosts[row["id"]]] > 1 or hosts[row["id"]] in own
+                 or (suffix and row["subdomain"].lower() == suffix))]
 
 
 def owned_by(account_id: str) -> list[dict[str, Any]]:
@@ -338,6 +340,54 @@ def maintenance_result(subject_type: str, subject_id: str, step: str, failures: 
 
 
 # Policy and specs
+
+
+# Main wikis
+
+
+def require_not_main(inst: dict[str, Any]) -> None:
+    """Refuse to end or wipe a main wiki: an administrator takes the mark away first."""
+    if inst.get("is_main"):
+        raise ServiceError("hosting.instances.main_protected")
+
+
+def set_main(inst: dict[str, Any], on: bool, *, actor_id: str | None) -> bool:
+    """Mark a wiki as a main wiki of the platform, or take the mark away; returns whether it changed.
+
+    A main wiki never expires (its end date goes, and none can be set), is
+    never terminated, reset or deleted with its owner's account, is not
+    suspended for storage automatically and starts first. Taking the mark
+    away leaves it without an end date; an administrator sets one if needed.
+    """
+    require_ready(inst)
+    current = get(inst["id"]) or inst
+    if current["status"] == "terminated":
+        raise ServiceError("hosting.instances.terminated")
+    if bool(current.get("is_main")) == on:
+        return False
+    values: dict[str, Any] = {"is_main": 1 if on else 0, "main_since": now_sql() if on else None}
+    if on:
+        values.update(expires_at=None, admin_expiry=None)
+    db.update("instances", values, "id = ?", (inst["id"],))
+    if on:
+        events.record("instance", inst["id"], "instance.main_set", actor_id, "")
+    else:
+        events.record("instance", inst["id"], "instance.main_unset", actor_id, "")
+    return True
+
+
+def main_wikis() -> list[dict[str, Any]]:
+    """Every main wiki with its owner, administrators' own (the platform's) first."""
+    return db.all(
+        "SELECT i.*, a.username AS owner_username, a.is_admin AS owner_admin FROM instances i "
+        "JOIN accounts a ON a.id = i.account_id WHERE i.is_main = 1 "
+        "ORDER BY a.is_admin DESC, i.subdomain COLLATE NOCASE, i.id")
+
+
+def owns_main_wiki(account_id: str) -> str | None:
+    """The name of a main wiki *account_id* owns, if any."""
+    return db.scalar("SELECT subdomain FROM instances WHERE account_id = ? AND is_main = 1 "
+                     "AND status != 'terminated' ORDER BY subdomain LIMIT 1", (account_id,))
 
 
 def owner_is_admin(inst: dict[str, Any]) -> bool:
@@ -447,9 +497,10 @@ def policy(inst: dict[str, Any]) -> TenantPolicy:
 
 
 def hostnames(inst: dict[str, Any]) -> tuple[str, ...]:
+    from . import domains
+
     names = [urls.platform_host(inst)]
-    domain = db.scalar("SELECT domain FROM instance_custom_domains WHERE instance_id = ? AND verified_at IS NOT NULL "
-                       "AND verified_until > ?", (inst["id"], now_sql()))
+    domain = domains.active_domain(inst["id"])
     if domain:
         names.append(domain)
     return tuple(name for name in names if name)
@@ -1011,6 +1062,7 @@ def terminate(inst: dict[str, Any], *, actor_id: str | None, reason: str = "manu
     that fails it stays under the archived name until an administrator
     deletes the wiki.
     """
+    require_not_main(get(inst["id"]) or inst)
     if not provisioning_ready(inst):
         with _provisioning_lock(inst):
             fresh = get(inst["id"])
@@ -1084,6 +1136,10 @@ def deletable_wikis(account_id: str, *, transfer: bool = False) -> list[dict[str
     transferred, and one still running cannot be cancelled until it ends.
     """
     owned = owned_by(account_id)
+    if not transfer:
+        main = next((inst for inst in owned if inst.get("is_main")), None)
+        if main is not None:  # moved to another owner with the account's other wikis, never terminated
+            raise ServiceError("hosting.accounts.owns_main_wiki", slug=main["subdomain"])
     for inst in owned:
         if provisioning_ready(inst):
             continue
@@ -1254,6 +1310,8 @@ def set_expiry(inst: dict[str, Any], expires_at: str | None, *, actor_id: str) -
         raise ServiceError("hosting.instances.terminated")
     if (inst.get("domain_mode") or "hosting") == "apex" and expires_at is not None:
         raise ServiceError("hosting.instances.apex_perpetual")
+    if inst.get("is_main") and expires_at is not None:
+        raise ServiceError("hosting.instances.main_perpetual")
     previous, moved = parse(inst.get("expires_at")), parse(expires_at)
     brought_forward = moved is not None and (previous is None or moved < previous)
     db.update("instances", {"expires_at": expires_at, "admin_expiry": expires_at if brought_forward else None},
@@ -1280,6 +1338,8 @@ def shift_expiry(inst: dict[str, Any], seconds: int, *, actor_id: str) -> None:
     """
     if (inst.get("domain_mode") or "hosting") == "apex":
         raise ServiceError("hosting.instances.apex_perpetual")
+    if inst.get("is_main"):
+        raise ServiceError("hosting.instances.main_perpetual")
     seconds = max(-MAX_EXTENSION_SECONDS, min(MAX_EXTENSION_SECONDS, int(seconds)))
     base = parse(inst.get("expires_at")) or utcnow()
     if seconds > 0 and base < utcnow():
@@ -1292,7 +1352,7 @@ def shift_expiry(inst: dict[str, Any], seconds: int, *, actor_id: str) -> None:
 
 def terminate_expired() -> int:
     rows = db.all("SELECT * FROM instances WHERE status IN ('running', 'stopped') AND expires_at IS NOT NULL "
-                  "AND expires_at <= ? ORDER BY expires_at, id", (now_sql(),))
+                  "AND expires_at <= ? AND is_main = 0 ORDER BY expires_at, id", (now_sql(),))
 
     def expire(inst: dict[str, Any]) -> None:
         terminate(inst, actor_id=None, reason="expired")
@@ -1306,7 +1366,9 @@ def _notify_owner(inst: dict[str, Any], kind: str, texts: Callable[[str], dict[s
     """Email the wiki's owner in their own language (best effort; maintenance).
 
     *texts* returns the values that are sentences in that language. Returns
-    whether the message went out, or None when there is nobody to email.
+    whether the message went out, or None when there is nobody to email or
+    nothing is to be sent (email paused, or this notice switched off): the
+    caller then does not try again later.
     """
     from . import notifications
 
@@ -1315,8 +1377,9 @@ def _notify_owner(inst: dict[str, Any], kind: str, texts: Callable[[str], dict[s
         return None
     lang = owner.get("language") or FALLBACK
     slug = urls.original_slug(inst["subdomain"]) or inst["subdomain"]
-    return notifications.send(owner["email"], kind, username=owner["username"], lang=lang, slug=slug,
-                              **(texts(lang) if texts else {}), **values)[0]
+    ok, reason = notifications.send(owner["email"], kind, username=owner["username"], lang=lang, slug=slug,
+                                    **(texts(lang) if texts else {}), **values)
+    return None if reason in notifications.NOT_SENT_ON_PURPOSE else ok
 
 
 def _notify_expired(inst: dict[str, Any]) -> None:
@@ -1469,8 +1532,9 @@ def enforce_storage_quotas(overrun_ratio: float = STORAGE_OVERRUN_RATIO) -> int:
         return True
 
     # An unfinished creation cannot be suspended; it is cancelled, never enforced.
+    # Main wikis stay up: administrators see their storage and raise the limit themselves.
     rows = db.all("SELECT * FROM instances WHERE status IN ('running', 'stopped') AND provisioning_state = 'ready' "
-                  "ORDER BY created_at, id")
+                  "AND is_main = 0 ORDER BY created_at, id")
     return _each(rows, check, "Storage quota of %s not enforced: %s")
 
 
@@ -1593,13 +1657,14 @@ def apply_owner_quota(inst: dict[str, Any], admin_owner: bool) -> None:
     require_ready(inst)
     if inst["status"] == "terminated":
         return
+    perpetual = (inst.get("domain_mode") or "hosting") == "apex" or bool(inst.get("is_main"))
     if admin_owner:
-        expires = None if (inst.get("domain_mode") or "hosting") == "apex" else sql_in(days=ADMIN_EXPIRY_DAYS)
+        expires = None if perpetual else sql_in(days=ADMIN_EXPIRY_DAYS)
         db.update("instances", {"expires_at": expires, "storage_limit_mb": 0}, "id = ?", (inst["id"],))
         return
     limit = inst.get("storage_limit_mb")
     db.update("instances", {
-        "expires_at": default_expiry(),
+        "expires_at": None if perpetual else default_expiry(),
         "storage_limit_mb": limit if limit and int(limit) > 0 else None,
     }, "id = ?", (inst["id"],))
 
@@ -1617,6 +1682,7 @@ def apply_owner_role(account_id: str, admin_owner: bool, *, actor_id: str | None
             renamed += 1
         apply_owner_quota(inst, admin_owner)
         apply_policy(inst, actor_id=actor_id)
+    sync_routes()  # whether its custom domains may answer follows the owner (domains.permission)
     return renamed
 
 
@@ -1650,6 +1716,7 @@ def move_to_owner(inst: dict[str, Any], target: dict[str, Any], *, actor_id: str
             apply_owner_quota(get(inst["id"]), target_admin)  # type: ignore[arg-type]
         events.record("instance", inst["id"], "instance.owner_changed", actor_id, target["username"])
     apply_policy(get(inst["id"]), actor_id=actor_id)  # type: ignore[arg-type]
+    sync_routes()  # the new owner decides whether its custom domain may answer (domains.permission)
     return notes
 
 
@@ -1760,6 +1827,7 @@ def reset_admin_password(inst: dict[str, Any], *, actor_id: str) -> tuple[str, s
 def reset_content(inst: dict[str, Any], *, actor_id: str) -> tuple[str, str]:
     """Factory reset. Returns the new ``(username, password)`` to show once."""
     require_ready(inst)
+    require_not_main(get(inst["id"]) or inst)
     if inst["status"] in ("terminated", "suspended"):
         raise ServiceError("hosting.instances.cannot_modify")
     username = inst.get("admin_username") or "admin"
@@ -1921,7 +1989,7 @@ def dashboard_list(account: dict[str, Any]) -> list[dict[str, Any]]:
 
 def admin_list() -> list[dict[str, Any]]:
     rows = db.all("SELECT i.*, a.username AS owner_username, a.is_admin AS owner_admin FROM instances i "
-                  "JOIN accounts a ON a.id = i.account_id ORDER BY i.created_at DESC")
+                  "JOIN accounts a ON a.id = i.account_id ORDER BY i.is_main DESC, i.created_at DESC")
     return _describe_all(rows, lambda row: bool(row["owner_admin"]))
 
 

@@ -15,12 +15,14 @@
   "attachments.title": "Attachments",
   "attachments.title_count": "Attachments ({count})",
   "attachments.upload": "Upload",
+  "attachments.after_create": "Files can be attached once the page exists.",
+  "attachments.create_and_add": "Create the page and add files",
+  "attachments.hint_drop": "Files up to {size} each. You can also drop them here or into the text.",
+  "attachments.insert_link": "Insert link",
   "feature.attachments.description": "Attach files to wiki pages and download them one by one or as a ZIP.",
   "feature.attachments.name": "Attachments",
   "js.attachments.confirm_delete": "Delete the attachment {name}?",
   "js.attachments.delete": "Delete",
   "js.attachments.done": "Upload finished.",
-  "js.attachments.size_kb": "{size} KB",
-  "js.attachments.too_large": "{name} is too large.",
-  "js.attachments.uploading": "Uploading {name}…"
+  "js.attachments.insert_link": "Insert link"
 }

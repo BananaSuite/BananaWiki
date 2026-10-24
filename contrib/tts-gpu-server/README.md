@@ -59,7 +59,7 @@ See [Connect a wiki](../../docs/tts.md#connect-a-wiki) in the read-aloud documen
 
 ## API
 
-* `GET /health` → `{"status": "ok", "version": "1.7.2"}`. Without a token it reports nothing
+* `GET /health` → `{"status": "ok", "version": "1.7.3"}`. Without a token it reports nothing
   else; with the bearer token it also reports `gpu_available`, `cuda_enabled`, `loaded_voices`
   and `output_format`.
 * `POST /synthesize` with `Authorization: Bearer <token>`, `Content-Type: application/json`

@@ -6,13 +6,14 @@ from typing import Any
 
 from flask import redirect, render_template, url_for
 
-from ... import auth
+from ... import auth, registry
 from . import service
 
 
 def offer_proposal(page: dict[str, Any], user: dict[str, Any] | None) -> Any:
     """``page.edit_denied``: send readers who may propose to the proposal form."""
-    if auth.wants_json() or not service.can_propose(page, user):
+    # The proposal form 404s for someone whose own BM mode hides contributions: they get the plain refusal.
+    if auth.wants_json() or not registry.shown("contributions") or not service.can_propose(page, user):
         return None
     auth.flash_t("contributions.redirected_to_proposal", "info")
     return redirect(url_for("contributions.propose", slug=page["slug"]))
