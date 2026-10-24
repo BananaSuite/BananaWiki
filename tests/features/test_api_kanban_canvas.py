@@ -257,6 +257,35 @@ def test_canvas_create_and_feature_switch(api_app, client, db, people):
     assert call(client, "GET", f"/canvas/{slug}", token).status_code == 404
 
 
+def test_canvas_create_below_the_write_role_needs_an_explicit_grant(api_app, client, db, people, make_user):
+    """The API follows the web interface: the editors' default does not pass, an individual grant does."""
+    from bananawiki.wiki import permissions as perms
+
+    editor = issue(api_app, people["editor"], ["canvas"])
+    refused = call(client, "POST", "/canvas", editor, json={"title": "Nope"})
+    assert refused.status_code == 403 and refused.json["code"] == "cannot_create_canvas"
+
+    db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 0)",
+               (people["member"]["id"],))
+    db.executemany("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, ?)",
+                   [(people["member"]["id"], key) for key in perms.defaults("user") | {"canvas.create"}])
+    member = issue(api_app, people["member"], ["canvas"])
+    created = call(client, "POST", "/canvas", member, json={"title": "Class map"})
+    assert created.status_code == 201 and created.json["canvas"]["is_owner"] is True
+    assert [row["slug"] for row in call(client, "GET", "/canvas", member).json["canvases"]] == ["class-map"]
+
+    maker = make_user("mapmaker", role="editor", api_access_enabled=1)
+    role_id = db.insert("custom_roles", {"name": "Map makers", "base_role": "editor",
+                                         "created_at": "2026-01-01 00:00:00", "updated_at": "2026-01-01 00:00:00"})
+    db.executemany("INSERT INTO custom_role_permissions (role_id, permission_key) VALUES (?, ?)",
+                   [(role_id, key) for key in perms.defaults("editor")])
+    db.execute("UPDATE users SET custom_role_id = ? WHERE id = ?", (role_id, maker["id"]))
+    assert call(client, "POST", "/canvas", issue(api_app, maker, ["canvas"]), json={"title": "Map"}).status_code == 201
+
+    admin = issue(api_app, people["admin"], ["canvas"])
+    assert call(client, "POST", "/canvas", admin, json={"title": "Teacher map"}).status_code == 201
+
+
 def test_canvas_locked_elements_refuse_the_whole_change(api_app, client, layout, people):
     token = issue(api_app, people["admin"], ["canvas"])
     slug = layout["slug"]

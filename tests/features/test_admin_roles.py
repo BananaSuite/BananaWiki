@@ -147,6 +147,27 @@ def test_user_permission_overrides(app, admin_client, make_user, db):
     assert grants_of(app, bob["id"]).keys == perms.defaults("editor")
 
 
+def test_grants_remember_where_the_permissions_come_from(app, admin_client, admin, make_user, db):
+    people = {"admin": admin, "defaults": make_user("plain", role="editor"),
+              "custom_role": make_user("roled", role="editor"), "overrides": make_user("solo")}
+    create_role(admin_client, permissions=["canvas.create"])
+    role_id = db.scalar("SELECT id FROM custom_roles")
+    admin_client.post(f"/admin/roles/{role_id}/assign", data={"user_id": people["custom_role"]["id"]})
+    admin_client.post(f"/admin/users/{people['overrides']['id']}/permissions",
+                      data={"permissions": ["canvas.create"]})
+    grants = {name: grants_of(app, user["id"]) for name, user in people.items()}
+    assert {name: found.source for name, found in grants.items()} == {name: name for name in people}
+
+    def explicit(name, feature_on=True):
+        return perms.grants_explicitly(grants[name], "canvas.create", lambda feature: feature_on)
+
+    # Every one of them holds canvas.create, but only a choice made for the person counts as explicit.
+    assert all(perms.grants_permission(found, "canvas.create", lambda feature: True) for found in grants.values())
+    assert {name: explicit(name) for name in people} == {"admin": False, "defaults": False, "custom_role": True,
+                                                        "overrides": True}
+    assert explicit("custom_role", feature_on=False) is False
+
+
 def test_overrides_refused_for_admins_and_custom_roles(admin_client, make_user, db):
     peer = make_user("other_admin", role="admin")
     admin_client.post(f"/admin/users/{peer['id']}/permissions", data={"permissions": ["page.view_all"]})

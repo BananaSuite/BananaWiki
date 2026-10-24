@@ -28,7 +28,7 @@
   "canvas.admin.public_access_hint": "Solange der öffentliche Modus aktiv ist, können nicht angemeldete Gäste Canvas ansehen, die als öffentlich markiert sind.",
   "canvas.admin.title": "Canvas-Einstellungen",
   "canvas.admin.write_access": "Wer Canvas erstellen und importieren kann",
-  "canvas.admin.write_access_hint": "Zum Erstellen ist außerdem die Berechtigung „Canvas erstellen“ nötig.",
+  "canvas.admin.write_access_hint": "Zum Erstellen ist außerdem die Berechtigung „Canvas erstellen“ nötig. Personen unterhalb dieser Rolle können trotzdem erstellen, wenn ihnen die Berechtigung über eine eigene Rolle oder ihre individuellen Berechtigungen gegeben wurde; die Standardberechtigung der Redakteure reicht nicht.",
   "canvas.arrange.align": "Ausrichten",
   "canvas.arrange.bottom": "Untere Kanten",
   "canvas.arrange.center": "Horizontal zentriert",

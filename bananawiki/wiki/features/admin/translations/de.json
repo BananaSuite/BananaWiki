@@ -341,7 +341,7 @@
   "permission.attachment.view": "Dateien herunterladen",
   "permission.attachment.view.hint": "Anhänge von Seiten herunterladen",
   "permission.canvas.create": "Canvas erstellen",
-  "permission.canvas.create.hint": "Eigene Canvas erstellen und verwalten",
+  "permission.canvas.create.hint": "Eigene Canvas erstellen und verwalten; hier angehakt auch unterhalb der Rolle aus den Canvas-Einstellungen",
   "permission.canvas.view": "Canvas ansehen",
   "permission.canvas.view.hint": "Canvas öffnen, die mit der Person geteilt wurden",
   "permission.category.create": "Kategorien erstellen",

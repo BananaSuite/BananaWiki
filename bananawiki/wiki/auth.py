@@ -371,6 +371,16 @@ def has_permission(key: str, user: dict[str, Any] | None = None) -> bool:
     return perms.grants_permission(resolved, key, is_enabled)
 
 
+def has_explicit_permission(key: str, user: dict[str, Any] | None = None) -> bool:
+    """*key* comes from the user's custom role or individual permissions (see :func:`perms.grants_explicitly`)."""
+    from .registry import is_enabled
+
+    resolved = grants(user)
+    if resolved is None:
+        return False
+    return perms.grants_explicitly(resolved, key, is_enabled)
+
+
 def has_role(minimum: str, user: dict[str, Any] | None = None) -> bool:
     user = current_user() if user is None else user
     return bool(user) and perms.role_at_least(user.get("role"), minimum)

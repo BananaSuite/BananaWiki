@@ -48,6 +48,11 @@ Open **Administration** from the account menu.
   English, Italian or German) as a category of pages.
 * **Site migration**: export the whole wiki, or import one (this replaces
   everything, accounts included).
+* **Canvas**: who may use canvases and who may create or import them (only
+  administrators, by default). To let one person create canvases without
+  opening creation to their whole role, tick **Create canvases** in their
+  custom role or their individual permissions; the editors' default alone
+  does not count.
 * **Bulk delete**, **Bulk Markdown**, **Audit log**, **Server** and the pages
   of individual features (announcements, badges, chats, read aloud …).
 

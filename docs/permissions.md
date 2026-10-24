@@ -111,7 +111,9 @@ Some features also have their own site settings (see [features](features.md)):
 * Kanban and canvases: the weakest role with global view access and with
   write access (`admin`, `editor` or everyone), open access, and anonymous
   access to public boards in public mode. Boards and canvases can be shared
-  with a role or a person.
+  with a role or a person. Below the canvas write role, `canvas.create`
+  granted by a custom role or individual permissions still lets that person
+  create canvases; the base-role default does not.
 * Page builder: the weakest role that may use it (`page_builder_access`);
   users additionally need the right to edit the page.
 * Chat: direct messages and groups can be switched off site-wide, and chat

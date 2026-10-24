@@ -8,6 +8,8 @@ Model
   1. their custom role (``users.custom_role_id``), or
   2. per-user overrides (present when the user has ``user_category_access`` rows), or
   3. the defaults for their base role.
+  The grants remember which one applied: a setting may accept a permission
+  granted explicitly (1 or 2) where the base-role default is not enough.
 * Category access is either unrestricted or an allow-list of category ids,
   separately for reading and (editors only) writing. Write access implies read.
   Pages without a category are hidden from restricted readers/writers.
@@ -241,6 +243,8 @@ class Grants:
     read: CategoryAccess
     write: CategoryAccess
     chat_disabled: bool = False
+    #: Where the keys come from: ``admin``, ``custom_role``, ``overrides`` or ``defaults``.
+    source: str = "defaults"
 
     @property
     def is_admin(self) -> bool:
@@ -257,7 +261,7 @@ def load_grants(db: Any, user: dict[str, Any]) -> Grants:
     role = user.get("role") or "user"
     chat_disabled = bool(user.get("chat_disabled"))
     if role in ADMIN_ROLES:
-        return Grants(role, frozenset(CATALOGUE), CategoryAccess(), CategoryAccess(), chat_disabled)
+        return Grants(role, frozenset(CATALOGUE), CategoryAccess(), CategoryAccess(), chat_disabled, "admin")
 
     custom_role_id = user.get("custom_role_id")
     if custom_role_id:
@@ -281,7 +285,7 @@ def load_grants(db: Any, user: dict[str, Any]) -> Grants:
                 read_ids |= write_ids
             write = CategoryAccess(bool(custom["write_restricted"]), frozenset(write_ids))
             read = CategoryAccess(read_restricted, frozenset(read_ids | (write_ids if read_restricted else set())))
-            return Grants(role, frozenset(sanitize(role, keys)), read, write, chat_disabled)
+            return Grants(role, frozenset(sanitize(role, keys)), read, write, chat_disabled, "custom_role")
         # Dangling custom role: fall back to the base role's defaults.
         return Grants(role, defaults(role), CategoryAccess(), CategoryAccess(), chat_disabled)
 
@@ -298,7 +302,7 @@ def load_grants(db: Any, user: dict[str, Any]) -> Grants:
     write_ids = frozenset(c["category_id"] for c in cats if c["access_type"] == "write")
     write = CategoryAccess(restricted.get("write", False), write_ids)
     read = CategoryAccess(restricted.get("read", False), read_ids | write_ids)
-    return Grants(role, frozenset(sanitize(role, keys)), read, write, chat_disabled)
+    return Grants(role, frozenset(sanitize(role, keys)), read, write, chat_disabled, "overrides")
 
 
 def grants_permission(grants: Grants, key: str, feature_enabled) -> bool:
@@ -313,6 +317,14 @@ def grants_permission(grants: Grants, key: str, feature_enabled) -> bool:
     if key.startswith("chat.") and grants.chat_disabled:
         return False
     return key in grants.keys
+
+
+def grants_explicitly(grants: Grants, key: str, feature_enabled) -> bool:
+    """*key* granted by the custom role or the individual permissions, not by the base-role defaults.
+
+    Administrators answer false: they hold every key without anyone choosing it.
+    """
+    return grants.source in ("custom_role", "overrides") and grants_permission(grants, key, feature_enabled)
 
 
 def can_read_category(grants: Grants, category_id: int | None) -> bool:

@@ -341,7 +341,7 @@
   "permission.attachment.view": "Download files",
   "permission.attachment.view.hint": "Download page attachments",
   "permission.canvas.create": "Create canvases",
-  "permission.canvas.create.hint": "Create and manage their own canvases",
+  "permission.canvas.create.hint": "Create and manage their own canvases; ticked here, also below the role chosen in the canvas settings",
   "permission.canvas.view": "View canvases",
   "permission.canvas.view.hint": "Open canvases shared with them",
   "permission.category.create": "Create categories",

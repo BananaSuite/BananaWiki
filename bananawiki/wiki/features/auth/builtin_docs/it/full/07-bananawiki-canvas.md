@@ -12,7 +12,7 @@ Una pagina va bene per un testo da leggere dall'alto in basso. Un canvas va bene
 
 ## Permessi
 
-Gli amministratori decidono quali ruoli possono usare i canvas. Chi ha creato il canvas lo condivide con persone o ruoli, in lettura o in modifica.
+Gli amministratori decidono quali ruoli possono usare i canvas e quali possono crearli; possono anche permettere a singole persone di crearli con il loro ruolo personalizzato o i loro permessi individuali. Chi ha creato il canvas lo condivide con persone o ruoli, in lettura o in modifica.
 
 ## Cronologia ed esportazione
 
