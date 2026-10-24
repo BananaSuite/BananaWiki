@@ -36,12 +36,21 @@
   </section>
   <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('common.save') }}</button></div>
 </form>
-<section class="card" aria-labelledby="bm-everyone-heading">
+<section class="card" id="bm-everyone" aria-labelledby="bm-everyone-heading">
   <h2 id="bm-everyone-heading">{{ t('bm_mode.everyone.title') }}</h2>
   <p class="hint">{{ t('bm_mode.everyone.hint') }}</p>
-  <div class="btn-row">
-    {{ forms.post_button(url_for('bm_mode.everyone'), t('bm_mode.everyone.on'), 'btn', confirm=t('bm_mode.everyone.on_confirm'), hidden={'action': 'on'}) }}
-    {{ forms.post_button(url_for('bm_mode.everyone'), t('bm_mode.everyone.off'), 'btn', confirm=t('bm_mode.everyone.off_confirm'), hidden={'action': 'off'}) }}
-  </div>
+  <form class="form" method="post" action="{{ url_for('bm_mode.everyone') }}">
+    {{ forms.csrf() }}
+    <fieldset>
+      <legend>{{ t('bm_mode.everyone.roles') }}</legend>
+      {{ forms.checkbox('role', t('bm_mode.everyone.role.user'), checked=true, value='user') }}
+      {{ forms.checkbox('role', t('bm_mode.everyone.role.editor'), value='editor') }}
+      {{ forms.checkbox('role', t('bm_mode.everyone.role.admin'), value='admin', hint=(t('bm_mode.everyone.role.admin_top_hint') if top else t('bm_mode.everyone.role.admin_hint'))) }}
+    </fieldset>
+    <div class="btn-row">
+      <button type="submit" class="btn" name="action" value="on" data-confirm="{{ t('bm_mode.everyone.on_confirm') }}">{{ t('bm_mode.everyone.on') }}</button>
+      <button type="submit" class="btn" name="action" value="off" data-confirm="{{ t('bm_mode.everyone.off_confirm') }}">{{ t('bm_mode.everyone.off') }}</button>
+    </div>
+  </form>
 </section>
 {% endblock %}

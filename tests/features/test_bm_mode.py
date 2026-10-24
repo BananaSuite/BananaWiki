@@ -170,11 +170,96 @@ def test_administrators_switch_accounts_within_their_reach(app, admin, make_user
     admin_client.post(f"/admin/users/{boss['id']}/bm-mode", data={"bm_mode": "1", "bm_self": "deny"})
     assert _bm_column(app, boss) == 0 and _bm_column(app, boss, "bm_self") == "", "a plain administrator cannot"
     assert admin_client.post(f"/admin/users/{member['id']}/bm-mode", data={"bm_self": "maybe"}).status_code == 400
-    response = admin_client.post("/admin/bm-mode/everyone", data={"action": "on"})
+    response = _everyone(admin_client, "on", "user", "editor", "admin")
     assert response.status_code == 302
     assert _bm_column(app, admin) == 1 and _bm_column(app, boss) == 0, "every account the administrator manages"
-    admin_client.post("/admin/bm-mode/everyone", data={"action": "off"})
+    _everyone(admin_client, "off", "user", "editor", "admin")
     assert _bm_column(app, member) == 0 and _bm_column(app, admin) == 0
+
+
+def _everyone(client, action, *roles):
+    return client.post("/admin/bm-mode/everyone", data={"action": action, "role": list(roles)})
+
+
+def _states(app, *users):
+    return [_bm_column(app, user) for user in users]
+
+
+def test_every_account_at_once_takes_only_the_ticked_roles(app, admin, make_user, login, db):
+    member, writer = make_user("member"), make_user("writer", role="editor")
+    client = _signed_in(app, login, admin)
+    page = client.get("/admin/bm-mode").get_data(as_text=True)
+    assert 'name="role" value="user" checked' in page, "users are ticked to begin with"
+    assert 'name="role" value="editor">' in page and 'name="role" value="admin">' in page
+    _everyone(client, "on", "user")
+    assert _states(app, member, writer, admin) == [1, 0, 0]
+    entry = db.one("SELECT details FROM audit_log WHERE action = 'bm_mode.everyone_changed'")
+    assert json.loads(entry["details"]) == {"bm_mode": True, "roles": ["user"], "accounts": 1}
+    _everyone(client, "on", "editor", "user")
+    log = " ".join(client.get("/admin/audit?action=bm_mode.everyone_changed").get_data(as_text=True).split())
+    assert '<strong title="roles">Roles</strong>: User, Editor</span>' in log, "in the reader's language"
+    assert _states(app, member, writer, admin) == [1, 1, 0], "the administrator's own account only with administrators"
+    _everyone(client, "on", "admin")
+    assert _states(app, member, writer, admin) == [1, 1, 1]
+
+
+def test_taking_accounts_out_follows_the_ticked_roles_too(app, admin, make_user, login, db):
+    member, writer = make_user("member"), make_user("writer", role="editor")
+    db.execute("UPDATE users SET bm_mode = 1")
+    client = _signed_in(app, login, admin)
+    _everyone(client, "off", "editor")
+    assert _states(app, member, writer, admin) == [1, 0, 1]
+    _everyone(client, "off", "user")
+    assert _states(app, member, writer, admin) == [0, 0, 1]
+    _everyone(client, "off", "admin")
+    assert _states(app, member, writer, admin) == [0, 0, 0]
+
+
+def test_a_custom_role_counts_under_its_base_role(app, admin, make_user, login, db):
+    reviewer = make_user("reviewer")
+    client = _signed_in(app, login, admin)
+    client.post("/admin/roles/create", data={"name": "Reviewers", "description": "", "base_role": "editor",
+                                             "permissions": ["page.view_all", "page.edit_all"]})
+    role_id = db.scalar("SELECT id FROM custom_roles")
+    client.post(f"/admin/roles/{role_id}/assign", data={"user_id": reviewer["id"]})
+    assert db.scalar("SELECT role FROM users WHERE id = ?", (reviewer["id"],)) == "editor"
+    _everyone(client, "on", "user")
+    assert _bm_column(app, reviewer) == 0
+    _everyone(client, "on", "editor")
+    assert _bm_column(app, reviewer) == 1
+
+
+def test_a_plain_administrator_ticking_administrators_changes_only_their_own_account(app, admin, make_user, login):
+    colleague, boss = make_user("colleague", role="admin"), make_user("boss", role="owner")
+    keeper, member = make_user("keeper", is_superuser=1), make_user("member")
+    client = _signed_in(app, login, admin)
+    assert "Just your own account" in client.get("/admin/bm-mode").get_data(as_text=True)
+    _everyone(client, "on", "admin")
+    assert _states(app, admin, colleague, boss, keeper, member) == [1, 0, 0, 0, 0]
+    _everyone(client, "on", "user", "editor", "admin")
+    assert _states(app, admin, colleague, boss, keeper, member) == [1, 0, 0, 0, 1], "a superuser is never a user here"
+
+
+def test_an_owner_ticking_administrators_changes_the_other_administrators(app, admin, make_user, login):
+    boss, other_owner = make_user("boss", role="owner"), make_user("other_owner", role="owner")
+    root_admin, member = make_user("root_admin", role="admin", is_superuser=1), make_user("member")
+    client = _signed_in(app, login, boss)
+    assert "Other administrators and your own account" in client.get("/admin/bm-mode").get_data(as_text=True)
+    _everyone(client, "on", "user")
+    assert _states(app, boss, admin, member) == [0, 0, 1]
+    _everyone(client, "on", "admin")
+    assert _states(app, boss, admin, other_owner, root_admin) == [1, 1, 0, 0]
+
+
+def test_no_ticked_role_changes_nobody(app, admin, make_user, login, db):
+    member = make_user("member")
+    client = _signed_in(app, login, admin)
+    response = client.post("/admin/bm-mode/everyone", data={"action": "on"}, follow_redirects=True)
+    assert "Tick at least one role." in response.get_data(as_text=True)
+    assert _everyone(client, "on", "owner", "superuser").status_code == 302, "not roles the card offers"
+    assert _everyone(client, "maybe", "user").status_code == 400
+    assert _states(app, member, admin) == [0, 0]
+    assert db.scalar("SELECT COUNT(*) FROM audit_log WHERE action = 'bm_mode.everyone_changed'") == 0
 
 
 def test_new_accounts_start_in_bm_mode_when_the_administrators_say_so(app, admin, make_user, login):

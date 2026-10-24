@@ -51,6 +51,7 @@
           <td class="small audit-details" data-label="{{ t('audit.col.details') }}">{% for key, value in row.details.items() %}<span><strong title="{{ key }}">{{ t('audit.detail.' ~ key, key) }}</strong>:
             {% if value is none or value == '' %}—
             {%- elif key in ('role', 'base_role', 'old_role', 'new_role') %}{{ t('admin.role.' ~ value, value) }}
+            {%- elif key == 'roles' and value is not string %}{% for role in value %}{{ t('admin.role.' ~ role, role) }}{% if not loop.last %}, {% endif %}{% endfor %}
             {%- elif value == 'all' %}{{ t('audit.value.all') }}
             {%- elif key == 'size' %}{{ value|filesize }}
             {%- else %}{{ value }}{% endif %}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
