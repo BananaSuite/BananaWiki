@@ -109,13 +109,18 @@
       {{ tool('zoom-in', t('canvas.action.zoom_in')) }}
       {{ tool('fit', t('canvas.action.fit')) }}
       {{ toggle('minimap', t('canvas.action.minimap'), bm='canvas.simple_tools') }}
-      <details class="menu canvas-menu" data-bm-hide="canvas.simple_tools">
+      {#- With fewer tools, saving the canvas as a picture stays: one button for the simplest format, a PNG. -#}
+      {% if bm_simplified('canvas.simple_tools') %}
+      {{ tool('export-png', t('canvas.action.save_image')) }}
+      {% else %}
+      <details class="menu canvas-menu">
         <summary class="btn btn--small menu__toggle">{{ t('canvas.action.image') }}</summary>
         <div class="canvas-menu__panel" role="group" aria-label="{{ t('canvas.action.image') }}">
           <button type="button" class="canvas-menu__item" data-action="export-png">{{ t('canvas.action.export_png') }}</button>
           <button type="button" class="canvas-menu__item" data-action="export-svg">{{ t('canvas.action.export_svg') }}</button>
         </div>
       </details>
+      {% endif %}
     </div>
     <span class="canvas-status" role="status" aria-live="polite" data-status></span>
   </div>

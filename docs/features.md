@@ -92,8 +92,9 @@ else. It replaces the 1.7 "easy wiki" setting. **Admin → BM mode**
     export, filters or keyboard help) and tickets (no priority, labels,
     colour, checklist, history or archive button);
   * fewer canvas tools (no code blocks, bring to front or back, arrange menu,
-    snap toggle, minimap, exports or keyboard help; the text outline,
-    the canvas for screen readers, stays). Elements
+    snap toggle, minimap, canvas file export or keyboard help; the text
+    outline, the canvas for screen readers, stays, and the image download is
+    one **Save as image** button for a PNG). Elements
     always snap to the grid, and G and Ctrl+G do nothing. L only unlocks, and
     Ctrl+Shift+G still ungroups, so locked or grouped elements made elsewhere
     can still be freed;
