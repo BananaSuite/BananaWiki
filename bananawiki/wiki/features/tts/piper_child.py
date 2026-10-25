@@ -11,8 +11,11 @@ On POSIX systems the worker runs Piper this way, so a page that exhausts
 the memory or hangs the speech engine ends this process, never the worker:
 the worker kills it after ``BW_TTS_MAX_JOB_SECONDS``, and with
 ``memory_mb`` an address-space limit (``RLIMIT_AS``) makes allocations fail
-here before the server runs out of memory. The process leaves as soon as
-its worker is gone, so a killed worker leaves no synthesis running.
+here before the server runs out of memory. ONNX Runtime reports such a
+failure as an ordinary error (``std::bad_alloc``, ``BFCArena``); it counts as
+:data:`OUT_OF_MEMORY` too, since the same page fails the same way again.
+The process leaves as soon as its worker is gone, so a killed worker leaves
+no synthesis running.
 
 Only the standard library is imported before Piper; :func:`write_wav` also
 serves the worker's in-process path (Windows, the packaged desktop app).
@@ -20,6 +23,7 @@ serves the worker's in-process path (Windows, the packaged desktop app).
 
 from __future__ import annotations
 
+import errno
 import io
 import json
 import logging
@@ -34,6 +38,17 @@ from typing import Any
 FAILED = 1
 NOT_INSTALLED = 2
 OUT_OF_MEMORY = 3
+
+# How a failed allocation reads once ONNX Runtime or the dynamic loader has turned it into an exception.
+_ALLOCATION_FAILURES = ("std::bad_alloc", "BFCArena", "Failed to allocate memory",
+                        "failed to map segment from shared object")
+
+
+def out_of_memory(error: BaseException) -> bool:
+    """Whether *error* means that Piper ran out of memory (or of address space)."""
+    if isinstance(error, MemoryError) or (isinstance(error, OSError) and error.errno == errno.ENOMEM):
+        return True
+    return any(marker in str(error) for marker in _ALLOCATION_FAILURES)
 
 
 def _placeholder_format(wav: wave.Wave_write) -> None:
@@ -121,16 +136,20 @@ def main() -> int:
     os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
     try:
         from piper import PiperVoice, SynthesisConfig  # type: ignore[import-not-found]
-    except ImportError:
+    except (ImportError, MemoryError, OSError) as error:  # numpy starts its threads while it is imported
+        if out_of_memory(error):
+            return _fail(OUT_OF_MEMORY, "Piper ran out of memory.")
+        if not isinstance(error, ImportError):
+            raise
         return _fail(NOT_INSTALLED, "Piper is not installed on the server.")
     try:
         length, noise, noise_w = request["scales"]
         voice = PiperVoice.load(request["model"], config_path=request["config"])
         syn_config = SynthesisConfig(length_scale=length, noise_scale=noise, noise_w_scale=noise_w)
         frames = write_wav(voice, request["chunks"], syn_config, request["output"])
-    except MemoryError:
-        return _fail(OUT_OF_MEMORY, "Piper ran out of memory.")
     except Exception as error:  # noqa: BLE001 - reported to the worker, which fails the job
+        if out_of_memory(error):
+            return _fail(OUT_OF_MEMORY, "Piper ran out of memory.")
         return _fail(FAILED, f"Piper failed: {error}")
     if not frames:
         return _fail(FAILED, "Piper produced an empty file.")

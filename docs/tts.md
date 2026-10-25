@@ -61,7 +61,13 @@ again from the page.
   `python -m piper.download_voices --download-dir <voice dir> it_IT-paola-medium`.
   English uses `en_US-lessac-medium` and Italian `it_IT-paola-medium`; many
   other languages have a default voice, and `BW_TTS_PIPER_VOICE_MAP` adds or
-  replaces voices.
+  replaces voices. A download that fails because host names cannot be
+  resolved (no DNS) is not retried. Wikis of the hosting platform on an
+  isolated network (`HOSTING_TENANT_NETWORK=isolated`, the default in
+  subdomain mode) download nothing: the platform sets
+  `BW_TTS_PIPER_AUTO_DOWNLOAD=0`, **Admin → Read aloud** shows their voices as
+  missing, and the operator puts the voice files (`<voice>.onnx` and
+  `<voice>.onnx.json`) into the wiki's `piper-voices` folder.
 * **Language detection**: a built-in heuristic for English and Italian is
   always available. `langdetect` improves detection for other languages; it is
   not installed by default because it is only published as a source
@@ -99,8 +105,15 @@ One page cannot stop the worker or hold the queue for good:
   is off by default because ONNX Runtime reserves more address space than it
   uses, more on servers with many CPU cores: try a value (for example 4096)
   on your server before you rely on it. A lower `BW_MEMORY_LIMIT_MB` applies
-  as well. On Windows and in the packaged desktop app Piper runs inside the
-  worker.
+  as well (768 on the hosting platform). Under either limit Piper starts with
+  `MALLOC_ARENA_MAX=2` and `OPENBLAS_NUM_THREADS=1` unless they are already
+  set (the container images set both for every process): otherwise each CPU
+  core of the host costs address space, and on 8 cores 768 MB did not even
+  load a voice. ONNX Runtime still starts a thread per host core, so in a
+  container limited to one CPU on a large host long pages take much longer.
+  A job that runs out of memory fails at once ("Piper ran out of memory."),
+  without retries: the same page would run out again. On Windows and in the
+  packaged desktop app Piper runs inside the worker.
 * No job runs longer than `BW_TTS_MAX_JOB_SECONDS`: its lease stops being
   renewed and the job fails ("The job ran longer than ..."). With a GPU
   server, keep it above `BW_TTS_REMOTE_GPU_TIMEOUT`.

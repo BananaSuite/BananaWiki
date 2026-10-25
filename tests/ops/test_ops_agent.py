@@ -73,7 +73,8 @@ def runtime(tmp_path):
 
 
 def test_start_builds_a_locked_down_container(runtime, tmp_path):
-    runtime.call("tenant.start", {"tenant": "acme", "env": {"BW_SITE_NAME": "Acme", "BW_HOST": "127.0.0.9"},
+    runtime.call("tenant.start", {"tenant": "acme", "env": {"BW_SITE_NAME": "Acme", "BW_HOST": "127.0.0.9",
+                                                            "BW_TTS_PIPER_AUTO_DOWNLOAD": "0"},
                                   "limits": {"memory_mb": 1024, "cpus": 1.5}})
     docker = runtime.docker_calls
     run = next(call for call in docker.calls if call[1] == "run")
@@ -94,6 +95,7 @@ def test_start_builds_a_locked_down_container(runtime, tmp_path):
     assert not any("Acme" in part for part in run), "variables never appear on argv"
     env = docker.env_files[0]
     assert "BW_SITE_NAME=Acme\n" in env and "BW_HOST=0.0.0.0\n" in env and "BW_MANAGED_HOSTING=1\n" in env
+    assert "BW_TTS_PIPER_AUTO_DOWNLOAD=0\n" in env  # what the portal sends a wiki on an isolated network
     assert not list(Path(runtime.private_dir).iterdir()), "the env file is removed after docker run"
     bridge = "bwt" + hashlib.sha256((container_name(real) + "-net").encode()).hexdigest()[:12]
     assert bridge_name(container_name(real) + "-net") == bridge and len(bridge) <= 15  # Linux IFNAMSIZ

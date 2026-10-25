@@ -43,10 +43,17 @@ COPY --from=acl-package-builder /build/acl-packages /tmp/acl-update
 RUN dpkg -i /tmp/acl-update/libacl1_*.deb /tmp/acl-update/tar_*.deb \
     && rm -rf /tmp/acl-update
 
+# BW_MEMORY_LIMIT_MB is an address-space limit (RLIMIT_AS), and every thread
+# reserves address space: glibc gives each one its own malloc arena, and
+# OpenBLAS (loaded with numpy, also by the web process) starts one thread per
+# host CPU whatever --cpus says. Without these, a limit set on a host with many
+# CPUs can stop the wiki from starting and Piper from loading a voice.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     ORT_DISABLE_TELEMETRY=1 \
+    MALLOC_ARENA_MAX=2 \
+    OPENBLAS_NUM_THREADS=1 \
     HOME=/tmp \
     BW_ENV=production \
     BW_HOST=0.0.0.0 \

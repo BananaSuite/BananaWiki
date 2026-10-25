@@ -154,6 +154,11 @@ def sandbox_current(item: dict[str, Any]) -> bool:
             and bool(item.get("ipv6_disabled")))
 
 
+def tenant_network(cfg: HostingConfig) -> str:
+    """The agent network of every wiki: ``isolated`` (an internal bridge, without internet or DNS) or ``outbound``."""
+    return cfg.tenant_network if cfg.hosting_mode == "subdomain" else "outbound"
+
+
 def tenant_environment(spec: TenantSpec, cfg: HostingConfig, *, quarantined: bool) -> dict[str, str]:
     """The ``BW_*`` environment of one wiki (the agent adds the paths and managed-mode flags)."""
     policy = spec.policy
@@ -181,6 +186,9 @@ def tenant_environment(spec: TenantSpec, cfg: HostingConfig, *, quarantined: boo
         env["BW_INSTANCE_EXPIRES_AT"] = policy.expires_at
     if policy.tts_disabled:
         env["BW_MANAGED_TTS_DISABLED"] = "1"
+    if tenant_network(cfg) == "isolated":
+        # A download could only fail and be retried: a voice not in /data/piper-voices is reported missing.
+        env["BW_TTS_PIPER_AUTO_DOWNLOAD"] = "0"
     if policy.tts_gpu is not None:
         env.update(BW_TTS_BACKEND="remote-gpu", BW_TTS_REMOTE_GPU_URL=policy.tts_gpu.url,
                    BW_TTS_REMOTE_GPU_AUTH_TOKEN=policy.tts_gpu.token,
@@ -482,12 +490,9 @@ class AgentRuntime:
             "tenant": spec.data_dir_name, "limits": _limits(spec), "internal_port": cfg.container_internal_port,
             "env": tenant_environment(spec, cfg, quarantined=self._state(cfg, spec).quarantined()),
         }
-        if cfg.hosting_mode == "subdomain":
-            args["network"] = cfg.tenant_network
-        else:
-            args["network"] = "outbound"
-            if spec.port:
-                args["publish_port"] = spec.port
+        args["network"] = tenant_network(cfg)
+        if cfg.hosting_mode != "subdomain" and spec.port:
+            args["publish_port"] = spec.port
         digest = hashlib.sha256((json.dumps(args, sort_keys=True) + cfg.container_image).encode()).hexdigest()
         record_path = self._record_path(cfg, spec)
         current = self._call("tenant.status", {"tenant": spec.data_dir_name})

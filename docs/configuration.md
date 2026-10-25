@@ -206,7 +206,7 @@ Invalid values log a warning and fall back to the default.
 | `BW_TTS_MAX_JOB_SECONDS` | 3600 (300–86400) | Longest a job may run; then Piper is stopped and the job fails. Keep it above `BW_TTS_REMOTE_GPU_TIMEOUT`. |
 | `BW_TTS_PIPER_MEMORY_MB` | 0 (none) | Address-space limit (`RLIMIT_AS`) of the Piper process on Linux; a page that needs more fails. See [read aloud](tts.md#limits). |
 | `BW_TTS_PERFORMANCE_MODE` | from the admin page | `auto`, `balanced` or `fast`. |
-| `BW_TTS_PIPER_AUTO_DOWNLOAD` | `1` | Download missing Piper voices on first use. |
+| `BW_TTS_PIPER_AUTO_DOWNLOAD` | `1` | Download missing Piper voices on first use. The hosting platform sets `0` for wikis on an isolated network. |
 | `BW_TTS_PIPER_VOICE_MAP` | built-in voices | Extra or replacement voices: JSON (`{"de": "de_DE-thorsten-high"}`) or `de=de_DE-thorsten-high,pt=pt_BR-faber-medium`. |
 | `BW_TTS_PIPER_OUTPUT_FORMAT` | `auto` | `auto`, `wav` or `mp3` (MP3 needs ffmpeg). |
 | `BW_TTS_PIPER_LENGTH_SCALE`, `BW_TTS_PIPER_NOISE_SCALE`, `BW_TTS_PIPER_NOISE_W_SCALE` | voice defaults | Piper voice parameters. |
@@ -306,7 +306,7 @@ installations set them to `<root>/data`.
 | `HOSTING_INSTANCE_RUNTIME` | `docker` | `docker` or `process` (validated; tenants run in Docker). |
 | `HOSTING_CONTAINER_IMAGE` | `bananawiki-tenant:latest` | Tenant image; the managed updater sets `bananawiki-tenant:<revision>`. |
 | `HOSTING_CONTAINER_INTERNAL_PORT` | 5001 | Port inside tenant containers. |
-| `HOSTING_TENANT_NETWORK` | `isolated` in subdomain mode, else `outbound` | `isolated`: a Docker internal bridge for each tenant, blocking traffic beyond its subnet. Host gateway listeners still require host firewall INPUT rules; bind host-only services to loopback. Port and onion mode need `outbound`. |
+| `HOSTING_TENANT_NETWORK` | `isolated` in subdomain mode, else `outbound` | `isolated`: a Docker internal bridge for each tenant, blocking traffic beyond its subnet. Host gateway listeners still require host firewall INPUT rules; bind host-only services to loopback. Such wikis download no Piper voices: see [read aloud](tts.md#install). Port and onion mode need `outbound`. |
 | `HOSTING_ALLOW_TENANT_PLUGINS` | `0` | Operator opt-in for third-party Python plugins in hosted wikis. Built-in features remain available. Existing plugin files and settings are retained while disabled; set `1` only for tenants whose code you trust, with host filesystem quotas and tested container isolation. Quarantine still overrides this setting. Subdomain mode only: refused in port and onion mode, where the portal and the wikis share cookies. |
 | `HOSTING_TENANT_PLUGIN_DENYLIST` | none | Plugin ids tenants may never load. |
 | `HOSTING_TTS_GPU_TENANT_TOKENS` | `1` | Give each wiki its own GPU speech token derived from the master token instead of the master token itself. Needs the 1.7 GPU speech server or later; set `0` only while an older GPU server is still running. |

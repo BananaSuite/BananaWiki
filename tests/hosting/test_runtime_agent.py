@@ -151,12 +151,23 @@ def test_port_mode_publishes_on_loopback(tmp_path):
     provision(runtime, make_spec(hostnames=()))
     started = agent.ops("tenant.start")[0]
     assert started["network"] == "outbound" and started["publish_port"] == 6001
+    assert "BW_TTS_PIPER_AUTO_DOWNLOAD" not in started["env"]
 
 
 def test_outbound_network_is_opt_in(tmp_path):
     runtime, agent = make_runtime(tmp_path, HOSTING_TENANT_NETWORK="outbound")
     provision(runtime, make_spec())
-    assert agent.ops("tenant.start")[0]["network"] == "outbound"
+    started = agent.ops("tenant.start")[0]
+    assert started["network"] == "outbound" and "publish_port" not in started
+    assert "BW_TTS_PIPER_AUTO_DOWNLOAD" not in started["env"]
+
+
+def test_isolated_wikis_do_not_try_to_download_voices(tmp_path):
+    """No DNS on an internal bridge: a missing Piper voice is reported missing at once, not retried."""
+    runtime, agent = make_runtime(tmp_path)
+    provision(runtime, make_spec())
+    started = agent.ops("tenant.start")[0]
+    assert started["network"] == "isolated" and started["env"]["BW_TTS_PIPER_AUTO_DOWNLOAD"] == "0"
 
 
 def test_environment_maps_the_policy_and_keeps_portal_secrets_out(tmp_path):
