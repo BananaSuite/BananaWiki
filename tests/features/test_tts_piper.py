@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -22,10 +23,12 @@ from bananawiki.wiki.features.tts import backends, options, piper_child, text
 LONG_LIST = " ".join(f"item{number:04d}" for number in range(2_400))[:text.MAX_INPUT_CHARS]
 
 # A stand-in for piper-tts: refuses pieces longer than the chunk size (a real
-# voice would exhaust the memory) and reacts to a few command words.
+# voice would exhaust the memory) and reacts to a few command words. Its
+# phonemes are characters, grouped in sentences as espeak-ng groups them, and
+# it notes every text it reads in <model>.parts.
 # FAKE_PIPER_IMPORT makes the import itself fail as it does without memory or a library.
 FAKE_PIPER = textwrap.dedent("""
-    import errno, json, os, signal, time
+    import errno, json, os, re, signal, time
 
     if os.environ.get("FAKE_PIPER_IMPORT") == "memory":
         raise MemoryError  # numpy starting its threads
@@ -49,9 +52,17 @@ FAKE_PIPER = textwrap.dedent("""
                            "arenas": os.environ.get("MALLOC_ARENA_MAX"),
                            "blas_threads": os.environ.get("OPENBLAS_NUM_THREADS"),
                            "telemetry": os.environ.get("ORT_DISABLE_TELEMETRY")}, seen)
-            return PiperVoice()
+            return PiperVoice(model)
+
+        def __init__(self, model):
+            self.model = model
+
+        def phonemize(self, text):
+            return [list(sentence) for sentence in re.split(r"(?<=[.!?]) (?=[A-Z])", text)]
 
         def synthesize_wav(self, chunk, wav_file, syn_config=None):
+            with open(self.model + ".parts", "a") as parts:
+                parts.write(chunk + "\\n")
             if len(chunk) > 500:
                 raise MemoryError
             if "allocate" in chunk:
@@ -151,6 +162,63 @@ def test_pieces_without_audio_are_skipped(tmp_path):
     assert piper_child.write_wav(FakeVoice(), ["silence"], None, str(output)) == 0
 
 
+# Sentences Piper reads at once
+
+
+class SpeakingVoice(FakeVoice):
+    """FakeVoice with phonemes: one per character, in sentences as espeak-ng finds them."""
+
+    def phonemize(self, spoken):
+        return [list(sentence) for sentence in re.split(r"(?<=[.!?]) (?=[A-Z])", spoken)]
+
+
+# Every item starts with a small letter, so espeak-ng reads the whole list as one sentence.
+COMMANDS = " ".join(f"ls -la /srv/folder{number} lists folder {number}." for number in range(12))
+
+
+def sentences(voice, parts):
+    return [len(sentence) for part in parts for sentence in voice.phonemize(part)]
+
+
+def test_a_list_of_commands_is_cut_after_its_items():
+    voice = SpeakingVoice()
+    assert len(voice.phonemize(COMMANDS)) == 1 and len(COMMANDS) > 400
+    parts = piper_child._short_parts(voice, COMMANDS, 100)
+    assert len(parts) > 3 and max(sentences(voice, parts)) <= 100
+    assert all(part.endswith(".") for part in parts) and " ".join(parts) == COMMANDS
+
+
+@pytest.mark.parametrize(("spoken", "joiner"), [(" ".join(["word"] * 80), " "), ("x" * 300, "")])
+def test_text_without_full_stops_or_spaces_is_cut_too(spoken, joiner):
+    voice = SpeakingVoice()
+    parts = piper_child._short_parts(voice, spoken, 100)
+    assert len(parts) > 2 and max(sentences(voice, parts)) <= 100 and joiner.join(parts) == spoken
+
+
+def test_text_that_fits_is_not_cut():
+    voice = SpeakingVoice()
+    prose = " ".join(f"Sentence number {number} is short." for number in range(20))
+    assert len(prose) > 500 and piper_child._short_parts(voice, prose, 100) == [prose]
+    assert piper_child._short_parts(voice, "x", 0) == ["x"]
+
+
+def test_in_process_piper_cuts_long_sentences_only_under_a_memory_limit(tmp_path, monkeypatch):
+    backend = backends.PiperBackend(config(tmp_path))
+    voice = SpeakingVoice()
+    monkeypatch.setattr(backends, "piper_in_child", lambda: False)
+    monkeypatch.setattr(backend, "_voice", lambda _language: voice)
+    monkeypatch.setattr(backend, "_syn_config", lambda: None)
+    read = []
+    for limited in (False, True):
+        monkeypatch.setattr(piper_child, "address_space_limited", lambda limited=limited: limited)
+        voice.pieces.clear()
+        backend.synthesize(COMMANDS, "en", tmp_path).path.unlink()
+        read.append(list(voice.pieces))
+    assert read[0] == [COMMANDS]
+    assert len(read[1]) > 1 and " ".join(read[1]) == COMMANDS
+    assert max(sentences(voice, read[1])) <= piper_child.MAX_SENTENCE_PHONEMES
+
+
 class FailingVoice:
     def __init__(self, error: Exception):
         self.error = error
@@ -205,10 +273,32 @@ def seen(tmp_path):
     return json.loads((tmp_path / "voices" / "en_US-lessac-medium.onnx.seen").read_text(encoding="utf-8"))
 
 
+def read_parts(tmp_path):
+    """The texts the stand-in read, and forget them."""
+    path = tmp_path / "voices" / "en_US-lessac-medium.onnx.parts"
+    parts = path.read_text(encoding="utf-8").splitlines()
+    path.unlink()
+    return parts
+
+
+@posix_only
+def test_piper_child_cuts_long_sentences_only_under_a_memory_limit(tmp_path, child_piper):
+    child_piper().synthesize(COMMANDS, "en", tmp_path).path.unlink()
+    whole = read_parts(tmp_path)
+    child_piper(piper_memory_mb=1024).synthesize(COMMANDS, "en", tmp_path).path.unlink()
+    cut = read_parts(tmp_path)
+    if not piper_child.address_space_limited():  # this test process may itself run under a limit
+        assert whole == [COMMANDS]
+    assert len(cut) > 1 and " ".join(cut) == COMMANDS
+    assert max(map(len, cut)) <= piper_child.MAX_SENTENCE_PHONEMES
+
+
 @posix_only
 def test_piper_runs_in_a_child_process_with_an_address_space_limit(tmp_path, child_piper):
     audio = child_piper(piper_memory_mb=1024).synthesize(LONG_LIST, "en", tmp_path)
-    assert frames(audio) == sum(len(piece) for piece in text.speech_chunks(LONG_LIST))
+    parts = read_parts(tmp_path)  # pieces without a full stop, cut once more under the limit
+    assert frames(audio) == sum(map(len, parts)) and max(map(len, parts)) <= piper_child.MAX_SENTENCE_PHONEMES
+    assert " ".join(parts) == " ".join(text.speech_chunks(LONG_LIST))
     report = seen(tmp_path)
     assert report["pid"] != os.getpid()
     assert report["address_space"] == 1024 * 1024 * 1024 and report["arenas"] == "2"
@@ -261,7 +351,7 @@ def test_piper_threads_are_bounded_under_the_worker_address_space_limit(tmp_path
     """BW_MEMORY_LIMIT_MB is the worker's own RLIMIT_AS, which Piper inherits without BW_TTS_PIPER_MEMORY_MB."""
     observed = []
     for limited in (False, True):
-        monkeypatch.setattr(backends, "_address_space_limited", lambda limited=limited: limited)
+        monkeypatch.setattr(piper_child, "address_space_limited", lambda limited=limited: limited)
         child_piper().synthesize("Hello there.", "en", tmp_path).path.unlink()
         observed.append((seen(tmp_path)["arenas"], seen(tmp_path)["blas_threads"]))
     assert observed == [(None, None), ("2", "1")]
@@ -272,10 +362,10 @@ def test_piper_threads_are_bounded_under_the_worker_address_space_limit(tmp_path
 
 @posix_only
 def test_the_worker_address_space_limit_is_detected():
-    script = ("import resource; from bananawiki.wiki.features.tts import backends; "
+    script = ("import resource; from bananawiki.wiki.features.tts import piper_child; "
               "_soft, hard = resource.getrlimit(resource.RLIMIT_AS); "
               "resource.setrlimit(resource.RLIMIT_AS, (64 * 1024 ** 3 if hard == resource.RLIM_INFINITY else hard, hard)); "
-              "print(backends._address_space_limited())")
+              "print(piper_child.address_space_limited())")
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60,
                             cwd=Path(__file__).resolve().parents[2])
     assert result.stdout.strip() == "True", result.stderr

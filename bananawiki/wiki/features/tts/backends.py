@@ -275,18 +275,6 @@ def _system_specs() -> tuple[int, int]:
     return cpus, memory_mb
 
 
-def _address_space_limited() -> bool:
-    """Whether this process runs under an address-space limit (``BW_MEMORY_LIMIT_MB``) that Piper inherits."""
-    try:
-        import resource
-    except ImportError:  # not a POSIX system
-        return False
-    try:
-        return resource.getrlimit(resource.RLIMIT_AS)[0] != resource.RLIM_INFINITY
-    except (OSError, ValueError):
-        return False
-
-
 def synthesis_scales(mode: str) -> tuple[float, float, float]:
     """(length, noise, noise_w) for a performance mode; lower noise is faster."""
     if mode == "fast":
@@ -408,7 +396,8 @@ class PiperBackend:
 
     def _synthesize_here(self, chunks: list[str], language: str, wav_path: Path) -> None:
         voice = self._voice(language)
-        if not piper_child.write_wav(voice, chunks, self._syn_config(), str(wav_path)):
+        limit = piper_child.MAX_SENTENCE_PHONEMES if piper_child.address_space_limited() else 0
+        if not piper_child.write_wav(voice, chunks, self._syn_config(), str(wav_path), limit):
             raise SynthesisError("Piper produced an empty file.")
 
     def _synthesize_in_child(self, chunks: list[str], language: str, wav_path: Path) -> None:
@@ -418,7 +407,7 @@ class PiperBackend:
             "output": str(wav_path), "memory_mb": self.cfg.piper_memory_mb,
         }).encode("utf-8")
         env = dict(os.environ)
-        if self.cfg.piper_memory_mb or _address_space_limited():
+        if self.cfg.piper_memory_mb or piper_child.address_space_limited():
             # Each thread reserves address space: glibc gives it an arena of its own, and OpenBLAS
             # (numpy) starts one thread per host CPU, whatever the container's CPU quota.
             env.setdefault("MALLOC_ARENA_MAX", "2")

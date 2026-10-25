@@ -111,6 +111,11 @@ One page cannot stop the worker or hold the queue for good:
   core of the host costs address space, and on 8 cores 768 MB did not even
   load a voice. ONNX Runtime still starts a thread per host core, so in a
   container limited to one CPU on a large host long pages take much longer.
+  Under either limit Piper also reads no sentence of more than 250 phonemes
+  in one go, since its memory grows with the sentence: a longer one is cut
+  at a full stop, a comma or a space. Sentences are as espeak-ng finds them,
+  and a full stop followed by a small letter ends none, so a list of
+  commands (`ls -la`, `cd ~`) would otherwise be read as one sentence.
   A job that runs out of memory fails at once ("Piper ran out of memory."),
   without retries: the same page would run out again. On Windows and in the
   packaged desktop app Piper runs inside the worker.
