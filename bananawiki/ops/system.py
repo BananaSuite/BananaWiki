@@ -507,6 +507,31 @@ class System:
         """When *image* was built (Docker's ``Created``), or None when unknown."""
         return self._image_field(image, "{{.Created}}")
 
+    def image_bytes(self, image: str, volume: Path) -> int:
+        """The size Docker reports for *image* when Docker keeps its images on the filesystem of *volume*, else 0."""
+        try:
+            answer = self.run(["docker", "info", "--format", "{{.DockerRootDir}}"], check=False, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return 0
+        directory = "" if answer.returncode else (answer.stdout or "").strip()
+        try:
+            if not directory or os.stat(directory).st_dev != os.stat(volume).st_dev:
+                return 0
+        except OSError:
+            return 0
+        size = self._image_field(image, "{{.Size}}")
+        return int(size) if size and size.isdigit() else 0
+
+    def remove_image(self, image: str) -> bool | None:
+        """Remove *image*: True once removed, None when Docker has no such image (or does not answer), False when
+        Docker kept it (a container still uses it)."""
+        if self._image_field(image, "{{.Id}}", present=True) is None:
+            return None
+        try:
+            return self.run(["docker", "image", "rm", image], check=False, timeout=120).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
+
     # Units
 
     def _unit(self, name: str, suffix: str = ".service") -> Path:

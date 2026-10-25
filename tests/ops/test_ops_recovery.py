@@ -1338,7 +1338,7 @@ def test_a_snapshot_on_the_wikis_volume_leaves_their_storage_reservations_free(h
     stopped = stops(system)
     with pytest.raises(Refused, match="reserved for the hosted wikis"):
         manager.update()
-    assert asked == [root]
+    assert asked == [root] and system.prepared == []  # refused before the release was prepared
     assert stops(system) == stopped and all(item["running"] for item in system.tenant_containers)
     assert (root / "current").resolve().name == hosting.old
     assert not list((root / "staging").glob("snapshot-*"))
