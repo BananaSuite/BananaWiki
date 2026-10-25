@@ -210,8 +210,8 @@ def test_a_rolled_back_update_removes_its_release_and_image_but_not_the_running_
     assert event["outcome"] == "rolled_back" and event["discarded"] == [f"releases/{bad}", tag(bad)]
     assert_in_service(root, hosting.wikis)
     # Never the running release or the one 'rollback' returns to.
-    assert manager.discard(good) == {} and manager.discard(hosting.old) == {}
-    assert removals(system) == [tag(bad)]
+    kept = manager.discard(good), manager.discard(hosting.old)
+    assert kept == ({}, {}) and removals(system) == [tag(bad)]
     assert (root / "releases" / good).is_dir() and (root / "releases" / hosting.old).is_dir()
 
 
@@ -267,8 +267,10 @@ def test_nothing_is_removed_while_a_transaction_is_recorded(hosting):
     images = Images(system, tag(hosting.old), tag(new))
     (root / "releases" / new).mkdir()
     (root / "config/transaction.json").write_text("{}")
-    assert manager.discard(new) == {}
+    result = manager.discard(new)
+    assert result == {}
     assert (root / "releases" / new).is_dir() and tag(new) in images.tags and removals(system) == []
     (root / "config/transaction.json").unlink()
-    assert manager.discard(new) == {"discarded": [f"releases/{new}", tag(new)]}
+    result = manager.discard(new)
+    assert result == {"discarded": [f"releases/{new}", tag(new)]}
     assert not (root / "releases" / new).exists() and images.tags == {tag(hosting.old)}

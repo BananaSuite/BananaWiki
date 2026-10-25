@@ -396,7 +396,7 @@ class Manager:
                         except OSError:
                             continue
         except OSError:
-            pass
+            pass  # not measurable: counts as nothing (the snapshot is checked again once it is prepared)
         if settings["mode"] == "hosting":
             total += self.system.image_bytes(f"{TENANT_IMAGE}:{settings['revision']}", staging)
         return total
