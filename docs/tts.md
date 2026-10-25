@@ -61,7 +61,13 @@ again from the page.
   `python -m piper.download_voices --download-dir <voice dir> it_IT-paola-medium`.
   English uses `en_US-lessac-medium` and Italian `it_IT-paola-medium`; many
   other languages have a default voice, and `BW_TTS_PIPER_VOICE_MAP` adds or
-  replaces voices.
+  replaces voices. A download that fails because host names cannot be
+  resolved (no DNS) is not retried. Wikis of the hosting platform on an
+  isolated network (`HOSTING_TENANT_NETWORK=isolated`, the default in
+  subdomain mode) download nothing: the platform sets
+  `BW_TTS_PIPER_AUTO_DOWNLOAD=0`, **Admin → Read aloud** shows their voices as
+  missing, and the operator puts the voice files (`<voice>.onnx` and
+  `<voice>.onnx.json`) into the wiki's `piper-voices` folder.
 * **Language detection**: a built-in heuristic for English and Italian is
   always available. `langdetect` improves detection for other languages; it is
   not installed by default because it is only published as a source

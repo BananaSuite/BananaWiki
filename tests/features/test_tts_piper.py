@@ -1,14 +1,17 @@
-"""Local Piper: the text is read in pieces, in a child process bounded in time and memory."""
+"""Local Piper: the text is read in pieces, in a child process bounded in time and memory; its voices."""
 
 from __future__ import annotations
 
 import errno
 import json
 import os
+import socket
 import subprocess
 import sys
 import textwrap
 import time
+import types
+import urllib.error
 import wave
 from pathlib import Path
 
@@ -306,3 +309,44 @@ def _running(pid: int) -> bool:
     except FileNotFoundError:
         return False
 
+
+# Voices
+
+
+def fail_downloads(monkeypatch, error: Exception) -> None:
+    """Stand in for ``piper.download_voices``, failing as urllib does."""
+    module = types.ModuleType("piper.download_voices")
+
+    def download_voice(voice, download_dir):
+        raise error
+
+    module.download_voice = download_voice  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "piper.download_voices", module)
+
+
+def test_a_download_without_name_resolution_is_not_retried(tmp_path, monkeypatch):
+    """An isolated network has no DNS: retrying cannot help, and the message says what to do instead."""
+    fail_downloads(monkeypatch, urllib.error.URLError(socket.gaierror(-3, "Temporary failure in name resolution")))
+    backend = backends.PiperBackend(config(tmp_path))
+    with pytest.raises(backends.SynthesisError, match="Temporary failure in name resolution") as caught:
+        backend.synthesize("Hello there.", "en", tmp_path)
+    assert caught.value.retryable is False
+    assert "en_US-lessac-medium.onnx.json into " + str(tmp_path / "voices") in str(caught.value)
+    assert not [name for name in os.listdir(tmp_path) if name.startswith(".part-")]
+
+
+def test_other_download_failures_are_retried(tmp_path, monkeypatch):
+    fail_downloads(monkeypatch, urllib.error.URLError(ConnectionResetError(errno.ECONNRESET, "Connection reset")))
+    with pytest.raises(backends.SynthesisError, match="Connection reset") as caught:
+        backends.PiperBackend(config(tmp_path)).synthesize("Hello there.", "en", tmp_path)
+    assert caught.value.retryable is True
+
+
+def test_voices_are_missing_rather_than_downloadable_when_downloads_are_off(tmp_path, monkeypatch):
+    fail_downloads(monkeypatch, AssertionError("nothing is downloaded"))
+    assert backends.PiperBackend(config(tmp_path)).voice_state("it") == "downloadable"
+    backend = backends.PiperBackend(config(tmp_path, piper_auto_download=False))
+    assert backend.voice_state("it") == "missing"
+    with pytest.raises(backends.SynthesisError, match="'it_IT-paola-medium' is missing") as caught:
+        backend.synthesize("Ciao a tutti.", "it", tmp_path)
+    assert caught.value.retryable is False

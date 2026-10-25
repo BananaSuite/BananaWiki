@@ -23,6 +23,7 @@ import logging
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -361,8 +362,12 @@ class PiperBackend:
                 try:
                     download_voice(voice, self.voice_dir.resolve())
                 except OSError as error:
-                    raise SynthesisError(f"Cannot download the Piper voice {voice!r}: "
-                                         f"{getattr(error, 'reason', None) or error}") from error
+                    reason = getattr(error, "reason", None) or error
+                    if isinstance(reason, socket.gaierror):  # no name resolution (an isolated network): not retried
+                        raise SynthesisError(
+                            f"Cannot download the Piper voice {voice!r}: {reason}. Without internet access, put "
+                            f"{voice}.onnx and {voice}.onnx.json into {self.voice_dir}.", retryable=False) from error
+                    raise SynthesisError(f"Cannot download the Piper voice {voice!r}: {reason}") from error
         if not (model.is_file() and config_path.is_file()):
             raise SynthesisError(f"Downloading the Piper voice {voice!r} did not produce its files.",
                                  retryable=False)

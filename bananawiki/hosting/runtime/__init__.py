@@ -182,7 +182,9 @@ class TenantPolicy:
 
     External plugins are enabled in the container (``BW_ALLOW_EXTERNAL_PLUGINS``)
     only when the operator allows tenant plugins and the agent's own host-side
-    plugin quarantine marker is not set; the quarantine is runtime state.
+    plugin quarantine marker is not set; the quarantine is runtime state. On an
+    isolated network (no internet, no DNS) ``BW_TTS_PIPER_AUTO_DOWNLOAD=0``:
+    Piper voices are not downloaded, the operator puts them in the wiki.
     """
 
     easy_wiki: bool = False
