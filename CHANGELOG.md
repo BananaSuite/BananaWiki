@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### BM mode
+
+* Bigger canvas tools: in BM mode every canvas tool shows its name under its icon, the buttons are bigger and tinted by what they do (adding, changing the selection, undo and redo; deleting in red), and the element dialog offers shapes and colours as pictures with their names instead of lists. Like the other simplifications it is on by default, so wikis and accounts already in BM mode get it after the update; **Admin → BM mode** switches it off.
+
 ### Fixes
 
 * Managed servers: failed updates no longer fill the disk. An update now checks that its pre-update snapshot will still fit once the new release is prepared (counting about as much room as the running release and its tenant image take) before it prepares anything; before, each new commit of a followed branch built a release and, on hosting servers, a tenant image (about 1.2 GB together) only to be refused for want of space, and only a successful update pruned them. An update that fails at any stage removes the release and tenant image it prepared (`discarded` in its result, `cleanup_warning` for what Docker kept), never the running release or the one `rollback` returns to.

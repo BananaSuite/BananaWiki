@@ -45,5 +45,6 @@ FEATURE = Feature(
     slots={"page.scripts": _embed_scripts},
     simplifications=[
         Simplification("canvas.simple_tools", "canvas.bm.simple_tools", "canvas.bm.simple_tools_hint"),
+        Simplification("canvas.big_controls", "canvas.bm.big_controls", "canvas.bm.big_controls_hint"),
     ],
 )

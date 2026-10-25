@@ -13,7 +13,8 @@ from bananawiki.wiki.db import connection_scope
 EDITOR_RULE = '[data-bm-hide~="pages.simple_editor"]{display:none!important}'
 ALL_SIMPLIFICATIONS = ("pages.simple_editor", "pages.simple_actions", "pages.simple_reading", "pages.simple_sidebar",
                        "admin.short_menu", "kanban.simple_board", "kanban.simple_tickets", "canvas.simple_tools",
-                       "bm_mode.getting_started", "users.simple_settings", "difficulty_tags.hide_tags")
+                       "canvas.big_controls", "bm_mode.getting_started", "users.simple_settings",
+                       "difficulty_tags.hide_tags")
 
 
 @pytest.fixture

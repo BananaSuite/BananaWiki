@@ -9,6 +9,21 @@
 {% macro toggle(action, label, bm='') -%}
 <button type="button" class="btn btn--small canvas-toggle" data-action="{{ action }}" aria-pressed="false" title="{{ label }}" aria-label="{{ label }}"{% if bm %} data-bm-hide="{{ bm }}"{% endif %}>{{ icons.icon(action) }}<span class="canvas-tool__label" aria-hidden="true">{{ label }}</span></button>
 {%- endmacro %}
+{#- Each node shape as the canvas draws it, for BM mode's shape pictures (the points as in canvas-core.js
+    POLYGONS, the sticky note's paper as .cv-shape--note in canvas.css). -#}
+{% macro shape_figure(shape) -%}
+<svg class="cv-choice__shape" viewBox="0 0 48 30" aria-hidden="true" focusable="false">
+{%- if shape == 'rectangle' %}<rect x="3" y="3" width="42" height="24"/>
+{%- elif shape == 'rounded' %}<rect x="3" y="3" width="42" height="24" rx="7"/>
+{%- elif shape == 'pill' %}<rect x="3" y="3" width="42" height="24" rx="12"/>
+{%- elif shape == 'ellipse' %}<ellipse cx="24" cy="15" rx="21" ry="12"/>
+{%- elif shape == 'diamond' %}<polygon points="24,3 45,15 24,27 3,15"/>
+{%- elif shape == 'note' %}<rect class="cv-choice__paper" x="3" y="3" width="42" height="24" rx="1"/>
+{%- elif shape == 'parallelogram' %}<polygon points="9.3,3 45,3 38.7,27 3,27"/>
+{%- elif shape == 'hexagon' %}<polygon points="8,3 40,3 45,15 40,27 8,27 3,15"/>
+{%- endif -%}
+</svg>
+{%- endmacro %}
 {% macro menu_item(action, label, min=1) -%}
 <button type="button" class="canvas-menu__item" data-action="{{ action }}" data-min="{{ min }}">{{ label }}</button>
 {%- endmacro %}
@@ -40,7 +55,8 @@
      data-storage-key="canvas-view-{{ layout.id }}" data-filename="{{ layout.slug }}">
   <div class="canvas-toolbar no-print" role="toolbar" aria-label="{{ t('canvas.view.toolbar') }}">
     {% if can_edit %}
-    <div class="canvas-toolbar__group">
+    {#- data-tools names the kind of tools in a group: BM mode's bigger controls colour them by it. -#}
+    <div class="canvas-toolbar__group" data-tools="add">
       {{ tool('add-text', t('canvas.node.text'), 'btn--primary') }}
       {{ tool('add-shape', t('canvas.node.shape')) }}
       {{ tool('add-code', t('canvas.node.code'), bm='canvas.simple_tools') }}
@@ -49,7 +65,7 @@
       {{ tool('add-wiki_page', t('canvas.node.wiki_page')) }}
       {{ tool('add-external_link', t('canvas.node.external_link')) }}
     </div>
-    <div class="canvas-toolbar__group" data-needs-selection>
+    <div class="canvas-toolbar__group" data-needs-selection data-tools="change">
       {{ tool('edit', t('canvas.action.edit')) }}
       {{ tool('connect', t('canvas.action.connect')) }}
       {{ tool('duplicate', t('canvas.action.duplicate')) }}
@@ -59,7 +75,7 @@
     </div>
     {#- Left out, not hidden, in BM mode: a hidden menu would leave its group's divider behind. -#}
     {% if not bm_simplified('canvas.simple_tools') %}
-    <div class="canvas-toolbar__group" data-needs-selection>
+    <div class="canvas-toolbar__group" data-needs-selection data-tools="arrange">
       <details class="menu canvas-menu" data-arrange-menu data-bm-hide="canvas.simple_tools">
         <summary class="btn btn--small menu__toggle">{{ t('canvas.action.arrange') }}</summary>
         <div class="canvas-menu__panel" role="group" aria-label="{{ t('canvas.action.arrange') }}">
@@ -82,13 +98,13 @@
       </details>
     </div>
     {% endif %}
-    <div class="canvas-toolbar__group">
+    <div class="canvas-toolbar__group" data-tools="history">
       {{ tool('undo', t('canvas.action.undo')) }}
       {{ tool('redo', t('canvas.action.redo')) }}
       {{ toggle('snap', t('canvas.action.snap'), bm='canvas.simple_tools') }}
     </div>
     {% endif %}
-    <div class="canvas-toolbar__group">
+    <div class="canvas-toolbar__group" data-tools="view">
       {{ tool('zoom-out', t('canvas.action.zoom_out')) }}
       {{ tool('zoom-in', t('canvas.action.zoom_in')) }}
       {{ tool('fit', t('canvas.action.fit')) }}
@@ -175,22 +191,49 @@
       <ul class="canvas-page-results" id="cn-page-results" role="listbox" aria-label="{{ t('canvas.field.page_results') }}"></ul>
       <p class="hint" data-page-selected role="status"></p>
     </div>
+    {% set shapes = ('rectangle', 'rounded', 'pill', 'ellipse', 'diamond', 'note', 'parallelogram', 'hexagon') %}
+    {% set palette = (('red', '#e91e63'), ('orange', '#ff9800'), ('yellow', '#ffeb3b'), ('green', '#4caf50'), ('blue', '#2196f3'), ('purple', '#9c27b0'), ('grey', '#9e9e9e')) %}
+    {% set big_controls = bm_simplified('canvas.big_controls') %}
+    {% if big_controls %}
+    {#- BM mode's bigger controls: shapes and colours as pictures with their names (the same values as the lists). -#}
+    <fieldset class="cv-choices" data-field="shape">
+      <legend>{{ t('canvas.field.shape') }}</legend>
+      <div class="cv-choices__list">
+        {% for shape in shapes %}
+        <label class="cv-choice"><input class="cv-choice__input" type="radio" name="shape" value="{{ shape }}"><span class="cv-choice__face">{{ shape_figure(shape) }}<span class="cv-choice__name">{{ t('canvas.shape.' ~ shape) }}</span></span></label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <fieldset class="cv-choices">
+      <legend>{{ t('canvas.field.color') }}</legend>
+      <div class="cv-choices__list">
+        <label class="cv-choice"><input class="cv-choice__input" type="radio" name="color" value=""><span class="cv-choice__face"><span class="cv-swatch cv-swatch--none" aria-hidden="true"></span><span class="cv-choice__name">{{ t('canvas.color.none') }}</span></span></label>
+        {% for name, value in palette %}
+        <label class="cv-choice"><input class="cv-choice__input" type="radio" name="color" value="{{ value }}"><span class="cv-choice__face"><span class="cv-swatch" style="--swatch: {{ value }}" aria-hidden="true"></span><span class="cv-choice__name">{{ t('canvas.color.' ~ name) }}</span></span></label>
+        {% endfor %}
+        {#- A colour outside the palette (imported, or set through the API) is kept under this one. -#}
+        <label class="cv-choice" data-choice-other hidden><input class="cv-choice__input" type="radio" name="color" value=""><span class="cv-choice__face"><span class="cv-swatch" aria-hidden="true"></span><span class="cv-choice__name">{{ t('canvas.color.current') }}</span></span></label>
+      </div>
+    </fieldset>
+    {% endif %}
     <div class="form-grid">
+      {% if not big_controls %}
       <div class="field" data-field="shape">
         <label for="cn-shape">{{ t('canvas.field.shape') }}</label>
         <select id="cn-shape" name="shape">
-          {% for shape in ('rectangle', 'rounded', 'pill', 'ellipse', 'diamond', 'note', 'parallelogram', 'hexagon') %}<option value="{{ shape }}">{{ t('canvas.shape.' ~ shape) }}</option>{% endfor %}
+          {% for shape in shapes %}<option value="{{ shape }}">{{ t('canvas.shape.' ~ shape) }}</option>{% endfor %}
         </select>
       </div>
       <div class="field">
         <label for="cn-color">{{ t('canvas.field.color') }}</label>
         <select id="cn-color" name="color">
           <option value="">{{ t('canvas.color.none') }}</option>
-          {% for name, value in (('red', '#e91e63'), ('orange', '#ff9800'), ('yellow', '#ffeb3b'), ('green', '#4caf50'), ('blue', '#2196f3'), ('purple', '#9c27b0'), ('grey', '#9e9e9e')) %}
+          {% for name, value in palette %}
           <option value="{{ value }}">{{ t('canvas.color.' ~ name) }}</option>
           {% endfor %}
         </select>
       </div>
+      {% endif %}
       <div class="field">
         <label for="cn-text-size">{{ t('canvas.field.text_size') }}</label>
         <input id="cn-text-size" name="text_size" type="number" min="8" max="96" step="1">

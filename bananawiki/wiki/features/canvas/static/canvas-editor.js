@@ -1157,6 +1157,37 @@
     external_link: ["display_text", "url"]
   };
 
+  /* The shape and colour fields are lists, or radio buttons with pictures under BM mode's bigger
+   * controls (canvas.big_controls): these set and read either. */
+  function choiceRadios(form, name) {
+    return Array.prototype.slice.call(form.querySelectorAll('input[type="radio"][name="' + name + '"]'));
+  }
+
+  function setChoice(form, name, value) {
+    var radios = choiceRadios(form, name);
+    if (!radios.length) { form.elements[name].value = value; return; }
+    var other = form.querySelector('[data-choice-other] input[name="' + name + '"]');
+    var match = radios.filter(function (radio) { return radio !== other && radio.value === value; })[0] || null;
+    if (other) {
+      /* A colour outside the palette (imported, or set through the API) gets a choice of its own,
+       * so saving the dialog keeps it. */
+      var keep = !match && Canvas.COLOR.test(value);
+      var choice = other.closest("[data-choice-other]");
+      choice.hidden = !keep;
+      other.value = keep ? value : "";
+      choice.querySelector(".cv-swatch").setAttribute("style", keep ? "--swatch: " + value : "");
+      if (keep) match = other;
+    }
+    radios.forEach(function (radio) { radio.checked = radio === match; });
+  }
+
+  function choiceValue(form, name) {
+    var radios = choiceRadios(form, name);
+    if (!radios.length) return form.elements[name].value;
+    var checked = radios.filter(function (radio) { return radio.checked; })[0];
+    return checked ? checked.value : "";
+  }
+
   Editor.prototype.openNodeDialog = function (nodeId, type, at) {
     var node = nodeId ? this.scene.node(nodeId) : null;
     if (nodeId && !node) return;
@@ -1175,8 +1206,8 @@
     form.elements.language.value = values.language || "";
     form.elements.url.value = values.url || "";
     form.elements.alt.value = values.alt || "";
-    form.elements.shape.value = values.shape || "rectangle";
-    form.elements.color.value = values.color || "";
+    setChoice(form, "shape", values.shape || "rectangle");
+    setChoice(form, "color", values.color || "");
     form.elements.text_size.value = values.text_size || 13;
     /* Whole pixels, as resizing makes them: the fields take any of them (step 1), and an imported size
      * with decimals would otherwise stop the form from being sent. */
@@ -1264,11 +1295,12 @@
       width: number("width", 40, 4000, size[0]),
       height: number("height", 30, 4000, size[1])
     };
-    var color = form.elements.color.value;
+    var color = choiceValue(form, "color");
     if (color) fields.color = color;
     if (type === "text" || type === "code") fields.content = form.elements.content.value;
     if (type === "code" && form.elements.language.value.trim()) fields.language = form.elements.language.value.trim().toLowerCase();
-    if (type === "text" && form.elements.shape.value !== "rectangle") fields.shape = form.elements.shape.value;
+    var shape = choiceValue(form, "shape") || "rectangle";
+    if (type === "text" && shape !== "rectangle") fields.shape = shape;
     if (type === "image" || type === "video" || type === "external_link") {
       fields.url = form.elements.url.value.trim();
       var valid = type === "image" ? Canvas.safeImage(fields.url) : Canvas.safeHref(fields.url);

@@ -67,8 +67,8 @@ else. It replaces the 1.7 "easy wiki" setting. **Admin → BM mode**
   shown for them. Third-party plugins are left as **Admin → Plugins** sets
   them.
 * **Simplifications**, each on by default while BM mode is on (they only
-  hide controls and menu entries; every page behind them stays at its
-  address and nobody loses a permission):
+  change how controls and menu entries look, mostly by hiding them; every
+  page behind them stays at its address and nobody loses a permission):
   * a shorter editor toolbar (bold, italic, a heading, bulleted and numbered
     lists, links, images and files) without the edit summary;
   * fewer page actions (no change of address or hiding);
@@ -97,6 +97,12 @@ else. It replaces the 1.7 "easy wiki" setting. **Admin → BM mode**
     always snap to the grid, and G and Ctrl+G do nothing. L only unlocks, and
     Ctrl+Shift+G still ungroups, so locked or grouped elements made elsewhere
     can still be freed;
+  * bigger canvas tools (hiding nothing): every tool shows its name under
+    its icon, the buttons are bigger and coloured by what they do (adding in
+    blue, changing in green, undo and redo in yellow, deleting in red), and
+    the element dialog offers shapes and colours as pictures with their names
+    instead of lists. A colour from outside the palette (an imported canvas,
+    for example) shows as **Current colour** and is kept;
   * a "Getting started" list on the admin dashboard until the wiki has a page
     of its own, a second member (or an invite code or open sign-up) and a
     name.
