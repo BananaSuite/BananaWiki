@@ -12,6 +12,7 @@
 
 ### Fixes
 
+* Canvases: an image, video or link without a title no longer shows its address in a title bar; the bar shows only a title written in the element dialog (wiki pages and code blocks keep theirs). The address still names the element to screen readers, in connections and in the text outline.
 * Managed servers: failed updates no longer fill the disk. An update now checks that its pre-update snapshot will still fit once the new release is prepared (counting about as much room as the running release and its tenant image take) before it prepares anything; before, each new commit of a followed branch built a release and, on hosting servers, a tenant image (about 1.2 GB together) only to be refused for want of space, and only a successful update pruned them. An update that fails at any stage removes the release and tenant image it prepared (`discarded` in its result, `cleanup_warning` for what Docker kept), never the running release or the one `rollback` returns to.
 
 ## 1.7.3 — 2026-10-24

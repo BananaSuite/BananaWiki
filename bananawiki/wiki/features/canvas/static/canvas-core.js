@@ -325,7 +325,11 @@
       }));
       element.appendChild(shape);
     }
-    if (title && node.type !== "text" || (node.type === "text" && node.display_text)) {
+    /* A title bar shows what someone wrote in the Title field, a wiki page's title or a code block's first
+     * line; an image, video or link without a title shows none rather than its address (its label still
+     * names it to screen readers, in connections and in the outline). */
+    var named = node.type === "wiki_page" || node.type === "code";
+    if (node.display_text || named && title) {
       element.appendChild(el("div", "cv-node__title", title));
     }
     var body = el("div", "cv-node__body");
