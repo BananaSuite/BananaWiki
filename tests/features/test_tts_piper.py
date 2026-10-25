@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import subprocess
@@ -9,6 +10,7 @@ import sys
 import textwrap
 import time
 import wave
+from pathlib import Path
 
 import pytest
 
@@ -18,8 +20,18 @@ LONG_LIST = " ".join(f"item{number:04d}" for number in range(2_400))[:text.MAX_I
 
 # A stand-in for piper-tts: refuses pieces longer than the chunk size (a real
 # voice would exhaust the memory) and reacts to a few command words.
+# FAKE_PIPER_IMPORT makes the import itself fail as it does without memory or a library.
 FAKE_PIPER = textwrap.dedent("""
-    import json, os, signal, time
+    import errno, json, os, signal, time
+
+    if os.environ.get("FAKE_PIPER_IMPORT") == "memory":
+        raise MemoryError  # numpy starting its threads
+    if os.environ.get("FAKE_PIPER_IMPORT") == "map":
+        raise ImportError("libscipy_openblas64_.so: failed to map segment from shared object")
+    if os.environ.get("FAKE_PIPER_IMPORT") == "enomem":
+        raise OSError(errno.ENOMEM, "Cannot allocate memory")
+    if os.environ.get("FAKE_PIPER_IMPORT") == "missing":
+        raise ImportError("No module named 'onnxruntime'")
 
     class SynthesisConfig:
         def __init__(self, **scales):
@@ -32,6 +44,7 @@ FAKE_PIPER = textwrap.dedent("""
             with open(model + ".seen", "w") as seen:
                 json.dump({"pid": os.getpid(), "address_space": resource.getrlimit(resource.RLIMIT_AS)[0],
                            "arenas": os.environ.get("MALLOC_ARENA_MAX"),
+                           "blas_threads": os.environ.get("OPENBLAS_NUM_THREADS"),
                            "telemetry": os.environ.get("ORT_DISABLE_TELEMETRY")}, seen)
             return PiperVoice()
 
@@ -40,6 +53,15 @@ FAKE_PIPER = textwrap.dedent("""
                 raise MemoryError
             if "allocate" in chunk:
                 bytearray(1024 ** 3)
+            if "arena" in chunk:  # how ONNX Runtime reports an allocation that failed
+                raise RuntimeError(
+                    "[ONNXRuntimeError] : 1 : FAIL : Non-zero status code returned while running Conv node. "
+                    "Name:'/dec/resblocks.8/convs.1/Conv' Status Message: /onnxruntime_src/onnxruntime/core/"
+                    "framework/bfc_arena.cc:360 void* onnxruntime::BFCArena::AllocateRawInternal(size_t, bool, "
+                    "onnxruntime::Stream*) Failed to allocate memory for requested buffer of size 4194304")
+            if "bad alloc" in chunk:
+                raise RuntimeError("[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned "
+                                   "while running Add node. Name:'/dec/resblocks.8/Add' Status Message: std::bad_alloc")
             if "hang" in chunk:
                 time.sleep(60)
             if "crash" in chunk:
@@ -126,6 +148,34 @@ def test_pieces_without_audio_are_skipped(tmp_path):
     assert piper_child.write_wav(FakeVoice(), ["silence"], None, str(output)) == 0
 
 
+class FailingVoice:
+    def __init__(self, error: Exception):
+        self.error = error
+
+    def synthesize_wav(self, chunk, wav_file, syn_config=None):
+        raise self.error
+
+
+@pytest.mark.parametrize(("error", "retryable"), [
+    (MemoryError(), False),
+    (RuntimeError("[ONNXRuntimeError] : 1 : FAIL : Load model from it.onnx failed:std::bad_alloc"), False),
+    (RuntimeError("Status Message: onnxruntime::BFCArena::AllocateRawInternal Failed to allocate memory"), False),
+    (OSError(errno.ENOMEM, "Cannot allocate memory"), False),
+    (RuntimeError("[ONNXRuntimeError] : 2 : INVALID_ARGUMENT : Unexpected input data type"), True),
+])
+def test_in_process_piper_out_of_memory_is_not_retried(tmp_path, monkeypatch, error, retryable):
+    """The same page would run out of memory again: only other engine errors are worth a retry."""
+    backend = backends.PiperBackend(config(tmp_path))
+    monkeypatch.setattr(backends, "piper_in_child", lambda: False)
+    monkeypatch.setattr(backend, "_voice", lambda _language: FailingVoice(error))
+    monkeypatch.setattr(backend, "_syn_config", lambda: None)
+    with pytest.raises(backends.SynthesisError) as caught:
+        backend.synthesize("Hello there.", "en", tmp_path)
+    assert caught.value.retryable is retryable
+    assert ("out of memory" in str(caught.value)) is not retryable
+    assert not [name for name in os.listdir(tmp_path) if name.startswith(".part-")]
+
+
 # In a child process (POSIX)
 
 
@@ -136,6 +186,8 @@ def child_piper(tmp_path, monkeypatch):
     package.mkdir(parents=True)
     (package / "__init__.py").write_text(FAKE_PIPER, encoding="utf-8")
     monkeypatch.setenv("PYTHONPATH", str(package.parent))
+    for name in ("MALLOC_ARENA_MAX", "OPENBLAS_NUM_THREADS"):  # what the worker sets, not the developer's own
+        monkeypatch.delenv(name, raising=False)
     voices = tmp_path / "voices"
     voices.mkdir()
     (voices / "en_US-lessac-medium.onnx").write_bytes(b"")
@@ -157,7 +209,7 @@ def test_piper_runs_in_a_child_process_with_an_address_space_limit(tmp_path, chi
     report = seen(tmp_path)
     assert report["pid"] != os.getpid()
     assert report["address_space"] == 1024 * 1024 * 1024 and report["arenas"] == "2"
-    assert report["telemetry"] == "1"
+    assert report["blas_threads"] == "1" and report["telemetry"] == "1"
     audio.path.unlink()
     with pytest.raises(backends.SynthesisError, match="out of memory") as caught:
         child_piper(piper_memory_mb=256).synthesize("Please allocate a lot.", "en", tmp_path)
@@ -178,6 +230,52 @@ def test_piper_crash_fails_the_job_not_the_worker(tmp_path, child_piper):
     with pytest.raises(backends.SynthesisError, match="signal") as caught:
         child_piper().synthesize("This will crash.", "en", tmp_path)
     assert caught.value.retryable is True
+
+
+@posix_only
+@pytest.mark.parametrize("words", ["The arena is full.", "A bad alloc here."])
+def test_onnx_runtime_allocation_failures_are_out_of_memory(tmp_path, child_piper, words):
+    """ONNX Runtime turns a failed allocation into an ordinary error: the same page would fail again."""
+    with pytest.raises(backends.SynthesisError, match="out of memory") as caught:
+        child_piper(piper_memory_mb=1024).synthesize(words, "en", tmp_path)
+    assert caught.value.retryable is False
+    assert not [name for name in os.listdir(tmp_path) if name.startswith(".part-")]
+
+
+@posix_only
+@pytest.mark.parametrize(("failure", "message"), [
+    ("memory", "out of memory"), ("map", "out of memory"), ("enomem", "out of memory"), ("missing", "not installed"),
+])
+def test_piper_that_cannot_be_imported_is_not_retried(tmp_path, child_piper, monkeypatch, failure, message):
+    monkeypatch.setenv("FAKE_PIPER_IMPORT", failure)
+    with pytest.raises(backends.SynthesisError, match=message) as caught:
+        child_piper().synthesize("Hello there.", "en", tmp_path)
+    assert caught.value.retryable is False
+
+
+@posix_only
+def test_piper_threads_are_bounded_under_the_worker_address_space_limit(tmp_path, child_piper, monkeypatch):
+    """BW_MEMORY_LIMIT_MB is the worker's own RLIMIT_AS, which Piper inherits without BW_TTS_PIPER_MEMORY_MB."""
+    observed = []
+    for limited in (False, True):
+        monkeypatch.setattr(backends, "_address_space_limited", lambda limited=limited: limited)
+        child_piper().synthesize("Hello there.", "en", tmp_path).path.unlink()
+        observed.append((seen(tmp_path)["arenas"], seen(tmp_path)["blas_threads"]))
+    assert observed == [(None, None), ("2", "1")]
+    monkeypatch.setenv("OPENBLAS_NUM_THREADS", "4")  # an operator's own value is kept
+    child_piper().synthesize("Hello there.", "en", tmp_path).path.unlink()
+    assert seen(tmp_path)["blas_threads"] == "4"
+
+
+@posix_only
+def test_the_worker_address_space_limit_is_detected():
+    script = ("import resource; from bananawiki.wiki.features.tts import backends; "
+              "_soft, hard = resource.getrlimit(resource.RLIMIT_AS); "
+              "resource.setrlimit(resource.RLIMIT_AS, (64 * 1024 ** 3 if hard == resource.RLIM_INFINITY else hard, hard)); "
+              "print(backends._address_space_limited())")
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60,
+                            cwd=Path(__file__).resolve().parents[2])
+    assert result.stdout.strip() == "True", result.stderr
 
 
 @posix_only
@@ -207,3 +305,4 @@ def _running(pid: int) -> bool:
             return stat.read().rsplit(")", 1)[1].split()[0] != "Z"
     except FileNotFoundError:
         return False
+

@@ -274,6 +274,18 @@ def _system_specs() -> tuple[int, int]:
     return cpus, memory_mb
 
 
+def _address_space_limited() -> bool:
+    """Whether this process runs under an address-space limit (``BW_MEMORY_LIMIT_MB``) that Piper inherits."""
+    try:
+        import resource
+    except ImportError:  # not a POSIX system
+        return False
+    try:
+        return resource.getrlimit(resource.RLIMIT_AS)[0] != resource.RLIM_INFINITY
+    except (OSError, ValueError):
+        return False
+
+
 def synthesis_scales(mode: str) -> tuple[float, float, float]:
     """(length, noise, noise_w) for a performance mode; lower noise is faster."""
     if mode == "fast":
@@ -401,8 +413,11 @@ class PiperBackend:
             "output": str(wav_path), "memory_mb": self.cfg.piper_memory_mb,
         }).encode("utf-8")
         env = dict(os.environ)
-        if self.cfg.piper_memory_mb:
-            env.setdefault("MALLOC_ARENA_MAX", "2")  # glibc reserves address space for each thread's arena
+        if self.cfg.piper_memory_mb or _address_space_limited():
+            # Each thread reserves address space: glibc gives it an arena of its own, and OpenBLAS
+            # (numpy) starts one thread per host CPU, whatever the container's CPU quota.
+            env.setdefault("MALLOC_ARENA_MAX", "2")
+            env.setdefault("OPENBLAS_NUM_THREADS", "1")
         seconds = self.cfg.max_job_seconds
         try:
             returncode, diagnostics = _run_bounded(
@@ -436,6 +451,8 @@ class PiperBackend:
             raise
         except Exception as error:  # noqa: BLE001 - any engine error fails this job only
             wav_path.unlink(missing_ok=True)
+            if piper_child.out_of_memory(error):
+                raise SynthesisError("Piper ran out of memory.", retryable=False) from error
             raise SynthesisError(f"Piper failed: {error}") from error
         if wav_path.stat().st_size == 0:
             wav_path.unlink(missing_ok=True)

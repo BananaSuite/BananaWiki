@@ -531,6 +531,15 @@ def test_shipped_images_install_only_hash_pinned_wheels(name):
         assert "--require-hashes" in command and "--only-binary=:all:" in command
 
 
+@pytest.mark.parametrize("name", ["Dockerfile", "Dockerfile.tenant"])
+def test_shipped_images_start_few_native_threads(name):
+    """BW_MEMORY_LIMIT_MB limits address space, which each thread takes some of. numpy's OpenBLAS would start a
+    thread per host CPU (glibc an arena for each): on a large host the wiki would not start within 768 MB."""
+    text = shipped(name).read_text().replace("\\\n", " ")
+    variables = next(line for line in text.splitlines() if line.startswith("ENV ")).split()
+    assert "MALLOC_ARENA_MAX=2" in variables and "OPENBLAS_NUM_THREADS=1" in variables
+
+
 def test_acl_stage_reads_unstable_at_a_fixed_snapshot():
     """A moving suite lists only its newest versions, so the exact ones the stage pins would vanish from it."""
     script = shipped("docker/media/fetch-acl-packages.sh").read_text()

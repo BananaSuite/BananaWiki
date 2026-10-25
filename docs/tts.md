@@ -99,8 +99,15 @@ One page cannot stop the worker or hold the queue for good:
   is off by default because ONNX Runtime reserves more address space than it
   uses, more on servers with many CPU cores: try a value (for example 4096)
   on your server before you rely on it. A lower `BW_MEMORY_LIMIT_MB` applies
-  as well. On Windows and in the packaged desktop app Piper runs inside the
-  worker.
+  as well (768 on the hosting platform). Under either limit Piper starts with
+  `MALLOC_ARENA_MAX=2` and `OPENBLAS_NUM_THREADS=1` unless they are already
+  set (the container images set both for every process): otherwise each CPU
+  core of the host costs address space, and on 8 cores 768 MB did not even
+  load a voice. ONNX Runtime still starts a thread per host core, so in a
+  container limited to one CPU on a large host long pages take much longer.
+  A job that runs out of memory fails at once ("Piper ran out of memory."),
+  without retries: the same page would run out again. On Windows and in the
+  packaged desktop app Piper runs inside the worker.
 * No job runs longer than `BW_TTS_MAX_JOB_SECONDS`: its lease stops being
   renewed and the job fails ("The job ran longer than ..."). With a GPU
   server, keep it above `BW_TTS_REMOTE_GPU_TIMEOUT`.
