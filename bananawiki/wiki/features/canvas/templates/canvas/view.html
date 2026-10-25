@@ -140,6 +140,7 @@
       <li>{{ t('canvas.keys.select') }}</li>
       <li>{{ t('canvas.keys.clipboard') }}</li>
       <li>{{ t('canvas.keys.connect') }}</li>
+      {% if bm_simplified('canvas.connect_arrow') %}<li>{{ t('canvas.keys.add_below') }}</li>{% endif %}
       <li>{{ t('canvas.keys.undo') }}</li>
       {#- Screen readers still read this help through the stage's description: only keys that work. -#}
       {% if bm_simplified('canvas.simple_tools') %}

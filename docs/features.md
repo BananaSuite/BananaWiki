@@ -99,10 +99,24 @@ else. It replaces the 1.7 "easy wiki" setting. **Admin → BM mode**
     can still be freed;
   * bigger canvas tools (hiding nothing): every tool shows its name under
     its icon, the buttons are bigger and coloured by what they do (adding in
-    blue, changing in green, undo and redo in yellow, deleting in red), and
-    the element dialog offers shapes and colours as pictures with their names
-    instead of lists. A colour from outside the palette (an imported canvas,
-    for example) shows as **Current colour** and is kept;
+    blue, changing in green, undo and redo in yellow, deleting in red), a
+    round knob on the selected element's corner resizes it (in place of the
+    small corners), and the element dialog offers shapes and colours as
+    pictures with their names instead of lists. A colour from outside the
+    palette (an imported canvas, for example) shows as **Current colour** and
+    is kept;
+  * an arrow to connect canvas elements, under the selected element: dragged
+    onto another element it connects the two; clicked (or Shift+Enter) it
+    adds a note below that looks the same (a note's shape, colour and size;
+    any other element gives a plain note in its colour), already connected
+    and with its dialog open to write in; let go anywhere else, it does
+    nothing. A second note goes beside the first (under it, on a template
+    column), and the view moves to show it if needed. The locked columns of
+    a template are not elements to connect to, and locked elements have no
+    arrow;
+  * new canvases start from **A note to start with**, one note to write in,
+    instead of an empty canvas; the empty canvas and the other templates stay
+    in the list;
   * a "Getting started" list on the admin dashboard until the wiki has a page
     of its own, a second member (or an invite code or open sign-up) and a
     name.
@@ -495,8 +509,8 @@ Limits:
 * An export holds at most 2000 files and 512 MB of them; a canvas showing
   more is exported with a note in place of its files.
 
-New canvases can start from a template (flowchart, mind map, retrospective
-board, SWOT analysis). The editor has:
+New canvases can start from a template (a note to start with, flowchart,
+mind map, retrospective board, SWOT analysis). The editor has:
 
 * a grid with snapping (G), alignment and distribution of the selection,
   groups that move together (Ctrl+G) and locks (L);

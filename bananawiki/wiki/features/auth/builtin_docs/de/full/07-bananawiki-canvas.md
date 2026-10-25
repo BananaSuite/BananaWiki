@@ -4,7 +4,7 @@ Ein Canvas ist eine freie Fläche mit Notizen, Formen, Bildern, Videos, Code und
 
 ## Elemente und Verbindungen
 
-Füge Elemente über die Werkzeugleiste hinzu und verbinde sie mit Pfeilen; die Verbindungen folgen den Elementen, wenn du sie verschiebst. Mehrere Personen können denselben Canvas gleichzeitig bearbeiten. Beim Erstellen kannst du mit einer Vorlage beginnen: einem Flussdiagramm, einer Mindmap, einer Retrospektive oder einer SWOT-Analyse.
+Füge Elemente über die Werkzeugleiste hinzu und verbinde sie mit Pfeilen; die Verbindungen folgen den Elementen, wenn du sie verschiebst. Mehrere Personen können denselben Canvas gleichzeitig bearbeiten. Beim Erstellen kannst du mit einer Vorlage beginnen: einer Notiz zum Anfangen, einem Flussdiagramm, einer Mindmap, einer Retrospektive oder einer SWOT-Analyse.
 
 ## Seite oder Canvas
 

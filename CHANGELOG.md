@@ -4,7 +4,11 @@
 
 ### BM mode
 
-* Bigger canvas tools: in BM mode every canvas tool shows its name under its icon, the buttons are bigger and tinted by what they do (adding, changing the selection, undo and redo; deleting in red), and the element dialog offers shapes and colours as pictures with their names instead of lists. Like the other simplifications it is on by default, so wikis and accounts already in BM mode get it after the update; **Admin → BM mode** switches it off.
+* Canvases in BM mode get three new simplifications:
+  * **Bigger canvas tools**: every tool shows its name under its icon, the buttons are bigger and tinted by what they do (adding, changing the selection, undo and redo; deleting in red), a round knob resizes the selected element, and the element dialog offers shapes and colours as pictures with their names instead of lists.
+  * **Arrow to connect elements**: an arrow under the selected element connects it to another element when dragged there, and adds a matching note below, already connected, when clicked (Shift+Enter from the keyboard).
+  * **New canvases start with a note**: the create form starts from the new template **A note to start with** (also offered outside BM mode) instead of an empty canvas.
+* Like the other simplifications they are on by default, so wikis and accounts already in BM mode get them after the update; **Admin → BM mode** switches each off.
 
 ### Fixes
 

@@ -1,4 +1,4 @@
-"""Starting layouts for new canvases: flowchart, mind map, retrospective and SWOT.
+"""Starting layouts for new canvases: a first note, flowchart, mind map, retrospective and SWOT.
 
 :func:`document` builds a template's document with its labels in the current
 language; the result goes through :func:`.model.clean_document` like any
@@ -23,6 +23,14 @@ def _node(node_id: str, x: int, y: int, width: int, height: int, **fields: Any) 
 
 def _edge(edge_id: str, start: str, end: str, **fields: Any) -> dict[str, Any]:
     return {"id": edge_id, "from": start, "to": end, "label": "", **fields}
+
+
+def _first_note() -> dict[str, Any]:
+    # One note to write in, the size and text size a new note gets in the editor (canvas-editor.js
+    # addNode), so the notes BM mode's connect arrow adds below it look the same; on the grid.
+    note = _node("first", -120, -72, 240, 120, shape="rounded", color=BLUE, text_size=13,
+                 content=t("canvas.preset.first.idea"))
+    return {"nodes": [note], "edges": []}
 
 
 def _flowchart() -> dict[str, Any]:
@@ -84,6 +92,7 @@ def _swot() -> dict[str, Any]:
 
 
 TEMPLATES: dict[str, Callable[[], dict[str, Any]]] = {
+    "first_note": _first_note,
     "flowchart": _flowchart,
     "mind_map": _mind_map,
     "retrospective": _retrospective,

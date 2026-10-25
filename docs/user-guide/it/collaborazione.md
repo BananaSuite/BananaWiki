@@ -89,9 +89,9 @@ possono modificarli contemporaneamente. I canvas hanno una cronologia con
 ripristino, si possono condividere con persone o ruoli (lettura o modifica),
 esportare e importare e mostrare in una pagina con `[[canvas slug="<nome>"]]`.
 
-* **Parti da un modello**: quando crei un canvas puoi scegliere un diagramma
-  di flusso, una mappa mentale, una bacheca per la retrospettiva o un'analisi
-  SWOT invece di un canvas vuoto.
+* **Parti da un modello**: quando crei un canvas puoi scegliere una nota per
+  cominciare, un diagramma di flusso, una mappa mentale, una bacheca per la
+  retrospettiva o un'analisi SWOT invece di un canvas vuoto.
 * **Disponi**: seleziona più elementi (Maiusc+clic o Maiusc+trascina) e usa
   **Disponi** per allinearli o distribuirli, raggrupparli (Ctrl+G) perché si
   spostino insieme o bloccarli (L) perché restino fermi. Nessuno può

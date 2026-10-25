@@ -46,5 +46,7 @@ FEATURE = Feature(
     simplifications=[
         Simplification("canvas.simple_tools", "canvas.bm.simple_tools", "canvas.bm.simple_tools_hint"),
         Simplification("canvas.big_controls", "canvas.bm.big_controls", "canvas.bm.big_controls_hint"),
+        Simplification("canvas.connect_arrow", "canvas.bm.connect_arrow", "canvas.bm.connect_arrow_hint"),
+        Simplification("canvas.first_note", "canvas.bm.first_note", "canvas.bm.first_note_hint"),
     ],
 )
