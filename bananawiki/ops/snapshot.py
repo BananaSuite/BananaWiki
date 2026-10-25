@@ -284,6 +284,20 @@ class Snapshot:
         return snapshot
 
     @classmethod
+    def check(cls, root: Path, allowed_link: Callable[[Path], bool] | None = None, *,
+              max_files: int = DEFAULT_MAX_FILES, reserve: int = 0, preparing: int = 0) -> None:
+        """Refuse (:class:`~.files.Refused`) what :meth:`create` would refuse now, without capturing anything.
+
+        An update asks before it prepares its release, so one whose snapshot
+        could not be taken builds nothing. *preparing* is what that release is
+        expected to take on the staging volume first.
+        """
+        staging = Path(root) / "staging"
+        staging.mkdir(mode=0o700, parents=True, exist_ok=True)
+        probe = cls(staging, root, allowed_link, max_files=max_files, reserve=reserve)  # only reads
+        probe._check(probe._sources(), shutil.disk_usage(staging).free, max_files, preparing=preparing)
+
+    @classmethod
     def open(cls, path: str | os.PathLike[str], root: Path,
              allowed_link: Callable[[Path], bool] | None = None) -> Snapshot:
         path = Path(path)
@@ -391,7 +405,8 @@ class Snapshot:
             os.close(directory)
         return {"method": method, "signature": _signature(info)}
 
-    def _check_space(self, sources: dict[str, Path]) -> None:
+    def _needed(self, sources: dict[str, Path]) -> int:
+        """Bytes a capture of *sources* (and a rollback from it) writes: what it copies rather than links."""
         needed = 0
         for name, path in sources.items():
             info = _current(path)
@@ -401,24 +416,28 @@ class Snapshot:
             elif self._untrusted(name) or _mutable(name, size):
                 # A rollback links the copy back, but copies a database (see copy_tree).
                 needed += 2 * size if _named_like_database(name) else size
-        free = shutil.disk_usage(self.path).free
-        if free < needed + 128 * 1024 * 1024:
+        return needed
+
+    def _check(self, sources: dict[str, Path], free: int, max_files: int, *, preparing: int = 0) -> None:
+        """Refuse a capture of *sources* that no package could hold or *free* bytes could not (see :meth:`check`)."""
+        # Before anything stops: a package of more files (these and the release's source) could not be written.
+        if len(sources) + 1 > max_files:
+            raise Refused(f"The installation holds {len(sources):,} files, more than a package may hold "
+                          f"({max_files:,}), so nothing was changed. Raise BANANA_PACKAGE_MAX_FILES in "
+                          "config/app.env, or remove files, then retry.")
+        needed = self._needed(sources)
+        if free < needed + preparing + 128 * 1024 * 1024:
             # Checked while capturing, before anything stops.
             raise Refused("Not enough free space for a pre-update snapshot, so nothing was changed. Free some "
                           "space, then retry.")
-        if free < needed + 128 * 1024 * 1024 + self.reserve:
+        if free < needed + preparing + 128 * 1024 * 1024 + self.reserve:
             raise Refused(f"A snapshot needs about {needed // 2**20:,} MiB, which would use space reserved for the "
                           f"hosted wikis' storage quotas ({self.reserve // 2**20:,} MiB on this volume), so nothing "
                           "was changed. Free space on the volume or lower the wikis' storage limits, then retry.")
 
     def capture(self, max_files: int = DEFAULT_MAX_FILES) -> None:
         sources = self._sources()
-        # Before anything stops: a package of more files (these and the release's source) could not be written.
-        if len(sources) + 1 > max_files:
-            raise Refused(f"The installation holds {len(sources):,} files, more than a package may hold "
-                          f"({max_files:,}), so nothing was changed. Raise BANANA_PACKAGE_MAX_FILES in "
-                          "config/app.env, or remove files, then retry.")
-        self._check_space(sources)
+        self._check(sources, shutil.disk_usage(self.path).free, max_files)
         index = {}
         for name in sources:
             entry = self._add(name)

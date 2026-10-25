@@ -93,10 +93,16 @@ What happens:
    release must be an annotated tag SSH-signed by an allowed key for its own
    name, and on a server that follows a branch the commit itself must be
    signed (see [signed releases](#signed-releases)).
-3. **Preparation.** The release is prepared next to the running one (new
-   virtual environment, wheels only; on hosting servers the tenant image).
-   The wiki keeps serving. A failure leaves everything as it was and records
-   the commit as failed. Hosting servers have more to prepare; see
+3. **Preparation.** First the update checks that the snapshot of step 5
+   will still fit once the release is prepared, counting about as much room
+   for the new release as the running one takes (its tenant image too, when
+   Docker keeps images on the same filesystem). Without that room it stops
+   with *"Not enough free space for a pre-update snapshot"* before preparing
+   anything, and does not record the commit as failed. Then the release is
+   prepared next to the running one (new virtual environment, wheels only;
+   on hosting servers the tenant image). The wiki keeps serving. A failure
+   leaves everything as it was, removes what it prepared and records the
+   commit as failed. Hosting servers have more to prepare; see
    [the tenant image](#the-tenant-image-hosting).
 4. **Preflight.** The new release runs its own `banana preflight` as root
    (system Python, 3-minute limit) before anything stops. On hosting servers
@@ -279,10 +285,22 @@ A commit that failed in preparation, was refused by its preflight or was
 rolled back is recorded with the stage and the reason in
 `config/failed-revision.json` and shown by `status` (`failed_revision`).
 Automatic updates skip it until a newer commit appears, so a release that
-cannot run here does not take the wikis down every interval. A manual
-`update` always tries it again (fix the cause first). A successful update
-clears the record, and a record of a commit the installed release already
-contains is ignored and removed.
+cannot run here does not take the wikis down every interval, nor prepares
+it again. A manual `update` always tries it again (fix the cause first). A
+successful update clears the record, and a record of a commit the installed
+release already contains is ignored and removed.
+
+Whatever stage an update fails at, it removes the release it prepared
+(`releases/<commit>`) and, on hosting servers, its tenant image, so failed
+attempts do not fill the disk. The running release and the one `rollback`
+returns to (`previous_revision` in `config/last-update.json`) are never
+removed, and nothing is removed while an interrupted transaction waits for
+its recovery. The result (`status`, `config/history.jsonl`) lists what was
+removed as `discarded`, and what could not be (an image a container still
+uses, for example) as `cleanup_warning`. A later attempt prepares the commit
+again. An update the host held up (Docker not answering, too little free
+space for the snapshot) does not record the commit: the next automatic run
+tries it again.
 
 #### Units that do not start
 
@@ -500,8 +518,9 @@ needs a limit at least as high (`install --restore` on a new server uses
 the default). A backup or update of an installation with more files, with
 an invalid value, or without the free space for its snapshot is refused
 before anything is stopped (an update is then not recorded as a failed
-commit), and `status` warns from 80% of the limit (`package_files`,
-`package_file_limit`, `warnings`). While a backup or update runs, the
+commit, and is refused before it prepares the new release), and `status`
+warns from 80% of the limit (`package_files`, `package_file_limit`,
+`warnings`). While a backup or update runs, the
 controller needs about 1.5 GB of memory per million files. Releases before
 1.7 restore packages of at most 100,000 files.
 

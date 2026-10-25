@@ -14,7 +14,9 @@ Safety properties:
 Data is captured by an online :class:`~.snapshot.Snapshot` (short downtime);
 the portable package is written after the service is back and verified as a
 restore would before it is used. ``before-update-*`` packages, releases and
-tenant images are pruned. Hosting installs get the runtime agent instead of
+tenant images are pruned; an update that fails removes the release and tenant
+image it prepared, and one whose snapshot would not fit is refused before it
+prepares anything. Hosting installs get the runtime agent instead of
 Docker group membership, and units installed by the 1.4 updater are converged
 to the hardened units.
 """
@@ -374,6 +376,30 @@ class Manager:
             return (self.root / "current").resolve() != release.resolve()
         except OSError:
             return False
+
+    def preparation_bytes(self, settings: dict[str, Any]) -> int:
+        """What preparing a new release is expected to take on the staging volume: what the running one takes.
+
+        Its tree (the virtual environment included) when it is on that volume,
+        and on hosting servers its tenant image when Docker keeps images there.
+        What cannot be measured counts as nothing.
+        """
+        staging = self.root / "staging"
+        total = 0
+        try:
+            running = (self.root / "current").resolve()
+            if os.stat(running).st_dev == os.stat(staging).st_dev:
+                for directory, _directories, files in os.walk(running):
+                    for name in files:
+                        try:
+                            total += os.lstat(os.path.join(directory, name)).st_blocks * 512
+                        except OSError:
+                            continue
+        except OSError:
+            pass  # not measurable: counts as nothing (the snapshot is checked again once it is prepared)
+        if settings["mode"] == "hosting":
+            total += self.system.image_bytes(f"{TENANT_IMAGE}:{settings['revision']}", staging)
+        return total
 
     def stage(self, settings: dict[str, Any], *, archive: Path | None = None, allow_unpinned: bool = False,
               reprepare: bool = False) -> Path:
@@ -1055,12 +1081,21 @@ class Manager:
                 # because of the host would otherwise be recorded as this revision's failure. An invalid package
                 # limit, unready-wikis policy or tenant quota setting is refused here too, rather than once the
                 # release is built.
-                self.package_limit()
+                max_files = self.package_limit()
                 isolate = settings["mode"] == "hosting" and self.unready_policy() == "isolate"
                 self.system.check_docker(settings)
                 self.system.check_buildkit(settings)
                 if settings["mode"] == "hosting":
                     self.system.tenant_quota_setting(settings)
+                # And whatever the snapshot would refuse once the release is prepared (too many files, too little
+                # free space, space promised to the hosted wikis): on a disk short of space, every new revision
+                # would otherwise build a release and a tenant image, about a gigabyte, only to be refused.
+                release = self.release(sha)
+                preparing = (self.preparation_bytes(settings) if not (release / ".release.json").exists()
+                             or self.prepared_by_older_updater(release) else 0)
+                Snapshot.check(self.root, self.allowed_link(settings), max_files=max_files,
+                               reserve=self.system.staging_reserve(settings, self.root / "staging"),
+                               preparing=preparing)
             except Refused as error:
                 self.event("update", "failed", revision=sha, reason=str(error))
                 raise
@@ -1069,7 +1104,8 @@ class Manager:
             except BaseException as error:
                 self.record_failed(sha, "preparation", f"Release preparation failed: {error}")
                 self.event("update", "failed", revision=sha,
-                           reason="Release preparation failed; the running version was left in place.")
+                           reason="Release preparation failed; the running version was left in place.",
+                           **self.discard(sha))
                 raise
             if automatic and not self.policy()["enabled"]:
                 return self.event("update", "cancelled", reason="Automatic updates were disabled while preparing.")
@@ -1082,11 +1118,11 @@ class Manager:
                     answer = self.system.candidate_preflight(candidate, self.release(sha))
                 except CandidateRefused as error:
                     self.record_failed(sha, "preflight", str(error))
-                    self.event("update", "failed", revision=sha, reason=str(error))
+                    self.event("update", "failed", revision=sha, reason=str(error), **self.discard(sha))
                     raise
                 except CandidateUnavailable as error:
                     # Docker restarting, a slow host: not this revision's failure, so the next run asks again.
-                    self.event("update", "failed", revision=sha, reason=str(error))
+                    self.event("update", "failed", revision=sha, reason=str(error), **self.discard(sha))
                     raise
                 # Its warnings, and its notes about a supported configuration (wiki storage without hard quotas).
                 for key, label in (("warnings", "Warning"), ("notes", "Note")):
@@ -1141,12 +1177,14 @@ class Manager:
             try:
                 (others, quarantined), snapshot = self.guarded(settings, apply, candidate=sha)
             except Refused as error:
-                # Nothing was stopped: not this revision's failure, so the next automatic run tries it again.
-                self.event("update", "failed", revision=sha, reason=str(error))
+                # Nothing was stopped: not this revision's failure, so the next automatic run tries it again (and
+                # prepares it again, unless the check before stage() refuses it first).
+                self.event("update", "failed", revision=sha, reason=str(error), **self.discard(sha))
                 raise
             except BaseException as error:
                 self.record_failed(sha, "rollback", f"Rolled back: {str(error) or type(error).__name__}")
-                self.event("update", "rolled_back", revision=sha, restored_revision=settings["revision"])
+                self.event("update", "rolled_back", revision=sha, restored_revision=settings["revision"],
+                           **self.discard(sha))
                 raise
             (self.config_dir / PROXY_ROLLBACK).unlink(missing_ok=True)
             (self.config_dir / FAILED_REVISION).unlink(missing_ok=True)
@@ -1214,6 +1252,52 @@ class Manager:
         """
         write_json(self.config_dir / FAILED_REVISION,
                    {"revision": revision, "stage": stage, "reason": reason[:2000], "time": _now()})
+
+    def discard(self, revision: str) -> dict[str, Any]:
+        """Remove the release and tenant image a failed update prepared for *revision*, as far as possible.
+
+        A failed attempt would otherwise leave them behind (about a gigabyte
+        on a hosting server) for every revision it tried, until an update
+        succeeded. Kept: the running release, the one ``rollback`` returns to
+        (``previous_revision`` in ``config/last-update.json``), and everything
+        while a transaction is recorded, since its recovery may need them.
+        Returns what was removed (``discarded``) or kept (``cleanup_warning``)
+        for the failure's event.
+        """
+        try:
+            if (self.config_dir / "transaction.json").exists():
+                return {}
+            settings = self.settings()
+            last = read_json(self.config_dir / "last-update.json", {}) or {}
+            if revision in {settings["revision"], (self.root / "current").resolve().name,
+                            last.get("previous_revision")}:
+                return {}
+        except (OSError, ValueError) as error:
+            return {"cleanup_warning": f"What the failed update prepared for {revision[:12]} was kept: {error}"}
+        discarded: list[str] = []
+        kept: list[str] = []
+        release = self.release(revision)
+        if release.is_dir() and not release.is_symlink():
+            try:
+                shutil.rmtree(release)
+                discarded.append(f"releases/{revision}")
+            except OSError as error:
+                kept.append(f"releases/{revision} ({error})")
+        if settings["mode"] == "hosting":
+            image = f"{TENANT_IMAGE}:{revision}"
+            removed = self.system.remove_image(image)  # None: there is none (the build failed)
+            if removed:
+                discarded.append(image)
+            elif removed is False:
+                kept.append(f"{image} (Docker kept it)")
+        details: dict[str, Any] = {}
+        if discarded:
+            details["discarded"] = discarded
+            print(f"Removed what the failed update prepared: {', '.join(discarded)}.", file=sys.stderr, flush=True)
+        if kept:
+            details["cleanup_warning"] = f"What the failed update prepared could not all be removed: {', '.join(kept)}."
+            print(f"Warning: {details['cleanup_warning']}", file=sys.stderr, flush=True)
+        return details
 
     def failed_revision(self, settings: dict[str, Any], git: GitSource | None = None) -> dict[str, Any] | None:
         """The failed-revision record while it can still matter: None without one, or for a revision installed or
