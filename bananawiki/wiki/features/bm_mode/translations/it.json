@@ -12,7 +12,7 @@
   "bm_mode.features_hint": "Le funzioni spuntate sono disponibili in modalità BM; le altre lì sono nascoste. Una funzione disponibile segue comunque il proprio interruttore in Plugin.",
   "bm_mode.off_by_default": "Nascosta di solito",
   "bm_mode.simplifications_title": "Semplificazioni",
-  "bm_mode.simplifications_hint": "Ognuna nasconde comandi che servono di rado. Le pagine a cui portano restano disponibili e nessuno perde permessi.",
+  "bm_mode.simplifications_hint": "Ognuna rende la wiki più semplice, per lo più nascondendo comandi che servono di rado. Le pagine a cui portano restano disponibili e nessuno perde permessi.",
   "bm_mode.no_simplifications": "Nessuna funzione in uso ha qualcosa da semplificare.",
   "bm_mode.flash.saved": "Impostazioni della modalità BM salvate.",
   "bm_mode.flash.everyone_on": "{count} account messi in modalità BM.",

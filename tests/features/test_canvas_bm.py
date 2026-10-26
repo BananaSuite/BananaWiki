@@ -61,6 +61,14 @@ def test_fewer_tools_leave_out_the_minimap_the_arrange_menu_and_their_keys(bm_pa
     assert UNLOCK_HELP in bm_page and "guide lines appear" in bm_page
 
 
+def test_fewer_tools_keep_saving_as_an_image(bm_page):
+    # One button for the simplest format: a PNG, without the menu that also offers SVG.
+    assert re.search(r'<button type="button" class="btn btn--small " data-action="export-png"[^>]*>', bm_page)
+    assert 'data-action="export-svg"' not in bm_page and "canvas-menu__panel" not in bm_page
+    # The canvas file export, for importing elsewhere, stays hidden.
+    assert re.search(r'href="/canvas/[^"]+/export" data-bm-hide="canvas.simple_tools"', bm_page)
+
+
 def test_fewer_tools_keep_the_text_outline(bm_page):
     # The outline is the canvas for screen readers: its link stays in the page header.
     assert re.search(r'<a class="btn btn--small" href="/canvas/[^"]+/outline">', bm_page)
@@ -71,6 +79,7 @@ def test_the_full_canvas_keeps_every_tool(app, make_user, login):
     assert SIMPLE_RULE not in page and 'data-bm="' not in page
     assert "data-minimap" in page and "data-arrange-menu" in page
     assert SNAP_HELP in page and GROUP_HELP in page and UNLOCK_HELP not in page
+    assert 'data-action="export-svg"' in page and 'class="canvas-menu__item" data-action="export-png"' in page
 
 
 def test_switching_fewer_tools_off_gives_the_whole_canvas_back(easy, admin, make_user, login):

@@ -12,7 +12,7 @@
   "bm_mode.features_hint": "Ticked features are available in BM mode; the others are hidden there. A feature that is available still follows its own switch under Plugins.",
   "bm_mode.off_by_default": "Hidden by default",
   "bm_mode.simplifications_title": "Simplifications",
-  "bm_mode.simplifications_hint": "Each one hides controls that are rarely needed. The pages behind them stay available and nobody loses a permission.",
+  "bm_mode.simplifications_hint": "Each one makes the wiki simpler, mostly by hiding controls that are rarely needed. The pages behind them stay available and nobody loses a permission.",
   "bm_mode.no_simplifications": "No feature in use has anything to simplify.",
   "bm_mode.flash.saved": "BM mode settings saved.",
   "bm_mode.flash.everyone_on": "{count} accounts were put in BM mode.",

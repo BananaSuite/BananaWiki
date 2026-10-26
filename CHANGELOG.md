@@ -2,8 +2,18 @@
 
 ## Unreleased
 
+### BM mode
+
+* Canvases in BM mode get three new simplifications:
+  * **Bigger canvas tools**: every tool shows its name under its icon, the buttons are bigger and tinted by what they do (adding, changing the selection, undo and redo; deleting in red), a round knob resizes the selected element, and the element dialog offers shapes and colours as pictures with their names instead of lists.
+  * **Arrow to connect elements**: an arrow under the selected element connects it to another element when dragged there, and adds a matching note below, already connected, when clicked (Shift+Enter from the keyboard).
+  * **New canvases start with a note**: the create form starts from the new template **A note to start with** (also offered outside BM mode) instead of an empty canvas.
+* With fewer canvas tools, saving the canvas as a picture stays: one **Save as image** button downloads a PNG, in place of the image menu (the canvas file export stays hidden).
+* Like the other simplifications they are on by default, so wikis and accounts already in BM mode get them after the update; **Admin → BM mode** switches each off.
+
 ### Fixes
 
+* Canvases: an image, video or link without a title no longer shows its address in a title bar; the bar shows only a title written in the element dialog (wiki pages and code blocks keep theirs). The address still names the element to screen readers, in connections and in the text outline.
 * Managed servers: failed updates no longer fill the disk. An update now checks that its pre-update snapshot will still fit once the new release is prepared (counting about as much room as the running release and its tenant image take) before it prepares anything; before, each new commit of a followed branch built a release and, on hosting servers, a tenant image (about 1.2 GB together) only to be refused for want of space, and only a successful update pruned them. An update that fails at any stage removes the release and tenant image it prepared (`discarded` in its result, `cleanup_warning` for what Docker kept), never the running release or the one `rollback` returns to.
 
 ## 1.7.3 — 2026-10-24

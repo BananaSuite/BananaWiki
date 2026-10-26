@@ -39,6 +39,8 @@
   var MAX_OPS = 500;
   var GRID = 24;
   var GUIDE_PX = 6;  /* how close, in screen pixels, an edge must come to a guide line to snap to it */
+  var ARROW_CLICK_PX = 8;  /* how far, in screen pixels, the connect arrow may wander and still be a click */
+  var BELOW_GAP = GRID * 3;  /* between an element and the note its connect arrow adds below it */
   var Canvas = BW.Canvas;
 
   function readSetting(key, fallback) {
@@ -214,6 +216,10 @@
     this.scene = new Canvas.Scene(this.stage, {
       editable: this.canEdit,
       wheelPans: true,
+      handles: this.canEdit && {
+        resize: this.simplifies("canvas.big_controls"),
+        arrow: this.simplifies("canvas.connect_arrow")
+      },
       onBackgroundDown: function (event) { return editor.backgroundDown(event); },
       onBackgroundClick: function () { editor.clearSelection(); },
       onViewportDone: function () { editor.rememberViewport(); },
@@ -698,13 +704,17 @@
 
     stage.addEventListener("pointerdown", function (event) {
       if (event.button !== 0 || Object.keys(editor.scene.pointers).length > 1) return;
-      var edgeEl = event.target.closest(".cv-edge");
+      /* BM mode's handles on the selected element: the knob resizes it, the arrow connects it. */
+      var handle = event.target.closest("[data-handle]");
+      var handled = handle && handle.closest("[data-for]").getAttribute("data-for");
+      if (handle && handle.getAttribute("data-handle") === "arrow") { editor.grabArrow(event, handled); return; }
+      var edgeEl = !handle && event.target.closest(".cv-edge");
       if (edgeEl) {
         editor.selectEdge(edgeEl.getAttribute("data-edge-id"));
         editor.focusQuietly(edgeEl);
         return;
       }
-      var nodeEl = event.target.closest(".cv-node");
+      var nodeEl = handle ? editor.scene.elements[handled] : event.target.closest(".cv-node");
       if (!nodeEl || event.target.closest("a, iframe, button, input, textarea, select")) return;
       var id = nodeEl.dataset.id;
       /* Keyboard shortcuts keep working after a click, without the focus handler changing the selection. */
@@ -724,7 +734,7 @@
       }
       if (!editor.scene.selected[id]) editor.select(members, false);
       var start = editor.scene.toWorld(event.clientX, event.clientY);
-      var resize = event.target.classList.contains("cv-node__resize");
+      var resize = !!handle || event.target.classList.contains("cv-node__resize");
       var grabbed = editor.scene.node(id);
       var targets = resize ? [grabbed] : editor.movable(editor.selectedNodes());
       if (!targets.length) return;
@@ -757,6 +767,7 @@
         return;
       }
       if (!action || action.pointerId !== event.pointerId) return;
+      if (action.kind === "arrow") { editor.dragArrow(action, event); return; }
       var point = editor.scene.toWorld(event.clientX, event.clientY);
       if (action.kind === "marquee") { editor.updateMarquee(point); return; }
       var dx = point.x - action.start.x, dy = point.y - action.start.y;
@@ -785,6 +796,7 @@
       if (!action || action.pointerId !== event.pointerId) return;
       editor.interaction = null;
       if (action.kind === "marquee") { editor.finishMarquee(); return; }
+      if (action.kind === "arrow") { editor.dropArrow(action, event); return; }
       action.guides.remove();
       if (action.moved) editor.commit();
     }
@@ -835,12 +847,63 @@
     this.interaction = null;
     if (!action) return;
     if (action.kind === "marquee") { this.removeMarquee(); return; }
+    if (action.kind === "arrow") { this.releaseArrow(); return; }
     action.guides.remove();
     action.origin.forEach(function (item) {
       item.node.x = item.x; item.node.y = item.y;
       if (action.kind === "resize") { item.node.width = item.w; item.node.height = item.h; }
     });
     this.scene.render();
+  };
+
+  /* BM mode's connect arrow under the selected element. Dragged onto another element it connects the
+   * two; clicked (it moved less than ARROW_CLICK_PX on screen, so an unsteady hand still clicks) it adds
+   * a matching note below; let go anywhere else, it does nothing. */
+  Editor.prototype.grabArrow = function (event, fromId) {
+    event.preventDefault();
+    if (!this.scene.node(fromId)) return;
+    this.interaction = { kind: "arrow", from: fromId, pointerId: event.pointerId,
+                         x: event.clientX, y: event.clientY, moved: false };
+    this.stage.setPointerCapture(event.pointerId);
+  };
+
+  Editor.prototype.dragArrow = function (action, event) {
+    if (Math.abs(event.clientX - action.x) + Math.abs(event.clientY - action.y) > ARROW_CLICK_PX) action.moved = true;
+    var from = this.scene.node(action.from);
+    if (!action.moved || !from) return;
+    var size = Canvas.sizeOf(from);
+    var point = this.scene.toWorld(event.clientX, event.clientY);
+    var target = this.arrowTarget(event, action.from);
+    this.scene.markDropTarget(target && target.id);
+    this.scene.preview = { x1: from.x + size.w / 2, y1: from.y + size.h, x2: point.x, y2: point.y };
+    this.scene.renderPreview();
+  };
+
+  Editor.prototype.dropArrow = function (action, event) {
+    this.releaseArrow();
+    if (Math.abs(event.clientX - action.x) + Math.abs(event.clientY - action.y) > ARROW_CLICK_PX) action.moved = true;
+    if (!action.moved) { this.addBelow(action.from); return; }
+    var target = this.arrowTarget(event, action.from);
+    if (!target || !this.scene.node(action.from)) return;
+    this.scene.connectFrom = action.from;
+    this.finishConnect(target.id);
+  };
+
+  /* The element under the dragged arrow; none outside the visible canvas or over the minimap. */
+  Editor.prototype.arrowTarget = function (event, fromId) {
+    var within = function (element) {
+      var rect = element.getBoundingClientRect();
+      return event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+    };
+    if (!within(this.stage)) return null;
+    if (this.minimap.canvas && !this.minimap.canvas.hidden && within(this.minimap.canvas)) return null;
+    return this.nodeAt(this.scene.toWorld(event.clientX, event.clientY), fromId);
+  };
+
+  Editor.prototype.releaseArrow = function () {
+    this.scene.markDropTarget(null);
+    this.scene.preview = null;
+    this.scene.renderPreview();
   };
 
   /* Shift-drag on the background draws a selection rectangle. */
@@ -905,6 +968,79 @@
     this.commit();
     this.focusNode(node.id);
     return node;
+  };
+
+  /* BM mode's connect arrow (canvas.connect_arrow), clicked or Shift+Enter: a note that looks like this
+   * element (a note's shape, colour and size; any other element's colour), connected just below it, with
+   * its dialog open to write in. One undo step; a second note goes beside the first, not on top of it. */
+  Editor.prototype.addBelow = function (fromId) {
+    var from = this.scene.node(fromId);
+    if (!from) return null;
+    var size = Canvas.sizeOf(from);
+    var note = from.type === "text";
+    var box = note ? size : Canvas.sizeOf({ type: "text" });
+    var fields = { id: randomId("n"), type: "text", width: box.w, height: box.h, text_size: note && from.text_size || 13 };
+    if (note && from.shape) fields.shape = from.shape;
+    if (from.color) fields.color = from.color;
+    var x = Math.round(from.x + (size.w - box.w) / 2), y = Math.round(from.y + size.h + BELOW_GAP);
+    /* On a template column the next note goes under the last one, to stay in that column; elsewhere
+     * beside it. */
+    var column = this.frameAt({ x: from.x + size.w / 2, y: from.y + size.h / 2 });
+    for (var tries = 0; tries < 50 && this.overlaps(x, y, box); tries++) {
+      if (column) y += box.h + GRID; else x += box.w + GRID;
+    }
+    this.scene.edges.push({ id: randomId("e"), from: from.id, to: fields.id, label: "", text_size: 14 });
+    var node = this.addNode(fields, { x: x + box.w / 2, y: y + box.h / 2 });
+    this.reveal(node);
+    this.openNodeDialog(node.id);
+    return node;
+  };
+
+  /* Locked frames on the bottom layer (template columns) are backgrounds that notes go on, not elements. */
+  function isFrame(node) { return !!node.locked && (node.layer || 0) <= 0; }
+
+  function contains(node, point) {
+    var size = Canvas.sizeOf(node);
+    return point.x >= node.x && point.x <= node.x + size.w && point.y >= node.y && point.y <= node.y + size.h;
+  }
+
+  Editor.prototype.frameAt = function (point) {
+    return this.scene.nodes.filter(function (node) { return isFrame(node) && contains(node, point); })[0] || null;
+  };
+
+  /* Whether a box at x, y would cover an element. */
+  Editor.prototype.overlaps = function (x, y, box) {
+    return this.scene.nodes.some(function (node) {
+      if (isFrame(node)) return false;
+      var size = Canvas.sizeOf(node);
+      return x < node.x + size.w && node.x < x + box.w && y < node.y + size.h && node.y < y + box.h;
+    });
+  };
+
+  /* The element drawn on top at a point of the canvas, frames left out; none when that is skip itself. */
+  Editor.prototype.nodeAt = function (point, skip) {
+    var nodes = this.scene.nodes.slice().sort(Canvas.byLayer).reverse();
+    for (var i = 0; i < nodes.length; i++) {
+      if (!isFrame(nodes[i]) && contains(nodes[i], point)) return nodes[i].id === skip ? null : nodes[i];
+    }
+    return null;
+  };
+
+  /* Pans the view, keeping the zoom, until a node is on screen with a margin around it. */
+  Editor.prototype.reveal = function (node) {
+    var rect = this.stage.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    var view = this.scene.viewport, size = Canvas.sizeOf(node), margin = GRID;
+    var left = node.x * view.zoom + view.x, top = node.y * view.zoom + view.y;
+    var right = left + size.w * view.zoom, bottom = top + size.h * view.zoom;
+    var dx = 0, dy = 0;
+    if (right > rect.width - margin) dx = rect.width - margin - right;
+    if (left + dx < margin) dx = margin - left;
+    if (bottom > rect.height - margin) dy = rect.height - margin - bottom;
+    if (top + dy < margin) dy = margin - top;
+    if (!dx && !dy) return;
+    this.scene.panBy(dx, dy);
+    this.rememberViewport();
   };
 
   Editor.prototype.focusQuietly = function (element) {
@@ -1157,6 +1293,37 @@
     external_link: ["display_text", "url"]
   };
 
+  /* The shape and colour fields are lists, or radio buttons with pictures under BM mode's bigger
+   * controls (canvas.big_controls): these set and read either. */
+  function choiceRadios(form, name) {
+    return Array.prototype.slice.call(form.querySelectorAll('input[type="radio"][name="' + name + '"]'));
+  }
+
+  function setChoice(form, name, value) {
+    var radios = choiceRadios(form, name);
+    if (!radios.length) { form.elements[name].value = value; return; }
+    var other = form.querySelector('[data-choice-other] input[name="' + name + '"]');
+    var match = radios.filter(function (radio) { return radio !== other && radio.value === value; })[0] || null;
+    if (other) {
+      /* A colour outside the palette (imported, or set through the API) gets a choice of its own,
+       * so saving the dialog keeps it. */
+      var keep = !match && Canvas.COLOR.test(value);
+      var choice = other.closest("[data-choice-other]");
+      choice.hidden = !keep;
+      other.value = keep ? value : "";
+      choice.querySelector(".cv-swatch").setAttribute("style", keep ? "--swatch: " + value : "");
+      if (keep) match = other;
+    }
+    radios.forEach(function (radio) { radio.checked = radio === match; });
+  }
+
+  function choiceValue(form, name) {
+    var radios = choiceRadios(form, name);
+    if (!radios.length) return form.elements[name].value;
+    var checked = radios.filter(function (radio) { return radio.checked; })[0];
+    return checked ? checked.value : "";
+  }
+
   Editor.prototype.openNodeDialog = function (nodeId, type, at) {
     var node = nodeId ? this.scene.node(nodeId) : null;
     if (nodeId && !node) return;
@@ -1175,8 +1342,8 @@
     form.elements.language.value = values.language || "";
     form.elements.url.value = values.url || "";
     form.elements.alt.value = values.alt || "";
-    form.elements.shape.value = values.shape || "rectangle";
-    form.elements.color.value = values.color || "";
+    setChoice(form, "shape", values.shape || "rectangle");
+    setChoice(form, "color", values.color || "");
     form.elements.text_size.value = values.text_size || 13;
     /* Whole pixels, as resizing makes them: the fields take any of them (step 1), and an imported size
      * with decimals would otherwise stop the form from being sent. */
@@ -1264,11 +1431,12 @@
       width: number("width", 40, 4000, size[0]),
       height: number("height", 30, 4000, size[1])
     };
-    var color = form.elements.color.value;
+    var color = choiceValue(form, "color");
     if (color) fields.color = color;
     if (type === "text" || type === "code") fields.content = form.elements.content.value;
     if (type === "code" && form.elements.language.value.trim()) fields.language = form.elements.language.value.trim().toLowerCase();
-    if (type === "text" && form.elements.shape.value !== "rectangle") fields.shape = form.elements.shape.value;
+    var shape = choiceValue(form, "shape") || "rectangle";
+    if (type === "text" && shape !== "rectangle") fields.shape = shape;
     if (type === "image" || type === "video" || type === "external_link") {
       fields.url = form.elements.url.value.trim();
       var valid = type === "image" ? Canvas.safeImage(fields.url) : Canvas.safeHref(fields.url);
@@ -1470,6 +1638,13 @@
       return true;
     }
     if (key === "Delete" || key === "Backspace") { this.deleteSelection(); return true; }
+    /* The arrow's click from the keyboard; on a locked element, which has no arrow, it is plain Enter. */
+    var source = focusedNode && this.scene.node(focusedNode.dataset.id);
+    if (source && !source.locked && key === "Enter" && event.shiftKey && !this.scene.connectFrom &&
+        this.simplifies("canvas.connect_arrow")) {
+      this.addBelow(source.id);
+      return true;
+    }
     if (focusedNode && key === "Enter") {
       if (this.scene.connectFrom) this.finishConnect(focusedNode.dataset.id);
       else this.openNodeDialog(focusedNode.dataset.id);

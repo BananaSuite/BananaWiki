@@ -4,7 +4,7 @@ A canvas is a free-form board of notes, shapes, images, videos, code and links t
 
 ## Elements and connections
 
-Add elements from the toolbar and connect them with arrows; connections follow the elements when you move them. Several people can edit the same canvas at once. When you create a canvas you can start from a template: a flowchart, a mind map, a retrospective board or a SWOT analysis.
+Add elements from the toolbar and connect them with arrows; connections follow the elements when you move them. Several people can edit the same canvas at once. When you create a canvas you can start from a template: a single note to start with, a flowchart, a mind map, a retrospective board or a SWOT analysis.
 
 ## Pages or canvas
 

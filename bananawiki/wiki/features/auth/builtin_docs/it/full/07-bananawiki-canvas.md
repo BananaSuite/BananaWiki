@@ -4,7 +4,7 @@ Un canvas è una lavagna libera di note, forme, immagini, video, codice e link a
 
 ## Elementi e collegamenti
 
-Aggiungi elementi dalla barra degli strumenti e collegali con le frecce; i collegamenti seguono gli elementi quando li sposti. Più persone possono modificare lo stesso canvas insieme. Quando crei un canvas puoi partire da un modello: un diagramma di flusso, una mappa mentale, una retrospettiva o un'analisi SWOT.
+Aggiungi elementi dalla barra degli strumenti e collegali con le frecce; i collegamenti seguono gli elementi quando li sposti. Più persone possono modificare lo stesso canvas insieme. Quando crei un canvas puoi partire da un modello: una nota per cominciare, un diagramma di flusso, una mappa mentale, una retrospettiva o un'analisi SWOT.
 
 ## Pagina o canvas
 

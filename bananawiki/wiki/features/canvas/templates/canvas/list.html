@@ -64,7 +64,8 @@
       <label for="canvas-template">{{ t('canvas.field.template') }}</label>
       <select id="canvas-template" name="template">
         <option value="">{{ t('canvas.preset.blank') }}</option>
-        {% for name in templates %}<option value="{{ name }}">{{ t('canvas.preset.' ~ name) }}</option>{% endfor %}
+        {#- BM mode starts new canvases from a first note rather than an empty one. -#}
+        {% for name in templates %}<option value="{{ name }}"{% if name == 'first_note' and bm_simplified('canvas.first_note') %} selected{% endif %}>{{ t('canvas.preset.' ~ name) }}</option>{% endfor %}
       </select>
     </div>
     <div class="btn-row btn-row--end">

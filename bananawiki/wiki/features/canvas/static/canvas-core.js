@@ -35,6 +35,8 @@
     parallelogram: [[0.15, 0], [1, 0], [0.85, 1], [0, 1]],
     hexagon: [[0.12, 0], [0.88, 0], [1, 0.5], [0.88, 1], [0.12, 1], [0, 0.5]]
   };
+  /* The pictures on BM mode's handles: a diagonal two-way arrow (resize) and an arrow pointing down. */
+  var HANDLE_ICONS = { resize: "M5 5h6M5 5v6M5 5l14 14M19 19h-6M19 19v-6", arrow: "M12 4v16M6 14l6 6 6-6" };
   var sceneCounter = 0;
 
   function clamp(value, low, high) { return Math.min(high, Math.max(low, value)); }
@@ -97,6 +99,8 @@
     this.selected = {};
     this.selectedEdge = null;
     this.connectFrom = null;
+    this.dropTarget = null;
+    this.handlesFor = null;
     this.viewport = { x: 0, y: 0, zoom: 1 };
     this.readableStart = true;  // the first fit() on a phone keeps text readable
     this.elements = {};
@@ -127,6 +131,24 @@
     this.nodeLayer = el("div", "cv-nodes");
     this.world.appendChild(this.edgeLayer);
     this.world.appendChild(this.nodeLayer);
+    var handles = this.options.handles;
+    if (handles && (handles.resize || handles.arrow)) {
+      /* BM mode's handles on the one selected element (canvas-editor.js): a bigger resize knob and the
+       * connect arrow. They sit above the nodes, so a node's rounded clipping never hides them. */
+      this.handles = el("div", "cv-handles");
+      this.handles.hidden = true;
+      ["resize", "arrow"].forEach(function (kind) {
+        if (!handles[kind]) return;
+        var handle = el("span", "cv-handle cv-handle--" + kind);
+        handle.setAttribute("data-handle", kind);
+        handle.setAttribute("aria-hidden", "true");
+        var icon = svg("svg", { viewBox: "0 0 24 24", focusable: "false" });
+        icon.appendChild(svg("path", { d: HANDLE_ICONS[kind] }));
+        handle.appendChild(icon);
+        this.handles.appendChild(handle);
+      }, this);
+      this.world.appendChild(this.handles);
+    }
     this.stage.appendChild(this.world);
   };
 
@@ -191,6 +213,7 @@
       element.style.zIndex = String(node.locked && (node.layer || 0) <= 0 ? index + 1 : count + 2 + index);
       element.classList.toggle("is-selected", !!this.selected[node.id]);
       element.classList.toggle("is-connect-source", this.connectFrom === node.id);
+      element.classList.toggle("is-drop-target", this.dropTarget === node.id);
       if (this.selected[node.id]) element.setAttribute("aria-current", "true");
       else element.removeAttribute("aria-current");
       if (element.parentNode !== this.nodeLayer || this.nodeLayer.children[index] !== element) {
@@ -205,8 +228,40 @@
       }
     }, this);
     this.renderEdges();
+    this.placeHandles();
     this.applyViewport();
     if (this.onRender) this.onRender();
+  };
+
+  /* The handles go on the one selected, unlocked element, outside connect mode; otherwise they hide. */
+  Scene.prototype.placeHandles = function () {
+    if (!this.handles) return;
+    var ids = Object.keys(this.selected);
+    var node = ids.length === 1 && !this.connectFrom ? this.node(ids[0]) : null;
+    if (node && node.locked) node = null;
+    /* The element with the handles loses its small resize corner (canvas.css); the others keep theirs. */
+    var before = this.handlesFor && this.elements[this.handlesFor];
+    if (before) before.classList.remove("has-handles");
+    this.handlesFor = node ? node.id : null;
+    if (node && this.elements[node.id]) this.elements[node.id].classList.add("has-handles");
+    this.handles.hidden = !node;
+    if (!node) return;
+    var size = sizeOf(node);
+    this.handles.setAttribute("data-for", node.id);
+    this.handles.style.left = (Number(node.x) || 0) + "px";
+    this.handles.style.top = (Number(node.y) || 0) + "px";
+    this.handles.style.width = size.w + "px";
+    this.handles.style.height = size.h + "px";
+  };
+
+  /* The element a dragged connect arrow is over, outlined until the arrow leaves it. */
+  Scene.prototype.markDropTarget = function (id) {
+    id = id || null;
+    if (this.dropTarget === id) return;
+    var before = this.dropTarget && this.elements[this.dropTarget];
+    if (before) before.classList.remove("is-drop-target");
+    this.dropTarget = id;
+    if (id && this.elements[id]) this.elements[id].classList.add("is-drop-target");
   };
 
   Scene.prototype.placeNode = function (element, node) {
@@ -220,6 +275,7 @@
   Scene.prototype.moveNode = function (node) {
     var element = this.elements[node.id];
     if (element) this.placeNode(element, node);
+    if (this.handlesFor === node.id) this.placeHandles();
   };
 
   Scene.prototype.nodeTitle = function (node) {
@@ -269,7 +325,11 @@
       }));
       element.appendChild(shape);
     }
-    if (title && node.type !== "text" || (node.type === "text" && node.display_text)) {
+    /* A title bar shows what someone wrote in the Title field, a wiki page's title or a code block's first
+     * line; an image, video or link without a title shows none rather than its address (its label still
+     * names it to screen readers, in connections and in the outline). */
+    var named = node.type === "wiki_page" || node.type === "code";
+    if (node.display_text || named && title) {
       element.appendChild(el("div", "cv-node__title", title));
     }
     var body = el("div", "cv-node__body");

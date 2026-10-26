@@ -81,8 +81,9 @@ the same time. Canvases have a history with restore, can be shared with people
 or roles (view or edit), exported and imported, and shown in a page with
 `[[canvas slug="<name>"]]`.
 
-* **Start from a template**: when creating a canvas, choose a flowchart, a
-  mind map, a retrospective board or a SWOT analysis instead of an empty one.
+* **Start from a template**: when creating a canvas, choose a single note to
+  start with, a flowchart, a mind map, a retrospective board or a SWOT
+  analysis instead of an empty one.
 * **Arrange**: select several elements (Shift-click or Shift-drag) and use
   **Arrange** to align or distribute them, group them (Ctrl+G) so they move
   together, or lock them (L) so they stay put. A locked element cannot be

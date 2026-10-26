@@ -12,7 +12,7 @@
   "bm_mode.features_hint": "Angehakte Funktionen sind im BM-Modus verfügbar, die anderen sind dort ausgeblendet. Eine verfügbare Funktion folgt weiterhin ihrem eigenen Schalter unter Plugins.",
   "bm_mode.off_by_default": "Normalerweise ausgeblendet",
   "bm_mode.simplifications_title": "Vereinfachungen",
-  "bm_mode.simplifications_hint": "Jede blendet selten gebrauchte Bedienelemente aus. Die Seiten dahinter bleiben erreichbar, und niemand verliert eine Berechtigung.",
+  "bm_mode.simplifications_hint": "Jede macht das Wiki einfacher, meist indem sie selten gebrauchte Bedienelemente ausblendet. Die Seiten dahinter bleiben erreichbar, und niemand verliert eine Berechtigung.",
   "bm_mode.no_simplifications": "Keine verwendete Funktion hat etwas zu vereinfachen.",
   "bm_mode.flash.saved": "Einstellungen des BM-Modus gespeichert.",
   "bm_mode.flash.everyone_on": "{count} Konten sind jetzt im BM-Modus.",
