@@ -15,13 +15,16 @@ Who may do what
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import re
-import tempfile
+import threading
 import time
 import zipfile
-from typing import IO, Any
+from collections.abc import Callable, Iterator
+from pathlib import Path
+from typing import Any
 
 from flask import current_app
 from werkzeug.datastructures import FileStorage
@@ -37,19 +40,30 @@ log = logging.getLogger("bananawiki.attachments")
 
 FOLDER = "attachments"
 ORPHAN_MIN_AGE_SECONDS = 3600
+#: "Download all" archives one process sends at once (each holds a request thread while it is read).
+MAX_ZIP_STREAMS = 2
+#: Files one page holds; the page view and the editor list them all on every view.
+MAX_PER_PAGE = 500
+_ZIP_CHUNK = 1024 * 1024
+_zip_streams = threading.BoundedSemaphore(MAX_ZIP_STREAMS)
 _UNSAFE_NAME = re.compile(r"[^\w.()' -]+", re.UNICODE)
 
 
 # Reading
 
 
-def for_page(page_id: int) -> list[dict[str, Any]]:
+def for_page(page_id: int, limit: int = -1) -> list[dict[str, Any]]:
+    """The page's attachments, oldest first (at most *limit* of them; -1 for all)."""
     return db.all(
         "SELECT a.id, a.page_id, a.filename, a.original_name, a.file_size, a.uploaded_by, a.uploaded_at, "
         "a.blob_id, u.username AS uploader FROM page_attachments a LEFT JOIN users u ON u.id = a.uploaded_by "
-        "WHERE a.page_id = ? ORDER BY a.uploaded_at, a.id",
-        (page_id,),
+        "WHERE a.page_id = ? ORDER BY a.uploaded_at, a.id LIMIT ?",
+        (page_id, limit),
     )
+
+
+def count(page_id: int) -> int:
+    return int(db.scalar("SELECT COUNT(*) FROM page_attachments WHERE page_id = ?", (page_id,), default=0))
 
 
 def get(attachment_id: int) -> dict[str, Any] | None:
@@ -79,11 +93,20 @@ def can_upload(page: dict[str, Any], user: dict[str, Any] | None = None) -> bool
 
 def can_delete(attachment: dict[str, Any], page: dict[str, Any], user: dict[str, Any] | None = None) -> bool:
     user = _user(user)
-    if not _may_change(page, user):
-        return False
+    return attachment["id"] in deletable([attachment], page, user)
+
+
+def deletable(attachments: list[dict[str, Any]], page: dict[str, Any],
+              user: dict[str, Any] | None = None) -> set[int]:
+    """Ids of the *attachments* of *page* that *user* may delete (the page is checked once)."""
+    user = _user(user)
+    if not attachments or not _may_change(page, user):
+        return set()
     if auth.has_permission("attachment.delete_any", user):
-        return True
-    return attachment.get("uploaded_by") == user["id"] and auth.has_permission("attachment.delete_own", user)
+        return {a["id"] for a in attachments}
+    if not auth.has_permission("attachment.delete_own", user):
+        return set()
+    return {a["id"] for a in attachments if a.get("uploaded_by") == user["id"]}
 
 
 # Writing
@@ -97,15 +120,18 @@ def add(page: dict[str, Any], upload: FileStorage | None, user: dict[str, Any]) 
     """Store *upload* and attach it to *page*.
 
     Raises :class:`storage.UploadError` (``key`` is a translation key) when the
-    file is refused: type policy, size, storage quota or the per-user daily
-    upload quota shared with page images.
+    file is refused: type policy, size, storage quota, the per-user daily
+    upload quota shared with page images, or a page that already holds
+    :data:`MAX_PER_PAGE` files.
     """
     # The daily quota is shared with page images (``pages.uploads``); a
     # count limit can be checked before reading the file.
     page_uploads._check_quota(user, 0)
+    _check_room(page)
     stored = storage.save(upload, FOLDER, allowed=None, max_bytes=max_bytes())
     try:
         with db.transaction():
+            _check_room(page)
             counters = page_uploads._check_quota(user, stored.size)
             db.update("users", counters, "id = ?", (user["id"],))
             attachment_id = db.insert("page_attachments", {
@@ -122,6 +148,11 @@ def add(page: dict[str, Any], upload: FileStorage | None, user: dict[str, Any]) 
     attachment = get(attachment_id)
     assert attachment is not None
     return attachment
+
+
+def _check_room(page: dict[str, Any]) -> None:
+    if count(page["id"]) >= MAX_PER_PAGE:
+        raise storage.UploadError("attachments.error.page_full", count=MAX_PER_PAGE)
 
 
 def delete(attachment: dict[str, Any]) -> None:
@@ -160,33 +191,95 @@ def resolve(attachment: dict[str, Any]):
     return storage.resolve(FOLDER, attachment["filename"], blob_id=attachment.get("blob_id"))
 
 
-def zip_archive(attachments: list[dict[str, Any]]) -> IO[bytes]:
-    """Every available attachment in a ZIP, written to an anonymous temporary file.
+class Busy(Exception):
+    """This process already sends :data:`MAX_ZIP_STREAMS` archives."""
 
-    The archive is built on disk (never in memory) and the returned file
-    disappears when it is closed.
+
+class _Sink(io.RawIOBase):
+    """Where the archive is written: handed out piece by piece while it is made."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._pieces: list[bytes] = []
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, data) -> int:  # type: ignore[override]
+        self._pieces.append(bytes(data))
+        return len(data)
+
+    def take(self) -> bytes:
+        data = b"".join(self._pieces)
+        self._pieces.clear()
+        return data
+
+
+def zip_files(attachments: list[dict[str, Any]]) -> list[tuple[Path, str]]:
+    """The available files of *attachments* with their unique names inside the archive."""
+    used: set[str] = set()
+    files = []
+    for attachment in attachments:
+        path = resolve(attachment)
+        if path is not None:
+            files.append((path, unique_name(safe_name(attachment["original_name"], attachment["filename"]), used)))
+    return files
+
+
+def zip_stream(files: list[tuple[Path, str]]) -> Iterator[bytes]:
+    """A ZIP of *files* (from :func:`zip_files`), made while it is sent.
+
+    Files are stored, not compressed again (most are compressed already),
+    and nothing is written to disk. Raises :class:`Busy` before anything is
+    sent when this process already sends :data:`MAX_ZIP_STREAMS` archives.
     """
-    archive = tempfile.TemporaryFile(dir=_work_dir())  # noqa: SIM115 - handed to send_file, which closes it
-    try:
-        used: set[str] = set()
-        with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
-            for attachment in attachments:
-                path = resolve(attachment)
-                if path is None:
-                    continue
-                name = unique_name(safe_name(attachment["original_name"], attachment["filename"]), used)
-                zf.write(path, name)
-        archive.seek(0)
-    except BaseException:
-        archive.close()
-        raise
-    return archive
+    if not _zip_streams.acquire(blocking=False):
+        raise Busy
+    released = threading.Lock()
+
+    def release() -> None:
+        # Exactly once: when the archive ends, or when the response is closed without being read
+        # (a HEAD request never starts the generator, so its own finally would never run).
+        if released.acquire(blocking=False):
+            _zip_streams.release()
+
+    def pieces() -> Iterator[bytes]:
+        try:
+            sink = _Sink()
+            with zipfile.ZipFile(sink, "w", zipfile.ZIP_STORED) as archive:
+                for path, name in files:
+                    try:
+                        source = open(path, "rb")  # noqa: SIM115 - closed below
+                        info = zipfile.ZipInfo.from_file(path, name)
+                    except OSError:
+                        continue
+                    with source, archive.open(info, "w") as target:
+                        while chunk := source.read(_ZIP_CHUNK):
+                            target.write(chunk)
+                            yield sink.take()
+                    yield sink.take()
+            yield sink.take()
+        finally:
+            release()
+
+    return _Closing(pieces(), release)
 
 
-def _work_dir() -> str:
-    folder = current_app.config["BW"].folders.exports
-    os.makedirs(folder, mode=0o700, exist_ok=True)
-    return folder
+class _Closing:
+    """An iterable that runs *on_close* when the server closes it, read or not."""
+
+    def __init__(self, iterator: Iterator[bytes], on_close: Callable[[], None]):
+        self._iterator = iterator
+        self._on_close = on_close
+
+    def __iter__(self) -> Iterator[bytes]:
+        return self._iterator
+
+    def close(self) -> None:
+        try:
+            self._iterator.close()  # type: ignore[attr-defined]
+        finally:
+            self._on_close()
 
 
 # Clean-up

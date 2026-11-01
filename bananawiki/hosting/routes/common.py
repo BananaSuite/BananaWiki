@@ -41,7 +41,7 @@ def instance_for(instance_id: str, permission: str = "view") -> dict[str, Any]:
 
     Owners and administrators hold every permission; collaborators hold what
     they were granted. Anything else, including terminated wikis the viewer
-    may not recover, answers 404 so ids cannot be probed.
+    may not recover (or free the place of), answers 404 so ids cannot be probed.
     """
     viewer = account()
     inst = instances.get(instance_id)
@@ -52,7 +52,8 @@ def instance_for(instance_id: str, permission: str = "view") -> dict[str, Any]:
     if inst["status"] == "terminated" and not viewer["is_admin"]:
         from .. import settings
 
-        if inst["account_id"] != viewer["id"] or not settings.flag("allow_owner_download_expired"):
+        if inst["account_id"] != viewer["id"] or not (settings.flag("allow_owner_download_expired")
+                                                      or instances.holds_place(inst)):
             abort(404)
     return inst
 

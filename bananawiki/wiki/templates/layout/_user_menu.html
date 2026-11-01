@@ -24,12 +24,12 @@
     <a role="menuitem" href="{{ item.url }}">{{ item.label }}{% if item.badge %} <span class="count-pill">{{ item.badge }}</span>{% endif %}</a>
     {% endfor %}
     {% if is_admin %}
-    {#- One entry: the administration area has its own side menu with every section. -#}
+    {#- One entry: the administration overview lists every section. -#}
     {% set admin_items = nav_items('admin') %}
     {% if admin_items %}
     {% set admin_badge = admin_items|sum(attribute='badge') %}
     <hr>
-    <a role="menuitem" href="{{ admin_items[0].url }}">{{ t('admin.nav.label') }}{% if admin_badge %} <span class="count-pill">{{ admin_badge }}</span>{% endif %}</a>
+    <a role="menuitem" href="{{ url_for('admin.home') }}">{{ t('admin.nav.label') }}{% if admin_badge %} <span class="count-pill">{{ admin_badge }}</span>{% endif %}</a>
     {% endif %}
     {% endif %}
     <hr>

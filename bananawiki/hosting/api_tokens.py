@@ -12,7 +12,7 @@ import secrets
 from typing import Any
 
 from ..core.crypto import sha256_hex
-from ..core.timeutil import is_past, now_sql
+from ..core.timeutil import is_past, now_sql, sql_in
 from . import events
 from .db import db
 from .errors import ServiceError
@@ -21,6 +21,10 @@ PREFIX = "bwh_"
 PATTERN = re.compile(r"bwh_[A-Za-z0-9_-]{40}")
 NAME_MAX_LENGTH = 60
 MAX_ACTIVE = 10
+# Tokens an account may create in 24 hours, revoked or not: creating and revoking in a loop stops there.
+MAX_CREATED_PER_DAY = 20
+# Days a revoked or expired token row is kept (its events stay in the moderation log).
+RETENTION_DAYS = 90
 SCOPES = ("account:read", "instances:read", "instances:manage", "admin:read")
 ADMIN_SCOPES = frozenset({"admin:read"})
 EXPIRY_CHOICES = {"30": 30, "90": 90, "365": 365, "never": None}
@@ -67,6 +71,10 @@ def create(account: dict[str, Any], name: str, scopes: list[str], expires_at: st
                       (account["id"],))
         if sum(1 for row in rows if not expired(row)) >= MAX_ACTIVE:
             raise ServiceError("hosting.api_tokens.limit_reached", max=MAX_ACTIVE)
+        created = db.scalar("SELECT COUNT(*) FROM hosting_api_tokens WHERE account_id = ? AND created_at > ?",
+                            (account["id"], sql_in(hours=-24)), default=0)
+        if int(created) >= MAX_CREATED_PER_DAY:
+            raise ServiceError("hosting.api_tokens.too_many", limit=MAX_CREATED_PER_DAY)
         token_id = db.insert("hosting_api_tokens", {
             "account_id": account["id"], "name": name, "prefix": prefix, "token_hash": sha256_hex(raw),
             "scopes": scope_text, "created_at": now_sql(), "expires_at": expires_at,
@@ -119,3 +127,10 @@ def revoke_all(account_id: str, actor_id: str | None, reason: str) -> int:
     listed = ", ".join(_describe(r["id"], r["prefix"]) for r in rows)
     events.record("account", account_id, "api.token.revoked", actor_id, f"{reason}: {listed}")
     return len(rows)
+
+
+def prune() -> int:
+    """Delete the rows of tokens revoked or expired more than :data:`RETENTION_DAYS` ago; returns how many went."""
+    cutoff = sql_in(days=-RETENTION_DAYS)
+    return db.execute("DELETE FROM hosting_api_tokens WHERE revoked_at < ? OR expires_at < ?",
+                      (cutoff, cutoff)).rowcount

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('chat.groups.title') }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ asset_url('chat.css', blueprint='chat') }}">{% endblock %}
 {% block content %}
@@ -20,13 +21,14 @@
         {% if g.unread_count %}<span class="count-pill"><span aria-hidden="true">{{ g.unread_count }}</span><span class="visually-hidden">{{ tn('chat.unread', g.unread_count) }}</span></span>{% endif %}
       </span>
       <span class="chat-list__preview muted">
-        {% if g.last_deleted %}{{ t('chat.message.deleted') }}{% elif g.last_system %}{{ t('chat.groups.activity') }}{% elif g.last_message %}{{ g.last_message|truncate(90, true, '…') }}{% else %}{{ t('chat.no_messages_yet') }}{% endif %}
+        {% if g.last_deleted %}{{ t('chat.message.deleted') }}{% elif g.last_system %}{{ t('chat.groups.activity') }}{% elif g.preview_withheld %}{{ t('chat.preview_withheld') }}{% elif g.last_message %}{{ g.last_message|truncate(90, true, '…') }}{% else %}{{ t('chat.no_messages_yet') }}{% endif %}
       </span>
       {% if g.last_message_at %}<span class="chat-list__time small muted">{{ g.last_message_at|time_ago }}</span>{% endif %}
     </a>
   </li>
   {% endfor %}
 </ul>
+{{ forms.pagination(page, pages, 'chat.group_list') }}
 {% else %}
 <div class="empty-state"><p>{{ t('chat.groups.empty') }}</p></div>
 {% endif %}

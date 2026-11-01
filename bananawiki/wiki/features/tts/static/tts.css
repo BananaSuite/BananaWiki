@@ -12,9 +12,23 @@
 .tts-panel__status[data-kind="failed"] { color: var(--danger); }
 .tts-panel__controls, .tts-panel__actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
 .tts-panel__speed { display: inline-flex; align-items: center; gap: .4rem; }
-.tts-panel__audio { width: 100%; color-scheme: light dark; }
+.tts-panel__audio { display: none; }
 .tts-panel__player { display: grid; gap: .5rem; }
-.tts-panel__skip { display: inline-flex; gap: .25rem; }
+/* The player's own controls (the browser's audio bar looks the same everywhere but fits no theme). */
+.tts-bar { display: flex; align-items: center; gap: .5rem .75rem; padding: .5rem .75rem;
+  background: var(--surface-2, var(--surface)); border: 1px solid var(--border); border-radius: var(--radius); }
+.tts-bar__buttons { display: inline-flex; align-items: center; gap: .25rem; flex: none; }
+.tts-bar__play { min-width: 2.75rem; min-height: 2.75rem; border-radius: 999px; }
+.tts-bar .btn--icon:not(.tts-bar__play) { border-radius: 999px; }
+.tts-bar__time { flex: none; min-width: 2.4rem; font-variant-numeric: tabular-nums; color: var(--muted, inherit); text-align: center; }
+.tts-bar__seek { flex: 1 1 auto; min-width: 0; width: 100%; accent-color: var(--bw-primary); cursor: pointer; }
+.tts-bar__seek:disabled { cursor: default; opacity: .5; }
+.tts-bar__track { display: flex; align-items: center; gap: .5rem; flex: 1 1 auto; min-width: 0; }
+@media (max-width: 520px) {
+  .tts-bar { flex-wrap: wrap; justify-content: center; }
+  .tts-bar__track { flex: 1 1 100%; }
+}
+}
 .tts-panel__note, .tts-panel__hint { margin: 0; }
 /* Keys mean nothing on a phone or tablet without a keyboard. */
 @media (hover: none) and (pointer: coarse) { .tts-panel__keys { display: none; } }

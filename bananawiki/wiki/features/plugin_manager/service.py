@@ -21,7 +21,6 @@ from typing import Any
 
 from flask import current_app, g, request
 
-from ....core import passwords
 from ....core.timeutil import now_sql
 from ... import auth, bm, i18n, plugins_external, registry, settings
 from ...db import db
@@ -260,10 +259,15 @@ def remove_row(plugin_id: str) -> None:
 
 
 def password_ok(password: str) -> bool:
-    """Check the password of the person at the keyboard (the admin, while impersonating)."""
+    """Check the password of the person at the keyboard (the admin, while impersonating).
+
+    Counted against the account's password budget like every other re-entered
+    password: raises :class:`~..users.service.ProfileError` once it is spent.
+    """
+    from ..users.service import password_ok as account_password_ok
+
     account = auth.real_user()
-    return bool(account) and 0 < len(password) <= passwords.MAX_LENGTH and \
-        passwords.verify_password(account["password"], password)
+    return bool(account) and bool(password) and account_password_ok(account, password)
 
 
 def backup_database(plugin_id: str) -> Path:

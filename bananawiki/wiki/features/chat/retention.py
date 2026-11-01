@@ -23,6 +23,7 @@ from ....core.timeutil import now_sql, parse, sql_in, utcnow
 from ... import settings, storage
 from ...db import db
 from ...templating import site_timezone
+from ..audit import record
 from . import dms, store
 from .store import DM, GROUP
 
@@ -108,9 +109,12 @@ def run_retention(*, force: bool = False) -> dict[str, int] | None:
         return None
     summary = {"messages": 0, "attachments": 0, "chats": 0}
     files: list[str] = []
+    applied: dict[str, dict[str, int]] = {}
     with db.transaction():
         for scope, target in (("dm", DM), ("group", GROUP)):
             rules = active_rules(scope)
+            if rules:
+                applied[scope] = dict(rules)
             if "attachments" in rules:
                 removed = store.delete_attachments_before(target, sql_in(days=-rules["attachments"]))
                 summary["attachments"] += len(removed)
@@ -126,6 +130,9 @@ def run_retention(*, force: bool = False) -> dict[str, int] | None:
         settings.update({"last_chat_cleanup_at": now_sql()}, internal=True)
     store.remove_files(files)
     log.info("Chat retention cleanup: %s", summary)
+    if any(summary.values()):
+        # Members' messages erased by the policy an administrator set: as auditable as clearing one conversation.
+        record("chat.retention_applied", details={**summary, "rules_days": applied})
     return summary
 
 

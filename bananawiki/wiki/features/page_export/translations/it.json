@@ -46,7 +46,9 @@
   "page_export.menu": "Esporta",
   "page_export.nav": "Markdown in blocco",
   "page_export.pdf": "PDF",
+  "page_export.pdf.busy": "L'esportazione PDF è occupata con un'altra pagina. Riprova tra poco.",
   "page_export.pdf.by": "Ultima modifica di {user}",
+  "page_export.pdf.cut": "Il PDF finisce qui: il resto della pagina è troppo lungo da esportare. Leggilo nel wiki.",
   "page_export.pdf.edited": "{when}",
   "page_export.pdf.historical": "Revisione storica"
 }

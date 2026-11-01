@@ -19,15 +19,24 @@ def _may_change_retention() -> bool:
 
 
 def _hide_protected_addresses(rows: list[dict]) -> None:
-    """Addresses of accounts the viewer may not manage stay hidden, as on the sessions page."""
+    """Addresses of accounts the viewer may not manage stay hidden, as on the sessions page.
+
+    The log keeps the addresses of deleted accounts (deleting an account must
+    not erase the record of what it did), but nobody can tell any more whether
+    one was an owner or a superuser: only owners and superusers see those.
+    """
     from ..admin import service as admin_service
 
     viewer = auth.real_user()
     for row in rows:
-        if row["actor_username"] is None or not row["ip"]:
+        if not row["ip"] or (row["actor_id"] is None and row["actor_username"] is None):
             continue
-        actor = {"id": row["actor_id"], "role": row["actor_role"], "is_superuser": row["actor_superuser"]}
-        if admin_service.protection_error(viewer, actor):
+        if row["actor_username"] is None:
+            hidden = not admin_service.is_top(viewer)
+        else:
+            actor = {"id": row["actor_id"], "role": row["actor_role"], "is_superuser": row["actor_superuser"]}
+            hidden = admin_service.protection_error(viewer, actor) is not None
+        if hidden:
             row["ip"], row["ip_hidden"] = None, True
 
 

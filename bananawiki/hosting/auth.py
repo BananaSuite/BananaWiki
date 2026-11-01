@@ -81,6 +81,37 @@ def is_exempt(view: Callable | None, gate: str) -> bool:
     return gate in getattr(view, "_hosting_exempt", frozenset())
 
 
+def large_body(view: Callable) -> Callable:
+    """Administrator upload view (archives, backups) that may receive more than the small body limit.
+
+    Only a session for which :func:`session_may_send_large_body` holds gets the
+    larger ceiling; every other request body is limited before CSRF parses it.
+    """
+    view._hosting_large_body = True
+    return view
+
+
+def view_large_body(view: Callable | None) -> bool:
+    return bool(getattr(view, "_hosting_large_body", False))
+
+
+def session_may_send_large_body() -> bool:
+    """Whether the cookie holds an administrator's own active session (a cheap check made before CSRF and
+    the pipeline, with the same conditions as :func:`load` and :func:`admin_required`)."""
+    raw = session.get(TOKEN_KEY)
+    if not raw or session.get(IMPERSONATOR_KEY):
+        return False
+    row = db.one(
+        "SELECT account_id, session_version FROM hosting_account_sessions"
+        " WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?",
+        (sha256_hex(str(raw)[:256]), now_sql()),
+    )
+    account = accounts.get(row["account_id"]) if row else None
+    return (account is not None and account["id"] == session.get(ACCOUNT_KEY) and not account["deleted_at"]
+            and int(row["session_version"]) == int(account["session_version"] or 0)
+            and not accounts.is_suspended(account) and bool(account["is_admin"]) and not admin_mfa_missing(account))
+
+
 # Current account
 
 

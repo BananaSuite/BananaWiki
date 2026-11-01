@@ -30,6 +30,16 @@ Version history
      ``bm_mode_env`` and ``bm_choices``. See :mod:`.v14_bm_mode`.
 15   Easter eggs switched off one by one: ``site_settings.easter_eggs``.
      See :mod:`.v15_easter_eggs`.
+16   Canvases indexed in the order of the canvas lists
+     (``idx_canvas_layouts_updated``). See :mod:`.v16_canvas_list_index`.
+17   The pages the documentation installer wrote (``builtin_doc_pages``),
+     which alone skip the deletion grace period. See :mod:`.v17_builtin_doc_pages`.
+18   The page slugs canvases' wiki-page nodes store (``canvas__page_slugs``),
+     so page events read only the canvases that link the page by slug. See
+     :mod:`.v18_canvas_page_slugs`.
+19   Amounts in the shared rate-limit counters (``rate_limit_hits.amount``),
+     for the daily Kanban and canvas storage budgets. See
+     :mod:`.v19_stored_amounts`.
 
 A 1.4 database at version 3 upgrades in place. New databases are created from
 ``baseline_v3.sql`` followed by every later migration, so fresh and upgraded
@@ -56,6 +66,10 @@ from . import (
     v13_platform_signouts,
     v14_bm_mode,
     v15_easter_eggs,
+    v16_canvas_list_index,
+    v17_builtin_doc_pages,
+    v18_canvas_page_slugs,
+    v19_stored_amounts,
 )
 
 APPLICATION_ID = 0x42574B49  # "BWKI", unchanged from 1.4
@@ -73,6 +87,10 @@ MIGRATIONS = (
     v13_platform_signouts.upgrade,  # 12 -> 13
     v14_bm_mode.upgrade,  # 13 -> 14
     v15_easter_eggs.upgrade,  # 14 -> 15
+    v16_canvas_list_index.upgrade,  # 15 -> 16
+    v17_builtin_doc_pages.upgrade,  # 16 -> 17
+    v18_canvas_page_slugs.upgrade,  # 17 -> 18
+    v19_stored_amounts.upgrade,  # 18 -> 19
 )
 LATEST = BASELINE + len(MIGRATIONS)
 

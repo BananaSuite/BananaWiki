@@ -19,6 +19,7 @@ from . import DomainCheck, RuntimeFailure
 
 LIFETIME_SECONDS = 4.0
 INSPECT_SECONDS = 6.0  # all of inspect()'s lookups together
+CHECK_SECONDS = 6.0  # all of check()'s lookups together
 CHALLENGE_PREFIX = "_bananawiki-challenge."
 
 
@@ -31,22 +32,22 @@ def _resolver():
     return dns.resolver, dns.exception
 
 
-def _records(resolver, name: str, record_type: str) -> set[str]:
-    answer = resolver.resolve(name, record_type, search=False, lifetime=LIFETIME_SECONDS)
+def _records(resolver, name: str, record_type: str, lifetime: float = LIFETIME_SECONDS) -> set[str]:
+    answer = resolver.resolve(name, record_type, search=False, lifetime=lifetime)
     if record_type == "TXT":
         return {b"".join(row.strings).decode("utf-8", "replace") for row in answer}
     return {row.to_text().rstrip(".").lower() for row in answer}
 
 
-def _optional(resolver, name: str, record_type: str) -> set[str]:
+def _optional(resolver, name: str, record_type: str, lifetime: float = LIFETIME_SECONDS) -> set[str]:
     try:
-        return _records(resolver, name, record_type)
+        return _records(resolver, name, record_type, lifetime)
     except (resolver.NoAnswer, resolver.NXDOMAIN):
         return set()
 
 
-def _addresses(resolver, name: str) -> set[str]:
-    return _optional(resolver, name, "A") | _optional(resolver, name, "AAAA")
+def _addresses(resolver, name: str, lifetime=lambda: LIFETIME_SECONDS) -> set[str]:
+    return _optional(resolver, name, "A", lifetime()) | _optional(resolver, name, "AAAA", lifetime())
 
 
 def check(domain: str, token: str, target: str, allowed_ips: Iterable[str], *,
@@ -55,14 +56,24 @@ def check(domain: str, token: str, target: str, allowed_ips: Iterable[str], *,
     or, with *allow_proxied*, only Cloudflare edge addresses)."""
     resolver, exception = _resolver()
     proxied = False
+    # One deadline for every lookup together, as in inspect(): a nameserver that answers each query just
+    # before its own timeout must not hold the thread (a portal request, the maintenance pass) for six.
+    deadline = time.monotonic() + CHECK_SECONDS
+
+    def lifetime() -> float:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise exception.Timeout(timeout=CHECK_SECONDS)
+        return min(LIFETIME_SECONDS, left)
+
     try:
-        proofs = _records(resolver, CHALLENGE_PREFIX + domain, "TXT")
+        proofs = _records(resolver, CHALLENGE_PREFIX + domain, "TXT", lifetime())
         ownership = any(hmac.compare_digest(value.encode("utf-8"), token.encode("utf-8")) for value in proofs)
         target = target.lower().rstrip(".")
-        routing = bool(target) and target in _optional(resolver, domain, "CNAME")
+        routing = bool(target) and target in _optional(resolver, domain, "CNAME", lifetime())
         if not routing:
-            expected = set(allowed_ips) or (_addresses(resolver, target) if target else set())
-            actual = _addresses(resolver, domain)
+            expected = set(allowed_ips) or (_addresses(resolver, target, lifetime) if target else set())
+            actual = _addresses(resolver, domain, lifetime)
             routing = bool(actual) and bool(expected) and actual <= expected
             if not routing and allow_proxied and all_cloudflare(actual):
                 routing = proxied = True

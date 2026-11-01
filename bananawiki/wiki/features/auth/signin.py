@@ -4,7 +4,10 @@ Failed attempts are counted per client network (an IPv6 client's /64), per
 account name and source, and per account in the shared ``rate_limit_hits``
 table. A successful sign-in only clears the counter of the account that
 signed in, so a valid account cannot be used to reset the budget for
-guessing other accounts' passwords.
+guessing other accounts' passwords. Successful sign-ins are counted apart,
+per account and per client network: each costs a password hash, a session
+row and an audit entry, so they are bounded too (checked before the hash,
+and recorded only once the password was right, so failures never use them up).
 
 A browser that has signed in to an account before carries a device cookie
 for it (:mod:`.devices`: signed with the wiki's secret and the account's
@@ -37,6 +40,7 @@ from __future__ import annotations
 
 import hmac
 import math
+import re
 import time
 from typing import Any
 
@@ -52,6 +56,7 @@ from ...db import db
 from ...registry import emit
 from ..audit.service import record
 from . import devices, two_step
+from . import platform_oauth as oauth
 
 WINDOW_SECONDS = 15 * 60
 MAX_PER_IP = 20
@@ -60,6 +65,10 @@ MAX_PER_ACCOUNT = 8
 # with a low shared limit, anyone could keep the owner out by failing 8 times every 15 minutes.
 # Browsers that signed in to the account before have their own budget instead (MAX_PER_ACCOUNT).
 MAX_PER_ACCOUNT_TOTAL = 100
+# Successful sign-ins in WINDOW_SECONDS, per account (from every address) and per client network:
+# plenty for people, and for a class signing in to a shared account or behind one address.
+MAX_SIGN_INS_PER_ACCOUNT = 30
+MAX_SIGN_INS_PER_IP = 200
 # Wrong two-step codes per account and known device (or per account for other
 # browsers): enough for typos, too few to guess one of a million codes.
 TWO_STEP_WINDOW_SECONDS = 5 * 60
@@ -133,14 +142,27 @@ def _upgrade_hash(user: dict[str, Any], password: str) -> dict[str, Any]:
     return current
 
 
+# What a stored user name can look like: the current rule (``accounts.USERNAME_RE``)
+# without its minimum length, since BananaWiki 1.4 accepted shorter names.
+SIGN_IN_NAME = re.compile(r"[A-Za-z0-9_-]{1,50}")
+
+
 def verify(username: str, password: str, *, admin_only: bool = False) -> dict[str, Any]:
-    """Return the account for these credentials or raise :class:`Refused`."""
+    """Return the account for these credentials or raise :class:`Refused`.
+
+    The per-account limits are keyed on the account that was found (or, for
+    an unknown name, on the name compared as SQLite's NOCASE does), never on
+    the spelling typed: a name that cannot belong to any account (such as one
+    padded with whitespace) is not looked up at all, so no spelling of an
+    account's name has a budget of its own.
+    """
     ip = client_ip()
     network = client_network()
-    account_key = username.lower()
-    source_key = f"{account_key}\n{network}"
-    usable = bool(username) and len(password) <= passwords.MAX_LENGTH
+    usable = bool(SIGN_IN_NAME.fullmatch(username)) and len(password) <= passwords.MAX_LENGTH
     user = accounts.by_username(username) if usable else None
+    # User names are ASCII, so lower() is what NOCASE compares; ids never contain ":".
+    account_key = f"id:{user['id']}" if user is not None else username.lower()
+    source_key = f"{account_key}\n{network}"
     device = devices.nonce(user) if user is not None else None
     buckets = [(network, "login:ip", MAX_PER_IP), (source_key, "login:account-ip", MAX_PER_ACCOUNT)]
     if device:
@@ -149,9 +171,13 @@ def verify(username: str, password: str, *, admin_only: bool = False) -> dict[st
         buckets.append((f"{user['id']}\n{device}", "login:device", MAX_PER_ACCOUNT))  # type: ignore[index]
     else:
         buckets.append((account_key, "login:account", MAX_PER_ACCOUNT_TOTAL))
+    sign_ins = [(network, "login:ok-ip", MAX_SIGN_INS_PER_IP),
+                (account_key, "login:ok-account", MAX_SIGN_INS_PER_ACCOUNT)]
     limiter = _limiter()
     reservations = []
     with db.transaction():
+        if any(limiter.exceeded(key, bucket, limit, WINDOW_SECONDS) for key, bucket, limit in sign_ins):
+            raise Refused("auth.error.too_many_attempts", 429)
         for key, bucket, limit in buckets:
             reservation = limiter.reserve(key, bucket, limit, WINDOW_SECONDS)
             if reservation is None:
@@ -169,6 +195,8 @@ def verify(username: str, password: str, *, admin_only: bool = False) -> dict[st
         for reservation in reservations:
             limiter.release(reservation)
         limiter.clear(source_key, "login:account-ip")
+        for key, bucket, _limit in sign_ins:
+            limiter.record(key, bucket)
     if admin_only and not auth.is_admin(user):
         raise Refused("auth.admin_login.not_admin", 403)
     return _upgrade_hash(user, password)
@@ -193,11 +221,12 @@ def landing_url(user: dict[str, Any], next_url: str | None, *, default: str = "/
 
 
 def finish(user: dict[str, Any], *, remember: bool, next_url: str | None, method: str = "password",
-           default: str = "/") -> Response:
+           default: str = "/", platform_account: str | None = None) -> Response:
     """Start the session (unless maintenance keeps this account out) and redirect.
 
     With two-step verification on, the sign-in waits for a code first
-    (:func:`finish_second_step`).
+    (:func:`finish_second_step`). A platform sign-in names the portal account
+    (*platform_account*), whose link is checked again once the code is in.
     """
     if settings.maintenance_active() and not auth.is_admin(user):
         return redirect(url_for("auth.maintenance"))
@@ -209,6 +238,7 @@ def finish(user: dict[str, Any], *, remember: bool, next_url: str | None, method
         session[TWO_STEP_PENDING_KEY] = {
             "user_id": user["id"], "at": time.time(), "fingerprint": two_step.fingerprint(user),
             "remember": bool(remember), "next": (next_url or "")[:2000], "method": method, "default": default,
+            "platform_account": platform_account,
         }
         return redirect(url_for("auth.two_step_login"))
     return _complete(user, remember=remember, next_url=next_url, method=method, default=default)
@@ -307,9 +337,30 @@ def check_code(user: dict[str, Any], code: str | None, *, sign_in: bool = True) 
     return method
 
 
+def _platform_link_holds(user: dict[str, Any], pending: dict[str, Any]) -> bool:
+    """Whether the portal account of a pending platform sign-in is still linked to *user*.
+
+    The link may have gone while the code was awaited (a change of owner, an
+    unlink): the sign-out job only ends sessions that already exist, so the
+    session must not start from a sign-in the portal no longer stands behind.
+    """
+    account_id = str(pending.get("platform_account") or "")
+    linked = oauth.linked_user(account_id) if account_id else None
+    if linked is None or str(linked["id"]) != str(user["id"]):
+        return False
+    try:
+        return oauth.confirm_link(account_id, user)
+    except oauth.OAuthError as error:
+        oauth.log.warning("Platform sign-in: the link could not be confirmed after the code: %s", error)
+        return False
+
+
 def finish_second_step(user: dict[str, Any], pending: dict[str, Any], method: str) -> Response:
     """Complete a sign-in whose code *method* was accepted."""
     session.pop(TWO_STEP_PENDING_KEY, None)
+    if pending.get("method") == "platform_oauth" and not _platform_link_holds(user, pending):
+        auth.flash_t("auth.two_step.sign_in_again", "info")
+        return redirect(url_for("auth.login"))
     if settings.maintenance_active() and not auth.is_admin(user):
         return redirect(url_for("auth.maintenance"))
     response = _complete(user, remember=bool(pending.get("remember")), next_url=pending.get("next") or "",

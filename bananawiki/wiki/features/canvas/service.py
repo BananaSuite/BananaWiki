@@ -29,7 +29,23 @@ within :data:`HISTORY_COALESCE_MINUTES`, and changes by anyone within
 :data:`HISTORY_MIN_SECONDS` of the latest entry (people editing together),
 update that entry instead of adding one; each canvas keeps its newest
 :data:`HISTORY_KEEP` entries and, of those, only as many as fit in
-:data:`HISTORY_MAX_BYTES` (the newest always stays).
+:data:`HISTORY_MAX_BYTES` (the newest always stays). A canvas over
+:data:`LARGE_DOCUMENT_BYTES` has that entry rewritten at most once every
+:data:`HISTORY_MIN_SECONDS` (per worker process): the changes in between are
+written into it before a change starts a new entry (keep_pending_history) or a
+restore (_flush_history), so none is lost and an operation
+on a large canvas does not copy the whole document twice. Snapshots are
+compared and copied inside SQLite, never loaded for that.
+
+Canvases are cheap to multiply, so what one account stores in them is
+bounded per day, in bytes, by :data:`STORED_MIB_PER_DAY` in 24 hours (in
+``rate_limit_hits``, so every worker shares it and deleting the canvas gives
+nothing back): a canvas's document as created (an import, a template, the
+REST API with ``data``) and what an edit, save or restore adds to it count,
+and a change past the budget is refused with :class:`TooMuchStored`; what a
+history entry adds to the canvas's history (after trimming, so a canvas whose
+history is full costs about nothing) counts too, and past the budget the
+oldest entries make room for it instead (the change is not refused for it).
 
 Events
 ------
@@ -55,8 +71,9 @@ import sqlite3
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from flask import g, has_app_context
+from flask import current_app, g, has_app_context
 
+from ....core.ratelimit import SqlLimiter
 from ....core.timeutil import now_sql, sql_in
 from ... import accounts
 from ...db import db
@@ -71,6 +88,17 @@ HISTORY_KEEP = 200
 HISTORY_MAX_BYTES = 32 * 1024 * 1024
 HISTORY_COALESCE_MINUTES = 15
 HISTORY_MIN_SECONDS = 60
+#: Canvases one account may create a minute, in the browser and through the REST API together.
+CREATES_PER_MINUTE = 10
+#: MiB one account may add to canvases and their history in 24 hours.
+STORED_MIB_PER_DAY = 128
+STORED_BUCKET = "canvas:stored"
+#: Documents larger than this have their latest history entry rewritten at most every HISTORY_MIN_SECONDS.
+LARGE_DOCUMENT_BYTES = 1024 * 1024
+#: Operation batches and whole-document saves per account and minute on such a canvas, web editor and
+#: REST API together (:func:`large_write_allowed`; the editor sends what is left with its next batch).
+LARGE_OPS_PER_MINUTE = 60
+LARGE_SAVES_PER_MINUTE = 15
 #: Entries later changes may be merged into (not creations, imports or restores).
 _COALESCED_MESSAGES = frozenset({"edited", "saved", "info"})
 #: Bytes of a stored snapshot; octet_length (SQLite 3.43) does not read the snapshot itself.
@@ -79,8 +107,6 @@ EVENTS_KEEP = 500
 EVENTS_MAX_AGE_HOURS = 24
 SYNC_BATCH = 500
 RESERVED_SLUGS = frozenset({"create", "import", "api", "static", "settings"})
-#: Only wiki-page nodes saved by older versions store a slug (and the page title).
-_STORED_SLUG_MARKER = '"page_slug"'
 
 
 class CanvasError(ValueError):
@@ -90,6 +116,13 @@ class CanvasError(ValueError):
         super().__init__(key)
         self.key = key
         self.values = values
+
+
+class TooMuchStored(CanvasError):
+    """The account used up :data:`STORED_MIB_PER_DAY`."""
+
+    def __init__(self) -> None:
+        super().__init__("canvas.error.daily_limit", limit_mb=STORED_MIB_PER_DAY)
 
 
 class VersionConflict(CanvasError):
@@ -171,6 +204,7 @@ def create(title: str, description: str, creator_id: str, *, data: Any = None,
     text = model.serialize(doc)
     now = now_sql()
     with db.transaction():
+        _charge(creator_id, len(text.encode("utf-8")))
         layout_id = db.insert("canvas__layouts", {
             "slug": unique_slug(title), "title": title, "description": description, "creator_id": creator_id,
             "data": text, "visibility": "private", "created_at": now, "updated_at": now, "version": 1,
@@ -185,6 +219,7 @@ def update_info(layout: dict[str, Any], title: str | None, description: str | No
     """Change title and description. The slug stays, so links and embeds keep working."""
     title, description = clean_info(title, description)
     with db.transaction():
+        keep_pending_history(layout["id"], user_id)
         db.execute(
             "UPDATE canvas__layouts SET title = ?, description = ?, updated_at = ? WHERE id = ?",
             (title, description, now_sql(), layout["id"]),
@@ -353,15 +388,33 @@ def _pages_by(ids: list[int], slugs: list[str], columns: str) -> list[dict[str, 
     return db.all(f"SELECT {columns} FROM pages WHERE {' OR '.join(clauses)}", params)
 
 
-def _rewrite_page_nodes(matches: Callable[[dict[str, Any]], bool], change: Callable[[dict[str, Any]], None]) -> int:
-    """Apply *change* to matching wiki-page nodes in every canvas; return canvases changed.
+def _canvases_with_page_slugs(slugs: set[str]) -> list[int]:
+    """Ids of canvases with a wiki-page node that stores one of *slugs*.
+
+    Writers choose what a canvas holds, so the cost of a page event must not
+    grow with canvases that merely mention a slug: ``canvas__page_slugs``,
+    kept by triggers on every write of a canvas (schema version 17), lists
+    the slugs wiki-page nodes store, and no other canvas is read.
+    """
+    if not slugs:
+        return []
+    names = sorted(slugs)
+    return db.column(
+        f"SELECT DISTINCT layout_id FROM canvas__page_slugs WHERE slug IN ({','.join('?' for _ in names)})"
+        " ORDER BY layout_id",
+        names,
+    )
+
+
+def _rewrite_page_nodes(slugs: set[str], matches: Callable[[dict[str, Any]], bool],
+                        change: Callable[[dict[str, Any]], None]) -> int:
+    """Apply *change* to matching wiki-page nodes of canvases storing one of *slugs*; return canvases changed.
 
     Only nodes saved by older versions still carry a slug, so canvases whose
-    nodes hold just page ids are left as they are.
+    nodes hold just page ids are left as they are (the page is read by id
+    when they are shown).
     """
-    candidates = db.column(
-        "SELECT id FROM canvas__layouts WHERE instr(data, ?) > 0", (_STORED_SLUG_MARKER,)
-    )
+    candidates = _canvases_with_page_slugs(slugs)
     changed_layouts = 0
     for layout_id in candidates:
         with db.transaction():
@@ -378,7 +431,7 @@ def _rewrite_page_nodes(matches: Callable[[dict[str, Any]], bool], change: Calla
                         changed.append(node)
             if not changed:
                 continue
-            _store(layout_id, doc)
+            _store(layout_id, doc, None)  # the server's own change of a link
             for node in changed:
                 _append_event(layout_id, "upsert_node", {"op": "upsert_node", "node": node}, None, "server")
             changed_layouts += 1
@@ -386,11 +439,19 @@ def _rewrite_page_nodes(matches: Callable[[dict[str, Any]], bool], change: Calla
     return changed_layouts
 
 
-def _same_page(page: dict[str, Any], *slugs: str | None) -> Callable[[dict[str, Any]], bool]:
-    names = {slug for slug in slugs if slug}
+def _names(*slugs: str | None) -> set[str]:
+    return {slug for slug in slugs if slug}
+
+
+def _same_page(page: dict[str, Any], names: set[str]) -> Callable[[dict[str, Any]], bool]:
     return lambda node: node.get("page_id") == page["id"] or (
         not node.get("page_id") and node.get("page_slug") in names
     )
+
+
+def _follow(page: dict[str, Any], *slugs: str | None) -> None:
+    names = _names(*slugs)
+    _rewrite_page_nodes(names, _same_page(page, names), _point_at(page))
 
 
 def _point_at(page: dict[str, Any]) -> Callable[[dict[str, Any]], None]:
@@ -402,33 +463,50 @@ def _point_at(page: dict[str, Any]) -> Callable[[dict[str, Any]], None]:
 
 
 def on_page_renamed(page: dict[str, Any], old_slug: str, **_: Any) -> None:
-    _rewrite_page_nodes(_same_page(page, old_slug, page["slug"]), _point_at(page))
+    _follow(page, old_slug, page["slug"])
 
 
 def on_page_updated(page: dict[str, Any], previous: dict[str, Any] | None = None, **_: Any) -> None:
     if previous and previous.get("title") == page["title"] and previous.get("slug") == page["slug"]:
         return
     old_slug = previous.get("slug") if previous else None
-    _rewrite_page_nodes(_same_page(page, old_slug, page["slug"]), _point_at(page))
+    _follow(page, old_slug, page["slug"])
 
 
 def on_page_restored(page: dict[str, Any], **_: Any) -> None:
-    _rewrite_page_nodes(_same_page(page, page["slug"]), _point_at(page))
+    _follow(page, page["slug"])
 
 
 def on_page_deleted(page: dict[str, Any], **_: Any) -> None:
     # Nodes keep the id, so restoring the page brings the link back.
-    _rewrite_page_nodes(_same_page(page, page.get("slug")), _point_at(page))
+    _follow(page, page.get("slug"))
 
 
 # Saving
 
 
-def _store(layout_id: int, doc: dict[str, Any]) -> int:
-    """Write *doc* and bump the version; return the new version (inside a transaction)."""
+def _reserve(user_id: str | None, size: int) -> bool:
+    """Count *size* bytes stored by *user_id* against :data:`STORED_MIB_PER_DAY`; False past it."""
+    return not user_id or size <= 0 or SqlLimiter(db.session).reserve_amount(
+        f"user:{user_id}", STORED_BUCKET, size, STORED_MIB_PER_DAY * 1024 * 1024, 86400)
+
+
+def _charge(user_id: str | None, size: int) -> None:
+    """Count *size* bytes stored by *user_id*; raise :class:`TooMuchStored` past the budget (inside the
+    change's transaction)."""
+    if not _reserve(user_id, size):
+        raise TooMuchStored()
+
+
+def _store(layout_id: int, doc: dict[str, Any], user_id: str | None) -> int:
+    """Write *doc* and bump the version, counting what it adds against *user_id*'s budget; return the new
+    version (inside a transaction)."""
+    text = model.serialize(doc)
+    previous = db.scalar(f"SELECT {_SNAPSHOT_BYTES} FROM canvas__layouts WHERE id = ?", (layout_id,))
+    _charge(user_id, len(text.encode("utf-8")) - int(previous or 0))
     db.execute(
         "UPDATE canvas__layouts SET data = ?, updated_at = ?, version = version + 1 WHERE id = ?",
-        (model.serialize(doc), now_sql(), layout_id),
+        (text, now_sql(), layout_id),
     )
     return int(db.scalar("SELECT version FROM canvas__layouts WHERE id = ?", (layout_id,)))
 
@@ -453,7 +531,8 @@ def apply(layout: dict[str, Any], ops: Any, *, user_id: str, session_id: str,
         if not applied:
             return {"version": row["version"], "seq": head_seq(layout["id"]), "applied": [], "rejected": rejected}
         link_pages((op["node"] for op in applied if op["op"] == "upsert_node"), user_id)
-        version = _store(layout["id"], doc)
+        keep_pending_history(layout["id"], user_id)
+        version = _store(layout["id"], doc, user_id)
         seq = 0
         for op in applied:
             if op["op"] != "viewport_set":
@@ -488,7 +567,8 @@ def save_document(layout: dict[str, Any], data: Any, *, expected_version: int | 
         if locked:
             raise _locked_error(locked)
         link_pages(doc["nodes"], user_id)
-        version = _store(layout["id"], doc)
+        keep_pending_history(layout["id"], user_id)
+        version = _store(layout["id"], doc, user_id)
         seq = _append_event(layout["id"], "snapshot", {}, user_id, session_id)
         _trim_events(layout["id"])
         record_history(layout["id"], user_id, "saved", coalesce=True)
@@ -576,28 +656,112 @@ def _event_payload(op_type: str, raw: str | None) -> dict[str, Any] | None:
 def record_history(layout_id: int, user_id: str | None, message: str, *, is_revert: bool = False,
                    coalesce: bool = False) -> int | None:
     """Snapshot the canvas; with *coalesce*, update the latest entry when it is the same session of work."""
-    row = db.one("SELECT title, description, data FROM canvas__layouts WHERE id = ?", (layout_id,))
-    if row is None:
-        return None
     latest = db.one(
-        "SELECT id, title, description, data, edited_by, edit_message, is_revert, created_at "
+        "SELECT id, edited_by, edit_message, is_revert, created_at "
         "FROM canvas__history WHERE layout_id = ? ORDER BY id DESC LIMIT 1",
         (layout_id,),
     )
-    state = (row["title"], row["description"], row["data"])
-    if latest and not is_revert and (latest["title"], latest["description"], latest["data"]) == state:
+    merge = coalesce and latest is not None and _same_session(latest, user_id)
+    if is_large(layout_id) and not _history_due(layout_id) and merge:
+        return None  # part of the next rewrite of the latest entry
+    if latest and not is_revert and _unchanged(layout_id, latest["id"]):
         return None
-    if coalesce and latest and _same_session(latest, user_id):
-        db.execute("UPDATE canvas__history SET title = ?, description = ?, data = ? WHERE id = ?",
-                   (*state, latest["id"]))
-        return latest["id"]
-    entry_id = db.insert("canvas__history", {
-        "layout_id": layout_id, "title": row["title"], "description": row["description"], "data": row["data"],
-        "edited_by": user_id, "edit_message": message, "is_revert": 1 if is_revert else 0,
-        "created_at": now_sql(),
-    })
+    before = _history_bytes(layout_id)
+    if merge:
+        db.execute("UPDATE canvas__history SET (title, description, data) = "
+                   "(SELECT title, description, data FROM canvas__layouts WHERE id = ?) WHERE id = ?",
+                   (layout_id, latest["id"]))
+        entry_id = int(latest["id"])
+    else:
+        cursor = db.execute(
+            "INSERT INTO canvas__history (layout_id, title, description, data, edited_by, edit_message, "
+            "is_revert, created_at) SELECT id, title, description, data, ?, ?, ?, ? FROM canvas__layouts "
+            "WHERE id = ?",
+            (user_id, message, 1 if is_revert else 0, now_sql(), layout_id),
+        )
+        if not cursor.rowcount:
+            return None
+        entry_id = int(cursor.lastrowid)
     _trim_history("WHERE layout_id = ?", (layout_id,))
+    if not _reserve(user_id, _history_bytes(layout_id) - before):
+        # Out of budget: the canvas's history does not grow (beyond the newest entry, the canvas itself).
+        _trim_history("WHERE layout_id = ?", (layout_id,), max_bytes=before)
     return entry_id
+
+
+def _history_bytes(layout_id: int) -> int:
+    return int(db.scalar(f"SELECT COALESCE(SUM({_SNAPSHOT_BYTES}), 0) FROM canvas__history WHERE layout_id = ?",
+                         (layout_id,), default=0) or 0)
+
+
+def keep_pending_history(layout_id: int, user_id: str | None) -> None:
+    """Before a change that will start a new history entry, write a large canvas's unrecorded changes into the
+    latest one (call it before storing the change, inside its transaction).
+
+    A large canvas rewrites its latest entry at most once every HISTORY_MIN_SECONDS, so that entry can lag the
+    canvas; a change by someone else or in a new session starts a new entry from the changed canvas, and the
+    changes in between would otherwise be in no entry.
+    """
+    if not is_large(layout_id):
+        return
+    latest = db.one("SELECT id, edited_by, edit_message, is_revert, created_at FROM canvas__history "
+                    "WHERE layout_id = ? ORDER BY id DESC LIMIT 1", (layout_id,))
+    if latest is not None and not _same_session(latest, user_id):
+        _flush_history(layout_id)
+
+
+def _flush_history(layout_id: int) -> None:
+    """Write changes a large canvas has not recorded yet into its latest entry (before a restore)."""
+    latest = db.one("SELECT id, edit_message, is_revert FROM canvas__history WHERE layout_id = ? "
+                    "ORDER BY id DESC LIMIT 1", (layout_id,))
+    if (latest and not latest["is_revert"] and latest["edit_message"] in _COALESCED_MESSAGES
+            and not _unchanged(layout_id, latest["id"])):
+        db.execute("UPDATE canvas__history SET (title, description, data) = "
+                   "(SELECT title, description, data FROM canvas__layouts WHERE id = ?) WHERE id = ?",
+                   (layout_id, latest["id"]))
+
+
+def _unchanged(layout_id: int, entry_id: int) -> bool:
+    """Whether history entry *entry_id* holds the canvas as it is (compared inside SQLite)."""
+    return bool(db.scalar(
+        "SELECT h.title = l.title AND h.description = l.description AND h.data = l.data "
+        "FROM canvas__history h, canvas__layouts l WHERE h.id = ? AND l.id = ?", (entry_id, layout_id)))
+
+
+def is_large(layout_id: int) -> bool:
+    """Whether the canvas's document is over :data:`LARGE_DOCUMENT_BYTES` (each change rewrites all of it)."""
+    size = db.scalar(f"SELECT {_SNAPSHOT_BYTES} FROM canvas__layouts WHERE id = ?", (layout_id,))
+    return int(size or 0) > LARGE_DOCUMENT_BYTES
+
+
+def create_allowed(who: str) -> bool:
+    """Count one canvas created by *who*; False once :data:`CREATES_PER_MINUTE` this minute are used up.
+
+    The browser and the REST API draw from this one budget per account, so using both does not double it.
+    """
+    return current_app.extensions["bananawiki.limiter"].hit(f"canvas:create:{who}", CREATES_PER_MINUTE, 60)
+
+
+def large_write_allowed(layout_id: int, kind: str, who: str) -> bool:
+    """Count an operation batch (*kind* ``"ops"``) or whole-document save (``"save"``) by *who* on a
+    canvas over :data:`LARGE_DOCUMENT_BYTES`; False once the minute's budget is used up.
+
+    Every such write rewrites the whole document, so the web editor and the REST API share one budget
+    per account (:data:`LARGE_OPS_PER_MINUTE`, :data:`LARGE_SAVES_PER_MINUTE`). Smaller canvases are not
+    counted here.
+    """
+    if not is_large(layout_id):
+        return True
+    limit = LARGE_OPS_PER_MINUTE if kind == "ops" else LARGE_SAVES_PER_MINUTE
+    return current_app.extensions["bananawiki.limiter"].hit(f"canvas:{kind}_large:{who}", limit, 60)
+
+
+def _history_due(layout_id: int) -> bool:
+    """Whether a large canvas's history may be written now (once per :data:`HISTORY_MIN_SECONDS`)."""
+    if not has_app_context():
+        return True
+    limiter = current_app.extensions.get("bananawiki.limiter")
+    return limiter is None or limiter.hit(f"canvas:history:{layout_id}", 1, HISTORY_MIN_SECONDS)
 
 
 def _same_session(latest: dict[str, Any], user_id: str | None) -> bool:
@@ -613,23 +777,25 @@ def _same_session(latest: dict[str, Any], user_id: str | None) -> bool:
     return latest["created_at"] >= sql_in(seconds=-HISTORY_MIN_SECONDS)
 
 
-def _trim_history(where: str, params: tuple[Any, ...]) -> int:
-    """Drop entries past the newest :data:`HISTORY_KEEP` or :data:`HISTORY_MAX_BYTES` of each canvas."""
+def _trim_history(where: str, params: tuple[Any, ...], *, max_bytes: int | None = None) -> int:
+    """Drop entries past the newest :data:`HISTORY_KEEP` or *max_bytes* (:data:`HISTORY_MAX_BYTES`) of each
+    canvas."""
     newest = "(PARTITION BY layout_id ORDER BY id DESC)"
     return db.execute(
         f"DELETE FROM canvas__history WHERE id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER {newest} "
         f"AS position, SUM({_SNAPSHOT_BYTES}) OVER {newest} AS kept FROM canvas__history {where}) "
         f"WHERE position > 1 AND (position > ? OR kept > ?))",
-        (*params, HISTORY_KEEP, HISTORY_MAX_BYTES),
+        (*params, HISTORY_KEEP, HISTORY_MAX_BYTES if max_bytes is None else max_bytes),
     ).rowcount
 
 
-def history(layout_id: int) -> list[dict[str, Any]]:
+def history(layout_id: int, *, limit: int = -1, offset: int = 0) -> list[dict[str, Any]]:
+    """The canvas's history entries, newest first (with *limit*, only that window of them)."""
     return db.all(
         "SELECT h.id, h.title, h.edited_by, h.edit_message, h.is_revert, h.created_at, u.username, "
         "length(h.data) AS size FROM canvas__history h LEFT JOIN users u ON u.id = h.edited_by "
-        "WHERE h.layout_id = ? ORDER BY h.id DESC",
-        (layout_id,),
+        "WHERE h.layout_id = ? ORDER BY h.id DESC LIMIT ? OFFSET ?",
+        (layout_id, limit, offset),
     )
 
 
@@ -647,9 +813,10 @@ def revert(layout: dict[str, Any], entry: dict[str, Any], *, user_id: str, sessi
     link_pages(doc["nodes"], user_id)
     title = (entry["title"] or layout["title"])[:MAX_TITLE]
     with db.transaction():
+        _flush_history(layout["id"])
         db.execute("UPDATE canvas__layouts SET title = ?, description = ? WHERE id = ?",
                    (title, (entry["description"] or "")[:MAX_DESCRIPTION], layout["id"]))
-        version = _store(layout["id"], doc)
+        version = _store(layout["id"], doc, user_id)
         _append_event(layout["id"], "snapshot", {}, user_id, session_id)
         _trim_events(layout["id"])
         record_history(layout["id"], user_id, f"reverted:{entry['id']}", is_revert=True)
@@ -662,8 +829,8 @@ def delete_history_entry(layout: dict[str, Any], entry_id: int) -> bool:
                       (entry_id, layout["id"])).rowcount > 0
 
 
-def clear_history(layout: dict[str, Any]) -> None:
-    db.execute("DELETE FROM canvas__history WHERE layout_id = ?", (layout["id"],))
+def clear_history(layout: dict[str, Any]) -> int:
+    return db.execute("DELETE FROM canvas__history WHERE layout_id = ?", (layout["id"],)).rowcount
 
 
 # Maintenance

@@ -16,15 +16,18 @@ def _context(page: dict[str, Any]) -> dict[str, Any] | None:
         return None
     can_view = service.can_download(page, user)
     can_upload = service.can_upload(page, user)
-    attachments = service.for_page(page["id"]) if (can_view or can_upload) else []
+    # Bounded for pages that held more than ``MAX_PER_PAGE`` files before the limit existed.
+    attachments = service.for_page(page["id"], service.MAX_PER_PAGE) if (can_view or can_upload) else []
     if not attachments and not can_upload:
         return None
+    total = service.count(page["id"]) if len(attachments) >= service.MAX_PER_PAGE else len(attachments)
     return {
         "page": page,
         "attachments": attachments,
+        "total": total,
         "can_view": can_view,
         "can_upload": can_upload,
-        "deletable": {a["id"] for a in attachments if service.can_delete(a, page, user)},
+        "deletable": service.deletable(attachments, page, user),
         "max_bytes": service.max_bytes(),
         "rules": storage.client_rules(None, service.max_bytes()),
     }

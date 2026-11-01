@@ -293,6 +293,7 @@
   "page_builder.error.page_missing": "Diese Seite gibt es nicht.",
   "page_builder.error.pages": "Eine Seitenliste kann höchstens 24 gültige Seitenadressen enthalten.",
   "page_builder.error.preview_slow_down": "Zu viele Vorschauen. Warte einen Moment und versuche es erneut.",
+  "page_builder.error.publish_slow_down": "Zu viele Speichervorgänge. Warte eine Minute und versuche es erneut.",
   "page_builder.error.required": "Fülle die Pflichtfelder in jedem Block aus.",
   "page_builder.error.revision_missing": "Die Version der Seite fehlt. Lade den Baukasten neu.",
   "page_builder.error.section_empty": "Wähle mindestens einen Block für den Abschnitt aus.",

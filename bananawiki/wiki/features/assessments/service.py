@@ -19,6 +19,11 @@ choice, ``null`` when unanswered.
 
 The answer key never leaves the server before a submission. Afterwards it is
 shown to managers, and to takers only when they cannot try again.
+
+Each person keeps their latest ``MAX_KEPT_ATTEMPTS`` attempts at an
+assessment and their best one (which their points come from); older attempts
+are removed when a new one is stored, so retaking a quiz many times does not
+grow the database without end.
 """
 
 from __future__ import annotations
@@ -33,6 +38,8 @@ from ... import auth
 from ...db import db
 from ...permissions import ROLES
 from ...registry import emit
+from ..audit.service import record
+from ..pages import access as page_access
 from ..pages import service as pages
 
 QUESTION_TYPES = ("single_choice", "multiple_choice", "free_text")
@@ -45,6 +52,7 @@ MAX_OPTIONS = 20
 MAX_QUESTIONS = 100
 MAX_FREE_TEXT = 2000
 MAX_POINTS = 1000
+MAX_KEPT_ATTEMPTS = 20  # latest attempts kept per person and assessment, besides their best one
 
 
 class AssessmentError(ValueError):
@@ -147,12 +155,20 @@ def attempts_of(assessment_id: int, user_id: str) -> list[dict[str, Any]]:
     )
 
 
-def all_attempts(assessment_id: int) -> list[dict[str, Any]]:
-    return db.all(
-        "SELECT a.*, u.username FROM assessment_attempts a JOIN users u ON u.id = a.user_id "
-        "WHERE a.assessment_id = ? ORDER BY u.username COLLATE NOCASE, a.attempt_number DESC",
-        (assessment_id,),
-    )
+def all_attempts(assessment_id: int, *, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
+    """Every attempt with its user name, by user; with *limit*, only that window of them."""
+    sql = ("SELECT a.*, u.username FROM assessment_attempts a JOIN users u ON u.id = a.user_id "
+           "WHERE a.assessment_id = ? ORDER BY u.username COLLATE NOCASE, a.user_id, a.attempt_number DESC")
+    params: tuple[Any, ...] = (assessment_id,)
+    if limit is not None:
+        sql += " LIMIT ? OFFSET ?"
+        params += (int(limit), int(offset))
+    return db.all(sql, params)
+
+
+def count_attempts(assessment_id: int) -> int:
+    return int(db.scalar("SELECT COUNT(*) FROM assessment_attempts a JOIN users u ON u.id = a.user_id "
+                         "WHERE a.assessment_id = ?", (assessment_id,), default=0))
 
 
 def attempt(attempt_id: int) -> dict[str, Any] | None:
@@ -233,6 +249,15 @@ def can_manage(page: dict[str, Any], user: dict[str, Any] | None = None) -> bool
     """Create, edit, delete and review the assessment of *page*."""
     user = auth.current_user() if user is None else user
     return bool(user) and auth.has_permission("assessment.manage", user) and pages.can_edit(page, user)
+
+
+def change_blocked(page: dict[str, Any], user: dict[str, Any] | None = None) -> str | None:
+    """Why the assessment of *page* cannot be changed now (a translation key), or None.
+
+    Like any change to the page: not while it is protected or checked out by
+    someone else, or pending deletion. Reading results stays allowed.
+    """
+    return page_access.edit_blocked(page, user)
 
 
 def can_take(page: dict[str, Any], user: dict[str, Any] | None = None) -> bool:
@@ -364,7 +389,10 @@ def save(page: dict[str, Any], settings: Settings, question_inputs: list[Questio
     """Create or update the page's assessment and its questions.
 
     Existing questions are updated in place (their recorded answers stay);
-    questions left out of the form are deleted with their answers.
+    questions left out of the form are deleted with their answers. Saving an
+    existing assessment is recorded as ``assessment.saved`` when it removes
+    questions or answers, changes the answer key or points of a question, or
+    changes who may take it or how often.
     """
     title = settings.title.strip()
     if not title:
@@ -398,13 +426,23 @@ def save(page: dict[str, Any], settings: Settings, question_inputs: list[Questio
         else:
             assessment_id = db.insert("assessments", {**values, "page_id": page["id"], "created_by": actor_id,
                                                       "created_at": now})
-        _replace_questions(assessment_id, question_inputs)
+        changes = _replace_questions(assessment_id, question_inputs)
+    if existing:
+        rules = [key for key in ("allow_multiple_attempts", "banned_roles_json", "banned_users_json")
+                 if existing.get(key) != values[key]]
+        if any(changes.values()) or rules:
+            _audit("assessment.saved", page, assessment=title, **changes,
+                   rules_changed=[key.removesuffix("_json") for key in rules])
     return for_page(page["id"])  # type: ignore[return-value]
 
 
-def _replace_questions(assessment_id: int, question_inputs: list[QuestionInput]) -> None:
-    current = set(db.column("SELECT id FROM assessment_questions WHERE assessment_id = ?", (assessment_id,)))
+def _replace_questions(assessment_id: int, question_inputs: list[QuestionInput]) -> dict[str, int]:
+    """Returns how many questions were removed or had their grading changed, and how many answers went."""
+    grading = ("question_type", "options_json", "correct_answers_json", "points_correct", "points_incorrect")
+    current = {row["id"]: row for row in db.all(
+        f"SELECT id, {', '.join(grading)} FROM assessment_questions WHERE assessment_id = ?", (assessment_id,))}
     kept: set[int] = set()
+    regraded = 0
     for order, q in enumerate(question_inputs):
         values = {
             "prompt": q.prompt, "question_type": q.question_type, "options_json": json.dumps(q.options),
@@ -412,22 +450,67 @@ def _replace_questions(assessment_id: int, question_inputs: list[QuestionInput])
             "points_incorrect": q.points_incorrect, "is_required": 1 if q.is_required else 0, "sort_order": order,
         }
         if q.id in current and q.id not in kept:
+            regraded += any(current[q.id][key] != values[key] for key in grading)  # type: ignore[index]
             db.update("assessment_questions", values, "id = ?", (q.id,))
             kept.add(q.id)  # type: ignore[arg-type]
         else:
             db.insert("assessment_questions", {**values, "assessment_id": assessment_id})
-    for question_id in current - kept:
+    removed = set(current) - kept
+    answers = 0
+    for question_id in removed:
+        answers += int(db.scalar("SELECT COUNT(*) FROM assessment_answers WHERE question_id = ?", (question_id,),
+                                 default=0))
         db.execute("DELETE FROM assessment_questions WHERE id = ?", (question_id,))
+    return {"questions_removed": len(removed), "answers_removed": answers, "questions_regraded": regraded}
+
+
+def _audit(action: str, page: dict[str, Any], **details: Any) -> None:
+    """Record the removal of other members' graded results; the account acted as is named too."""
+    if auth.is_impersonating():
+        details["as_user"] = auth.current_user()["username"]
+    record(action, target_type="page", target_id=page["id"],
+           details={"title": page.get("title"), "slug": page.get("slug"), **details})
 
 
 def delete(page: dict[str, Any]) -> None:
-    db.execute("DELETE FROM assessments WHERE page_id = ?", (page["id"],))
+    """Delete *page*'s assessment with every attempt at it (recorded as ``assessment.deleted``)."""
+    with db.transaction():
+        assessment = db.one("SELECT id, title FROM assessments WHERE page_id = ?", (page["id"],))
+        if assessment is None:
+            return
+        attempts = int(db.scalar("SELECT COUNT(*) FROM assessment_attempts WHERE assessment_id = ?",
+                                 (assessment["id"],), default=0))
+        db.execute("DELETE FROM assessments WHERE id = ?", (assessment["id"],))
+    _audit("assessment.deleted", page, assessment=assessment["title"], attempts=attempts)
+
+
+def _prune_attempts(assessment_id: int, user_id: str) -> None:
+    """Remove *user_id*'s attempts beyond the latest ``MAX_KEPT_ATTEMPTS``, except their best (first) one.
+
+    Their answers go with them (``ON DELETE CASCADE``).
+    """
+    db.execute(
+        "DELETE FROM assessment_attempts WHERE assessment_id = :a AND user_id = :u "
+        "AND id NOT IN (SELECT id FROM assessment_attempts WHERE assessment_id = :a AND user_id = :u "
+        "ORDER BY attempt_number DESC LIMIT :kept) "
+        "AND id != (SELECT id FROM assessment_attempts WHERE assessment_id = :a AND user_id = :u "
+        "ORDER BY total_points DESC, attempt_number LIMIT 1)",
+        {"a": assessment_id, "u": user_id, "kept": MAX_KEPT_ATTEMPTS},
+    )
 
 
 def reset_attempts(assessment_id: int, user_id: str) -> int:
-    return db.execute(
+    """Delete *user_id*'s attempts (recorded as ``assessment.attempts_reset``); returns how many."""
+    removed = db.execute(
         "DELETE FROM assessment_attempts WHERE assessment_id = ? AND user_id = ?", (assessment_id, user_id)
     ).rowcount
+    if removed:
+        page = db.one("SELECT p.id, p.title, p.slug FROM assessments a JOIN pages p ON p.id = a.page_id "
+                      "WHERE a.id = ?", (assessment_id,))
+        member = db.scalar("SELECT username FROM users WHERE id = ?", (user_id,))
+        _audit("assessment.attempts_reset", page or {"id": None}, member=member, member_id=user_id,
+               attempts=removed)
+    return removed
 
 
 # Taking
@@ -507,6 +590,7 @@ def submit(assessment: dict[str, Any], page: dict[str, Any], user: dict[str, Any
                 [(attempt_id, qid, json.dumps(answer), None if ok is None else int(ok), points)
                  for qid, answer, ok, points in graded],
             )
+            _prune_attempts(assessment["id"], user["id"])
     except sqlite3.IntegrityError as error:
         raise AssessmentError("assessments.blocked.already_submitted") from error
     emit("assessment.completed", user_id=user["id"], page_id=page["id"], assessment_id=assessment["id"],

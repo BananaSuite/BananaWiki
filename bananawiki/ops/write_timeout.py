@@ -38,6 +38,14 @@ HTTP/2 streams share their connection, so they are left alone (the shipped
 configurations serve HTTP/1.1). Meant for thread workers: async workers
 recognise an "already handled" response by identity, which the wrapper hides.
 
+:func:`close_without_waiting` replaces Gunicorn's graceful close (see
+:func:`patch_graceful_close`). Gunicorn 26's gthread worker closes every
+finished connection that is not kept alive on its main loop, the only one
+that accepts connections, and its ``close_graceful`` waits up to 2 s for the
+client to close its side. A client that never does costs the worker 2 s per
+connection: two dozen slow connections left ``/health`` unanswered while
+every request thread was idle.
+
 Standard library only (see :mod:`bananawiki.ops`).
 """
 
@@ -123,3 +131,51 @@ def guard(app: WSGIApp, timeout: float) -> WSGIApp:
         return _Pieces(body, sock if _set(sock, "TCP_CORK", 1) else None)
 
     return guarded
+
+
+# What close_without_waiting reads before closing, as Gunicorn's own graceful close.
+MAX_DRAIN = 64 * 1024
+
+
+def close_without_waiting(sock: Any, timeout: float = 2.0, max_drain: int = MAX_DRAIN) -> None:
+    """Gunicorn's ``util.close_graceful`` without the wait: send FIN, read what the client already sent, close.
+
+    Reading what is queued keeps the kernel from answering unread request
+    bytes with a reset that could cut off the end of the response; what the
+    client sends later is not waited for. *timeout* is accepted for the
+    signature's sake and ignored.
+    """
+    try:
+        try:
+            sock.shutdown(socket.SHUT_WR)
+        except OSError:
+            return
+        try:
+            sock.setblocking(False)
+            drained = 0
+            while drained < max_drain:
+                data = sock.recv(min(4096, max_drain - drained))
+                if not data:
+                    break
+                drained += len(data)
+        except OSError:  # BlockingIOError: nothing more is queued
+            pass
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+
+def patch_graceful_close() -> None:
+    """Make Gunicorn's workers close connections with :func:`close_without_waiting`.
+
+    Called from the Gunicorn configuration, which the master reads before it
+    forks the workers. The workers call ``util.close_graceful`` through the
+    module, so replacing the attribute covers every call site.
+    """
+    try:
+        from gunicorn import util
+    except ImportError:  # not running under Gunicorn
+        return
+    util.close_graceful = close_without_waiting

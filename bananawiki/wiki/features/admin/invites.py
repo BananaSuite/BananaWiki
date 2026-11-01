@@ -23,6 +23,7 @@ from typing import Any
 
 from bananawiki.core.numbers import ascii_int
 
+from ....core.ratelimit import SqlLimiter
 from ....core.timeutil import now_sql, to_sql, utcnow
 from ... import auth
 from ... import permissions as perms
@@ -36,6 +37,10 @@ MAX_USES_LIMIT = 10_000
 EXPIRY_PRESETS = {"24h": 24, "48h": 48, "72h": 72, "7d": 168, "30d": 720}
 ADMIN_ASSIGNABLE = ("user", "editor", "admin")
 EDITOR_ASSIGNABLE = ("user", "editor")
+# "Code taken" tells whether anyone holds a code, so delegated inviters pay for each custom code they try.
+CUSTOM_CODE_WINDOW = 3600
+CUSTOM_CODE_MAX_PER_USER = 10
+CUSTOM_CODE_MAX_PER_NETWORK = 30
 
 _ACTIVE = ("ic.deleted = 0 AND (ic.max_uses = 0 OR ic.use_count < ic.max_uses) "
            "AND (ic.expires_at IS NULL OR ic.expires_at > ?)")
@@ -133,6 +138,20 @@ def parse_request(form: Any, custom_expiry: datetime | None) -> CodeRequest:
         assigned_role=(form.get("assigned_role") or "").strip() or None,
         assigned_custom_role_id=ascii_int(custom_role),
     )
+
+
+def spend_custom_code_guess(actor: dict[str, Any], network: str) -> bool:
+    """Spend one custom-code try of a delegated inviter (False: none left).
+
+    Administrators see every code anyway; others could otherwise find
+    codes they cannot list, an administrator's among them, by trying custom
+    codes until one is taken.
+    """
+    if manages_all(actor):
+        return True
+    limiter = SqlLimiter(db.session)
+    return (limiter.hit(str(actor["id"]), "invite_custom", CUSTOM_CODE_MAX_PER_USER, CUSTOM_CODE_WINDOW)
+            and limiter.hit(network, "invite_custom_ip", CUSTOM_CODE_MAX_PER_NETWORK, CUSTOM_CODE_WINDOW))
 
 
 def generate(actor: dict[str, Any], req: CodeRequest) -> str:

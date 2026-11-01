@@ -246,5 +246,8 @@ class DataFolder:
             "BW_HOST": host,
             "BW_PORT": str(port),
             "BW_PROXY_MODE": "0",
+            # Eight of the launcher's twelve server threads (server.THREADS), two for each of four devices: the
+            # others stay for pages.
+            "BW_DOWNLOAD_THREADS": "8",
             "BW_DEFAULT_INTERFACE_LANGUAGE": language,
         }

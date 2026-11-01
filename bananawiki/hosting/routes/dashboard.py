@@ -24,6 +24,7 @@ from flask import (
     url_for,
 )
 
+from ...core import downloads
 from ...core.timeutil import is_past, utcnow
 from .. import accounts, auth, certwarm, collaborators, domains, features, instances, limits, settings, urls
 from ..errors import ServiceError
@@ -35,6 +36,9 @@ from .common import account, back, detail_url, flash_error, instance_for, owner_
 # Views that run a task in a wiki's container, per wiki and minute.
 ANALYTICS_PER_MINUTE = 6
 USER_LISTS_PER_MINUTE = 20
+# On a wiki that is not running each of them starts a one-off task container under the runtime agent's
+# global lock: they also share a daily budget per wiki then.
+PAUSED_TASKS_PER_DAY = 100
 
 bp = Blueprint("dashboard", __name__)
 
@@ -115,6 +119,16 @@ def create_instance():
     return _credentials_page(inst, username, password, "created")
 
 
+def _wiki_task(inst: dict[str, Any], bucket: str, per_minute: int) -> bool:
+    """Whether a view may run a task in *inst*'s container now (counted when it may). A wiki whose container
+    is down (paused, or held: see :func:`.instances.held`) runs each task in a one-shot container: those
+    also spend a daily budget per wiki."""
+    if not limits.hit(bucket, per_minute, 60, key=inst["id"]):
+        return False
+    up = inst["status"] == "running" and not instances.held(inst)
+    return up or limits.hit("hosting_wiki_paused_tasks", PAUSED_TASKS_PER_DAY, 86400, key=inst["id"])
+
+
 @bp.get("/instances/<instance_id>")
 def instance_detail(instance_id: str):
     inst = instance_for(instance_id)
@@ -123,12 +137,14 @@ def instance_detail(instance_id: str):
     is_owner = inst["account_id"] == viewer["id"]
     manager = is_owner or bool(viewer["is_admin"])
     item = instances.describe(inst)
-    legacy_password = instances.take_legacy_password(inst) if manager else ""
+    # A 1.4 initial password is shown once, to the owner: an administrator looking (or impersonating)
+    # would use it up before the owner ever saw it.
+    legacy_password = instances.take_legacy_password(inst) if is_owner and not auth.impersonating() else ""
     users, users_total = [], 0
     # Listing the wiki's accounts runs a task in its container: at most a few times a minute per wiki,
     # however often the page is reloaded (the page shows without the list meanwhile).
     if manager and inst["status"] != "terminated" and instances.provisioning_ready(inst) \
-            and limits.hit("hosting_wiki_list_users", USER_LISTS_PER_MINUTE, 60, key=inst["id"]):
+            and _wiki_task(inst, "hosting_wiki_list_users", USER_LISTS_PER_MINUTE):
         try:
             users, users_total = instances.runtime().list_users(instances.spec(inst, with_policy=False), limit=50)
         except (RuntimeFailure, ValueError):
@@ -153,10 +169,17 @@ def instance_detail(instance_id: str):
     )
 
 
-def _act(instance_id: str, permission: str, action, success_key: str):
-    inst = instance_for(instance_id, permission)
+def _locked(inst: dict) -> bool:
+    """Flash the suspension notice when a non-administrator tries to change a suspended wiki."""
     if owner_locked(inst):
         flash(t("hosting.instances.suspended_locked"), "error")
+        return True
+    return False
+
+
+def _act(instance_id: str, permission: str, action, success_key: str):
+    inst = instance_for(instance_id, permission)
+    if _locked(inst):
         return redirect(detail_url(instance_id))
     try:
         action(inst)
@@ -169,7 +192,7 @@ def _act(instance_id: str, permission: str, action, success_key: str):
 @bp.post("/instances/<instance_id>/stop")
 @rate_limit(10)
 def stop(instance_id: str):
-    return _act(instance_id, "start_stop", lambda i: instances.stop(i, actor_id=account()["id"]),
+    return _act(instance_id, "start_stop", lambda i: instances.stop(i, actor_id=account()["id"], charge=account()),
                 "hosting.instances.stopped")
 
 
@@ -187,9 +210,9 @@ def renew(instance_id: str):
 def restart(instance_id: str):
     def resume(inst):
         if inst["status"] == "running":
-            instances.restart(inst, actor_id=account()["id"])
+            instances.restart(inst, actor_id=account()["id"], charge=account())
         else:
-            instances.start(inst, actor_id=account()["id"])
+            instances.start(inst, actor_id=account()["id"], charge=account())
 
     return _act(instance_id, "start_stop", resume, "hosting.instances.started")
 
@@ -203,8 +226,7 @@ def _expired_block(inst: dict) -> bool:
 @rate_limit(10)
 def terminate(instance_id: str):
     inst = instance_for(instance_id, "terminate")
-    if owner_locked(inst):
-        flash(t("hosting.instances.suspended_locked"), "error")
+    if _locked(inst):
         return redirect(detail_url(instance_id))
     if _expired_block(inst):
         flash(t("hosting.instances.expired_no_delete"), "error")
@@ -226,11 +248,28 @@ def terminate(instance_id: str):
     return redirect(url_for("dashboard.dashboard"))
 
 
+@bp.post("/instances/<instance_id>/delete-data")
+@rate_limit(10)
+def delete_retained(instance_id: str):
+    """The owner deletes the kept data of a wiki they terminated, freeing its place at once."""
+    inst = instance_for(instance_id, "terminate")
+    if inst["account_id"] != account()["id"]:
+        abort(404)
+    try:
+        instances.discard_retained(inst, actor_id=account()["id"])
+    except ServiceError as error:
+        flash_error(error)
+        return redirect(detail_url(instance_id))
+    flash(t("hosting.instances.retained_data_deleted", slug=urls.original_slug(inst["subdomain"]) or ""), "success")
+    return redirect(url_for("dashboard.dashboard"))
+
+
 @bp.post("/instances/<instance_id>/toggle-easy-wiki")
 @rate_limit(5)
 def toggle_easy_wiki(instance_id: str):
     enable = request.form.get("enable") == "1"
-    return _act(instance_id, "toggle_mode", lambda i: instances.set_easy_wiki(i, enable, actor_id=account()["id"]),
+    return _act(instance_id, "toggle_mode",
+                lambda i: instances.set_easy_wiki(i, enable, actor_id=account()["id"], charge=account()),
                 "hosting.instances.mode_changed")
 
 
@@ -238,11 +277,10 @@ def toggle_easy_wiki(instance_id: str):
 @rate_limit(5)
 def reset_password(instance_id: str):
     inst = instance_for(instance_id, "reset_password")
-    if owner_locked(inst):
-        flash(t("hosting.instances.suspended_locked"), "error")
+    if _locked(inst):
         return redirect(detail_url(instance_id))
     try:
-        username, password = instances.reset_admin_password(inst, actor_id=account()["id"])
+        username, password = instances.reset_admin_password(inst, actor_id=account()["id"], charge=account())
     except ServiceError as error:
         flash_error(error)
         return redirect(detail_url(instance_id))
@@ -253,11 +291,10 @@ def reset_password(instance_id: str):
 @rate_limit(3, 300)
 def reset_wiki(instance_id: str):
     inst = instance_for(instance_id, "reset_wiki")
-    if owner_locked(inst):
-        flash(t("hosting.instances.suspended_locked"), "error")
+    if _locked(inst):
         return redirect(detail_url(instance_id))
     try:
-        username, password = instances.reset_content(inst, actor_id=account()["id"])
+        username, password = instances.reset_content(inst, actor_id=account()["id"], charge=account())
     except ServiceError as error:
         flash_error(error)
         return redirect(detail_url(instance_id))
@@ -268,6 +305,8 @@ def reset_wiki(instance_id: str):
 @rate_limit(10)
 def update_use_case(instance_id: str):
     inst = instance_for(instance_id, "use_case")
+    if _locked(inst):
+        return redirect(detail_url(instance_id))
     viewer = account()
     try:
         # The declaration is the owner's (or a collaborator's) to make; an administrator editing someone
@@ -288,6 +327,8 @@ def request_feature(instance_id: str, feature: str):
     inst = instance_for(instance_id)
     if feature not in features.FEATURES:
         abort(404)
+    if _locked(inst):
+        return redirect(detail_url(instance_id))
     try:
         created = features.request(inst, account(), feature, request.form.get("reason") or "")
         key = "hosting.features.auto_approved" if created["status"] == "approved" else "hosting.features.requested"
@@ -318,7 +359,7 @@ def cancel_feature(instance_id: str, request_id: int):
 def analytics(instance_id: str):
     inst = instance_for(instance_id, "analytics")
     # Each view runs a task in the wiki's container (a one-off container for a stopped wiki).
-    if not limits.hit("hosting_wiki_analytics", ANALYTICS_PER_MINUTE, 60, key=inst["id"]):
+    if not _wiki_task(inst, "hosting_wiki_analytics", ANALYTICS_PER_MINUTE):
         flash(t("hosting.analytics.unavailable"), "error")
         return redirect(detail_url(instance_id))
     try:
@@ -350,8 +391,16 @@ def _every_day(daily: list[dict], days: int) -> list[dict]:
 
 
 def stream_file(path: Path, name: str, cleanup: Path) -> Response:
-    """Stream a temporary download and remove its directory afterwards."""
+    """Stream a temporary download and remove its directory afterwards.
+
+    The directory goes once the body was read, and also when the server closes
+    a response it never sent (a HEAD, a client that went away first): a
+    generator that never started does not run its ``finally``.
+    """
     size = path.stat().st_size
+
+    def remove() -> None:
+        shutil.rmtree(cleanup, ignore_errors=True)
 
     def chunks():
         try:
@@ -359,9 +408,10 @@ def stream_file(path: Path, name: str, cleanup: Path) -> Response:
                 while chunk := handle.read(1024 * 1024):
                     yield chunk
         finally:
-            shutil.rmtree(cleanup, ignore_errors=True)
+            remove()
 
     response = Response(chunks(), mimetype="application/octet-stream")
+    response.call_on_close(remove)
     response.headers.set("Content-Disposition", "attachment", filename=name)
     response.headers["Content-Length"] = str(size)
     response.headers["X-Accel-Buffering"] = "no"
@@ -386,6 +436,7 @@ def export_instance(inst: dict) -> Response:
 
 
 @bp.post("/instances/<instance_id>/download")
+@downloads.place_first
 @rate_limit(5, 300)
 def download(instance_id: str):
     inst = instance_for(instance_id, "download")
@@ -423,13 +474,15 @@ def _bulk(action, allowed_status: tuple[str, ...], success_key: str):
 @bp.post("/instances/bulk-stop")
 @rate_limit(10)
 def bulk_stop():
-    return _bulk(lambda i: instances.stop(i, actor_id=account()["id"]), ("running",), "hosting.bulk.stopped")
+    return _bulk(lambda i: instances.stop(i, actor_id=account()["id"], charge=account()), ("running",),
+                 "hosting.bulk.stopped")
 
 
 @bp.post("/instances/bulk-restart")
 @rate_limit(10)
 def bulk_restart():
-    return _bulk(lambda i: instances.start(i, actor_id=account()["id"]), ("stopped",), "hosting.bulk.started")
+    return _bulk(lambda i: instances.start(i, actor_id=account()["id"], charge=account()), ("stopped",),
+                 "hosting.bulk.started")
 
 
 @bp.post("/instances/bulk-delete")
@@ -465,6 +518,8 @@ def _collab_back(instance_id: str):
 @rate_limit(15)
 def add_collaborator(instance_id: str):
     inst = instance_for(instance_id, "manage_collaborators")
+    if _locked(inst):
+        return _collab_back(instance_id)
     try:
         collaborators.add(inst, account(), request.form.get("username") or "", request.form.get("role", "custom"),
                           request.form.getlist("permissions"))
@@ -478,6 +533,8 @@ def add_collaborator(instance_id: str):
 @rate_limit(15)
 def update_collaborator(instance_id: str, collab_account_id: str):
     inst = instance_for(instance_id, "manage_collaborators")
+    if _locked(inst):
+        return _collab_back(instance_id)
     try:
         collaborators.update(inst, account(), collab_account_id, request.form.get("role", "custom"),
                              request.form.getlist("permissions"))
@@ -513,6 +570,8 @@ def start_transfer(instance_id: str):
     # Only the owner offers the wiki; administrators move it at once from Admin tools (Name and owner).
     if inst["account_id"] != viewer["id"]:
         abort(403)
+    if _locked(inst):
+        return _collab_back(instance_id)
     try:
         collaborators.start_transfer(inst, viewer, request.form.get("username") or "")
         flash(t("hosting.transfers.started"), "success")
@@ -526,7 +585,8 @@ def start_transfer(instance_id: str):
 def accept_transfer(transfer_id: int):
     try:
         instance_id = collaborators.accept_transfer(transfer_id, account(),
-                                                    previous_owner=request.form.get("previous_owner") or "none")
+                                                    previous_owner=request.form.get("previous_owner") or "none",
+                                                    keep=request.form.getlist("keep"))
     except ServiceError as error:
         flash_error(error)
         return redirect(url_for("dashboard.dashboard"))
@@ -559,7 +619,7 @@ def cancel_transfer(transfer_id: int):
 # Custom domain
 
 
-DOMAIN_CHECKS_PER_MINUTE = 6  # per wiki: the page checks every half minute, plus "Check DNS now"
+DOMAIN_CHECKS_PER_MINUTE = 6  # per wiki: the page checks every half minute, plus "Check DNS now" and "Verify"
 DOMAIN_POLL_SECONDS = 30
 
 
@@ -596,7 +656,7 @@ def _domain_page(inst: dict[str, Any], *, checks: dict[str, Any] | None = None):
         poll_seconds=DOMAIN_POLL_SECONDS, impersonating=auth.impersonating(),
         owner_is_admin=bool(owner.get("is_admin")),
         certificate_pending=bool(record and state == "active" and certwarm.pending(record["domain"])),
-        history=[row for row in features.history(inst["id"]) if row["feature"] == "custom_domain"][:5],
+        history=features.history(inst["id"], "custom_domain", limit=5),
     )
 
 
@@ -609,11 +669,17 @@ def instance_domain(instance_id: str):
         if auth.impersonating():
             abort(403)  # changes made while looking as the customer would read as theirs
         action = request.form.get("action", "claim")
+        if action != "remove" and _locked(inst):  # giving the address up stays possible
+            return redirect(url_for("dashboard.instance_domain", instance_id=instance_id))
         try:
             if action == "remove":
                 domains.remove(inst, viewer["id"])
                 flash(t("hosting.domains.removed"), "success")
             elif action == "verify":
+                # Each Verify looks DNS up as a check does, so it spends the same per-wiki budget.
+                if not limits.hit("hosting_domain_check", DOMAIN_CHECKS_PER_MINUTE, 60, key=inst["id"]):
+                    flash(t("hosting.domains.check_wait"), "error")
+                    return redirect(url_for("dashboard.instance_domain", instance_id=instance_id))
                 verified = domains.verify(inst, viewer["id"])
                 flash(t("hosting.domains.verified"), "success")
                 if verified.get("proxied"):
@@ -654,7 +720,8 @@ def domain_check(instance_id: str):
     if not limits.hit("hosting_domain_check", DOMAIN_CHECKS_PER_MINUTE, 60, key=inst["id"]):
         return jsonify({"error": t("hosting.domains.check_wait"), "poll": 60}), 429
     try:
-        checks = domains.check_now(inst, account()["id"], may_verify=not auth.impersonating())
+        checks = domains.check_now(inst, account()["id"],
+                                   may_verify=not auth.impersonating() and not owner_locked(inst))
     except ServiceError as error:
         if error.key.startswith("hosting.runtime."):  # the lookup itself failed this time: try again later
             return jsonify({"error": t(error.key, **error.values), "poll": 60}), 503

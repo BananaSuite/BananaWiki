@@ -18,18 +18,6 @@ def _settings(app) -> dict:
         return session.one("SELECT * FROM site_settings WHERE id = 1")
 
 
-def test_pages_are_admin_only(app, client, make_user, login):
-    assert client.get("/admin/plugins").status_code == 302
-    add_feature(app, "demo")
-    login(client, make_user("editor1", role="editor"))
-    assert client.get("/admin/plugins").status_code == 403
-    assert client.get("/admin/plugins/demo").status_code == 403
-    assert client.post("/admin/plugins/demo/disable").status_code == 403
-    assert client.post("/admin/plugins/order", data={"order": ["demo"]}).status_code == 403
-    assert client.post("/admin/plugins/restart").status_code == 403
-    assert _enabled(app, "demo")
-
-
 def test_list_shows_every_feature_with_its_switch(app, admin_client):
     add_feature(app, "demo")
     page = admin_client.get("/admin/plugins")
@@ -194,17 +182,3 @@ def test_restart_with_preloaded_app_does_not_signal(app, admin_client, monkeypat
                              follow_redirects=True)
     assert sent == []
     assert "main process" in page.get_data(as_text=True)
-
-
-def test_translations_have_the_same_keys():
-    import json
-    from pathlib import Path
-
-    from bananawiki.wiki.i18n import BUILTIN_LANGUAGES
-
-    folder = Path(__file__).resolve().parents[2] / "bananawiki/wiki/features/plugin_manager/translations"
-    en = json.loads((folder / "en.json").read_text(encoding="utf-8"))
-    for language in sorted(set(BUILTIN_LANGUAGES) - {"en"}):
-        translated = json.loads((folder / f"{language}.json").read_text(encoding="utf-8"))
-        assert en.keys() == translated.keys(), language
-

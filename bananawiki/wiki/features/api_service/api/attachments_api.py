@@ -14,7 +14,7 @@ from typing import Any
 
 from flask import request
 
-from .... import storage
+from .... import auth, storage
 from ...attachments import service as attachments
 from ...audit import record
 from .. import serialize
@@ -68,6 +68,7 @@ def download_page_attachment(slug: str, attachment_id: int):
 
 @bp.post("/pages/<slug>/attachments")
 @requires("pages", write=True, feature=FEATURE)
+@auth.large_body
 def upload_page_attachment(slug: str):
     """``multipart/form-data`` with the file in the ``file`` field."""
     page = readable(slug)

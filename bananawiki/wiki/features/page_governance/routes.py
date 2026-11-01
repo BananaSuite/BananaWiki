@@ -18,6 +18,7 @@ from ...db import db
 from ...i18n import t
 from ...registry import feature_blueprint
 from ..pages import service as pages
+from ..pages.blueprint import rate_limited
 from . import protection, quota, reservations
 from .errors import GovernanceError
 from .messages import error_text, flash_error
@@ -41,18 +42,42 @@ def back_to(page: dict[str, Any]) -> Any:
 # Reservation directory
 
 
+def _editable_filter(user: dict[str, Any]) -> tuple[str, list[Any]]:
+    """SQL condition (and params) for the pages *user* may check out: ``pages.can_edit`` in SQL."""
+    where, params = pages.visible_filter(user)
+    where += " AND p.pending_deletion = 0 AND p.is_home = 0"
+    if auth.is_admin(user):
+        return where, params
+    grants = auth.grants(user)
+    if grants is None or not (auth.has_role("editor", user) and auth.has_permission("page.edit_all", user)):
+        return "0", []
+    if grants.write.restricted:
+        if not grants.write.allowed:
+            return "0", []
+        allowed = sorted(grants.write.allowed)
+        where += f" AND p.category_id IN ({','.join('?' for _ in allowed)})"
+        params = [*params, *allowed]
+    return where, params
+
+
 @bp.get("/reservations")
 @auth.editor_required
+@rate_limited("reservations", 30)
 def directory():
     if not reservations.active():
         auth.flash_t("page_governance.reservation.error.disabled", "error")
         return redirect(url_for("pages.home"))
     user = auth.current_user()
-    editable = [p for p in pages.list_visible(user=user, include_home=False)
-                if not p["pending_deletion"] and pages.can_edit(p, user)]
-    total_pages = max(1, -(-len(editable) // DIRECTORY_PAGE_SIZE))
+    # Counted and windowed in SQL: a view costs the 100 rows it shows, not the size of the wiki.
+    where, params = _editable_filter(user)
+    total = db.scalar(f"SELECT COUNT(*) FROM pages p WHERE {where}", params)
+    total_pages = max(1, -(-total // DIRECTORY_PAGE_SIZE))
     current = min(max(1, request.args.get("page", 1, type=int)), total_pages)
-    shown = editable[(current - 1) * DIRECTORY_PAGE_SIZE:current * DIRECTORY_PAGE_SIZE]
+    shown = db.all(
+        f"SELECT p.id, p.title, p.slug, p.category_id FROM pages p WHERE {where} "
+        "ORDER BY p.title COLLATE NOCASE, p.id LIMIT ? OFFSET ?",
+        [*params, DIRECTORY_PAGE_SIZE, (current - 1) * DIRECTORY_PAGE_SIZE],
+    )
     states = reservations.statuses([p["id"] for p in shown], user["id"])
     categories = {row["id"]: row["name"] for row in db.all("SELECT id, name FROM categories")}
     rows = [{"page": p, "category": categories.get(p["category_id"]), **states[p["id"]]} for p in shown]
@@ -91,6 +116,7 @@ def release(slug: str):
 
 @bp.post("/page/<slug>/protection")
 @auth.editor_required
+@rate_limited("protection", 20)
 def update_protection(slug: str):
     page = visible_page_or_404(slug)
     user = auth.current_user()

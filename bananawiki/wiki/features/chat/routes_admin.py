@@ -11,7 +11,7 @@ from jinja2 import TemplateNotFound
 
 from ... import accounts, auth, settings
 from ...i18n import t
-from ..audit import record
+from ..audit import record, record_settings
 from . import dms, groups, reports, retention, store
 from .policy import DEFAULT_ATTACHMENT_MB, MAX_LENGTH_CEILING, MB
 from .routes_groups import audit_admin_read, display_name
@@ -144,8 +144,11 @@ def admin_group_delete(group_id: int):
         abort(404)
     if group["is_global"]:
         return refuse("chat.groups.error.global_undeletable", url_for("chat.admin_groups"), 409)
+    messages, attachments = store.count(GROUP, group_id)
     groups.delete(group_id)
     log.info("Group %s deleted by administrator %s", group_id, auth.current_user()["id"])
+    record("chat.group_deleted", target_type="group", target_id=group_id,
+           details={"name": group["name"], "messages": messages, "attachments": attachments})
     return succeed(url_for("chat.admin_groups"), "chat.groups.deleted", values={"name": group["name"]})
 
 
@@ -184,7 +187,9 @@ def admin_settings():
         except ValueError as error:
             error_field = str(error)
         else:
+            previous = settings.load()
             settings.update(values)
+            record_settings(previous, values, via="chat")
             return succeed(url_for("chat.admin_settings"), "common.saved")
     current = dict(settings.load())
     current.update(retention.policy_columns())

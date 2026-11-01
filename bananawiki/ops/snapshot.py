@@ -240,6 +240,18 @@ def sources(root: Path, allowed_link: Callable[[Path], bool] | None = None) -> d
     return output
 
 
+def largest_tenants(names: Collection[str], count: int = 3) -> str:
+    """The hosted wikis holding most of *names* (package entries), as ``a (N files), b (M files)``; empty
+    without any."""
+    held: dict[str, int] = {}
+    for name in names:
+        parts = name.split("/")
+        if len(parts) > 3 and parts[:2] == ["data", "instances"]:
+            held[parts[2]] = held.get(parts[2], 0) + 1
+    largest = sorted(held.items(), key=lambda item: -item[1])[:count]
+    return ", ".join(f"{one_line(name[:80])} ({files:,} files)" for name, files in largest)
+
+
 def _signature(info: os.stat_result) -> list[int]:
     return [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns]
 
@@ -422,9 +434,11 @@ class Snapshot:
         """Refuse a capture of *sources* that no package could hold or *free* bytes could not (see :meth:`check`)."""
         # Before anything stops: a package of more files (these and the release's source) could not be written.
         if len(sources) + 1 > max_files:
+            largest = largest_tenants(sources)
             raise Refused(f"The installation holds {len(sources):,} files, more than a package may hold "
                           f"({max_files:,}), so nothing was changed. Raise BANANA_PACKAGE_MAX_FILES in "
-                          "config/app.env, or remove files, then retry.")
+                          "config/app.env, or remove files, then retry."
+                          + (f" Hosted wikis holding the most files: {largest}." if largest else ""))
         needed = self._needed(sources)
         if free < needed + preparing + 128 * 1024 * 1024:
             # Checked while capturing, before anything stops.

@@ -27,7 +27,13 @@ Configured by ``BW_PLATFORM_OAUTH_*`` (see ``config.platform_oauth``). The rules
   sign-outs (``/oauth/signouts``) and ends the platform sessions (those with
   ``auth_method`` ``platform_oauth…``) of the linked wiki account that
   started before each sign-out. Sessions started with the wiki's own password
-  are the wiki's business and stay.
+  are the wiki's business and stay. A sign-out because the portal account no
+  longer owns this wiki (``owner_changed``) also drops its link here, unless
+  the link was made after it, and then ends every platform session of the
+  linked account up to the time it is applied (they all came through it).
+* Platform sign-in confirms a local link with the portal before trusting it
+  (:func:`confirm_link`): the portal drops its links at once, the wiki only
+  when the sign-out job runs.
 """
 
 from __future__ import annotations
@@ -302,6 +308,36 @@ def realign_portal_link(account_id: str, portal_username: str) -> dict[str, Any]
     return user
 
 
+def confirm_link(account_id: str, user: dict[str, Any]) -> bool:
+    """Whether the portal still links *account_id* to *user* here; a local link it no longer knows is dropped.
+
+    The portal drops its link first (a change of owner, an administrator
+    password reset, an unlink) and the wiki hears of it only when the sign-out
+    job runs. Platform sign-in asks before trusting the local link, so the
+    previous owner of a wiki cannot sign in as its administrator in between.
+    The sessions that link opened end with it. A portal without this lookup
+    is not asked: the sign-out job alone keeps the links in step.
+    """
+    cfg = config()
+    assert cfg is not None
+    if not cfg.get("link_status_url"):
+        return True
+    url = f"{cfg['link_status_url']}?{urlencode({'instance_id': instance_id(), 'account_id': account_id})}"
+    code, status = _call("GET", url, client_auth=True)
+    if code != 200 or not isinstance(status, dict) or not isinstance(status.get("linked"), bool):
+        # Only the portal's answer drops a link: a busy or failing portal (429, 5xx) fails this sign-in.
+        raise OAuthError("auth.oauth.error.portal", f"link status answered {code}")
+    if (status["linked"] and str(status.get("hosting_account_id") or "") == account_id
+            and str(status.get("wiki_user_id") or "") == str(user["id"])):
+        return True
+    with db.transaction():
+        db.execute("DELETE FROM platform_oauth_links WHERE account_id = ? AND user_id = ?", (account_id, user["id"]))
+        end_platform_sessions(user["id"], now_sql())
+    log.info("Platform link of portal account %s to wiki account %s dropped: the portal no longer has it",
+             account_id, user["id"])
+    return False
+
+
 def link(user: dict[str, Any], account_id: str, portal_username: str) -> None:
     """Link *user* to a portal account, on the portal and locally."""
     if linked_user(account_id) is not None or link_of(user["id"]) is not None:
@@ -354,6 +390,8 @@ def suggest_username(portal_username: str) -> str:
 
 SIGNOUT_PAGES_PER_RUN = 10
 SIGNOUT_REASON = "platform_signout"
+# Portal sign-out reasons after which the portal account may no longer use its link to a wiki account.
+UNLINKING_REASONS = frozenset({"owner_changed"})
 
 
 def signouts_url(cfg: dict[str, str]) -> str:
@@ -383,6 +421,19 @@ def end_platform_sessions(user_id: str, started_before: str) -> int:
     ).rowcount
 
 
+def drop_link(account_id: str, linked_before: str) -> str | None:
+    """Drop portal account *account_id*'s link here if it was made at or before *linked_before*.
+
+    Returns the wiki account it linked, or None when nothing was dropped.
+    """
+    row = db.one("SELECT user_id FROM platform_oauth_links WHERE account_id = ? AND linked_at <= ?",
+                 (account_id, linked_before))
+    if row is None:
+        return None
+    db.execute("DELETE FROM platform_oauth_links WHERE account_id = ?", (account_id,))
+    return str(row["user_id"])
+
+
 def _signed_out_user(account_id: str, wiki_user_id: str) -> str | None:
     """The wiki account a sign-out of portal account *account_id* is about, or None.
 
@@ -399,18 +450,18 @@ def _signed_out_user(account_id: str, wiki_user_id: str) -> str | None:
     return None
 
 
-def _valid_event(event: Any, cursor: int) -> tuple[int, str, str, str] | None:
+def _valid_event(event: Any, cursor: int) -> tuple[int, str, str, str, str] | None:
     if not isinstance(event, dict):
         return None
     event_id, account_id = event.get("id"), event.get("account_id")
-    raw_at = event.get("at")
+    raw_at, reason = event.get("at"), event.get("reason")
     wiki_user_id, at = event.get("wiki_user_id") or "", parse(raw_at, bounded=True) if isinstance(raw_at, str) else None
     if (type(event_id) is not int or not cursor < event_id < 2**63 or not isinstance(account_id, str)
             or not account_id or len(account_id) > 200 or not isinstance(wiki_user_id, str)
             or len(wiki_user_id) > 128 or at is None):
         return None
     # Never later than now: a sign-out cannot reach sessions that start after it is applied.
-    return event_id, account_id, wiki_user_id, min(to_sql(at), now_sql())
+    return event_id, account_id, wiki_user_id, min(to_sql(at), now_sql()), reason if isinstance(reason, str) else ""
 
 
 def apply_signouts() -> int:
@@ -449,10 +500,16 @@ def apply_signouts() -> int:
             log.warning("Platform sign-outs refused: the portal sent an invalid event")
             return ended
         with db.transaction():
-            for event_id, account_id, wiki_user_id, at in sorted(events):  # type: ignore[type-var]
+            for event_id, account_id, wiki_user_id, at, reason in sorted(events):  # type: ignore[type-var]
                 user_id = _signed_out_user(account_id, wiki_user_id)
                 if user_id is not None:
                     ended += end_platform_sessions(user_id, at)
+                dropped = drop_link(account_id, at) if reason in UNLINKING_REASONS else None
+                if dropped is not None:
+                    # Every platform session of that account up to now came through the dropped link,
+                    # including one started after the event and before this run.
+                    ended += end_platform_sessions(dropped, now_sql())
+                    log.info("Platform link of portal account %s dropped (%s)", account_id, reason)
                 cursor = max(cursor, event_id)
             _save_signout_cursor(cursor)
         if not data.get("more") or not events:

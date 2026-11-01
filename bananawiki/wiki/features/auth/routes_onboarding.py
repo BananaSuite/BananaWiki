@@ -9,6 +9,7 @@ from ....core.web import safe_next
 from ... import accounts, auth, i18n, settings
 from ...db import db
 from ...i18n import t
+from ..pages import categories
 from . import docs, onboarding, signin, tour
 from .blueprint import bp
 
@@ -44,6 +45,13 @@ def onboarding_wizard():
             onboarding.apply(onboarding.parse(request.form), user)
         except accounts.AccountError as exc:
             error = t(exc.key, **exc.values)
+        except categories.CategoryError as exc:
+            # Only the built-in guide is missing (the wiki holds as many categories as it may, or the
+            # current guide holds pages replacing it must not delete);
+            # everything else was applied, so sending the form again would apply it twice.
+            auth.flash_t("auth.onboarding.done", "success")
+            auth.flash_t(exc.key, "error", **exc.values)
+            return redirect(url_for("auth.intro"))
         else:
             auth.flash_t("auth.onboarding.done", "success")
             return redirect(url_for("auth.intro"))

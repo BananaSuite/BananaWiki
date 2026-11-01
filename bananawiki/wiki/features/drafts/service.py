@@ -19,6 +19,7 @@ from flask import has_request_context, request
 from ....core.timeutil import now_sql
 from ... import auth, settings
 from ...db import db
+from ..audit import record
 from ..pages import access as page_access
 from ..pages import service as pages
 
@@ -51,11 +52,12 @@ def others(page_id: int, user_id: str) -> list[dict[str, Any]]:
     )
 
 
-def of_user(user_id: str) -> list[dict[str, Any]]:
+def of_user(user_id: str, *, limit: int = -1, offset: int = 0) -> list[dict[str, Any]]:
+    """The user's drafts, newest first, without their text (measuring it would read every draft in full)."""
     return db.all(
-        "SELECT d.page_id, d.title, d.updated_at, length(d.content) AS size FROM drafts d "
-        "WHERE d.user_id = ? ORDER BY d.updated_at DESC",
-        (user_id,),
+        "SELECT d.page_id, d.title, d.updated_at FROM drafts d "
+        "WHERE d.user_id = ? ORDER BY d.updated_at DESC, d.page_id LIMIT ? OFFSET ?",
+        (user_id, limit, offset),
     )
 
 
@@ -137,15 +139,35 @@ def delete(page_id: int, user_id: str) -> bool:
 
 
 def transfer(page_id: int, from_user_id: str, to_user_id: str) -> None:
-    """Give *from_user_id*'s draft to *to_user_id*, replacing the latter's own draft."""
+    """Give *from_user_id*'s draft to *to_user_id*, replacing the latter's own draft.
+
+    The draft is someone's private, unsaved work: each take-over is audited
+    (``draft.taken_over``), naming the account acted as while impersonating.
+    """
     if from_user_id == to_user_id:
         raise DraftError("drafts.error.transfer_self")
     with db.transaction():
-        if get(page_id, from_user_id) is None:
+        draft = db.one(
+            "SELECT d.title, length(d.content) AS size, u.username FROM drafts d "
+            "LEFT JOIN users u ON u.id = d.user_id WHERE d.page_id = ? AND d.user_id = ?",
+            (page_id, from_user_id),
+        )
+        if draft is None:
             raise DraftError("drafts.error.missing")
         db.execute("DELETE FROM drafts WHERE page_id = ? AND user_id = ?", (page_id, to_user_id))
         db.execute("UPDATE drafts SET user_id = ?, updated_at = ? WHERE page_id = ? AND user_id = ?",
                    (to_user_id, now_sql(), page_id, from_user_id))
+    _audit_transfer(page_id, draft, to_user_id)
+
+
+def _audit_transfer(page_id: int, draft: dict[str, Any], to_user_id: str) -> None:
+    page = pages.get(page_id, with_content=False)
+    to_name = db.scalar("SELECT username FROM users WHERE id = ?", (to_user_id,))
+    details = {"title": page["title"] if page else draft["title"], "from": draft["username"], "to": to_name,
+               "size": draft["size"]}
+    if has_request_context() and auth.is_impersonating():
+        details["as_user"] = auth.current_user()["username"]
+    record("draft.taken_over", target_type="page", target_id=page_id, details=details)
 
 
 # Page saved: clear drafts and credit contributors

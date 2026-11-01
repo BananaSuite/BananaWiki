@@ -49,6 +49,7 @@ import time
 import uuid
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 from flask import after_this_request, current_app, g, has_request_context
 
@@ -56,6 +57,7 @@ from ....core import crypto, http
 from ....core.timeutil import now_sql, sql_in
 from ... import attention, settings
 from ...db import connection_scope, db
+from ..audit.service import record
 from .errors import ApiError, invalid
 from .serialize import iso
 
@@ -271,6 +273,13 @@ def all_webhooks() -> list[dict[str, Any]]:
     return db.all("SELECT * FROM api_service__webhooks ORDER BY id")
 
 
+def _audit(action: str, hook: dict[str, Any], **details: Any) -> None:
+    """Record a change an administrator made to *hook*: only the host of its address (a webhook
+    address often carries a credential in its path or query, which must stay out of the audit log)."""
+    record(action, target_type="webhook", target_id=hook["id"],
+           details={"host": urlsplit(str(hook.get("url") or "")).hostname or "", **details})
+
+
 def create(*, url: Any, events: Any, description: Any = "", active: bool = True, allow_private: bool = False,
            created_by: str | None) -> tuple[dict[str, Any], str]:
     """Register a webhook; return it and its secret (shown once)."""
@@ -286,7 +295,9 @@ def create(*, url: Any, events: Any, description: Any = "", active: bool = True,
             "created_by": created_by,
             "created_at": now, "updated_at": now,
         })
-    return get(webhook_id), secret  # type: ignore[return-value]
+    hook = get(webhook_id)
+    _audit("api_service.webhook_created", hook)  # type: ignore[arg-type]
+    return hook, secret  # type: ignore[return-value]
 
 
 def update(hook: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
@@ -308,6 +319,10 @@ def update(hook: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
     if values:
         values["updated_at"] = now_sql()
         db.update("api_service__webhooks", values, "id = ?", (hook["id"],))
+        updated = get(hook["id"])
+        _audit("api_service.webhook_updated", updated or hook,
+               changed=", ".join(sorted(name for name in values if name != "updated_at")))
+        return updated  # type: ignore[return-value]
     return get(hook["id"])  # type: ignore[return-value]
 
 
@@ -315,6 +330,7 @@ def rotate_secret(hook: dict[str, Any]) -> str:
     secret = new_secret()
     db.update("api_service__webhooks", {"secret": crypto.encrypt(_secret_key(), secret), "updated_at": now_sql()},
               "id = ?", (hook["id"],))
+    _audit("api_service.webhook_secret_rotated", hook)
     return secret
 
 
@@ -322,6 +338,7 @@ def delete(hook: dict[str, Any]) -> None:
     with db.transaction():
         db.execute("DELETE FROM api_service__webhook_deliveries WHERE webhook_id = ?", (hook["id"],))
         db.execute("DELETE FROM api_service__webhooks WHERE id = ?", (hook["id"],))
+    _audit("api_service.webhook_deleted", hook)
 
 
 def subscribed_events(hook: dict[str, Any]) -> list[str]:

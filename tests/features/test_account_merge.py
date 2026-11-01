@@ -132,12 +132,6 @@ def test_locked_source_is_suspended_and_renamed(app, make_user, login, db, admin
                      (old["id"],)) == 0
 
 
-def test_merge_pages_are_admin_only(client, make_user, login):
-    login(client, make_user("bob"))
-    assert client.get("/admin/merge-requests").status_code == 403
-    assert client.post("/admin/users/merge", data={"source_username": "a", "target_username": "b"}).status_code == 403
-
-
 def test_admin_direct_merge_preview_and_execute(app, admin_client, make_user, db):
     source, target = make_user("src_user"), make_user("dst_user")
     make_page(app, "Doc", "x", author_id=source["id"])

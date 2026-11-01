@@ -20,6 +20,7 @@ bp = feature_blueprint("drafts", "drafts", __name__, template_folder="templates"
 
 # A 1 MB page as JSON (escaped, UTF-8) plus the title stays well below this.
 MAX_BODY = 8 * 1024 * 1024
+PER_PAGE = 50  # drafts on one page of "My drafts"
 
 
 def _error(key: str, status: int, **values: Any):
@@ -149,11 +150,11 @@ def api_mine():
 # "My drafts" page and form fallbacks
 
 
-def _my_drafts() -> list[dict[str, Any]]:
+def _my_drafts(*, limit: int = -1, offset: int = 0) -> list[dict[str, Any]]:
     """The user's drafts; pages they can no longer see keep only the draft's own title."""
     user = auth.current_user()
     result = []
-    for draft in service.of_user(user["id"]):
+    for draft in service.of_user(user["id"], limit=limit, offset=offset):
         page = pages.get(draft["page_id"], with_content=False)
         visible = page is not None and pages.can_view(page, user)
         result.append({
@@ -167,8 +168,12 @@ def _my_drafts() -> list[dict[str, Any]]:
 
 @bp.get("/drafts")
 @auth.permission_required("draft.view_own")
+@rate_limited("drafts-list", 30)
 def mine():
-    return render_template("drafts/mine.html", drafts=_my_drafts(),
+    number = max(request.args.get("page", 1, type=int) or 1, 1)
+    total = service.count_of_user(auth.current_user()["id"])
+    return render_template("drafts/mine.html", drafts=_my_drafts(limit=PER_PAGE, offset=(number - 1) * PER_PAGE),
+                           page_number=number, total_pages=max(1, -(-total // PER_PAGE)),
                            can_delete=auth.has_permission("draft.delete_own"))
 
 

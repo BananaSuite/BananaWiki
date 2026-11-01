@@ -72,7 +72,8 @@ tests/           pytest suite (conftest.py documents the fixtures;
    everyone; `@auth.public_read` views are open to anonymous visitors while
    public mode is on. Everything else redirects anonymous visitors to sign-in.
 7. Account state: suspended, pending or denied accounts only reach views
-   marked `@auth.exempt("approval")`.
+   marked `@auth.exempt("approval")`; other `@auth.public` views serve them
+   as anonymous visitors (`g.user` is None, `g.real_user` keeps the account).
 8. Maintenance mode: only administrators pass (views may be exempted).
 9. Forced account steps (password change, onboarding).
 
@@ -100,6 +101,9 @@ Connections are autocommit: a single statement commits on its own; anything
 that must be atomic goes inside `db.transaction()`. Always use `?`
 parameters. Identifiers passed to `insert`/`update` must be literals in your
 code, never user input.
+`db.after_commit(callback)` runs work outside the database, such as removing
+files, once the current transaction commits (at once outside one); a
+rollback, also of the savepoint it was registered in, drops it.
 
 Timestamps are TEXT in UTC, shaped `YYYY-MM-DD HH:MM:SS`. Use
 `core.timeutil.now_sql()`, `sql_in(hours=48)`, `parse()`, `is_past()`.

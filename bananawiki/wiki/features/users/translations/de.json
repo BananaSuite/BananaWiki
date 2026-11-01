@@ -117,8 +117,10 @@
   "users.merge.error.not_confirmed": "Die Zusammenführung muss zuerst für beide Konten bestätigt werden.",
   "users.merge.error.not_found": "Diese Anfrage zur Zusammenführung gibt es nicht.",
   "users.merge.error.not_pending": "Diese Anfrage zur Zusammenführung ist nicht mehr offen.",
+  "users.merge.error.not_possible": "Diese Konten können nicht zusammengeführt werden. Ein Administrator kann dir den Grund nennen.",
   "users.merge.error.protected": "Geschützte Konten können nicht zusammengeführt werden.",
   "users.merge.error.same_account": "Ein Konto kann nicht mit sich selbst zusammengeführt werden.",
+  "users.merge.error.too_many": "Du hast in den letzten 24 Stunden {limit} Zusammenführungen angefragt. Versuche es morgen erneut.",
   "users.merge.flash.cancelled": "Die Anfrage zur Zusammenführung wurde zurückgezogen.",
   "users.merge.flash.confirmed": "Du hast die Zusammenführung bestätigt.",
   "users.merge.flash.denied": "Die Anfrage zur Zusammenführung wurde abgelehnt.",
@@ -235,5 +237,6 @@
   "users.tab.profile": "Profil",
   "users.tab.sessions": "Sitzungen",
   "users.bm.simple_settings": "Kürzere Einstellungen",
-  "users.bm.simple_settings_hint": "Die Einstellungen zeigen Profil, Benutzernamen, Passwort, Sprache, E-Mail-Adresse und Anpassen; Sitzungen, Bestätigung in zwei Schritten, API-Tokens, Datenexport, Kontozusammenführungen und das Löschen des Kontos liegen unter „Alle Einstellungen“. Was die Person zuerst erledigen muss, bleibt sichtbar."
+  "users.bm.simple_settings_hint": "Die Einstellungen zeigen Profil, Benutzernamen, Passwort, Sprache, E-Mail-Adresse und Anpassen; Sitzungen, Bestätigung in zwei Schritten, API-Tokens, Datenexport, Kontozusammenführungen und das Löschen des Kontos liegen unter „Alle Einstellungen“. Was die Person zuerst erledigen muss, bleibt sichtbar.",
+  "audit.action.user.impersonated_action": "Konto- oder Profiländerung, während das Wiki als eine andere Person verwendet wurde"
 }

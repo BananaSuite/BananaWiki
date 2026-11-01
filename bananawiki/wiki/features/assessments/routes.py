@@ -8,10 +8,12 @@ from typing import Any
 from flask import abort, current_app, redirect, render_template, request, url_for
 from werkzeug.datastructures import MultiDict
 
+from ....core.numbers import ascii_int
 from ... import auth, settings
 from ...i18n import t
 from ...permissions import ROLES
 from ...registry import feature_blueprint
+from ..audit import record_settings
 from ..pages import service as pages
 from . import service
 from .service import AssessmentError, QuestionInput
@@ -20,6 +22,7 @@ bp = feature_blueprint("assessments", "assessments", __name__, template_folder="
                        static_folder="static", static_url_path="/static/assessments")
 
 SUBMIT_LIMIT = 10  # submissions per user per minute
+RESULTS_PER_PAGE = 100
 POINTS_SETTING = "assessment_points_badge_enabled"
 _QUESTION_FIELD = re.compile(
     r"^questions-(\d{1,4})-(id|prompt|type|options|correct|points_correct|points_incorrect|required|remove)$"
@@ -47,6 +50,15 @@ def _assessment(page: dict[str, Any]) -> dict[str, Any]:
 def _require_manager(page: dict[str, Any]) -> None:
     if not service.can_manage(page):
         abort(403)
+
+
+def _refuse_if_blocked(page: dict[str, Any]) -> Any:
+    """A redirect explaining why the assessment cannot be changed now (protection, check-out, deletion), or None."""
+    blocked = service.change_blocked(page)
+    if blocked:
+        auth.flash_t(blocked, "error")
+        return redirect(url_for("pages.view", slug=page["slug"]))
+    return None
 
 
 def _translate_errors(errors: list[tuple[str, dict[str, Any]]]) -> list[str]:
@@ -94,7 +106,7 @@ def _render_manage(page, assessment, form_settings: dict[str, Any], rows: list[d
     return render_template(
         "assessments/manage.html", page=page, assessment=assessment, form=form_settings, rows=rows,
         roles=ROLES, error=error, blank=_blank_row(),
-        attempt_count=len(service.all_attempts(assessment["id"])) if assessment else 0,
+        attempt_count=service.count_attempts(assessment["id"]) if assessment else 0,
     ), status
 
 
@@ -105,7 +117,7 @@ def _render_take(page, assessment, user, *, answers=None, error=None, missing=()
         "assessments/take.html", page=page, assessment=assessment, attempts=attempts,
         questions=service.questions_for_taker(assessment["id"]) if reason is None else [],
         block_reason=reason, answers=answers or {}, error=error, missing=set(missing),
-        can_manage=service.can_manage(page),
+        can_manage=service.can_manage(page), max_kept_attempts=service.MAX_KEPT_ATTEMPTS,
     ), status
 
 
@@ -170,6 +182,9 @@ def attempt(slug: str, attempt_id: int):
 def manage(slug: str):
     page = _page(slug)
     _require_manager(page)
+    refused = _refuse_if_blocked(page)
+    if refused:
+        return refused
     assessment = service.for_page(page["id"])
     if request.method == "GET":
         if assessment:
@@ -206,6 +221,9 @@ def delete(slug: str):
     page = _page(slug)
     _require_manager(page)
     _assessment(page)
+    refused = _refuse_if_blocked(page)
+    if refused:
+        return refused
     service.delete(page)
     auth.flash_t("assessments.deleted", "success")
     return redirect(url_for("pages.view", slug=page["slug"]))
@@ -216,8 +234,12 @@ def results(slug: str):
     page = _page(slug)
     _require_manager(page)
     assessment = _assessment(page)
-    return render_template("assessments/results.html", page=page, assessment=assessment,
-                           attempts=service.all_attempts(assessment["id"]))
+    # One page of attempts per request, however many people took the assessment.
+    pages_total = max(1, -(-service.count_attempts(assessment["id"]) // RESULTS_PER_PAGE))
+    number = min(max(ascii_int(request.args.get("page", "1"), 6) or 1, 1), pages_total)
+    attempts = service.all_attempts(assessment["id"], limit=RESULTS_PER_PAGE, offset=(number - 1) * RESULTS_PER_PAGE)
+    return render_template("assessments/results.html", page=page, assessment=assessment, attempts=attempts,
+                           number=number, pages_total=pages_total)
 
 
 @bp.post("/page/<slug>/assessment/reset/<user_id>")
@@ -226,6 +248,9 @@ def reset(slug: str, user_id: str):
     page = _page(slug)
     _require_manager(page)
     assessment = _assessment(page)
+    refused = _refuse_if_blocked(page)
+    if refused:
+        return refused
     if not service.reset_attempts(assessment["id"], user_id):
         abort(404)
     auth.flash_t("assessments.reset_done", "success")
@@ -252,7 +277,9 @@ def points():
 @auth.admin_required
 def admin():
     if request.method == "POST":
-        settings.update({POINTS_SETTING: 1 if request.form.get(POINTS_SETTING) else 0})
+        values, previous = {POINTS_SETTING: 1 if request.form.get(POINTS_SETTING) else 0}, settings.load()
+        settings.update(values)
+        record_settings(previous, values, via="assessments")
         auth.flash_t("common.saved", "success")
         return redirect(url_for("assessments.admin"))
     return render_template("assessments/admin.html", assessments=service.overview(),

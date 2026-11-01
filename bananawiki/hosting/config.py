@@ -162,6 +162,9 @@ class HostingConfig:
     min_form_seconds: float = 1.5
     # Accounts the sign-up form creates per client address per day; 0 = no cap.
     signups_per_ip_per_day: int = 10
+    # Calls one wiki may make a minute to the server-to-server OAuth endpoints (sign-in profile,
+    # link, link status, sign-out events), in each portal worker; exchanging codes is not counted.
+    oauth_client_rate: int = 600
     # Days the moderation log (hosting_events) keeps an entry; 0 = forever. The privacy policy
     # promises deletion at the latest 10 years after the decision.
     event_retention_days: int = 3650
@@ -299,7 +302,7 @@ def _detect_hosting_mode(env: Env, base_domain: str) -> str:
         if explicit not in HOSTING_MODES:
             raise ConfigError("HOSTING_MODE must be 'subdomain', 'port' or 'onion'.")
         return explicit
-    if not base_domain or is_ip_address(base_domain) or base_domain in ("localhost", "0.0.0.0"):
+    if not base_domain or is_ip_address(base_domain) or base_domain in ("localhost", "0.0.0.0"):  # nosec B104 - a value, not a bind
         return "port"
     return "subdomain" if "." in base_domain else "port"
 
@@ -637,6 +640,7 @@ def load_config(environ: dict[str, str] | None = None, **overrides: object) -> H
         log_format=env.choice("HOSTING_LOG_FORMAT", "text", frozenset({"text", "json"})),
         db_busy_timeout_ms=env.int("HOSTING_DB_BUSY_TIMEOUT_MS", 5000, minimum=100, maximum=30000),
         signups_per_ip_per_day=env.int("HOSTING_SIGNUPS_PER_IP_PER_DAY", 10, minimum=0),
+        oauth_client_rate=env.int("HOSTING_OAUTH_CLIENT_RATE", 600, minimum=60),
         event_retention_days=env.int("HOSTING_EVENT_RETENTION_DAYS", 3650, minimum=0, maximum=36500),
         recovery_max_workers=_recovery_workers(env),
         terms_version=_terms_version(env, "HOSTING_TERMS_VERSION", TERMS_VERSION),

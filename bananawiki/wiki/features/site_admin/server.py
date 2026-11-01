@@ -10,6 +10,7 @@ concurrent workers cannot both restart) limits restarts to one a minute.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import signal
@@ -94,8 +95,41 @@ def redact(text: str) -> str:
     return text
 
 
-def log_tail(errors_only: bool = False) -> str | None:
-    """The end of the configured log file, redacted; None when there is no readable log."""
+# Runs of characters an IPv4 or IPv6 address is made of, and IPv4 addresses inside a longer run (with a port).
+# Possessive (no backtracking): the log may hold a long run of these characters.
+_ADDRESS_RUN = re.compile(r"(?<![\w.:])[0-9A-Fa-f:.]++(?![\w.:])")
+_IPV4 = re.compile(r"(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?![\d.])")
+ADDRESS_PLACEHOLDER = "[address]"
+
+
+def _is_address(text: str) -> bool:
+    try:
+        ipaddress.ip_address(text)
+    except ValueError:
+        return False
+    return True
+
+
+def hide_addresses(text: str) -> str:
+    """*text* with every IPv4 and IPv6 address replaced by :data:`ADDRESS_PLACEHOLDER`."""
+    def run(match: re.Match[str]) -> str:
+        found = match.group(0)
+        if "." not in found and ":" not in found:
+            return found
+        core = found.rstrip(".:")  # the end of a sentence or a "from x: reason"
+        if _is_address(core):
+            return ADDRESS_PLACEHOLDER + found[len(core):]
+        return _IPV4.sub(lambda m: ADDRESS_PLACEHOLDER if _is_address(m.group(0)) else m.group(0), found)
+    return _ADDRESS_RUN.sub(run, text)
+
+
+def log_tail(errors_only: bool = False, *, addresses: bool = True) -> str | None:
+    """The end of the configured log file, redacted; None when there is no readable log.
+
+    Without *addresses* the client addresses are hidden too: the log names who
+    failed to sign in from where, owners and superusers included, whose
+    addresses plain administrators are not shown anywhere else.
+    """
     path = current_app.config["BW"].log_file
     try:
         descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
@@ -112,7 +146,8 @@ def log_tail(errors_only: bool = False) -> str | None:
         text = text.split("\n", 1)[-1]
     if errors_only:
         text = _error_entries(text)
-    return redact(text)
+    text = redact(text)
+    return text if addresses else hide_addresses(text)
 
 
 _ENTRY_START = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}")

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, abort, current_app, redirect, render_template, request, url_for
 
-from ... import auth, plugins_external
+from ... import auth, plugins_external, registry
 from ...plugins_external import ManifestError
 from . import archive, service
 
@@ -42,12 +42,18 @@ def _flash_error(error: ManifestError) -> None:
 
 
 def _password(action: str, plugin_id: str) -> str:
-    """``ok``, ``missing`` or ``wrong`` for the password re-entered on a confirmation form."""
+    """``ok``, ``missing``, ``wrong`` or ``limited`` for the password re-entered on a confirmation form."""
+    from ..users.service import ProfileError
+
     password = request.form.get("password", "")
     if not password:
         return "missing"
-    if service.password_ok(password):
-        return "ok"
+    try:
+        if service.password_ok(password):
+            return "ok"
+    except ProfileError as error:
+        auth.flash_t(error.key, "error")
+        return "limited"
     user = auth.real_user() or {}
     log.warning("plugin_password_rejected action=%s plugin=%s user=%s", action, plugin_id, user.get("username"))
     auth.flash_t("plugin_manager.flash.wrong_password", "error")
@@ -168,7 +174,11 @@ def disable(plugin_id: str):
     targets = [service.get(dep) for dep in dependents] if cascade else []
     for item in (*targets, entry):
         if item is not None and item.can_disable:
-            service.set_state(item, False)
+            try:
+                service.set_state(item, False)
+            except registry.SwitchRefused as refusal:  # a feature's own rule (temporary items, …)
+                auth.flash_t(refusal.key, "error")
+                continue
             _audit("plugin_disabled", item.id, kind=item.kind)
             auth.flash_t("plugin_manager.flash.disabled", "success", name=item.name)
     return _back()
@@ -179,6 +189,7 @@ def disable(plugin_id: str):
 
 @bp.post("/admin/plugins/import")
 @auth.admin_required
+@auth.large_body(minimum_role="admin")
 def import_plugin():
     if not plugins_external.runtime().allowed:
         auth.flash_t("plugin_manager.lock.external_off", "error")

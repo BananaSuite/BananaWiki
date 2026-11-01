@@ -70,6 +70,7 @@
       headers: headers,
       body: body,
       credentials: "same-origin",
+      keepalive: !!options.keepalive,
       signal: options.signal
     }).then(function (response) {
       var type = response.headers.get("Content-Type") || "";

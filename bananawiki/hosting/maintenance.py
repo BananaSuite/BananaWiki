@@ -48,8 +48,9 @@ from typing import Any
 
 from flask import Flask
 
+from ..core import logformat
 from ..core.timeutil import now_sql, sql_in
-from . import accounts, attention, domains, email, events, instances, notifications, signouts
+from . import accounts, api_tokens, attention, domains, email, events, instances, notifications, signouts
 from .db import connection_scope, db
 
 log = logging.getLogger("bananawiki.hosting.maintenance")
@@ -96,6 +97,7 @@ def _prune() -> None:
                (sql_in(days=-30), sql_in(days=-30)))
     db.execute("DELETE FROM hosting_oauth_authorization_codes WHERE expires_at < ?", (now_sql(),))
     db.execute("DELETE FROM hosting_oauth_access_tokens WHERE expires_at < ?", (now_sql(),))
+    api_tokens.prune()
     signouts.prune()
     email.prune()
 
@@ -164,16 +166,24 @@ def run_once(app: Flask) -> dict[str, Any]:
 
 
 def _start_running(app: Flask) -> int:
-    specs = []
+    specs, rows = [], []
     # A wiki whose creation never finished is never launched; it waits for cancellation.
     # Main wikis first: after an update or a reboot they are back before the others.
     for row in db.all("SELECT * FROM instances WHERE status = 'running' AND provisioning_state = 'ready' "
                       "ORDER BY is_main DESC, created_at, id"):
+        if instances.held(row):  # port and onion mode: not served, so not run (instances.held)
+            continue
         try:
             specs.append(instances.spec(row))
+            rows.append(row)
         except Exception:  # noqa: BLE001 - one wiki must not keep the others down
             log.exception("Not recovering wiki %s", row["id"])
-    return app.extensions["bananawiki.hosting.runtime"].recover(specs)
+    started = app.extensions["bananawiki.hosting.runtime"].recover(specs)
+    # Recovery takes a while (a stop can take 15 s): a wiki suspended, stopped or terminated meanwhile
+    # must not stay up because recovery started it again.
+    for row in rows:
+        instances._keep_only_if_running(row)
+    return started
 
 
 def _restart_downed(app: Flask) -> int:
@@ -223,7 +233,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--once", action="store_true", help="run one pass and exit")
     parser.add_argument("--interval", type=int, default=300, help="seconds between passes (minimum 30)")
     args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
+    handler = logging.StreamHandler()
+    handler.setFormatter(logformat.TextFormatter(logformat.TEXT_FORMAT))
+    logging.basicConfig(level=logging.INFO, handlers=[handler])
     signal.signal(signal.SIGTERM, _request_stop)
     signal.signal(signal.SIGINT, _request_stop)
     from .app import create_app

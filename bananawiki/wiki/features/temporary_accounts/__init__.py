@@ -3,7 +3,9 @@ account deletion and role reverts.
 
 Switched by the ``temporary_accounts`` row in ``plugins``. The
 expiry job only runs while the feature is on; switching it off pauses every
-schedule without deleting it.
+schedule without deleting it. So that nobody pauses a revert or deletion
+they may not cancel (a temporary administrator their own demotion), only
+owners and superusers switch it off while such a schedule waits.
 """
 
 from ... import auth
@@ -22,7 +24,7 @@ FEATURE = Feature(
                  visible=lambda user: bool(user) and auth.is_admin(user))],
     jobs=[Job("temporary_accounts.expire", 300, service.run_expiry)],
     events={"user.role_changed": [service.on_role_changed]},
-    interceptors={"page.delete": hooks.refuse_scheduled_delete},
+    interceptors={"page.delete": hooks.refuse_scheduled_delete, "feature.switch": hooks.refuse_switch_off},
     slots={
         "page.above_content": hooks.page_countdown,
         "account.settings_sections": hooks.account_settings_section,

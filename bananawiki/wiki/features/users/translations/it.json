@@ -117,8 +117,10 @@
   "users.merge.error.not_confirmed": "Entrambi i titolari devono prima confermare l'unione.",
   "users.merge.error.not_found": "La richiesta di unione non esiste.",
   "users.merge.error.not_pending": "La richiesta di unione non è più aperta.",
+  "users.merge.error.not_possible": "Questi account non possono essere uniti. Un amministratore può spiegarti perché.",
   "users.merge.error.protected": "Gli account protetti non possono essere uniti.",
   "users.merge.error.same_account": "Un account non può essere unito con se stesso.",
+  "users.merge.error.too_many": "Hai chiesto {limit} unioni nelle ultime 24 ore. Riprova domani.",
   "users.merge.flash.cancelled": "La richiesta di unione è stata annullata.",
   "users.merge.flash.confirmed": "Hai confermato l'unione.",
   "users.merge.flash.denied": "La richiesta di unione è stata rifiutata.",
@@ -235,5 +237,6 @@
   "users.tab.profile": "Profilo",
   "users.tab.sessions": "Sessioni",
   "users.bm.simple_settings": "Impostazioni più brevi",
-  "users.bm.simple_settings_hint": "Le impostazioni mostrano profilo, nome utente, password, lingua, indirizzo email e Personalizza; sessioni, verifica in due passaggi, token API, esportazione dei dati, unione di account ed eliminazione dell'account passano sotto \"Tutte le impostazioni\". Ciò che la persona deve fare prima resta visibile."
+  "users.bm.simple_settings_hint": "Le impostazioni mostrano profilo, nome utente, password, lingua, indirizzo email e Personalizza; sessioni, verifica in due passaggi, token API, esportazione dei dati, unione di account ed eliminazione dell'account passano sotto \"Tutte le impostazioni\". Ciò che la persona deve fare prima resta visibile.",
+  "audit.action.user.impersonated_action": "Modifica all'account o al profilo mentre si usava la wiki come un'altra persona"
 }

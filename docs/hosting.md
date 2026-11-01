@@ -78,6 +78,12 @@ who installs a plugin to lift them; use `HOSTING_TENANT_PLUGIN_DENYLIST` and
 plugin quarantine for wikis you do not trust. Keep plugins off without
 [hard quotas](#storage-quotas).
 
+The GPU speech server gives each wiki token at most `TTS_MAX_BUSY_PER_TENANT`
+(2) requests in progress and shares its GPU between waiting wikis in turn, so
+one wiki using its own token cannot shut the others out. Its log names the
+wiki of every request (`tenant=<wiki id>`): that is the id to put in
+`TTS_REVOKED_TENANTS`.
+
 ### Storage quotas
 
 All tenant containers run as the service account's UID, so the portal can
@@ -168,8 +174,10 @@ inode headroom.
   (and, for hard quotas, the same XFS setup). The agent never accepts a
   quota device, project ID, registry path or file descriptor from the portal.
 * The portal and maintenance services install an argument-filtered `ioctl`
-  policy before loading the application, so the service account cannot
-  change project assignments or inheritance flags. The root agent keeps the
+  policy before loading the application, which also refuses `file_getattr`
+  and `file_setattr` (Linux 6.17) and answers syscalls newer than the release
+  with `ENOSYS`, so the service account cannot change project assignments or
+  inheritance flags. The root agent keeps the
   quota ioctls it needs.
 * An existing or restored tree is adopted or repaired only while its
   container is confirmed stopped and no one-shot task of an interrupted
@@ -269,8 +277,20 @@ copy of the printed rules, for example
 `sudo bananawiki firewall | sudo tee /etc/nftables.d/bananawiki-tenants.nft`
 (Debian: `include` that copy from `/etc/nftables.conf` and `systemctl enable
 nftables`); save it again after changing the host's resolvers or the sets.
-Check after a reboot that the table is present
-(`nft list table inet bananawiki_tenants`). It works next to Docker's own
+`sudo bananawiki status`, `start`, `restart`, `update` (the hourly
+automatic one included) and `install` check that the table is loaded
+(`nft list table inet bananawiki_tenants`) and is this release's rules for
+this host's resolvers (`sudo bananawiki firewall` stamps the table with a
+digest of the rules; an empty, older or differently filled table counts as
+not loaded): `status` lists a warning and
+`tenant_firewall` (`loaded`, and `reason` when it is not), the others print
+the warning, and `start`, `restart` and `install` report it as
+`firewall_warning`. They do not refuse to start the wikis. The latest answer
+is kept in `config/host-firewall.json` with the boot it was made in, and the
+administrators' dashboard on the portal shows an error while the table is
+missing and a warning while it was not checked since the server started (a
+reboot drops rules that were not made persistent): run `sudo bananawiki
+status` after a reboot, or keep automatic updates on. It works next to Docker's own
 rules, whichever backend Docker uses: an accept here never overrides a drop
 in Docker's chains. Then verify from a tenant that a listener on the host
 gateway and `169.254.169.254` cannot be reached, and that the wiki still
@@ -364,8 +384,22 @@ each container. A wiki host without a route (a container that has just
 started, or a hand-written Caddyfile that does not import the routes) falls
 through to the portal. The portal proxies a running wiki itself and otherwise
 shows a status page on the wiki's address (no wiki here, paused, suspended,
-expired, starting); it never shows portal pages on a wiki host. Certificates
-for wikis and custom domains come from on-demand TLS, or from a wildcard
+expired, starting); it never shows portal pages on a wiki host. Each portal
+worker proxies at most `HOSTING_THREADS` − 1 requests at once (two per wiki,
+by default), and lets at most four more wait for a turn (three per wiki), on
+threads of their own: a request beyond that gets the "busy" page at once.
+Proxied requests run on the `HOSTING_THREADS` the portal's own pages use,
+so a slow wiki can hold two of them and slow wikis together all but one:
+only that last thread (besides the places for large responses) is sure to
+stay for the portal's pages. Wiki-host
+requests reaching the portal are limited to 600 a minute per client network
+and worker (the portal's own limits do not count them), with a 429 page past
+that. When Gunicorn retires a worker (after its `max_requests`, or on a
+restart) it accepts no more connections and finishes those in progress
+first: the worker then cuts off the requests it proxies and answers those
+waiting at once, so a slow wiki cannot keep the portal from answering
+while its workers are replaced. Certificates for wikis and custom domains come from on-demand TLS, or
+from a wildcard
 certificate for the platform's own hosts
 (`bananawiki proxy --tls cloudflare-dns|origin-cert`). With on-demand TLS
 Caddy orders a wiki's certificate in the first TLS handshake for its host,
@@ -388,6 +422,19 @@ these cookies: a wiki's code must be trusted as much as the portal's, and
 the portal refuses to start when `HOSTING_ALLOW_TENANT_PLUGINS=1` is set in
 these modes. Use subdomain mode when the wikis' administrators are not
 trusted.
+
+Routing is also what takes a wiki offline while its account is suspended,
+denied or scheduled for deletion, or once it has expired: in subdomain mode
+the routing table drops it and its address shows a status page. In port and
+onion mode each container answers on its own port, so the portal stops the
+containers of such wikis instead (when it publishes the routing table, at
+once after the account changes and on every maintenance pass) and does not
+start them again. Their status stays *running*: once the account may be
+served again (suspension lifted, deletion cancelled), the next maintenance
+pass starts them. Meanwhile nothing brings their containers up, not even for
+a moment: a restart is refused, a policy change (an Easy Wiki switch) and a
+content reset are applied without starting the wiki, and resuming a paused
+wiki only marks it running.
 
 Names that would collide with platform records (`www`, `mail`, `admin`,
 `api`, the portal's own label …) are reserved.
@@ -434,7 +481,7 @@ A/AAAA records for a root domain (with a note on ALIAS/ANAME and CNAME
 flattening). The zone is guessed from the name (`example.co.uk` included) and
 the owner can correct it. Tips cover Cloudflare and other providers. While the
 page is open it checks the records every 30 seconds (at most 6 checks a
-minute per wiki), lists each as found, missing or wrong with what DNS shows,
+minute per wiki, **Check DNS now** and **Verify** included), lists each as found, missing or wrong with what DNS shows,
 and verifies the domain as soon as both are right; **Check DNS now** checks
 at once and works without JavaScript. An administrator looking as the owner
 sees the checklist but never verifies or changes the domain. Names ending like
@@ -442,8 +489,8 @@ a private network's (`.lan`, `.home`, `.corp`, `.internal`, `.home.arpa`,
 `.consul` …) are refused, unless the platform itself lives under that ending
 (an intranet platform at `wiki.lan`), and the checklist never repeats a private, loopback
 or link-local address it finds, so the portal's own resolver is not a window
-into the server's network. The lookups of one check share a 6-second
-deadline, and a check that fails for a moment keeps the page checking.
+into the server's network. The lookups of one check (or one verification,
+the maintenance service's renewals included) share a 6-second deadline, and a check that fails for a moment keeps the page checking.
 
 A verification is valid for 24 hours and renewed by the maintenance service;
 when the proof disappears, routing stops. Unverified claims expire after an
@@ -499,7 +546,8 @@ addresses, the limits per address are best effort everywhere (same section).
   (administrators can be required to use it: until an administrator turns it
   on, the portal only offers to do so, and that account has no administrator
   rights anywhere, over customers' wikis included); sessions listed and
-  revocable; "sign out everywhere". Second-step codes from a browser that
+  revocable; "sign out other devices" (which also ends the account's
+  platform sign-in sessions on wikis, see [Platform sign-in](#platform-sign-in)). Second-step codes from a browser that
   passed both steps for the account before are counted apart from everyone
   else's (10 per 5 minutes and 50 a day per browser), so someone who knows
   the password cannot lock the owner out; all browsers together get at most
@@ -509,7 +557,14 @@ addresses, the limits per address are best effort everywhere (same section).
   their own.
 * Sign-in failures are limited to 20 per address, 8 per account from one
   address and 100 per account across addresses in 15 minutes; a successful
-  sign-in clears only its own account-and-address count.
+  sign-in clears only its own account-and-address count. Successful sign-ins
+  are limited as well, to 30 per account and 200 per address in 15 minutes
+  (refused before the password is checked): each costs a password hash and
+  a session. Pages that ask a signed-in account for its password again
+  (account details, password, email, deletion, API tokens, two-step
+  settings, the backup key) allow 20 wrong passwords per account in
+  15 minutes from all addresses together, and turning two-step verification
+  off spends the same second-step budgets as signing in.
 * Account merges (both sides confirm, or an administrator decides), account
   deletion with a grace period, suspension, flagged email addresses.
 * An account that must do something first is held on the page that does
@@ -583,7 +638,17 @@ everyone else; for a public, internet-facing platform, also consider the
   accounts. Approving an account (approval mode) lifts these limits at once.
 * **Wikis per account**: `MAX_INSTANCES_PER_ACCOUNT` counts running, stopped
   and suspended wikis, and applies to transfers as well: a customer at the
-  limit cannot accept another wiki.
+  limit cannot accept another wiki. A wiki its owner terminated counts too
+  while its data is kept (not while an administrator pauses the countdown),
+  until the owner deletes that data with **Delete data now** on its page, so
+  terminating and creating again never leaves more kept wikis on disk than
+  the limit. Wikis that expired or that an administrator terminated (on the
+  administration pages or with `instance terminate` on the command line) do
+  not count.
+* **Creations per day**: an account may create at most twice as many wikis
+  in 24 hours as it may hold (2 for a new account), whatever became of them,
+  including those it gave to another account: each creation orders a
+  certificate and builds a tenant.
 * **Expiry**: wikis of customers expire after `INSTANCE_DURATION_DAYS`, so
   abandoned ones give their place back (see [Wikis](#wikis)).
 * **Email addresses**: while one address may serve only one account and
@@ -601,7 +666,7 @@ and restart shares them. All limits are per 24 hours.
 |---|---|
 | All messages | `HOSTING_EMAIL_DAILY_LIMIT` |
 | Password resets and user-name reminders | A fifth of the total, kept apart from other messages. Reminders use at most half of it. |
-| Per recipient | 15, of which at most 3 password resets and 3 user-name reminders |
+| Per recipient | 15, at most 5 of them notices another account caused (such as being added as a collaborator). Password resets (3), user-name reminders (3) and password or address change notices (5 each) are counted apart, so other mail never holds them back. |
 | Per account, for messages it causes itself (such as verification links) | `HOSTING_EMAIL_ACCOUNT_DAILY_LIMIT` (10) |
 | Recovery requests per network, whether or not an account matches | 10 per IPv4 address or IPv6 /64, 30 per IPv6 /48 |
 
@@ -629,11 +694,12 @@ Owners create wikis on the dashboard (`/instances/create`) up to
 * start it (the button at the top of a stopped wiki's page and in the wiki
   list), stop, restart, terminate, reset its content, reset its
   administrator's password. Resetting the administrator's password also signs
-  that account out everywhere and turns off its two-step verification on the
+  that account out everywhere, turns off its two-step verification on the
   wiki (recorded in the wiki's audit log and the portal's moderation
-  history): it is the way back in for an owner who lost the authenticator
-  app and the recovery codes, who has no shell to run
-  `bananawiki reset-two-step` in the tenant;
+  history) and disconnects it from the portal account it was connected to
+  for [platform sign-in](#platform-sign-in): it is the way back in for an
+  owner who lost the authenticator app and the recovery codes, who has no
+  shell to run `bananawiki reset-two-step` in the tenant;
 * choose **Easy mode (BM mode)**, the mode the wiki starts in; its
   administrators then adjust it under **Administration → BM mode**, and a
   later switch on the portal restarts the wiki in the chosen mode;
@@ -642,15 +708,58 @@ Owners create wikis on the dashboard (`/instances/create`) up to
   transfer
   ownership (the recipient accepts, and chooses whether the previous owner
   keeps view-only access or none, the default; the previous owner never
-  keeps the right to stop, reset, download or delete the wiki, and the
+  keeps the right to stop, reset, download or delete the wiki). The offer
+  lists the wiki's other collaborators with their access, and only those the
+  recipient ticks stay on: the others are removed with the transfer, since
+  any of them, an account of the previous owner's own among them, could
+  otherwise give the previous owner access back. A collaborator whose access
+  changed after the recipient saw the offer is removed as well. Any change
+  of owner, an administrator's **Move now** included, signs the previous
+  owner out of the wiki's platform sign-in sessions and disconnects their
+  portal account from the wiki account they connected; signing in through
+  the portal again asks for consent and starts over at the connect page (a
+  new wiki account, or an existing one with its password). The
   wiki's administrator password is not changed, so the new owner should
-  reset it);
+  reset it: once a wiki has changed owner (a duplicate an administrator
+  makes for another account counts too, and so does any copy of a wiki that
+  had changed owner), that reset covers every admin and
+  owner account of the wiki (new password, sessions, API tokens, two-step and
+  platform links), not only the named one, so administrator accounts the
+  previous owner made stop working too, and it deactivates the live invite
+  codes those accounts made and every code that grants more than a plain
+  member account (recorded as `invite.deactivated` in the wiki's audit
+  log), so none of them signs the previous owner up again. It also switches
+  off every active webhook (recorded as `api_service.webhook_updated`), as
+  each sends the wiki's events to an address the previous owner chose; the
+  new owner can review them, rotate their secrets and switch them back on.
+  Pages shared with federation peers are unshared (`federation.page_unshared`),
+  since a peer may be a wiki of the previous owner's; the pairings and the
+  pages received from them stay. A custom domain the wiki had is removed
+  when it changes owner (recorded as `domain.removed`), since its DNS stays
+  with the previous owner; the new owner claims and proves one of their own.
+  Every external plugin is disabled too; a
+  running wiki is stopped for this reset (which then runs in a task
+  container of its own, with no plugin code loaded) and started again. The
+  new owner can review the plugins and switch them back on in the wiki's
+  plugin settings. The other administrators then sign
+  in once with the new password and choose their own. Suspending the wiki, or suspending, denying or scheduling the
+  deletion of its owner's account, cancels a pending offer, and an offer
+  can no longer be accepted while any of these holds;
 * request restricted features (public access, page builder, a
   [custom domain](#custom-domains) when the platform does not allow one
   already), which an administrator approves, and set up a custom domain with
-  the guided page;
+  the guided page. A wiki files at most 10 requests per feature in 24 hours,
+  cancelled ones included, and its page lists the latest 20 (and every
+  waiting one); an account asks for at most 10 merges and a wiki makes at
+  most 10 ownership offers in 24 hours. A wiki also adds collaborators or
+  widens their access at most 100 times and claims at most 20 custom domains
+  in 24 hours (administrators' collaborator changes are not counted); taking
+  access away, removing a collaborator and removing a domain are never
+  refused, and saving a collaborator's access unchanged records nothing;
 * download an export of the wiki once it is terminated, when the platform
-  allows it (*Owners may download expired wikis*).
+  allows it (*Owners may download expired wikis*);
+* delete the kept data of a wiki they terminated (**Delete data now**), which
+  frees its place at once; the wiki can then no longer be restored.
 
 While public access is restricted (by default, for owners who are not
 platform administrators) and not approved, a wiki runs with
@@ -677,7 +786,13 @@ When a wiki expires or is terminated, it enters the grace period configured
 in the platform settings, during which an administrator can restore it;
 afterwards its data is deleted. An administrator can pause that countdown:
 the data is then kept until the countdown resumes (the paused time is added
-to the grace period), and the owner cannot download it meanwhile.
+to the grace period), and the owner cannot download it meanwhile. The data
+kept counts towards the platform's *Maximum total storage*. The wikis of a
+deleted account, and those their owner terminated, also keep a place under
+the platform's *Maximum wikis* (and, for a new account, the new accounts'
+share) while their data is kept and the countdown is not paused, so signing
+up, creating a wiki and deleting the account in a loop cannot leave more
+wikis on disk than those limits.
 
 **Storage protection.** A customer's wiki that uses more than 110% of its
 storage limit is suspended by the maintenance service, which emails its
@@ -691,6 +806,13 @@ owner's account, is never lifted automatically, and nothing reopens while
 the owner's account is suspended. An administrator who reactivates a wiki
 that is still over its limit is warned that the next pass will suspend it
 again.
+
+While a wiki is suspended its owner and collaborators can look at it but not
+change it: lifecycle actions, the declared use, feature requests, adding or
+changing collaborators, offering a transfer and claiming or verifying a custom
+domain are refused until an administrator lifts the suspension. Removing a
+collaborator, cancelling a transfer and giving up a custom domain stay
+possible.
 
 ### Platform sign-in
 
@@ -715,13 +837,50 @@ platforms.
   signs in to, with the wiki account, the last sign-in and whether the wiki
   asks again: **Sign out** ends its sessions on that wiki, **Remove access**
   also forgets the consent. Both are refused while impersonating.
-* **Single sign-out**: *Sign out everywhere*, a password change, suspension,
-  deletion or scheduled deletion of the account, a merge and removing a wiki's access are queued as sign-out events
-  (`hosting_oauth_signouts`, kept 30 days). Each wiki reads its own events
+* **Single sign-out**: *Sign out everywhere* (**Account → Wiki sign-ins**),
+  *Sign out other devices* (**Account → Signed-in devices**), a password
+  change, suspension, deletion or scheduled deletion of the account, a merge,
+  removing a wiki's access and a wiki changing owner (for the previous owner)
+  are queued as sign-out events
+  (`hosting_oauth_signouts`, kept 30 days; a repeated event replaces the
+  identical older one, so signing out again and again never grows the queue).
+  Each wiki reads its own events
   every minute (`GET /oauth/signouts` with its client credentials, job
   `auth.platform_signouts`) and ends that account's sessions which were signed
   in through the portal before the event. Sessions signed in with a wiki
-  password are left alone.
+  password are left alone. After a change of owner the wiki also drops its
+  link between the previous owner's portal account and the wiki account, and
+  ends every portal sign-in session of that wiki account up to that moment.
+  The wiki does not wait for the event to stop using the link: each sign-in
+  through the portal first asks the portal (`/oauth/link-status`) whether it
+  still links the two accounts, and drops a link the portal no longer has.
+  An account with two-step verification asks again once its code is in, so a
+  sign-in left waiting at the code step does not outlast the link.
+  *Sign out everywhere*, *Sign out other devices*
+  and a password change also drop the account's access tokens at once. Wiki
+  sessions cannot be told apart by the portal device that opened them, so
+  *Sign out other devices* ends those of the current device too: a stolen
+  portal session leaves nothing behind on the wikis it reached.
+* **Limits.** A wiki calls the portal's sign-in endpoints (`/oauth/token`,
+  `/oauth/userinfo`, `/oauth/link`, `/oauth/link-status`, `/oauth/signouts`
+  and the others) from its own address on behalf of all its users, so they
+  are not limited per address, nor by the portal's global per-address limit
+  (while platform sign-in is off they answer 404 and count against it like
+  any other path).
+  A code with the wiki's right credentials is always exchanged: visitors who
+  make the wiki send codes they made up cannot use up its users' sign-ins.
+  What fails is counted instead: one network may send 30 wrong client
+  credentials or malformed requests (another `grant_type`, no credentials)
+  a minute, after which its requests to these endpoints are refused before
+  anything of them is read (the bearer endpoints `/oauth/userinfo`,
+  `/oauth/me` and `/oauth/verify` still take a valid token); 60 unknown
+  access tokens, beyond which they are refused after a read only; and each
+  wiki's refused or missing codes beyond 60 a minute are answered 429.
+  Request bodies are limited to 64 KiB. Every other call a wiki makes counts
+  against `HOSTING_OAUTH_CLIENT_RATE` (600 a minute by default).
+  Linking the same portal account to a wiki again (after the wiki unlinked
+  it) is recorded in the moderation log at most once a day per account and
+  wiki.
 
 ## Administration
 
@@ -810,6 +969,19 @@ leaves the wiki without an end date until an administrator sets one.
 * **Platform export** from the administrator pages, encrypted with the key in
   `HOSTING_BACKUP_KEY_PATH`.
 
+Platform backups (`.bwenc`) are encrypted with AES-256-GCM in 1 MiB
+segments, each authenticated on its own (format `BWBACKUP2`), so their size
+has no practical limit. A restore still reads the `BWBACKUP1` files of 1.4
+to 1.7.3 (one GCM stream, which could not exceed about 64 GiB); 1.7.3 and
+earlier cannot read `BWBACKUP2`. A restore refuses a backup file larger than
+`HOSTING_IMPORT_MAX_BYTES` (10 GiB by default) and one that unpacks to more
+than `HOSTING_IMPORT_MAX_EXTRACTED_BYTES` or holds more than
+`HOSTING_IMPORT_MAX_MEMBERS` files (see
+[configuration](configuration.md#archives)): set them on the server that
+restores before restoring a larger platform. The platform settings warn when
+the latest backup is larger than `HOSTING_IMPORT_MAX_BYTES`, and the portal
+logs it.
+
 A platform backup also records which wikis have their plugins quarantined,
 and a restore quarantines them again; plugin snapshots stay on the host that
 took them. A restore only goes onto an installation without wikis, and
@@ -866,6 +1038,32 @@ SHA-256) carry scopes:
 | `instances:read` | `GET /instances`, `GET /instances/<id>` |
 | `instances:manage` | `POST /instances/<id>/pause`, `POST /instances/<id>/resume` |
 | `admin:read` | `GET /admin/pending-accounts`, `GET /admin/instances` (administrators) |
+
+An account holds at most 10 live tokens and creates at most 20 in 24 hours,
+revoked ones included; the rows of tokens revoked or expired more than 90
+days ago are deleted (their moderation-log entries stay). One wiki is paused,
+resumed or restarted by its owner and collaborators (here or on its page) at
+most 6 times a minute and 100 times a day; past that the API answers 429 and
+the page an error. Only changes that happen are counted (pausing a paused wiki
+costs nothing), and resuming is held to the minute only, so a spent day never
+keeps a wiki down. A factory reset of the wiki's content stops and starts it,
+and switching between easy (BM) and full mode restarts a running wiki (a paused
+one gets the new mode in a one-shot task): each counts as one change. Past the
+daily limit the API's `retry_after` is the wait until the day's oldest counted
+change is 24 hours old. Resetting the wiki's administrator password has a
+budget of its own, 3 times a minute and 20 times a day, so pausing and
+resuming never uses it up. The wiki's owner has that budget to themselves;
+collaborators with the reset permission share a second one, and a previous
+owner's resets stay on their own account's count, so nobody else who knows the
+password can use up the owner's way to change it. Administrators are not
+counted.
+
+The wiki page lists the wiki's accounts at most 20 times a minute per wiki,
+and its analytics page answers at most 6 times a minute per wiki: each runs a
+task in the wiki's container. On a wiki that is not running (or is held
+offline as above) each is a one-shot task container, so together they are also held to 100 a day per wiki; past
+that the wiki page shows without the account list and the analytics page says
+analytics are unavailable, until the wiki runs again or the day moves on.
 
 `GET /api/v1/status` answers without a token. Each wiki's own API is
 separate; see [API](api.md).

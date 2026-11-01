@@ -90,15 +90,15 @@
       <label class="check"><input type="radio" name="generation_mode" value="auto"{% if values.tts_auto_generate_enabled %} checked{% endif %}><span>{{ t('tts.admin.mode_auto') }}<small>{{ t('tts.admin.mode_auto_hint') }}</small></span></label>
     </fieldset>
     {{ forms.select('tts_performance_mode', t('tts.admin.performance'), [('auto', t('tts.admin.perf.auto')), ('balanced', t('tts.admin.perf.balanced')), ('fast', t('tts.admin.perf.fast'))], values.tts_performance_mode or 'auto', t('tts.admin.performance_hint')) }}
-    <fieldset class="field">
-      <legend>{{ t('tts.admin.languages') }}</legend>
+    <details class="disclosure field">
+      <summary>{{ t('tts.admin.languages') }} · {{ enabled|length }}</summary>
       <p class="hint">{{ t('tts.admin.languages_hint') }}</p>
       <div class="tts-languages">
         {% for code, label in languages %}
         <label class="check"><input type="checkbox" name="languages" value="{{ code }}"{% if code in enabled %} checked{% endif %}><span>{{ label }}</span></label>
         {% endfor %}
       </div>
-    </fieldset>
+    </details>
     {% if system.gpu_managed %}
     <p class="hint">{{ t('tts.admin.gpu_managed') }}</p>
     {% else %}

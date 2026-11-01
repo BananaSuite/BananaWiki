@@ -24,24 +24,32 @@ import secrets
 from typing import Any
 
 from ....core.sqlite import quote_identifier, tuples
-from ....core.timeutil import now_sql
+from ....core.timeutil import now_sql, sql_in
 from ... import accounts, attention, auth
 from ...db import db
 from ...registry import emit
 from ..admin.service import clear_overrides, protection_error
+from ..chat import dms as chat_dms
+from ..chat import store as chat_store
 from ..pages import service as pages
 from . import preferences, service
 
 ACTIVE = ("pending", "approved_by_both")
 MAX_REASON = 500
+# Requests an account may file in 24 hours, whatever became of them: cancelling and asking
+# again would otherwise add rows naming the other account without end (as hosting/merges.py).
+MAX_REQUESTS_PER_DAY = 10
+# Closed requests listed on an account's merge page, newest first.
+HISTORY_LIMIT = 50
 # Tables that stay with the source account.
 KEEP_WITH_SOURCE = frozenset({
     "user_sessions", "api_tokens", "userbot_api_tokens", "api_service__tokens", "api_service__audit_log",
     "account_merge_requests", "account_merge_logs", "username_history", "role_history", "suspension_audit",
     "impersonation_logs", "temp_users", "temp_roles", "user_permissions", "user_category_access",
     "user_allowed_categories", "editor_category_access", "editor_allowed_categories", "users",
-    # Sign-in secrets: the target must never inherit the source's authenticator app or recovery codes.
-    "auth__two_step",
+    # Sign-in secrets: the target must never inherit the source's authenticator app or recovery codes,
+    # nor its hosting-portal sign-in (the link is deleted with the source, or stays with the locked one).
+    "auth__two_step", "platform_oauth_links",
 })
 
 
@@ -67,10 +75,13 @@ _SELECT = (
 
 
 def for_user(user_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """(active, finished) requests involving *user_id*."""
-    rows = db.all(f"{_SELECT} WHERE r.source_user_id = ? OR r.target_user_id = ? ORDER BY r.created_at DESC, r.id DESC",
-                  (user_id, user_id))
-    return [r for r in rows if r["status"] in ACTIVE], [r for r in rows if r["status"] not in ACTIVE]
+    """(active, finished) requests involving *user_id*; only the newest HISTORY_LIMIT finished ones."""
+    where = "(r.source_user_id = ? OR r.target_user_id = ?) AND r.status"
+    order = "ORDER BY r.created_at DESC, r.id DESC"
+    active = db.all(f"{_SELECT} WHERE {where} IN ('pending', 'approved_by_both') {order}", (user_id, user_id))
+    finished = db.all(f"{_SELECT} WHERE {where} NOT IN ('pending', 'approved_by_both') {order} LIMIT ?",
+                      (user_id, user_id, HISTORY_LIMIT))
+    return active, finished
 
 
 def listing(status: str) -> list[dict[str, Any]]:
@@ -111,20 +122,44 @@ def _check_password(user: dict[str, Any], password: str | None) -> None:
         raise MergeError("auth.error.current_password_wrong")
 
 
-def create(user: dict[str, Any], other: dict[str, Any], *, into_mine: bool, reason: str,
+def _committed(user_id: str, *, except_id: int | None = None) -> bool:
+    """Whether *user_id* confirmed an open request (made it, or confirmed its side).
+
+    Only such a request keeps the account out of other merges: a request
+    nobody but its maker confirmed must not block the other account.
+    """
+    return bool(db.scalar(
+        "SELECT 1 FROM account_merge_requests WHERE status IN ('pending', 'approved_by_both') AND id != ? "
+        "AND ((source_user_id = ? AND source_approved = 1) OR (target_user_id = ? AND target_approved = 1))",
+        (except_id or 0, user_id, user_id),
+    ))
+
+
+def create(user: dict[str, Any], other: dict[str, Any] | None, *, into_mine: bool, reason: str,
            password: str | None) -> dict[str, Any]:
-    """Request a merge between *user* and *other*; *user*'s side is confirmed at once."""
-    source, target = (other, user) if into_mine else (user, other)
-    _check_pair(source, target)
+    """Request a merge between *user* and *other*; *user*'s side is confirmed at once.
+
+    The password comes first, and an account that may not be merged gets the
+    same answer whatever the reason: a member must not learn from this form
+    who is a superuser, the last owner or the last administrator.
+    """
     _check_password(user, password)
+    if other is None:
+        raise MergeError("users.merge.error.no_such_user")
+    source, target = (other, user) if into_mine else (user, other)
+    if source["id"] == target["id"]:
+        raise MergeError("users.merge.error.same_account")
+    try:
+        _check_pair(source, target)
+    except MergeError:
+        raise MergeError("users.merge.error.not_possible") from None
     with db.transaction():
-        busy = db.scalar(
-            "SELECT 1 FROM account_merge_requests WHERE status IN ('pending', 'approved_by_both') "
-            "AND (source_user_id IN (?, ?) OR target_user_id IN (?, ?))",
-            (source["id"], target["id"], source["id"], target["id"]),
-        )
-        if busy:
+        if _committed(source["id"]) or _committed(target["id"]):
             raise MergeError("users.merge.error.already_pending")
+        filed = db.scalar("SELECT COUNT(*) FROM account_merge_requests WHERE created_by = ? AND created_at > ?",
+                          (user["id"], sql_in(hours=-24)), default=0)
+        if int(filed) >= MAX_REQUESTS_PER_DAY:
+            raise MergeError("users.merge.error.too_many", limit=MAX_REQUESTS_PER_DAY)
         merge_id = db.insert("account_merge_requests", {
             "source_user_id": source["id"], "target_user_id": target["id"], "created_by": user["id"],
             "status": "pending", "source_approved": 1 if user["id"] == source["id"] else 0,
@@ -163,6 +198,8 @@ def confirm(merge_id: int, user: dict[str, Any], password: str | None) -> dict[s
     _check_password(user, password)
     with db.transaction():
         row = check(get(merge_id))
+        if _committed(user["id"], except_id=merge_id):
+            raise MergeError("users.merge.error.already_pending")
         side = "source_approved" if user["id"] == row["source_user_id"] else "target_approved"
         db.execute(f"UPDATE account_merge_requests SET {side} = 1 WHERE id = ?", (merge_id,))
         db.execute(
@@ -230,8 +267,9 @@ def preview(source: dict[str, Any]) -> dict[str, int]:
     return counts
 
 
-def _prepare_special_tables(source_id: str, target_id: str) -> None:
-    """Rows that need more than re-pointing a column."""
+def _prepare_special_tables(source_id: str, target_id: str) -> list[str]:
+    """Rows that need more than re-pointing a column; return the chat files to remove after the commit."""
+    chat_files: list[str] = []
     existing = {row[0] for row in tuples(db.conn, "SELECT name FROM sqlite_master WHERE type = 'table'")}
     if "assessment_attempts" in existing:
         db.execute(
@@ -241,9 +279,9 @@ def _prepare_special_tables(source_id: str, target_id: str) -> None:
             (target_id, source_id),
         )
     if "chats" in existing:
-        # A conversation between the two accounts would become a chat with oneself.
-        db.execute("DELETE FROM chats WHERE (user1_id = ? AND user2_id = ?) OR (user1_id = ? AND user2_id = ?)",
-                   (source_id, target_id, target_id, source_id))
+        # A conversation between the two accounts would become a chat with oneself. Its
+        # attachment files go too, not at the next daily orphan clean-up.
+        chat_files = chat_dms.erase_between(source_id, target_id)
     if "user_profile_fields__values" in existing:
         db.execute("UPDATE OR IGNORE user_profile_fields__values SET user_id = ? WHERE user_id = ?",
                    (target_id, source_id))
@@ -256,6 +294,7 @@ def _prepare_special_tables(source_id: str, target_id: str) -> None:
             db.update("user_profiles", fill, "user_id = ?", (target_id,))
             if "avatar_filename" in fill:
                 db.execute("UPDATE user_profiles SET avatar_filename = '' WHERE user_id = ?", (source_id,))
+    return chat_files
 
 
 def _dedupe_badges(target_id: str) -> None:
@@ -374,7 +413,7 @@ def execute(source: dict[str, Any], target: dict[str, Any], admin: dict[str, Any
     moved: dict[str, int] = {}
     with db.transaction():
         source, target, admin = _current(source, target, admin, merge_id)
-        _prepare_special_tables(source["id"], target["id"])
+        chat_files = _prepare_special_tables(source["id"], target["id"])
         for table, column in _user_columns():
             cursor = db.execute(
                 f"UPDATE OR IGNORE {quote_identifier(table)} SET {quote_identifier(column)} = ? "
@@ -406,6 +445,7 @@ def execute(source: dict[str, Any], target: dict[str, Any], admin: dict[str, Any
                 raise MergeError(error.key, **error.values) from error
         else:
             _lock_source(source, target, admin, unusable_password)
+    chat_store.remove_files(chat_files)
     if unusable_password is None:
         emit("user.deleted", user=source, deleted_by=admin["id"])
         for name in leftovers:

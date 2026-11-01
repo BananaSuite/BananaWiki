@@ -293,8 +293,11 @@ caller.
 The portal and maintenance units cannot read `/proc`, also during start-up.
 They start through a stdlib entrypoint that filters `ioctl` before loading
 the application: Python's descriptor and socket requests are allowed, the
-filesystem project and flag setters are not, so the service account cannot
-change quota assignments. Only the root agent keeps those ioctls. Status
+filesystem project and flag setters are not, nor `file_getattr` and
+`file_setattr` (Linux 6.17), which set the same fields, so the service
+account cannot change quota assignments. Syscalls newer than the release
+fail with `ENOSYS`, as on an older kernel, until a release reviews them.
+Only the root agent keeps those ioctls. Status
 of a running container and administrative exec also check the mounted
 directory.
 

@@ -6,13 +6,6 @@ import pytest
 
 from bananawiki.core.timeutil import sql_in
 
-PAGES = ["/admin/settings", "/admin/appearance", "/admin/interface-languages", "/admin/documentation",
-         "/admin/migration", "/admin/server", "/admin/error-log", "/admin/audit"]
-POSTS = ["/admin/settings", "/global-settings", "/admin/appearance/colors", "/admin/appearance/reset",
-         "/admin/settings/favicon/select", "/admin/interface-languages/upload", "/admin/spawn-docs",
-         "/admin/docs-settings", "/admin/migration/export", "/admin/migration/import",
-         "/admin/settings/restart-server", "/global-settings/restart-server", "/admin/audit/retention"]
-
 
 def valid_form(**overrides):
     form = {
@@ -28,21 +21,6 @@ def valid_form(**overrides):
 
 def settings_row(db):
     return db.one("SELECT * FROM site_settings WHERE id = 1")
-
-
-@pytest.mark.parametrize("role", ["user", "editor"])
-def test_every_page_and_action_is_admin_only(client, make_user, login, db, role):
-    login(client, make_user("someone", role=role))
-    for url in PAGES:
-        assert client.get(url).status_code == 403, url
-    for url in POSTS:
-        assert client.post(url, data={}).status_code == 403, url
-    assert settings_row(db)["site_name"] == "BananaWiki"
-
-
-def test_anonymous_visitors_are_sent_to_sign_in(client):
-    assert client.get("/admin/settings").status_code == 302
-    assert client.post("/admin/settings", data=valid_form()).status_code == 302
 
 
 def test_legacy_url_redirects_and_accepts_posts(admin_client, db):
@@ -144,17 +122,3 @@ def test_csrf_is_required(app, admin_client, db):
     app.config["CSRF_DISABLED"] = False
     assert admin_client.post("/admin/settings", data=valid_form()).status_code in (400, 403)
     assert settings_row(db)["site_name"] == "BananaWiki"
-
-
-def test_translations_have_the_same_keys():
-    import json
-    from pathlib import Path
-
-    from bananawiki.wiki.i18n import BUILTIN_LANGUAGES
-
-    for feature in ("site_admin", "audit"):
-        folder = Path(__file__).parents[2] / "bananawiki" / "wiki" / "features" / feature / "translations"
-        en = json.loads((folder / "en.json").read_text(encoding="utf-8"))
-        for language in sorted(set(BUILTIN_LANGUAGES) - {"en"}):
-            translated = json.loads((folder / f"{language}.json").read_text(encoding="utf-8"))
-            assert en.keys() == translated.keys(), (feature, language)

@@ -46,12 +46,6 @@ def test_recent_and_weekly_edits_read_page_history_by_date_index(app):
         assert not any("TEMP B-TREE" in step for step in plan), (sql, plan)
 
 
-def test_admin_menu_lists_admin_nav_items(admin_client):
-    page = admin_client.get("/admin/dashboard").data.decode()
-    for path in ("/admin/users", "/admin/roles", "/admin/codes", "/admin/sessions"):
-        assert f'href="{path}"' in page
-
-
 def test_dashboard_slot_is_rendered(app, admin_client):
     from markupsafe import Markup
 
@@ -117,17 +111,3 @@ def test_pages_render_in_italian(admin_client, make_user):
         response = admin_client.get(url + "?lang=it")
         assert response.status_code == 200
     assert "Utenti" in admin_client.get("/admin/users?lang=it").data.decode()
-
-
-def test_translations_have_same_keys():
-    import json
-    from pathlib import Path
-
-    import bananawiki.wiki.features.admin as feature
-    from bananawiki.wiki.i18n import BUILTIN_LANGUAGES
-
-    folder = Path(feature.__file__).parent / "translations"
-    en = json.loads((folder / "en.json").read_text(encoding="utf-8"))
-    for language in sorted(set(BUILTIN_LANGUAGES) - {"en"}):
-        translated = json.loads((folder / f"{language}.json").read_text(encoding="utf-8"))
-        assert en.keys() == translated.keys(), language

@@ -24,6 +24,21 @@ def record(subject_type: str, subject_id: str, action: str, actor_id: str | None
     )
 
 
+def subjects_since(action: str, actor_id: str, cutoff: str) -> set[str]:
+    """The ids of the subjects *actor_id* recorded *action* for after *cutoff* (only the log since then is read)."""
+    rows = db.all("SELECT subject_id FROM hosting_events WHERE id > ? AND action = ? AND actor_id = ? "
+                  "AND created_at > ?", (_last_id_before(cutoff), action, actor_id, cutoff))
+    return {row["subject_id"] for row in rows}
+
+
+def recorded_since(subject_type: str, subject_id: str, action: str, reason: str, cutoff: str) -> bool:
+    """Whether *action* with *reason* was recorded for the subject after *cutoff* (only the log since then is read)."""
+    return db.scalar("SELECT 1 FROM hosting_events WHERE subject_type = ? AND subject_id = ? AND id > ? "
+                     "AND action = ? AND reason = ? AND created_at > ? LIMIT 1",
+                     (subject_type, subject_id, _last_id_before(cutoff), action, str(reason or "")[:2000],
+                      cutoff)) is not None
+
+
 def recent(subject_type: str | None = None, subject_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
     clauses, values = [], []
     if subject_type in SUBJECTS:
@@ -67,7 +82,10 @@ def prune(retention_days: int) -> int:
 
     The records of a wiki creation that never finished are kept: they decide
     whether the data under its name may be deleted (see
-    :func:`.instances._runtime_may_own_data`).
+    :func:`.instances._runtime_may_own_data`). So is the fact that a wiki
+    still in use, or still restorable, changed owner, without who did it or for whom: it decides
+    whether the admin-password reset covers every administrator account
+    (see :func:`.instances._owner_changed`).
     """
     if retention_days <= 0:
         return 0
@@ -77,9 +95,16 @@ def prune(retention_days: int) -> int:
         return 0
     from .instances import PROVISIONING_REFUSED, PROVISIONING_STARTED
 
-    return db.execute(
-        "DELETE FROM hosting_events WHERE id <= ? AND created_at < ? AND NOT (subject_type = 'instance' "
-        "AND action IN (?, ?) AND subject_id IN (SELECT id FROM instances "
-        "WHERE provisioning_state != 'ready' AND status != 'terminated'))",
-        (last, cutoff, PROVISIONING_STARTED, PROVISIONING_REFUSED),
-    ).rowcount
+    # A terminated wiki whose data is kept can still be restored under the same id, so it keeps the record too.
+    owner_changed = ("subject_type = 'instance' AND action = 'instance.owner_changed' "
+                     "AND subject_id IN (SELECT id FROM instances WHERE status != 'terminated' "
+                     "OR data_retained_until IS NOT NULL)")
+    with db.transaction():
+        db.execute("UPDATE hosting_events SET actor_id = NULL, reason = '' WHERE id <= ? AND created_at < ? "  # noqa: S608
+                   "AND " + owner_changed, (last, cutoff))
+        return db.execute(
+            "DELETE FROM hosting_events WHERE id <= ? AND created_at < ? AND NOT (subject_type = 'instance' "  # noqa: S608
+            "AND action IN (?, ?) AND subject_id IN (SELECT id FROM instances "
+            "WHERE provisioning_state != 'ready' AND status != 'terminated')) AND NOT (" + owner_changed + ")",
+            (last, cutoff, PROVISIONING_STARTED, PROVISIONING_REFUSED),
+        ).rowcount

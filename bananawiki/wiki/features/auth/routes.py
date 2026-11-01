@@ -17,8 +17,9 @@ from typing import Any
 from flask import abort, current_app, redirect, render_template, request, session, url_for
 
 from ....core import passwords
+from ....core.ratelimit import SqlLimiter
 from ....core.timeutil import parse
-from ....core.web import safe_next
+from ....core.web import client_network, safe_next
 from ... import accounts, auth, settings
 from ...db import db
 from ...i18n import BUILTIN_LANGUAGES, t
@@ -29,18 +30,35 @@ from ..audit.service import record
 from . import signin, signup
 from .blueprint import ALL_GATES, SIGN_IN_GATES, bp
 
+# Guesses at the setup token per client network, shared by all workers. The
+# derived token cannot be guessed; one an operator chose (BW_SETUP_TOKEN) might
+# be short, so production also refuses one below SETUP_TOKEN_MIN_LENGTH.
+SETUP_ATTEMPTS = 10
+SETUP_WINDOW_SECONDS = 15 * 60
+SETUP_TOKEN_MIN_LENGTH = 20
 
-def _setup_token_ok() -> bool:
-    """The setup token, accepted only from a POSTed form (never from the URL)."""
-    expected = current_app.config["BW"].setup_token
+
+def _setup_token_refusal() -> tuple[str, int] | None:
+    """None when this browser may create the first account; else (translation key, status).
+
+    The token is accepted only from a POSTed form (never from the URL).
+    """
+    cfg = current_app.config["BW"]
+    expected = cfg.setup_token
     marker = hashlib.sha256(expected.encode()).hexdigest()
     if hmac.compare_digest(str(session.get("_setup_authorized", "")), marker):
-        return True
+        return None
     supplied = request.form.get("setup_token", "") if request.method == "POST" else ""
-    if supplied and hmac.compare_digest(supplied.encode(), expected.encode()):
-        session["_setup_authorized"] = marker
-        return True
-    return False
+    if not supplied:
+        return ("auth.setup.bad_token", 403) if request.method == "POST" else ("", 200)
+    if cfg.is_production and len(expected) < SETUP_TOKEN_MIN_LENGTH:
+        return "auth.setup.token_too_short", 403
+    if not SqlLimiter(db.session).hit(client_network(), "setup:token", SETUP_ATTEMPTS, SETUP_WINDOW_SECONDS):
+        return "auth.error.too_many_attempts", 429
+    if not hmac.compare_digest(supplied.encode(), expected.encode()):
+        return "auth.setup.bad_token", 403
+    session["_setup_authorized"] = marker
+    return None
 
 
 @bp.route("/setup", methods=["GET", "POST"])
@@ -50,10 +68,12 @@ def setup():
     """Create the first administrator. Requires the setup token."""
     if settings.setup_done():
         return redirect(url_for("auth.login"))
-    if not _setup_token_ok():
-        if request.method == "POST":
-            auth.flash_t("auth.setup.bad_token", "error")
-        return render_template("auth/setup_token.html"), 403 if request.method == "POST" else 200
+    refusal = _setup_token_refusal()
+    if refusal is not None:
+        key, status = refusal
+        if key:
+            auth.flash_t(key, "error", minimum=SETUP_TOKEN_MIN_LENGTH)
+        return render_template("auth/setup_token.html"), status
     error = None
     if request.method == "POST" and request.form.get("step") == "create":
         username = request.form.get("username", "")
@@ -116,7 +136,7 @@ def login():
 
 
 def _admin_home() -> str:
-    return url_for("admin.dashboard") if "admin.dashboard" in current_app.view_functions else "/"
+    return url_for("admin.home") if "admin.home" in current_app.view_functions else "/"
 
 
 @bp.route("/admin/sign-in", methods=["GET", "POST"])

@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ....core.timeutil import now_sql
+from ....core.timeutil import now_sql, parse, utcnow
 from ...db import db
 
 TRIGGERS = ("first_edit", "contribution_count", "category_count", "article_count", "member_days", "reading_time")
@@ -314,14 +314,28 @@ def reading_tracked() -> bool:
     ))
 
 
-def add_reading_time(user_id: str, seconds: int) -> None:
+def add_reading_time(user_id: str, seconds: int) -> int:
+    """Credit *seconds* of reading to *user_id*; returns the seconds credited.
+
+    One report counts at most :data:`READING_HEARTBEAT_MAX` seconds and never
+    more than the time since the previous credited report, so reading time
+    cannot grow faster than the clock however often reports are sent.
+    """
     seconds = max(0, min(READING_HEARTBEAT_MAX, int(seconds)))
-    if seconds:
-        db.execute(
-            "INSERT INTO badge_reading_time (user_id, seconds, updated_at) VALUES (?, ?, ?) "
-            "ON CONFLICT(user_id) DO UPDATE SET seconds = seconds + excluded.seconds, updated_at = excluded.updated_at",
-            (user_id, seconds, now_sql()),
-        )
+    if not seconds:
+        return 0
+    with db.transaction():
+        previous = parse(db.scalar("SELECT updated_at FROM badge_reading_time WHERE user_id = ?", (user_id,)))
+        if previous is not None:
+            seconds = min(seconds, max(0, int((utcnow() - previous).total_seconds())))
+        if seconds:
+            db.execute(
+                "INSERT INTO badge_reading_time (user_id, seconds, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET seconds = seconds + excluded.seconds, "
+                "updated_at = excluded.updated_at",
+                (user_id, seconds, now_sql()),
+            )
+    return seconds
 
 
 # Event handlers

@@ -346,8 +346,12 @@
     this.restartBtn = root.querySelector("[data-tts-restart]");
     this.cutNote = root.querySelector("[data-tts-cut]");
     this.mini = root.querySelector("[data-tts-mini]");
-    this.toggleBtn = root.querySelector("[data-tts-toggle]");
+    this.toggleBtns = all("[data-tts-toggle]");
     this.time = root.querySelector("[data-tts-time]");
+    this.elapsed = root.querySelector("[data-tts-elapsed]");
+    this.total = root.querySelector("[data-tts-total]");
+    this.seekBar = root.querySelector("[data-tts-seek]");
+    this.scrubbing = false;
     this.showBtn = root.querySelector("[data-tts-show]");
     this.previousBtns = all("[data-tts-previous]");
     this.nextBtns = all("[data-tts-next]");
@@ -416,15 +420,25 @@
       rememberPosition(self.audio.getAttribute("src"), 0);
       self.resumeNote.hidden = true;
       if (isFinite(self.audio.duration)) self.audio.currentTime = 0;
-      self.audio.focus();
+      if (self.toggleBtns.length) self.toggleBtns[0].focus();
     });
     this.previousBtns.forEach(function (button) { button.addEventListener("click", function () { self.paragraph(-1); }); });
     this.nextBtns.forEach(function (button) { button.addEventListener("click", function () { self.paragraph(1); }); });
-    if (this.toggleBtn) this.toggleBtn.addEventListener("click", function () { self.toggle(); });
+    this.toggleBtns.forEach(function (button) { button.addEventListener("click", function () { self.toggle(); }); });
+    if (this.seekBar) {
+      // Dragging the bar moves the audio as it goes; the bar follows the audio again once it is let go.
+      this.seekBar.addEventListener("input", function () {
+        if (!self.ready()) return;
+        self.scrubbing = true;
+        self.audio.currentTime = (Number(self.seekBar.value) / Number(self.seekBar.max || 1000)) * self.audio.duration;
+        self.showTime();
+      });
+      this.seekBar.addEventListener("change", function () { self.scrubbing = false; self.showTime(); });
+    }
     if (this.showBtn) {
       this.showBtn.addEventListener("click", function () {
         self.root.scrollIntoView({ block: "center", behavior: reducedMotion() ? "auto" : "smooth" });
-        self.audio.focus({ preventScroll: true });
+        if (self.toggleBtns.length) self.toggleBtns[0].focus({ preventScroll: true });
       });
     }
     // J, K and L while the player (or the small player) has focus: WCAG 2.1.4 keeps one-key
@@ -479,6 +493,7 @@
 
   Panel.prototype.setSkipping = function (on) {
     this.previousBtns.concat(this.nextBtns).forEach(function (button) { button.disabled = !on; });
+    if (this.seekBar) this.seekBar.disabled = !on;
   };
 
   // Words can be clicked to read from there while the audio is ready and highlighting is on.
@@ -546,17 +561,24 @@
     if (!this.mini) return;
     this.mini.hidden = !(this.started && !this.player.hidden && !this.audio.ended && !this.panelVisible);
     var paused = this.audio.paused;
-    var label = this.toggleBtn.getAttribute(paused ? "data-label-play" : "data-label-pause");
-    if (label) { this.toggleBtn.setAttribute("aria-label", label); this.toggleBtn.setAttribute("title", label); }
-    var glyphs = this.toggleBtn.querySelectorAll("[data-tts-glyph]");
-    Array.prototype.forEach.call(glyphs, function (glyph) {
-      glyph.hidden = glyph.getAttribute("data-tts-glyph") !== (paused ? "play" : "pause");
+    this.toggleBtns.forEach(function (button) {
+      var label = button.getAttribute(paused ? "data-label-play" : "data-label-pause");
+      if (label) { button.setAttribute("aria-label", label); button.setAttribute("title", label); }
+      var glyphs = button.querySelectorAll("[data-tts-glyph]");
+      Array.prototype.forEach.call(glyphs, function (glyph) {
+        glyph.hidden = glyph.getAttribute("data-tts-glyph") !== (paused ? "play" : "pause");
+      });
     });
   };
 
   Panel.prototype.showTime = function () {
-    if (this.time && isFinite(this.audio.duration)) {
-      this.time.textContent = clock(this.audio.currentTime) + " / " + clock(this.audio.duration);
+    var duration = this.audio.duration;
+    if (!isFinite(duration)) return;
+    if (this.time) this.time.textContent = clock(this.audio.currentTime) + " / " + clock(duration);
+    if (this.elapsed) this.elapsed.textContent = clock(this.audio.currentTime);
+    if (this.total) this.total.textContent = clock(duration);
+    if (this.seekBar && !this.scrubbing && duration > 0) {
+      this.seekBar.value = String(Math.round(Math.min(1, this.audio.currentTime / duration) * Number(this.seekBar.max || 1000)));
     }
   };
 

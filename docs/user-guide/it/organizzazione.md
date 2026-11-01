@@ -29,7 +29,9 @@ Dal menu **Azioni pagina** della pagina:
 
 * **Rinomina** cambia il titolo.
 * **Cambia indirizzo** cambia `/page/<indirizzo>`; i collegamenti al vecchio
-  indirizzo nelle altre pagine vengono aggiornati.
+  indirizzo nelle altre pagine che puoi modificare vengono aggiornati (le
+  pagine che non puoi modificare, o protette o riservate da qualcun altro,
+  mantengono il vecchio collegamento).
 * **Sposta** mette la pagina in un'altra categoria.
 * **Rendi pagina iniziale** la rende la home della wiki.
 
@@ -47,6 +49,8 @@ Dal menu **Azioni pagina** della pagina:
 * Una pagina **protetta** è controllata da un solo editor; nessun altro può
   modificarla. Un amministratore che ne ha bisogno può chiederne lo sblocco,
   che diventa effettivo dopo 72 ore se il responsabile non la libera prima.
+  Se il responsabile smette di essere editor, le sue protezioni finiscono
+  definitivamente.
 * Una pagina **prenotata** è in lavorazione da parte di un editor per un tempo
   limitato; nel frattempo gli altri non possono modificarla. Prenota una
   pagina dal suo menu o al momento del salvataggio e liberala quando hai

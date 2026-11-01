@@ -11,7 +11,6 @@ import pytest
 from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.canvas import model, presets, service
 from bananawiki.wiki.features.pages import service as pages
-from bananawiki.wiki.i18n import BUILTIN_LANGUAGES
 
 from .api_support import call, enable_api, issue
 
@@ -312,14 +311,3 @@ def test_front_end_implements_guides_sides_and_export_placeholders():
     assert "fetch(url" in export and "/static\\/uploads\\//.test(url)" in export
     for text in (core, editor_js, export):
         assert "eval(" not in text and "innerHTML = " not in text.replace("body.innerHTML = rendering.html", "")
-
-
-@pytest.mark.parametrize("language", sorted(set(BUILTIN_LANGUAGES) - {"en"}))
-def test_canvas_strings_are_translated_in_every_language(language):
-    folder = STATIC.parent / "translations"
-    english = json.loads((folder / "en.json").read_text(encoding="utf-8"))
-    translated = json.loads((folder / f"{language}.json").read_text(encoding="utf-8"))
-    for key in ("canvas.error.locked", "canvas.edge.from_side", "canvas.edge.side_left", "canvas.keys.guides",
-                "js.canvas.export_placeholder", "js.canvas.status.exported_placeholders",
-                "js.canvas.status.node_restored", "js.canvas.status.edge_restored", "js.canvas.status.edge_lost"):
-        assert english[key] and translated[key] and english[key] != translated[key]

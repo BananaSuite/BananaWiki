@@ -155,7 +155,7 @@ def zip_bytes(members):
 
 def refused(app, data, name="c.canvas.zip"):
     with pytest.raises((transfer.CanvasImportError, model.DocumentError)) as error:
-        run(app, lambda: transfer.read_import(upload(data, name)))
+        run(app, lambda: transfer.read_import(upload(data, name), None))
     return error.value
 
 
@@ -207,7 +207,7 @@ def test_zips_still_import_where_zipfile_lacks_a_name_the_end_record_check_uses(
     vars(without).update({key: value for key, value in vars(zipfile).items() if key != missing})
     monkeypatch.setattr(transfer, "zipfile", without)
     data = zip_bytes({"canvas.json": json.dumps({"title": "Small", "data": {"nodes": [], "edges": []}})})
-    assert run(app, lambda: transfer.read_import(upload(data, "c.canvas.zip")))[0] == "Small"
+    assert run(app, lambda: transfer.read_import(upload(data, "c.canvas.zip"), None))[0] == "Small"
 
 
 def test_canvas_json_larger_than_any_export_is_not_read(app):

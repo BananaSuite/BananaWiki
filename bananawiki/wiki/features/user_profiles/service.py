@@ -84,6 +84,12 @@ def update_definition(field_id: int, label: str | None, field_type: str | None) 
               "id = ?", (field_id,))
 
 
+def value_count(field_id: int) -> int:
+    """How many members filled in the field (their values go when it is deleted)."""
+    return int(db.scalar("SELECT COUNT(*) FROM user_profile_fields__values WHERE field_id = ?", (field_id,),
+                         default=0))
+
+
 def delete_definition(field_id: int) -> None:
     db.execute("DELETE FROM user_profile_fields__definitions WHERE id = ?", (field_id,))
 
@@ -234,6 +240,13 @@ def set_published(user_id: str, published: bool) -> None:
     if published and profile.get("page_disabled_by_admin"):
         raise ProfileFieldError("profiles.error.disabled_by_admin")
     users.upsert_profile(user_id, page_published=1 if published else 0)
+
+
+def delete_own(user_id: str) -> None:
+    """The owner deletes their profile: its details, picture and profile field answers.
+    An administrator's block (and the tags administrators gave) stays."""
+    db.execute("DELETE FROM user_profile_fields__values WHERE user_id = ?", (user_id,))
+    users.delete_profile(user_id, keep_block=True)
 
 
 def moderate(user_id: str, action: str) -> None:

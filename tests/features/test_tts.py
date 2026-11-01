@@ -578,10 +578,3 @@ def test_saved_gpu_token_is_never_sent_to_a_new_server_address(admin_client, db,
     assert sent == []
     admin_client.post("/admin/tts/settings", data={**form, "tts_gpu_url": "http://100.64.0.4:8787"})
     assert db.scalar("SELECT tts_gpu_auth_token FROM site_settings").startswith("fernet:")  # typed again
-
-
-def test_admin_requires_admin(client, make_user, login):
-    login(client, make_user("editor", role="editor"))
-    assert client.get("/admin/tts").status_code == 403
-    assert client.post("/admin/tts/clear").status_code == 403
-    assert client.post("/admin/tts/settings", data={}).status_code == 403

@@ -62,7 +62,8 @@ def test_simplifications_reach_the_pages(easy, admin, login):
     assert EDITOR_RULE in editor and 'data-bm-hide="pages.simple_editor"' in editor
     dashboard = client.get("/admin/dashboard").get_data(as_text=True)
     assert "Getting started" in dashboard and 'href="/create-page"' in dashboard
-    assert 'href="/admin/roles"' not in dashboard, "the short menu leaves roles out"
+    overview = client.get("/admin/home").get_data(as_text=True)
+    assert 'href="/admin/users"' in overview and 'href="/admin/roles"' not in overview, "the short menu leaves roles out"
     assert client.get("/admin/roles").status_code == 200, "but the page stays reachable"
     assert client.get("/chats").status_code == 404, "a hidden feature answers 404 like a switched-off one"
 

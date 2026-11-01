@@ -79,7 +79,8 @@ use.
 
 If you have two accounts, the account merge page in Settings
 (`/settings/merge-request`) asks to merge one into the other. Both accounts
-confirm with their passwords, then an administrator approves.
+confirm with their passwords, then an administrator approves. You can ask for
+at most 10 merges in 24 hours, cancelled requests included.
 
 ## Deleting your account
 

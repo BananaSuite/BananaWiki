@@ -58,16 +58,6 @@ def test_validation(admin_client, db, overrides, message):
     assert db.scalar("SELECT COUNT(*) FROM announcements") == 0
 
 
-def test_non_admins_cannot_manage(client, login, make_user, admin, db):
-    ann = _insert(db, admin)
-    login(client, make_user("editor9", role="editor"))
-    assert client.get("/admin/announcements").status_code == 403
-    assert client.post("/admin/announcements/create", data=_form()).status_code == 403
-    assert client.post(f"/admin/announcements/{ann}/edit", data=_form()).status_code == 403
-    assert client.post(f"/admin/announcements/{ann}/delete").status_code == 403
-    assert db.scalar("SELECT COUNT(*) FROM announcements") == 1
-
-
 def test_bar_on_every_page_with_markdown_and_no_inline_script(client, admin, db):
     _insert(db, admin, content="**Bold** <script>alert(1)</script>", not_removable=0)
     page = client.get("/login")

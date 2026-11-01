@@ -103,11 +103,20 @@ add `"allow_plugins": true` to the launcher's `desktop.json` (in
 * `server.py` serves `bananawiki.wiki.app.create_app` with **waitress** on a
   background thread of the launcher (every platform; always bundled). From a
   source install on Linux or macOS without waitress it runs **gunicorn** with
-  one worker as a child process instead. The server is ready when `/health`
-  answers with the nonce drawn for this start (response header
-  `X-BananaWiki-Start`); an answer without it comes from another program on
+  one worker as a child process instead, started outside the data folder
+  (in the package's parent directory, with Python's `-P` and the launcher's
+  own gunicorn settings), so a `gunicorn.conf.py` or a Python module someone
+  left in the folder is never run. Those settings (`desktop/gunicorn_child.py`)
+  bring the standalone wiki's write timeout (a device that stops reading a
+  download is dropped after 300 s) and one request per connection. No proxy
+  sits in front of either server, so the launcher sets the limits a proxy
+  would (see [Limits per device](#limits-per-device)). The
+  server is ready when `/health` answers with the nonce drawn for this start
+  (response header `X-BananaWiki-Start`); an answer without it comes from another program on
   the same port and stops the start with an error.
 * `backup.py` writes and restores the ZIP files.
+* `waitress_server.py` and `gunicorn_limits.py` hold those limits for the
+  two servers.
 * `network.py` finds the LAN address without contacting the internet and
   picks a free port. The launcher binds waitress's port itself: on Windows
   for exclusive use (`SO_EXCLUSIVEADDRUSE`), so no other program can bind the
@@ -116,6 +125,47 @@ add `"allow_plugins": true` to the launcher's `desktop.json` (in
 * `app.py` is the tkinter window; slow work runs on a worker thread.
 * Strings live in `translations/en.json`, `translations/it.json` and
   `translations/de.json`.
+
+### Limits per device
+
+A standalone wiki has Caddy in front of it; the desktop wiki is served
+directly, to every device on the network once sharing is on. So that one
+device cannot take the wiki offline for the others (the teacher's own browser
+included), the server bounds what one connection and one address can hold
+(`desktop/server.py`):
+
+* **Request headers** must arrive within 30 s. The time counts from when the
+  connection starts waiting for a request (opened, or done with the previous
+  answer), so a client sending a header byte now and then is dropped, and so
+  is an idle keep-alive connection after 30 s (browsers open a new one).
+  Request bodies (uploads) are not bounded by it.
+* **Downloads**: a client that takes in nothing for 300 s is dropped, with
+  both servers (with waitress a body larger than its 16 MiB output buffer
+  would otherwise keep its thread and download place until the wiki stops).
+  Any byte read counts as progress.
+* **Per address**, with waitress (every desktop build): at most 16 open
+  connections, 256 in all; a further one from the same address is closed
+  straight away. A browser opens at most 6.
+* **Request bodies**, with waitress: waitress takes in a whole body (spooling
+  it to a temporary file) before the wiki can refuse it, so a body larger than
+  the wiki's largest upload (`MAX_CONTENT_LENGTH`, 500 MiB by default: a site
+  import) is refused with 413 right after its headers, and one address may
+  have at most twice that many bytes of bodies arriving or waiting at once; a
+  further request is refused with 413 the same way. A refused request that
+  sent `Expect: 100-continue` gets no `100 Continue`. gunicorn streams bodies
+  to the wiki, which refuses them before reading them.
+* **Per address**, with gunicorn: at most 8 of its 12 threads may be reading
+  request headers for one address; a further connection from that address is
+  closed straight away. Browsers send their headers at once, so only slow
+  clients are counted.
+
+What is left: several devices together (or one device with many addresses)
+can still fill the 256 connections, or gunicorn's threads; a device that
+reads a download very slowly (a byte now and then) keeps its download place;
+and with gunicorn a request body sent slowly holds a thread for as long as
+the client keeps sending, as on any server (one address holds at most what
+its requests keep busy). Share the wiki only on a network whose devices you
+trust to that extent, and prefer waitress (the default) for sharing.
 
 ## Building
 

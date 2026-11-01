@@ -13,8 +13,13 @@ so they hold across workers and restarts:
   included. User-name reminders, which need only an address, may use half
   of the recovery part; password resets, which need the user name too, may
   use all of it.
-* 15 messages per recipient, of which 3 password resets and 3 user-name
-  reminders (counted apart, so reminders cannot hold back a reset).
+* 15 messages per recipient, of which at most 5 notices another account
+  caused (being added to a wiki, being offered one), so other accounts
+  cannot fill an inbox's day. Account recovery and notices about the
+  account's own sign-in details (password or address changed) are counted
+  apart, so no other message can hold them back: 3 password resets, 3
+  user-name reminders (so reminders cannot hold back a reset either) and 5
+  of each notice.
 * ``HOSTING_EMAIL_ACCOUNT_DAILY_LIMIT`` messages an account causes itself
   (verification links when it changes its address, notices about its own
   actions), so one account cannot spend the platform's budget or mail
@@ -54,6 +59,12 @@ log = logging.getLogger("bananawiki.hosting.email")
 
 PER_RECIPIENT_DAILY_LIMIT = 15
 RECOVERY_KINDS = frozenset({"reset", "username"})
+# Notices about an account's own password or address: like recovery, never held back by other mail.
+CREDENTIAL_KINDS = frozenset({"password_changed", "email_changed"})
+CREDENTIAL_PER_RECIPIENT_DAILY_LIMIT = 5
+# Notices another account causes by naming someone: no more than this share of an address's day.
+FROM_OTHERS_KINDS = frozenset({"collaborator_added", "transfer_offered"})
+FROM_OTHERS_PER_RECIPIENT_DAILY_LIMIT = 5
 RECOVERY_RESERVE_PERCENT = 20
 # User-name reminders may use this share of the recovery part (password resets may use all of it).
 REMINDER_SHARE_PERCENT = 50
@@ -64,6 +75,8 @@ RECOVERY_REQUESTS_PER_IPV6_SITE = 3 * RECOVERY_REQUESTS_PER_NETWORK
 LOG_RETENTION_DAYS = 2
 _KINDS = ", ".join(f"'{kind}'" for kind in sorted(RECOVERY_KINDS))
 _RECOVERY_SQL, _OTHER_SQL = f" AND kind IN ({_KINDS})", f" AND kind NOT IN ({_KINDS})"
+_APART = ", ".join(f"'{kind}'" for kind in sorted(RECOVERY_KINDS | CREDENTIAL_KINDS))
+_FROM_OTHERS = ", ".join(f"'{kind}'" for kind in sorted(FROM_OTHERS_KINDS))
 
 
 def mail_settings(settings: EmailSettings) -> mail.MailSettings:
@@ -121,11 +134,15 @@ def recovery_paused(settings: EmailSettings, kind: str) -> bool:
 
 def refusal(settings: EmailSettings, recipient: str, kind: str, account_id: str | None) -> str | None:
     """Why one more message to *recipient* may not go out now, or None."""
-    recovery = kind in RECOVERY_KINDS
-    if _sent_since(" AND recipient = ?", (recipient.lower(),)) >= PER_RECIPIENT_DAILY_LIMIT:
-        return "recipient_limit"
-    if recovery and (_sent_since(" AND recipient = ? AND kind = ?", (recipient.lower(), kind))
-                     >= RECOVERY_PER_RECIPIENT_DAILY_LIMIT):
+    recovery, address = kind in RECOVERY_KINDS, recipient.lower()
+    if recovery or kind in CREDENTIAL_KINDS:
+        # Counted apart from everything else, which can therefore never hold them back.
+        limit = RECOVERY_PER_RECIPIENT_DAILY_LIMIT if recovery else CREDENTIAL_PER_RECIPIENT_DAILY_LIMIT
+        if _sent_since(" AND recipient = ? AND kind = ?", (address, kind)) >= limit:
+            return "recipient_limit"
+    elif (_sent_since(f" AND recipient = ? AND kind NOT IN ({_APART})", (address,)) >= PER_RECIPIENT_DAILY_LIMIT
+          or (kind in FROM_OTHERS_KINDS and _sent_since(f" AND recipient = ? AND kind IN ({_FROM_OTHERS})", (address,))
+              >= FROM_OTHERS_PER_RECIPIENT_DAILY_LIMIT)):
         return "recipient_limit"
     if (account_id and settings.account_daily_limit
             and _sent_since(" AND account_id = ?", (account_id,)) >= settings.account_daily_limit):

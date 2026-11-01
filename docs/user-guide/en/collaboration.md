@@ -66,7 +66,9 @@ something, write it down on a page.
   between positions and columns; each move is announced to screen readers.
 * **History** shows earlier states of the board, with their column limits,
   checklists and archived tickets, and what changed in each; restoring one
-  never deletes tickets, comments or files.
+  never deletes tickets, comments or files. On a large board only the first
+  descriptions (about 200,000 characters) are formatted; the rest are shown as
+  typed.
 * The board's creator can share it with people or roles (view or write),
   make it public, export or delete it. **More → Export without attachments**
   exports just the board, for example when its files are too many or too

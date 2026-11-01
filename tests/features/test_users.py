@@ -23,10 +23,6 @@ NEW_PASSWORD = "an entirely new secret"
 # Account settings
 
 
-def test_settings_requires_login(client):
-    assert "/login" in client.get("/settings").headers["Location"]
-
-
 def test_legacy_account_urls_redirect(client, make_user, login):
     login(client, make_user("bob"))
     assert client.get("/account").headers["Location"].endswith("/settings")

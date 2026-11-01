@@ -20,20 +20,41 @@ Reverting keeps comments, attachments and description history:
 
 Consecutive moves of a ticket (whichever column they lead to), reorderings
 and checklist changes of a ticket by the same person within a short window
-share one entry, and identical snapshots are skipped. A board keeps its newest
-``HISTORY_KEPT`` entries, and of those only as many as fit in
+share one entry, and identical snapshots are skipped. A board whose content
+is over ``LARGE_BOARD_BYTES`` (see :func:`board_bytes`) gets a new entry at
+most every ``HISTORY_MIN_SECONDS``, and a smaller one at most every
+``HISTORY_MIN_SECONDS`` scaled by its share of ``LARGE_BOARD_BYTES`` (none for
+a board small enough that this is under ``MIN_THROTTLE_SECONDS``), so one
+board's history grows by about ``LARGE_BOARD_BYTES`` a minute at most,
+whatever its size: changes in between are part of the next entry (and a
+revert first records the board as it is). A board keeps its
+newest ``HISTORY_KEPT`` entries, and of those only as many as fit in
 ``HISTORY_MAX_BYTES``: a large board keeps fewer versions, never fewer than
 the newest. A ticket's description history (``kanban_ticket_history``) is
 bounded the same way by ``TICKET_HISTORY_KEPT`` and ``TICKET_HISTORY_MAX_BYTES``.
+
+Boards are cheap to multiply, so each account's history writes are bounded
+too: what an entry adds to its board's history (after the pruning above, so
+a board whose history is full costs about nothing) is counted, in bytes,
+against its author's ``STORED_MIB_PER_DAY`` in 24 hours, kept in
+``rate_limit_hits`` (``STORED_BUCKET``, shared with imports, see
+:mod:`.transfer`) so that every worker shares it and deleting the boards
+gives nothing back. Past the budget the change is still made and recorded,
+but the board's history may no longer grow: its oldest entries make room for
+the new one. Entries the server writes for an account deletion or merge are
+not counted against anyone.
 """
 
 from __future__ import annotations
 
 import json
+import sqlite3
 from typing import Any
 
-from ....core.timeutil import now_sql, parse, utcnow
+from ....core.ratelimit import SqlLimiter
+from ....core.timeutil import now_sql, parse, sql_in, utcnow
 from ...db import db
+from ...markdown import plain_html, render, shared_highlighting
 from . import fields, store
 
 HISTORY_KEPT = 200
@@ -42,6 +63,33 @@ TICKET_HISTORY_KEPT = 100
 TICKET_HISTORY_MAX_BYTES = 1024 * 1024
 COALESCE_SECONDS = 120
 SNAPSHOT_VERSION = 2
+LARGE_BOARD_BYTES = 1024 * 1024
+HISTORY_MIN_SECONDS = 60
+# History and import bytes one account may add in 24 hours: the throttles bound one board, and an account can
+# fill many.
+STORED_MIB_PER_DAY = 128
+STORED_BUCKET = "kanban:stored"
+# Smaller boards wait less, in proportion to their size; under this many seconds, not at all.
+MIN_THROTTLE_SECONDS = 2
+# octet_length (SQLite 3.43) measures a value without reading it.
+_BYTES = "octet_length({})" if sqlite3.sqlite_version_info >= (3, 43) else "length(CAST({} AS BLOB))"
+
+
+def board_bytes(board_id: int) -> int:
+    """About the bytes the board's tickets take in a snapshot (text, labels, checklists and assignees),
+    without reading them."""
+    tickets = ("FROM kanban_tickets t JOIN kanban_columns c ON c.id = t.column_id WHERE c.board_id = ?")
+    text = " + ".join(f"COALESCE({_BYTES.format(column)}, 0)" for column in ("t.title", "t.description", "t.labels"))
+    # An assignee is in a snapshot twice, by id and by username (each quoted, with a comma).
+    person = f"{_BYTES.format('u.id')} + {_BYTES.format('u.username')} + 6"
+    return int(db.scalar(
+        f"SELECT (SELECT COALESCE(SUM({text} + 100), 0) {tickets}) + (SELECT COALESCE(SUM("
+        f"COALESCE({_BYTES.format('k.text')}, 0) + 30), 0) FROM kanban_ticket_checklist k "
+        f"JOIN kanban_tickets t ON t.id = k.ticket_id JOIN kanban_columns c ON c.id = t.column_id "
+        f"WHERE c.board_id = ?) + (SELECT COALESCE(SUM({person}), 0) FROM kanban_ticket_assignees a "
+        f"JOIN users u ON u.id = a.user_id JOIN kanban_tickets t ON t.id = a.ticket_id "
+        "JOIN kanban_columns c ON c.id = t.column_id WHERE c.board_id = ?)",
+        (board_id, board_id, board_id), default=0) or 0)
 
 
 def snapshot(board_id: int) -> dict[str, Any] | None:
@@ -102,30 +150,78 @@ def snapshot(board_id: int) -> dict[str, Any] | None:
 
 
 def record(board_id: int, user_id: str | None, message: str, *, is_revert: bool = False,
-           coalesce: bool = False) -> int | None:
-    """Store the board's current state; call inside the transaction that changed it."""
-    state = snapshot(board_id)
-    if state is None:
-        return None
-    encoded = json.dumps(state, sort_keys=True, separators=(",", ":"))
+           coalesce: bool = False, force: bool = False, charged: bool = True) -> int | None:
+    """Store the board's current state; call inside the transaction that changed it.
+
+    A board is not snapshotted again within :func:`snapshot_interval` seconds
+    of its latest entry, unless *force* (or *is_revert*). What the entry adds
+    to the board's history counts against *user_id*'s daily budget unless
+    *charged* is false (entries the server writes, such as an account's
+    hand-over); past the budget the oldest entries make room for it instead.
+    """
     latest = db.one(
-        "SELECT id, snapshot, edited_by, edit_message, is_revert, created_at FROM kanban_board_history "
+        "SELECT id, edited_by, edit_message, is_revert, created_at FROM kanban_board_history "
         "WHERE board_id = ? ORDER BY id DESC LIMIT 1",
         (board_id,),
     )
-    if latest and latest["snapshot"] == encoded and not is_revert:
+    if (latest and not (force or is_revert) and latest["created_at"] >= sql_in(seconds=-HISTORY_MIN_SECONDS)):
+        wait = snapshot_interval(board_bytes(board_id))
+        if wait and latest["created_at"] >= sql_in(seconds=-wait):
+            return None
+    state = snapshot(board_id)
+    if state is None:
+        return None
+    # As UTF-8, so the stored snapshot is about the size board_bytes measures (escaped as ASCII, a letter
+    # outside it took up to six bytes and an emoji twelve).
+    encoded = json.dumps(state, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    if latest and not is_revert and db.scalar("SELECT snapshot FROM kanban_board_history WHERE id = ?",
+                                              (latest["id"],)) == encoded:
         return None
     values = {"title": state["title"], "description": state["description"], "snapshot": encoded,
               "edited_by": user_id, "edit_message": message[:500], "is_revert": 1 if is_revert else 0,
               "created_at": now_sql()}
+    before = _history_bytes(board_id)
     if coalesce and latest and _can_merge(latest, user_id, message):
         db.update("kanban_board_history", values, "id = ?", (latest["id"],))
         entry_id = int(latest["id"])
     else:
         entry_id = db.insert("kanban_board_history", {"board_id": board_id, **values})
-    _prune("kanban_board_history", "board_id", board_id, "length(CAST(snapshot AS BLOB))",
-           HISTORY_KEPT, HISTORY_MAX_BYTES)
+    _prune("kanban_board_history", "board_id", board_id, _BYTES.format("snapshot"), HISTORY_KEPT, HISTORY_MAX_BYTES)
+    growth = _history_bytes(board_id) - before
+    if charged and growth > 0 and not _reserve(user_id, growth):
+        # Out of budget: the change stays recorded, but the board's history does not grow (beyond the
+        # newest entry itself, which is about the board's own size).
+        _prune("kanban_board_history", "board_id", board_id, _BYTES.format("snapshot"), HISTORY_KEPT, before)
     return entry_id
+
+
+def _history_bytes(board_id: int) -> int:
+    return int(db.scalar(f"SELECT COALESCE(SUM({_BYTES.format('snapshot')}), 0) FROM kanban_board_history "
+                         "WHERE board_id = ?", (board_id,), default=0) or 0)
+
+
+def _reserve(user_id: str | None, size: int) -> bool:
+    """Count *size* bytes stored by *user_id* against ``STORED_MIB_PER_DAY``; False past it."""
+    return not user_id or SqlLimiter(db.session).reserve_amount(
+        f"user:{user_id}", STORED_BUCKET, size, STORED_MIB_PER_DAY * 1024 * 1024, 86400)
+
+
+def charge(user_id: str | None, size: int) -> None:
+    """Count *size* bytes imported by *user_id* against ``STORED_MIB_PER_DAY``; raise a 429
+    :class:`KanbanError` past it (call inside the import's transaction)."""
+    if size > 0 and not _reserve(user_id, size):
+        raise fields.KanbanError("kanban.error.daily_storage_limit", 429, maximum=STORED_MIB_PER_DAY)
+
+
+def snapshot_interval(size: int) -> float:
+    """Seconds a board of *size* bytes (see :func:`board_bytes`) waits between two history entries.
+
+    Proportional to the size, up to ``HISTORY_MIN_SECONDS`` from ``LARGE_BOARD_BYTES`` on, so the
+    snapshots of one board add up to about ``LARGE_BOARD_BYTES`` a minute whatever its size; 0 when
+    that is under ``MIN_THROTTLE_SECONDS`` (small boards keep an entry per change).
+    """
+    wait = HISTORY_MIN_SECONDS * min(1.0, size / LARGE_BOARD_BYTES)
+    return wait if wait >= MIN_THROTTLE_SECONDS else 0.0
 
 
 def _prune(table: str, owner: str, owner_id: int, size: str, kept: int, max_bytes: int) -> None:
@@ -192,6 +288,37 @@ def decode(raw: str | None) -> dict[str, Any]:
         for column in columns if isinstance(column, dict)
     ]
     return state
+
+
+# Source characters of ticket descriptions one view of a snapshot renders as Markdown.
+MAX_SNAPSHOT_RENDER_CHARS = 200_000
+# Rendered HTML of those descriptions one view carries.
+MAX_SNAPSHOT_HTML_CHARS = 2 * 1024 * 1024
+
+
+def describe_tickets(state: dict[str, Any]) -> None:
+    """Give each ticket of *state* a ``description_html`` at a bounded cost.
+
+    A snapshot may hold thousands of tickets, and their short descriptions
+    are not kept in the render cache, so one view renders at most
+    :data:`MAX_SNAPSHOT_RENDER_CHARS` of their text, in board order and
+    sharing one highlighting allowance, and only until their HTML reaches
+    :data:`MAX_SNAPSHOT_HTML_CHARS`. The descriptions after that are shown as
+    typed.
+    """
+    source_left, html_left = MAX_SNAPSHOT_RENDER_CHARS, MAX_SNAPSHOT_HTML_CHARS
+    with shared_highlighting():
+        for column in state["columns"]:
+            for ticket in column["tickets"]:
+                text = ticket.get("description")
+                text = text if isinstance(text, str) else ""
+                if text and len(text) <= source_left and html_left > 0:
+                    html = render(text)
+                    source_left -= len(text)
+                    html_left -= len(html)
+                else:
+                    html = plain_html(text) if text else ""
+                ticket["description_html"] = html
 
 
 def previous_state(board_id: int, entry_id: int) -> dict[str, Any] | None:
@@ -316,7 +443,7 @@ class _Matcher:
 
 
 def _clean_title(value: Any, maximum: int, fallback: str) -> str:
-    text = " ".join(str(value or "").split())[:maximum]
+    text = " ".join(fields.plain_text(value).split())[:maximum]
     return text or fallback
 
 
@@ -340,7 +467,7 @@ def _restore_ticket(item: dict[str, Any], existing: dict[str, Any] | None, colum
                     user_id: str) -> tuple[int, bool]:
     """Write the snapshot's ticket; returns its id and whether it is archived."""
     title = _clean_title(item.get("title"), fields.MAX_TICKET_TITLE, "—")
-    description = str(item.get("description") or "")[:fields.MAX_DESCRIPTION]
+    description = fields.plain_text(item.get("description"))[:fields.MAX_DESCRIPTION]
     priority = item.get("priority") if item.get("priority") in fields.PRIORITIES else "medium"
     try:
         due = fields.due_date(item.get("due_date"))
@@ -358,8 +485,14 @@ def _restore_ticket(item: dict[str, Any], existing: dict[str, Any] | None, colum
     elif existing is None or not existing.get("archived_at"):
         values.update(archived_at=now_sql(), archived_by=user_id)
     if existing is None:
+        # A deleted ticket comes back under its own id when that is free (ids are never reused),
+        # so reverting to the same version again finds it instead of adding another copy.
+        wanted = item.get("id")
+        reuse = (isinstance(wanted, int) and not isinstance(wanted, bool) and wanted > 0
+                 and db.scalar("SELECT 1 FROM kanban_tickets WHERE id = ?", (wanted,)) is None)
         ticket_id = db.insert("kanban_tickets", {**values, "column_id": column_id, "created_by": user_id,
-                                                 "sort_order": 0, "created_at": now_sql()})
+                                                 "sort_order": 0, "created_at": now_sql(),
+                                                 **({"id": wanted} if reuse else {})})
     else:
         ticket_id = existing["id"]
         if (existing["description"] or "") != description:
@@ -376,7 +509,7 @@ def revert(board: dict[str, Any], state: dict[str, Any], user_id: str) -> dict[s
     board_id = board["id"]
     title = _clean_title(state.get("title"), fields.MAX_BOARD_TITLE, board["title"])
     db.update("kanban_boards", {"title": title,
-                                "description": str(state.get("description") or "")[:fields.MAX_DESCRIPTION]},
+                                "description": fields.plain_text(state.get("description"))[:fields.MAX_DESCRIPTION]},
               "id = ?", (board_id,))
     columns = _Matcher(store.columns_of(board_id))
     tickets = _Matcher(db.all(

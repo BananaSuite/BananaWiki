@@ -53,6 +53,7 @@
 {% if can_reorder and boards|length > 1 %}
 <p class="hint kanban-list-order">{{ t('kanban.list.reorder_hint') }}</p>
 {% endif %}
+{{ forms.pagination(page, pages, 'kanban.index', {'archived': 1} if show_archived else {}) }}
 {% else %}
 <div class="empty-state">
   <h2>{{ t('kanban.list.empty') }}</h2>
@@ -62,8 +63,8 @@
 
 {% if show_archived and archived_boards %}
 <section class="kanban-archived-boards" id="kanban-archived-boards" aria-labelledby="kanban-archived-boards-title">
-  <h2 id="kanban-archived-boards-title">{{ t('kanban.list.archived_title') }} <span class="badge">{{ archived_boards|length }}</span></h2>
-  <p class="hint">{{ t('kanban.list.archived_hint') }}</p>
+  <h2 id="kanban-archived-boards-title">{{ t('kanban.list.archived_title') }} <span class="badge">{{ archived_count }}</span></h2>
+  <p class="hint">{{ t('kanban.list.archived_hint') }}{% if archived_count > archived_boards|length %} {{ t('kanban.list.archived_first', shown=archived_boards|length, count=archived_count) }}{% endif %}</p>
   <ul class="kanban-boards">
     {% for board in archived_boards %}
     <li class="kanban-boards__item kanban-boards__item--archived">

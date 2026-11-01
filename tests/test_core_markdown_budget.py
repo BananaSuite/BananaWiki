@@ -6,7 +6,6 @@ import re
 from html.parser import HTMLParser
 
 import pytest
-from markdown.extensions import codehilite
 
 from bananawiki.wiki import markdown
 
@@ -22,15 +21,17 @@ def _fresh_cache():
 
 @pytest.fixture
 def highlighted(monkeypatch):
-    """Characters of code handed to Pygments by every highlighted block."""
+    """Characters of code handed to Pygments by every highlighted block (with time enough for all of them:
+    the time limit has its own tests)."""
+    monkeypatch.setattr(markdown, "MAX_HIGHLIGHT_SECONDS", 60)
     sizes: list[int] = []
-    original = codehilite.highlight
+    original = markdown._highlight
 
-    def counting(source, lexer, formatter):
+    def counting(source, *args):
         sizes.append(len(source))
-        return original(source, lexer, formatter)
+        return original(source, *args)
 
-    monkeypatch.setattr(codehilite, "highlight", counting)
+    monkeypatch.setattr(markdown, "_highlight", counting)
     return sizes
 
 
@@ -72,18 +73,16 @@ def test_ordinary_code_is_still_highlighted(highlighted):
 
 def test_blocks_of_one_document_share_one_budget(highlighted, monkeypatch):
     """A page made of many blocks (the page builder) cannot multiply the allowance."""
-    codes: list[int] = []
-    original = markdown.highlight
-    monkeypatch.setattr(markdown, "highlight", lambda source, *a: codes.append(len(source)) or original(source, *a))
     text = "```c\n" + DENSE_LINE * 38 + "```\n"
     code = DENSE_LINE * 40
     with markdown.shared_highlighting():
         texts = [markdown.render(text + f"\n{number}\n") for number in range(60)]
+        blocks = len(highlighted)
         snippets = [markdown.highlight_code(code + f"{number}\n", "c") for number in range(60)]
-    spent = sum(highlighted) + sum(codes) + markdown.HIGHLIGHT_BLOCK_COST * (len(highlighted) + len(codes))
+    spent = sum(highlighted) + markdown.HIGHLIGHT_BLOCK_COST * len(highlighted)
     assert spent <= markdown.MAX_HIGHLIGHT_DOCUMENT_CHARS
     assert "<span" in texts[0] and "<span" not in texts[-1]
-    assert codes == [] and "<span" not in snippets[0] and "a+b-c*d/e%f&amp;g" in snippets[0]
+    assert len(highlighted) == blocks and "<span" not in snippets[0] and "a+b-c*d/e%f&amp;g" in snippets[0]
     # What the shared allowance left plain is not kept: alone it is highlighted in full.
     assert "<span" in markdown.render(text + "\n59\n")
     assert "<span" in markdown.highlight_code(code + "59\n", "c")
@@ -96,10 +95,8 @@ def test_a_builder_page_highlights_within_one_budget(app, monkeypatch):
     from bananawiki.wiki.features.page_builder import document
 
     sizes: list[int] = []
-    for module in (codehilite, markdown):
-        original = module.highlight
-        monkeypatch.setattr(module, "highlight",
-                            lambda source, *a, _original=original: sizes.append(len(source)) or _original(source, *a))
+    original = markdown._highlight
+    monkeypatch.setattr(markdown, "_highlight", lambda source, *a: sizes.append(len(source)) or original(source, *a))
     blocks = [{"type": "text", "format": "markdown", "text": f"```c\n{DENSE_LINE * 30}```\n\n{number}"}
               for number in range(50)]
     blocks += [{"type": "code", "language": "c", "code": f"{DENSE_LINE * 30}{number}"} for number in range(50)]
@@ -136,8 +133,8 @@ def test_short_sources_that_were_highlighted_are_cached_too(highlighted):
 
 def test_highlighted_snippets_are_cached(monkeypatch):
     calls = []
-    original = markdown.highlight
-    monkeypatch.setattr(markdown, "highlight", lambda *a: calls.append(1) or original(*a))
+    original = markdown._highlight
+    monkeypatch.setattr(markdown, "_highlight", lambda *a: calls.append(1) or original(*a))
     code = DENSE_LINE * 40
     first = markdown.highlight_code(code, "c")
     assert markdown.highlight_code(code, "c") == first and len(calls) == 1

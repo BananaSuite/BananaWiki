@@ -124,6 +124,8 @@ class Config:
     # Background jobs
     run_background_jobs: bool = True
     testing: bool = False
+    # Large responses written at once per process (BW_DOWNLOAD_THREADS, see core.downloads).
+    download_threads: int = 8
     # Outgoing email set by the operator (BW_MAIL_* / BW_SMTP_*); wins over the admin settings.
     mail: MailSettings | None = field(default=None, repr=False)
     # Public address of the wiki for links in emails (BW_BASE_URL).
@@ -300,6 +302,7 @@ def load_config(environ: dict[str, str] | None = None, **overrides: object) -> C
         min_form_seconds=env.float("BW_MIN_FORM_SECONDS", 0.4, minimum=0.0),
         memory_limit_mb=env.int("BW_MEMORY_LIMIT_MB", 0, minimum=0),
         nofile_limit=env.int("BW_NOFILE_LIMIT", 0, minimum=0),
+        download_threads=env.int("BW_DOWNLOAD_THREADS", 8, minimum=1, maximum=32),
         integrity_check_interval=env.int("BW_DB_INTEGRITY_CHECK_INTERVAL_SECONDS", 3600, minimum=0),
         managed_hosting=managed,
         easy_wiki=env.bool("BW_EASY_WIKI", False),

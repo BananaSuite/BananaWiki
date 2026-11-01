@@ -90,6 +90,7 @@
   "canvas.error.rate_limited": "Troppe richieste. Attendi un momento e riprova.",
   "canvas.error.title_required": "Inserisci un titolo.",
   "canvas.error.title_too_long": "Il titolo può essere lungo al massimo {limit} caratteri.",
+  "canvas.error.daily_limit": "Hai aggiunto {limit_mb} MB ai canvas e alla loro cronologia nelle ultime 24 ore, il massimo consentito: riprova più tardi.",
   "canvas.error.too_large": "Il canvas supera {limit_mb} MB.",
   "canvas.error.too_many_edges": "Un canvas può avere al massimo {limit} collegamenti.",
   "canvas.error.too_many_nodes": "Un canvas può avere al massimo {limit} elementi.",
@@ -362,5 +363,6 @@
   "js.node.image": "Immagine",
   "js.node.text": "Nota",
   "js.node.video": "Video",
-  "js.node.wiki_page": "Pagina della wiki"
+  "js.node.wiki_page": "Pagina della wiki",
+  "audit.action.canvas.impersonated_action": "Modifica a un canvas mentre si usava la wiki come un'altra persona"
 }

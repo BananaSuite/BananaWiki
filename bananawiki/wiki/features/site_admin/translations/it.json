@@ -151,6 +151,7 @@
   "site_admin.locked.two_step_yours_first": "Attiva prima la verifica in due passaggi per il tuo account (Impostazioni → Verifica in due passaggi).",
   "site_admin.log.empty": "Niente da mostrare.",
   "site_admin.log.empty_errors": "Nessun errore nella parte recente del log.",
+  "site_admin.log.addresses_hidden": "Anche gli indirizzi di rete sono nascosti: solo proprietari e superutenti li vedono.",
   "site_admin.log.intro": "La parte finale del log del server. Password, token e chiavi sono nascosti.",
   "site_admin.log.intro_errors": "Gli errori nella parte finale del log del server. Password, token e chiavi sono nascosti.",
   "site_admin.log.missing": "Nessun file di log viene scritto. Imposta BW_LOG_FILE o controlla BW_LOGGING_LEVEL.",

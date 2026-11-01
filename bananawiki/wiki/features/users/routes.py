@@ -22,6 +22,7 @@ from ....core.timeutil import utcnow
 from ....core.web import safe_next
 from ... import accounts, auth, bm, settings, storage
 from ...i18n import enabled_languages, t
+from ..audit.service import record as audit_record
 from . import preferences, service, sessions
 
 bp = Blueprint("users", __name__, template_folder="templates", static_folder="static",
@@ -43,6 +44,34 @@ def _fail(error: Exception, endpoint: str, **values: Any):
 def _no_impersonation() -> None:
     if auth.is_impersonating():
         abort(403)
+
+
+# Account and profile changes made while impersonating are recorded under the administrator's name.
+_IMPERSONATION_AUDITED = frozenset({"users", "user_profiles"})
+_IMPERSONATION_UNAUDITED = frozenset({  # display, accessibility and language choices only the member sees
+    "users.display", "users.display_reset", "users.background_upload", "users.background_remove",
+    "users.api_background", "users.api_save_preferences", "users.api_reset_preferences", "users.change_language",
+})
+
+
+@bp.after_app_request
+def _audit_impersonated_account_action(response):
+    """Record each account or profile change an administrator makes in a member's name while impersonating them.
+
+    The public profile (name, biography, picture, fields), the username,
+    account merges, deletion and ownership show the member as their author,
+    so each such request gets an audit entry with the administrator as actor
+    (refused attempts too, with their status), as chat actions and page
+    changes do.
+    """
+    if request.method in ("GET", "HEAD", "OPTIONS") or request.blueprint not in _IMPERSONATION_AUDITED \
+            or request.endpoint in _IMPERSONATION_UNAUDITED or not auth.is_impersonating():
+        return response
+    as_user = auth.current_user()
+    audit_record("user.impersonated_action", target_type="user", target_id=as_user["id"],
+                 details={"as_user": as_user["username"], "endpoint": request.endpoint,
+                          "status": response.status_code})
+    return response
 
 
 def _image_upload_allowed(user: dict[str, Any], upload: Any) -> bool:

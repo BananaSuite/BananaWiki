@@ -67,7 +67,7 @@ instance directory (never overwriting anything). See [UPGRADING](../UPGRADING.md
 |---|---|---|
 | `BW_ENV` | `production` | `production`, `development` (`dev`) or `test` (`testing`). Production refuses a secret key shorter than 32 characters and a key file readable by other users, and sends HSTS on HTTPS requests. `bananawiki serve` defaults to `development`. |
 | `SECRET_KEY` (alias `BW_SECRET_KEY`) | generated | Signs sessions and derives the keys for encrypted settings, API token digests and the setup token. When unset, 64 hex characters are generated once into `<instance>/.secret_key` (mode 0600). **Changing it signs everyone out, invalidates every API token and makes encrypted settings unreadable.** |
-| `BW_SETUP_TOKEN` | derived | Token needed to create the first account at `/setup`. Default: HMAC-SHA256 of the secret key and `initial-admin-setup` (hex). Print it with `bananawiki setup-token`. |
+| `BW_SETUP_TOKEN` | derived | Token needed to create the first account at `/setup`. Default: HMAC-SHA256 of the secret key and `initial-admin-setup` (hex). Print it with `bananawiki setup-token`. In production `/setup` refuses a token shorter than 20 characters; wrong tokens are limited to 10 per client network in 15 minutes. |
 | `BW_HOST` | `127.0.0.1` | Listen address (Gunicorn and `bananawiki serve`). |
 | `BW_PORT` | `5001` | Listen port (1–65535). |
 | `BW_PROXY_MODE` | `0` | Trust `X-Forwarded-For`, `-Proto` and `-Host` from **one** proxy in front. Turn it on only when the port is reachable through that proxy alone. `X-Forwarded-Prefix` is never trusted. |
@@ -147,7 +147,7 @@ tenant wikis can send email.
 | `BW_SMTP_USERNAME`, `BW_SMTP_PASSWORD` | none | SMTP credentials. |
 | `BW_MAIL_TIMEOUT` | 15 (1–120) | Seconds before a connection to the mail server gives up. |
 | `BW_MAIL_DAILY_LIMIT` | 0 (none) | Not used by the wiki's notifications (they are throttled per recipient); accepted for symmetry with the portal. |
-| `BW_BASE_URL` | the administrator's setting | Public address of the wiki (`https://wiki.example.org`) for links in emails. Without it, the address saved in **Admin → Notifications** is used; with neither, emails carry no links. |
+| `BW_BASE_URL` | the administrator's setting | Public address of the wiki (`https://wiki.example.org`) for links in emails and PDF exports. Without it, the address saved in **Admin → Notifications** is used; with neither, emails carry no links and PDF links use the address the request came to. |
 
 ## Hosting platform (set by the host)
 
@@ -177,7 +177,8 @@ values are clamped.
 |---|---|---|
 | `BW_HOST`, `BW_PORT` | `127.0.0.1`, `5001` | Bind address. |
 | `BW_WORKERS` | 2 (1–16) | Worker processes. SQLite serialises writes, so a few workers with threads work better than many processes. |
-| `BW_THREADS` | 4 (1–32) | Threads per worker. |
+| `BW_THREADS` | 4 (1–32) | Threads per worker for pages and everything else that is not a large response. |
+| `BW_DOWNLOAD_THREADS` | 8 (1–32) | Further threads per worker for large responses (files, exports, bodies over 64 KiB). A worker writes at most this many at once and one account or network at most a quarter of them (so it takes four clients to fill a worker); over that it answers 503 or 429 with `Retry-After: 5`, so slow readers never take the `BW_THREADS`. Exports take their place before they are built: a refused one is not counted against its limit or audited. |
 | `BW_WORKER_TIMEOUT` | 120 (10–600) | Seconds before a stuck worker is replaced. |
 | `BW_WRITE_TIMEOUT` | 300 (0–3600) | Whole seconds a response write may wait for the client before the connection is closed, so a client that stops reading holds a worker thread no longer than that (see [deployment](deployment.md#reverse-proxy)). Raise it to serve very slow links; `0` waits forever. |
 | `BW_ACCESS_LOG` | `-` | Access log: `-` for standard output, `off`, or a file path. |
@@ -270,12 +271,13 @@ installations set them to `<root>/data`.
 | `INSTANCES_DIR` | `<source>/hosting/data/instances` | Tenant data directories (`<slug>` or `<slug>__apex`). |
 | `HOSTING_PLATFORM_STATE_DIR` | `<database dir>/platform_state` | Portal state; must not be inside `INSTANCES_DIR`. |
 | `HOSTING_DB_BUSY_TIMEOUT_MS` | 5000 (100–30000) | SQLite write-lock wait. |
+| `HOSTING_OAUTH_CLIENT_RATE` | 600 (at least 60) | Calls one wiki may make a minute, in each portal worker, to the platform sign-in endpoints it calls itself (profile, link, link status, sign-out events). Exchanging sign-in codes is never limited for a wiki with the right credentials. See [hosting](hosting.md#platform-sign-in). |
 | `HOSTING_LOG_LEVEL` | `info` | `debug`, `info`, `warning` or `error`. |
 | `HOSTING_LOG_FORMAT` | `text` | `text` or `json`, as `BW_LOG_FORMAT`. |
-| `HOSTING_EVENT_RETENTION_DAYS` | 3650 (0 = keep forever, at most 36500) | Days the moderation log (`hosting_events`: decisions on accounts and wikis, who took them and why) keeps an entry; the maintenance service deletes older ones. If your privacy notice states how long these records are kept, keep this value in line with it. |
+| `HOSTING_EVENT_RETENTION_DAYS` | 3650 (0 = keep forever, at most 36500) | Days the moderation log (`hosting_events`: decisions on accounts and wikis, who took them and why) keeps an entry; the maintenance service deletes older ones, except that a wiki still in use changed owner (kept without who did it or for whom, as the admin-password reset depends on it). If your privacy notice states how long these records are kept, keep this value in line with it. |
 | `BANANA_MAINTENANCE_FILE` (alias `BW_MAINTENANCE_FILE`) | none | 503 for everything but `/health` while it exists. |
 | `BW_SOURCE_URL` | `https://github.com/BananaSuite/BananaWiki` | Source link shown by the portal (managed installs set it to the update source). |
-| `HOSTING_WORKERS`, `HOSTING_THREADS`, `HOSTING_WORKER_TIMEOUT`, `HOSTING_WRITE_TIMEOUT`, `HOSTING_ACCESS_LOG` | 2, 4, 120, 300, `-` | Read by `hosting/gunicorn.conf.py`; the same meaning as the `BW_` variables of the [web server](#web-server-gunicorn). |
+| `HOSTING_WORKERS`, `HOSTING_THREADS`, `HOSTING_WORKER_TIMEOUT`, `HOSTING_WRITE_TIMEOUT`, `HOSTING_ACCESS_LOG` | 2, 4, 120, 300, `-` | Read by `hosting/gunicorn.conf.py`; the same meaning as the `BW_` variables of the [web server](#web-server-gunicorn). Each worker runs four more threads for large responses (wiki archives, platform exports), one per account or network, and four for requests waiting for a wiki the portal proxies itself (a wiki host without its own route). |
 
 ### Addresses
 
@@ -311,7 +313,7 @@ installations set them to `<root>/data`.
 | `HOSTING_TENANT_PLUGIN_DENYLIST` | none | Plugin ids tenants may never load. |
 | `HOSTING_TTS_GPU_TENANT_TOKENS` | `1` | Give each wiki its own GPU speech token derived from the master token instead of the master token itself. Needs the 1.7 GPU speech server or later; set `0` only while an older GPU server is still running. |
 | `HOSTING_FEDERATION_INSTANCES` | none | Wiki ids (from the portal) whose tenants get `BW_FEDERATION_ENABLED=1`; `*` for every wiki. |
-| `MAX_INSTANCES_PER_ACCOUNT` | 5 | Wikis per customer (suspended ones count; checked again when a customer accepts a transfer). |
+| `MAX_INSTANCES_PER_ACCOUNT` | 5 | Wikis per customer (suspended ones count, and so do those the owner terminated while their data is kept; checked again when a customer accepts a transfer). A customer may create twice this many wikis in 24 hours. |
 | `INSTANCE_DURATION_DAYS` | 14 (0 = never expire) | Lifetime of a new, restored or renewed wiki. |
 | `HOSTING_EXPIRY_WARNING_DAYS` | `3,1` (empty or `0` = none) | Days before expiry on which owners are warned by email; owners are also told when a wiki expired. |
 | `INSTANCE_STORAGE_LIMIT_MB` | 500 | Storage per wiki. |
@@ -343,7 +345,9 @@ where the agent writes the per-wiki Caddy routes. It appears only as a
 placeholder in the example `deploy/Caddyfile.hosting`.
 
 Inside a tenant container: `BW_INSTANCE_GUNICORN_WORKERS` (1),
-`BW_INSTANCE_GUNICORN_THREADS` (4), `BW_INSTANCE_STARTUP_TIMEOUT_SECONDS`
+`BW_INSTANCE_GUNICORN_THREADS` (4; the entry point adds `BW_DOWNLOAD_THREADS`,
+which the runtime sets to 8 for tenants, for large responses),
+`BW_INSTANCE_STARTUP_TIMEOUT_SECONDS`
 (120) and `BW_HOSTING_TTS_WORKER_POLL_INTERVAL_SECONDS` (30) tune the tenant
 entry point. When an administrator quarantined a wiki's plugins, the runtime
 passes it `BW_ALLOW_EXTERNAL_PLUGINS=0`.
@@ -366,7 +370,7 @@ passes it `BW_ALLOW_EXTERNAL_PLUGINS=0`.
 | `HOSTING_EMAIL_FROM`, `HOSTING_EMAIL_REPLY_TO` | none | Sender and reply-to. |
 | `HOSTING_EMAIL_SMTP_HOST`, `HOSTING_EMAIL_SMTP_PORT`, `HOSTING_EMAIL_SMTP_USERNAME`, `HOSTING_EMAIL_SMTP_PASSWORD`, `HOSTING_EMAIL_SMTP_TLS` | —, 587, —, —, on | SMTP server. With TLS on, port 465 uses implicit TLS and every other port STARTTLS. |
 | `HOSTING_EMAIL_TOKEN_TTL_SECONDS` | 86400 (at least 300) | Lifetime of verification and reset links. |
-| `HOSTING_EMAIL_DAILY_LIMIT` | 300 (0 = none) | Messages per 24 hours in total, counted in the database for every worker; the last fifth is kept for password resets and user-name reminders. Also 15 per recipient. |
+| `HOSTING_EMAIL_DAILY_LIMIT` | 300 (0 = none) | Messages per 24 hours in total, counted in the database for every worker; the last fifth is kept for password resets and user-name reminders. Also 15 per recipient, at most 5 of them notices another account caused; password resets, user-name reminders and password or address change notices are counted apart (3, 3, 5 and 5), so other mail never holds them back. |
 | `HOSTING_EMAIL_ACCOUNT_DAILY_LIMIT` | 10 (0 = none) | Messages per 24 hours that one account causes itself (verification links, notices about its own actions). |
 
 What the portal asks and sends is chosen in the database, under the portal's
@@ -382,14 +386,19 @@ on|off`). See [hosting](hosting.md#email).
 | Variable | Default | Meaning |
 |---|---|---|
 | `HOSTING_IMPORT_CHUNK_BYTES` | 8 MiB | Upload chunk size for imports. |
-| `HOSTING_IMPORT_MAX_BYTES` | 10 GiB | Largest archive. |
-| `HOSTING_IMPORT_MAX_EXTRACTED_BYTES` | 3 × the above | Largest unpacked size. |
-| `HOSTING_IMPORT_MAX_MEMBERS` | 250000 | Most files in an archive. |
+| `HOSTING_IMPORT_MAX_BYTES` | 10 GiB | Largest archive, and largest platform backup file a restore accepts (the platform settings warn when the latest backup is larger). |
+| `HOSTING_IMPORT_MAX_EXTRACTED_BYTES` | 3 × the above | Largest unpacked size (of an import or a platform restore). |
+| `HOSTING_IMPORT_MAX_MEMBERS` | 250000 | Most files in an archive (or a platform backup). |
 | `HOSTING_IMPORT_MIN_FREE_BYTES` | 512 MiB | Free disk space kept during imports. |
 | `HOSTING_IMPORT_TEMP_DIR`, `HOSTING_EXPORT_TEMP_DIR` | `<source>/hosting/data/tmp_imports`, `tmp_exports` | Scratch folders. |
 | `HOSTING_EXPORT_COMPRESS_LEVEL` | 1 (0–9) | ZIP compression level. |
 | `HOSTING_EXPORT_STORE_FILE_BYTES` | 64 MiB | Files larger than this are stored uncompressed. |
 | `HOSTING_EXPORT_STORE_EXTENSIONS` | media and archive types | Extensions that are always stored uncompressed. |
+
+A portal request body may be at most 2 MiB, whatever the method. Only the administrator's own
+session (not while acting as another account) may send more, and only to the
+archive import and platform restore uploads: up to 32 MiB per request, or
+`HOSTING_IMPORT_CHUNK_BYTES` + 1 MiB when that is larger.
 
 `STATIC_SITE_DIR` is only used by the Caddy configuration (the apex website).
 

@@ -46,6 +46,7 @@
 {% if can_reorder and layouts|length > 1 %}
 <p class="hint canvas-list-order">{{ t('canvas.list.reorder_hint') }}</p>
 {% endif %}
+{{ forms.pagination(page, pages, 'canvas.index') }}
 {% else %}
 <div class="empty-state">
   <h2>{{ t('canvas.list.empty') }}</h2>

@@ -24,6 +24,7 @@
     </tbody>
   </table>
 </div>
+{{ forms.pagination(page_number, total_pages, 'drafts.mine') }}
 {% else %}
 <div class="empty-state"><p>{{ t('drafts.mine.empty') }}</p></div>
 {% endif %}

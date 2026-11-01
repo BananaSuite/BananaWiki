@@ -40,7 +40,7 @@ from typing import Any
 from flask import current_app
 
 from ..core.timeutil import now_sql, sql_in
-from . import certwarm, events, settings, urls
+from . import certwarm, events, limits, settings, urls
 from .db import db
 from .errors import ServiceError
 from .runtime import RuntimeFailure
@@ -49,6 +49,9 @@ log = logging.getLogger("bananawiki.hosting.domains")
 
 VERIFICATION_HOURS = 24
 LAPSED_DAYS = 7
+# Domains one wiki may claim in 24 hours: each claim (and removal) writes a moderation-log entry kept for
+# years, so claiming and removing again and again would otherwise grow it without end. Removing is never refused.
+MAX_CLAIMS_PER_DAY = 20
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 # Endings used for private networks and tests, never a public domain: refused as a custom domain, so the
 # portal's resolver is never asked about a network's own names on a customer's behalf.
@@ -191,10 +194,11 @@ def _releasable(row: dict[str, Any]) -> bool:
     return not row["verified_at"] or _lapsed(row)
 
 
-def _forget(instance_id: str) -> None:
-    """Drop the wiki's domain and its claim of a lapsed one."""
-    db.execute("DELETE FROM instance_custom_domains WHERE instance_id = ?", (instance_id,))
-    db.execute("DELETE FROM instance_domain_claims WHERE instance_id = ?", (instance_id,))
+def _forget(instance_id: str) -> bool:
+    """Drop the wiki's domain and its claim of a lapsed one; whether there was either."""
+    bound = db.execute("DELETE FROM instance_custom_domains WHERE instance_id = ?", (instance_id,)).rowcount
+    claimed = db.execute("DELETE FROM instance_domain_claims WHERE instance_id = ?", (instance_id,)).rowcount
+    return bool(bound or claimed)
 
 
 def set_permission(inst: dict[str, Any], allowed_: bool, actor_id: str) -> None:
@@ -232,6 +236,8 @@ def claim(inst: dict[str, Any], value: str, actor_id: str) -> dict[str, Any]:
         mine = binding(inst["id"])
         if existing and mine and mine["domain"] == domain:
             return mine  # this wiki's claim of the lapsed domain, token unchanged
+        if not limits.hit("hosting_domain_claims", MAX_CLAIMS_PER_DAY, 86400, key=inst["id"]):
+            raise ServiceError("hosting.domains.too_many_claims", limit=MAX_CLAIMS_PER_DAY)
         _forget(inst["id"])
         record = {"domain": domain, "instance_id": inst["id"], "verification_token": secrets.token_hex(32),
                   "created_at": now_sql()}
@@ -243,8 +249,10 @@ def claim(inst: dict[str, Any], value: str, actor_id: str) -> dict[str, Any]:
 
 
 def remove(inst: dict[str, Any], actor_id: str) -> None:
-    _forget(inst["id"])
-    events.record("instance", inst["id"], "domain.removed", actor_id)
+    # Only a removal that dropped something is recorded, so each entry follows a counted claim.
+    with db.transaction():
+        if _forget(inst["id"]):
+            events.record("instance", inst["id"], "domain.removed", actor_id)
 
 
 def verify(inst: dict[str, Any], actor_id: str | None) -> dict[str, Any]:
@@ -272,6 +280,9 @@ def verify(inst: dict[str, Any], actor_id: str | None) -> dict[str, Any]:
         instances.sync_routes()
         certwarm.schedule(record["domain"])
         return {**binding(inst["id"]), "proxied": check.proxied}  # type: ignore[dict-item]
+    # Renewing a domain the wiki already answers on changes no route: nothing to publish (the
+    # maintenance pass publishes the table anyway).
+    served = active_domain(inst["id"]) == record["domain"]
     with db.transaction():
         changed = db.execute(
             "UPDATE instance_custom_domains SET verified_at = COALESCE(verified_at, ?), verified_until = ? "
@@ -285,7 +296,8 @@ def verify(inst: dict[str, Any], actor_id: str | None) -> dict[str, Any]:
             raise ServiceError("hosting.domains.changed")
         if not record["verified_at"]:
             events.record("instance", inst["id"], "domain.verified", actor_id, record["domain"])
-    instances.sync_routes()
+    if not served:
+        instances.sync_routes()
     if not record["verified_at"]:
         certwarm.schedule(record["domain"])
     # ``proxied``: accepted because the record is proxied by Cloudflare (not stored).

@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from flask import current_app
 
 from ....core.timeutil import now_sql, parse, to_sql
-from ... import i18n, registry, settings
+from ... import auth, i18n, registry, settings
 from ...templating import FAVICON_PRESETS, from_local_input
 from . import tokens, webhooks
 
@@ -183,6 +183,15 @@ def _platform_owned(_value: Any) -> str | None:
     return "platform" if current_app.config["BW"].managed_hosting else None
 
 
+def _protection_switch_off(value: Any) -> str | None:
+    """Switching page protection off would lift protections before their unlock delay (as on its admin page)."""
+    if value:
+        return None
+    from ..page_governance import protection
+
+    return "pages_protected" if protection.switch_off_error(auth.current_user()) else None
+
+
 FLAG = Rule(_flag)
 
 RULES: dict[str, Rule] = {
@@ -235,7 +244,7 @@ RULES: dict[str, Rule] = {
     "upload_whitelist": Rule(_text(2000), ("attachments",)),
     "upload_blacklist": Rule(_text(2000), ("attachments",)),
     "upload_max_size_mb": Rule(_whole(1, 2048), ("attachments",), policy=_platform_owned),
-    "page_protection_enabled": Rule(_flag, ("page_governance",)),
+    "page_protection_enabled": Rule(_flag, ("page_governance",), policy=_protection_switch_off),
     "page_reservations_enabled": Rule(_flag, ("page_governance",)),
     "page_reservation_duration_hours": Rule(_whole(1, 8760), ("page_governance",)),
     "page_reservation_cooldown_hours": Rule(_whole(0, 8760), ("page_governance",)),

@@ -2,16 +2,17 @@
 
 The admin layout
 ----------------
-Every administration page extends ``admin/_layout.html``. It renders the
-admin side menu, built from the ``NavItem(area="admin")`` entries of every
-enabled feature, next to the page body. A feature adds an admin page by
+Every administration page extends ``admin/_layout.html``. It renders a
+breadcrumb and a "Jump to" list above the page body; both, and the overview
+page at ``/admin/home``, are built from the ``NavItem(area="admin")`` entries of
+every enabled feature, grouped by :mod:`.hub`. A feature adds an admin page by
 
 1. declaring a nav entry in its ``Feature``::
 
        nav=[NavItem("myfeature.admin.nav", "myfeature.admin_page", icon="gear",
                     area="admin", order=60)]
 
-   (``order`` places it in the menu: the dashboard is 0, users 10, roles 20,
+   (``order`` places it in its group: the dashboard is 0, users 10, roles 20,
    invite codes 30, sessions 40; use 50 and up for other pages), and
 
 2. writing a template that extends the layout and fills its blocks::
@@ -25,7 +26,7 @@ enabled feature, next to the page body. A feature adds an admin page by
 
    ``admin_head`` adds tags to ``<head>`` and ``admin_scripts`` adds scripts
    at the end of the page. The view itself must still check authorisation
-   (``@auth.admin_required``); the layout only draws the menu.
+   (``@auth.admin_required``); the layout only draws the links.
 
 The dashboard renders the ``admin.dashboard`` slot, so features can add
 cards to it without owning a page.
@@ -33,7 +34,7 @@ cards to it without owning a page.
 
 from ... import attention, auth
 from ...registry import AttentionSource, Feature, Job, NavItem, Simplification
-from . import analytics, jobs, routes  # noqa: F401 - registers the views
+from . import analytics, hub, jobs, routes  # noqa: F401 - registers the views
 from .blueprint import bp
 from .service import pending_count, pending_oldest
 

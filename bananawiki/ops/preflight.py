@@ -46,7 +46,7 @@ def hosting_mode(environment: Mapping[str, str]) -> str:
     if explicit:
         return explicit
     base = (environment.get("BASE_DOMAIN") or "").strip().lower()
-    if not base or _IP_ADDRESS.match(base) or base in ("localhost", "0.0.0.0"):  # noqa: S104 - a value, not a bind
+    if not base or _IP_ADDRESS.match(base) or base in ("localhost", "0.0.0.0"):  # noqa: S104  # nosec B104 - a value, not a bind
         return "port"
     return "subdomain" if "." in base else "port"
 

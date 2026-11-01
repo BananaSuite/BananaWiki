@@ -5,8 +5,19 @@ from __future__ import annotations
 import io
 from typing import Any
 
-from flask import Blueprint, abort, jsonify, redirect, render_template, request, send_file, url_for
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
 
+from ....core import downloads
 from ....core.timeutil import utcnow
 from ... import auth, registry, settings
 from ...i18n import t
@@ -14,7 +25,7 @@ from ...templating import format_datetime
 from ..audit import record
 from ..pages import categories
 from ..pages import service as pages
-from ..pages.blueprint import rate_limited, visible_page_or_404
+from ..pages.blueprint import page_url, rate_limited, visible_page_or_404
 from ..pages.rendering import editor_name
 from . import bulk, pdf
 from . import markdown_files as mdf
@@ -37,6 +48,13 @@ def markdown_allowed(page: dict[str, Any], user: dict[str, Any] | None = None) -
     return bool(user) and bool(settings.get("markdown_export_enabled")) and pages.can_edit(page, user)
 
 
+def _link_base() -> str:
+    """The address a PDF's relative links point to: the wiki's public address (``BW_BASE_URL``, or the one saved
+    in Admin -> Notifications) when known. Only then is a PDF made once for every Host header a client sends."""
+    configured = current_app.config["BW"].base_url or str(settings.get("public_base_url") or "").rstrip("/")
+    return configured + "/" if configured else request.url_root
+
+
 def _pdf_response(page: dict[str, Any], *, title: str, content: str, author_id: str | None, when: str | None,
                   name: str, historical: bool = False):
     meta = []
@@ -47,8 +65,12 @@ def _pdf_response(page: dict[str, Any], *, title: str, content: str, author_id: 
         meta.append(t("page_export.pdf.edited", when=format_datetime(when)))
     if historical:
         meta.append(t("page_export.pdf.historical"))
-    data = pdf.render(title=title, content=content, site_name=settings.site_name(), base_url=request.url_root,
-                      meta=meta)
+    try:
+        data = pdf.render(title=title, content=content, site_name=settings.site_name(), base_url=_link_base(),
+                          meta=meta, cut_note=t("page_export.pdf.cut"))
+    except pdf.Busy:
+        auth.flash_t("page_export.pdf.busy", "error")
+        return redirect(page_url(page), code=303)
     return send_file(io.BytesIO(data), mimetype="application/pdf", as_attachment=True, download_name=name,
                      max_age=0)
 
@@ -64,6 +86,7 @@ def _require_pdf() -> None:
 
 
 @bp.get("/page/<slug>/export-pdf")
+@downloads.place_first
 @rate_limited("export-pdf", 5)
 def export_pdf(slug: str):
     page = visible_page_or_404(slug)
@@ -74,6 +97,7 @@ def export_pdf(slug: str):
 
 
 @bp.get("/page/<slug>/history/<int:entry_id>/export-pdf")
+@downloads.place_first
 @rate_limited("export-pdf", 5)
 def export_history_pdf(slug: str, entry_id: int):
     page = visible_page_or_404(slug)
@@ -110,6 +134,7 @@ def export_markdown(slug: str):
 
 @bp.post("/page/<slug>/import-md")
 @rate_limited("import-md", 20)
+@auth.large_body
 def import_markdown(slug: str):
     """Read an uploaded Markdown file for the editor; the page itself is not changed."""
     page = visible_page_or_404(slug)
@@ -137,6 +162,7 @@ def bulk_page():
 
 @bp.post("/admin/bulk-markdown/export")
 @auth.admin_required
+@downloads.place_first
 @rate_limited("bulk-markdown", 5)
 def bulk_export():
     archive, summary = bulk.export_archive()
@@ -163,6 +189,7 @@ def _flash_import(result: bulk.ImportResult) -> None:
 @bp.post("/admin/bulk-markdown")
 @auth.admin_required
 @rate_limited("bulk-markdown", 5)
+@auth.large_body(minimum_role="admin")
 def bulk_import():
     uploads = [f for f in request.files.getlist("import_file") if f and f.filename]
     if not uploads:

@@ -51,6 +51,9 @@ def restart():
 @bp.get("/admin/error-log")
 @auth.admin_required
 def error_log():
+    from ..admin.service import is_top
+
     errors_only = request.args.get("level", "error") != "all"
-    return render_template("site_admin/error_log.html", content=server.log_tail(errors_only),
-                           errors_only=errors_only)
+    addresses = is_top(auth.real_user())  # addresses of accounts above plain administrators stay hidden from them
+    return render_template("site_admin/error_log.html", content=server.log_tail(errors_only, addresses=addresses),
+                           errors_only=errors_only, addresses_hidden=not addresses)

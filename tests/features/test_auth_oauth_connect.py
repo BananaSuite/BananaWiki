@@ -116,6 +116,7 @@ def test_the_same_name_is_offered_for_connecting_when_it_is_free_to_link(browser
 def test_an_account_connected_to_another_hosting_account_is_refused(browser, portal, people, wiki_db):
     wiki_db.execute("INSERT INTO platform_oauth_links (account_id, user_id, portal_username, linked_at) "
                     "VALUES ('acct-someone', ?, 'someone', '2026-01-01 00:00:00')", (people["mine"]["id"],))
+    portal.links[people["mine"]["id"]] = "acct-someone"
     _arrive(browser)
     refused = browser.post("/platform-oauth/merge", data={"username": "alexbanana", "password": PASSWORD})
     assert refused.status_code == 409

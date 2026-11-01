@@ -8,11 +8,15 @@ from typing import Any
 
 from flask import Response, abort, redirect, render_template, request, send_file, url_for
 
-from ... import auth, settings, storage
+from ....core import downloads
+from ....core.numbers import ascii_int
+from ... import accounts, auth, settings, storage
 from ...db import db
 from ...i18n import t
 from ...markdown import excerpt
 from ...registry import feature_blueprint
+from ..audit import record_settings
+from ..audit.service import record
 from ..pages.service import slugify
 from . import access, events, filters, guard, history, logtext, service, store, transfer
 from .fields import KanbanError
@@ -23,6 +27,8 @@ bp = feature_blueprint("kanban", "kanban", __name__, template_folder="templates"
 
 GLOBAL_SETTINGS = ("kanban_access", "kanban_write_access")
 GLOBAL_SWITCHES = ("kanban_public_access_enabled", "kanban_open_access")
+#: Boards one page of the board list shows (and archived boards listed at most).
+LIST_PAGE_SIZE = 100
 
 
 def _flash_error(error: KanbanError) -> None:
@@ -45,17 +51,24 @@ def index():
             return auth.redirect_to_login()
         abort(403)
     kanban_settings = {name: settings.get(name) for name in (*GLOBAL_SETTINGS, *GLOBAL_SWITCHES)}
-    archived = service.ordered_boards(user, archived=True)
     show_archived = request.args.get("archived") == "1"
+    # One page of boards per request, so a wiki with many boards costs the same to list.
+    pages = max(1, -(-service.count_boards(user) // LIST_PAGE_SIZE))
+    page = min(max(ascii_int(request.args.get("page", "1"), 6) or 1, 1), pages)
+    boards = service.ordered_boards(user, limit=LIST_PAGE_SIZE, offset=(page - 1) * LIST_PAGE_SIZE)
+    archived = service.ordered_boards(user, archived=True, limit=LIST_PAGE_SIZE) if show_archived else []
     return render_template(
         "kanban/list.html",
-        boards=[{**row, "excerpt": excerpt(row["description"], 160)} for row in service.ordered_boards(user)],
-        archived_boards=[{**row, "excerpt": excerpt(row["description"], 160), "can_restore": access.is_owner(user, row)}
-                         for row in archived] if show_archived else [],
-        archived_count=len(archived),
+        boards=[{**row, "excerpt": excerpt(row["description"], 160, keep=True)} for row in boards],
+        archived_boards=[{**row, "excerpt": excerpt(row["description"], 160, keep=True),
+                          "can_restore": access.is_owner(user, row)} for row in archived],
+        archived_count=service.count_boards(user, archived=True),
         show_archived=show_archived,
+        page=page,
+        pages=pages,
         can_create=access.can_create(user),
-        can_reorder=user is not None,
+        # Moving boards keeps the boards of later pages after the first page, so only the first page can.
+        can_reorder=user is not None and page == 1,
         open_access=access.open_access(),
         order_version=service.list_order_version(),
         kanban_settings=kanban_settings,
@@ -112,7 +125,9 @@ def save_settings():
         values[name] = choice if choice in access.ACCESS_SETTING_VALUES else "admin"
     for name in GLOBAL_SWITCHES:
         values[name] = 1 if request.form.get(name) else 0
+    previous = settings.load()
     settings.update(values)
+    record_settings(previous, values, via="kanban")
     service.apply_global_settings()
     auth.flash_t("kanban.flash.settings_saved", "success")
     return redirect(url_for("kanban.index"))
@@ -123,6 +138,7 @@ def create():
     user = auth.current_user()
     if not access.can_create(user):
         abort(403)
+    guard.rate_limited("create", guard.CREATES_PER_MINUTE)
     try:
         board = service.create_board(user, request.form.get("title"), request.form.get("description"))
     except KanbanError as error:
@@ -133,6 +149,7 @@ def create():
 
 
 @bp.post("/kanban/import")
+@auth.large_body
 def import_board():
     user = auth.current_user()
     if not access.can_create(user):
@@ -164,6 +181,27 @@ def board_page_data(board: dict[str, Any], user: dict[str, Any] | None) -> dict[
     }
 
 
+def _share_directory(user: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Accounts the sharing dialog offers, for owners who may search the member list (``search.users``).
+
+    Only active accounts and no roles: the dialog is not a way to learn who
+    the administrators are. Owners without the permission type a user name.
+    """
+    if not user or not auth.has_permission("search.users", user):
+        return []
+    return db.all("SELECT id, username FROM users WHERE suspended = 0 "
+                  "AND COALESCE(approval_status, 'approved') = 'approved' ORDER BY username COLLATE NOCASE")
+
+
+def _share_target() -> str:
+    """The account a sharing form names: ``user_id`` from the list, or a typed ``username``."""
+    user_id = request.form.get("user_id", "")
+    if user_id or "username" not in request.form:
+        return user_id
+    account = accounts.by_username(request.form.get("username", ""))
+    return account["id"] if account else ""
+
+
 @bp.get("/kanban/<int:board_id>")
 @auth.public_read
 def board(board_id: int):
@@ -178,8 +216,7 @@ def board(board_id: int):
         is_owner=is_owner,
         can_export=access.can_export(user, row),
         shares=service.shares(row) if is_owner else [],
-        share_users=db.all("SELECT id, username, role FROM users ORDER BY username COLLATE NOCASE")
-        if is_owner else [],
+        share_users=_share_directory(user) if is_owner else [],
         shareable_roles=access.shareable_roles() if is_owner else [],
     )
 
@@ -229,7 +266,7 @@ def share(board_id: int):
     level = request.form.get("access_level", "view")
     try:
         if action == "add_user":
-            service.add_share(row, "user", request.form.get("user_id", ""), level, user)
+            service.add_share(row, "user", _share_target(), level, user)
         elif action == "add_role":
             service.add_share(row, "role", request.form.get("role", ""), level, user)
         elif action == "remove_user":
@@ -239,7 +276,7 @@ def share(board_id: int):
         elif action == "set_visibility":
             service.set_visibility(row, request.form.get("visibility", ""), user)
         elif action == "transfer_ownership":
-            owner = service.transfer(row, request.form.get("user_id", ""), user)
+            owner = service.transfer(row, _share_target(), user)
             auth.flash_t("kanban.flash.transferred", "success", username=owner["username"])
             if not access.can_view(auth.current_user(), store.get_board(board_id)):
                 return redirect(url_for("kanban.index"))
@@ -254,6 +291,7 @@ def share(board_id: int):
 
 
 @bp.get("/kanban/<int:board_id>/export")
+@downloads.place_first
 def export(board_id: int):
     row = guard.board(board_id, "export")
     guard.rate_limited("export", 10)
@@ -284,6 +322,7 @@ def _log_message_global(stored: str | None) -> str:
 @auth.public_read
 def board_history(board_id: int):
     row = guard.board(board_id, "view")
+    guard.rate_limited("history-view", 30)
     user = auth.current_user()
     return render_template("kanban/history.html", board=row, entries=history.entries(board_id),
                            can_revert=access.can_write(user, row), is_admin=access.is_admin(user))
@@ -293,6 +332,8 @@ def board_history(board_id: int):
 @auth.public_read
 def history_entry(board_id: int, entry_id: int):
     row = guard.board(board_id, "view")
+    # A snapshot may hold thousands of tickets: their descriptions are rendered within a budget.
+    guard.rate_limited("history-view", 30)
     entry = history.entry(board_id, entry_id)
     if entry is None:
         abort(404)
@@ -300,6 +341,7 @@ def history_entry(board_id: int, entry_id: int):
     previous = history.previous_state(board_id, entry_id)
     changes = None if previous is None else [_describe(key, values) for key, values in
                                              history.changes(previous, entry["state"])]
+    history.describe_tickets(entry["state"])
     return render_template("kanban/history_entry.html", board=row, entry=entry, state=entry["state"],
                            changes=changes, can_revert=access.can_write(user, row), is_admin=access.is_admin(user))
 
@@ -320,10 +362,16 @@ def _describe(key: str, values: dict[str, Any]) -> str:
 @bp.post("/kanban/<int:board_id>/revert/<int:entry_id>")
 def revert(board_id: int, entry_id: int):
     row = guard.board(board_id, "write")
+    # Each restore of a large board rewrites it and stores two snapshots, like an import.
+    guard.rate_limited("revert", 10)
     entry = history.entry(board_id, entry_id)
     if entry is None:
         abort(404)
-    result = service.revert(row, entry, auth.current_user())
+    try:
+        result = service.revert(row, entry, auth.current_user())
+    except KanbanError as error:
+        _flash_error(error)
+        return _to_board(board_id)
     if result["kept_tickets"]:
         auth.flash_t("kanban.flash.reverted_kept", "success", count=result["kept_tickets"])
     else:
@@ -331,25 +379,64 @@ def revert(board_id: int, entry_id: int):
     return _to_board(board_id)
 
 
+def _audit_history(action: str, board: dict[str, Any], **details: Any) -> None:
+    """Record a change to *board*'s history (as ``page.history_*``); the account acted as is named too."""
+    if auth.is_impersonating():
+        details["as_user"] = auth.current_user()["username"]
+    record(action, target_type="board", target_id=board["id"],
+           details={"title": board["title"], "creator": board.get("creator_username"), **details})
+
+
 @bp.post("/kanban/<int:board_id>/history/<int:entry_id>/delete")
 def delete_history_entry(board_id: int, entry_id: int):
-    guard.board(board_id, "view")
+    board = guard.board(board_id, "view")
     if not access.is_admin(auth.current_user()):
         abort(403)
-    if not history.delete_entry(board_id, entry_id):
+    entry = history.entry(board_id, entry_id)
+    if entry is None or not history.delete_entry(board_id, entry_id):
         abort(404)
+    _audit_history("kanban.history_entry_deleted", board, entry=entry_id, editor=entry["username"],
+                   created_at=entry["created_at"])
     auth.flash_t("kanban.flash.history_entry_deleted", "success")
     return redirect(url_for("kanban.board_history", board_id=board_id))
 
 
 @bp.post("/kanban/<int:board_id>/history/clear")
 def clear_history(board_id: int):
-    guard.board(board_id, "view")
+    board = guard.board(board_id, "view")
     if not access.is_admin(auth.current_user()):
         abort(403)
-    history.clear(board_id)
+    count = history.clear(board_id)
+    if count:
+        _audit_history("kanban.history_cleared", board, count=count)
     auth.flash_t("kanban.flash.history_cleared", "success")
     return redirect(url_for("kanban.board_history", board_id=board_id))
+
+
+# Only the member sees their own order of the board list.
+_IMPERSONATION_UNAUDITED = frozenset({"kanban.board_order"})
+_IMPERSONATION_TARGETS = (("board", "board_id"), ("column", "column_id"), ("ticket", "ticket_id"),
+                          ("comment", "comment_id"), ("attachment", "attachment_id"), ("checklist_item", "item_id"))
+
+
+@bp.after_request
+def _audit_impersonated_action(response):
+    """Record each Kanban change an administrator makes in a member's name while impersonating them.
+
+    Comments, tickets, columns, boards, sharing, imports and reverts show only
+    the member's name to the other members of the board and in its history, so
+    each one gets an audit entry with the administrator as actor (refused
+    attempts too, with their status), as chat actions and page changes do.
+    """
+    if request.method in ("GET", "HEAD", "OPTIONS") or request.endpoint in _IMPERSONATION_UNAUDITED \
+            or not auth.is_impersonating():
+        return response
+    values = request.view_args or {}
+    target = next(((kind, values[key]) for kind, key in _IMPERSONATION_TARGETS if key in values), (None, None))
+    record("kanban.impersonated_action", target_type=target[0], target_id=target[1],
+           details={"as_user": auth.current_user()["username"], "endpoint": request.endpoint,
+                    "status": response.status_code})
+    return response
 
 
 def nav_visible(user: dict[str, Any] | None) -> bool:

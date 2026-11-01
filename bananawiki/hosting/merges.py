@@ -6,12 +6,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..core.timeutil import now_sql
+from ..core.timeutil import now_sql, sql_in
 from . import accounts, api_tokens, attention, events, signouts
 from .db import db
 from .errors import ServiceError
 
 ACTIVE = ("pending", "approved")
+# Merges an account may ask for in 24 hours, whatever became of them: cancelling and asking
+# again would otherwise add rows without end.
+MAX_REQUESTS_PER_DAY = 10
 
 
 def _usable(account: dict[str, Any] | None) -> dict[str, Any]:
@@ -61,6 +64,10 @@ def request(source: dict[str, Any], target_username: str, reason: str) -> dict[s
         )
         if busy:
             raise ServiceError("hosting.merges.busy")
+        filed = db.scalar("SELECT COUNT(*) FROM hosting_account_merge_requests WHERE requested_by = ? AND created_at > ?",
+                          (source["id"], sql_in(hours=-24)), default=0)
+        if int(filed) >= MAX_REQUESTS_PER_DAY:
+            raise ServiceError("hosting.merges.too_many", limit=MAX_REQUESTS_PER_DAY)
         merge_id = db.insert("hosting_account_merge_requests", {
             "source_account_id": source["id"], "target_account_id": target["id"], "requested_by": source["id"],
             "request_reason": (reason or "")[:4000], "created_at": now_sql(), "source_approved": 1,
@@ -130,7 +137,16 @@ def _merge(source_id: str, target_id: str, admin: dict[str, Any]) -> int:
     )
     if conflict:
         raise ServiceError("hosting.merges.sso_conflict")
+    moved_ids = [row["id"] for row in db.all("SELECT id FROM instances WHERE account_id = ?", (source_id,))]
     moved = db.execute("UPDATE instances SET account_id = ? WHERE account_id = ?", (target_id, source_id)).rowcount
+    from . import domains
+
+    for instance_id in moved_ids:
+        # As for any change of owner: the source's other admin accounts on the wiki are covered by its next
+        # password reset, and a custom domain whose DNS the source controls does not stay bound to it.
+        if domains._forget(instance_id):
+            events.record("instance", instance_id, "domain.removed", admin["id"], "owner changed")
+        events.record("instance", instance_id, "instance.owner_changed", admin["id"], target["username"])
     db.execute("UPDATE OR IGNORE instance_collaborators SET account_id = ? WHERE account_id = ?", (target_id, source_id))
     db.execute("DELETE FROM instance_collaborators WHERE account_id = ?", (source_id,))
     # After the reassignment: the source's collaborations on the target's own wikis

@@ -99,6 +99,7 @@ def custom_save(page_id: int):
 
 
 @bp.post("/api/custom-pages/<int:page_id>/builder/image")
+@auth.large_body
 def custom_image(page_id: int):
     _page, user = _builder_page(page_id)
     return store_image(user)

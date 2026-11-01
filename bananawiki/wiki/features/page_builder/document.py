@@ -9,7 +9,8 @@ stays byte-identical, so upgraded pages keep rendering from their document.
 Validation is an allow-list: known block types, known keys, bounded text,
 links limited to http(s) and local paths, images limited to files uploaded
 to this wiki, layout options limited to fixed values. Every text is escaped
-when rendered; Markdown text goes through :func:`markdown.render` (sanitised),
+when rendered; Markdown text goes through :func:`markdown.render` (sanitised,
+all blocks of a page within the limits of one document),
 YouTube players are built by :func:`markdown.video_iframe` from the validated
 video id, code by :func:`markdown.highlight_code`.
 
@@ -441,10 +442,28 @@ def _lines(text: str) -> Markup:
     return Markup("<br>").join(escape(line) for line in text.split("\n"))
 
 
-def _rich(text: str, text_format: str) -> Markup:
-    """A text field as HTML: sanitised Markdown or escaped plain text."""
+def _parts(document: dict[str, Any]) -> list[tuple[str, ...]]:
+    """The Markdown texts and code of the blocks :func:`_items` shows, in order (:func:`markdown.render_parts`)."""
+    parts: list[tuple[str, ...]] = []
+    for block in document["blocks"]:
+        if is_blank(block):
+            continue
+        kind = block["type"]
+        if kind == "text" and block["text"] and block["format"] == "markdown":
+            parts.append(("markdown", block["text"]))
+        elif kind == "columns" and block["format"] == "markdown":
+            parts.extend(("markdown", column) for column in block["columns"])
+        elif kind == "faq":
+            parts.extend(("markdown", item["answer"]) for item in block["items"])
+        elif kind == "code" and block["code"]:
+            parts.append(("code", block["code"], block["language"]))
+    return parts
+
+
+def _rich(text: str, text_format: str, rendered: Any) -> Markup:
+    """A text field as HTML: its sanitised Markdown (the next of *rendered*) or escaped plain text."""
     if text_format == "markdown":
-        return Markup(markdown.render(text))
+        return Markup(next(rendered))
     return _lines(text)
 
 
@@ -518,15 +537,16 @@ def render(document: dict[str, Any], *, page_id: int | None = None) -> Markup:
     """Sanitised HTML of a validated document for the current reader.
 
     *page_id* is the page being shown, left out of page lists. Its Markdown
-    and code blocks share one highlighting allowance, like a Markdown page
-    (:func:`markdown.shared_highlighting`).
+    and code blocks are rendered as one Markdown page would be, within the
+    limits and highlighting allowance of one document, and kept by their
+    sources (:func:`markdown.render_parts`); only the blocks that depend on
+    the reader (page lists, embeds) are worked out for each view.
     """
-    with markdown.shared_highlighting():
-        items = _items(document, page_id)
-    return Markup(render_template("page_builder/render.html", items=items, lines=_lines))
+    return Markup(render_template("page_builder/render.html", items=_items(document, page_id), lines=_lines))
 
 
 def _items(document: dict[str, Any], page_id: int | None) -> list[dict[str, Any]]:
+    rendered = iter(markdown.render_parts(_parts(document)))
     items = []
     # Never an id the interface links to (markdown.RESERVED_IDS): "Main" becomes "main-2".
     anchors: set[str] = set(markdown.RESERVED_IDS)
@@ -541,17 +561,17 @@ def _items(document: dict[str, Any], page_id: int | None) -> list[dict[str, Any]
         elif kind == "hero" and block["title"]:
             extra["anchor"] = _anchor(block["title"], anchors)
         elif kind == "text" and block["text"]:
-            extra["html"] = _rich(block["text"], block["format"])
+            extra["html"] = _rich(block["text"], block["format"], rendered)
         elif kind == "columns":
-            extra["html"] = [_rich(column, block["format"]) for column in block["columns"]]
+            extra["html"] = [_rich(column, block["format"], rendered) for column in block["columns"]]
         elif kind == "faq":
-            extra["html"] = [Markup(markdown.render(item["answer"])) for item in block["items"]]
+            extra["html"] = [Markup(next(rendered)) for _item in block["items"]]
         elif kind == "youtube" and block["url"]:
             player = markdown.video_iframe(block["url"])
             if player:
                 extra["html"] = Markup(player)
         elif kind == "code" and block["code"]:
-            extra["html"] = Markup(markdown.highlight_code(block["code"], block["language"]))
+            extra["html"] = Markup(next(rendered))
         elif kind == "pages":
             extra["pages"] = _page_entries(block, page_id, room)
             room -= len(extra["pages"])

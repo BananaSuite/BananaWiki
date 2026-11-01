@@ -18,7 +18,7 @@ import subprocess
 from collections.abc import Iterable
 
 LOOPBACK_HOST = "127.0.0.1"
-ALL_INTERFACES = "0.0.0.0"  # noqa: S104 - used only after the user consents to LAN sharing
+ALL_INTERFACES = "0.0.0.0"  # noqa: S104  # nosec B104 - only after the user consents to LAN sharing
 DEFAULT_PORT = 80
 FALLBACK_PORTS = (8080, *range(8000, 8100))
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)

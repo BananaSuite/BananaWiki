@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from .... import accounts
-from ....db import db
 from ...admin import service as admin_service
 from .. import audit, serialize, tokens
 from ..errors import ApiError, flag, json_body, query_int, text, window_fields
@@ -74,7 +73,7 @@ def admin_api_access(user_id: str):
     if target.get("is_superuser") or (target["role"] == "owner" and target["id"] != caller()["id"]):
         raise ApiError(403, "protected_account")
     enabled = flag(json_body().get("enabled", True), "enabled")
-    db.execute("UPDATE users SET api_access_enabled = ? WHERE id = ?", (1 if enabled else 0, user_id))
+    tokens.set_api_access(target, enabled)
     return ok(api_access_enabled=enabled, id=user_id)
 
 

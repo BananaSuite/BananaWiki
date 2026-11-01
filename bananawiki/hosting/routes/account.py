@@ -26,7 +26,8 @@ from ...core.web import safe_next
 from .. import accounts, api_tokens, attention, auth, instances, merges, mfa, notifications, oauth, settings
 from ..errors import ServiceError
 from ..i18n import t
-from ..limits import rate_limit
+from ..limits import confirm_password, rate_limit
+from .auth import release_code_attempt, reserve_code_attempt
 from .common import account, flash_error
 
 bp = Blueprint("account", __name__)
@@ -76,7 +77,7 @@ def account_page():
         return _render_account()
     current = account()
     try:
-        if not accounts.verify_password(current, request.form.get("current_password") or ""):
+        if not confirm_password(current, request.form.get("current_password") or ""):
             identity_changed = ((request.form.get("username") or "").strip() != current["username"]
                                 or (request.form.get("email") or "").strip().lower() != (current["email"] or ""))
             if identity_changed:
@@ -108,7 +109,7 @@ def account_page():
 def change_password():
     current = account()
     _no_impersonation()
-    if not accounts.verify_password(current, request.form.get("current_password") or ""):
+    if not confirm_password(current, request.form.get("current_password") or ""):
         flash(t("hosting.account.wrong_password"), "error")
         return redirect(url_for("account.account"))
     try:
@@ -132,7 +133,7 @@ def change_password():
 def delete_account():
     current = account()
     _no_impersonation()
-    if not accounts.verify_password(current, request.form.get("current_password") or ""):
+    if not confirm_password(current, request.form.get("current_password") or ""):
         flash(t("hosting.account.wrong_password"), "error")
         return redirect(url_for("account.account"))
     if current["is_admin"] and accounts.count_active_admins(exclude=current["id"]) == 0:
@@ -177,11 +178,17 @@ def revoke_session(session_id: str):
 @auth.exempt(*auth.GATES)
 @rate_limit(10)
 def logout_everywhere():
-    """"Sign out other devices": every other session ends, this one stays signed in."""
+    """"Sign out other devices": every other session ends, this one stays signed in.
+
+    Wiki sessions opened through platform sign-in end too, with the access
+    tokens: they cannot be told apart by device, and a stolen portal session
+    must not leave sessions behind on the wikis it reached.
+    """
     current = account()
     _no_impersonation()
     version = accounts.bump_session_version(current["id"])
     auth.keep_current_session(current["id"], version)
+    oauth.sign_out_everywhere(current["id"])
     flash(t("hosting.account.sessions.everywhere"), "success")
     return redirect(url_for("account.account") + "#sessions")
 
@@ -261,7 +268,7 @@ def contact_email():
             accounts.dismiss_email_prompt(current["id"])
         return redirect(next_url)
     try:
-        if not accounts.verify_password(current, request.form.get("current_password") or ""):
+        if not confirm_password(current, request.form.get("current_password") or ""):
             raise ServiceError("hosting.account.wrong_password")
         accounts.set_contact_email(current, request.form.get("email") or "")
     except ServiceError as error:
@@ -309,7 +316,7 @@ def email_flagged():
     if request.method == "POST":
         try:
             # As on the account page: a new address (and so a way to reset the password) needs the password.
-            if not accounts.verify_password(current, request.form.get("current_password") or ""):
+            if not confirm_password(current, request.form.get("current_password") or ""):
                 raise ServiceError("hosting.account.wrong_password")
             accounts.replace_flagged_email(current, request.form.get("email") or "")
         except ServiceError as error:
@@ -379,10 +386,15 @@ def mfa_settings():
     secret = "" if enabled else mfa.decrypt_secret(session.get(ENROLLMENT_KEY))
     if request.method == "POST":
         code = request.form.get("code", "")[:128]
-        if not accounts.verify_password(current, request.form.get("password") or ""):
+        if not confirm_password(current, request.form.get("password") or ""):
             flash(t("hosting.account.wrong_password"), "error")
         elif enabled:
+            # The second-step budgets of /login/mfa: a guessed password does not buy unlimited code guesses here.
+            reservations = reserve_code_attempt(current)
+            if reservations is None:
+                abort(429)
             if mfa.verify_second_factor(current["id"], code):
+                release_code_attempt(reservations)
                 mfa.disable(current["id"])
                 auth.revoke_all(current["id"])
                 updated = accounts.get(current["id"])
@@ -436,7 +448,7 @@ def create_api_token():
     if not expected or not constant_time_equals(expected, request.form.get("form_nonce") or ""):
         flash(t("hosting.api_tokens.form_used"), "info")
         return redirect(url_for("account.account") + "#api-tokens")
-    if not accounts.verify_password(current, request.form.get("current_password") or ""):
+    if not confirm_password(current, request.form.get("current_password") or ""):
         flash(t("hosting.account.wrong_password"), "error")
         return redirect(url_for("account.account") + "#api-tokens")
     expiry = request.form.get("expires_in") or ""

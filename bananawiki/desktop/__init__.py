@@ -9,6 +9,7 @@ Modules:
 
 * :mod:`.datafolder`  - the data folder layout, its lock and its secret key
 * :mod:`.server`      - starting and stopping the wiki server
+* :mod:`.waitress_server`, :mod:`.gunicorn_limits` - what one device may hold of it
 * :mod:`.backup`      - ZIP backups (online SQLite copy) and restores
 * :mod:`.network`     - LAN address detection, ports and URLs
 * :mod:`.preferences` - the launcher's remembered choices

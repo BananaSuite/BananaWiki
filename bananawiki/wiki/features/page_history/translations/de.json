@@ -13,6 +13,7 @@
   "page_history.confirm.revert": "Möchtest du diese Version wiederherstellen? Der aktuelle Text bleibt im Versionsverlauf erhalten.",
   "page_history.deattribute": "Zuschreibung entfernen",
   "page_history.diff_coarse": "Diese Versionen unterscheiden sich zu stark für einen genauen Vergleich: Ein Teil des Textes wird als entfernt und als Ganzes neu hinzugefügt angezeigt.",
+  "page_history.diff_too_large": "Diese Versionen sind zu groß für einen Vergleich der dargestellten Seiten: Stattdessen werden die Änderungen am Quelltext angezeigt.",
   "page_history.empty": "Diese Seite hat keine Einträge im Versionsverlauf.",
   "page_history.entry_title": "Version: {title}",
   "page_history.error.user_missing": "Dieses Konto gibt es nicht.",

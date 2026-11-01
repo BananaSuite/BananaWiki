@@ -14,6 +14,7 @@ from typing import Any
 from flask import request
 
 from .... import auth
+from ....db import db
 from ...pages import access, categories, service
 from .. import serialize, tokens
 from ..errors import (
@@ -64,10 +65,14 @@ def list_categories():
 @bp.get("/categories/<int:category_id>")
 @requires("categories")
 def get_category(category_id: int):
+    """The category with one window of its readable pages (``limit``/``offset``, at most 500)."""
     category = _readable(category_id)
-    pages = service.list_visible(category_id=category["id"], user=caller(), order="sort")
+    limit, offset = page_window()
+    pages = service.list_visible(category_id=category["id"], user=caller(), order="sort", limit=limit + 1,
+                                 offset=offset)
     return ok(category={**serialize.category(category),
-                        "pages": [serialize.page_summary(page) for page in pages]})
+                        "pages": [serialize.page_summary(page) for page in pages[:limit]]},
+              **window_fields(limit, offset, len(pages)))
 
 
 @bp.post("/categories")
@@ -107,12 +112,14 @@ def update_category(category_id: int):
         sequential = flag(data["sequential_nav"], "sequential_nav")
         _allowed("category.manage_sequential", category["id"])
     try:
-        if name is not None:
-            category = categories.rename(category, name)
-        if moving and parent_id != category.get("parent_id"):
-            category = categories.set_parent(category, parent_id)
-        if sequential is not None:
-            categories.set_sequential(category, sequential)
+        # One transaction: the move can still be refused (too deep) after the rename.
+        with db.transaction():
+            if name is not None:
+                category = categories.rename(category, name)
+            if moving and parent_id != category.get("parent_id"):
+                category = categories.set_parent(category, parent_id)
+            if sequential is not None:
+                categories.set_sequential(category, sequential)
     except categories.CategoryError as error:
         raise from_service(error) from None
     return ok(category=serialize.category(categories.get(category["id"]) or category))

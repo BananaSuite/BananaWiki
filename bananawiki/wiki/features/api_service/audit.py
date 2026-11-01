@@ -120,4 +120,5 @@ def clear(before_days: int) -> int:
 def prune() -> None:
     """Background job: keep a year of audit history and an hour of rate-limit counters."""
     clear(RETENTION_DAYS)
-    db.execute("DELETE FROM rate_limit_hits WHERE bucket = 'api_service' AND hit_at < ?", (sql_in(hours=-1),))
+    db.execute("DELETE FROM rate_limit_hits WHERE bucket IN ('api_service', 'api_service_refused') AND hit_at < ?",
+               (sql_in(hours=-1),))

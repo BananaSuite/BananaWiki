@@ -9,7 +9,10 @@ from flask import abort, flash, redirect, render_template, request, url_for
 from ... import accounts, auth, settings
 from ...i18n import t
 from ...registry import feature_blueprint
+from ..audit import record_settings
+from ..pages import access as page_access
 from ..pages import service as pages
+from ..pages.blueprint import rate_limited
 from . import quota, service
 from .errors import ContributionError
 
@@ -68,7 +71,12 @@ def _to_page(page: dict[str, Any]):
 # Proposing
 
 
+# Proposing and withdrawing, per account: each proposal may carry a page's worth of text.
+CHANGES_PER_MINUTE = 30
+
+
 @bp.route("/page/<slug>/propose-edit", methods=["GET", "POST"])
+@rate_limited("contribution", CHANGES_PER_MINUTE)
 def propose(slug: str):
     page = _visible_page(slug)
     user = auth.current_user()
@@ -123,6 +131,7 @@ def edit(slug: str, contribution_id: int):
 
 
 @bp.post("/page/<slug>/contribution/<int:contribution_id>/withdraw")
+@rate_limited("contribution", CHANGES_PER_MINUTE)
 def withdraw(slug: str, contribution_id: int):
     page, contribution = _own_contribution(slug, contribution_id)
     try:
@@ -137,11 +146,22 @@ def withdraw(slug: str, contribution_id: int):
 # The proposer's own list and quota
 
 
+def _my_contributions(user: dict[str, Any]) -> list[dict[str, Any]]:
+    """The user's proposals; pages they can no longer see keep only the proposal's own title."""
+    result = []
+    for contribution in service.of_user(user["id"]):
+        page = pages.get(contribution["page_id"], with_content=False)
+        if page is None or not pages.can_view(page, user):
+            contribution = {**contribution, "page_title": None, "page_slug": None}
+        result.append(contribution)
+    return result
+
+
 @bp.get("/my-contributions")
 def mine():
     user = auth.current_user()
     return render_template(
-        "contributions/mine.html", contributions=service.of_user(user["id"]), quota=quota.effective(user["id"]),
+        "contributions/mine.html", contributions=_my_contributions(user), quota=quota.effective(user["id"]),
         pending=service.pending_count(user["id"]), pending_request=quota.pending_request(user["id"]),
         requests=quota.history(user["id"]), cooldown_minutes=quota.cooldown_remaining_minutes(user["id"]),
         can_request=_may_request_quota(user), max_reason=quota.MAX_REASON,
@@ -215,12 +235,15 @@ def review_detail(contribution_id: int):
     page = pages.get(contribution["page_id"])
     if not service.can_review(page, user):
         abort(403)
+    # A proposal its proposer withdrew keeps no text (service.withdraw): no diff against nothing.
+    text_dropped = contribution["status"] == "withdrawn" and not contribution["content"]
     return render_template(
-        "contributions/review_detail.html", contribution=contribution, page=page,
-        diff=service.diff_lines(page["content"], contribution["content"]),
+        "contributions/review_detail.html", contribution=contribution, page=page, text_dropped=text_dropped,
+        diff=[] if text_dropped else service.diff_lines(page["content"], contribution["content"]),
         page_changed=contribution.get("base_revision") is not None
         and contribution["base_revision"] != page["revision"],
         max_review_reason=service.MAX_REVIEW_REASON, version=service.review_version(contribution),
+        can_rename=page_access.can_edit_metadata(page, user),
     )
 
 
@@ -295,6 +318,8 @@ def save_settings():
             auth.flash_t("contributions.error.invalid_number", "error", minimum=minimum, maximum=maximum)
             return redirect(url_for("contributions.review_list"))
         values[name] = number
+    previous = settings.load()
     settings.update(values)
+    record_settings(previous, values, via="contributions")
     auth.flash_t("common.saved", "success")
     return redirect(url_for("contributions.review_list"))

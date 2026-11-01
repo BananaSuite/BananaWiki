@@ -16,7 +16,8 @@ import string
 from collections.abc import Callable
 from typing import Any
 
-from ....core.timeutil import now_sql
+from ....core.ratelimit import SqlLimiter
+from ....core.timeutil import now_sql, sql_in
 from ... import storage
 from ...db import db
 from . import store
@@ -32,11 +33,22 @@ GLOBAL_NAME = "Global Chat"
 # Stored for indefinite timeouts; compares after every real timestamp.
 INDEFINITE = "9999-12-31 23:59:59"
 MODERATOR_ROLES = frozenset({"owner", "moderator"})
+# Groups an account may create in 24 hours (the per-minute action limit alone allowed thousands a day,
+# each able to hold any account its creator adds), and groups listed on one page of /groups.
+# Creations are counted in ``rate_limit_hits`` (CREATE_BUCKET): ``creator_id`` follows the ownership,
+# so transferring a group away must not give the creation back.
+MAX_CREATES_PER_DAY = 20
+CREATE_BUCKET = "chat:group-create"
+LIST_PAGE_SIZE = 100
 _ALPHABET = string.ascii_letters + string.digits
 
 
 class CodeTaken(ValueError):
     """The requested invite code belongs to another group."""
+
+
+class TooManyGroups(ValueError):
+    """The account created MAX_CREATES_PER_DAY groups in the last 24 hours."""
 
 
 class TransferRefused(ValueError):
@@ -95,6 +107,12 @@ def system(group_id: int, key: str, **values: Any) -> int:
 
 def create(name: str, description: str, creator: dict[str, Any]) -> dict[str, Any]:
     with db.transaction():
+        # Groups still owned count too, for those made before the log existed (or a moved wiki, which drops it).
+        owned = db.scalar("SELECT COUNT(*) FROM group_chats WHERE creator_id = ? AND created_at > ?",
+                          (creator["id"], sql_in(hours=-24)), default=0)
+        if int(owned) >= MAX_CREATES_PER_DAY or SqlLimiter(db.session).reserve(
+                f"user:{creator['id']}", CREATE_BUCKET, MAX_CREATES_PER_DAY, 86400) is None:
+            raise TooManyGroups()
         group_id = _insert_group(name, description, creator["id"], is_global=False)
         db.insert("group_members", {"group_id": group_id, "user_id": creator["id"], "role": "owner",
                                     "joined_at": now_sql()})
@@ -216,8 +234,13 @@ def banned_members(group_id: int) -> list[dict[str, Any]]:
     )
 
 
-def list_for(user_id: str) -> list[dict[str, Any]]:
-    """Groups the user belongs to (never those they are banned from), most recent activity first.
+def count_for(user_id: str) -> int:
+    """How many groups the user belongs to (not counting those they are banned from)."""
+    return int(db.scalar("SELECT COUNT(*) FROM group_members WHERE user_id = ? AND banned = 0", (user_id,), default=0))
+
+
+def list_for(user_id: str, *, limit: int = LIST_PAGE_SIZE, offset: int = 0) -> list[dict[str, Any]]:
+    """One page of the groups the user belongs to (never those they are banned from), most recent activity first.
 
     The last message shown is never one of a person the user blocked.
     """
@@ -231,8 +254,8 @@ def list_for(user_id: str) -> list[dict[str, Any]]:
         "AND (is_system = 1 OR sender_id IS NULL OR sender_id NOT IN "
         "(SELECT blocked_id FROM chat__blocks WHERE blocker_id = gm.user_id))) "
         "WHERE gm.user_id = ? AND gm.banned = 0 "
-        "ORDER BY COALESCE(m.created_at, gc.created_at) DESC, gc.id DESC",
-        (user_id,),
+        "ORDER BY COALESCE(m.created_at, gc.created_at) DESC, gc.id DESC LIMIT ? OFFSET ?",
+        (user_id, limit, offset),
     )
 
 
@@ -273,6 +296,17 @@ def send(group: dict[str, Any], sender_id: str, content: str, *, ip_address: str
             (group["id"], sender_id, sender_id),
         )
     return message_id
+
+
+def forget_addresses(user: dict[str, Any], **_: Any) -> None:
+    """``user.delete`` interceptor: erase the addresses an account's group messages were sent from.
+
+    The messages stay (their sender becomes NULL), but a deleted sender is
+    no longer anyone the administrators' hierarchy could protect, so its
+    addresses would be shown to every administrator. Its direct messages are
+    deleted with it (:func:`.dms.forget_conversations`).
+    """
+    db.execute("UPDATE group_messages SET ip_address = '' WHERE sender_id = ? AND ip_address != ''", (user["id"],))
 
 
 def clear(group_id: int, actor: dict[str, Any], *, authorize: Callable[[], dict[str, Any]] | None = None) -> None:

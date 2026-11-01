@@ -32,6 +32,7 @@ from typing import Any
 
 from bananawiki.core.numbers import ascii_int
 
+from ..core.logformat import printable
 from ..core.timeutil import MAX_YEAR, MIN_YEAR, parse, to_sql
 from .errors import ServiceError
 from .runtime import RuntimeFailure
@@ -55,7 +56,7 @@ def _public(row: dict[str, Any] | None) -> dict[str, Any] | None:
 
 def _print(args: argparse.Namespace, data: Any, message: str | None = None) -> None:
     if message is not None and not args.json:
-        print(message)
+        print(printable(message))  # names an account or a wiki chose
     else:
         print(json.dumps(data, indent=2, sort_keys=True, default=str))
 
@@ -92,7 +93,7 @@ def _audit(action: str, payload: dict[str, Any]) -> None:
         with os.fdopen(fd, "a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, sort_keys=True, default=str) + "\n")
     except OSError as error:
-        print(f"Warning: the action was not written to the audit log {path}: {error}", file=sys.stderr)
+        print(printable(f"Warning: the action was not written to the audit log {path}: {error}"), file=sys.stderr)
 
 
 def _account(ref: str) -> dict[str, Any]:
@@ -509,7 +510,7 @@ INSTANCE_ACTIONS: dict[str, tuple[str, Callable[[Any, dict[str, Any]], Any], boo
     "restart": ("Restarted", lambda m, i: m.restart(i, actor_id=None), False),
     "force-restart": ("Force-restarted", lambda m, i: m.runtime().restart(m.spec(i), force=True), False),
     "unsuspend": ("Lifted the suspension of", lambda m, i: m.unsuspend(i, actor_id=None), False),
-    "terminate": ("Terminated", lambda m, i: m.terminate(i, actor_id=None, reason="manual"), True),
+    "terminate": ("Terminated", lambda m, i: m.terminate(i, actor_id=None, reason="admin"), True),
     "hard-delete": ("Deleted", lambda m, i: m.hard_delete(i, actor_id=None), True),
     "indefinite": ("Removed the expiry of", lambda m, i: m.set_expiry(i, None, actor_id=None), False),
 }

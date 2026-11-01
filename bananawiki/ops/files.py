@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import shlex
 import shutil
 import sqlite3
@@ -97,8 +98,17 @@ def atomic_write(path: str | os.PathLike[str], content: str | bytes, mode: int =
         Path(temporary).unlink(missing_ok=True)
 
 
+class _TooDeep(OSError):
+    """A tree nested more than :data:`TENANT_DEPTH` levels deep (partly removed)."""
+
+
 def _remove_entry_at(dir_fd: int, name: str) -> None:
-    """Remove *name* under *dir_fd* whatever it is (a link as a link, a directory as a tree)."""
+    """Remove *name* under *dir_fd* whatever it is (a link as a link, a directory as a tree).
+
+    Iterative, holding one descriptor per level: a tree nested more than
+    :data:`TENANT_DEPTH` levels deep raises :class:`_TooDeep` instead of
+    running out of descriptors or of Python's recursion limit.
+    """
     try:
         info = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
     except FileNotFoundError:
@@ -106,13 +116,33 @@ def _remove_entry_at(dir_fd: int, name: str) -> None:
     if not stat.S_ISDIR(info.st_mode):
         os.unlink(name, dir_fd=dir_fd)
         return
-    fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    stack: list[tuple[str, int, list[str]]] = [(name, os.open(name, flags, dir_fd=dir_fd), [])]
     try:
-        for entry in os.listdir(fd):
-            _remove_entry_at(fd, entry)
+        stack[0][2].extend(os.listdir(stack[0][1]))  # as for a child: closed below if listing fails
+        while stack:
+            current, fd, entries = stack[-1]
+            if not entries:
+                stack.pop()
+                os.close(fd)
+                os.rmdir(current, dir_fd=stack[-1][1] if stack else dir_fd)
+                continue
+            entry = entries.pop()
+            try:
+                info = os.stat(entry, dir_fd=fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISDIR(info.st_mode):
+                os.unlink(entry, dir_fd=fd)
+                continue
+            if len(stack) >= TENANT_DEPTH:
+                raise _TooDeep(f"{name} is nested more than {TENANT_DEPTH} levels deep")
+            child = os.open(entry, flags, dir_fd=fd)
+            stack.append((entry, child, []))  # on the stack before listing, so that it is closed if that fails
+            stack[-1][2].extend(os.listdir(child))
     finally:
-        os.close(fd)
-    os.rmdir(name, dir_fd=dir_fd)
+        for _, fd, _ in stack:
+            os.close(fd)
 
 
 def untrusted_marker(directory: str | os.PathLike[str], name: str, content: str | None) -> None:
@@ -120,11 +150,18 @@ def untrusted_marker(directory: str | os.PathLike[str], name: str, content: str 
 
     For tenant directories: the tenant may have put a link, a FIFO or a
     directory under that name. Whatever is there is removed without being
-    followed, and the file is created by descriptor with ``O_EXCL``.
+    followed, and the file is created by descriptor with ``O_EXCL``. A tree
+    nested too deeply to remove is renamed aside in the same directory (and
+    left to its owner) so that it can neither keep the name nor fail the call.
     """
     dir_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        _remove_entry_at(dir_fd, name)
+        try:
+            _remove_entry_at(dir_fd, name)
+        except _TooDeep as error:
+            aside = f"{name}.too-deep-{secrets.token_hex(8)}"
+            os.rename(name, aside, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+            log.warning("%s; renamed to %s in %s", error, aside, one_line(os.fspath(directory)))
         if content is not None:
             fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=dir_fd)
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -327,9 +364,11 @@ def write_package(destination: Path, manifest: dict[str, Any], inputs: Iterable[
                   max_files: int = DEFAULT_MAX_FILES) -> Path:
     """Write a new package (never overwriting) with a hashed manifest.
 
-    Each file is read once, by descriptor: the checksum in the manifest is of
-    the bytes streamed into the archive, so a file changed while the package
-    is written cannot make the package disagree with its own manifest.
+    Each file is read once, by descriptor, and stored as a regular member
+    (a file with several names becomes independent copies): the checksum in
+    the manifest is of the bytes streamed into the archive, so a file changed
+    while the package is written cannot make the package disagree with its own
+    manifest.
     """
     destination = Path(destination).absolute()
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -351,7 +390,11 @@ def write_package(destination: Path, manifest: dict[str, Any], inputs: Iterable[
                 if name in manifest["files"]:
                     raise ValueError(f"Duplicate package entry: {name}")
                 with os.fdopen(open_regular(path), "rb") as handle:
-                    info = archive.gettarinfo(arcname=name, fileobj=handle)
+                    # Not gettarinfo(): it stores a second name of a file (a hard
+                    # link) as a link member, which extract_archive refuses.
+                    status = os.fstat(handle.fileno())
+                    info = tarfile.TarInfo(name)
+                    info.size, info.mode, info.mtime = status.st_size, stat.S_IMODE(status.st_mode), int(status.st_mtime)
                     reader = _HashingReader(handle)
                     archive.addfile(info, reader)
                 if reader.size != info.size:
@@ -374,13 +417,19 @@ def write_package(destination: Path, manifest: dict[str, Any], inputs: Iterable[
 
 
 def extract_archive(archive_path: Path, destination: Path, *, max_bytes: int = 1024 ** 4,
-                    max_files: int = 100000) -> set[str]:
-    """Stream-extract into an empty directory, refusing links, special files, duplicates and traversal."""
+                    max_files: int = 100000, hard_links: bool = False) -> set[str]:
+    """Stream-extract into an empty directory, refusing links, special files, duplicates and traversal.
+
+    With *hard_links*, a hard link to a regular file extracted earlier from the
+    same archive becomes a copy of it: packages written before
+    :func:`write_package` stored every name as a regular member may hold them.
+    """
     destination = Path(destination)
     destination.mkdir(mode=0o700, parents=True, exist_ok=True)
     if any(destination.iterdir()):
         raise ValueError("Extract only into an empty staging directory.")
     seen: set[str] = set()
+    files: set[str] = set()
     total = 0
     with tarfile.open(archive_path, "r|*") as archive:
         for member in archive:
@@ -398,6 +447,20 @@ def extract_archive(archive_path: Path, destination: Path, *, max_bytes: int = 1
             if member.isdir():
                 path.mkdir(mode=0o700, parents=True, exist_ok=True)
                 continue
+            if hard_links and member.islnk() and member.linkname in files:
+                original = destination.joinpath(*PurePosixPath(member.linkname).parts)
+                size = original.stat().st_size
+                total += size
+                if total > max_bytes:
+                    raise ValueError("Archive exceeds the extracted-size limit.")
+                if shutil.disk_usage(destination).free < size + 64 * 1024 * 1024:
+                    raise ValueError("Not enough free space to restore the archive.")
+                path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                with original.open("rb") as source_file, path.open("xb") as target:
+                    shutil.copyfileobj(source_file, target, length=1024 * 1024)
+                path.chmod(stat.S_IMODE(original.stat().st_mode))
+                files.add(member.name)
+                continue
             if not member.isfile():
                 raise ValueError("Archive links and special files are not supported.")
             if shutil.disk_usage(destination).free < member.size + 64 * 1024 * 1024:
@@ -411,6 +474,7 @@ def extract_archive(archive_path: Path, destination: Path, *, max_bytes: int = 1
             if path.stat().st_size != member.size:
                 raise ValueError("Truncated archive entry.")
             path.chmod(0o700 if member.mode & 0o111 else 0o600)
+            files.add(member.name)
     return seen
 
 
@@ -467,7 +531,7 @@ def read_package(path: Path, product: str, staging_parent: Path, *,
     staging_parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="restore-", dir=staging_parent) as temporary:
         root = Path(temporary)
-        members = extract_archive(Path(path), root, max_files=max_files + 1)  # and the manifest
+        members = extract_archive(Path(path), root, max_files=max_files + 1, hard_links=True)  # and the manifest
         manifest = read_json(root / "manifest.json", max_bytes=manifest_limit(len(members)))
         if not isinstance(manifest, dict) or manifest.get("schema") != 1 or manifest.get("product") != product:
             raise ValueError("This package does not match the application or package format.")

@@ -40,7 +40,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from . import DEFAULT_SOURCE_URL, PRODUCT, caddy, profile, tenant_quotas
+from ..core.logformat import one_line, printable
+from . import DEFAULT_SOURCE_URL, PRODUCT, caddy, firewall, profile, tenant_quotas
 from .files import (
     DEFAULT_MAX_FILES,
     MAINTENANCE_MARKER,
@@ -61,6 +62,7 @@ from .files import (
 )
 from .profile import TENANT_IMAGE, ReleaseFeatures, Service
 from .snapshot import Snapshot, stale_snapshots
+from .snapshot import largest_tenants as snapshot_largest_tenants
 from .snapshot import sources as snapshot_sources
 from .source import GitSource, credential_host, valid_branch, valid_revision, valid_track, valid_url
 from .system import (
@@ -171,7 +173,8 @@ def print_storage(policy: tenant_quotas.Policy, *, printed: Iterable[str] = ()) 
     already = set(printed)
     for key, message in storage_details(policy).items():
         if message[:2000] not in already:
-            print(f"{'Warning' if key == 'storage_warning' else 'Note'}: {message}", file=sys.stderr, flush=True)
+            print(printable(f"{'Warning' if key == 'storage_warning' else 'Note'}: {message}"), file=sys.stderr,
+                  flush=True)
 
 
 def tenant_names(directories: Iterable[str]) -> list[str]:
@@ -610,6 +613,9 @@ class Manager:
             self.save(settings)
             (self.root / "data" / MAINTENANCE_MARKER).unlink(missing_ok=True)
             details = {"tenant_storage": storage.to_dict(), **storage_details(storage)} if mode == "hosting" else {}
+            unprotected = self.check_tenant_firewall(settings)
+            if unprotected:
+                details["firewall_warning"] = firewall.warning(unprotected)
             return self.event("install", "complete", revision=settings["revision"], automatic_updates=False,
                               **details)
 
@@ -673,9 +679,9 @@ class Manager:
                 try:
                     untrusted_marker(directory, MAINTENANCE_MARKER,
                                      "Hosting maintenance in progress\n" if enabled else None)
-                except OSError as error:
+                except Exception as error:  # noqa: BLE001 - one tenant's entry never blocks the platform
                     log.warning("Maintenance marker not %s for tenant %s: %s", "set" if enabled else "removed",
-                                directory.name, error)
+                                one_line(directory.name), one_line(error))
 
     def quiesce(self, journal: dict[str, Any]) -> None:
         settings = journal["settings"]
@@ -1032,6 +1038,9 @@ class Manager:
             settings = self.settings()
             if automatic and not self.policy()["enabled"]:
                 return {"outcome": "disabled"}
+            # Every update (the hourly automatic one included) checks the host firewall and records the answer
+            # for the portal: a reboot without a persistent nftables include drops it silently.
+            self.check_tenant_firewall(settings)
             if automatic and not self.system.active(settings["service"]):
                 return self.event("update", "skipped", reason="The application was intentionally stopped.")
             source = self.source()
@@ -1132,7 +1141,7 @@ class Manager:
                     if messages:
                         details["preflight_" + key] = messages
                         for message in messages:
-                            print(f"{label}: {message}", file=sys.stderr, flush=True)
+                            print(printable(f"{label}: {message}"), file=sys.stderr, flush=True)
 
             still_quarantined: list[str] = []  # isolated wikis whose plugins the update quarantined first
             only_marked: list[str] = []  # isolated wikis whose quarantine is in force, plugins still switched on
@@ -1877,6 +1886,11 @@ class Manager:
                             f"{str(unconverged.get('reason'))[:500]}); the previous units were put back and "
                             "automatic updates do not try again. Look at the services' journal "
                             f"(journalctl -u '{settings['service']}*'), fix the cause, then run 'update' (or 'restart').")
+        if settings["mode"] == "hosting":
+            problem = self.check_tenant_firewall(settings, report=False)
+            output["tenant_firewall"] = {"loaded": problem is None, **({"reason": problem} if problem else {})}
+            if problem:
+                warnings.append(firewall.warning(problem))
         if settings["mode"] == "hosting" and features.project_quotas:
             try:
                 storage = self.agent_storage(settings)
@@ -1906,6 +1920,24 @@ class Manager:
             del output["warnings"]
         return output
 
+    def check_tenant_firewall(self, settings: dict[str, Any], *, report: bool = True) -> str | None:
+        """On a hosting installation, check that the host firewall for tenant containers is loaded.
+
+        Returns why it is not (None when it is, and always elsewhere), prints
+        the warning with *report*, and records the answer for the portal's
+        administrators (:mod:`.firewall`).
+        """
+        if settings.get("mode") != "hosting":
+            return None
+        problem = self.system.tenant_firewall()
+        try:
+            write_json(self.config_dir / firewall.RECORD_NAME, firewall.record(problem))
+        except OSError as error:
+            log.warning("The host firewall check was not recorded: %s", error)
+        if problem and report:
+            print(f"Warning: {firewall.warning(problem)}", file=sys.stderr, flush=True)
+        return problem
+
     def agent_storage(self, settings: dict[str, Any]) -> tenant_quotas.Policy:
         """What the runtime agent decides about hard quotas now (``status``, ``config get tenant-quotas``).
 
@@ -1924,15 +1956,18 @@ class Manager:
         """How many files a package would hold now, the limit, and a warning when backups and updates near it."""
         try:
             limit = self.package_limit()
-            files = len(snapshot_sources(self.root, self.allowed_link(settings))) + 1  # and the release's source
+            names = snapshot_sources(self.root, self.allowed_link(settings))
+            files = len(names) + 1  # and the release's source
         except (OSError, ValueError) as error:
             return {"package_files": None, "package_file_limit": None,
                     "warnings": [f"Backups and updates would fail: {error}"]}
         output: dict[str, Any] = {"package_files": files, "package_file_limit": limit}
         if files > limit * 0.8:
+            largest = snapshot_largest_tenants(names)
             output["warnings"] = [
                 f"The installation holds {files:,} files and a package may hold {limit:,}: beyond that every "
-                "backup and update is refused. Raise BANANA_PACKAGE_MAX_FILES in config/app.env, or remove files."]
+                "backup and update is refused. Raise BANANA_PACKAGE_MAX_FILES in config/app.env, or remove files."
+                + (f" Hosted wikis holding the most files: {largest}." if largest else "")]
         return output
 
     def uninstall(self, *, purge: bool = False, confirm: str = "") -> dict[str, Any]:

@@ -151,6 +151,7 @@
   "site_admin.locked.two_step_yours_first": "Turn on two-step verification for your own account first (Settings → Two-step verification).",
   "site_admin.log.empty": "Nothing to show.",
   "site_admin.log.empty_errors": "No errors in the recent log.",
+  "site_admin.log.addresses_hidden": "Network addresses are hidden too: only owners and superusers see them.",
   "site_admin.log.intro": "The end of the server log. Passwords, tokens and keys are hidden.",
   "site_admin.log.intro_errors": "The errors at the end of the server log. Passwords, tokens and keys are hidden.",
   "site_admin.log.missing": "No log file is being written. Set BW_LOG_FILE or check BW_LOGGING_LEVEL.",

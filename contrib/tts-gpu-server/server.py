@@ -19,8 +19,27 @@ full stop cannot exhaust the GPU memory. At most ``TTS_MAX_CONCURRENT``
 syntheses run at once and further requests wait up to ``TTS_QUEUE_TIMEOUT``
 seconds before getting 503. A client that stays silent for
 ``TTS_SOCKET_TIMEOUT`` seconds while sending a request (or between keep-alive
-requests) is disconnected, and connections beyond ``TTS_MAX_CONNECTIONS``
-are closed at once, so slow or idle clients cannot tie up every thread.
+requests), or that has not sent a whole request (line, headers and body)
+``TTS_REQUEST_TIMEOUT`` seconds after it began waiting for one, is
+disconnected. Every answer to a request without a valid token (``/health``
+included) closes the connection: only authenticated clients keep connections
+alive. Connections beyond ``TTS_MAX_CONNECTIONS`` are closed at once. One
+address keeps at most ``TTS_MAX_CONNECTIONS_PER_CLIENT`` connections, of
+which at most ``TTS_MAX_PENDING_PER_CLIENT`` have not yet presented a valid
+token; a new connection over these caps closes that address's oldest
+connection not busy with an authenticated request (or is itself closed when
+there is none), so slow or idle clients cannot tie up every connection or
+thread, nor shut out the next request from the address they share with
+other wikis. A hosted wiki (one tenant token) has at most
+``TTS_MAX_BUSY_PER_TENANT`` requests in progress at once, over all addresses;
+a further one is answered 429 and its connection closed, so one wiki cannot
+keep every connection of the shared address busy; such a connection is the
+first to make room for a new one and never counts as pending, so a wiki
+reconnecting after each 429 cannot push another wiki's new connection out. A free synthesis slot goes
+to the waiting client served longest ago (each tenant, and the master token,
+counts as one), so one wiki's queue cannot keep the others waiting. Every
+request is logged with its tenant (``tenant=<wiki id>``, ``operator`` for
+the master token), the id that ``TTS_REVOKED_TENANTS`` takes.
 Configuration is read from environment variables; see README.md.
 """
 
@@ -34,9 +53,11 @@ import os
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
+import time
 import wave
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -47,9 +68,17 @@ from typing import Any, Protocol
 
 log = logging.getLogger("bananawiki-tts-gpu")
 
-VERSION = "1.7.3"  # a test checks it matches bananawiki.__version__
+VERSION = "1.7.6"  # a test checks it matches bananawiki.__version__
 _LANGUAGE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z]{2})?$")
+_CONTENT_LENGTH = re.compile(r"[0-9]+")
 _VOICE_NAME = re.compile(r"^[\w.-]{1,120}$")
+# What the logs show of client input (a request line) is escaped as repr() would: every control character (C0,
+# DEL, C1), the Unicode line separators and the bidirectional overrides. A terminal acts on them (OSC 52 writes the
+# clipboard, others retitle the window or rewrite lines), and a line break would forge further log lines. Python's
+# own BaseHTTPRequestHandler.log_message escapes C0 and C1 too (3.12 and newer); this server overrides it.
+_LOG_ESCAPES = {code: f"\\x{code:02x}" for code in (*range(0x20), 0x7F, *range(0x80, 0xA0))}
+_LOG_ESCAPES.update({code: f"\\u{code:04x}"
+                     for code in (0x2028, 0x2029, *range(0x202A, 0x202F), *range(0x2066, 0x206A))})
 
 # Same voices as BananaWiki's local Piper defaults, so both sound alike.
 DEFAULT_VOICES: dict[str, str] = {
@@ -117,7 +146,11 @@ class Settings:
     max_concurrent: int = 1
     queue_timeout: float = 30.0
     socket_timeout: float = 30.0
+    request_timeout: float = 10.0
     max_connections: int = 64
+    max_connections_per_client: int = 8
+    max_pending_per_client: int = 4
+    max_busy_per_tenant: int = 2
     output_format: str = "mp3"
     auto_download: bool = True
     preload: tuple[str, ...] = ("en", "it")
@@ -158,7 +191,11 @@ class Settings:
             max_concurrent=_env_int(env, "TTS_MAX_CONCURRENT", 1),
             queue_timeout=_env_float(env, "TTS_QUEUE_TIMEOUT", 30.0),
             socket_timeout=_env_positive_float(env, "TTS_SOCKET_TIMEOUT", 30.0),
+            request_timeout=_env_positive_float(env, "TTS_REQUEST_TIMEOUT", 10.0),
             max_connections=_env_int(env, "TTS_MAX_CONNECTIONS", 64),
+            max_connections_per_client=_env_int(env, "TTS_MAX_CONNECTIONS_PER_CLIENT", 8),
+            max_pending_per_client=_env_int(env, "TTS_MAX_PENDING_PER_CLIENT", 4),
+            max_busy_per_tenant=_env_int(env, "TTS_MAX_BUSY_PER_TENANT", 2),
             output_format=output,
             auto_download=env.get("TTS_AUTO_DOWNLOAD", "1").strip().lower() in ("1", "true", "yes", "on"),
             preload=tuple(c.strip() for c in env.get("TTS_PRELOAD", "en,it").split(",") if c.strip()),
@@ -171,9 +208,10 @@ class Settings:
 
 
 class RequestError(Exception):
-    def __init__(self, status: HTTPStatus, message: str):
+    def __init__(self, status: HTTPStatus, message: str, headers: dict[str, str] | None = None):
         super().__init__(message)
         self.status = status
+        self.headers = headers
 
 
 class Engine(Protocol):
@@ -373,6 +411,12 @@ def tenant_token(master: str, tenant: str) -> str:
     return f"bwt1.{tenant}.{digest.hexdigest()}"
 
 
+def tenant_of(presented: str) -> str | None:
+    """The wiki id of a (valid) tenant token; None for the master token."""
+    match = TENANT_TOKEN.fullmatch(presented)
+    return match.group(1) if match else None
+
+
 def token_valid(settings: Settings, presented: str) -> bool:
     candidate = presented.encode("utf-8", "replace")
     if hmac.compare_digest(candidate, settings.token.encode("ascii")):
@@ -383,12 +427,105 @@ def token_valid(settings: Settings, presented: str) -> bool:
     return hmac.compare_digest(candidate, tenant_token(settings.token, match.group(1)).encode("ascii"))
 
 
+class _FairSlots:
+    """At most *size* syntheses at once. A freed slot goes to the waiting client served longest ago (a tenant,
+    or the master token), its oldest request first, so one wiki's queued requests cannot keep the others
+    waiting for the GPU (a plain semaphore wakes whoever asked first, and a busy wiki always asks first)."""
+
+    def __init__(self, size: int):
+        self._free = size
+        self._ready = threading.Condition()
+        self._waiting: list[tuple[str, object]] = []  # (client, ticket), in order of arrival
+        self._served: dict[str, int] = {}  # client -> turn it last got a slot; one entry per tenant at most
+        self._turn = 0
+
+    def _next(self) -> object:
+        return min(self._waiting, key=lambda item: self._served.get(item[0], 0))[1]
+
+    def acquire(self, client: str, timeout: float) -> bool:
+        ticket = (client, object())
+        deadline = time.monotonic() + timeout
+        with self._ready:
+            self._waiting.append(ticket)
+            try:
+                while not (self._free > 0 and self._next() is ticket[1]):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return False
+                    self._ready.wait(remaining)
+                self._free -= 1
+                self._turn += 1
+                self._served[client] = self._turn
+                return True
+            finally:
+                self._waiting.remove(ticket)
+                self._ready.notify_all()  # the next in line may be someone else now
+
+    def release(self) -> None:
+        with self._ready:
+            self._free += 1
+            self._ready.notify_all()
+
+
+# Connection states (SpeechServer.mark): no valid token yet, handling an authenticated request, waiting for
+# the next request after an authenticated one (keep-alive), and refused for its tenant's busy cap (answered 429,
+# then closed).
+_PENDING, _BUSY, _IDLE, _CROWDED = "pending", "busy", "idle", "crowded"
+
+
 class _ClientTimeout(Exception):
     """The client stopped sending the request body (timeout or closed connection)."""
 
 
+class _RequestReader:
+    """The reading side of a connection: each receive waits at most the idle timeout, and a whole request
+    must arrive before the deadline set by :meth:`start` (a client trickling a byte now and then would
+    otherwise keep its connection forever). Raises TimeoutError, as the socket does."""
+
+    def __init__(self, sock: Any, idle_timeout: float):
+        self._sock, self._idle = sock, idle_timeout
+        self._buffer = bytearray()
+        self._deadline: float | None = None
+
+    def start(self, seconds: float) -> None:
+        self._deadline = time.monotonic() + seconds
+
+    def _fill(self) -> bool:
+        wait = self._idle if self._deadline is None else min(self._idle, self._deadline - time.monotonic())
+        if wait <= 0:
+            raise TimeoutError("the request took too long")
+        self._sock.settimeout(wait)
+        try:
+            chunk = self._sock.recv(65536)
+        finally:
+            self._sock.settimeout(self._idle)  # the answer is written with the idle timeout
+        self._buffer += chunk
+        return bool(chunk)
+
+    def _take(self, size: int) -> bytes:
+        data = bytes(self._buffer[:size])
+        del self._buffer[:size]
+        return data
+
+    def readline(self, limit: int = -1) -> bytes:
+        while True:
+            end = self._buffer.find(b"\n")
+            if end >= 0 and (limit < 0 or end < limit):
+                return self._take(end + 1)
+            if 0 <= limit <= len(self._buffer) or not self._fill():
+                return self._take(len(self._buffer) if limit < 0 else limit)
+
+    def read(self, size: int = -1) -> bytes:
+        while (size < 0 or len(self._buffer) < size) and self._fill():
+            pass
+        return self._take(len(self._buffer) if size < 0 else size)
+
+    def close(self) -> None:
+        self._buffer.clear()
+
+
 def make_handler(settings: Settings, engine: Engine) -> type[BaseHTTPRequestHandler]:
-    slots = threading.BoundedSemaphore(settings.max_concurrent)
+    slots = _FairSlots(settings.max_concurrent)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = f"BananaWikiTTS/{VERSION}"
@@ -397,8 +534,42 @@ def make_handler(settings: Settings, engine: Engine) -> type[BaseHTTPRequestHand
         # Applied to the socket: a client silent this long while sending is disconnected.
         timeout = settings.socket_timeout
 
+        def setup(self) -> None:
+            super().setup()
+            self.rfile = _RequestReader(self.connection, settings.socket_timeout)  # type: ignore[assignment]
+            self.tenant: str | None = None  # of the current request's valid token ("" for the master token)
+            self.crowded = False
+
+        def handle_one_request(self) -> None:
+            self.tenant, self.crowded = None, False
+            # The deadline counts from when the server starts waiting for the request line.
+            self.rfile.start(settings.request_timeout)  # type: ignore[attr-defined]
+            try:
+                super().handle_one_request()
+            except ConnectionError as error:
+                # A client that reset or closed its connection went away: the stdlib catches only TimeoutError,
+                # and socketserver would print a traceback for each one, outside the log format.
+                self.close_connection = True
+                log.debug("%s %s connection lost: %s", self.address_string(), self._who(),
+                          type(error).__name__)
+            finally:
+                self._mark(_IDLE)
+
+        def _mark(self, state: str) -> None:
+            mark = getattr(self.server, "mark", None)
+            if mark is not None:
+                mark(self.client_address[0], self.connection, state)
+
+        def _who(self) -> str:
+            """The tenant for the logs: ``tenant=<wiki id>`` (what TTS_REVOKED_TENANTS takes), ``operator`` for
+            the master token, ``-`` without a valid token."""
+            if self.tenant is None:
+                return "-"
+            return f"tenant={self.tenant}" if self.tenant else "operator"
+
         def log_message(self, fmt: str, *args: Any) -> None:
-            log.info("%s %s", self.address_string(), fmt % args)
+            # The request line is the client's, byte for byte (see _LOG_ESCAPES).
+            log.info("%s %s %s", self.address_string(), self._who(), (fmt % args).translate(_LOG_ESCAPES))
 
         def _send(self, status: HTTPStatus, body: bytes, content_type: str, headers: dict[str, str] | None = None):
             self.send_response(status)
@@ -408,6 +579,8 @@ def make_handler(settings: Settings, engine: Engine) -> type[BaseHTTPRequestHand
             self.send_header("X-Content-Type-Options", "nosniff")
             for name, value in (headers or {}).items():
                 self.send_header(name, value)
+            if self.close_connection:
+                self.send_header("Connection", "close")
             self.end_headers()
             self.wfile.write(body)
 
@@ -415,17 +588,31 @@ def make_handler(settings: Settings, engine: Engine) -> type[BaseHTTPRequestHand
             self._send(status, json.dumps(data).encode("utf-8"), "application/json", headers)
 
         def _authorized(self) -> bool:
+            """Whether the request carries a valid token; the connection then counts as busy, not pending,
+            and may stay open for the next request. Without one it closes after the answer. A tenant with
+            ``max_busy_per_tenant`` other requests in progress is *crowded*: its connection stays evictable and
+            closes after the answer."""
             scheme, _, presented = (self.headers.get("Authorization") or "").partition(" ")
-            if scheme.lower() != "bearer":
-                return False
-            return token_valid(settings, presented.strip())
+            if scheme.lower() == "bearer" and token_valid(settings, presented.strip()):
+                tenant = tenant_of(presented.strip())
+                self.tenant = tenant or ""
+                busy = getattr(self.server, "busy", None)
+                if busy is not None and not busy(self.client_address[0], self.connection, tenant,
+                                                 settings.max_busy_per_tenant):
+                    self.crowded = True
+                    self.close_connection = True
+                return True
+            self.close_connection = True
+            return False
 
         def do_GET(self) -> None:  # noqa: N802 - http.server API
+            authorized = self._authorized()
             if self.path.split("?", 1)[0] != "/health":
+                self.close_connection = True
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
                 return
             report: dict[str, Any] = {"status": "ok", "version": VERSION}
-            if self._authorized():
+            if authorized:
                 report.update(engine.details())
             self._json(HTTPStatus.OK, report)
 
@@ -433,18 +620,28 @@ def make_handler(settings: Settings, engine: Engine) -> type[BaseHTTPRequestHand
             if not self._authorized():
                 status = HTTPStatus.UNAUTHORIZED if "Authorization" not in self.headers else HTTPStatus.FORBIDDEN
                 raise RequestError(status, "A valid bearer token is required.")
-            length = self.headers.get("Content-Length")
-            if length is None or not length.isdigit():
+            if self.crowded:
+                log.warning("Refused a request of tenant %s from %s: %d requests in progress "
+                            "(TTS_MAX_BUSY_PER_TENANT)", self.tenant, self.address_string(),
+                            settings.max_busy_per_tenant)
+                raise RequestError(HTTPStatus.TOO_MANY_REQUESTS, "Too many requests in progress for this wiki.",
+                                   {"Retry-After": "5"})
+            length = self.headers.get("Content-Length") or ""
+            # ASCII digits only (isdigit() also takes "\u00b2", headers being read as Latin-1), and no
+            # int() of thousands of digits: either would end the request thread with a traceback.
+            if not _CONTENT_LENGTH.fullmatch(length):
                 raise RequestError(HTTPStatus.LENGTH_REQUIRED, "Content-Length is required.")
-            if int(length) > settings.max_body_bytes:
+            digits = length.lstrip("0") or "0"
+            if len(digits) > 12 or int(digits) > settings.max_body_bytes:
                 raise RequestError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "The request is too large.")
+            size = int(digits)
             if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
                 raise RequestError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "Send application/json.")
             try:
-                raw = self.rfile.read(int(length))
+                raw = self.rfile.read(size)
             except TimeoutError:
                 raise _ClientTimeout from None
-            if len(raw) != int(length):
+            if len(raw) != size:
                 raise _ClientTimeout
             try:
                 payload = json.loads(raw.decode("utf-8"))
@@ -475,9 +672,9 @@ def make_handler(settings: Settings, engine: Engine) -> type[BaseHTTPRequestHand
                 return
             except RequestError as error:
                 self.close_connection = True
-                self._json(error.status, {"error": str(error)})
+                self._json(error.status, {"error": str(error)}, error.headers)
                 return
-            if not slots.acquire(timeout=settings.queue_timeout):
+            if not slots.acquire(self.tenant or "", settings.queue_timeout):
                 self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "The server is busy."}, {"Retry-After": "30"})
                 return
             try:
@@ -491,10 +688,12 @@ def make_handler(settings: Settings, engine: Engine) -> type[BaseHTTPRequestHand
                 return
             finally:
                 slots.release()
-            log.info("Synthesized %d characters in %s -> %d bytes", len(text), language, len(audio))
+            log.info("Synthesized %d characters in %s -> %d bytes for %s", len(text), language, len(audio),
+                     self._who())
             self._send(HTTPStatus.OK, audio, content_type)
 
         def do_PUT(self) -> None:  # noqa: N802
+            self.close_connection = True
             self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"})
 
         do_DELETE = do_PATCH = do_PUT  # noqa: N815
@@ -503,41 +702,129 @@ def make_handler(settings: Settings, engine: Engine) -> type[BaseHTTPRequestHand
 
 
 class SpeechServer(ThreadingHTTPServer):
-    """One thread per connection, but never more than ``max_connections`` at once.
+    """One thread per connection, but never more than ``max_connections`` at once, nor more than
+    ``max_per_client`` from one address, of which at most ``max_pending_per_client`` without a valid token.
 
-    A connection over the cap is closed straight away instead of queueing a
-    thread, so a burst of idle connections cannot exhaust threads or memory;
-    each accepted one is bounded by the handler's socket timeout.
+    A connection over the global cap is closed straight away instead of
+    queueing a thread, so a burst of idle connections cannot exhaust threads
+    or memory, and one address cannot take every connection. Over an
+    address's caps, the newcomer takes the place of that address's oldest
+    connection that is not busy with an authenticated request (one that
+    never presented a token first): hosted wikis share one address, so
+    connections held open without a token must not shut out the next wiki's
+    request. A connection answered 429 for its tenant's busy cap (*crowded*)
+    goes first and is not counted as pending. Only when every connection of
+    the address is busy is the newcomer closed. Each accepted connection is bounded by the handler's
+    socket timeout and request deadline.
     """
 
     daemon_threads = True
+    # socketserver listens with a backlog of 5: a client opening connections quickly (one whose requests are
+    # refused reconnects at once) would overflow it, and the kernel then drops another wiki's connection attempt,
+    # which its client retries only after a second. Connections are closed (not queued) once accepted, so a
+    # longer backlog costs nothing.
+    request_queue_size = 128
 
-    def __init__(self, address: tuple[str, int], handler: type[BaseHTTPRequestHandler], max_connections: int):
+    def __init__(self, address: tuple[str, int], handler: type[BaseHTTPRequestHandler], max_connections: int,
+                 max_per_client: int | None = None, max_pending_per_client: int | None = None):
         self._connections = threading.BoundedSemaphore(max_connections)
         self.max_connections = max_connections
+        self.max_per_client = max_per_client or max_connections
+        self.max_pending_per_client = min(max_pending_per_client or self.max_per_client, self.max_per_client)
+        self._per_client: dict[str, dict[Any, str]] = {}  # address -> {socket: state}, oldest first
+        self._tenants: dict[Any, str | None] = {}  # socket -> tenant of its latest authenticated request
+        self._per_client_lock = threading.Lock()
         super().__init__(address, handler)
 
+    def _claim(self, client: str, request: Any) -> tuple[bool, Any]:
+        """Whether *request* may be served, and the connection of the same address to close for it."""
+        with self._per_client_lock:
+            held = self._per_client.get(client, {})
+            pending = [sock for sock, state in held.items() if state == _PENDING]
+            # A crowded connection is about to close: it goes first, and it never counts as pending, so a wiki
+            # whose requests are refused for its busy cap cannot push another wiki's new connection out.
+            crowded = next((sock for sock, state in held.items() if state == _CROWDED), None)
+            evict = None
+            if len(pending) >= self.max_pending_per_client:
+                evict = pending[0]
+            elif len(held) >= self.max_per_client:
+                evict = crowded or (pending[0] if pending else
+                                    next((sock for sock, state in held.items() if state == _IDLE), None))
+                if evict is None:
+                    return False, None
+            if not self._connections.acquire(blocking=False):
+                return False, None
+            if evict is not None:
+                del held[evict]  # its thread still holds a global slot until it ends
+            held[request] = _PENDING
+            self._per_client[client] = held
+            return True, evict
+
+    def mark(self, client: str, request: Any, state: str) -> None:
+        """Record that a connection presented a valid token (busy) or finished an authenticated request
+        (idle); one that never presented a token stays pending."""
+        with self._per_client_lock:
+            held = self._per_client.get(client, {})
+            if request in held and not (state == _IDLE and held[request] in (_PENDING, _CROWDED)):
+                held[request] = state
+
+    def busy(self, client: str, request: Any, tenant: str | None, limit: int) -> bool:
+        """Mark *request* busy with an authenticated request of *tenant* (None: the master token, never
+        limited); False, leaving it as it was, when the tenant already has *limit* busy connections from
+        any address."""
+        with self._per_client_lock:
+            held = self._per_client.get(client, {})
+            if tenant is not None:
+                others = sum(1 for connections in self._per_client.values()
+                             for sock, state in connections.items()
+                             if state == _BUSY and sock is not request and self._tenants.get(sock) == tenant)
+                if others >= limit:
+                    if request in held:
+                        held[request] = _CROWDED
+                    return False
+            if request in held:
+                held[request] = _BUSY
+                self._tenants[request] = tenant
+            return True
+
+    def _release(self, client: str, request: Any) -> None:
+        with self._per_client_lock:
+            self._tenants.pop(request, None)
+            held = self._per_client.get(client, {})
+            held.pop(request, None)
+            if not held:
+                self._per_client.pop(client, None)
+            self._connections.release()
+
     def process_request(self, request: Any, client_address: Any) -> None:
-        if not self._connections.acquire(blocking=False):
-            log.warning("Refused a connection from %s: %d connections are open", client_address[0],
-                        self.max_connections)
+        claimed, evict = self._claim(client_address[0], request)
+        if not claimed:
+            log.warning("Refused a connection from %s: too many open connections (at most %d, %d per address)",
+                        client_address[0], self.max_connections, self.max_per_client)
             self.shutdown_request(request)
             return
+        if evict is not None:
+            log.info("Closed an idle connection from %s to make room for a new one", client_address[0])
+            try:
+                evict.shutdown(socket.SHUT_RDWR)  # its handler sees the end of the stream and finishes
+            except OSError:
+                pass
         try:
             super().process_request(request, client_address)
         except BaseException:
-            self._connections.release()
+            self._release(client_address[0], request)
             raise
 
     def process_request_thread(self, request: Any, client_address: Any) -> None:
         try:
             super().process_request_thread(request, client_address)
         finally:
-            self._connections.release()
+            self._release(client_address[0], request)
 
 
 def make_server(settings: Settings, engine: Engine) -> ThreadingHTTPServer:
-    return SpeechServer((settings.host, settings.port), make_handler(settings, engine), settings.max_connections)
+    return SpeechServer((settings.host, settings.port), make_handler(settings, engine), settings.max_connections,
+                        settings.max_connections_per_client, settings.max_pending_per_client)
 
 
 def main() -> int:

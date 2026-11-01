@@ -23,13 +23,14 @@ import sqlite3
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from flask import current_app
+from flask import current_app, has_request_context
 from werkzeug.datastructures import FileStorage
 
 from ....core.timeutil import now_sql
 from ... import auth, settings, storage
 from ...config import ATTACHMENT_EXTENSIONS, IMAGE_EXTENSIONS, MIB
 from ...db import db
+from ..audit import record
 
 CONTENT_TYPE_GROUPS: dict[str, tuple[str, ...]] = {
     "markup": ("redirect", "builder", "html", "html_styled", "html_full", "markdown", "wiki_page", "plain_text"),
@@ -503,19 +504,49 @@ def save_builder_document(page: dict[str, Any], validated: dict[str, Any], *, ti
 # Writing
 
 
+# Every change is audited: published pages are public at any free path, even on a private wiki.
+_AUDITED = ("path", "content_type", "is_published", "redirect_host")
+
+
+def _audit_view(page: dict[str, Any]) -> dict[str, Any]:
+    """What the audit log keeps of *page*: where it is served, what it is, and where a redirect leads."""
+    view = {key: page.get(key) for key in _AUDITED[:3]}
+    if page.get("content_type") == "redirect":
+        view["redirect_host"] = urlsplit(str(page.get("redirect_url") or "")).hostname or ""
+    return view
+
+
+def _audit(action: str, page: dict[str, Any], previous: dict[str, Any] | None = None, **extra: Any) -> None:
+    details = {**_audit_view(page), **extra}
+    if previous is not None:
+        before = _audit_view(previous)
+        changed = {key: before.get(key) for key in _AUDITED if before.get(key) != details.get(key)}
+        if changed:
+            details["previous"] = changed
+    if has_request_context() and auth.is_impersonating():  # the actor is the impersonator: name the account too
+        details["as_user"] = auth.current_user()["username"]
+    record(action, target_type="custom_page", target_id=page["id"], details=details)
+
+
 def create(values: dict[str, Any], *, created_by: str) -> int:
     now = now_sql()
     try:
-        return db.insert("custom_pages", {**values, "created_by": created_by, "created_at": now, "updated_at": now})
+        page_id = db.insert("custom_pages", {**values, "created_by": created_by, "created_at": now, "updated_at": now})
     except sqlite3.IntegrityError:
         raise CustomPageError("custom_pages.error.path_taken") from None
+    _audit("custom_page.created", {**values, "id": page_id})
+    return page_id
 
 
 def update(page_id: int, values: dict[str, Any]) -> None:
+    previous = get(page_id)
     try:
         db.update("custom_pages", {**values, "updated_at": now_sql()}, "id = ?", (page_id,))
     except sqlite3.IntegrityError:
         raise CustomPageError("custom_pages.error.path_taken") from None
+    if previous is not None:
+        _audit("custom_page.updated", {**previous, **values}, previous,
+               changed=", ".join(sorted(key for key in values if previous.get(key) != values[key])))
 
 
 def _remove_file_rows(rows: list[dict[str, Any]]) -> None:
@@ -532,10 +563,14 @@ def _remove_file_rows(rows: list[dict[str, Any]]) -> None:
 def delete(page: dict[str, Any]) -> None:
     _remove_file_rows(files(page["id"]))
     db.execute("DELETE FROM custom_pages WHERE id = ?", (page["id"],))
+    _audit("custom_page.deleted", page)
 
 
 def delete_file(file_row: dict[str, Any]) -> None:
     _remove_file_rows([file_row])
+    page = get(file_row["custom_page_id"])
+    if page is not None:
+        _audit("custom_page.file_deleted", page, name=file_row["original_name"])
 
 
 def max_video_bytes() -> int:
@@ -561,4 +596,5 @@ def add_file(page: dict[str, Any], upload: FileStorage) -> dict[str, Any]:
     })
     row = get_file(file_id)
     assert row is not None
+    _audit("custom_page.file_added", page, name=row["original_name"], size=row["file_size"])
     return row

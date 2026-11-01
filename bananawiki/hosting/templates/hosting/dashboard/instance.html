@@ -100,6 +100,10 @@
 <section class="card"><h2>{{ t('hosting.instance.download_title') }}</h2><p>{{ t('hosting.instance.download_body', date=inst.data_retained_until|datetime) }}</p>
   {{ ui.post(url_for('dashboard.download', instance_id=inst.id), t('hosting.instance.download'), 'btn btn--primary') }}</section>
 {% endif %}
+{% if inst.holds_place and is_owner %}
+<section class="card"><h2>{{ t('hosting.instance.delete_data_title') }}</h2><p>{{ t('hosting.instance.delete_data_body', date=inst.data_retained_until|datetime) }}</p>
+  {{ ui.post(url_for('dashboard.delete_retained', instance_id=inst.id), t('hosting.instance.delete_data'), 'btn btn--small btn--danger', confirm=t('hosting.instance.delete_data_confirm')) }}</section>
+{% endif %}
 
 {% if is_owner and inst.status not in ('terminated', 'provisioning', 'provisioning_failed') and not current_account.is_admin %}
 <section class="card"><h2>{{ t('hosting.features.title') }}</h2>

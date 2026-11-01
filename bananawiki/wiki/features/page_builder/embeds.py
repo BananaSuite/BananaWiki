@@ -1,7 +1,7 @@
 """Canvases and Kanban boards the current editor may embed, for the embed block's picker.
 
 Only the public, read-only listing functions of those features are used:
-``canvas.access.visible_layouts`` and ``kanban.access.visible_boards`` apply
+``canvas.access.iter_visible_layouts`` and ``kanban.access.visible_boards`` apply
 the same rules as their own lists, so the picker never names a canvas or
 board the editor could not open. A switched-off feature lists nothing.
 """
@@ -27,7 +27,7 @@ def _canvases(user: dict[str, Any], query: str) -> list[dict[str, Any]]:
     from ..canvas import access
 
     found = []
-    for layout in access.visible_layouts(user):
+    for layout in access.iter_visible_layouts(user):  # read in batches: stops once the results are found
         if layout.get("is_archived") or not _matches(query, layout["title"], layout["slug"]):
             continue
         found.append({"kind": "canvas", "ref": layout["slug"], "title": layout["title"] or layout["slug"],

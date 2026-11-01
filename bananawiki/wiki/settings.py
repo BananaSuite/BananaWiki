@@ -93,7 +93,19 @@ def _cfg():
     return current_app.config["BW"]
 
 
+def close_public_mode() -> None:
+    """Treat public mode as off for the rest of this request (see :func:`public_mode_active`).
+
+    The request pipeline calls it for a non-administrator on a public view (a
+    published custom page, the API guide) while maintenance mode is on: the page
+    itself stays open, but its shell lists no pages and shows no page content.
+    """
+    g.public_mode_closed = True
+
+
 def public_mode_active() -> bool:
+    if has_request_context() and g.get("public_mode_closed"):
+        return False
     if _cfg().forbid_public_mode:
         return False
     settings = load()

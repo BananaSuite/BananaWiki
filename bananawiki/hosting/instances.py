@@ -38,7 +38,7 @@ from flask import current_app
 from ..core.i18n import FALLBACK
 from ..core.timeutil import MAX_YEAR, is_past, now_sql, parse, sql_in, to_sql, utcnow
 from ..core.web import one_line
-from . import accounts, certwarm, events, oauth, settings, urls
+from . import accounts, certwarm, events, limits, oauth, settings, urls
 from .config import HostingConfig
 from .db import db
 from .errors import ServiceError
@@ -170,6 +170,7 @@ def _provision(inst: dict[str, Any], operation: Callable[[TenantSpec], None]) ->
             current_spec = spec(get(inst["id"]) or inst)
             if current_spec.policy != initial_spec.policy:
                 runtime().apply_limits(current_spec)
+                # Not _keep_only_if_running: the row says "running" only after the checks below.
                 runtime().restart(current_spec, force=True)
         except RuntimeFailure as error:
             # The wiki was created and started: whatever this step reports,
@@ -516,25 +517,73 @@ def spec(inst: dict[str, Any], *, with_policy: bool = True) -> TenantSpec:
     )
 
 
+ROUTES_LOCK_SECONDS = 120
+
+
 def sync_routes() -> None:
-    """Publish the routing table of every wiki that may serve (best effort)."""
+    """Publish the routing table of every wiki that may serve (best effort).
+
+    One portal worker at a time reads and publishes the table (a host-wide
+    lock): otherwise a table read just before another worker's change could
+    reach the agent after that worker's newer one and route the wiki again.
+    """
     from . import domains
 
+    folder = Path(cfg().platform_state_dir)
+    folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
-        rows = db.all("SELECT * FROM instances WHERE status = 'running' AND provisioning_state = 'ready'")
-        result = runtime().sync_routes([spec(row, with_policy=False) for row in rows if domains.may_serve(row["id"])])
-    except (RuntimeFailure, sqlite3.Error, ValueError) as error:
+        with FileLock(str(folder / ".routes.lock"), timeout=ROUTES_LOCK_SECONDS, mode=0o600):
+            rows = db.all("SELECT * FROM instances WHERE status = 'running' AND provisioning_state = 'ready'")
+            result = runtime().sync_routes([spec(row, with_policy=False) for row in rows
+                                            if domains.may_serve(row["id"])])
+    except (RuntimeFailure, sqlite3.Error, ValueError, Timeout) as error:
         log.warning("Could not publish tenant routes: %s", error)
         return
     if isinstance(result, dict) and result.get("changed") and not result.get("reloaded"):
         log.warning("Tenant routes were written but Caddy did not reload; new wikis stay unrouted until it does.")
+    _hold_unserved()
+
+
+def held(inst: dict[str, Any]) -> bool:
+    """Whether a wiki marked running keeps its container down: outside subdomain mode (port and onion) each
+    container answers on its own address and no routing takes a wiki offline, so a wiki that may not be
+    served (:func:`.domains.may_serve`: its account suspended, scheduled for deletion or denied, the wiki
+    expired) is not run at all. The row stays ``running``: the wiki is back once it may be served again."""
+    from . import domains
+
+    return cfg().hosting_mode != "subdomain" and not domains.may_serve(inst["id"])
+
+
+def _hold(inst: dict[str, Any]) -> None:
+    try:
+        runtime().stop(spec(inst, with_policy=False))
+    except (RuntimeFailure, ValueError) as error:
+        log.error("Wiki %s may not be served and could not be stopped: %s", inst["id"], error)
+
+
+_UP = ("running", "starting", "unhealthy")  # the container states in which a container is up
+
+
+def _hold_unserved() -> None:
+    """Stop the containers of running wikis that may not be served (outside subdomain mode, see :func:`held`)."""
+    if cfg().hosting_mode == "subdomain":
+        return
+    try:
+        rows = db.all("SELECT * FROM instances WHERE status = 'running' AND provisioning_state = 'ready'")
+        for row in rows:
+            # Only a container that is up is stopped: "missing" (no data) and "unknown" (the agent does not
+            # answer) are left alone, rather than sent a stop on every route publication.
+            if held(row) and runtime().status(spec(row, with_policy=False)).state in _UP:
+                _hold(row)
+    except (RuntimeFailure, sqlite3.Error, ValueError) as error:
+        log.warning("Could not stop the wikis that may not be served: %s", error)
 
 
 # Creation
 
 
 def _port_free(port: int) -> bool:
-    for address in ("0.0.0.0", "127.0.0.1"):
+    for address in ("0.0.0.0", "127.0.0.1"):  # nosec B104 - a short probe that the port is free
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
                 probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -562,8 +611,9 @@ def _new_id() -> str:
 
 
 def platform_usage_mb() -> float:
+    """Storage of every wiki on disk: live ones and terminated ones whose data is still kept."""
     total = 0
-    for row in db.all("SELECT * FROM instances WHERE status != 'terminated'"):
+    for row in db.all("SELECT * FROM instances WHERE status != 'terminated' OR data_retained_until IS NOT NULL"):
         total += usage_bytes(row)
     return total / (1024 * 1024)
 
@@ -598,18 +648,66 @@ def account_limit(account: dict[str, Any]) -> int:
     return limits.max_per_account
 
 
-def check_account_capacity(account: dict[str, Any]) -> None:
+ACCEPTING_MINUTES = 15  # a transfer whose wiki has not moved after this was left by a worker that died
+# Wikis an account may create in 24 hours, per wiki it may hold: enough to start over a few times, while a
+# loop of creating and terminating wikis (each one orders a certificate) soon stops.
+CREATIONS_PER_PLACE_PER_DAY = 2
+# A terminated wiki that still holds its owner's place: its owner (or a collaborator allowed to) terminated it on
+# the dashboard, and its data is kept and not held by an administrator's pause of the countdown. Administrators
+# terminate with reason "admin", on the console and on the command line alike.
+_HOLDS_PLACE = ("status = 'terminated' AND terminated_reason = 'manual' AND grace_period_suspended = 0 "
+                "AND data_retained_until > ?")
+
+
+def _on_platform(alias: str = "") -> str:
+    """SQL for the wikis that hold one of the platform's places (one ``?``: now).
+
+    Running and stopped ones, and terminated ones whose data is kept, unpaused, after their owner terminated
+    them (:func:`holds_place`) or deleted their account: nobody can free the latter before the grace period
+    ends, and deleting accounts in a loop would otherwise leave any number of them on disk.
+    """
+    p = f"{alias}." if alias else ""
+    return (f"({p}status IN ('running', 'stopped') OR ({p}status = 'terminated' AND {p}terminated_reason IN "
+            f"('manual', 'account_deleted') AND {p}grace_period_suspended = 0 AND {p}data_retained_until > ?))")
+
+
+def holds_place(inst: dict[str, Any]) -> bool:
+    """Whether a terminated wiki counts against its owner's limit until its data is deleted (see _HOLDS_PLACE).
+
+    Its owner can delete that data at once with :func:`discard_retained`.
+    """
+    until = inst.get("data_retained_until")
+    return (inst["status"] == "terminated" and inst.get("terminated_reason") == "manual"
+            and not inst.get("grace_period_suspended") and bool(until) and not is_past(until))
+
+
+def check_account_capacity(account: dict[str, Any], *, receiving: int | None = None) -> None:
     """Refuse one more wiki for *account* (created or received) once it holds its limit.
 
     Suspended wikis count: suspending a wiki must not free a place for
-    another one. Run it inside the transaction that adds the wiki.
+    another one, and so does a transfer the account accepted whose wiki is
+    still on its way (accepted less than :data:`ACCEPTING_MINUTES` ago and not
+    the account's yet, so a move that never ended frees the place; except the
+    one *receiving* names). So do the wikis the owner terminated while their
+    data is kept (:func:`holds_place`): otherwise terminating and creating
+    again would leave any number of them on disk. Run it inside the
+    transaction that adds the wiki.
     """
     if account["is_admin"]:
         return
     held = db.scalar("SELECT COUNT(*) FROM instances WHERE account_id = ? "
                      "AND status IN ('running', 'stopped', 'suspended')", (account["id"],), default=0)
+    retained = db.scalar(f"SELECT COUNT(*) FROM instances WHERE account_id = ? AND {_HOLDS_PLACE}",
+                         (account["id"], now_sql()), default=0)
+    held += retained
+    held += db.scalar("SELECT COUNT(*) FROM instance_ownership_transfers t JOIN instances i ON i.id = t.instance_id "
+                      "WHERE t.to_account_id = ? AND t.status = 'accepted' AND t.resolved_at >= ? "
+                      "AND i.account_id != ? AND t.id != ?",
+                      (account["id"], sql_in(minutes=-ACCEPTING_MINUTES), account["id"], receiving or 0), default=0)
     limit = account_limit(account)
     if held >= limit:
+        if retained:
+            raise ServiceError("hosting.instances.account_limit_retained", max=limit)
         if limit < cfg().limits.max_per_account:
             raise ServiceError("hosting.instances.new_account_limit", max=limit,
                                days=cfg().limits.new_account_days)
@@ -627,9 +725,19 @@ def _check_capacity(account: dict[str, Any]) -> None:
         return
     settings.load(fresh=True)  # preflight may have cached policy before this write lock
     check_account_capacity(account)
+    budget = CREATIONS_PER_PLACE_PER_DAY * account_limit(account)
+    # By whoever created them, wherever they went since: a wiki given away (a transfer) and deleted by its
+    # new owner still counts. Its own rows count too, for creations not yet recorded.
+    since = sql_in(days=-1)
+    created = len({row["id"] for row in db.all("SELECT id FROM instances WHERE account_id = ? AND created_at > ?",
+                                               (account["id"], since))}
+                  | events.subjects_since("instance.created", account["id"], since))
+    if created >= budget:
+        log.warning("Account %s created %d wikis in 24 hours; refusing another", account["id"], created)
+        raise ServiceError("hosting.instances.daily_creation_limit", max=budget)
     if settings.flag("global_limit_enabled", True):
         maximum = int(settings.get("global_limit_max_instances", 50))
-        total = db.scalar("SELECT COUNT(*) FROM instances WHERE status IN ('running', 'stopped')", default=0)
+        total = db.scalar(f"SELECT COUNT(*) FROM instances WHERE {_on_platform()}", (now_sql(),), default=0)
         if total >= maximum:
             log.warning("The platform's wiki limit (%d) is reached; refusing a new wiki", maximum)
             raise ServiceError("hosting.instances.platform_full")
@@ -638,9 +746,9 @@ def _check_capacity(account: dict[str, Any]) -> None:
             share = maximum * limits.new_account_share_percent // 100
             newcomers = db.scalar(
                 "SELECT COUNT(*) FROM instances i JOIN accounts a ON a.id = i.account_id "
-                "WHERE i.status IN ('running', 'stopped') AND a.is_admin = 0 AND a.approved_by IS NULL "
+                f"WHERE {_on_platform('i')} AND a.is_admin = 0 AND a.approved_by IS NULL "
                 "AND a.terms_accepted_at IS NOT NULL AND a.created_at > ?",
-                (sql_in(days=-limits.new_account_days),), default=0)
+                (now_sql(), sql_in(days=-limits.new_account_days)), default=0)
             if newcomers >= share:
                 log.warning("New accounts hold %d of the %d wikis they may share; refusing another", newcomers,
                             share)
@@ -822,6 +930,8 @@ def _start_again(inst: dict[str, Any], was_running: bool) -> None:
         log.warning("Wiki %s stays stopped: %s", inst["id"], error)
         db.update("instances", {"status": "stopped", "stopped_at": now_sql()}, "id = ?", (inst["id"],))
         sync_routes()
+        return
+    _keep_only_if_running(inst)
 
 
 # Pause, resume, restart
@@ -832,10 +942,62 @@ def _cas(instance_id: str, allowed: tuple[str, ...], values: dict[str, Any]) -> 
     return db.update("instances", values, f"id = ? AND status IN ({marks})", (instance_id, *allowed)) == 1
 
 
-def stop(inst: dict[str, Any], *, actor_id: str | None, allow_suspended: bool = False) -> None:
+# Pauses, resumes and restarts of one wiki its owner and collaborators may ask for: each holds the runtime
+# agent's lock (shared by every wiki) for seconds and republishes the routing table.
+STATE_CHANGES_PER_MINUTE = 6
+STATE_CHANGES_PER_DAY = 100
+_STATE_CHANGES = "hosting_wiki_state"
+
+
+# Administrator password resets of one wiki (a one-shot task in the wiki's container, under the same lock when
+# the wiki is paused), counted apart so pausing and resuming cannot use up the owner's way back in. The owner has
+# a share of their own: the reset is how they lock out whoever else knows the password (a collaborator with
+# reset_password, a previous owner), so those, who share the wiki's other share, cannot spend it first.
+ADMIN_RESETS_PER_MINUTE = 3
+ADMIN_RESETS_PER_DAY = 20
+_ADMIN_RESETS = "hosting_wiki_admin_reset"
+
+
+def count_state_change(inst: dict[str, Any], actor: dict[str, Any] | None, *, daily: bool = True) -> None:
+    """Count one pause, resume or restart of *inst* that *actor* asked for; ``too_many_changes`` over the wiki's
+    budget (shared by everyone who may start and stop it). Called once the change was checked and is about to
+    run, so a refused request costs nothing. A resume (*daily* False) is held to the minute only: whoever spent
+    the day's budget cannot keep the wiki down. Administrators and system callers (no *actor*) are not counted."""
+    _count(inst, actor, _STATE_CHANGES, STATE_CHANGES_PER_MINUTE, STATE_CHANGES_PER_DAY if daily else 0,
+           "hosting.instances.too_many_changes")
+
+
+def _count(inst: dict[str, Any], actor: dict[str, Any] | None, bucket: str, per_minute: int, per_day: int,
+           key: str, *, owner_apart: bool = False) -> None:
+    """Count one operation of *bucket* on *inst* (no daily limit when *per_day* is 0); *key* and
+    ``<key>_today`` when over. With *owner_apart* the wiki's current owner is counted on a budget of their own
+    (keyed on the account too, so a new owner starts afresh) and everyone else shares the wiki's.
+    Administrators and system callers (no *actor*) are not counted."""
+    if actor is None or actor.get("is_admin"):
+        return
+    who = inst["id"]
+    if owner_apart and actor.get("id") == inst.get("account_id"):
+        who = f"{inst['id']}:{actor['id']}"
+    with db.transaction():
+        if limits.exceeded(bucket, per_minute, 60, key=who):
+            raise ServiceError(key, retry_after=60)
+        if per_day and limits.exceeded(bucket, per_day, 86400, key=who):
+            # The day frees up as its oldest counted operation turns 24 hours old.
+            oldest = parse(db.scalar("SELECT MIN(hit_at) FROM hosting_rate_limit_hits WHERE ip = ? AND bucket = ? "
+                                     "AND hit_at > ?", (who, bucket, sql_in(seconds=-86400))))
+            wait = 86400 if oldest is None else 86400 - int((utcnow() - oldest).total_seconds())
+            wait = min(86400, max(60, wait))
+            raise ServiceError(f"{key}_today", max=per_day, hours=-(-wait // 3600), retry_after=wait)
+        limits.record(bucket, key=who)
+
+
+def stop(inst: dict[str, Any], *, actor_id: str | None, allow_suspended: bool = False,
+         charge: dict[str, Any] | None = None) -> None:
+    """Pause a wiki; *charge*: the account asking, counted by :func:`count_state_change`."""
     allowed = ("running", "suspended") if allow_suspended else ("running",)
     if inst["status"] not in allowed:
         raise ServiceError("hosting.instances.not_running")
+    count_state_change(inst, charge)
     try:
         runtime().stop(spec(inst, with_policy=False))
     except RuntimeFailure as error:
@@ -846,8 +1008,26 @@ def stop(inst: dict[str, Any], *, actor_id: str | None, allow_suspended: bool = 
     sync_routes()
 
 
-def start(inst: dict[str, Any], *, actor_id: str | None, allow_suspended: bool = False) -> None:
-    """Resume a paused wiki (administrators may also start a suspended one)."""
+def _keep_only_if_running(inst: dict[str, Any]) -> bool:
+    """After a wiki's container was started or restarted: whether the wiki should still run. A suspension
+    or stop that landed meanwhile stopped the container before this start finished, so it is stopped
+    again (suspended wikis stay down). A :func:`held` wiki stays marked running with its container down."""
+    current = get(inst["id"])
+    if current is not None and current["status"] == "running":
+        if held(current):
+            _hold(current)
+        return True
+    try:
+        runtime().stop(spec(current or inst, with_policy=False))
+    except RuntimeFailure as error:
+        log.error("Wiki %s changed state while starting and could not be stopped: %s", inst["id"], error)
+    sync_routes()
+    return False
+
+
+def start(inst: dict[str, Any], *, actor_id: str | None, allow_suspended: bool = False,
+          charge: dict[str, Any] | None = None) -> None:
+    """Resume a paused wiki (administrators may also start a suspended one); *charge* as for :func:`stop`."""
     require_ready(inst)
     if inst["status"] == "running":
         raise ServiceError("hosting.instances.already_running")
@@ -855,36 +1035,38 @@ def start(inst: dict[str, Any], *, actor_id: str | None, allow_suspended: bool =
         raise ServiceError("hosting.instances.suspended")
     if inst["status"] not in ("stopped", "suspended"):
         raise ServiceError("hosting.instances.not_stopped")
+    count_state_change(inst, charge, daily=False)
     if not _cas(inst["id"], (inst["status"],), {"status": "running", "stopped_at": None}):
         raise ServiceError("hosting.instances.changed_state")
-    try:
-        runtime().start(spec(get(inst["id"])))  # type: ignore[arg-type]
-    except RuntimeFailure as error:
-        _cas(inst["id"], ("running",), {"status": "stopped", "stopped_at": now_sql()})
-        raise _fail(error) from error
-    # A suspension (or stop) that landed while the container was starting
-    # already stopped it, before this start finished: stop it again.
     current = get(inst["id"])
-    if current is None or current["status"] != "running":
+    # A held wiki is marked running but its container is not brought up, even for a moment (see held()).
+    if not held(current):  # type: ignore[arg-type]
         try:
-            runtime().stop(spec(current or inst, with_policy=False))
+            runtime().start(spec(current))  # type: ignore[arg-type]
         except RuntimeFailure as error:
-            log.error("Wiki %s changed state while starting and could not be stopped: %s", inst["id"], error)
-        sync_routes()
-        raise ServiceError("hosting.instances.changed_state")
+            _cas(inst["id"], ("running",), {"status": "stopped", "stopped_at": now_sql()})
+            raise _fail(error) from error
+        if not _keep_only_if_running(inst):
+            raise ServiceError("hosting.instances.changed_state")
     events.record("instance", inst["id"], "instance.started", actor_id)
     sync_routes()
 
 
-def restart(inst: dict[str, Any], *, actor_id: str | None) -> None:
-    """Restart a running wiki with its current policy (clears stale state)."""
+def restart(inst: dict[str, Any], *, actor_id: str | None, charge: dict[str, Any] | None = None) -> None:
+    """Restart a running wiki with its current policy (clears stale state); *charge* as for :func:`stop`."""
     require_ready(inst)
     if inst["status"] != "running":
         raise ServiceError("hosting.instances.not_running")
+    if held(inst):
+        # Its container is down and stays down: restarting it would put it online for a moment.
+        raise ServiceError("hosting.instances.cannot_modify")
+    count_state_change(inst, charge)
     try:
         runtime().restart(spec(inst), force=True)
     except RuntimeFailure as error:
         raise _fail(error) from error
+    if not _keep_only_if_running(inst):
+        raise ServiceError("hosting.instances.changed_state")
     events.record("instance", inst["id"], "instance.restarted", actor_id)
 
 
@@ -901,9 +1083,11 @@ def apply_policy(inst: dict[str, Any], *, actor_id: str | None) -> bool:
         return True
     try:
         runtime().apply_limits(spec(inst))
-        if inst["status"] == "running":
-            # Not an explicit start: a wiki an update isolated stays stopped.
+        # Not an explicit start: a wiki an update isolated stays stopped, and a held one is not brought up (its
+        # next start picks the policy up).
+        if inst["status"] == "running" and not held(inst):
             runtime().restart(spec(inst), force=True, policy_change=True)
+            _keep_only_if_running(inst)
     except RuntimeFailure as error:
         log.warning("Policy for %s not applied: %s", inst["id"], error)
         if inst["status"] == "running":
@@ -934,6 +1118,9 @@ def suspend(inst: dict[str, Any], *, actor_id: str | None, until: str | None = N
         db.update("instances", {"suspended_until": until, "suspend_reason": reason,
                                 "suspend_reason_visible": 1 if reason_visible and reason else 0,
                                 "suspend_time_visible": 1 if time_visible and until else 0}, "id = ?", (inst["id"],))
+        # An offer made before the suspension must not hand the wiki on (collaborators.accept_transfer).
+        db.execute("UPDATE instance_ownership_transfers SET status = 'cancelled', resolved_at = ? "
+                   "WHERE instance_id = ? AND status = 'pending'", (now_sql(), inst["id"]))
         _audit(inst["id"], "suspend", actor_id, reason or None, reason_visible and bool(reason),
                time_visible and bool(until), duration_label, until)
     try:
@@ -1205,6 +1392,31 @@ def restore(inst: dict[str, Any], *, actor_id: str, extend_days: int | None = No
     except ServiceError:
         log.warning("Restored wiki %s is stopped: it did not start", inst["id"])
     return get(inst["id"])  # type: ignore[return-value]
+
+
+def discard_retained(inst: dict[str, Any], *, actor_id: str) -> None:
+    """Delete at once the kept data of a wiki its owner terminated, giving its place back.
+
+    Only data that :func:`holds_place`: a countdown an administrator paused
+    keeps the data. The row stays (without retained data, so it can no longer
+    be restored) and still counts towards the account's daily creations.
+    """
+    if not holds_place(inst):
+        raise ServiceError("hosting.instances.not_in_grace")
+    # Claimed first, so a pause or restore meanwhile cannot happen to data that is being deleted.
+    with db.transaction():
+        changed = db.update("instances", {"data_retained_until": None},
+                            f"id = ? AND account_id = ? AND {_HOLDS_PLACE}",
+                            (inst["id"], inst["account_id"], now_sql()))
+        if not changed:
+            raise ServiceError("hosting.instances.changed_state")
+    try:
+        runtime().destroy(spec(inst, with_policy=False))
+    except RuntimeFailure as error:
+        db.update("instances", {"data_retained_until": inst["data_retained_until"]},
+                  "id = ? AND status = 'terminated' AND data_retained_until IS NULL", (inst["id"],))
+        raise _fail(error) from error
+    events.record("instance", inst["id"], "instance.retained_data_deleted", actor_id)
 
 
 def hard_delete(inst: dict[str, Any], *, actor_id: str) -> None:
@@ -1648,6 +1860,7 @@ def rename(inst: dict[str, Any], slug: str, domain_mode: str, *, actor_id: str, 
         except RuntimeFailure as error:
             db.update("instances", {"status": "stopped", "stopped_at": now_sql()}, "id = ?", (inst["id"],))
             raise _fail(error) from error
+        _keep_only_if_running(renamed)  # type: ignore[arg-type]
     sync_routes()
     return get(inst["id"])  # type: ignore[return-value]
 
@@ -1687,19 +1900,28 @@ def apply_owner_role(account_id: str, admin_owner: bool, *, actor_id: str | None
 
 
 def move_to_owner(inst: dict[str, Any], target: dict[str, Any], *, actor_id: str,
-                  check_capacity: bool = False) -> list[str]:
+                  check_capacity: bool = False, guard: Callable[[], None] | None = None,
+                  transfer_id: int | None = None) -> list[str]:
     """Give a wiki to another account, applying that account's privileges.
 
     With *check_capacity* (an owner's transfer, not an administrator's move)
     the new owner's wiki limit applies, checked again in the transaction
     that changes the owner.
 
+    *guard* runs inside that transaction first and may raise to leave
+    everything as it was.
+
+    The previous owner is signed out of the wiki and loses its platform
+    sign-in link there (:func:`.oauth.end_former_owner_access`).
+
     Returns notes for the caller: ``"renamed"`` when an apex wiki had to move
-    to hosting mode because the new owner is not an administrator.
+    to hosting mode because the new owner is not an administrator, and
+    ``"domain_removed"`` when the wiki's custom domain (or its claim of one)
+    went with the change of owner.
     """
     require_ready(inst)
     if check_capacity:
-        check_account_capacity(target)
+        check_account_capacity(target, receiving=transfer_id)
     notes = []
     target_admin = bool(target["is_admin"])
     previous_admin = owner_is_admin(inst)
@@ -1707,11 +1929,24 @@ def move_to_owner(inst: dict[str, Any], target: dict[str, Any], *, actor_id: str
         inst = rename_for_non_admin(inst, actor_id=actor_id)
         notes.append("renamed")
     with db.transaction():
+        if guard is not None:
+            guard()  # the caller's own conditions, checked again under the write lock
         if check_capacity:
-            check_account_capacity(target)
+            check_account_capacity(target, receiving=transfer_id)
+        previous_owner = db.scalar("SELECT account_id FROM instances WHERE id = ?", (inst["id"],))
         db.update("instances", {"account_id": target["id"]}, "id = ?", (inst["id"],))
         db.execute("DELETE FROM instance_collaborators WHERE instance_id = ? AND account_id = ?",
                    (inst["id"], target["id"]))
+        if previous_owner and previous_owner != target["id"]:
+            # Whatever access the caller lets them keep, never the wiki account they connected as its owner.
+            oauth.end_former_owner_access(previous_owner, inst)
+            # Nor a custom domain whose DNS they control: it would keep serving the wiki's visitors, and its
+            # sign-in callbacks, from wherever they point it. The new owner proves a domain of their own.
+            from . import domains
+
+            if domains._forget(inst["id"]):
+                events.record("instance", inst["id"], "domain.removed", actor_id, "owner changed")
+                notes.append("domain_removed")
         if previous_admin != target_admin:
             apply_owner_quota(get(inst["id"]), target_admin)  # type: ignore[arg-type]
         events.record("instance", inst["id"], "instance.owner_changed", actor_id, target["username"])
@@ -1775,12 +2010,15 @@ def set_upload_policy(inst: dict[str, Any], size_mb: int | None, blocked: str, *
     return apply_policy(inst, actor_id=actor_id)
 
 
-def set_easy_wiki(inst: dict[str, Any], enable: bool, *, actor_id: str) -> None:
+def set_easy_wiki(inst: dict[str, Any], enable: bool, *, actor_id: str, charge: dict[str, Any] | None = None) -> None:
+    """Switch Easy Wiki mode. A running wiki restarts to pick it up and a paused one gets its policy in a one-shot
+    task, both under the runtime agent's lock, so *charge* is counted as for :func:`stop`."""
     require_ready(inst)
     if inst["status"] in ("terminated", "suspended"):
         raise ServiceError("hosting.instances.cannot_modify")
     if bool(inst.get("easy_wiki")) == enable:
         raise ServiceError("hosting.instances.mode_unchanged")
+    count_state_change(inst, charge)
     db.update("instances", {"easy_wiki": 1 if enable else 0}, "id = ?", (inst["id"],))
     events.record("instance", inst["id"], "instance.easy_wiki." + ("on" if enable else "off"), actor_id)
     if not apply_policy(inst, actor_id=actor_id):
@@ -1805,39 +2043,61 @@ def _live(inst: dict[str, Any]) -> None:
         raise ServiceError("hosting.instances.terminated")
 
 
-def reset_admin_password(inst: dict[str, Any], *, actor_id: str) -> tuple[str, str]:
-    """Return ``(username, password)`` to show once; nothing is stored.
+def _owner_changed(inst: dict[str, Any]) -> bool:
+    """Whether the wiki ever changed owner (an accepted transfer, an administrator's move, or a duplicate made
+    for another account than the source's, or of a wiki that had changed owner): its reset then
+    covers every admin and owner account, since the previous owner may have made more than the named one."""
+    return bool(db.scalar(
+        "SELECT 1 FROM instance_ownership_transfers WHERE instance_id = ? AND status = 'accepted' "
+        "UNION SELECT 1 FROM hosting_events WHERE subject_type = 'instance' AND subject_id = ? "
+        "AND action = 'instance.owner_changed' LIMIT 1", (inst["id"], inst["id"])))
+
+
+def reset_admin_password(inst: dict[str, Any], *, actor_id: str | None,
+                         charge: dict[str, Any] | None = None) -> tuple[str, str]:
+    """Return ``(username, password)`` to show once; nothing is stored. *charge*: the account asking, held to
+    ``ADMIN_RESETS_PER_MINUTE`` and ``ADMIN_RESETS_PER_DAY`` (``too_many_password_resets``): the owner on a
+    budget of their own, everyone else on the wiki's.
 
     The wiki also turns off that account's two-step verification and ends its
     sessions (see ``reset_admin`` in :mod:`bananawiki.ops.tenant_task`): this
     is the owner's way back in when the authenticator app is lost as well.
+    Its links to portal accounts go on both sides, so nobody keeps signing in
+    as it through the portal (a previous owner who had connected it).
     """
     _live(inst)
+    _count(inst, charge, _ADMIN_RESETS, ADMIN_RESETS_PER_MINUTE, ADMIN_RESETS_PER_DAY,
+           "hosting.instances.too_many_password_resets", owner_apart=True)
     password = generate_password()
     try:
-        username = runtime().reset_admin_password(spec(inst, with_policy=False), inst.get("admin_username") or "admin",
-                                                  password)
+        username, user_ids = runtime().reset_admins(spec(inst, with_policy=False),
+                                                    inst.get("admin_username") or "admin", password,
+                                                    every_admin=_owner_changed(inst))
     except RuntimeFailure as error:
         raise _fail(error) from error
+    oauth.forget_wiki_users(inst["id"], user_ids)
     events.record("instance", inst["id"], "instance.admin_password_reset", actor_id,
                   f"{username}: new password; two-step verification turned off; signed out everywhere")
     return username, password
 
 
-def reset_content(inst: dict[str, Any], *, actor_id: str) -> tuple[str, str]:
-    """Factory reset. Returns the new ``(username, password)`` to show once."""
+def reset_content(inst: dict[str, Any], *, actor_id: str, charge: dict[str, Any] | None = None) -> tuple[str, str]:
+    """Factory reset. Returns the new ``(username, password)`` to show once. It stops and starts the wiki, so
+    *charge* is counted as for :func:`stop`."""
     require_ready(inst)
     require_not_main(get(inst["id"]) or inst)
     if inst["status"] in ("terminated", "suspended"):
         raise ServiceError("hosting.instances.cannot_modify")
+    count_state_change(inst, charge)
     username = inst.get("admin_username") or "admin"
     password = generate_password()
     was_running = inst["status"] == "running"
     try:
         runtime().stop(spec(inst, with_policy=False))
         runtime().reset_content(spec(inst), admin_username=username, admin_password=password)
-        if was_running:
+        if was_running and not held(inst):
             runtime().start(spec(inst))
+            _keep_only_if_running(inst)
     except RuntimeFailure as error:
         if was_running:
             db.update("instances", {"status": "stopped", "stopped_at": now_sql()}, "id = ?", (inst["id"],))
@@ -1865,6 +2125,10 @@ def duplicate(inst: dict[str, Any], owner: dict[str, Any], slug: str, domain_mod
     _provision(copy, lambda target: two_step_off.extend(
         runtime().duplicate(spec(inst, with_policy=False), target) or ()))
     events.record("instance", copy["id"], "instance.duplicated", actor_id, inst["id"])
+    if owner["id"] != inst["account_id"] or _owner_changed(inst):
+        # A copy for another account, or of a wiki that changed owner, carries a previous owner's admin
+        # accounts: its reset must cover them all.
+        events.record("instance", copy["id"], "instance.owner_changed", actor_id, owner["username"])
     sync_routes()
     return {**get(copy["id"]), "two_step_off": two_step_off}  # type: ignore[dict-item]
 
@@ -1952,6 +2216,7 @@ def describe(inst: dict[str, Any], *, admin_owner: bool | None = None, with_stat
     item["days_left"] = max(0, item["seconds_left"] // 86400) if item["seconds_left"] is not None else None
     item["expired"] = item["seconds_left"] is not None and item["seconds_left"] <= 0
     item["grace_active"] = grace_active(inst)
+    item["holds_place"] = holds_place(inst)
     item["storage_suspended"] = inst["status"] == "suspended" and storage_suspended(inst)
     item["original_slug"] = urls.original_slug(inst["subdomain"]) or inst["subdomain"]
     limit = storage_limit_mb(inst, admin_owner)
@@ -1969,12 +2234,14 @@ def describe(inst: dict[str, Any], *, admin_owner: bool | None = None, with_stat
 
 
 def dashboard_list(account: dict[str, Any]) -> list[dict[str, Any]]:
-    """Own wikis (plus retained ones when owners may recover them) and shared wikis."""
+    """Own wikis (plus retained ones when owners may recover them or free their place) and shared wikis."""
     show_retained = bool(account["is_admin"]) or settings.flag("allow_owner_download_expired")
+    # Wikis that hold a place are always listed: their owner may delete their data to free it.
     rows = db.all(
         "SELECT * FROM instances WHERE account_id = ? AND (status != 'terminated' OR (? = 1 AND "
-        "(data_retained_until > ? OR (data_retained_until IS NOT NULL AND grace_period_suspended = 1)))) "
-        "ORDER BY created_at DESC", (account["id"], 1 if show_retained else 0, now_sql()),
+        "(data_retained_until > ? OR (data_retained_until IS NOT NULL AND grace_period_suspended = 1))) "
+        f"OR ({_HOLDS_PLACE})) ORDER BY created_at DESC",
+        (account["id"], 1 if show_retained else 0, now_sql(), now_sql()),
     )
     items = [{**item, "role": "owner"} for item in _describe_all(rows, lambda _row: bool(account["is_admin"]))]
     shared = db.all(

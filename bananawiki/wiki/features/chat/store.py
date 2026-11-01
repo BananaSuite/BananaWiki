@@ -40,6 +40,10 @@ from ...templating import format_datetime, human_bytes
 FOLDER = "chat_attachments"
 PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
+# A poll reports the deletions of the last day at most, and only the newest of them: a page
+# left open longer, or past a burst of moderation, shows the others until it is reloaded.
+DELETED_WINDOW_HOURS = 24
+MAX_DELETED_IDS = 500
 SYSTEM_KEY_PREFIX = "chat.system."
 # Tables whose rows may point at a legacy ``file_blobs`` copy.
 BLOB_REFERENCES = (
@@ -209,12 +213,17 @@ def has_older(store: Store, parent_id: int, oldest_id: int | None, *, floor: int
 
 
 def deleted_since(store: Store, parent_id: int, since: str, *, reader: str | None = None) -> list[int]:
-    """Ids of messages deleted at or after *since* (so open pages can hide them)."""
+    """Ids of messages deleted at or after *since* (so open pages can hide them).
+
+    At most :data:`MAX_DELETED_IDS`, the most recently deleted, and none deleted more than
+    :data:`DELETED_WINDOW_HOURS` ago: a poll costs the same however old its cursor is.
+    """
+    since = max(since, sql_in(hours=-DELETED_WINDOW_HOURS))
     hidden, hidden_params = _hidden(store, reader=reader)
     return db.column(
         f"SELECT m.id FROM {store.messages} m WHERE m.{store.parent} = ? AND m.is_deleted = 1 "
-        f"AND m.deleted_at >= ?{hidden}",
-        (parent_id, since, *hidden_params),
+        f"AND m.deleted_at >= ?{hidden} ORDER BY m.deleted_at DESC, m.id DESC LIMIT ?",
+        (parent_id, since, *hidden_params, MAX_DELETED_IDS),
     )
 
 

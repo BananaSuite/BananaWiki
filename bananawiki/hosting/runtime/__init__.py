@@ -421,6 +421,13 @@ class Runtime(Protocol):
         log). Returns the user name the caller should show. Works whether the
         tenant runs or not."""
 
+    def reset_admins(self, spec: TenantSpec, admin_username: str, new_password: str, *,
+                     every_admin: bool = False) -> tuple[str, list[str]]:
+        """:meth:`reset_admin_password`, also returning the ids of the wiki
+        users it reset. The wiki drops their platform sign-in links; the
+        portal drops its own links to those users. With *every_admin* every
+        admin and owner of the wiki is reset too (after a change of owner)."""
+
     def reset_content(self, spec: TenantSpec, *, admin_username: str, admin_password: str) -> None:
         """Factory reset of a *stopped* tenant: delete the database and the
         asset folders (real folders only; links planted by the tenant are
@@ -532,6 +539,11 @@ class Runtime(Protocol):
         were enforced here before and no longer are (the wikis still start);
         ``refused``: wikis cannot start at all (``required`` only)."""
 
+    def host_firewall(self) -> dict[str, Any]:
+        """The latest check of the host firewall for tenant containers, for the administrators' dashboard:
+        ``{"loaded": True|False|None, "reason", "checked_at"}`` (``loaded`` None: not checked since
+        the host started), or ``{}`` when the runtime does not say. See :mod:`bananawiki.ops.firewall`."""
+
     def restore_platform(self, archives: Sequence[Path]) -> None:
         """Replace the platform with the uploaded backup parts (``.zip`` or
         ``.bwenc``). Stops every tenant first. The portal restarts afterwards."""
@@ -584,7 +596,7 @@ class UnavailableRuntime:
             return lambda spec: False
         if name in ("list_plugin_snapshots",):
             return lambda spec: []
-        if name in ("platform_backup_status", "storage_protection"):
+        if name in ("platform_backup_status", "storage_protection", "host_firewall"):
             return lambda: {}
         if name == "sync_routes":
             return lambda specs: None

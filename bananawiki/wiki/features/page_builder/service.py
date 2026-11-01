@@ -46,7 +46,7 @@ def may_build(page: dict[str, Any], user: dict[str, Any] | None = None) -> bool:
 
 def may_publish_public(user: dict[str, Any]) -> bool:
     """Only administrators may expose a builder page to public-mode visitors, if the host allows it."""
-    return auth.is_admin(user) and not current_app.config["BW"].forbid_public_builder_pages
+    return pages.may_publish_public(user)
 
 
 # Documents

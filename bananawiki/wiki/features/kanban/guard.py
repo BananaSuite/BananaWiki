@@ -12,6 +12,7 @@ from typing import Any
 
 from flask import abort, current_app
 
+from ....core.web import client_network
 from ... import auth
 from . import access, store
 
@@ -57,9 +58,25 @@ def ticket(ticket_id: Any, need: str) -> tuple[dict[str, Any], dict[str, Any]]:
     return board(row["board_id"], need), row
 
 
+# Boards one account may create a minute, in the browser and through the REST API together.
+CREATES_PER_MINUTE = 10
+
+
+def within_limit(name: str, limit: int, who: str, window: int = 60) -> bool:
+    """Count one *name* action by account *who*; False once *limit* in *window* seconds is used up.
+
+    The REST API draws from the same counters as the browser (:func:`rate_limited`), so using
+    both does not double a budget.
+    """
+    return current_app.extensions["bananawiki.limiter"].hit(f"kanban:{name}:{who}", limit, window)
+
+
 def rate_limited(name: str, limit: int, window: int = 60) -> None:
-    """Per-account limit for expensive or spammy actions (uploads, comments, exports)."""
+    """Per-account limit for expensive or spammy actions (uploads, comments, exports).
+
+    Signed-out visitors of public boards are counted by network, so one of them cannot use up
+    everyone's allowance.
+    """
     user = auth.current_user()
-    key = f"kanban:{name}:{user['id'] if user else 'anonymous'}"
-    if not current_app.extensions["bananawiki.limiter"].hit(key, limit, window):
+    if not within_limit(name, limit, user["id"] if user else f"ip:{client_network()}", window):
         abort(429)

@@ -314,8 +314,11 @@ def test_signouts_are_paged(portal, web, make_account, login, wiki, query):
     from bananawiki.hosting import signouts
 
     with portal.app_context(), connection_scope():
-        for _ in range(signouts.PAGE_SIZE + 5):
-            signouts.queue(member["id"], "signed_out")
+        signouts.queue(member["id"], "signed_out")
+    # A repeated sign-out of one account replaces its event: page through events of many accounts.
+    for number in range(signouts.PAGE_SIZE + 4):
+        query("INSERT INTO hosting_oauth_signouts (instance_id, account_id, reason, created_at) "
+              "VALUES (?, ?, 'signed_out', '2026-01-01 00:00:00')", (wiki["inst"]["id"], f"other-{number}"))
     first = _signouts(web, wiki).get_json()
     assert len(first["events"]) == signouts.PAGE_SIZE and first["more"] is True
     rest = _signouts(web, wiki, after=first["events"][-1]["id"]).get_json()

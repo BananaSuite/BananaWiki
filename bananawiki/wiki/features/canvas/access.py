@@ -29,6 +29,8 @@ administrators.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from itertools import islice
 from typing import Any
 
 from ... import auth, settings
@@ -196,22 +198,112 @@ LAYOUT_SELECT = (
 )
 
 
-def visible_layouts(user: User) -> list[dict[str, Any]]:
-    """Every canvas *user* can open with its ``level``, most recently changed first."""
-    order = " ORDER BY l.updated_at DESC, l.id DESC"
+#: Canvases read at a time while looking for the ones a windowed list shows.
+_LIST_BATCH = 500
+#: Most recently changed first; ``idx_canvas_layouts_updated`` (schema version 16) serves it.
+_LIST_ORDER = " ORDER BY l.updated_at DESC, l.id DESC"
+_PUBLIC = "l.visibility = 'public' AND l.is_archived = 0"
+
+
+def visible_layouts(user: User, *, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
+    """Every canvas *user* can open with its ``level``, most recently changed first.
+
+    With *limit*, only that window of them: canvases are read in batches until it is filled.
+    """
     if user is None:
         if not public_access_active():
             return []
-        rows = db.all(f"{LAYOUT_SELECT} WHERE l.visibility = 'public' AND l.is_archived = 0{order}")
+        window = "" if limit is None else f" LIMIT {int(limit)} OFFSET {int(offset)}"
+        rows = db.all(f"{LAYOUT_SELECT} WHERE {_PUBLIC}{_LIST_ORDER}{window}")
         return [dict(row, level="view") for row in rows]
+    if limit is None:
+        return list(iter_visible_layouts(user))
+    return list(islice(iter_visible_layouts(user), offset, offset + limit))
+
+
+def _batches(where: str | None = None) -> Iterator[list[dict[str, Any]]]:
+    """Canvases in list order, ``_LIST_BATCH`` at a time.
+
+    Each batch continues after the last canvas of the one before (keyset
+    paging on ``updated_at, id``) and walks the index, so reading every batch
+    costs one pass over the table, not a sort of the whole table per batch.
+    """
+    after: tuple[str, int] | None = None
+    while True:
+        conditions = [where] if where else []
+        params: list[Any] = []
+        if after is not None:
+            conditions.append("(l.updated_at, l.id) < (?, ?)")
+            params.extend(after)
+        clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        layouts = db.all(f"{LAYOUT_SELECT}{clause}{_LIST_ORDER} LIMIT ?", [*params, _LIST_BATCH])
+        if layouts:
+            yield layouts
+        if len(layouts) < _LIST_BATCH:
+            return
+        after = (layouts[-1]["updated_at"], layouts[-1]["id"])
+
+
+def iter_visible_layouts(user: User) -> Iterator[dict[str, Any]]:
+    """The canvases of :func:`visible_layouts`, read in batches, for a caller that may stop early."""
+    if user is None:
+        if public_access_active():
+            for layouts in _batches(_PUBLIC):
+                yield from (dict(layout, level="view") for layout in layouts)
+        return
     if not can_use(user):
-        return []
-    layouts = db.all(f"{LAYOUT_SELECT}{order}")
+        return
     permissions = _rows_for(user)
     global_access = has_global_access(user)
-    visible = []
-    for layout in layouts:
-        found = _level(user, layout, permissions.get(layout["id"], {}), global_access)
-        if found:
-            visible.append(dict(layout, level=found))
-    return visible
+    for layouts in _batches():
+        for layout in layouts:
+            found = _level(user, layout, permissions.get(layout["id"], {}), global_access)
+            if found:
+                yield dict(layout, level=found)
+
+
+_ORDER_POSITION = ("(SELECT MIN(o.sort_order) FROM canvas_user_layout_order o "
+                   "WHERE o.layout_id = l.id AND o.user_id IS :owner)")
+
+
+def ordered_ids(user: User, order_owner: str | None) -> list[int]:
+    """Ids of every canvas *user* can open, in the order of the canvas list.
+
+    Canvases in the saved order of *order_owner* (``None``: the shared one)
+    come first, in that order, then the others most recently changed first,
+    as :func:`service.apply_order` arranges them. Anonymous visitors get the
+    public canvases, most recently changed first. Only the columns the access
+    check needs are read, so the list can be paged cheaply.
+    """
+    if user is None:
+        if not public_access_active():
+            return []
+        return db.column("SELECT l.id FROM canvas__layouts l WHERE l.visibility = 'public' AND l.is_archived = 0 "
+                         "ORDER BY l.updated_at DESC, l.id DESC")
+    if not can_use(user):
+        return []
+    permissions = _rows_for(user)
+    global_access = has_global_access(user)
+    rows = db.all(f"SELECT l.id, l.creator_id, l.is_archived, l.visibility FROM canvas__layouts l "
+                  f"ORDER BY {_ORDER_POSITION} IS NULL, {_ORDER_POSITION}, l.updated_at DESC, l.id DESC",
+                  {"owner": order_owner})
+    return [row["id"] for row in rows if _level(user, row, permissions.get(row["id"], {}), global_access)]
+
+
+def layouts_in_order(user: User, layout_ids: list[int]) -> list[dict[str, Any]]:
+    """The canvases *layout_ids* (from :func:`ordered_ids`) with their ``level``, in that order."""
+    if not layout_ids:
+        return []
+    marks = ",".join("?" for _ in layout_ids)
+    rows = {row["id"]: row for row in db.all(f"{LAYOUT_SELECT} WHERE l.id IN ({marks})", layout_ids)}
+    if user is None:
+        return [dict(rows[i], level="view") for i in layout_ids if i in rows]
+    permissions = _rows_for(user, layout_ids)
+    global_access = has_global_access(user)
+    found = []
+    for layout_id in layout_ids:
+        layout = rows.get(layout_id)
+        level_found = _level(user, layout, permissions.get(layout_id, {}), global_access) if layout else None
+        if level_found:
+            found.append(dict(layout, level=level_found))
+    return found

@@ -9,6 +9,7 @@ from flask import abort, jsonify, request, url_for
 from ... import auth, settings, storage
 from ...i18n import t
 from ...markdown import render
+from ..pages import uploads
 from . import access, events, extras, filters, guard, logtext, service, store
 from .fields import KanbanError
 from .views import bp
@@ -21,7 +22,7 @@ def _kanban_error(error: KanbanError):
 
 @bp.errorhandler(storage.UploadError)
 def _upload_error(error: storage.UploadError):
-    return jsonify({"error": t(error.key, **error.values)}), 400
+    return jsonify({"error": t(error.key, **error.values)}), 429 if isinstance(error, uploads.QuotaExceeded) else 400
 
 
 def _body() -> dict[str, Any]:
@@ -44,6 +45,7 @@ def board_order():
     user = _user()
     if not access.can_open_kanban(user):
         abort(403)
+    guard.rate_limited("order", 30)
     board_ids = _body().get("board_ids")
     if not isinstance(board_ids, list):
         raise KanbanError("kanban.error.invalid_order")
@@ -383,19 +385,20 @@ def add_comment(ticket_id: int):
     return jsonify(extras.comment_payload(extras.add_comment(ticket, user, _body().get("content")), user)), 201
 
 
-def _own_comment(comment_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
+def _own_comment(comment_id: int, *, edit: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
     comment = extras.get_comment(comment_id)
     if comment is None:
         abort(404)
     _board, ticket = guard.ticket(comment["ticket_id"], "comment")
-    if not access.can_moderate_comment(auth.current_user(), comment):
+    user = auth.current_user()
+    if not (access.can_edit_comment(user, comment) if edit else access.can_moderate_comment(user, comment)):
         abort(403)
     return ticket, comment
 
 
 @bp.put("/api/kanban/comments/<int:comment_id>")
 def edit_comment(comment_id: int):
-    _ticket, comment = _own_comment(comment_id)
+    _ticket, comment = _own_comment(comment_id, edit=True)
     guard.rate_limited("comment", 30)
     extras.edit_comment(comment, _body().get("content"))
     updated = extras.get_comment(comment_id)
@@ -425,6 +428,7 @@ def list_attachments(ticket_id: int):
 
 
 @bp.post("/api/kanban/tickets/<int:ticket_id>/attachments")
+@auth.large_body
 def upload_attachment(ticket_id: int):
     _board, ticket = guard.ticket(ticket_id, "write")
     guard.rate_limited("upload", 20)

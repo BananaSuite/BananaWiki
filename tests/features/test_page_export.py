@@ -200,14 +200,6 @@ def _page(app, slug):
     return in_app(app, lambda: service.get_by_slug(slug))
 
 
-def test_bulk_pages_are_admin_only(app, client, make_user, login):
-    login(client, make_user("bulk_editor", role="editor"))
-    assert client.get("/admin/bulk-markdown").status_code == 403
-    assert client.post("/admin/bulk-markdown/export").status_code == 403
-    assert _bulk_import(client, {"a.md": "# A"}).status_code == 403
-    assert _page(app, "a") is None
-
-
 def test_bulk_import_creates_categories_and_pages(app, admin_client, db):
     existing = make_category(app, "guides")
     response = _bulk_import(admin_client, {

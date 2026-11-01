@@ -26,16 +26,22 @@ from flask import (
 
 from bananawiki.core.numbers import ascii_int
 
+from ....core import downloads
 from ....core.web import client_network
 from ... import accounts, auth, settings, storage
 from ...i18n import t
 from ...registry import feature_blueprint
+from ..audit import record_settings
+from ..audit.service import record
 from ..pages import service as pages
+from ..pages import uploads
 from . import access, model, present, presets, service, transfer
 
 bp = feature_blueprint("canvas", "canvas", __name__, template_folder="templates", static_folder="static",
                        static_url_path="/static/canvas")
 
+LIST_PAGE_SIZE = 100  # canvases a page of the canvas list
+ORDER_LIMIT = 5000  # canvases a saved list order places (sent in one save, and kept)
 HISTORY_MESSAGES = {
     "created": "canvas.history.msg.created", "Created canvas": "canvas.history.msg.created",
     "edited": "canvas.history.msg.edited", "saved": "canvas.history.msg.saved",
@@ -48,18 +54,26 @@ HISTORY_MESSAGES = {
 # Helpers
 
 
-def _limit(bucket: str, limit: int, window: int = 60) -> None:
+def _who() -> str:
     user = auth.current_user()
-    key = f"canvas:{bucket}:{user['id'] if user else client_network()}"
-    if not current_app.extensions["bananawiki.limiter"].hit(key, limit, window):
-        if auth.wants_json():
-            abort(make_response(jsonify({"error": t("canvas.error.rate_limited")}), 429))
-        abort(429)
+    return user["id"] if user else client_network()
+
+
+def _too_many() -> None:
+    if auth.wants_json():
+        abort(make_response(jsonify({"error": t("canvas.error.rate_limited")}), 429))
+    abort(429)
+
+
+def _limit(bucket: str, limit: int, window: int = 60) -> None:
+    if not current_app.extensions["bananawiki.limiter"].hit(f"canvas:{bucket}:{_who()}", limit, window):
+        _too_many()
 
 
 def _deny(status: int = 403) -> None:
     if auth.current_user() is None:
-        abort(auth.redirect_to_login())
+        # redirect_to_login() answers a (body, 401) tuple to JSON callers, which abort() cannot take.
+        abort(make_response(auth.redirect_to_login()))
     if auth.wants_json():
         abort(make_response(jsonify({"error": t("canvas.error.forbidden" if status == 403 else "canvas.error.not_found")}),
                             status))
@@ -132,19 +146,23 @@ def index():
     user = auth.current_user()
     if not access.can_open_canvas(user):
         _deny(403)
-    layouts = access.visible_layouts(user)
-    if user is not None:
-        layouts = service.apply_order(layouts, service.order_ids(_order_owner(user)))
+    # One page of canvases per request, so a wiki with many canvases costs little more to list.
+    ids = access.ordered_ids(user, _order_owner(user) if user is not None else None)
+    pages_total = max(1, -(-len(ids) // LIST_PAGE_SIZE))
+    number = min(max(ascii_int(request.args.get("page", "1"), 6) or 1, 1), pages_total)
+    layouts = access.layouts_in_order(user, ids[(number - 1) * LIST_PAGE_SIZE:number * LIST_PAGE_SIZE])
     return render_template(
         "canvas/list.html", layouts=layouts, can_create=access.can_create(user),
-        can_reorder=user is not None, shared_order=access.open_access(),
-        order_version=service.order_version(), templates=presets.names(),
+        # Moving canvases keeps those of later pages after the first page, so only the first page can.
+        can_reorder=user is not None and number == 1, shared_order=access.open_access(),
+        order_version=service.order_version(), templates=presets.names(), page=number, pages=pages_total,
     )
 
 
 @bp.post("/canvas/create")
 def create():
-    _limit("create", 10)
+    if not service.create_allowed(_who()):  # the REST API's budget too
+        _too_many()
     user = auth.current_user()
     if not access.can_create(user):
         _deny(403)
@@ -164,20 +182,21 @@ def create():
 
 
 @bp.post("/canvas/import")
+@auth.large_body
 def import_canvas():
     _limit("import", 10)
     user = auth.current_user()
     if not access.can_create(user):
         _deny(403)
     try:
-        title, description, doc, stored = transfer.read_import(request.files.get("import_file"))
+        title, description, doc, stored = transfer.read_import(request.files.get("import_file"), user)
     except (transfer.CanvasImportError, model.DocumentError) as error:
         auth.flash_t(error.key, "error", **error.values)
         return redirect(url_for("canvas.index"))
     try:
         layout = service.create(title, description, user["id"], data=doc, message="imported")
     except (service.CanvasError, model.DocumentError) as error:
-        transfer.discard(stored)
+        transfer.discard(stored, user)  # and the quota they were counted against
         auth.flash_t(error.key, "error", **error.values)
         return redirect(url_for("canvas.index"))
     auth.flash_t("canvas.flash.imported", "success", title=layout["title"])
@@ -191,19 +210,26 @@ def save_order():
     if not access.can_open_canvas(user):
         _deny(403)
     raw = _json_body().get("layout_ids")
-    if not isinstance(raw, list) or len(raw) > 5000:
+    if not isinstance(raw, list) or len(raw) > ORDER_LIMIT:
         return jsonify({"error": t("canvas.error.bad_request")}), 400
-    visible = {layout["id"] for layout in access.visible_layouts(user)}
+    owner = _order_owner(user)
+    visible = set(access.ordered_ids(user, owner))
     ids: list[int] = []
+    seen: set[int] = set()  # membership is checked in a set: the order can hold many canvases
     for item in raw:
         layout_id = ascii_int(item) if isinstance(item, (int, str)) and not isinstance(item, bool) else None
         if layout_id is not None:
-            if layout_id in visible and layout_id not in ids:
+            if layout_id in visible and layout_id not in seen:
                 ids.append(layout_id)
-    owner = _order_owner(user)
-    if owner is None:
-        # The shared order also holds canvases this user cannot see: keep their places.
-        ids += [layout_id for layout_id in service.order_ids(None) if layout_id not in ids]
+                seen.add(layout_id)
+    # The list shows one page: the canvases already placed keep their order after the ones sent, and
+    # those never placed still follow, most recently changed first, so later pages stay as they were.
+    # The shared order also holds canvases this user cannot see: they keep their places too.
+    for layout_id in service.order_ids(owner):
+        if layout_id not in seen and (owner is None or layout_id in visible):
+            ids.append(layout_id)
+            seen.add(layout_id)
+    del ids[ORDER_LIMIT:]  # each save rewrites the order: canvases further down sort by their last change
     service.save_order(owner, ids)
     return jsonify({"ok": True, "list_order_version": service.order_version()})
 
@@ -241,6 +267,8 @@ def get_data(slug: str):
 def save_data(slug: str):
     _limit("save", 60)
     layout, _level = _layout(slug, "edit")
+    if not service.large_write_allowed(layout["id"], "save", _who()):
+        _too_many()
     payload = _json_body()
     expected = payload.get("expected_version")
     if expected is not None and (isinstance(expected, bool) or not isinstance(expected, int)):
@@ -250,6 +278,8 @@ def save_data(slug: str):
                                        user_id=auth.current_user()["id"], session_id=_session_id())
     except service.VersionConflict as conflict:
         return jsonify({"error": t(conflict.key), "version": conflict.current_version}), 409
+    except service.TooMuchStored as error:
+        return _error_json(error, 429)
     except (service.CanvasError, model.DocumentError) as error:
         return _error_json(error)
     return jsonify({"ok": True, **result})
@@ -259,10 +289,14 @@ def save_data(slug: str):
 def apply_ops(slug: str):
     _limit("ops", 240)
     layout, _level = _layout(slug, "edit")
+    if not service.large_write_allowed(layout["id"], "ops", _who()):  # every batch rewrites the whole document
+        _too_many()
     user = auth.current_user()
     try:
         result = service.apply(layout, _json_body().get("ops"), user_id=user["id"], session_id=_session_id(),
                                skip_locked=True)
+    except service.TooMuchStored as error:
+        return _error_json(error, 429)
     except (service.CanvasError, model.DocumentError) as error:
         return _error_json(error)
     rejected = result["rejected"]
@@ -307,17 +341,18 @@ def render_node(slug: str):
 
 
 @bp.post("/canvas/<slug>/upload")
+@auth.large_body
 def upload(slug: str):
     """Store an image for an image node in the shared upload folder."""
     _limit("upload", 30)
-    from ... import storage
-
     _layout(slug, "edit")
     try:
-        stored = storage.save(request.files.get("file"), "uploads", allowed=None, images_only=True,
-                              max_bytes=storage.max_upload_bytes(current_app.config["BW"].max_attachment_size))
+        stored = uploads.save_counted(
+            request.files.get("file"), auth.current_user(), allowed=None,
+            max_bytes=storage.max_upload_bytes(current_app.config["BW"].max_attachment_size))
     except storage.UploadError as error:
-        return jsonify({"error": t(error.key, **error.values)}), 400
+        status = 429 if isinstance(error, uploads.QuotaExceeded) else 400
+        return jsonify({"error": t(error.key, **error.values)}), status
     return jsonify({"ok": True, "url": url_for("uploaded_file", filename=stored.filename)})
 
 
@@ -332,6 +367,7 @@ def page_search(slug: str):
 
 
 @bp.get("/canvas/<slug>/export")
+@downloads.place_first
 def export(slug: str):
     _limit("export", 10)
     layout, _level = _layout(slug, "edit")
@@ -456,6 +492,7 @@ def share(slug: str):
 @bp.get("/canvas/<slug>/history")
 @auth.public_read
 def history(slug: str):
+    _limit("history", 60)
     layout, level = _layout(slug)
     return render_template("canvas/history.html", layout=layout, entries=service.history(layout["id"]),
                            can_revert=level == "edit", is_admin=access.is_admin(auth.current_user()))
@@ -464,11 +501,14 @@ def history(slug: str):
 @bp.get("/canvas/<slug>/history/<int:entry_id>")
 @auth.public_read
 def history_entry(slug: str, entry_id: int):
+    _limit("history-entry", 30)
     layout, level = _layout(slug)
     entry = service.history_entry(layout, entry_id)
     if entry is None:
         abort(404)
-    shown = present.present_document(model.clean_document(entry["data"]), auth.current_user())
+    # Each entry is a document of its own, so views of many entries would keep emptying the render cache.
+    shown = present.present_document(model.clean_document(entry["data"]), auth.current_user(),
+                                     budget=present.RenderBudget(present.HISTORY_RENDER_LIMIT))
     return render_template("canvas/history_entry.html", layout=layout, entry=entry, snapshot=shown,
                            can_revert=level == "edit", is_admin=access.is_admin(auth.current_user()))
 
@@ -482,11 +522,19 @@ def revert(slug: str, entry_id: int):
         abort(404)
     try:
         service.revert(layout, entry, user_id=auth.current_user()["id"], session_id=_session_id())
-    except model.DocumentError as error:
+    except (service.CanvasError, model.DocumentError) as error:
         auth.flash_t(error.key, "error", **error.values)
         return redirect(url_for("canvas.history", slug=layout["slug"]))
     auth.flash_t("canvas.flash.reverted", "success")
     return redirect(url_for("canvas.view", slug=layout["slug"]))
+
+
+def _audit_history(action: str, layout: dict[str, Any], **details: Any) -> None:
+    """Record a change to *layout*'s history (as ``page.history_*``); the account acted as is named too."""
+    if auth.is_impersonating():
+        details["as_user"] = auth.current_user()["username"]
+    record(action, target_type="canvas", target_id=layout["slug"],
+           details={"title": layout["title"], "creator": layout.get("creator_username"), **details})
 
 
 @bp.post("/canvas/<slug>/history/<int:entry_id>/delete")
@@ -494,8 +542,11 @@ def delete_history_entry(slug: str, entry_id: int):
     layout, _level = _layout(slug)
     if not access.is_admin(auth.current_user()):
         _deny(403)
-    if not service.delete_history_entry(layout, entry_id):
+    entry = service.history_entry(layout, entry_id)
+    if entry is None or not service.delete_history_entry(layout, entry_id):
         abort(404)
+    _audit_history("canvas.history_entry_deleted", layout, entry=entry_id, editor=entry["username"],
+                   created_at=entry["created_at"])
     auth.flash_t("canvas.flash.history_entry_deleted", "success")
     return redirect(url_for("canvas.history", slug=layout["slug"]))
 
@@ -505,7 +556,9 @@ def clear_history(slug: str):
     layout, _level = _layout(slug)
     if not access.is_admin(auth.current_user()):
         _deny(403)
-    service.clear_history(layout)
+    count = service.clear_history(layout)
+    if count:
+        _audit_history("canvas.history_cleared", layout, count=count)
     auth.flash_t("canvas.flash.history_cleared", "success")
     return redirect(url_for("canvas.history", slug=layout["slug"]))
 
@@ -548,8 +601,32 @@ def admin_settings():
             values[name] = value if value in access.ACCESS_SETTING_VALUES else "admin"
         for name in SETTING_SWITCHES:
             values[name] = 1 if request.form.get(name) else 0
+        previous = settings.load()
         settings.update(values)
+        record_settings(previous, values, via="canvas")
         auth.flash_t("canvas.flash.settings_saved", "success")
         return redirect(url_for("canvas.admin_settings"))
     return render_template("canvas/admin_settings.html", current=settings.load(),
                            choices=access.ACCESS_SETTING_VALUES)
+
+
+# Previews of a node being edited and the member's own order of the list change nothing others see.
+_IMPERSONATION_UNAUDITED = frozenset({"canvas.render_node", "canvas.save_order"})
+
+
+@bp.after_request
+def _audit_impersonated_action(response):
+    """Record each canvas change an administrator makes in a member's name while impersonating them.
+
+    The canvas, its history and its sharing show only the member's name, so
+    each change gets an audit entry with the administrator as actor (refused
+    attempts too, with their status), as chat actions and page changes do.
+    """
+    if request.method in ("GET", "HEAD", "OPTIONS") or request.endpoint in _IMPERSONATION_UNAUDITED \
+            or not auth.is_impersonating():
+        return response
+    slug = (request.view_args or {}).get("slug")
+    record("canvas.impersonated_action", target_type="canvas" if slug else None, target_id=slug,
+           details={"as_user": auth.current_user()["username"], "endpoint": request.endpoint,
+                    "status": response.status_code})
+    return response

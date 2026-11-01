@@ -5,7 +5,8 @@
       {% block admin_content %}…{% endblock %}
 
     Optional blocks: admin_head (tags in <head>), admin_scripts (end of body).
-    The side menu lists the NavItem(area="admin") entries of enabled features;
+    Above the page: a breadcrumb back to the administration overview (admin/home.html, which lists the
+    NavItem(area="admin") entries of enabled features by group) and a "Jump to" list of the same pages;
     see bananawiki/wiki/features/admin/__init__.py. -#}
 {% extends "base.html" %}
 {% block head %}
@@ -13,49 +14,26 @@
 {% block admin_head %}{% endblock %}
 {% endblock %}
 {% block content %}
-{% set admin_menu = nav_items('admin') %}
-{% set groups = namespace(overview=[], people=[], wiki=[], content=[], system=[], extensions=[]) %}
-{% for item in admin_menu %}
-  {% set feature_id = item.id.split(':')[0] %}
-  {% if item.id == 'admin:admin.dashboard' %}
-    {% set groups.overview = groups.overview + [item] %}
-  {% elif feature_id in ['admin', 'users', 'user_profiles', 'badges', 'temporary_accounts'] %}
-    {% set groups.people = groups.people + [item] %}
-  {% elif item.id in ['site_admin:site_admin.migration_page', 'site_admin:site_admin.server_page'] or feature_id in ['audit', 'api_service', 'federation'] %}
-    {% set groups.system = groups.system + [item] %}
-  {% elif feature_id in ['site_admin', 'attention', 'plugin_manager', 'bm_mode'] %}
-    {% set groups.wiki = groups.wiki + [item] %}
-  {% elif feature_id in ['assessments', 'announcements', 'bulk_manage', 'custom_pages', 'chat', 'canvas', 'deletion_slowdown', 'page_export', 'page_governance', 'page_builder', 'tts', 'contributions'] %}
-    {% set groups.content = groups.content + [item] %}
-  {% else %}
-    {% set groups.extensions = groups.extensions + [item] %}
-  {% endif %}
-{% endfor %}
-{% macro admin_links(items) -%}
-<ul class="nav-list">
-  {% for item in items %}
-  <li><a href="{{ item.url }}"{% if item.active %} aria-current="page"{% endif %}>
-    <span class="nav-label">{{ item.label }}</span>{% if item.badge %}<span class="count-pill">{{ item.badge }}</span>{% endif %}
-  </a></li>
-  {% endfor %}
-</ul>
-{%- endmacro %}
-<div class="admin-shell{% if not admin_menu %} admin-shell--single{% endif %}">
-  {% if admin_menu %}
-  <nav class="admin-nav" aria-label="{{ t('admin.nav.label') }}">
-    <details class="admin-nav__menu" data-admin-nav open>
-      <summary>{{ t('admin.nav.label') }}{% for item in admin_menu if item.active %}<span class="admin-nav__current">{{ item.label }}</span>{% endfor %}</summary>
-      <div class="admin-nav__links">
-        <p class="sidebar__section-title">{{ t('admin.nav.label') }}</p>
-        {{ admin_links(groups.overview) }}
-        {% for name, items in [('people', groups.people), ('wiki', groups.wiki), ('content', groups.content), ('system', groups.system), ('extensions', groups.extensions)] if items %}
-        <details class="admin-nav__group"{% if items|selectattr('active')|list %} open{% endif %}>
-          <summary>{{ t('admin.nav.group.' ~ name) }}{% set count = items|sum(attribute='badge') %}{% if count %}<span class="count-pill">{{ count }}</span>{% endif %}</summary>
-          {{ admin_links(items) }}
-        </details>
+{% set menu = admin_grouped(nav_items('admin')) %}
+<div class="admin-shell">
+  {% if menu.groups or menu.overview %}
+  <nav class="admin-bar" aria-label="{{ t('admin.nav.label') }}">
+    <ol class="admin-crumbs">
+      <li><a href="{{ url_for('admin.home') }}"{% if not menu.current %} aria-current="page"{% endif %}>{{ t('admin.nav.label') }}</a></li>
+      {% if menu.current_group %}<li><span>{{ t('admin.nav.group.' ~ menu.current_group.key) }}</span></li>{% endif %}
+    </ol>
+    <label class="admin-jump">
+      <span class="visually-hidden">{{ t('admin.nav.jump') }}</span>
+      <select data-admin-jump>
+        <option value="">{{ t('admin.nav.jump') }}</option>
+        {% if menu.overview %}<option value="{{ menu.overview.url }}">{{ menu.overview.label }}</option>{% endif %}
+        {% for group in menu.groups %}
+        <optgroup label="{{ t('admin.nav.group.' ~ group.key) }}">
+          {% for item in group['items'] %}<option value="{{ item.url }}"{% if item.active %} selected{% endif %}>{{ item.label }}</option>{% endfor %}
+        </optgroup>
         {% endfor %}
-      </div>
-    </details>
+      </select>
+    </label>
   </nav>
   {% endif %}
   <div class="admin-main section-stack">

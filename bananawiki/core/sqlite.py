@@ -435,6 +435,7 @@ class Session:
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
         self._depth = 0
+        self._after_commit: list[Callable[[], Any]] = []
 
     def all(self, sql: str, params: Sequence[Any] | dict[str, Any] = ()) -> list[dict[str, Any]]:
         return self.conn.execute(sql, params).fetchall()
@@ -481,17 +482,39 @@ class Session:
     def in_transaction(self) -> bool:
         return self.conn.in_transaction
 
+    def after_commit(self, callback: Callable[[], Any]) -> None:
+        """Call *callback* once the current transaction commits (at once outside one).
+
+        For work outside the database that must follow the rows, such as
+        removing files: a rollback, also of the savepoint it was registered
+        in, drops it. A failing callback is logged; the commit stands.
+        """
+        if self.conn.in_transaction:
+            self._after_commit.append(callback)
+        else:
+            self._run_callbacks([callback])
+
+    @staticmethod
+    def _run_callbacks(callbacks: list[Callable[[], Any]]) -> None:
+        for callback in callbacks:
+            try:
+                callback()
+            except Exception:  # noqa: BLE001 - the transaction has committed
+                log.exception("After-commit callback %r failed", callback)
+
     @contextmanager
     def transaction(self) -> Iterator[Session]:
         """``BEGIN IMMEDIATE`` … ``COMMIT``; nested calls become savepoints."""
         if self.conn.in_transaction:
             self._depth += 1
             name = f"sp_{self._depth}"
+            pending = len(self._after_commit)
             self.conn.execute(f"SAVEPOINT {name}")
             try:
                 yield self
                 self.conn.execute(f"RELEASE {name}")
             except BaseException:
+                del self._after_commit[pending:]
                 # SQLite may have rolled the whole transaction back itself (disk full, I/O error): then the
                 # savepoint is gone, and the original error is the one to report.
                 if self.conn.in_transaction:
@@ -501,11 +524,15 @@ class Session:
             finally:
                 self._depth -= 1
             return
+        self._after_commit = []
         self.conn.execute("BEGIN IMMEDIATE")
         try:
             yield self
             self.conn.execute("COMMIT")
         except BaseException:
+            self._after_commit = []
             if self.conn.in_transaction:
                 self.conn.execute("ROLLBACK")
             raise
+        callbacks, self._after_commit = self._after_commit, []
+        self._run_callbacks(callbacks)

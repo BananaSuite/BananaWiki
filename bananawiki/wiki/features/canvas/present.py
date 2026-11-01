@@ -10,7 +10,10 @@ hash of their source, up to :data:`CACHE_LIMIT` bytes, so reading a
 canvas again renders only what changed. One answer renders at most
 :data:`RENDER_LIMIT` characters of source, cached or not, in document order;
 nodes past it are sent without HTML and the browser shows their text as it
-is (code without a language is shown as plain text, never guessed).
+is (code without a language is shown as plain text, never guessed). The
+nodes of one answer share one highlighting time
+(:func:`markdown.bounded_highlighting`): code past it is sent as plain code
+and not kept, so a later answer highlights it.
 
 Wiki-page nodes are shown with the page's current title, slug and excerpt
 only when the viewer may read that page. Otherwise the node loses its page id,
@@ -37,6 +40,8 @@ from .service import _pages_by
 #: Characters of source one answer renders (Markdown, highlighting, excerpts, outline text): about 1.5 s of
 #: work when nothing is cached, and room for the notes of an ordinary canvas many times over.
 RENDER_LIMIT = 512 * 1024
+#: Characters of source a history entry renders: snapshots are separate documents the cache rarely holds.
+HISTORY_RENDER_LIMIT = 64 * 1024
 #: Bytes of rendered HTML and text kept per process (as Python holds them: up to 4 per character).
 CACHE_LIMIT = 32 * 1024 * 1024
 _ENTRY_COST = 256
@@ -111,8 +116,13 @@ def _cached(kind: str, source: str, make: Callable[[], str], budget: RenderBudge
     key = (kind, hashlib.sha256(source.encode("utf-8", "surrogatepass")).digest())
     value = _cache.get(key)
     if value is None:
-        value = make()
-        _cache.put(key, value)
+        # Within a clock of its own when the caller has none (a single node's preview), so code left
+        # plain for want of time or of a free highlighting helper is seen and not kept.
+        with markdown.bounded_highlighting():
+            cut_short = markdown.highlighting_cut_short()
+            value = make()
+            if markdown.highlighting_cut_short() == cut_short:
+                _cache.put(key, value)
     return value
 
 
@@ -174,6 +184,12 @@ def present_nodes(nodes: list[dict[str, Any]], user: dict[str, Any] | None, *, r
     Rendering stops once *budget* (a new :class:`RenderBudget` unless given) is
     spent: later nodes come without HTML and later pages without excerpt.
     """
+    with markdown.bounded_highlighting():
+        return _present_nodes(nodes, user, render=render, excerpts=excerpts, budget=budget)
+
+
+def _present_nodes(nodes: list[dict[str, Any]], user: dict[str, Any] | None, *, render: bool,
+                   excerpts: bool | None, budget: RenderBudget | None) -> dict[str, Any]:
     excerpts = render if excerpts is None else excerpts
     budget = RenderBudget() if budget is None else budget
     readable = _readable_pages(nodes, user, excerpts=excerpts)
@@ -209,8 +225,9 @@ def present_nodes(nodes: list[dict[str, Any]], user: dict[str, Any] | None, *, r
     return {"nodes": out_nodes, "rendered": rendered, "pages": visible}
 
 
-def present_document(doc: dict[str, Any], user: dict[str, Any] | None) -> dict[str, Any]:
-    shown = present_nodes(doc["nodes"], user)
+def present_document(doc: dict[str, Any], user: dict[str, Any] | None, *,
+                     budget: RenderBudget | None = None) -> dict[str, Any]:
+    shown = present_nodes(doc["nodes"], user, budget=budget)
     return {
         "data": {"nodes": shown["nodes"], "edges": doc["edges"], "viewport": doc["viewport"]},
         "rendered": shown["rendered"],

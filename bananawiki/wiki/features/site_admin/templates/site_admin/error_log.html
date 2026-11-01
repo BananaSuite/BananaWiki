@@ -13,7 +13,7 @@
   </div>
 </header>
 <section class="card">
-  <p class="hint">{{ t('site_admin.log.intro_errors' if errors_only else 'site_admin.log.intro') }}</p>
+  <p class="hint">{{ t('site_admin.log.intro_errors' if errors_only else 'site_admin.log.intro') }}{% if addresses_hidden %} {{ t('site_admin.log.addresses_hidden') }}{% endif %}</p>
   {% if content is none %}
   <p class="empty-state">{{ t('site_admin.log.missing') }}</p>
   {% elif not content.strip() %}

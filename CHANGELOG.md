@@ -1,6 +1,37 @@
 # Changelog
 
-## Unreleased
+## 1.7.6 — 2026-10-30
+
+### Upgrading
+
+* Wiki databases move to schema 19 (an index for the canvas lists, the list of built-in documentation pages, a list of the page slugs canvases link, amounts in the rate-limit counters); 1.7.3 cannot open them afterwards, so back up first if you may want to go back. Read [UPGRADING.md](UPGRADING.md#upgrading-from-173-to-176) first.
+
+### Changes
+
+* Canvases: double-clicking an element (or double-tapping it on a touch screen) opens it for editing again
+  instead of offering a new note; double-clicking a line edits the line, the empty canvas adds a note.
+* Read aloud: the player has its own controls (play and pause, previous and next paragraph, a seek bar and
+  the time) instead of the browser's audio bar, and the admin page keeps the long list of languages folded.
+* Administration: the side menu is gone. **Administration** (`/admin`, the account menu) is now an overview
+  that lists every admin page by group, with a filter box; each page shows a breadcrumb and a "Jump to" list.
+
+### Security
+
+* Fixes from a security audit; every finding, with how it was reproduced and
+  the test that guards it, is in `AUDIT.md`, and the behaviour changes are in
+  [UPGRADING.md](UPGRADING.md#upgrading-from-173-to-176).
+  Highlights: syntax highlighting is bounded in time whatever the language;
+  request bodies are bounded before CSRF reads them and refused requests count
+  against the global limit; plain administrators can no longer switch
+  third-party plugins on through the onboarding wizard, change superusers
+  through custom roles or pause their own temporary promotion; sign-in limits
+  key on the account, not the spelling typed; API tokens follow the required
+  two-step step; page renames, category deletions, reverts and approvals
+  respect protections, check-outs and permissions; group-chat moderation by
+  administrators is audited; kanban boards, PDF and attachment exports and chat
+  polls are bounded; hosted wikis cannot be moved out of moderation by a
+  transfer; platform backups have no size ceiling (`BWBACKUP2`); backup and
+  rollback packages survive hard links.
 
 ### BM mode
 

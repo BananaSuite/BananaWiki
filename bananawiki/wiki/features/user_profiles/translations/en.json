@@ -55,7 +55,7 @@
   "profiles.no_fields": "You have not filled in any profile fields.",
   "profiles.no_fields_other": "{user} has not filled in any profile fields.",
   "profiles.page.delete": "Delete profile",
-  "profiles.page.delete_confirm": "Delete the profile details and picture? Contributions are kept.",
+  "profiles.page.delete_confirm": "Delete the profile details, picture and profile field answers? Contributions are kept.",
   "profiles.page.disabled": "An administrator has disabled your profile page.",
   "profiles.page.hidden": "Your profile is hidden: only you and administrators can open it.",
   "profiles.page.hide": "Hide my profile",
@@ -71,5 +71,6 @@
   "profiles.type.longtext": "Long text",
   "profiles.type.number": "Number",
   "profiles.type.text": "Short text",
-  "profiles.type.url": "Web address"
+  "profiles.type.url": "Web address",
+  "audit.action.user.profile_moderated": "Public profile changed by an administrator"
 }

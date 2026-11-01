@@ -293,6 +293,7 @@
   "page_builder.error.page_missing": "Questa pagina non esiste.",
   "page_builder.error.pages": "Un elenco di pagine può contenere al massimo 24 indirizzi di pagina validi.",
   "page_builder.error.preview_slow_down": "Troppe anteprime. Attendi un momento e riprova.",
+  "page_builder.error.publish_slow_down": "Troppi salvataggi. Attendi un minuto e riprova.",
   "page_builder.error.required": "Compila i campi obbligatori di ogni blocco.",
   "page_builder.error.revision_missing": "Manca la versione della pagina. Ricarica l'editor.",
   "page_builder.error.section_empty": "Scegli almeno un blocco per la sezione.",

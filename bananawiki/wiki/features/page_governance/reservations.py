@@ -9,9 +9,13 @@ page protected by someone else cannot be reserved (see :mod:`.protection`).
 
 ``page_reservations`` has one row per page (``UNIQUE(page_id)``); a row is
 active while ``released_at`` is NULL, ``expires_at`` is in the future and its
-holder still has an editing role. Every change runs in one ``BEGIN
+holder still has an editing role and may still edit the page (one who lost
+access to it, say after a move to a restricted category, neither blocks
+others nor sees it listed; administrators still see and release it under
+**Admin → Check-outs**). Every change runs in one ``BEGIN
 IMMEDIATE`` transaction, so concurrent requests cannot both reserve a page or
-exceed a quota.
+exceed a quota. An administrator's release, assignment and cooldown
+clearing are audited.
 """
 
 from __future__ import annotations
@@ -19,9 +23,10 @@ from __future__ import annotations
 from typing import Any
 
 from ....core.timeutil import now_sql, sql_in
-from ... import auth, settings
+from ... import accounts, auth, settings
 from ...db import db
 from ...registry import is_enabled
+from ..audit.service import record
 from ..pages import service as pages
 from . import protection, quota
 from .errors import GovernanceError
@@ -52,13 +57,20 @@ def cooldown_hours() -> int:
 _ACTIVE = f"r.released_at IS NULL AND r.expires_at > ? AND u.role IN {HOLDER_ROLES}"
 
 
+def _holder_may_edit(page_id: int, holder: dict[str, Any] | None) -> bool:
+    """Whether the holder of a check-out on page *page_id* may still edit it (and so read it)."""
+    page = pages.get(page_id, with_content=False)
+    return page is not None and holder is not None and pages.can_edit(page, holder)
+
+
 def current(page_id: int) -> dict[str, Any] | None:
     """The active reservation of a page (with the holder's username), or None."""
-    return db.one(
+    row = db.one(
         f"SELECT r.*, u.username FROM page_reservations r JOIN users u ON u.id = r.user_id "
         f"WHERE r.page_id = ? AND {_ACTIVE}",
         (page_id, now_sql()),
     )
+    return row if row is not None and _holder_may_edit(page_id, accounts.by_id(row["user_id"])) else None
 
 
 def cooldown_until(page_id: int, user_id: str) -> str | None:
@@ -69,10 +81,7 @@ def cooldown_until(page_id: int, user_id: str) -> str | None:
 
 
 def active_count(user_id: str) -> int:
-    return int(db.scalar(
-        "SELECT COUNT(*) FROM page_reservations WHERE user_id = ? AND released_at IS NULL AND expires_at > ?",
-        (user_id, now_sql()), default=0,
-    ))
+    return len(of_user(user_id))
 
 
 def status(page: dict[str, Any], user: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -164,13 +173,25 @@ def release(page: dict[str, Any], user: dict[str, Any]) -> bool:
     return bool(released)
 
 
+def _holder_name(page_id: int) -> str | None:
+    """Username of whoever holds an unreleased, unexpired check-out of *page_id* (whatever their role)."""
+    return db.scalar("SELECT u.username FROM page_reservations r JOIN users u ON u.id = r.user_id "
+                     "WHERE r.page_id = ? AND r.released_at IS NULL AND r.expires_at > ?", (page_id, now_sql()))
+
+
 def force_release(page_id: int) -> bool:
-    """Administrator release: no cooldown for the holder."""
-    now = now_sql()
-    return bool(db.execute(
-        "UPDATE page_reservations SET released_at = ? WHERE page_id = ? AND released_at IS NULL AND expires_at > ?",
-        (now, page_id, now),
-    ).rowcount)
+    """Administrator release: no cooldown for the holder (audited)."""
+    with db.transaction():
+        now = now_sql()
+        holder = _holder_name(page_id)
+        released = bool(db.execute(
+            "UPDATE page_reservations SET released_at = ? WHERE page_id = ? AND released_at IS NULL "
+            "AND expires_at > ?", (now, page_id, now),
+        ).rowcount)
+    if released:
+        record("page_governance.checkout_released", target_type="page", target_id=page_id,
+               details={"holder": holder})
+    return released
 
 
 def assign(page: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
@@ -183,18 +204,30 @@ def assign(page: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
         raise GovernanceError("page_governance.reservation.error.target_cannot_edit", user=target["username"])
     with db.transaction():
         _refuse_if_protected(page, target)
+        previous = _holder_name(page["id"])
         db.execute("DELETE FROM user_page_cooldowns WHERE page_id = ? AND user_id = ?", (page["id"], target["id"]))
-        return _insert(page["id"], target["id"])
+        row = _insert(page["id"], target["id"])
+    # The check-out locks other editors out in the holder's name: the log says who gave it to them.
+    record("page_governance.checkout_assigned", target_type="page", target_id=page["id"],
+           details={"title": page.get("title"), "holder": target["username"], "previous_holder": previous,
+                    "until": row["expires_at"]})
+    return row
 
 
 def clear_cooldowns(page_id: int, user_id: str | None = None) -> int:
     if user_id:
-        return db.execute("DELETE FROM user_page_cooldowns WHERE page_id = ? AND user_id = ?",
-                          (page_id, user_id)).rowcount
-    return db.execute("DELETE FROM user_page_cooldowns WHERE page_id = ?", (page_id,)).rowcount
+        count = db.execute("DELETE FROM user_page_cooldowns WHERE page_id = ? AND user_id = ?",
+                           (page_id, user_id)).rowcount
+    else:
+        count = db.execute("DELETE FROM user_page_cooldowns WHERE page_id = ?", (page_id,)).rowcount
+    if count:
+        record("page_governance.cooldowns_cleared", target_type="page", target_id=page_id,
+               details={"count": count, **({"user_id": user_id} if user_id else {})})
+    return count
 
 
 def all_active() -> list[dict[str, Any]]:
+    """Every unreleased check-out, for administrators (including those whose holder lost access)."""
     return db.all(
         f"SELECT r.*, u.username, p.title, p.slug FROM page_reservations r "
         f"JOIN users u ON u.id = r.user_id JOIN pages p ON p.id = r.page_id "
@@ -213,11 +246,14 @@ def all_cooldowns() -> list[dict[str, Any]]:
 
 
 def of_user(user_id: str) -> list[dict[str, Any]]:
-    return db.all(
-        "SELECT r.*, p.title, p.slug FROM page_reservations r JOIN pages p ON p.id = r.page_id "
-        "WHERE r.user_id = ? AND r.released_at IS NULL AND r.expires_at > ? ORDER BY r.expires_at",
+    """The active check-outs of *user_id*: never one on a page they may no longer edit or read."""
+    holder = accounts.by_id(user_id)
+    rows = db.all(
+        f"SELECT r.*, p.title, p.slug FROM page_reservations r JOIN pages p ON p.id = r.page_id "
+        f"JOIN users u ON u.id = r.user_id WHERE r.user_id = ? AND {_ACTIVE} ORDER BY r.expires_at",
         (user_id, now_sql()),
     )
+    return [row for row in rows if _holder_may_edit(row["page_id"], holder)]
 
 
 def statuses(page_ids: list[int], user_id: str) -> dict[int, dict[str, Any]]:
@@ -232,7 +268,8 @@ def statuses(page_ids: list[int], user_id: str) -> dict[int, dict[str, Any]]:
         f"JOIN users u ON u.id = r.user_id WHERE r.page_id IN ({marks}) AND {_ACTIVE}",
         (*page_ids, now),
     ):
-        result[row["page_id"]]["reservation"] = row
+        if _holder_may_edit(row["page_id"], accounts.by_id(row["user_id"])):
+            result[row["page_id"]]["reservation"] = row
     for row in db.all(
         f"SELECT page_id, cooldown_until FROM user_page_cooldowns "
         f"WHERE user_id = ? AND page_id IN ({marks}) AND cooldown_until > ?",

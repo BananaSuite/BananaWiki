@@ -54,6 +54,7 @@ from flask import current_app
 
 from ...core.env import Env
 from ...core.i18n import FALLBACK
+from ...core.logformat import one_line
 from ...ops.agent_client import AgentError, connect
 from ...ops.runtime_agent import HOSTNAME as AGENT_HOSTNAME
 from ...ops.runtime_agent import ISOLATED_WIKIS, MAX_HOSTS_PER_TENANT
@@ -159,6 +160,12 @@ def tenant_network(cfg: HostingConfig) -> str:
     return cfg.tenant_network if cfg.hosting_mode == "subdomain" else "outbound"
 
 
+# Places for large responses, one client at most a quarter of them (core.downloads): two each for four clients.
+# Each thread counts against the container's address-space limit (BW_MEMORY_LIMIT_MB): 4 + 8 threads with eight
+# slow downloads and eight page requests at once peaked at 385 MB of address space, within the default 768 MB.
+TENANT_DOWNLOAD_THREADS = 8
+
+
 def tenant_environment(spec: TenantSpec, cfg: HostingConfig, *, quarantined: bool) -> dict[str, str]:
     """The ``BW_*`` environment of one wiki (the agent adds the paths and managed-mode flags)."""
     policy = spec.policy
@@ -179,6 +186,9 @@ def tenant_environment(spec: TenantSpec, cfg: HostingConfig, *, quarantined: boo
         "BW_MEMORY_LIMIT_MB": str(policy.memory_mb),
         "BW_NOFILE_LIMIT": str(policy.nofile_limit),
         "BW_INSTANCE_STARTUP_TIMEOUT_SECONDS": str(cfg.limits.startup_timeout_seconds),
+        # Threads for large responses on top of the tenant's own (tenant_entrypoint), as many as a standalone
+        # wiki's worker has.
+        "BW_DOWNLOAD_THREADS": str(TENANT_DOWNLOAD_THREADS),
         "BW_ALLOW_EXTERNAL_PLUGINS": _flag(cfg.allow_tenant_plugins and not quarantined),
         "BW_PLATFORM_OAUTH_ENABLED": "0",
     }
@@ -254,7 +264,8 @@ def routing_table(specs: Sequence[TenantSpec]) -> list[dict[str, Any]]:
         usable = [host for host in hosts if AGENT_HOSTNAME.fullmatch(host) and len(claims[host]) == 1]
         dropped = sorted(set(hosts) - set(usable))
         if dropped:
-            log.warning("Not routing %s for %s: invalid or claimed by several wikis", ", ".join(dropped), tenant)
+            log.warning("Not routing %s for %s: invalid or claimed by several wikis", one_line(", ".join(dropped)[:500]),
+                        tenant)
         if usable:
             table.append({"tenant": tenant, "hosts": usable[:MAX_HOSTS_PER_TENANT]})
     return table
@@ -646,14 +657,9 @@ class AgentRuntime:
             self._status[name] = (now + (HEALTH_TTL if result.healthy else NEGATIVE_TTL), result)
         return result
 
-    def storage_protection(self) -> dict[str, Any]:
-        """Whether hosted wikis get hard storage quotas (``{setting, hard_quotas, refused, lost, reason}``; ``{}``:
-        unknown).
-
-        Asked of the agent at most once a minute per process, for the
-        administrators' dashboard. An agent from before ``lost`` never says
-        it: as storage that never had hard quotas.
-        """
+    def _health(self) -> dict[str, Any]:
+        """The agent's ``ping`` answer for the administrators' dashboard, asked at most once a minute per process
+        (``{}`` when it does not answer)."""
         now = time.monotonic()
         with self._lock:
             cached = self._storage_checked
@@ -661,17 +667,36 @@ class AgentRuntime:
             return cached[1]
         try:
             answer = self._call("ping", {})
-            storage = answer.get("storage") if isinstance(answer, dict) else None
         except Exception:  # noqa: BLE001 - a dashboard must render whatever the agent does
-            storage = None
-        value = {
+            answer = None
+        value = answer if isinstance(answer, dict) else {}
+        with self._lock:
+            self._storage_checked = (now + STORAGE_TTL, value)
+        return value
+
+    def storage_protection(self) -> dict[str, Any]:
+        """Whether hosted wikis get hard storage quotas (``{setting, hard_quotas, refused, lost, reason}``; ``{}``:
+        unknown).
+
+        An agent from before ``lost`` never says it: as storage that never
+        had hard quotas.
+        """
+        storage = self._health().get("storage")
+        return {
             "setting": str(storage.get("setting") or ""), "hard_quotas": storage.get("hard_quotas") is True,
             "refused": storage.get("refused") is True, "lost": storage.get("lost") is True,
             "reason": str(storage.get("reason") or "")[:1000],
         } if isinstance(storage, dict) else {}
-        with self._lock:
-            self._storage_checked = (now + STORAGE_TTL, value)
-        return value
+
+    def host_firewall(self) -> dict[str, Any]:
+        """The latest check of the host firewall for tenant containers (``{loaded, reason, checked_at}``, ``loaded``
+        None when not checked since the host started; ``{}``: an agent that does not say)."""
+        found = self._health().get("firewall")
+        if not isinstance(found, dict):
+            return {}
+        loaded = found.get("loaded")
+        return {"loaded": loaded if isinstance(loaded, bool) else None, "reason": str(found.get("reason") or "")[:500],
+                "checked_at": str(found.get("checked_at") or "")[:40]}
 
     def upstream(self, spec: TenantSpec) -> tuple[str, int] | None:
         cfg = self._cfg()
@@ -745,10 +770,28 @@ class AgentRuntime:
         self._task(spec.data_dir_name, {"action": "remove_user", "username": username})
 
     def reset_admin_password(self, spec: TenantSpec, admin_username: str, new_password: str) -> str:
-        self._existing(self._cfg(), spec.data_dir_name)
-        result = self._task(spec.data_dir_name, {"action": "reset_admin", "username": admin_username,
-                                                 "password": new_password})
-        return str(result.get("username") or admin_username)[:200]
+        return self.reset_admins(spec, admin_username, new_password)[0]
+
+    def reset_admins(self, spec: TenantSpec, admin_username: str, new_password: str, *,
+                     every_admin: bool = False) -> tuple[str, list[str]]:
+        cfg = self._cfg()
+        self._existing(cfg, spec.data_dir_name)
+        request = {"action": "reset_admin", "username": admin_username, "password": new_password,
+                   "every_admin": bool(every_admin)}
+        if every_admin and self._running(spec):
+            # After a change of owner the wiki stops first, so the reset runs in a task container of its own:
+            # plugin code the previous owner chose, loaded in the running wiki, could otherwise undo it.
+            self._stop(cfg, spec)
+            try:
+                result = self._task(spec.data_dir_name, request)
+            finally:
+                self._start(cfg, spec)
+        else:
+            result = self._task(spec.data_dir_name, request)
+        ids = result.get("user_ids")
+        user_ids = [value[:200] for value in ids[:500] if isinstance(value, str) and value] \
+            if isinstance(ids, list) else []
+        return str(result.get("username") or admin_username)[:200], user_ids
 
     def reset_content(self, spec: TenantSpec, *, admin_username: str, admin_password: str) -> None:
         cfg = self._cfg()
@@ -1038,10 +1081,18 @@ class AgentRuntime:
         path = Path(cfg.platform_state_dir) / BACKUP_STATE
         finished = datetime.now(UTC).isoformat(timespec="seconds")
         try:
+            size = exported.path.stat().st_size
+        except OSError:
+            size = None
+        if size is not None and size > cfg.archives.import_max_bytes:
+            # A restore refuses a part above the upload limit: the operator must know before needing it.
+            log.warning("The platform backup %s is %d bytes, more than HOSTING_IMPORT_MAX_BYTES (%d): raise it "
+                        "before restoring this backup", exported.path.name, size, cfg.archives.import_max_bytes)
+        try:
             with _state_lock(path):
                 complete = self.platform_backup_status().get("complete_at") if exported.skipped else finished
                 _write_state(path, {"finished_at": finished, "complete_at": complete,
-                                    "skipped": list(exported.skipped)})
+                                    "skipped": list(exported.skipped), "size": size})
         except OSError as error:
             log.warning("The platform backup status was not saved: %s", error)
 
@@ -1057,9 +1108,12 @@ class AgentRuntime:
                     "code": item["code"] if item["code"] in FAILURE_CODES else "failed"}
                    for item in (items if isinstance(items, list) else ())
                    if isinstance(item, dict) and all(isinstance(item.get(k), str) for k in ("tenant", "code", "detail"))]
-        return {"finished_at": data.get("finished_at") if isinstance(data.get("finished_at"), str) else None,
-                "complete_at": data.get("complete_at") if isinstance(data.get("complete_at"), str) else None,
-                "skipped": skipped}
+        status = {"finished_at": data.get("finished_at") if isinstance(data.get("finished_at"), str) else None,
+                  "complete_at": data.get("complete_at") if isinstance(data.get("complete_at"), str) else None,
+                  "skipped": skipped}
+        if type(data.get("size")) is int:
+            status["size"] = data["size"]  # bytes of the latest backup file
+        return status
 
     def restore_platform(self, archives: Sequence[Path]) -> None:
         cfg = self._cfg()
@@ -1163,6 +1217,8 @@ class AgentRuntime:
             log.info("Scheduled Google Drive backup: %s", self.gdrive_backup_now())
         except RuntimeFailure as error:
             log.error("Scheduled Google Drive backup failed: %s", error)
+        except Exception:  # noqa: BLE001 - retried after GDRIVE_RETRY_SECONDS like any failure, never in a loop
+            log.exception("Scheduled Google Drive backup failed")
 
     # Maintenance
 

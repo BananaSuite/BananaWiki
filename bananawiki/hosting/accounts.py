@@ -409,8 +409,8 @@ def dismiss_email_prompt(account_id: str) -> None:
 
 def set_password(account_id: str, password: str, *, actor_id: str | None, reason: str,
                  keep_session_id: str | None = None) -> int:
-    """Replace the password and end sessions, API/OAuth tokens and grants, on the portal and on the
-    wikis the account signed in to. Returns the session version.
+    """Replace the password and end sessions, API/OAuth tokens and grants and any pending reset link, on
+    the portal and on the wikis the account signed in to. Returns the session version.
 
     *keep_session_id*: the session that changed its own password stays (the
     caller moves it to the new version with :func:`.auth.keep_current_session`).
@@ -419,8 +419,10 @@ def set_password(account_id: str, password: str, *, actor_id: str | None, reason
 
     password_hash = hash_password(password)
     with db.transaction():
-        db.execute("UPDATE accounts SET password = ?, session_version = session_version + 1 WHERE id = ?",
-                   (password_hash, account_id))
+        # A reset link sent before stops working too, like every other credential.
+        db.execute("UPDATE accounts SET password = ?, session_version = session_version + 1, "
+                   "password_reset_token_hash = '', password_reset_sent_at = NULL, password_reset_expires_at = NULL "
+                   "WHERE id = ?", (password_hash, account_id))
         db.execute("UPDATE hosting_account_sessions SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL "
                    "AND id != ?", (now_sql(), account_id, keep_session_id or ""))
         api_tokens.revoke_all(account_id, actor_id, reason)
@@ -620,6 +622,18 @@ def approve_all_pending(admin_id: str) -> int:
 # Suspension
 
 
+def _publish_routes() -> None:
+    """Publish the wikis' routing table again after a change to whether this account's wikis are served.
+
+    :func:`.domains.may_serve` refuses the wikis of a suspended account or one
+    scheduled for deletion, but Caddy keeps the table it was given: without
+    this it would go on routing them until the next maintenance pass.
+    """
+    from . import instances
+
+    instances.sync_routes()
+
+
 def is_suspended(account: dict[str, Any]) -> bool:
     """True while suspended; a timed suspension that has run out is lifted here."""
     if not account.get("suspended"):
@@ -644,17 +658,23 @@ def suspend(account_id: str, *, until: str | None, reason: str, reason_visible: 
         db.execute("UPDATE hosting_account_sessions SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL",
                    (now_sql(), account_id))
         signouts.queue(account_id, "suspended")
+        cancel_transfers(account_id)
         _audit(account_id, "suspend", actor_id, reason or None, reason_visible and bool(reason),
                time_visible and bool(until), duration_label, until)
+    _publish_routes()
 
 
 def unsuspend(account_id: str, *, actor_id: str | None, automatic: bool = False) -> None:
+    """Lift a suspension. The wikis are routed again at once, except when a timed suspension runs out
+    (maintenance publishes the routes after lifting those, and :func:`is_suspended` may run anywhere)."""
     with db.transaction():
         db.update("accounts", {"suspended": 0, "suspended_at": None, "suspend_reason": "", "suspended_until": None,
                                "suspend_reason_visible": 0, "suspend_time_visible": 0},
                   "id = ? AND deleted_at IS NULL", (account_id,))
         _audit(account_id, "unsuspend", actor_id, "Timed suspension ended" if automatic else None,
                False, False, None, None)
+    if not automatic:
+        _publish_routes()
 
 
 def _audit(account_id: str, action: str, actor_id: str | None, reason: str | None, reason_visible: bool,
@@ -678,6 +698,18 @@ def suspension_history(account_id: str) -> list[dict[str, Any]]:
 def expired_suspensions() -> list[str]:
     return db.column("SELECT id FROM accounts WHERE suspended = 1 AND suspended_until IS NOT NULL "
                      "AND suspended_until <= ? AND deleted_at IS NULL ORDER BY suspended_until, id", (now_sql(),))
+
+
+def cancel_transfers(account_id: str, *, incoming: bool = False) -> None:
+    """Cancel the wiki transfers the account offered (and, with *incoming*, those offered to it).
+
+    A moderated account must not hand its wikis on: an offer accepted after
+    a suspension or a scheduled deletion would bring the wiki back online
+    under the other account (collaborators.accept_transfer checks this too).
+    """
+    db.execute("UPDATE instance_ownership_transfers SET status = 'cancelled', resolved_at = ? "
+               "WHERE status = 'pending' AND (from_account_id = ? OR (? AND to_account_id = ?))",
+               (now_sql(), account_id, int(incoming), account_id))
 
 
 # Deletion
@@ -715,6 +747,7 @@ def delete(account_id: str) -> None:
             db.execute("UPDATE hosting_account_sessions SET revoked_at = ? WHERE account_id = ? "
                        "AND revoked_at IS NULL", (now_sql(), account_id))
             signouts.queue(account_id, "deleted")
+            cancel_transfers(account_id, incoming=True)
             db.execute("DELETE FROM hosting_oauth_grants WHERE account_id = ?", (account_id,))
             db.execute("DELETE FROM hosting_api_tokens WHERE account_id = ?", (account_id,))
             db.execute("DELETE FROM hosting_oauth_access_tokens WHERE account_id = ?", (account_id,))
@@ -740,13 +773,16 @@ def schedule_deletion(account_id: str, seconds: int, reason: str, actor_id: str)
                                "pending_deletion_reason": (reason or "")[:REASON_MAX_LENGTH]}, "id = ?", (account_id,))
         # Platform sign-in refuses the account from now on (oauth.account_may_sign_in): end its wiki sessions too.
         signouts.queue(account_id, "deletion_scheduled")
+        cancel_transfers(account_id)
         events.record("account", account_id, "account.deletion_scheduled", actor_id, reason)
+    _publish_routes()
 
 
 def cancel_deletion(account_id: str, actor_id: str) -> None:
     db.update("accounts", {"pending_deletion": 0, "pending_deletion_at": None, "pending_deletion_seconds": 86400,
                            "pending_deletion_reason": ""}, "id = ?", (account_id,))
     events.record("account", account_id, "account.deletion_cancelled", actor_id)
+    _publish_routes()
 
 
 def deletion_remaining(account: dict[str, Any]) -> int | None:

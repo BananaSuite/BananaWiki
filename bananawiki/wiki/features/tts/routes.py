@@ -20,6 +20,8 @@ from ....core.web import client_network
 from ... import auth, settings
 from ...i18n import t
 from ...registry import feature_blueprint
+from ..audit import record_settings
+from ..pages import access as page_access
 from ..pages import service as pages
 from . import backends, options, service, text
 
@@ -123,6 +125,10 @@ def cancel(slug: str):
     page = _page_for_listening(slug)
     if not pages.can_edit(page):
         return auth.deny(403)
+    # Like any change to the page, not while it is protected, checked out by someone else or pending deletion.
+    blocked = page_access.edit_blocked(page)
+    if blocked:
+        return _error(blocked, 423)
     service.delete_for_page(page["id"])
     return jsonify({"ok": True})
 
@@ -292,7 +298,9 @@ def admin_settings():
         elif settings.get("tts_gpu_auth_token") and _origin(url) != _origin(str(settings.get("tts_gpu_url") or "")):
             # A saved token is only ever sent to the server it was entered for.
             values["tts_gpu_auth_token"] = ""
+    previous = settings.load()
     settings.update(values)
+    record_settings(previous, values, via="tts")
     auth.flash_t("tts.admin.saved", "success")
     if values.get("tts_gpu_auth_token") == "" and not form.get("clear_gpu_token"):
         auth.flash_t("tts.admin.gpu_token_removed", "warning")

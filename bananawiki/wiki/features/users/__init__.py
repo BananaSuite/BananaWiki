@@ -62,6 +62,8 @@ FEATURE = Feature(
                                "users.admin_merge_requests", _merges_awaiting,
                                oldest=lambda user: merge.awaiting_admin_oldest(), order=40)],
     jobs=[Job("users.collect_orphan_images", 86400, service.collect_orphan_images, initial_delay=600)],
+    interceptors={"user.delete": service.note_uploads_of_deleted},
+    events={"user.deleted": [service.delete_uploads_of_deleted]},
     slots={
         "page.scripts": _display_css,
         "auth.account_status": _account_status,

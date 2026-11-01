@@ -118,9 +118,15 @@ def write_ticket_order(column_id: int, ordered: list[int]) -> None:
 
 
 def set_assignees(ticket_id: int, user_ids: Iterable[str]) -> list[str]:
-    """Replace the assignee set; ``assigned_to`` follows the first assignee."""
+    """Replace the assignee set; ``assigned_to`` follows the first assignee.
+
+    Only the first :data:`fields.MAX_ASSIGNEES_PER_TICKET` are kept (an import or a snapshot may name more;
+    requests are refused before).
+    """
     cleaned: list[str] = []
     for user_id in user_ids:
+        if len(cleaned) >= fields.MAX_ASSIGNEES_PER_TICKET:
+            break
         if user_id and user_id not in cleaned:
             cleaned.append(user_id)
     now = now_sql()

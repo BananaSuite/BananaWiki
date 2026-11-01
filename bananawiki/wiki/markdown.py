@@ -23,20 +23,29 @@ Rendering work is bounded by the source size: only the first ``[TOC]`` marker
 becomes a table of contents, a document embeds at most :data:`MAX_EMBEDS`
 players and boards, highlights at most :data:`MAX_HIGHLIGHT_DOCUMENT_CHARS`
 of code (later blocks stay plain code), and a document whose HTML would
-exceed :data:`MAX_HTML_CHARS` is shown as escaped source like any other
-over-budget input. A page made of several blocks (the page builder) shares
-one such allowance across them (:func:`shared_highlighting`). Renderings of
-larger sources, and of any source or snippet that needed highlighting, are
-kept per process by the hash of the source (:data:`RENDER_CACHE_LIMIT`), so a
-page read again is not rendered again.
+exceed :data:`MAX_HTML_CHARS` (or :data:`MAX_HTML_BYTES` encoded) is shown as
+escaped source like any other over-budget input, so that every rendering fits
+in the cache. Highlighting is also bounded in time, whatever the lexer
+(see :func:`_highlight`): code is lexed in pieces of at most
+:data:`HIGHLIGHT_CHUNK_CHARS`, and a document spends at most
+:data:`MAX_HIGHLIGHT_SECONDS` of processor time on it. A page made of several
+blocks (the page builder) shares one such allowance across them
+(:func:`shared_highlighting`); answers made of many documents (a canvas)
+share the time (:func:`bounded_highlighting`). Renderings of larger sources,
+and of any source or snippet that needed highlighting, are kept per process
+by the hash of the source (:data:`RENDER_CACHE_LIMIT`), so a page read again
+is not rendered again; a rendering being made is waited for, not made again
+by every concurrent reader.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import sys
 import threading
+import time
 from bisect import bisect_right
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Iterator
@@ -56,13 +65,14 @@ from markdown.extensions.toc import TocExtension, TocTreeprocessor
 from markdown.extensions.toc import slugify as _toc_slugify
 from markdown.inlinepatterns import SimpleTagInlineProcessor
 from markdown.treeprocessors import Treeprocessor
-from pygments import highlight
 from pygments.formatters import HtmlFormatter
+from pygments.lexer import Lexer
 from pygments.lexers import TextLexer, get_lexer_by_name, guess_lexer
 from pygments.token import STANDARD_TYPES
 from pygments.util import ClassNotFound
 
 from bananawiki.core.numbers import ascii_int
+from bananawiki.wiki import highlighter
 
 MAX_SOURCE_CHARS = 1_000_000
 MAX_PARSE_WORK = 32_000_000
@@ -72,11 +82,27 @@ MAX_HIGHLIGHT_LINES = 256
 MAX_LEXER_SAMPLE_CHARS = 4096
 MAX_HIGHLIGHT_CODE_CHARS = 64 * 1024
 # Pygments needs up to about 14 µs per character of token-dense code: one
-# document highlights at most this much (about a second of work at worst),
-# each block also paying for its lexer and formatter. Later blocks stay
-# plain code.
+# document highlights at most this much, each block also paying for its lexer
+# and formatter. Later blocks stay plain code.
 MAX_HIGHLIGHT_DOCUMENT_CHARS = 64 * 1024
 HIGHLIGHT_BLOCK_COST = 256
+# Many Pygments lexers need time growing with the square (or more) of a run of
+# similar characters, and some produce no token before they are done: one
+# token of a 64 KB block can take minutes. Code is lexed in pieces of at most
+# this many characters, cut between lines (a block with a longer line is shown
+# without colours), so that no lexer sees more at once: every lexer of
+# Pygments, on 1 KB of the inputs scripts/measure_lexers.py tries, needs at
+# most about 0.06 s for a token, except those in _UNBOUNDED_LEXERS...
+HIGHLIGHT_CHUNK_CHARS = 1024
+# ...and a document (or an answer of many, see bounded_highlighting) spends
+# at most this much processor time highlighting: the block being highlighted
+# when it runs out, and every later one, stay plain code.
+MAX_HIGHLIGHT_SECONDS = 0.5
+# ...which need seconds for a few dozen characters (exponential or cubic time): code in their
+# languages is shown without colours. Measured with this version of Pygments (see
+# scripts/measure_lexers.py; tests check that the installed version is the one measured).
+MEASURED_PYGMENTS_VERSION = "2.21.0"
+_UNBOUNDED_LEXERS = frozenset({"EasytrieveLexer", "MapleLexer"})
 # Python-Markdown handles blank-line separated blocks one at a time, at a cost
 # that grows faster than their number; a highlighted code block costs about
 # ten paragraphs, a table four. Ordinary megabyte articles stay near 12,000.
@@ -86,6 +112,10 @@ _TABLE_BLOCK_COST = 4
 # Highlighted code reaches about eleven times its source. Reference links can
 # repeat one long URL in every use, which is what this limit stops.
 MAX_HTML_CHARS = 16_000_000
+# The finished HTML is bounded in UTF-8 bytes too (as the render cache keeps it), so that
+# every rendering fits in one cache entry: one emoji would otherwise make Python hold a
+# 6 M-character page in 24 MB and the page would be rendered again on every view.
+MAX_HTML_BYTES = 16_000_000
 MAX_EMBEDS = 200
 # Player detection rescans the rest of a URL from each "youtube.com/watch?" in it.
 MAX_VIDEO_URL_CHARS = 2048
@@ -99,7 +129,7 @@ MAX_EXCERPT_BLOCK_COST = 400
 # The toc extension's search for a free heading id grows with every repeated
 # title, so heading counts are weighed too.
 MAX_EXCERPT_HEADINGS = 200
-#: Bytes of rendered HTML kept per process (as Python holds them: up to 4 per character).
+#: Bytes of rendered HTML kept per process (UTF-8 encoded); one entry takes at most half.
 RENDER_CACHE_LIMIT = 32 * 1024 * 1024
 #: Shorter sources render faster than their cache entry is worth keeping.
 RENDER_CACHE_MIN_CHARS = 2048
@@ -422,7 +452,7 @@ def _preprocess(text: str, fix_lists: bool) -> str:
 
 
 def _parser_work_exceeded(text: str, limit: int = MAX_PARSE_WORK, block_limit: int = MAX_BLOCK_COST,
-                          heading_limit: int = MAX_HEADINGS) -> bool:
+                          heading_limit: int = MAX_HEADINGS, used: list[int] | None = None) -> bool:
     """Bound repeated delimiter searches, nesting and block count before parsing prose.
 
     The Markdown link parser searches the remaining paragraph for each
@@ -432,7 +462,8 @@ def _parser_work_exceeded(text: str, limit: int = MAX_PARSE_WORK, block_limit: i
     parsing, so it does not consume this allowance; only the blocks the
     parser really extracts count as code, and the work of searching for
     fences that never close does. Blocks, fenced ones included, are weighed
-    against *block_limit* and headings against *heading_limit*.
+    against *block_limit* and headings against *heading_limit*. When it is
+    not exceeded, *used* (if given) receives ``[work, blocks, headings]``.
     """
     lines = _normalise_whitespace(text).split("\n")
     code, work, _ = _fenced_code(lines)
@@ -519,6 +550,8 @@ def _parser_work_exceeded(text: str, limit: int = MAX_PARSE_WORK, block_limit: i
                 round_depth = max(0, round_depth - 1)
             if max(square_depth, round_depth) > MAX_MARKUP_DEPTH:
                 return True
+    if used is not None:
+        used[:] = [work, blocks, headings]
     return False
 
 
@@ -778,26 +811,95 @@ class _Strikethrough(Extension):
         md.inlinePatterns.register(SimpleTagInlineProcessor(r"(~~)(.+?)~~", "del"), "bw_del", 175)
 
 
-class _HighlightBudget:
-    """Characters of code one document may still highlight (see :data:`MAX_HIGHLIGHT_DOCUMENT_CHARS`)."""
+class _OutOfTime(Exception):
+    """Highlighting used up its :class:`_HighlightClock`."""
 
-    def __init__(self, allowance: int = MAX_HIGHLIGHT_DOCUMENT_CHARS) -> None:
+
+class _HighlightClock:
+    """Processor time a document (or an answer) may still spend highlighting (:data:`MAX_HIGHLIGHT_SECONDS`)."""
+
+    def __init__(self) -> None:
+        self.left = MAX_HIGHLIGHT_SECONDS
+        self.cut = 0  # blocks left plain for want of time
+        self.busy = False  # some block left plain because no highlighting helper was free: not worth keeping
+
+    def expired(self) -> bool:
+        """Whether no time is left (counted as a block cut short)."""
+        if self.left > 0:
+            return False
+        self.cut += 1
+        return True
+
+    def tokens(self, tokens: Iterable[tuple[object, str]]) -> Iterator[tuple[object, str]]:
+        """*tokens* until the time is up, then :class:`_OutOfTime`.
+
+        Processor time of this thread: waiting for other threads costs nothing.
+        """
+        start = time.thread_time()
+        deadline = start + self.left
+        try:
+            for token in tokens:
+                if time.thread_time() > deadline:
+                    self.left = 0
+                    self.cut += 1
+                    raise _OutOfTime
+                yield token
+        finally:
+            self.left = max(0.0, self.left - (time.thread_time() - start))
+
+
+class _HighlightBudget:
+    """Characters of code one document may still highlight (see :data:`MAX_HIGHLIGHT_DOCUMENT_CHARS`),
+    and its :class:`_HighlightClock`."""
+
+    def __init__(self, allowance: int = MAX_HIGHLIGHT_DOCUMENT_CHARS, clock: _HighlightClock | None = None) -> None:
         self.left = allowance
         self.refused = 0  # blocks left plain
+        self.clock = clock or _shared_clock.get() or _HighlightClock()
 
     def take(self, code: str) -> bool:
         """Whether *code* may be highlighted; once a block does not fit, no later one is."""
         cost = len(code) + HIGHLIGHT_BLOCK_COST
-        if cost > self.left:
-            self.left = 0
-            self.refused += 1
+        if cost > self.left or self.clock.expired():
+            self.cut()
             return False
         self.left -= cost
         return True
 
+    def cut(self) -> None:
+        """A block stays plain code, and so does every later one."""
+        self.left = 0
+        self.refused += 1
+
 
 # The allowance of the page being rendered when it is made of several blocks.
 _shared_budget: ContextVar[_HighlightBudget | None] = ContextVar("bananawiki_highlight_budget", default=None)
+# The time of the answer being made when it renders several documents.
+_shared_clock: ContextVar[_HighlightClock | None] = ContextVar("bananawiki_highlight_clock", default=None)
+
+
+@contextmanager
+def bounded_highlighting() -> Iterator[None]:
+    """Let every rendering inside share one highlighting time (:data:`MAX_HIGHLIGHT_SECONDS`).
+
+    For answers that render many documents, each with its own character
+    allowance (the nodes of a canvas). Renderings cut short for want of time
+    are not kept in the cache (see :func:`highlighting_cut_short`).
+    """
+    if _shared_clock.get() is not None:
+        yield
+        return
+    token = _shared_clock.set(_HighlightClock())
+    try:
+        yield
+    finally:
+        _shared_clock.reset(token)
+
+
+def highlighting_cut_short() -> int:
+    """How many blocks the time shared by :func:`bounded_highlighting` left plain so far (0 outside it)."""
+    clock = _shared_clock.get()
+    return clock.cut if clock is not None else 0
 
 
 @contextmanager
@@ -808,11 +910,153 @@ def shared_highlighting() -> Iterator[None]:
     get a whole allowance for each block. Results cut short by the shared
     allowance are not kept in the cache.
     """
-    token = _shared_budget.set(_HighlightBudget())
+    clock = _shared_clock.get() or _HighlightClock()
+    tokens = _shared_clock.set(clock), _shared_budget.set(_HighlightBudget(clock=clock))
     try:
         yield
     finally:
-        _shared_budget.reset(token)
+        _shared_budget.reset(tokens[1])
+        _shared_clock.reset(tokens[0])
+
+
+class _DocumentLimits:
+    """What the documents rendered as one (:func:`one_document`) may still use of one document's limits.
+
+    Parse work, blocks and headings (:func:`_parser_work_exceeded`), HTML
+    (:data:`MAX_HTML_CHARS`) and embeds (:data:`MAX_EMBEDS`): a document that
+    does not fit in what is left is shown as escaped source, and highlighted
+    code that does not fit as plain code. *reserve* bytes of the HTML are kept
+    for those fallbacks, so that all the HTML together stays within one
+    document's (:func:`render_parts` reserves what all of them would take).
+    """
+
+    def __init__(self, reserve: int = 0) -> None:
+        self.work = MAX_PARSE_WORK
+        self.blocks = MAX_BLOCK_COST
+        self.headings = MAX_HEADINGS
+        self.html = max(0, min(MAX_HTML_CHARS, MAX_HTML_BYTES) - reserve)
+        self.embeds = _EmbedBudget()
+
+    def exceeded(self, text: str, used: list[int]) -> bool:
+        """Whether *text* needs more than is left; else what it needs, the most of each, goes into *used*."""
+        measured: list[int] = []
+        if _parser_work_exceeded(text, self.work, self.blocks, self.headings, measured):
+            return True
+        used[:] = [max(pair) for pair in zip(used, measured, strict=True)] if used else measured
+        return False
+
+    def take(self, used: list[int]) -> None:
+        work, blocks, headings = used
+        self.work, self.blocks, self.headings = self.work - work, self.blocks - blocks, self.headings - headings
+
+    def fits(self, html: str) -> bool:
+        """Whether *html* fits in the HTML left; if it does, it is taken from it."""
+        size = _utf8_size(html)
+        if size > self.html:
+            return False
+        self.html -= size
+        return True
+
+
+# The limits of the documents being rendered as one (the blocks of a builder page).
+_shared_limits: ContextVar[_DocumentLimits | None] = ContextVar("bananawiki_document_limits", default=None)
+
+
+@contextmanager
+def one_document(reserve: int = 0) -> Iterator[None]:
+    """Let every :func:`render` inside count against the limits of one document, and share its highlighting.
+
+    For a page made of many Markdown blocks (the page builder): without it each
+    block would get the whole parse, heading, output and embed limits of a
+    document (and :func:`shared_highlighting` only shares the highlighting).
+    Renderings inside are not kept by themselves, as they depend on the
+    blocks before them: :func:`render_parts` keeps the whole. *reserve* is
+    the HTML kept for blocks shown as source (:class:`_DocumentLimits`).
+    """
+    with shared_highlighting():
+        token = _shared_limits.set(_DocumentLimits(reserve))
+        try:
+            yield
+        finally:
+            _shared_limits.reset(token)
+
+
+# Where a piece of code preferably ends, best first, and how far into the piece: before a line
+# starting in the first column (after a blank line, at best), which in most languages starts a
+# new definition rather than continuing a string or comment; else after a blank line or any line.
+_CHUNK_BREAKS = ((re.compile(r"\n\n+(?=\S)"), 4), (re.compile(r"\n(?=\S)"), 4), (re.compile(r"\n\n"), 2),
+                 (re.compile(r"\n"), HIGHLIGHT_CHUNK_CHARS))
+
+
+def _code_chunks(text: str) -> list[str] | None:
+    """*text* cut between lines into pieces of at most :data:`HIGHLIGHT_CHUNK_CHARS` (see
+    :data:`_CHUNK_BREAKS`); None when a line is longer than that."""
+    chunks = []
+    start = 0
+    while len(text) - start > HIGHLIGHT_CHUNK_CHARS:
+        limit = start + HIGHLIGHT_CHUNK_CHARS
+        cut = None
+        for brk, part in _CHUNK_BREAKS:
+            for found in brk.finditer(text, start + HIGHLIGHT_CHUNK_CHARS // part, limit):
+                cut = found.end()
+            if cut is not None:
+                break
+        if cut is None:
+            return None
+        chunks.append(text[start:cut])
+        start = cut
+    chunks.append(text[start:])
+    return chunks
+
+
+def _highlight(code: str, lexer: Lexer, formatter: HtmlFormatter, clock: _HighlightClock) -> str | None:
+    """``pygments.highlight(code, lexer, formatter)`` within *clock*; None when it ran out (plain code).
+
+    Lexers run in a helper process (:mod:`.highlighter`) that is stopped when
+    the clock runs out: some need exponential time inside one token, which
+    nothing in this process could interrupt. Lexing each piece of
+    :func:`_code_chunks` on its own (constructs spanning two pieces may be
+    coloured as if they ended there) also keeps quadratic lexers fast. Code
+    with a line too long to cut, or in a language of
+    :data:`_UNBOUNDED_LEXERS`, is formatted without colours, here. The input
+    is prepared as :meth:`Lexer.get_tokens` does.
+    """
+    if clock.expired():
+        return None
+    text = lexer._preprocess_lexer_input(code)
+    chunks = _code_chunks(text)
+    if chunks is None or type(lexer).__name__ in _UNBOUNDED_LEXERS:
+        lexer, chunks = TextLexer(), [text]
+    if isinstance(lexer, TextLexer):
+        return highlighter.render(chunks, lexer, formatter)
+    html, spent, out_of_time, no_helper = highlighter.highlight(chunks, lexer, formatter, clock.left)
+    clock.left = 0.0 if out_of_time else max(0.0, clock.left - spent)
+    if html is None:
+        clock.cut += 1
+        clock.busy = clock.busy or no_helper
+    return html
+
+
+class _BoundedHilite(CodeHilite):
+    """Python-Markdown's highlighter through :func:`_highlight`: :meth:`hilite` is None for plain code.
+
+    Only the parts of upstream's ``hilite`` this renderer uses: Pygments, no
+    guessing, the HTML formatter.
+    """
+
+    clock: _HighlightClock
+
+    def hilite(self, shebang: bool = True) -> str | None:  # type: ignore[override]
+        self.src = self.src.strip("\n")
+        if self.lang is None and shebang:
+            self._parseHeader()
+        try:
+            lexer = get_lexer_by_name(self.lang, **self.options)
+        except ValueError:
+            lexer = get_lexer_by_name("text", **self.options)
+        if not self.lang:
+            self.lang = lexer.aliases[0]
+        return _highlight(self.src, lexer, HtmlFormatter(**self.options), self.clock)
 
 
 class _SafeFencedBlocks(FencedBlockPreprocessor):
@@ -839,18 +1083,25 @@ class _SafeFencedBlocks(FencedBlockPreprocessor):
                 result = (result[:start] + " ".join(map(str, self._highlight_lines(value)))
                           + result[end:])
             code = match.group("code")
-            if len(code) > MAX_HIGHLIGHT_CODE_CHARS or not self.budget.take(code):
-                # Large snippets, and every block past the document's budget,
-                # remain literal code. Highlighting can expand a short source
-                # into millions of span nodes and HTML bytes.
-                attrs = match.group("attrs")
-                if attrs is None:
-                    language = match.group("lang")
-                    attrs = "." + language if language else ""
-                opening = match.group("fence") + "{" + attrs + " use_pygments=false}"
-                result = opening + result[result.index("\n"):]
-            return result
+            if len(code) <= MAX_HIGHLIGHT_CODE_CHARS and self.budget.take(code):
+                highlighted = self._highlighted(match, result)
+                if highlighted is not None:
+                    return highlighted
+            # Large snippets, every block past the document's budget, and code
+            # left plain for want of time remain literal code. Highlighting can
+            # expand a short source into millions of span nodes and HTML bytes.
+            attrs = match.group("attrs")
+            if attrs is None:
+                language = match.group("lang")
+                attrs = "." + language if language else ""
+            opening = match.group("fence") + "{" + attrs + " use_pygments=false}"
+            return opening + result[result.index("\n"):]
 
+        if not self.checked_for_deps:
+            # As upstream's run does before its first block.
+            for extension in self.md.registeredExtensions:
+                if isinstance(extension, CodeHiliteExtension):
+                    self.codehilite_conf = extension.getConfigs()
         # Rewrite exactly the blocks the upstream search extracts: it also
         # finds blocks inside an opening it skipped for malformed attributes.
         out: list[str] = []
@@ -863,6 +1114,37 @@ class _SafeFencedBlocks(FencedBlockPreprocessor):
             start = last + 1
         out.extend(lines[start:])
         return super().run(out)
+
+    def _highlighted(self, match: re.Match[str], block: str) -> str | None:
+        """*block* highlighted as upstream's run would, stashed: its placeholder line; None for plain code.
+
+        Upstream would call Pygments on the whole block, so blocks to be
+        highlighted are done here (through :class:`_BoundedHilite`), and the
+        others reach it marked ``use_pygments=false``.
+        """
+        language, classes, config = None, [], {}
+        if match.group("attrs"):
+            attrs, _remainder = get_attrs_and_remainder(match.group("attrs"))  # never malformed: see _fenced_code
+            _id, classes, config = self.handle_attrs(attrs)
+            if classes:
+                language = classes.pop(0)
+        else:
+            language = match.group("lang") or None
+            if match.group("hl_lines"):
+                config["hl_lines"] = self._highlight_lines(match.group("hl_lines"))
+        if not (self.codehilite_conf and self.codehilite_conf["use_pygments"] and config.get("use_pygments", True)):
+            return block  # upstream writes it as plain code
+        local_config = {**self.codehilite_conf, **config}
+        if classes:
+            local_config["css_class"] = "{} {}".format(" ".join(classes), local_config["css_class"])
+        hiliter = _BoundedHilite(match.group("code"), lang=language,
+                                 style=local_config.pop("pygments_style", "default"), **local_config)
+        hiliter.clock = self.budget.clock
+        html = hiliter.hilite(shebang=False)
+        if html is None:
+            self.budget.cut()
+            return None
+        return "\n" + self.md.htmlStash.store(html) + "\n"
 
     def handle_attrs(self, attrs: Iterable[tuple[str, str]]) -> tuple[str, list[str], dict[str, object]]:
         element_id = ""
@@ -914,9 +1196,14 @@ class _BudgetedHilite(HiliteTreeprocessor):
             if len(code) > MAX_HIGHLIGHT_CODE_CHARS or not self.budget.take(code):
                 continue  # stays literal code
             config = self.config.copy()
-            highlighter = CodeHilite(code, tab_length=self.md.tab_length,
-                                     style=config.pop("pygments_style", "default"), **config)
-            placeholder = self.md.htmlStash.store(highlighter.hilite())
+            highlighter = _BoundedHilite(code, tab_length=self.md.tab_length,
+                                         style=config.pop("pygments_style", "default"), **config)
+            highlighter.clock = self.budget.clock
+            html = highlighter.hilite()
+            if html is None:
+                self.budget.cut()
+                continue
+            placeholder = self.md.htmlStash.store(html)
             block.clear()
             block.tag = "p"  # removed again when the stashed HTML is inserted
             block.text = placeholder
@@ -976,6 +1263,10 @@ class _BoundedOutput(Treeprocessor):
     distinct string is measured once, keeping this walk linear in the source.
     """
 
+    def __init__(self, md, limit: int = MAX_HTML_CHARS) -> None:
+        super().__init__(md)
+        self.limit = limit
+
     def run(self, root: Element) -> None:
         measured: dict[int, int] = {}
 
@@ -996,14 +1287,18 @@ class _BoundedOutput(Treeprocessor):
             total += 2 * len(tag) + 5 + size(element.text) + size(element.tail)
             for name, value in element.attrib.items():
                 total += len(name) + 4 + size(value)
-            if total > MAX_HTML_CHARS:
+            if total > self.limit:
                 raise _OutputTooLarge
 
 
 class _OutputLimit(Extension):
+    def __init__(self, limit: int = MAX_HTML_CHARS) -> None:
+        super().__init__()
+        self.limit = limit
+
     def extendMarkdown(self, md):  # noqa: N802 - Python-Markdown API name
         # After the table of contents (5), the last step that adds elements.
-        md.treeprocessors.register(_BoundedOutput(md), "bw_output_limit", 1)
+        md.treeprocessors.register(_BoundedOutput(md, self.limit), "bw_output_limit", 1)
 
 
 _TASK_ITEM = re.compile(r"<li>(\s*<p>)?\s*\[( |x|X)\]\s+")
@@ -1039,28 +1334,50 @@ _CacheKey = tuple[object, ...]
 
 
 class _RenderCache:
-    """Renderings by kind, options and source hash, least recently used dropped first."""
+    """Renderings by kind, options and source hash, least recently used dropped first.
+
+    Entries are kept UTF-8 encoded: a str holding one character above U+FFFF
+    takes 4 bytes for each of its characters, the encoded markup about one.
+    """
 
     def __init__(self) -> None:
-        self._items: OrderedDict[_CacheKey, str] = OrderedDict()
+        self._items: OrderedDict[_CacheKey, bytes] = OrderedDict()
         self.size = 0
         self._lock = threading.Lock()
+        self._making: dict[_CacheKey, list] = {}  # key: [lock, threads using it]
+
+    @contextmanager
+    def making(self, key: _CacheKey) -> Iterator[None]:
+        """Hold the turn to make *key*'s rendering: concurrent first readers wait for it, then read it."""
+        with self._lock:
+            entry = self._making.setdefault(key, [threading.Lock(), 0])
+            entry[1] += 1
+        try:
+            with entry[0]:
+                yield
+        finally:
+            with self._lock:
+                entry[1] -= 1
+                if not entry[1]:
+                    del self._making[key]
 
     @staticmethod
-    def _footprint(value: str) -> int:
+    def _footprint(value: bytes) -> int:
         return sys.getsizeof(value) + 256
 
     def get(self, key: _CacheKey) -> str | None:
         with self._lock:
             value = self._items.get(key)
-            if value is not None:
-                self._items.move_to_end(key)
-            return value
+            if value is None:
+                return None
+            self._items.move_to_end(key)
+        return value.decode("utf-8", "surrogatepass")
 
-    def put(self, key: _CacheKey, value: str) -> None:
+    def put(self, key: _CacheKey, html: str) -> None:
+        value = html.encode("utf-8", "surrogatepass")
         footprint = self._footprint(value)
         with self._lock:
-            if footprint > RENDER_CACHE_LIMIT // 4:
+            if footprint > RENDER_CACHE_LIMIT // 2:
                 return
             old = self._items.pop(key, None)
             if old is not None:
@@ -1108,7 +1425,8 @@ def render(
     lists that render many short documents on every request (the comments of
     a ticket). A rendering that a :func:`shared_highlighting` allowance cut
     short is not kept either. Without *highlight*, code stays plain and uses
-    no allowance (for text that loses its markup anyway).
+    no allowance (for text that loses its markup anyway). Inside
+    :func:`one_document`, nothing is kept and the limits are shared.
     """
     if not text:
         return ""
@@ -1116,30 +1434,45 @@ def render(
         text = text[:MAX_SOURCE_CHARS]
     shared = _shared_budget.get() if highlight else None
     allowance = MAX_HIGHLIGHT_DOCUMENT_CHARS if highlight else 0
-    if profile_url is not _default_profile_url:
-        return _render(text, embed_videos, fix_lists, mentions, profile_url, shared or _HighlightBudget(allowance))
+    limits = _shared_limits.get()
+    if profile_url is not _default_profile_url or limits is not None:
+        return _render(text, embed_videos, fix_lists, mentions, profile_url, shared or _HighlightBudget(allowance),
+                       limits)
     key = ("markdown", _source_hash(text), embed_videos, fix_lists, mentions, highlight)
     html = _render_cache.get(key)
     if html is not None:
         return html
-    budget = shared or _HighlightBudget(allowance)
-    left, refused = budget.left, budget.refused
-    html = _render(text, embed_videos, fix_lists, mentions, profile_url, budget)
-    costly = keep or len(text) >= RENDER_CACHE_MIN_CHARS or budget.left != left
-    if costly and (shared is None or budget.refused == refused):
-        _render_cache.put(key, html)
+    with _render_cache.making(key):
+        html = _render_cache.get(key)
+        if html is not None:
+            return html
+        budget = shared or _HighlightBudget(allowance)
+        left, refused = budget.left, budget.refused
+        html = _render(text, embed_videos, fix_lists, mentions, profile_url, budget)
+        costly = keep or len(text) >= RENDER_CACHE_MIN_CHARS or budget.left != left
+        # A rendering cut short by an allowance or time shared with other documents depends on them.
+        independent = shared is None and _shared_clock.get() is None
+        if costly and (independent or budget.refused == refused) and not budget.clock.busy:
+            _render_cache.put(key, html)
     return html
 
 
 def _render(text: str, embed_videos: bool, fix_lists: bool, mentions: bool,
-            profile_url: Callable[[str], str], budget: _HighlightBudget | None = None) -> str:
-    if _parser_work_exceeded(text):
+            profile_url: Callable[[str], str], budget: _HighlightBudget | None = None,
+            limits: _DocumentLimits | None = None) -> str:
+    used: list[int] = []
+    exceeded = limits.exceeded if limits is not None else lambda source, _used: _parser_work_exceeded(source)
+    if exceeded(text, used):
         return _plain_source(text)
     prepared = _preprocess(text, fix_lists)
     # Preserved blank lines introduce <br> tags. Bound the actual parser
     # input too, so generated inline markup cannot bypass the source check.
-    if prepared != text and _parser_work_exceeded(prepared):
+    if prepared != text and exceeded(prepared, used):
         return _plain_source(text)
+    html_limit = MAX_HTML_CHARS
+    if limits is not None:
+        limits.take(used)
+        html_limit = limits.html
     # Fenced and indented code share one highlighting allowance.
     if budget is None:
         budget = _HighlightBudget()
@@ -1148,7 +1481,7 @@ def _render(text: str, embed_videos: bool, fix_lists: bool, mentions: bool,
             prepared,
             extensions=["tables", _SafeFencedCode(budget),
                         _BudgetedCodeHilite(budget, css_class="codehilite", guess_lang=False),
-                        _TableOfContents(), "nl2br", _Strikethrough(), _OutputLimit()],
+                        _TableOfContents(), "nl2br", _Strikethrough(), _OutputLimit(html_limit)],
             output_format="html",
         )
     except (RecursionError, _OutputTooLarge):
@@ -1157,45 +1490,128 @@ def _render(text: str, embed_videos: bool, fix_lists: bool, mentions: bool,
         # the document expands beyond the output limit.
         return _plain_source(text)
     html = _nowrap_table_dates(_task_lists(_escape_attribute_brackets(sanitize(html))))
-    embeds = _EmbedBudget()
+    embeds = limits.embeds if limits is not None else _EmbedBudget()
     html = _embed_videos(html, embed_videos, embeds)
     html = _embed_boards(html, embeds)
     if mentions:
         html = _link_mentions(html, profile_url)
     # Embeds and mentions lengthen the HTML after the tree was measured.
-    return html if len(html) <= MAX_HTML_CHARS else _plain_source(text)
+    size = _utf8_size(html)
+    if len(html) > html_limit or size > min(html_limit, MAX_HTML_BYTES):
+        return _plain_source(text)
+    if limits is not None and not limits.fits(html):
+        return _plain_source(text)
+    return html
+
+
+def _utf8_size(text: str) -> int:
+    return len(text) if text.isascii() else len(text.encode("utf-8", "surrogatepass"))
 
 
 def highlight_code(code: str | None, language: str | None = None) -> str:
     """Syntax-highlight a code snippet (code custom pages, builder code blocks, the editor).
 
     Results are cached like :func:`render`'s; inside :func:`shared_highlighting`
-    a snippet past the shared allowance stays plain code.
+    a snippet past the shared allowance stays plain code, and so does one
+    whose HTML no longer fits inside :func:`one_document`. Highlighting has the
+    time of a document (:data:`MAX_HIGHLIGHT_SECONDS`), or the time shared by
+    :func:`bounded_highlighting`; past it the snippet stays plain code.
     """
     code = "" if code is None else str(code)[:MAX_SOURCE_CHARS]
-    plain = "<pre><code>" + escape(code) + "</code></pre>"
+    plain = _plain_code(code)
     if len(code) > MAX_HIGHLIGHT_CODE_CHARS:
         return plain
-    language = (language or "").strip()
+    html = _highlight_code(code, (language or "").strip(), plain)
+    limits = _shared_limits.get()
+    if html is not plain and limits is not None and not limits.fits(html):
+        return plain
+    return html
+
+
+def _plain_code(code: str) -> str:
+    return "<pre><code>" + escape(code) + "</code></pre>"
+
+
+def _highlight_code(code: str, language: str, plain: str) -> str:
     key = ("code", _source_hash(code), language)
     cached = _render_cache.get(key)
     if cached is not None:
         return cached
-    shared = _shared_budget.get()
-    if shared is not None and not shared.take(code):
-        return plain
-    try:
-        if language:
-            lexer = get_lexer_by_name(language, stripall=False)
-        elif code.strip():
-            lexer = guess_lexer(code[:MAX_LEXER_SAMPLE_CHARS])
-        else:
+    with _render_cache.making(key):
+        cached = _render_cache.get(key)
+        if cached is not None:
+            return cached
+        shared = _shared_budget.get()
+        if shared is not None and not shared.take(code):
+            return plain
+        clock = shared.clock if shared is not None else _shared_clock.get() or _HighlightClock()
+        try:
+            if language:
+                lexer = get_lexer_by_name(language, stripall=False)
+            elif code.strip():
+                lexer = guess_lexer(code[:MAX_LEXER_SAMPLE_CHARS])
+            else:
+                lexer = TextLexer()
+        except ClassNotFound:
             lexer = TextLexer()
-    except ClassNotFound:
-        lexer = TextLexer()
-    html = sanitize(highlight(code, lexer, HtmlFormatter(cssclass="codehilite")))
-    _render_cache.put(key, html)
+        html = _highlight(code, lexer, HtmlFormatter(cssclass="codehilite"), clock)
+        if html is None:
+            if shared is not None:
+                shared.cut()
+            if shared is not None or _shared_clock.get() is not None or clock.busy:
+                return plain  # depends on the other blocks of the answer, or on busy helpers: not kept
+            html = plain
+        else:
+            html = sanitize(html)
+        _render_cache.put(key, html)
     return html
+
+
+def render_parts(parts: list[tuple[str, str] | tuple[str, str, str]]) -> list[str]:
+    """Render the parts of one page as one document (:func:`one_document`), in order.
+
+    A part is ``("markdown", text)`` (:func:`render`) or ``("code", code,
+    language)`` (:func:`highlight_code`). For a page made of many blocks (the
+    page builder): together they get the limits and highlighting of one
+    document, their HTML (highlighted code and blocks shown as source too)
+    within one document's, and the renderings are kept together by the hash of all parts,
+    so that a page read again is not rendered again, however short its
+    blocks. A rendering cut short by time shared with other documents, or by
+    busy highlighting helpers, is not kept.
+    """
+    if not parts:
+        return []
+    key = ("parts", _source_hash(json.dumps(parts, ensure_ascii=False)))
+    cached = _render_cache.get(key)
+    if cached is not None:
+        return _split_parts(cached)
+    with _render_cache.making(key):
+        cached = _render_cache.get(key)
+        if cached is not None:
+            return _split_parts(cached)
+        outer = _shared_clock.get()
+        cut = outer.cut if outer is not None else 0
+        # What every part would take shown as source is kept aside, so that the renderings
+        # and the fallbacks together stay within one document's HTML and the entry is kept.
+        reserve = sum(_utf8_size(_plain_source(part[1][:MAX_SOURCE_CHARS]) if part[0] == "markdown"
+                                 else _plain_code(str(part[1])[:MAX_SOURCE_CHARS])) for part in parts)
+        with one_document(reserve):
+            clock = _shared_clock.get()
+            html = [render(part[1]) if part[0] == "markdown" else highlight_code(part[1], part[2])
+                    for part in parts]
+        if clock is not None and not clock.busy and (outer is None or clock.cut == cut):
+            # Their lengths, then the renderings: within one document's HTML (see *reserve*).
+            _render_cache.put(key, ",".join(str(len(part)) for part in html) + "\n" + "".join(html))
+    return html
+
+
+def _split_parts(kept: str) -> list[str]:
+    lengths, _, joined = kept.partition("\n")
+    parts, start = [], 0
+    for length in map(int, lengths.split(",")):
+        parts.append(joined[start:start + length])
+        start += length
+    return parts
 
 
 _STRIP_TAGS = re.compile(r"<[^>]+>")
@@ -1237,13 +1653,26 @@ def _source_head(text: str, limit: int) -> str:
     return head
 
 
-def excerpt(text: str | None, length: int = 200) -> str:
+def excerpt(text: str | None, length: int = 200, *, keep: bool = False) -> str:
     """Plain-text preview of at most *length* characters.
 
     Only the start of the source is rendered, within a small work allowance,
     so a list of many pages costs the same however long the pages are. A
     dense start is retried shorter; a preview of a cut source ends in "…".
+    With *keep*, the preview is kept by the source's hash like a rendering:
+    for lists that show many excerpts on every request (the Kanban boards).
     """
+    if not keep or not text:
+        return _excerpt(text, length)
+    key = ("excerpt", _source_hash(text), length)
+    cached = _render_cache.get(key)
+    if cached is None:
+        cached = _excerpt(text, length)
+        _render_cache.put(key, cached)
+    return cached
+
+
+def _excerpt(text: str | None, length: int) -> str:
     source = text or ""
     for limit in (EXCERPT_SOURCE_CHARS, EXCERPT_SOURCE_CHARS // 4):
         head = _source_head(source, limit)

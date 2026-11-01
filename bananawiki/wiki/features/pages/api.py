@@ -315,6 +315,9 @@ def api_set_home(page_id: int):
     page = service.get(page_id)
     if page is None:
         return _error("pages.error.page_missing", 404)
+    blocked = access.edit_blocked(page)
+    if blocked:
+        return _error(blocked, 423)
     already = bool(page["is_home"])
     service.set_home(page)
     home = service.get(page_id)

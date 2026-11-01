@@ -4,11 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from flask import jsonify, redirect, render_template, url_for
+from flask import has_request_context, jsonify, redirect, render_template, url_for
 
 from ... import auth
 from ...i18n import t
 from . import service
+
+
+def refuse_switch_off(feature_id: str, enabled: bool, **_: Any) -> str | None:
+    """``feature.switch``: switching the feature off must not stop a schedule the person may not remove."""
+    if feature_id != "temporary_accounts" or enabled or not has_request_context():
+        return None  # the server's own commands may
+    person = auth.real_user()
+    return None if person is None else service.switch_off_error(person)
 
 
 def refuse_scheduled_delete(page: dict[str, Any], user: dict[str, Any] | None) -> Any:

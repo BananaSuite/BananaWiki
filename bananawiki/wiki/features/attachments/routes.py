@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from flask import abort, jsonify, redirect, request, send_file, url_for
+from flask import Response, abort, jsonify, redirect, request, url_for
 
+from ....core import downloads
 from ... import auth, storage
 from ...i18n import t
 from ...registry import feature_blueprint
@@ -74,6 +75,7 @@ def download(slug: str, attachment_id: int):
 
 
 @bp.get("/page/<slug>/attachments/download-all")
+@downloads.place_first
 @rate_limited("attachment-zip", 10)
 def download_all(slug: str):
     page = visible_page_or_404(slug)
@@ -83,9 +85,15 @@ def download_all(slug: str):
     if not attachments:
         auth.flash_t("attachments.flash.none_to_download", "error")
         return redirect(page_url(page))
-    archive = service.zip_archive(attachments)
-    return send_file(archive, mimetype="application/zip", as_attachment=True,
-                     download_name=f"{page['slug']}-attachments.zip", max_age=0)
+    try:
+        archive = service.zip_stream(service.zip_files(attachments))
+    except service.Busy:
+        auth.flash_t("attachments.flash.zip_busy", "error")
+        return redirect(page_url(page), code=303)
+    response = Response(archive, mimetype="application/zip")
+    response.headers["Content-Disposition"] = storage.content_disposition(f"{page['slug']}-attachments.zip")
+    response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 # Upload
@@ -93,6 +101,7 @@ def download_all(slug: str):
 
 @bp.post("/page/<slug>/attachments")
 @rate_limited("attachment-upload", 20)
+@auth.large_body
 def upload(slug: str):
     page = visible_page_or_404(slug)
     if not service.can_upload(page):
@@ -116,6 +125,7 @@ def upload(slug: str):
 
 @bp.post("/api/page/<int:page_id>/attachments")
 @rate_limited("attachment-upload", 20)
+@auth.large_body
 def api_upload(page_id: int):
     page = pages.get(page_id, with_content=False)
     if page is None or not pages.can_view(page):

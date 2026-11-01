@@ -18,13 +18,21 @@
       title: title ? title.textContent.trim() : "", position: items.indexOf(item) + 1, total: items.length });
   }
 
-  function save(focusId) {
+  // Arrow-button moves are saved once the clicks pause (the server takes 30 saves a minute), and a
+  // pending save is sent when the page is left.
+  var SAVE_DELAY = 1000;
+  var pending = null;
+
+  function save(focusId, keepalive) {
+    clearTimeout(pending);
+    pending = null;
     var ids = Array.prototype.map.call(list.querySelectorAll("[data-board-id]"), function (item) {
       return Number(item.dataset.boardId);
     });
-    BW.fetchJSON("/api/kanban/board-order", { method: "POST", body: { board_ids: ids } }).then(function (result) {
-      version = result.list_order_version;
-    }).catch(function (error) { BW.toast(error.message, "error"); });
+    BW.fetchJSON("/api/kanban/board-order", { method: "POST", body: { board_ids: ids }, keepalive: keepalive })
+      .then(function (result) {
+        version = result.list_order_version;
+      }).catch(function (error) { if (!keepalive) BW.toast(error.message, "error"); });
     if (focusId) {
       var again = list.querySelector("[data-board-id='" + focusId + "'] [data-move]");
       if (again) again.focus();
@@ -43,8 +51,10 @@
       button.focus();
       BW.markMoveEnds(list, "[data-board-id]");
       announce(item);
-      save();
+      clearTimeout(pending);
+      pending = setTimeout(save, SAVE_DELAY);
     });
+    window.addEventListener("pagehide", function () { if (pending) save(null, true); });
 
     var dragged = null;
     list.querySelectorAll("[data-board-id]").forEach(function (item) {

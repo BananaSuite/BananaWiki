@@ -11,6 +11,7 @@ from typing import Any
 
 from flask import abort, redirect, render_template, request, url_for
 
+from .....core.web import client_network
 from .... import auth
 from ....accounts import AccountError
 from ....templating import from_local_input
@@ -65,6 +66,10 @@ def codes_expired():
 def generate_code():
     try:
         req = invites.parse_request(request.form, from_local_input(request.form.get("custom_expiry")))
+        if req.custom_code and not invites.spend_custom_code_guess(actor(), client_network()):
+            auth.flash_t("admin.codes.error.too_many_custom", "error")
+            return _page("admin/codes.html", invites.list_active(actor())
+                         if auth.has_permission("invite.view") else []), 429
         code = invites.generate(actor(), req)
     except AccountError as error:
         refuse(error)

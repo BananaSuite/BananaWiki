@@ -4,6 +4,9 @@ The routes are attached to the ``pages`` blueprint (the canonical endpoint
 ``pages.history`` belongs to it) and answer 404 while the feature is off.
 Permissions: ``history.view`` to read, ``history.revert``, ``history.delete``
 and ``history.transfer`` (each also needs edit access to the page).
+
+Deleting versions, clearing the history and changing who a version is
+credited to are audited: the history is how the wiki tells who wrote what.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from flask import Blueprint, abort, jsonify, make_response, redirect, render_tem
 from ... import auth, registry
 from ...db import db
 from ...i18n import t
+from ..audit import record
 from ..pages import access, diff, rendering, service
 from ..pages.blueprint import page_url, rate_limited, visible_page_or_404
 
@@ -62,14 +66,29 @@ def _entry_or_404(page: dict[str, Any], entry_id: int) -> dict[str, Any]:
     return entry
 
 
+def _audit(action: str, page: dict[str, Any], **details: Any) -> None:
+    """Record a change to *page*'s history; while impersonating, the account acted as is named too."""
+    if auth.is_impersonating():
+        details["as_user"] = auth.current_user()["username"]
+    record(action, target_type="page", target_id=page["id"], details={"title": page["title"], **details})
+
+
 def _history_rows(page_id: int, offset: int) -> list[dict[str, Any]]:
-    return db.all(
-        "SELECT * FROM (SELECT h.id, h.title, h.edited_by, h.edit_message, h.is_revert, h.created_at, "
-        "length(h.content) AS size, length(h.content) - LAG(length(h.content)) OVER (ORDER BY h.id) AS delta, "
-        "u.username AS editor FROM page_history h LEFT JOIN users u ON u.id = h.edited_by WHERE h.page_id = ?) "
-        "ORDER BY id DESC LIMIT ? OFFSET ?",
-        (page_id, PER_PAGE, offset),
+    """One list page of versions, newest first, with each version's size and change in size.
+
+    Only the shown versions and the one before the oldest of them are measured: a window
+    over the whole history would count the characters of every version on every view.
+    """
+    rows = db.all(
+        "SELECT h.id, h.title, h.edited_by, h.edit_message, h.is_revert, h.created_at, "
+        "length(h.content) AS size, u.username AS editor FROM page_history h "
+        "LEFT JOIN users u ON u.id = h.edited_by WHERE h.id IN "
+        "(SELECT id FROM page_history WHERE page_id = ? ORDER BY id DESC LIMIT ? OFFSET ?) ORDER BY h.id DESC",
+        (page_id, PER_PAGE + 1, offset),
     )
+    for row, older in zip(rows, rows[1:] + [None], strict=False):
+        row["delta"] = None if older is None else row["size"] - older["size"]
+    return rows[:PER_PAGE]
 
 
 def attach(bp: Blueprint) -> None:
@@ -77,6 +96,7 @@ def attach(bp: Blueprint) -> None:
 
     @bp.get("/page/<slug>/history", endpoint="history")
     @_enabled
+    @rate_limited("history-list", 30)
     def history_list(slug: str):
         page = _readable_page(slug)
         number = max(request.args.get("page", 1, type=int) or 1, 1)
@@ -96,6 +116,7 @@ def attach(bp: Blueprint) -> None:
 
     @bp.get("/page/<slug>/history/<int:entry_id>", endpoint="history_entry")
     @_enabled
+    @rate_limited("history-view", 30)
     def history_entry(slug: str, entry_id: int):
         page = _readable_page(slug)
         entry = _entry_or_404(page, entry_id)
@@ -114,15 +135,20 @@ def attach(bp: Blueprint) -> None:
         body = rendering.body(version)
         shown: Any = body
         diff_complete = True
+        too_large = False
         if view == "diff":
             old = {**version, "content": previous["content"], "builder_json": previous.get("builder_json") or ""}
-            shown, diff_complete = diff.rendered_diff(str(rendering.body(old)), str(body))
-        elif view == "source_diff":
+            changes = diff.rendered_diff(str(rendering.body(old)), str(body))
+            if changes is None:
+                view, too_large = "source_diff", True
+            else:
+                shown, diff_complete = changes
+        if view == "source_diff":
             shown, diff_complete = diff.source_diff(previous["content"], entry["content"])
         can_manage = service.can_edit(page)
         return render_template(
             "page_history/entry.html", page=page, entry=entry, previous=previous, view=view, shown=shown,
-            diff_complete=diff_complete,
+            diff_complete=diff_complete, too_large=too_large,
             editor_url=rendering.profile_url(entry["editor"]),
             can_revert=can_manage and auth.has_permission("history.revert"),
         )
@@ -146,8 +172,10 @@ def attach(bp: Blueprint) -> None:
     @rate_limited("history", 30)
     def delete_entry(slug: str, entry_id: int):
         page = _managed_page(slug, "history.delete")
-        _entry_or_404(page, entry_id)
-        service.delete_history_entry(page["id"], entry_id)
+        entry = _entry_or_404(page, entry_id)
+        if service.delete_history_entry(page["id"], entry_id):
+            _audit("page.history_entry_deleted", page, entry=entry_id, editor=entry["editor"],
+                   created_at=entry["created_at"])
         auth.flash_t("page_history.flash.entry_deleted", "success")
         return redirect(url_for("pages.history", slug=slug))
 
@@ -157,6 +185,8 @@ def attach(bp: Blueprint) -> None:
     def clear(slug: str):
         page = _managed_page(slug, "history.delete")
         count = service.clear_history(page["id"])
+        if count:
+            _audit("page.history_cleared", page, count=count)
         auth.flash_t("page_history.flash.cleared", "success", count=count)
         return redirect(url_for("pages.history", slug=slug))
 
@@ -165,12 +195,14 @@ def attach(bp: Blueprint) -> None:
     @rate_limited("history", 30)
     def transfer(slug: str, entry_id: int):
         page = _managed_page(slug, "history.transfer")
-        _entry_or_404(page, entry_id)
+        entry = _entry_or_404(page, entry_id)
         target = _target_user("new_user_id", "username")
         if target is None:
             auth.flash_t("page_history.error.user_missing", "error")
         else:
-            service.transfer_history(page["id"], entry_id, target["id"])
+            if service.transfer_history(page["id"], entry_id, target["id"]):
+                _audit("page.history_reattributed", page, entry=entry_id, editor=entry["editor"],
+                       to=target["username"])
             auth.flash_t("page_history.flash.transferred", "success", username=target["username"])
         return redirect(url_for("pages.history", slug=slug))
 
@@ -185,6 +217,9 @@ def attach(bp: Blueprint) -> None:
             auth.flash_t("page_history.error.user_missing", "error")
         else:
             count = service.transfer_history_bulk(page["id"], source["id"], target["id"])
+            if count:
+                _audit("page.history_reattributed", page, editor=source["username"], to=target["username"],
+                       count=count)
             auth.flash_t("page_history.flash.bulk_transferred", "success", count=count,
                          username=target["username"])
         return redirect(url_for("pages.history", slug=slug))
@@ -194,8 +229,9 @@ def attach(bp: Blueprint) -> None:
     @rate_limited("history", 30)
     def deattribute(slug: str, entry_id: int):
         page = _managed_page(slug, "history.transfer")
-        _entry_or_404(page, entry_id)
-        service.transfer_history(page["id"], entry_id, None)
+        entry = _entry_or_404(page, entry_id)
+        if service.transfer_history(page["id"], entry_id, None):
+            _audit("page.history_deattributed", page, entry=entry_id, editor=entry["editor"])
         auth.flash_t("page_history.flash.deattributed", "success")
         return redirect(url_for("pages.history", slug=slug))
 

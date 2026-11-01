@@ -14,6 +14,14 @@
   {% if storage.reason and not storage_off %}<p class="small">{{ t('hosting.admin.storage_detail') }} <span lang="en">{{ storage.reason|wbr_settings }}</span></p>{% endif %}
 </div></div>
 {% endif %}
+{% if firewall and firewall.loaded is not true %}
+{# Checked by the server's controller (bananawiki status, start, restart, update); a restart of the host drops
+   rules that were not made persistent, so a check from an earlier boot counts as none. #}
+<div class="alert alert--{{ 'error' if firewall.loaded is false else 'warning' }}" id="host-firewall" role="status"><div class="alert__body">
+  <p>{{ t('hosting.admin.firewall_missing' if firewall.loaded is false else 'hosting.admin.firewall_unchecked') }}</p>
+  {% if firewall.reason and firewall.loaded is false %}<p class="small">{{ t('hosting.admin.storage_detail') }} <span lang="en">{{ firewall.reason }}</span></p>{% endif %}
+</div></div>
+{% endif %}
 {% include "hosting/admin/_attention_card.html" %}
 {% set main_wikis = instances|selectattr('is_main')|list %}
 {% if main_wikis %}

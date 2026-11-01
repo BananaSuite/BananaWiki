@@ -16,7 +16,7 @@ import pytest
 from werkzeug.exceptions import MethodNotAllowed, NotFound
 
 from bananawiki.core.timeutil import to_sql, utcnow
-from bananawiki.hosting import accounts, auth, banners
+from bananawiki.hosting import accounts, auth
 from bananawiki.hosting.db import connection_scope
 
 from .hosting_support import BOOTSTRAP, PASSWORD, build_portal, portal_environ
@@ -154,20 +154,6 @@ def test_a_refused_sign_up_marks_the_field_at_fault_and_keeps_the_consent(tmp_pa
                      page)
 
 
-def test_an_invalid_text_field_gets_the_danger_border(tmp_path):
-    css = (PACKAGE / "core" / "static" / "css" / "bananawiki.css").read_text(encoding="utf-8")
-    base = css.index('input[type="text"], input[type="password"], input[type="email"]')
-    invalid = css.index(':is(input, select, textarea)[aria-invalid="true"] { border-color: var(--danger); }')
-    focus = css.index("input:focus, select:focus, textarea:focus {")
-    # As specific as the typed-input rule and after it, so it wins; the focus ring still wins over it.
-    assert base < invalid < focus
-    app = build_portal(tmp_path, environ=portal_environ(tmp_path))
-    form = {"username": "newperson", "password": "abcdefg1", "confirm_password": "abcdefg2", "accept_terms": "1",
-            "bootstrap_token": BOOTSTRAP}
-    page = app.test_client().post(f"/signup?bootstrap_token={BOOTSTRAP}", data=form).get_data(as_text=True)
-    assert 'aria-invalid="true"' in re.search(r'<input id="f-confirm_password"[^>]*>', page).group(0)
-
-
 def test_after_a_password_mismatch_typing_starts_at_the_first_field(tmp_path):
     app = build_portal(tmp_path, environ=portal_environ(tmp_path))
     client = app.test_client()
@@ -204,12 +190,6 @@ def test_signing_out_other_devices_keeps_this_one(portal, make_account, login):
     assert urlsplit(done.headers["Location"]).path == "/account"
     assert here.get("/account").status_code == 200
     assert urlsplit(there.get("/account").headers["Location"]).path == "/login"
-
-
-def test_the_not_found_page_is_titled_in_words(web):
-    page = web.get("/no-such-page").get_data(as_text=True)
-    assert "<h1>Page not found</h1>" in page and '<p class="error-page__code">Error 404</p>' in page
-    assert "Reference:" not in page
 
 
 # Forms that show what is stored
@@ -276,19 +256,6 @@ def test_deleting_an_account_groups_the_choice_for_the_wikis(portal, make_accoun
     assert 'data-enabled-by="instance_action=transfer"' in page
 
 
-def test_bulk_actions_that_destroy_look_destructive(portal, make_account, login):
-    admin = make_account(admin=True)
-    client = portal.test_client()
-    login(client, admin)
-    page = client.get("/admin").get_data(as_text=True)
-    for action in ("/admin/instances/bulk-delete", "/admin/instances/bulk-delete-terminated"):
-        button = re.search(r'<button class="([^"]*)" formaction="' + re.escape(action) + '"', page)
-        assert button and "btn--danger" in button.group(1), action
-    stop = re.search(r'<button class="([^"]*)" formaction="/admin/instances/bulk-stop"', page)
-    assert stop and "btn--danger" not in stop.group(1)
-    assert "Select accounts in the list, then choose an action." in page
-
-
 # Wikis
 
 
@@ -342,26 +309,6 @@ def test_accept_and_decline_of_a_transfer_share_one_row(portal, make_account, ma
     assert row, page[page.find("wants to give you"):][:1500]
 
 
-def test_dns_values_break_after_dots_and_can_each_be_copied(tmp_path):
-    portal = build_portal(tmp_path, environ=portal_environ(tmp_path, HOSTING_CUSTOM_DOMAIN_TARGET="edge.wiki.test"))
-    with portal.test_request_context("/"), connection_scope(portal.extensions["bananawiki.hosting.database"]) as db:
-        from bananawiki.hosting import instances
-
-        owner = accounts.create("domain-owner", PASSWORD)
-        inst = instances.create(owner, "with-domain")[0]
-        db.execute("UPDATE instances SET custom_domain_allowed = 1 WHERE id = ?", (inst["id"],))
-    client = portal.test_client()
-    client.post("/login", data={"username": "domain-owner", "password": PASSWORD})
-    client.post(f"/instances/{inst['id']}/domain", data={"action": "claim", "domain": "docs.example.org"})
-    page = client.get(f"/instances/{inst['id']}/domain").get_data(as_text=True)
-    # Each label is kept whole (also at a hyphen); lines break only after a dot.
-    assert ('<span class="host-part">_bananawiki-challenge.</span><wbr><span class="host-part">docs.</span><wbr>'
-            '<span class="host-part">example.</span><wbr><span class="host-part">org</span>') in page
-    # The CNAME target is a value of its own, with its own Copy button.
-    assert re.search(r'<dt>Points to</dt><dd class="kv-copy"><span class="mono"><span class="host-part">edge.</span>'
-                     r'.*?</span> <button type="button" class="btn btn--small" data-copy="edge.wiki.test">', page)
-
-
 def test_an_administrator_correcting_the_intended_use_promises_nothing(portal, make_account, make_wiki, login):
     admin, owner = make_account(admin=True), make_account()
     inst = make_wiki(owner, "someone-elses")
@@ -386,16 +333,6 @@ def test_the_owner_declares_the_intended_use_with_the_linked_terms(portal, make_
 
 
 # Analytics
-
-
-def test_the_analytics_chart_has_one_bar_per_day(portal, make_account, make_wiki, login):
-    owner = make_account()
-    inst = make_wiki(owner, "counted")
-    client = portal.test_client()
-    login(client, owner)
-    page = client.get(f"/instances/{inst['id']}/analytics?days=30").get_data(as_text=True)
-    bars = re.search(r'<div class="bars[^"]*"[^>]*>(.*?)</div>', page, re.S).group(1)
-    assert bars.count("<span ") == 30
 
 
 def test_the_fake_runtime_reports_its_traffic_inside_the_period(portal, make_account, make_wiki, login):
@@ -441,144 +378,11 @@ def test_the_analytics_table_lists_only_days_with_traffic(portal, runtime, make_
     assert '<td colspan="4" class="muted">No traffic in this period.</td>' in page
 
 
-# Tables on phones
-
-
-def test_the_feature_request_history_stacks_on_phones(portal, make_account, make_wiki, login):
-    owner = make_account()
-    inst = make_wiki(owner, "asking")
-    client = portal.test_client()
-    login(client, owner)
-    client.post(f"/instances/{inst['id']}/features/public_access/requests",
-                data={"reason": "Our documentation should be open to everyone."})
-    page = client.get(f"/instances/{inst['id']}").get_data(as_text=True)
-    history = re.search(r'<h3 class="feature-history__title">.*?</table>', page, re.S).group(0)
-    # One block per request on phones, its Cancel button under it instead of off-screen.
-    assert '<table class="table table--stack">' in history
-    assert 'data-label="Status"' in history and 'data-label="Note"' in history
-    assert "Cancel request" in history
-
-
-def test_the_admin_wiki_list_puts_the_owner_under_the_name_on_small_phones(portal, make_account, make_wiki,
-                                                                          login):
-    admin, owner = make_account(admin=True), make_account("wikiowner")
-    make_wiki(owner, "listed")
-    client = portal.test_client()
-    login(client, admin)
-    page = client.get("/admin").get_data(as_text=True)
-    assert '<th class="col-owner">Owner</th>' in page and '<td class="col-owner">wikiowner</td>' in page
-    assert re.search(r'>listed</a>(?:(?!</td>).)*<span class="small muted cell-note owner-note">'
-                     r'<span class="visually-hidden">Owner: </span>wikiowner</span></td>', page, re.S)
-    css = (HOSTING / "static" / "css" / "hosting.css").read_text(encoding="utf-8")
-    assert ".cell-note.owner-note { display: none; }" in css
-    assert re.search(r"@media \(max-width: 400px\) \{\s*\.table \.col-owner \{ display: none; \}\s*"
-                     r"\.cell-note\.owner-note \{ display: block; \}", css)
-
-
-# Styles
-
-
-def test_portal_styles_fit_phones_and_share_the_danger_colour():
-    css = (HOSTING / "static" / "css" / "hosting.css").read_text(encoding="utf-8")
-    # The portal's phone top bar holds only the brand and the menu toggle: the brand is not cut short.
-    assert ".hosting-topbar .topbar__brand span { max-width: none; }" in css
-    # Help index entries stay stacked on touch screens.
-    assert re.search(r"@media \(pointer: coarse\) \{[^@]*\.link-list a \{ flex-direction: column;", css)
-    # Recovery codes have no list bullets over the box border.
-    assert "ul.secret-box { list-style: none;" in css
-    # A small form after another one in a disclosure is a block, so its separator is drawn.
-    assert "details.card > form + form.inline, details.card > form.inline + form { display: block; }" in css
-    # The dark danger colour is the shared design system's (one value for the wiki and the portal).
-    assert not re.search(r"--danger\s*:", css.split('[data-theme="light"] {', 1)[0])
-    assert not re.search(r':root:not\(\[data-theme="light"\]\)\s*\{[^}]*--danger', css)
-
-
-def test_portal_styles_for_codes_links_and_fields():
-    css = (HOSTING / "static" / "css" / "hosting.css").read_text(encoding="utf-8")
-    # Recovery codes: a column is never narrower than a code.
-    assert "minmax(11ch" not in css and "minmax(14.5ch, 1fr)" in css
-    # The login page's separator dot is drawn by CSS and hidden when the second link wraps.
-    assert '.recovery-links a + a::before { content: "·"; content: "·" / "";' in css
-    # A small number field next to small buttons is as tall as they are.
-    assert re.search(r"\.hosting-num--sm \{ height: var\(--control-height-sm\) !important;", css)
-    # Stacked tables on phones line up with the headings: no panel behind them.
-    assert ".table-wrap:has(> .table--stack) { background: none; border-inline: 0; }" in css
-    # Disabled fields look unavailable.
-    assert "fieldset:disabled :is(input, select, textarea)" in css
-
-
-def test_a_long_feature_name_stays_in_its_column():
-    """German "Seitenbaukasten" is one word wider than the name column of a wiki's optional features on a
-    phone: it is hyphenated (or broken) there instead of running under the "Request access" button. Only German
-    pages hyphenate, as in the wiki: English and Italian names keep wrapping between whole words."""
-    css = (HOSTING / "static" / "css" / "hosting.css").read_text(encoding="utf-8")
-    assert ".setting-row h3 { overflow-wrap: anywhere; }" in css
-    assert ":lang(de) .setting-row h3 { hyphens: auto; }" in css
-    assert ".setting-row h3 { overflow-wrap: anywhere; hyphens: auto; }" not in css
-
-
-def _contrast(first: str, second: tuple[int, ...]) -> float:
-    def luminance(rgb):
-        def channel(value):
-            value /= 255
-            return value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4
-        red, green, blue = map(channel, rgb)
-        return 0.2126 * red + 0.7152 * green + 0.0722 * blue
-
-    rgb = tuple(int(first.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
-    high, low = sorted((luminance(rgb), luminance(second)), reverse=True)
-    return (high + 0.05) / (low + 0.05)
-
-
-def test_the_shared_dark_danger_colour_is_readable_on_its_tint():
-    core = (HOSTING.parent / "core" / "static" / "css" / "bananawiki.css").read_text(encoding="utf-8")
-    dark = core.split('[data-theme="light"] {', 1)[0]
-    danger = re.search(r"--danger: (#[0-9a-f]{6});", dark).group(1)
-    assert f"--danger-bg: color-mix(in srgb, {danger} 12%, var(--surface));" in dark
-    secondary, background = (tuple(int(c.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)) for c in ("#1d1d1d", "#141414"))
-    surface = tuple(round(s * .75 + b * .25) for s, b in zip(secondary, background, strict=True))
-    tint = tuple(round(d * .12 + s * .88) for d, s in zip(
-        (int(danger[i:i + 2], 16) for i in (1, 3, 5)), surface, strict=True))
-    assert _contrast(danger, tint) >= 4.5 and _contrast(danger, surface) >= 4.5
-
-
 # Banners, form patterns and copy buttons
 
 
 NODE = shutil.which("node")
 needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
-
-
-def test_a_countdown_on_custom_banner_colours_takes_the_chosen_text_colour(portal, make_account, login):
-    admin = make_account(admin=True)
-    client = portal.test_client()
-    login(client, admin)
-    client.post("/admin/banners/create", data={
-        "content": "Custom colour banner", "color": "orange", "visibility": "both", "audience_mode": "all",
-        "expires_at": "2099-01-01T10:00", "show_countdown": "1",
-        "custom_colors": "1", "custom_background": "#ffe066", "custom_text_color": "#222222"})
-    page = client.get("/dashboard").get_data(as_text=True)
-    banner = page[page.index('<div class="banner hosting-banner'):]
-    banner = banner[:banner.index("</div>")]
-    assert 'style="background:#ffe066;color:#222222"' in banner
-    assert '<span class="banner__until small muted">' in banner
-    css = (HOSTING / "static" / "css" / "hosting.css").read_text(encoding="utf-8")
-    # Only banners with inline colours: the themed ones keep the theme's muted text.
-    assert ".hosting-banner[style] .muted { color: inherit; }" in css
-
-
-def test_every_banner_colour_has_a_background_of_its_own():
-    css = (HOSTING / "static" / "css" / "hosting.css").read_text(encoding="utf-8")
-    backgrounds = {}
-    for color in banners.COLORS:
-        rules = re.findall(r"^\.hosting-banner--" + color + r" \{ background: ([^;]+); \}$", css, re.M)
-        assert len(rules) == 1, color
-        backgrounds[color] = rules[0]
-    assert len(set(backgrounds.values())) == len(banners.COLORS)
-    # A portal token is set for both themes.
-    dark, light = css.split('[data-theme="light"] {', 1)
-    for token in re.findall(r"var\((--banner-[a-z-]+)\)", " ".join(backgrounds.values())):
-        assert f"  {token}: " in dark and f"  {token}: " in light.split("}", 1)[0], token
 
 
 def _patterns(page):

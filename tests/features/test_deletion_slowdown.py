@@ -8,7 +8,6 @@ from bananawiki.core.timeutil import sql_in
 from bananawiki.wiki import registry
 from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.deletion_slowdown import service
-from bananawiki.wiki.features.pages import categories
 from bananawiki.wiki.features.pages import service as pages
 
 from .governance_support import as_user, build_app, set_settings
@@ -48,12 +47,15 @@ def test_delete_is_scheduled_and_hidden(app, people, page):
     assert _intercept(app, page, people["admin"])[0] == 302
 
 
-def test_docs_bypass(app, people, page):
+def test_docs_bypass(app, people):
+    from bananawiki.wiki.features.auth import docs as builtin_docs
+
     with app.test_request_context(), connection_scope():
-        docs = categories.create("Docs")
-        pages.move(page, docs["id"], actor_id=None)
-    set_settings(app, docs_category_id=docs["id"], docs_bypass_deletion_slowdown=1)
-    assert _intercept(app, page, people["admin"])[0] is None  # the pages feature deletes at once
+        category = builtin_docs.spawn()
+        guide = pages.get_by_slug(builtin_docs.pages()[0][1])
+    set_settings(app, docs_bypass_deletion_slowdown=1)
+    assert guide["category_id"] == category["id"]
+    assert _intercept(app, guide, people["admin"])[0] is None  # the pages feature deletes at once
 
 
 def test_purge_job_is_idempotent_and_emits(app, db, people, page):

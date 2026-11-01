@@ -178,10 +178,15 @@ def _change_state(account: dict[str, Any], token: dict[str, Any], instance_id: s
         return _error(409, message, status=inst["status"])
     try:
         if action == "pause":
-            instances.stop(inst, actor_id=account["id"])
+            instances.stop(inst, actor_id=account["id"], charge=account)
         else:
-            instances.start(inst, actor_id=account["id"])
+            instances.start(inst, actor_id=account["id"], charge=account)
     except ServiceError as error:
+        if error.key == "hosting.instances.too_many_changes":
+            return _error(429, "This wiki was paused and resumed too often. Wait a minute before trying again.",
+                          retry_after=WINDOW)
+        if error.key == "hosting.instances.too_many_changes_today":
+            return _error(429, t_lang("en", error.key, **error.values), retry_after=error.values["retry_after"])
         current = instances.get(inst["id"])
         if current is None or current["status"] != required:
             return _error(409, "The wiki changed state.", status=current["status"] if current else None)

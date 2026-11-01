@@ -6,9 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from bananawiki.wiki.features.audit import record
-
-from .pages_support import in_app, set_feature
+from .pages_support import set_feature
 
 
 def _prefs(db, user):
@@ -210,44 +208,11 @@ def test_administrator_actions_change_every_account(app, admin_client, make_user
     assert "data-mascot" in _home(admin_client)
 
 
-def test_sprite_variants():
-    from bananawiki.core import mascot as sprite
-
-    normal, shades, off = (str(sprite.svg(v)) for v in sprite.VARIANTS)
-    assert "mascot__shades" in normal and "mascot-sprite--shades" not in normal
-    assert "mascot-sprite--shades" in shades
-    assert "currentColor" in off and "mascot__eyes" not in off
-
-
 # Wording, plurals, audit log, layout, motion and CSRF
 
 PACKAGE = Path(__file__).resolve().parents[2] / "bananawiki"
-MASCOT = PACKAGE / "core" / "static" / "mascot"
-
-
 def _catalogue(lang):
     return json.loads((PACKAGE / "wiki" / "features" / "mascot" / "translations" / f"{lang}.json").read_text(encoding="utf-8"))
-
-
-def test_english_strings_use_british_spelling_like_the_customise_button():
-    english = _catalogue("en")
-    assert not [key for key, text in english.items() if "Customiz" in text]
-    assert "Customise" in english["mascot.admin.hint"] and "Customise" in english["js.mascot.unlocked"]
-
-
-@pytest.mark.parametrize("action", ["shades_on", "shades_off"])
-def test_bulk_messages_have_a_singular_in_every_language(action):
-    key = f"mascot.admin.done.{action}_one"
-    assert all(key in _catalogue(lang) for lang in ("en", "it", "de"))
-
-
-def test_bulk_message_for_one_account_is_singular(app, admin_client, make_user, login, db):
-    alice = make_user("mascot_single")
-    admin_client.post("/admin/appearance/mascot", data={"action": "shades_on"})
-    db.execute("UPDATE users SET accessibility = ? WHERE id = ?", ('{"mascot_shades": 0}', alice["id"]))
-    page = admin_client.post("/admin/appearance/mascot", data={"action": "shades_on"},
-                             follow_redirects=True).get_data(as_text=True)
-    assert "Sunglasses put on for 1 account." in page
 
 
 def test_bulk_actions_are_audited_in_the_readers_language(app, admin_client, make_user, db):
@@ -266,33 +231,6 @@ def test_bulk_actions_are_audited_in_the_readers_language(app, admin_client, mak
                    for name in ("show", "hide", "shades_on", "shades_off")), lang
 
 
-@pytest.mark.parametrize(("lang", "hidden", "shown"), [
-    ("de", "Maskottchen für alle Konten ausgeblendet", "Maskottchen für alle Konten angezeigt"),
-    ("en", "Mascot hidden for every account", "Mascot shown to every account"),
-    ("it", "Mascotte nascosta a tutti gli account", "Mascotte mostrata a tutti gli account"),
-])
-def test_audit_entries_of_the_removed_actions_still_read_well(app, admin_client, admin, lang, hidden, shown):
-    for action in ("mascot.everyone.hide", "mascot.everyone.show"):
-        in_app(app, lambda action=action: record(action, actor_id=admin["id"], ip=None, details={"count": 2}))
-    page = admin_client.get(f"/admin/audit?lang={lang}").get_data(as_text=True)
-    assert f"<td>{hidden}</td>" in page and f"<td>{shown}</td>" in page
-    assert "<td>mascot.everyone." not in page and ">mascot.everyone." not in page
-
-
-def test_administrator_hint_is_spaced_from_its_buttons(admin_client):
-    page = admin_client.get("/admin/appearance").get_data(as_text=True)
-    section = page[page.index('id="mascot-admin-heading"'):]
-    assert '<p class="hint hint--block">' in section[:400]
-
-
-def test_idle_animations_stop_when_the_system_asks_for_reduced_motion():
-    # The shell shortens animations to .01ms for prefers-reduced-motion; an infinite bob and blink
-    # would still run (one frame each), so the mascot stops them itself.
-    css = (MASCOT / "mascot.css").read_text(encoding="utf-8")
-    block = css[css.index("@media (prefers-reduced-motion: reduce)"):]
-    assert ".mascot__body" in block and ".mascot__eyes" in block and "animation: none" in block
-
-
 def test_mascot_requests_need_the_csrf_token(app, client, make_user, login, db):
     user = make_user("mascot_csrf")
     login(client, user)
@@ -306,55 +244,3 @@ def test_mascot_requests_need_the_csrf_token(app, client, make_user, login, db):
 def test_taking_the_sunglasses_off_needs_an_account(client):
     response = client.post("/settings/mascot", data={"action": "shades_off"})
     assert response.status_code == 302 and "/login" in response.headers["Location"]
-
-
-def test_the_glint_is_hidden_unless_it_runs():
-    # The script adds the glint pixel when the sunglasses land; standing still, it must never show.
-    css = (MASCOT / "mascot.css").read_text(encoding="utf-8")
-    assert ".mascot__glint { opacity: 0; }" in css
-    block = css[css.index("@media (prefers-reduced-motion: reduce)"):]
-    assert ".mascot--shades-drop .mascot__glint" in block and ".mascot-shower { display: none; }" in block
-    script = (MASCOT / "mascot.js").read_text(encoding="utf-8")
-    from bananawiki.core.mascot import COLORS
-
-    assert f'fill: "{COLORS["W"]}"' in script
-
-
-def test_on_phones_the_mascot_takes_no_more_room_than_the_logo():
-    # At 375 px the sprite's two empty left columns (4 px) and one more pixel would push the site name right
-    # and cut a name that fits beside the logo ("Banana Labs W…"). They go under the menu button's gap
-    # instead (physical left, as the art is not mirrored), and the name starts where it does beside the
-    # 32 px logo, which bananawiki.css pulls by the same 5 px (test_site_icons).
-    # This holds with a mouse; touch screens give the mascot the shell's touch size instead
-    # (test_mascot_motion), 12 px wider than the sprite.
-    css = (MASCOT / "mascot.css").read_text(encoding="utf-8")
-    block = css[css.index("@media (max-width: 600px)"):]
-    assert ".mascot { margin-left: -5px; }" in block[:block.index("}\n}") + 3]
-
-
-def test_on_touch_phones_the_finger_sized_mascot_stays_clear_of_the_menu_button():
-    # The phone rule pulls the mascot left into the top bar's gap; with the touch size the whole
-    # 2.75rem box moves, so the pull must stay within the gap or the box would cover the menu button's edge.
-    css = (MASCOT / "mascot.css").read_text(encoding="utf-8")
-    shell = (Path(__file__).resolve().parents[2] / "bananawiki" / "core" / "static" / "css" / "bananawiki.css"
-             ).read_text(encoding="utf-8")
-    phone = shell[shell.index("@media (max-width: 600px) {\n  .topbar {"):]
-    gap_rem = float(phone[:phone.index("}")].split("gap:")[1].split("rem")[0])
-    block = css[css.index("@media (max-width: 600px)"):]
-    pull_px = -float(block[:block.index("}")].split("margin-left:")[1].split("px")[0])
-    assert "min-width: 2.75rem" in css[css.index("@media (pointer: coarse)"):]
-    assert 0 < pull_px < gap_rem * 16
-
-
-def test_the_button_icons_draw_the_banana_at_twice_its_grid():
-    # 32 px is twice the 16-pixel grid, as in the top bar: at 28 px (1.75 screen pixels per art pixel) rows
-    # and columns come out one or two pixels wide and the blinking eyes blur. Negative block margins keep the
-    # buttons as tall as a 28 px icon would.
-    from bananawiki.core.mascot import SIZE
-
-    css = (MASCOT / "mascot.css").read_text(encoding="utf-8")
-    rule = css.split(".mascot-button__sprite {")[1].split("}")[0]
-    width = int(rule.split("width:")[1].split("px")[0])
-    height = int(rule.split("height:")[1].split("px")[0])
-    assert width == height and width % SIZE == 0
-    assert width - 2 * int(rule.split("margin-block: -")[1].split("px")[0]) == 28

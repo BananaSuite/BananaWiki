@@ -19,6 +19,7 @@ from flask import (
     abort,
     g,
     jsonify,
+    make_response,
     redirect,
     render_template,
     request,
@@ -32,7 +33,7 @@ from werkzeug.exceptions import BadRequest, HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .. import __version__
-from ..core import logformat, web
+from ..core import downloads, logformat, web
 from ..core.assets import SharedAssetsFlask
 from ..core.i18n import Catalog
 from ..core.json import SafeJSONProvider
@@ -318,6 +319,10 @@ def create_app(config: Config | None = None, **overrides: Any) -> Flask:
 
     database = takeover.prepare_storage(cfg)
     app.extensions["bananawiki.database"] = database
+    # Test clients do not close responses, which would keep their places (see core.downloads).
+    app.extensions["bananawiki.downloads"] = None if cfg.testing else downloads.Places(cfg.download_threads)
+    app.extensions[downloads.POLICY] = downloads.Policy("bananawiki.downloads", _download_client, _downloads_refused)
+    app.teardown_request(downloads.give_back)
 
     # Translations and features
     catalog = Catalog([PACKAGE_ROOT / "translations"], custom_dir=os.path.join(cfg.instance_dir, "translations"))
@@ -378,6 +383,41 @@ def _view() -> Any:
 
 def _install_request_pipeline(app: Flask, cfg: Config) -> None:
     @app.before_request
+    def _request_limits():
+        # Runs before CSRF, which reads the whole form: requests it refuses must
+        # count against the global limit, and their bodies must be bounded.
+        # MAX_CONTENT_LENGTH is the largest upload any view accepts (a site
+        # import); only upload views marked @auth.large_body get it, and only for
+        # a signed-in session or a bearer API call. Everyone else gets
+        # BW_MAX_CONTENT_LENGTH_BYTES, so nobody can make the CSRF check spool
+        # hundreds of MiB to disk before being turned away. Requests that match
+        # no route (a method no rule accepts) count too: CSRF parses their
+        # bodies as well.
+        endpoint = request.endpoint
+        static = endpoint is not None and (endpoint == "static" or endpoint.endswith(".static"))
+        view = None if static else _view()
+        if not static and not auth.view_stateless(view):
+            limiter: MemoryLimiter = app.extensions["bananawiki.limiter"]
+            if not limiter.hit(f"g:{web.client_network()}", GLOBAL_RATE_LIMIT, 60):
+                return _too_many_requests()
+        # Safe methods always get the small cap: no GET view expects a body,
+        # but some read request.form and would parse one.
+        minimum_role = None if request.method in web.SAFE_METHODS else auth.view_large_body(view)
+        if minimum_role and (_valid_bearer() or auth.session_may_send_large_body(minimum_role)):
+            return None
+        request.max_content_length = min(app.config["MAX_CONTENT_LENGTH"], cfg.max_content_length)
+        return None
+
+    def _valid_bearer() -> bool:
+        # A bearer header counts only where the API authenticates it, and only with a live token:
+        # anyone can send one, and session views would let CSRF read the body first.
+        if not bearer_request():
+            return False
+        from .features.api_service import tokens
+
+        return tokens.authenticate(request.headers["Authorization"][7:].strip()) is not None
+
+    @app.before_request
     def _limit_json_body():
         # CSRF may parse JSON before the authentication pipeline. Bound that
         # read as well as endpoint reads, including chunked request streams.
@@ -419,10 +459,6 @@ def _install_request_pipeline(app: Flask, cfg: Config) -> None:
             return None
         access = auth.view_access(view)
 
-        limiter: MemoryLimiter = app.extensions["bananawiki.limiter"]
-        if not limiter.hit(f"g:{web.client_network()}", GLOBAL_RATE_LIMIT, 60):
-            return _too_many_requests()
-
         if bearer_request():
             return None  # the API authenticates and authorises bearer tokens itself
 
@@ -432,24 +468,46 @@ def _install_request_pipeline(app: Flask, cfg: Config) -> None:
         if not settings.setup_done() and not auth.view_exempt(view, "setup"):
             return redirect(url_for("auth.setup"))
 
+        # Maintenance keeps everyone but administrators out. Public views that stay open (published custom
+        # pages, the API guide) are served as to an anonymous visitor of a private wiki: no page tree,
+        # no page lists or excerpts in the shell around them.
+        closed = settings.maintenance_active() and not auth.view_exempt(view, "maintenance") and not auth.is_admin(
+            auth.real_user())
+        if closed and access == "public":
+            settings.close_public_mode()
+
         if user is None:
-            if access == "public" or (access == "public_read" and settings.public_mode_active()):
+            if access == "public_read" and settings.public_mode_active():
+                # Public mode opens these views to visitors, but maintenance mode closes them to everyone
+                # but administrators: an anonymous reader must not see what a signed-in member cannot.
+                if settings.maintenance_active() and not auth.view_exempt(view, "maintenance"):
+                    return _maintenance()
+                return None
+            if access == "public":
                 return None
             if g.get("session_ended") and not auth.wants_json():
                 auth.flash_t("flash.session_expired", "info")
             return auth.redirect_to_login()
 
         block = auth.account_block(user)
-        if block and not auth.view_exempt(view, "approval") and access != "public":
+        if block and not auth.view_exempt(view, "approval") and access == "public":
+            # A public view (a published custom page, the API guide) serves an account the wiki refuses
+            # as an anonymous visitor: the shell around it would show the page tree and page excerpts
+            # its role may read. It keeps its language, and g.real_user the sign-in for views that ask why.
+            i18n.current_language()
+            g.user = None
+            return None
+        if block and not auth.view_exempt(view, "approval"):
             if auth.wants_json():
                 return jsonify({"error": i18n.t(f"auth.status.{block}.body"), "code": block}), 403
             return redirect(url_for("auth.account_status"))
 
-        if settings.maintenance_active() and not auth.view_exempt(view, "maintenance"):
-            if not auth.is_admin(auth.real_user()) and access != "public":
-                if auth.wants_json():
-                    return jsonify({"error": i18n.t("auth.maintenance.body"), "code": "maintenance"}), 503
-                return redirect(url_for("auth.maintenance"))
+        if closed:
+            if access != "public":
+                return _maintenance()
+            i18n.current_language()
+            g.user = None
+            return None
 
         if not auth.view_exempt(view, "account_steps") and access != "public":
             step = auth.pending_account_step(user)
@@ -462,9 +520,16 @@ def _install_request_pipeline(app: Flask, cfg: Config) -> None:
                 return redirect(url_for(step))
         return None
 
+    def _maintenance():
+        if auth.wants_json():
+            return jsonify({"error": i18n.t("auth.maintenance.body"), "code": "maintenance"}), 503
+        return redirect(url_for("auth.maintenance"))
+
     @app.after_request
     def _after(response: Response) -> Response:
         response = _upload_redirect(response)
+        response = downloads.hold(response, app.extensions.get("bananawiki.downloads"), _download_client(),
+                                  _downloads_refused)
         policy: web.SecurityPolicy = app.extensions.setdefault("bananawiki.csp", web.SecurityPolicy())
         web.apply_security_headers(response, policy, hsts=cfg.is_production)
         # send_file's own "no-cache" (also with max_age=0) still lets caches keep a copy.
@@ -494,6 +559,20 @@ def _upload_redirect(response: Response) -> Response:
     for value in response.headers.getlist("Set-Cookie"):
         answer.headers.add("Set-Cookie", value)
     return answer
+
+
+def _download_client() -> str:
+    """Whose share of the download places a response takes: the signed-in account, else the network."""
+    user = g.get("real_user") or g.get("user")
+    return f"user:{user['id']}" if user else f"network:{web.client_network()}"
+
+
+def _downloads_refused(status: int) -> Response:
+    """503 while the process sends as many large responses as it may, 429 while the client sends its share."""
+    if auth.wants_json():
+        body = {"error": i18n.t(f"error.{status}.body"), "code": "server_busy" if status == 503 else "too_many_requests"}
+        return make_response(jsonify(body), status)
+    return make_response(render_template("errors/error.html", code=status), status)
 
 
 def _too_many_requests():
@@ -600,8 +679,10 @@ def _install_error_handlers(app: Flask) -> None:
                 auth.load_request_user()
             i18n.current_language()
             user = auth.current_user()
-            if user is not None and (auth.account_block(user) or auth.pending_account_step(user) or (
-                    settings.maintenance_active() and not auth.is_admin(auth.real_user()))):
+            if settings.maintenance_active() and not auth.is_admin(auth.real_user()):
+                settings.close_public_mode()
+                g.user = None
+            if user is not None and (auth.account_block(user) or auth.pending_account_step(user)):
                 g.user = None
         except Exception:  # noqa: BLE001 - the error page itself must never fail
             g.user = None

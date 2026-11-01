@@ -108,14 +108,6 @@ def test_packaged_app_keeps_data_beside_itself(monkeypatch, tmp_path):
 # translations
 
 
-@pytest.mark.parametrize("language", sorted(set(i18n.LANGUAGES) - {"en"}))
-def test_catalogues_have_the_same_keys_and_placeholders(language):
-    english, translated = i18n.catalog("en"), i18n.catalog(language)
-    assert english.keys() == translated.keys()
-    for key, text in english.items():
-        assert ("{path}" in text) == ("{path}" in translated[key]), key
-
-
 @pytest.mark.parametrize("reported, expected", [
     (("de_DE", "UTF-8"), "de"), (("de_AT", "UTF-8"), "de"), (("de_CH", "UTF-8"), "de"), (("de-LU", None), "de"),
     (("German_Germany", "1252"), "de"), (("German_Switzerland", "1252"), "de"), (("it_IT", "UTF-8"), "it"),

@@ -11,6 +11,7 @@ from ...db import db
 from ...registry import feature_blueprint, is_enabled
 from ...templating import from_local_input
 from ..admin import service as admin_service
+from ..audit.service import record_settings
 from . import audit, openapi, tokens, userbot, webhooks
 from .errors import ApiError
 
@@ -122,15 +123,15 @@ def create_token():
             except ApiError as error:
                 auth.flash_t(f"api_service.flash.{error.code}", "error", **error.values)
                 return redirect(url_for("api_service.tokens_page"))
+        grant = tokens.web_grant(user, request.form.getlist("scopes"), read_only=bool(request.form.get("read_only")))
         try:
             tokens.check_name(request.form.get("name", ""))
             tokens.check_quota(user["id"])
+            raw, _token_id = tokens.create(user["id"], name=request.form.get("name", ""), grant=grant,
+                                           expires_at=expires_at)
         except ApiError as error:
             auth.flash_t(error.message_key, "error", **error.values)
             return redirect(url_for("api_service.tokens_page"))
-        grant = tokens.web_grant(user, request.form.getlist("scopes"), read_only=bool(request.form.get("read_only")))
-        raw, _token_id = tokens.create(user["id"], name=request.form.get("name", ""), grant=grant,
-                                       expires_at=expires_at)
         return _no_store(_tokens_page(user, new_token=raw, status=201))
     return redirect(url_for("api_service.tokens_page"))
 
@@ -164,6 +165,8 @@ def userbot_mode():
         auth.flash_t("api_service.userbot.disabled", "success")
     except userbot.UserbotError as error:
         auth.flash_t(error.key, "error")
+    except ApiError as error:
+        auth.flash_t(error.message_key, "error", **error.values)
     return redirect(url_for("api_service.tokens_page", _anchor="userbot"))
 
 
@@ -224,14 +227,17 @@ def _form_int(name: str, default: int, bounds: tuple[int, int]) -> int:
 @bp.post("/admin/api-service/settings")
 @auth.admin_required
 def admin_settings():
-    settings.update({
+    values = {
         "api_service_enabled": 1 if request.form.get("enabled") else 0,
         "api_service_rate_limit": _form_int("rate_limit", 60, tokens.RATE_LIMIT_BOUNDS),
         "api_service_admin_rate_limit": _form_int("admin_rate_limit", 120, tokens.RATE_LIMIT_BOUNDS),
         "api_service_max_tokens_per_user": _form_int("max_tokens_per_user", 5, tokens.MAX_TOKENS_BOUNDS),
         "api_service_webhook_max_failures": _form_int("webhook_max_failures", webhooks.MAX_FAILURES_DEFAULT,
                                                       webhooks.MAX_FAILURES_BOUNDS),
-    })
+    }
+    previous = settings.load()
+    settings.update(values)
+    record_settings(previous, values, via="api_service")
     auth.flash_t("api_service.flash.settings_saved", "success")
     return _admin_redirect()
 
@@ -280,7 +286,7 @@ def admin_toggle_access(user_id: str):
         auth.flash_t("api_service.flash.owner_protected", "error")
     else:
         enabled = not target.get("api_access_enabled")
-        db.execute("UPDATE users SET api_access_enabled = ? WHERE id = ?", (1 if enabled else 0, user_id))
+        tokens.set_api_access(target, enabled)
         auth.flash_t("api_service.flash.access_enabled" if enabled else "api_service.flash.access_disabled",
                      "success", username=target["username"])
     return _admin_redirect("users")

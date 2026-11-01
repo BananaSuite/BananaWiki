@@ -9,13 +9,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from flask import abort, current_app, jsonify, make_response, redirect, request
+from flask import abort, current_app, g, jsonify, make_response, redirect, request
 
 from ....core.timeutil import now_sql, parse, sql_in, to_sql
 from ....core.web import client_network
 from ... import auth, storage
 from ...i18n import t
 from ...registry import feature_blueprint
+from ..audit import record
 from . import dms, policy, store
 from .store import DM, Store
 
@@ -26,6 +27,9 @@ POLL_PER_MINUTE = 120
 SEND_PER_MINUTE = 30
 ACTIONS_PER_MINUTE = 30
 EXPORTS_PER_MINUTE = 5
+IMPERSONATED_READ_WINDOW = 10 * 60
+# Marking a conversation read changes nothing anyone else sees; reading it is recorded by the views.
+_UNAUDITED_ACTIONS = frozenset({"chat.dm_read", "chat.group_read"})
 
 
 class Refused(Exception):
@@ -74,6 +78,65 @@ def succeed(target: str, key: str | None = None, *, values: dict[str, Any] | Non
     if key:
         auth.flash_t(key, "success", **(values or {}))
     return redirect(target)
+
+
+def audit_impersonated(action: str, target_type: str, target_id: int, *, polling: bool = False,
+                       **details: Any) -> None:
+    """Record an administrator reading a member's conversation while impersonating them.
+
+    A member's own reads are not audited, but an administrator viewing the
+    wiki as the member reads the conversation as a participant, without the
+    entries of the administrator routes: the same entry is recorded, with the
+    administrator as actor (``record`` names the signed-in account) and the
+    account they act as. Reading the history as JSON (*polling*) is recorded
+    once per :data:`IMPERSONATED_READ_WINDOW` seconds, which opening the page
+    always starts, so an open page does not fill the audit log.
+    """
+    if not auth.is_impersonating():
+        return
+    if action in ("chat.dm_read", "chat.group_read"):
+        window = f"chat:impersonated_read:{auth.real_user()['id']}:{target_type}:{target_id}"
+        opened = current_app.extensions["bananawiki.limiter"].hit(window, 1, IMPERSONATED_READ_WINDOW)
+        if polling and not opened:
+            return
+    record(action, target_type=target_type, target_id=target_id,
+           details={"as_user": auth.current_user()["username"], **details})
+
+
+def withhold_previews(rows: list[dict[str, Any]], *, shown=lambda row: False) -> list[dict[str, Any]]:
+    """While impersonating, leave the latest messages out of a conversation list.
+
+    The list would show the start of every private conversation without the
+    entry that reading it records; opening a conversation is audited. Rows
+    for which *shown* is true (the global room, open to all) keep theirs.
+    """
+    if auth.is_impersonating():
+        for row in rows:
+            if row.get("last_message") and not shown(row):
+                row["last_message"] = None
+                row["preview_withheld"] = True
+    return rows
+
+
+@bp.after_request
+def _audit_impersonated_action(response):
+    """Record each chat action an administrator takes in a member's name while impersonating them.
+
+    Messages sent, deleted or reported, conversations started or cleared,
+    members blocked or moderated: the other participants see only the
+    member's name. Refused attempts are recorded too, with their status.
+    """
+    if request.method in ("GET", "HEAD", "OPTIONS") or request.endpoint in _UNAUDITED_ACTIONS \
+            or not auth.is_impersonating():
+        return response
+    values = request.view_args or {}
+    target = next(((kind, values[f"{kind}_id"]) for kind in ("chat", "group") if f"{kind}_id" in values), (None, None))
+    details = {"as_user": auth.current_user()["username"], "endpoint": request.endpoint,
+               "status": response.status_code}
+    if g.get("chat_message_id"):
+        details["message_id"] = g.chat_message_id
+    record("chat.impersonated_action", target_type=target[0], target_id=target[1], details=details)
+    return response
 
 
 def page_number() -> int:

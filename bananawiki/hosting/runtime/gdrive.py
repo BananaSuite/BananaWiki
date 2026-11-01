@@ -6,7 +6,7 @@ Settings live in ``hosting_settings`` (``gdrive_backup_enabled``,
 service-account JSON file stored with mode 0600. The Google client libraries
 are optional: without them every call raises ``not_configured``.
 
-Only ``.bwenc`` files (the encrypted ``BWBACKUP1`` format) are uploaded, and
+Only ``.bwenc`` files (the encrypted ``BWBACKUP2`` format, :mod:`.crypto`) are uploaded, and
 retention only ever deletes files in the configured folder whose names start
 with a backup prefix (current or 1.4).
 """

@@ -15,6 +15,7 @@ from typing import Any
 from flask import current_app
 
 from ..core import passwords
+from ..core.sqlite import Session
 from ..core.timeutil import now_sql
 from . import bm
 from .db import db
@@ -256,20 +257,38 @@ def owners_count() -> int:
     return int(db.scalar("SELECT COUNT(*) FROM users WHERE role = 'owner'", default=0))
 
 
-def _hand_over_shared_canvases(user_id: str, deleted_by: str | None) -> None:
-    """Keep the shared and public canvases an account created when it goes.
+def hand_over_canvases(session: Session, user_id: str, deleted_by: str | None = None) -> None:
+    """Keep the shared and public canvases an account created when it goes, in *session*'s transaction.
 
     ``canvas__layouts`` deletes a canvas together with its creator, so these
     move to the administrator doing the deletion (or the longest-standing
-    active administrator). Private canvases are the account's private data and
-    are deleted with it. Kanban hands over its own work (``user.delete``).
+    active administrator). So does a private canvas shared with a person or a
+    role (view or edit), and under ``canvas_open_access`` every canvas not
+    archived (everyone may edit those): others work on them too. Only private
+    canvases nobody else may open are the account's private data and are
+    deleted with it.
+    Kanban hands over its own work (``user.delete``). Needs no Flask
+    application: the hosting operator's "remove wiki user" task
+    (:mod:`bananawiki.ops.tenant_task`) calls it directly, :func:`delete` everywhere else.
     """
-    successor = deleted_by if deleted_by and deleted_by != user_id and by_id(deleted_by) else db.scalar(
-        "SELECT id FROM users WHERE id != ? AND role IN ('admin', 'owner') AND suspended = 0 "
-        "ORDER BY role = 'owner' DESC, created_at LIMIT 1", (user_id,))
-    if successor is not None:
-        db.execute("UPDATE canvas__layouts SET creator_id = ? WHERE creator_id = ? AND visibility != 'private'",
-                   (successor, user_id))
+    successor = None
+    if deleted_by and deleted_by != user_id:
+        successor = session.scalar("SELECT id FROM users WHERE id = ?", (deleted_by,))
+    if successor is None:
+        successor = session.scalar(
+            "SELECT id FROM users WHERE id != ? AND role IN ('admin', 'owner') AND suspended = 0 "
+            "ORDER BY role = 'owner' DESC, created_at LIMIT 1", (user_id,))
+    if successor is None:
+        return
+    if session.scalar("SELECT canvas_open_access FROM site_settings WHERE id = 1", default=0):
+        session.execute(
+            "UPDATE canvas__layouts SET creator_id = ? WHERE creator_id = ? AND (visibility != 'private' "
+            "OR is_archived = 0)", (successor, user_id))
+    session.execute(
+        "UPDATE canvas__layouts SET creator_id = ? WHERE creator_id = ? AND (visibility != 'private' OR EXISTS "
+        "(SELECT 1 FROM canvas__permissions p WHERE p.layout_id = canvas__layouts.id AND p.permission != 'none' "
+        "AND (p.role IS NOT NULL OR p.user_id != ?)))",
+        (successor, user_id, user_id))
 
 
 def delete(user: dict[str, Any], *, deleted_by: str | None = None, protect_last_admin: bool = False,
@@ -297,7 +316,7 @@ def delete(user: dict[str, Any], *, deleted_by: str | None = None, protect_last_
             if active <= 1:
                 raise AccountError("users.error.last_admin")
         prepare("user.delete", user=current, deleted_by=deleted_by)
-        _hand_over_shared_canvases(user["id"], deleted_by)
+        hand_over_canvases(db, user["id"], deleted_by)
         db.execute("DELETE FROM users WHERE id = ?", (user["id"],))
     if emit_event:
         emit("user.deleted", user=current, deleted_by=deleted_by)

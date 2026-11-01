@@ -78,8 +78,9 @@ def _category_nodes(user, counts, section) -> list[dict[str, Any]]:
     all_rows = categories.all_categories()
     by_parent: dict[int | None, list[dict[str, Any]]] = {}
     known = {c["id"] for c in all_rows}
+    parents = categories.display_parents(all_rows)  # at most MAX_DEPTH levels: the templates recurse
     for category in all_rows:
-        parent = category["parent_id"] if category["parent_id"] in known else None
+        parent = parents[category["id"]] if parents[category["id"]] in known else None
         by_parent.setdefault(parent, []).append(category)
     shows_empty = bool(user) and auth.has_role("editor", user)
 

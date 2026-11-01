@@ -17,12 +17,14 @@ from __future__ import annotations
 
 import zlib
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
 from flask import g, has_app_context
 
 from ....core.i18n import Catalog
+from ....core.numbers import ascii_int
 from ....core.sqlite import Session
 from ....core.timeutil import now_sql
 from ...db import db
@@ -46,6 +48,30 @@ def _log(board_id: int, user: User | None, *, op: str, payload: dict[str, Any], 
     events.append(board_id, op, payload, user_id)
     events.log_activity(board_id, user_id, action, message)
     history.record(board_id, user_id, entry or message, coalesce=coalesce)
+
+
+def column_count(board_id: int) -> int:
+    return int(db.scalar("SELECT COUNT(*) FROM kanban_columns WHERE board_id = ?", (board_id,), default=0))
+
+
+def check_room(board_id: int, allowed: int = 0) -> None:
+    """Refuse a change that leaves the board's content over :data:`fields.MAX_BOARD_BYTES`
+    (call inside the transaction that grew it). *allowed* is a size the change may keep:
+    a board already larger than the cap is refused only when the change grows it."""
+    if history.board_bytes(board_id) > max(fields.MAX_BOARD_BYTES, allowed):
+        raise KanbanError("kanban.error.board_full", 409, maximum=fields.MAX_BOARD_BYTES // (1024 * 1024))
+
+
+def _grows(new: Any, old: Any) -> bool:
+    """Whether text *new* takes more bytes than *old*: :func:`history.board_bytes` and the snapshots count
+    UTF-8 bytes, so an edit that keeps the length but uses wider characters grows the board too."""
+    return len(str(new or "").encode("utf-8", "surrogatepass")) > len(str(old or "").encode("utf-8", "surrogatepass"))
+
+
+def ticket_count(board_id: int) -> int:
+    """The board's tickets, archived ones included (what :data:`fields.MAX_TICKETS_PER_BOARD` counts)."""
+    return int(db.scalar("SELECT COUNT(*) FROM kanban_tickets t JOIN kanban_columns c ON c.id = t.column_id "
+                         "WHERE c.board_id = ?", (board_id,), default=0) or 0)
 
 
 def _column_payload(column: dict[str, Any]) -> dict[str, Any]:
@@ -283,37 +309,74 @@ def _saved_order(key: str | None) -> list[int]:
     return db.column("SELECT board_id FROM kanban_user_board_order WHERE user_id IS ? ORDER BY sort_order", (key,))
 
 
-def ordered_boards(user: User | None, *, archived: bool = False) -> list[dict[str, Any]]:
+def ordered_boards(user: User | None, *, archived: bool = False, limit: int | None = None,
+                   offset: int = 0) -> list[dict[str, Any]]:
     """The boards *user* can open, in their saved order (or the shared one with open access).
 
     Archived boards are left out; with ``archived=True`` only they are listed.
+    With *limit*, only that window of the list is read.
     """
-    boards = [board for board in access.visible_boards(user) if bool(board.get("archived_at")) == archived]
-    by_id = {board["id"]: board for board in boards}
-    ordered = store.reorder(list(by_id), _saved_order(_order_key(user)), bounded=False)
-    return [by_id[board_id] for board_id in ordered]
+    return access.ordered_boards(user, _order_key(user), archived=archived, limit=limit, offset=offset)
+
+
+def count_boards(user: User | None, *, archived: bool = False) -> int:
+    """How many boards :func:`ordered_boards` lists for *user*."""
+    return access.count_boards(user, archived=archived)
+
+
+#: Boards a saved personal order places (read from one save, and kept); the others follow, newest first.
+MAX_ORDERED_BOARDS = 5000
 
 
 def save_board_order(user: User, board_ids: list[Any]) -> None:
     """Save the order of the active boards *user* can see (archived ones keep their places after them);
     boards others see keep their places in a shared order."""
-    active = [board["id"] for board in ordered_boards(user)]
-    archived = [board["id"] for board in ordered_boards(user, archived=True)]
-    visible = active + archived
-    wanted = store.reorder(active, board_ids) + archived
     key = _order_key(user)
     if key is None:
-        every = store.reorder(db.column("SELECT id FROM kanban_boards ORDER BY created_at DESC, id DESC"),
-                              _saved_order(None), bounded=False)
-        slots = iter(wanted)
-        visible_set = set(visible)
-        wanted = [next(slots) if board_id in visible_set else board_id for board_id in every]
+        wanted = _shared_board_order(user, board_ids)
+    else:
+        wanted = _own_board_order(key, user, board_ids)
     with db.transaction():
         db.execute("DELETE FROM kanban_user_board_order WHERE user_id IS ?", (key,))
         db.executemany(
             "INSERT INTO kanban_user_board_order (user_id, board_id, sort_order) VALUES (?, ?, ?)",
             [(key, board_id, index) for index, board_id in enumerate(wanted)],
         )
+
+
+def _own_board_order(key: str, user: User, board_ids: list[Any]) -> list[int]:
+    """A personal order: the active boards sent, then those already placed, at most MAX_ORDERED_BOARDS.
+
+    The list shows one page, so only the boards sent and those placed before
+    are stored, not every board the user can see: boards never placed keep
+    following them, newest first (see :func:`access.ordered_boards`), and the
+    order grows with what the user arranged, not with the wiki's boards.
+    """
+    active, archived = access.visible_board_ids(user)
+    ids: list[int] = []
+    seen: set[int] = set()
+    for raw in islice(board_ids, MAX_ORDERED_BOARDS + store.REORDER_SLACK):
+        board_id = ascii_int(raw) if isinstance(raw, (int, str)) and not isinstance(raw, bool) else None
+        if board_id in active and board_id not in seen:
+            ids.append(board_id)
+            seen.add(board_id)
+    for board_id in _saved_order(key):
+        if board_id not in seen and (board_id in active or board_id in archived):
+            ids.append(board_id)
+            seen.add(board_id)
+    return ids[:MAX_ORDERED_BOARDS]
+
+
+def _shared_board_order(user: User, board_ids: list[Any]) -> list[int]:
+    """The shared order (open access): every board, with those *user* sees rearranged in their slots."""
+    active = [board["id"] for board in ordered_boards(user)]
+    archived = [board["id"] for board in ordered_boards(user, archived=True)]
+    wanted = store.reorder(active, board_ids) + archived
+    every = store.reorder(db.column("SELECT id FROM kanban_boards ORDER BY created_at DESC, id DESC"),
+                          _saved_order(None), bounded=False)
+    slots = iter(wanted)
+    visible = set(active) | set(archived)
+    return [next(slots) if board_id in visible else board_id for board_id in every]
 
 
 def list_order_version() -> str:
@@ -329,6 +392,8 @@ def create_column(board: dict[str, Any], user: User, title: Any) -> dict[str, An
     with db.transaction():
         position = int(db.scalar("SELECT COUNT(*) FROM kanban_columns WHERE board_id = ?", (board["id"],),
                                  default=0))
+        if position >= fields.MAX_COLUMNS_PER_BOARD:
+            raise KanbanError("kanban.error.board_full_columns", 409, maximum=fields.MAX_COLUMNS_PER_BOARD)
         column_id = db.insert("kanban_columns", {"board_id": board["id"], "title": clean, "sort_order": position,
                                                  "created_at": now_sql()})
         column = {"id": column_id, "title": clean, "wip_limit": None, "done": False, "tickets": []}
@@ -436,6 +501,8 @@ def _assignees(board: dict[str, Any], raw: Any, *, strict: bool) -> list[str]:
                 raise KanbanError("kanban.error.assignee_no_access")
             continue
         result[user_id] = None
+    if len(result) > fields.MAX_ASSIGNEES_PER_TICKET:
+        raise KanbanError("kanban.error.too_many_assignees", maximum=fields.MAX_ASSIGNEES_PER_TICKET)
     return list(result)
 
 
@@ -488,6 +555,8 @@ def create_ticket(board: dict[str, Any], column: dict[str, Any], user: User, dat
     values = _ticket_values(data, shorthand)
     assignees = _requested_assignees(board, data, shorthand, strict=False) or []
     with db.transaction():
+        if ticket_count(board["id"]) >= fields.MAX_TICKETS_PER_BOARD:
+            raise KanbanError("kanban.error.board_full_tickets", 409, maximum=fields.MAX_TICKETS_PER_BOARD)
         position = len(store.ticket_ids(column["id"]))
         ticket_id = db.insert("kanban_tickets", {
             "column_id": column["id"], "title": values.pop("title"), "description": values.pop("description", ""),
@@ -495,6 +564,7 @@ def create_ticket(board: dict[str, Any], column: dict[str, Any], user: User, dat
             "created_at": now_sql(), **values,
         })
         store.set_assignees(ticket_id, assignees)
+        check_room(board["id"])
         card = store.ticket_card(ticket_id)
         assert card is not None
         _log(board["id"], user, op="ticket_upsert",
@@ -512,8 +582,15 @@ def update_ticket(board: dict[str, Any], ticket: dict[str, Any], user: User, dat
         if "description" in values and values["description"] != (ticket["description"] or ""):
             history.record_description(ticket["id"], ticket["description"] or "", values["description"], user["id"])
         db.update("kanban_tickets", values, "id = ?", (ticket["id"],))
+        if any(_grows(values[name], ticket[name]) for name in ("title", "description", "labels") if name in values):
+            check_room(board["id"])
         if assignees is not None:
+            before = {row["user_id"] for row in db.all("SELECT user_id FROM kanban_ticket_assignees "
+                                                        "WHERE ticket_id = ?", (ticket["id"],))}
             store.set_assignees(ticket["id"], assignees)
+            # Anyone new may have a longer name than the people they replace.
+            if not set(assignees) <= before:
+                check_room(board["id"])
         card = store.ticket_card(ticket["id"])
         assert card is not None
         _log(board["id"], user, op="ticket_upsert", payload={"ticket": card, "columns": {}},
@@ -658,6 +735,7 @@ def bulk_update(board: dict[str, Any], tickets: list[dict[str, Any]], user: User
     else:
         raise KanbanError("kanban.error.unknown_action")
     with db.transaction():
+        size = history.board_bytes(board["id"]) if action == "assign" else 0
         if target is not None:
             _bulk_move(tickets, target)
         for ticket in tickets:
@@ -665,6 +743,8 @@ def bulk_update(board: dict[str, Any], tickets: list[dict[str, Any]], user: User
                 store.set_assignees(ticket["id"], people)
             elif values:
                 db.update("kanban_tickets", values, "id = ?", (ticket["id"],))
+        if action == "assign":
+            check_room(board["id"], allowed=size)
         _log(board["id"], user, op="board_reset", payload={}, action=f"tickets_bulk_{action}",
              message=logtext.message(f"kanban.log.bulk_{action}", count=len(tickets)))
     if target is not None:
@@ -787,6 +867,7 @@ def add_checklist_item(board: dict[str, Any], ticket: dict[str, Any], user: User
             raise KanbanError("kanban.error.checklist_full", maximum=fields.MAX_CHECKLIST_ITEMS)
         db.insert("kanban_ticket_checklist", {"ticket_id": ticket["id"], "text": clean, "done": 0,
                                               "sort_order": count, "created_at": now_sql()})
+        check_room(board["id"])
         result = _checklist_changed(board, ticket, user)
     signals.tickets_changed("updated", [ticket["id"]], board["id"], user)
     return result
@@ -808,6 +889,8 @@ def update_checklist_item(board: dict[str, Any], item: dict[str, Any], user: Use
     assert ticket is not None
     with db.transaction():
         db.update("kanban_ticket_checklist", values, "id = ?", (item["id"],))
+        if "text" in values and _grows(values["text"], item.get("text")):
+            check_room(board["id"])
         result = _checklist_changed(board, ticket, user)
     signals.tickets_changed("updated", [ticket["id"]], board["id"], user)
     return result
@@ -898,7 +981,20 @@ def assigned_tickets(user: User, limit: int = MY_TICKETS_LIMIT,
 
 def revert(board: dict[str, Any], entry: dict[str, Any], user: User) -> dict[str, int]:
     with db.transaction():
+        # Changes a large board made since its latest entry are recorded first (see history).
+        history.record(board["id"], user["id"], logtext.message("kanban.log.before_revert"), force=True)
+        count, size = ticket_count(board["id"]), history.board_bytes(board["id"])
+        columns = column_count(board["id"])
         result = history.revert(board, entry["state"], user["id"])
+        # A revert recreates deleted tickets and columns, so it obeys the board caps like an import; a
+        # board already over them (from an older version) may still revert when that does not grow it.
+        after = ticket_count(board["id"])
+        if after > fields.MAX_TICKETS_PER_BOARD and after > count:
+            raise KanbanError("kanban.error.board_full_tickets", 409, maximum=fields.MAX_TICKETS_PER_BOARD)
+        after = column_count(board["id"])
+        if after > fields.MAX_COLUMNS_PER_BOARD and after > columns:
+            raise KanbanError("kanban.error.board_full_columns", 409, maximum=fields.MAX_COLUMNS_PER_BOARD)
+        check_room(board["id"], allowed=size)
         remove_invalid_assignees(board)  # the snapshot may name people who lost access since
         message = logtext.message("kanban.log.reverted", id=entry["id"])
         events.append(board["id"], "board_reset", {}, user["id"])
@@ -1042,7 +1138,7 @@ def hand_over(user: User, deleted_by: str | None = None, **_: Any) -> None:
         message = logtext.message(key, username=user["username"], owner=owners.get(board_id, ""))
         events.append(board_id, "board_reset", {}, actor)
         events.log_activity(board_id, actor, "account_deleted", message)
-        history.record(board_id, actor, message)
+        history.record(board_id, actor, message, charged=False)
     if has_app_context():
         g.setdefault(_HANDED_OVER, {})[user["id"]] = (boards, actor)
 

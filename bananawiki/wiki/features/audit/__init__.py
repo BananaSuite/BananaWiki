@@ -8,9 +8,9 @@ from ...registry import Feature, Job, NavItem
 from .guard import install, record_switch, refuse_switch
 from .handlers import EVENTS
 from .routes import bp
-from .service import prune, record
+from .service import prune, record, record_settings
 
-__all__ = ["FEATURE", "record"]
+__all__ = ["FEATURE", "record", "record_settings"]
 
 
 def _is_admin(user) -> bool:

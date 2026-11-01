@@ -11,8 +11,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from flask import abort, jsonify, render_template, request, url_for
+from flask import abort, g, jsonify, render_template, request, url_for
 
+from ....core import downloads
 from ....core.web import client_ip
 from ... import accounts, auth, storage
 from ...db import db
@@ -26,6 +27,7 @@ from .web import (
     POLL_PER_MINUTE,
     SEND_PER_MINUTE,
     Refused,
+    audit_impersonated,
     bp,
     conversation,
     halt,
@@ -36,6 +38,7 @@ from .web import (
     succeed,
     throttle,
     too_many,
+    withhold_previews,
 )
 
 log = logging.getLogger("bananawiki.chat")
@@ -61,7 +64,7 @@ def _load_chat(chat_id: int) -> dict[str, Any]:
 def dm_list():
     _require_dm()
     user = auth.current_user()
-    return render_template("chat/dm_list.html", chats=dms.list_for(user["id"]),
+    return render_template("chat/dm_list.html", chats=withhold_previews(dms.list_for(user["id"])),
                            can_start=policy.can_start_dm(user), blocked=blocks.blocked_ids(user["id"]))
 
 
@@ -127,6 +130,7 @@ def dm_view(chat_id: int):
     user = auth.current_user()
     other = accounts.by_id(dms.other_id(chat, user["id"]))
     dms.mark_read(chat, user["id"])
+    audit_impersonated("chat.dm_read", "chat", chat["id"])
     floor = dms.cleared_upto(chat, user["id"])
     other_id = dms.other_id(chat, user["id"])
     return render_template(
@@ -143,6 +147,7 @@ def dm_messages(chat_id: int):
     chat = _load_chat(chat_id)
     if not throttle("poll", POLL_PER_MINUTE):
         return too_many()
+    audit_impersonated("chat.dm_read", "chat", chat["id"], polling=True)
     return jsonify(messages_payload(DM, chat["id"], floor=dms.cleared_upto(chat, auth.current_user()["id"])))
 
 
@@ -154,6 +159,7 @@ def dm_read(chat_id: int):
 
 
 @bp.route("/chats/<int:chat_id>/send", methods=["POST"])
+@auth.large_body
 def dm_send(chat_id: int):
     chat = _load_chat(chat_id)
     user = auth.current_user()
@@ -178,6 +184,7 @@ def dm_send(chat_id: int):
         if stored is not None:
             storage.delete(store.FOLDER, stored.filename)
         raise
+    g.chat_message_id = message_id  # for the audit entry of an administrator impersonating the sender
     return succeed(back, message_id=message_id)
 
 
@@ -215,6 +222,7 @@ def dm_attachment(attachment_id: int):
     if dms.is_participant(chat, user["id"]):
         if item["message_id"] <= dms.cleared_upto(chat, user["id"]) or store.withheld_from(item, user["id"]):
             abort(404)
+        audit_impersonated("chat.dm_attachment_read", "chat", chat["id"], attachment_id=item["id"])
     elif admin:
         record("chat.dm_attachment_read", target_type="chat", target_id=chat["id"],
                details={"attachment_id": item["id"]})
@@ -225,11 +233,13 @@ def dm_attachment(attachment_id: int):
 
 
 @bp.route("/chats/<int:chat_id>/export")
+@downloads.place_first
 def dm_export(chat_id: int):
     chat = _load_chat(chat_id)
     user = auth.current_user()
     if not throttle("export", EXPORTS_PER_MINUTE):
         return too_many()
+    audit_impersonated("chat.dm_exported", "chat", chat["id"])
     names = {row["id"]: row["username"] for row in db.all(
         "SELECT id, username FROM users WHERE id IN (?, ?)", (chat["user1_id"], chat["user2_id"]))}
     other = names.get(dms.other_id(chat, user["id"])) or "chat"

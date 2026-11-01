@@ -32,9 +32,20 @@ MAX_LABELS = 20
 MAX_LABEL_LENGTH = 40
 MAX_CHECKLIST_ITEMS = 100
 MAX_CHECKLIST_TEXT = 300
+# Each assignee is part of every snapshot and of the board every viewer loads.
+MAX_ASSIGNEES_PER_TICKET = 20
+# Every change stores a snapshot of the board (see history), so a board's size is bounded: its
+# tickets (archived ones included), and the text of their fields, checklists and assignees.
+MAX_TICKETS_PER_BOARD = 5000
+MAX_COLUMNS_PER_BOARD = 200
+MAX_BOARD_BYTES = 8 * 1024 * 1024
 MAX_WIP_LIMIT = 999
 PRIORITIES = ("low", "medium", "high", "critical")
 
+# C0 control characters other than tab, newline and carriage return. They are invisible, and a board
+# snapshot (JSON) writes each as six bytes, so a board within MAX_BOARD_BYTES could store snapshots
+# several times larger: board text drops them.
+_CONTROLS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 _HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 _LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,39}$")
 _USERNAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -54,8 +65,13 @@ class KanbanError(ValueError):
         self.values = values
 
 
+def plain_text(value: Any) -> str:
+    """*value* as board text: a string without control characters other than tab and line breaks."""
+    return _CONTROLS.sub("", str(value or ""))
+
+
 def title(value: Any, maximum: int, empty_key: str = "kanban.error.title_required") -> str:
-    text = " ".join(str(value or "").split())
+    text = " ".join(plain_text(value).split())
     if not text:
         raise KanbanError(empty_key)
     if len(text) > maximum:
@@ -64,7 +80,7 @@ def title(value: Any, maximum: int, empty_key: str = "kanban.error.title_require
 
 
 def description(value: Any) -> str:
-    text = str(value or "").replace("\r\n", "\n").strip()
+    text = plain_text(value).replace("\r\n", "\n").strip()
     if len(text) > MAX_DESCRIPTION:
         raise KanbanError("kanban.error.description_too_long", maximum=MAX_DESCRIPTION)
     return text
@@ -139,7 +155,7 @@ def stored_done_flag(value: Any) -> int:
 
 
 def checklist_text(value: Any) -> str:
-    text = " ".join(str(value or "").split())
+    text = " ".join(plain_text(value).split())
     if not text:
         raise KanbanError("kanban.error.checklist_text_required")
     if len(text) > MAX_CHECKLIST_TEXT:
@@ -153,7 +169,7 @@ def stored_checklist(value: Any) -> list[dict[str, Any]]:
     for item in value if isinstance(value, list) else []:
         if not isinstance(item, dict):
             continue
-        text = " ".join(str(item.get("text") or "").split())[:MAX_CHECKLIST_TEXT]
+        text = " ".join(plain_text(item.get("text")).split())[:MAX_CHECKLIST_TEXT]
         if text:
             result.append({"text": text, "done": bool(item.get("done"))})
         if len(result) >= MAX_CHECKLIST_ITEMS:

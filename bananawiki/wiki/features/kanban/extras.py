@@ -14,7 +14,7 @@ from ... import storage
 from ...db import db
 from ...i18n import t
 from ...markdown import plain_html, render, shared_highlighting
-from ..pages import diff
+from ..pages import diff, uploads
 from . import access, events, fields, logtext, signals, store
 from .fields import KanbanError
 
@@ -51,7 +51,7 @@ def comment_payload(row: dict[str, Any], user: dict[str, Any] | None, *, rendere
         "content": row["content"],
         "content_html": render(row["content"], keep=True) if rendered else plain_html(row["content"]),
         "created_at": row["created_at"], "updated_at": row["updated_at"],
-        "edited": row["updated_at"] != row["created_at"], "can_edit": allowed, "can_delete": allowed,
+        "edited": row["updated_at"] != row["created_at"], "can_edit": access.can_edit_comment(user, row), "can_delete": allowed,
     }
 
 
@@ -113,9 +113,16 @@ def edit_comment(comment: dict[str, Any], content: Any) -> None:
 
 
 def delete_comment(ticket: dict[str, Any], comment: dict[str, Any], user: dict[str, Any]) -> None:
+    """Delete *comment*; an administrator removing another member's is recorded as ``kanban.comment_deleted``."""
     with db.transaction():
         db.execute("DELETE FROM kanban_ticket_comments WHERE id = ?", (comment["id"],))
         _touch_card(ticket["board_id"], ticket["id"], user["id"])
+    if comment["user_id"] != user["id"]:
+        from ..audit.service import record
+
+        record("kanban.comment_deleted", target_type="kanban_ticket", target_id=ticket["id"],
+               details={"board_id": ticket["board_id"], "author_id": comment["user_id"],
+                        "author": comment.get("author_name") or ""})
 
 
 # Attachments
@@ -140,11 +147,17 @@ def get_attachment(attachment_id: int) -> dict[str, Any] | None:
 
 
 def add_attachment(ticket: dict[str, Any], user: dict[str, Any], upload: FileStorage | None) -> dict[str, Any]:
-    """Store an upload (raises ``storage.UploadError``) and attach it to *ticket*."""
+    """Store an upload and attach it to *ticket*.
+
+    Raises ``storage.UploadError`` (``uploads.QuotaExceeded`` once *user*'s
+    daily upload quota, shared with page images and attachments, is used up).
+    """
     limit = storage.max_upload_bytes(current_app.config["BW"].max_kanban_attachment_size)
+    uploads.check_room(user, 1)  # a count limit is checked before the file is read
     stored = storage.save(upload, store.FOLDER, allowed=ATTACHMENT_EXTENSIONS, max_bytes=limit)
     try:
         with db.transaction():
+            uploads.count_stored(user, 1, stored.size)
             attachment_id = db.insert("kanban_ticket_attachments", {
                 "ticket_id": ticket["id"], "filename": stored.filename, "original_name": stored.original_name[:255],
                 "file_size": stored.size, "uploaded_by": user["id"], "uploaded_at": now_sql(),

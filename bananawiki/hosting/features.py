@@ -11,7 +11,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from ..core.timeutil import now_sql
+from ..core.timeutil import now_sql, sql_in
 from . import attention, events, instances, settings
 from .db import db
 from .errors import ServiceError
@@ -22,6 +22,11 @@ POLICY_FEATURES = frozenset(instances.FEATURES)  # granting one restarts the wik
 RESTRICTION = {"public_access": "forbid_non_admin_public_wikis", "page_builder": "forbid_non_admin_page_builder"}
 AUTO_APPROVE = {"public_access": "auto_approve_public_access_requests",
                 "page_builder": "auto_approve_page_builder_requests"}
+# Requests one wiki may file for one feature in 24 hours, whatever became of them: cancelling and
+# asking again would otherwise add rows, events and attention items without end.
+MAX_REQUESTS_PER_DAY = 10
+# Requests the wiki pages list (every waiting one is listed as well).
+HISTORY_LIMIT = 20
 
 
 def restricted(feature: str) -> bool:
@@ -40,12 +45,18 @@ def available(inst: dict[str, Any], feature: str, owner: dict[str, Any] | None =
     return bool(inst.get(FEATURES[feature])) or not restricted(feature)
 
 
-def history(instance_id: str) -> list[dict[str, Any]]:
+def history(instance_id: str, feature: str | None = None, limit: int = HISTORY_LIMIT) -> list[dict[str, Any]]:
+    """The wiki's latest *limit* requests (for *feature* only, if given), newest first, and every pending one."""
+    scope, args = ("instance_id = ? AND feature = ?", (instance_id, feature)) if feature else ("instance_id = ?",
+                                                                                              (instance_id,))
     return db.all(
         "SELECT r.*, q.username AS requested_by_username, v.username AS reviewed_by_username "
         "FROM instance_feature_requests r JOIN accounts q ON q.id = r.requested_by "
-        "LEFT JOIN accounts v ON v.id = r.reviewed_by WHERE r.instance_id = ? ORDER BY r.requested_at DESC, r.id DESC",
-        (instance_id,),
+        "LEFT JOIN accounts v ON v.id = r.reviewed_by WHERE r.id IN ("
+        f"SELECT id FROM instance_feature_requests WHERE {scope} AND status = 'pending' UNION "
+        f"SELECT id FROM (SELECT id FROM instance_feature_requests WHERE {scope} "
+        "ORDER BY requested_at DESC, id DESC LIMIT ?)) ORDER BY r.requested_at DESC, r.id DESC",
+        (*args, *args, limit),
     )
 
 
@@ -82,6 +93,10 @@ def request(inst: dict[str, Any], account: dict[str, Any], feature: str, reason:
     automatic = feature in AUTO_APPROVE and settings.flag(AUTO_APPROVE[feature])
     try:
         with db.transaction():
+            filed = db.scalar("SELECT COUNT(*) FROM instance_feature_requests WHERE instance_id = ? AND feature = ? "
+                              "AND requested_at > ?", (inst["id"], feature, sql_in(hours=-24)), default=0)
+            if int(filed) >= MAX_REQUESTS_PER_DAY:
+                raise ServiceError("hosting.features.too_many", limit=MAX_REQUESTS_PER_DAY)
             request_id = db.insert("instance_feature_requests", {
                 "instance_id": inst["id"], "feature": feature, "requested_by": account["id"], "reason": reason,
                 "status": "approved" if automatic else "pending", "requested_at": now_sql(),

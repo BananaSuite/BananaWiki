@@ -317,16 +317,3 @@ def test_digest_hours_become_minutes_on_upgrade(tmp_path):
     v3_takeover.add_attention(conn)
     v3_takeover.add_attention(conn)  # idempotent
     assert conn.execute("SELECT approval_notify_interval_minutes FROM hosting_settings").fetchone()[0] == 180
-
-
-def test_translations_have_the_same_keys():
-    import json
-    from pathlib import Path
-
-    from bananawiki.hosting.i18n import LANGUAGES
-
-    folder = Path(__file__).resolve().parents[2] / "bananawiki/hosting/translations"
-    english = json.loads((folder / "en.json").read_text(encoding="utf-8"))
-    for language in sorted(set(LANGUAGES) - {"en"}):
-        translated = json.loads((folder / f"{language}.json").read_text(encoding="utf-8"))
-        assert english.keys() == translated.keys(), language

@@ -56,6 +56,8 @@ def _run(action, *args: Any, **kwargs: Any) -> Any:
         return action(*args, **kwargs)
     except service.VersionConflict as conflict:
         raise ApiError(409, "edit_conflict", extra={"version": conflict.current_version}) from None
+    except service.TooMuchStored as error:
+        raise from_service(error, 429) from None
     except (service.CanvasError, model.DocumentError) as error:
         if getattr(error, "key", "") == LOCKED_KEY:
             values = getattr(error, "values", {})
@@ -63,6 +65,16 @@ def _run(action, *args: Any, **kwargs: Any) -> Any:
             raise ApiError(400, "locked", LOCKED_KEY, extra={"locked": ids, "locked_count": values.get("count", 0)},
                            **values) from None
         raise from_service(error) from None
+
+
+def _large_write_refused(layout: dict[str, Any], kind: str):
+    """A 429 answer once the account used up the minute's budget for this kind of write on a large
+    canvas, else None. The budget is the web editor's too (:func:`service.large_write_allowed`)."""
+    if service.large_write_allowed(layout["id"], kind, caller()["id"]):
+        return None
+    response, status = ApiError(429, "rate_limited").response()
+    response.headers["Retry-After"] = "60"
+    return response, status
 
 
 def _document_data(value: Any) -> dict[str, Any]:
@@ -82,8 +94,7 @@ def _answer(layout: dict[str, Any], level: str | None, status: int = 200, **extr
 @requires("canvas", feature=FEATURE)
 def list_canvases():
     limit, offset = page_window()
-    layouts = access.visible_layouts(caller())
-    window = layouts[offset:offset + limit + 1]
+    window = access.visible_layouts(caller(), limit=limit + 1, offset=offset)
     return ok(canvases=[_payload(layout, layout["level"]) for layout in window[:limit]],
               **window_fields(limit, offset, len(window)))
 
@@ -95,6 +106,11 @@ def create_canvas():
     user = caller()
     if not access.can_create(user):
         raise ApiError(403, "cannot_create_canvas")
+    # The browser's per-account budget (``service.CREATES_PER_MINUTE``), shared with it.
+    if not service.create_allowed(user["id"]):
+        response, status = ApiError(429, "rate_limited").response()
+        response.headers["Retry-After"] = "60"
+        return response, status
     data = json_body()
     title = text(data.get("title"), "title", maximum=service.MAX_TITLE, required=True)
     description = text(data.get("description"), "description", maximum=service.MAX_DESCRIPTION)
@@ -140,6 +156,9 @@ def save_canvas_document(slug: str):
     layout, level = _layout(slug, "edit")
     body = json_body()
     document = _document_data(body.get("data"))
+    refused = _large_write_refused(layout, "save")
+    if refused is not None:
+        return refused
     expected = body.get("expected_version")
     if expected is not None and (type(expected) is not int or expected < 0):
         raise invalid("expected_version", "integer")
@@ -164,6 +183,9 @@ def apply_canvas_ops(slug: str):
         raise invalid("ops", "array")
     if len(ops) > model.MAX_OPS:
         raise invalid("ops", "too_many", maximum=model.MAX_OPS)
+    refused = _large_write_refused(layout, "ops")
+    if refused is not None:
+        return refused
     result = _run(service.apply, layout, ops, user_id=caller()["id"], session_id=_session())
     return _answer(service.get(layout["id"]), level, applied=len(result["applied"]), seq=result["seq"])
 
@@ -173,8 +195,7 @@ def apply_canvas_ops(slug: str):
 def canvas_history(slug: str):
     layout, _level = _layout(slug)
     limit, offset = page_window()
-    entries = service.history(layout["id"])
-    window = entries[offset:offset + limit + 1]
+    window = service.history(layout["id"], limit=limit + 1, offset=offset)
     return ok(history=[{
         "id": entry["id"], "title": entry.get("title"), "edited_by": entry.get("edited_by"),
         "editor": entry.get("username"), "edit_message": entry.get("edit_message") or "",

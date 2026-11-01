@@ -305,10 +305,12 @@
   <form class="form-grid" method="post" action="{{ share_url }}">
     {{ forms.csrf() }}<input type="hidden" name="action" value="add_user">
     <div class="field"><label for="kanban-share-user">{{ t('kanban.share.user') }}</label>
-      <select id="kanban-share-user" name="user_id" required>
+      {% if share_users %}<select id="kanban-share-user" name="user_id" required>
         <option value="">{{ t('kanban.share.choose_user') }}</option>
-        {% for u in share_users %}<option value="{{ u.id }}">{{ u.username }} ({{ t('kanban.role.' ~ u.role) }})</option>{% endfor %}
-      </select></div>
+        {% for u in share_users %}<option value="{{ u.id }}">{{ u.username }}</option>{% endfor %}
+      </select>
+      {% else %}<input class="input" id="kanban-share-user" name="username" required autocomplete="off" aria-describedby="kanban-share-user-hint">
+      <p class="hint" id="kanban-share-user-hint">{{ t('kanban.share.username_hint') }}</p>{% endif %}</div>
     {{ forms.select('access_level', t('kanban.share.access'), levels, id='kanban-share-user-access') }}
     <div class="btn-row"><button type="submit" class="btn btn--small">{{ t('kanban.share.add') }}</button></div>
   </form>
@@ -331,10 +333,12 @@
   <form class="form" method="post" action="{{ share_url }}" data-confirm="{{ t('kanban.share.transfer_confirm') }}">
     {{ forms.csrf() }}<input type="hidden" name="action" value="transfer_ownership">
     <div class="field"><label for="kanban-transfer-user">{{ t('kanban.share.new_owner') }}</label>
-      <select id="kanban-transfer-user" name="user_id" required>
+      {% if share_users %}<select id="kanban-transfer-user" name="user_id" required>
         <option value="">{{ t('kanban.share.choose_user') }}</option>
         {% for u in share_users if u.id != board.created_by %}<option value="{{ u.id }}">{{ u.username }}</option>{% endfor %}
-      </select></div>
+      </select>
+      {% else %}<input class="input" id="kanban-transfer-user" name="username" required autocomplete="off" aria-describedby="kanban-transfer-user-hint">
+      <p class="hint" id="kanban-transfer-user-hint">{{ t('kanban.share.username_hint') }}</p>{% endif %}</div>
     <div class="btn-row"><button type="submit" class="btn btn--small btn--danger">{{ t('kanban.share.transfer') }}</button></div>
   </form>
   <div class="btn-row btn-row--end"><button type="button" class="btn" data-dialog-close>{{ t('common.close') }}</button></div>

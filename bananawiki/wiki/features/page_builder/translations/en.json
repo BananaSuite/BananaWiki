@@ -293,6 +293,7 @@
   "page_builder.error.page_missing": "This page does not exist.",
   "page_builder.error.pages": "A page list can hold at most 24 valid page addresses.",
   "page_builder.error.preview_slow_down": "Too many previews. Wait a moment and try again.",
+  "page_builder.error.publish_slow_down": "Too many saves. Wait a minute and try again.",
   "page_builder.error.required": "Fill in the required fields of every block.",
   "page_builder.error.revision_missing": "The page version is missing. Reload the builder.",
   "page_builder.error.section_empty": "Choose at least one block for the section.",

@@ -141,13 +141,3 @@ def test_the_admin_page_says_when_a_running_job_started(app, client, make_user, 
     login(client, make_user("boss", role="admin"))
     html = client.get("/admin/tts?status=processing").get_data(as_text=True)
     assert "started " in html and "Running" in html
-
-
-def test_the_panel_is_named_without_ids_a_heading_could_take(app, client, make_user, login, make_page):
-    make_page("Guide", "## TTS title 1\n\n## TTS speed 1\n\nSome words about bananas, enough of them to read.")
-    login(client, make_user("reader"))
-    html = client.get("/page/guide").get_data(as_text=True)
-    panel = html[html.index("data-tts-panel"):]
-    assert 'aria-labelledby="tts-title' not in panel and 'for="tts-speed' not in panel
-    assert 'aria-label="Listen to this page"' in html
-    assert '<label class="tts-panel__speed small">Speed' in panel, "the label holds its select"

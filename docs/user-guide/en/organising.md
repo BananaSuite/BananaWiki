@@ -26,7 +26,8 @@ From the page's **Page actions** menu:
 
 * **Rename** changes the title.
 * **Change address** changes `/page/<address>`; links to the old address in
-  other pages are updated.
+  other pages you may edit are updated (pages you cannot edit, or that are
+  protected or checked out by someone else, keep the old link).
 * **Move** puts the page into another category.
 * **Make home page** makes it the wiki's front page.
 
@@ -42,7 +43,8 @@ From the page's **Page actions** menu:
 
 * A **protected** page is controlled by one editor; nobody else can change it.
   An administrator who needs it can request an unlock, which takes effect
-  after 72 hours unless the controller releases it earlier.
+  after 72 hours unless the controller releases it earlier. If the controller
+  stops being an editor, their protections end for good.
 * A **reserved** (checked-out) page is being worked on by one editor for a
   limited time; others cannot edit it meanwhile. Reserve a page from its
   menu or while saving; release it when you are done. **Reservations** in the

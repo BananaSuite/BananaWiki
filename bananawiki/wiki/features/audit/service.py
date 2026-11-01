@@ -84,6 +84,15 @@ def record(
         log.exception("Could not record audit entry %s", action)
 
 
+def record_settings(previous: dict[str, Any], values: dict[str, Any], *, via: str | None = None) -> list[str]:
+    """Record ``settings.updated`` for the keys of *values* that differ from *previous* (``settings.load()``
+    before the change); returns them. Nothing is recorded when nothing changed. *via* names the page."""
+    changed = sorted(name for name, value in values.items() if previous.get(name) != value)
+    if changed:
+        record("settings.updated", details={"changed": ", ".join(changed), **({"via": via} if via else {})})
+    return changed
+
+
 def actions() -> list[str]:
     return db.column("SELECT DISTINCT action FROM audit_log ORDER BY action")
 

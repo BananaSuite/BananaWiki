@@ -6,8 +6,9 @@ refuses to edit them. After :data:`GRACE_HOURS` the purge job deletes the
 page for good through the pages service (so ``page.deleted`` fires for every
 purge); until then it can be restored.
 
-With ``docs_bypass_deletion_slowdown`` set, pages in the documentation
-category (``docs_category_id``) are deleted at once.
+With ``docs_bypass_deletion_slowdown`` set, the built-in documentation pages
+(still in the documentation category, ``docs_category_id``) are deleted at
+once. Other pages moved into that category wait like any page.
 
 When the feature is switched off nothing is purged (its job does not run)
 and deleting a page deletes it immediately. Pages that were already waiting
@@ -38,10 +39,20 @@ def purge_at(pending_since: str | None) -> str | None:
 
 
 def bypasses(page: dict[str, Any]) -> bool:
-    """Documentation pages skip the grace period when the site says so."""
+    """Built-in documentation pages skip the grace period when the site says so.
+
+    Being in the documentation category is not enough: anyone may move a page
+    there. The page must also have been written by the documentation
+    installer, which lists its pages (its history is not proof: an editor
+    can give any page a first entry that looks like the installer's).
+    """
+    from ..auth.docs import is_builtin
+
     docs = settings.get("docs_category_id")
-    return bool(settings.get("docs_bypass_deletion_slowdown")) and docs is not None \
-        and page.get("category_id") is not None and int(docs) == int(page["category_id"])
+    if not settings.get("docs_bypass_deletion_slowdown") or docs is None or page.get("category_id") is None \
+            or int(docs) != int(page["category_id"]):
+        return False
+    return is_builtin(page["id"])
 
 
 def set_docs_bypass(on: bool) -> None:

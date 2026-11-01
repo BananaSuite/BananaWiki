@@ -55,7 +55,7 @@
   "profiles.no_fields": "Du hast noch keine Profilfelder ausgefüllt.",
   "profiles.no_fields_other": "{user} hat noch keine Profilfelder ausgefüllt.",
   "profiles.page.delete": "Profil löschen",
-  "profiles.page.delete_confirm": "Möchtest du die Profilangaben und das Profilbild wirklich löschen? Beiträge bleiben erhalten.",
+  "profiles.page.delete_confirm": "Möchtest du die Profilangaben, das Profilbild und die Antworten in den Profilfeldern wirklich löschen? Beiträge bleiben erhalten.",
   "profiles.page.disabled": "Ein Administrator hat deine Profilseite deaktiviert.",
   "profiles.page.hidden": "Dein Profil ist ausgeblendet: Außer dir können es nur Administratoren öffnen.",
   "profiles.page.hide": "Mein Profil ausblenden",
@@ -71,5 +71,6 @@
   "profiles.type.longtext": "Langer Text",
   "profiles.type.number": "Zahl",
   "profiles.type.text": "Kurzer Text",
-  "profiles.type.url": "Webadresse"
+  "profiles.type.url": "Webadresse",
+  "audit.action.user.profile_moderated": "Öffentliches Profil von einem Administrator geändert"
 }

@@ -1,8 +1,8 @@
-"""Wiki schema versions 8 to 15 are frozen in their migration modules.
+"""Wiki schema versions 8 to 18 are frozen in their migration modules.
 
 A migration that called a feature's schema function would change meaning
 whenever that function changed: databases upgraded before and after the edit
-would end up with different schemas. Versions 8-15 therefore carry their own
+would end up with different schemas. Versions 8-18 therefore carry their own
 DDL, and the schema they produce is pinned here (the text SQLite keeps for
 each table and index they create, and the definition of each column they add),
 all of it: anything else they add fails the test too.
@@ -22,8 +22,17 @@ from bananawiki.wiki.templating import THEME_DEFAULTS
 
 FROZEN = ("v8_tokens_and_chat_safety", "v9_two_step", "v10_chat_blocks", "v11_kanban_done_columns",
           "v12_idempotency_tokens", "v13_platform_signouts", "v14_bm_mode",
-          "v15_easter_eggs")
+          "v15_easter_eggs", "v16_canvas_list_index", "v17_builtin_doc_pages",
+          "v18_canvas_page_slugs")
 
+_CANVAS_SLUGS = (
+    "SELECT DISTINCT new.id, substr(CAST(json_extract(n.value, '$.page_slug') AS TEXT), 1, 200) "
+    "FROM json_each(CASE WHEN json_valid(new.data) AND json_type(new.data, '$.nodes') = 'array' "
+    "THEN new.data ELSE '[]' END, '$.nodes') AS n "
+    "WHERE n.type = 'object' AND lower(trim(json_extract(n.value, '$.type'))) IN ('wiki_page', 'page') "
+    "AND json_type(n.value, '$.page_slug') IN ('text', 'integer') "
+    "AND length(CAST(json_extract(n.value, '$.page_slug') AS TEXT)) > 0"
+)
 CREATED = {
     "chat__reports": (
         "CREATE TABLE chat__reports (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, "
@@ -53,6 +62,28 @@ CREATED = {
         "CREATE TABLE platform_oauth_state (id INTEGER PRIMARY KEY CHECK (id = 1), "
         "signout_cursor INTEGER NOT NULL DEFAULT 0, signouts_checked_at TEXT)"
     ),
+    "idx_canvas_layouts_updated": "CREATE INDEX idx_canvas_layouts_updated ON canvas__layouts(updated_at, id)",
+    "builtin_doc_pages": (
+        "CREATE TABLE builtin_doc_pages (page_id INTEGER PRIMARY KEY REFERENCES pages(id) ON DELETE CASCADE)"
+    ),
+    "canvas__page_slugs": (
+        "CREATE TABLE canvas__page_slugs (layout_id INTEGER NOT NULL REFERENCES canvas__layouts(id) "
+        "ON DELETE CASCADE, slug TEXT NOT NULL, PRIMARY KEY (slug, layout_id)) WITHOUT ROWID"
+    ),
+    "idx_canvas_page_slugs_layout": "CREATE INDEX idx_canvas_page_slugs_layout ON canvas__page_slugs(layout_id)",
+    "canvas_page_slugs_insert": (
+        "CREATE TRIGGER canvas_page_slugs_insert AFTER INSERT ON canvas__layouts BEGIN "
+        f"INSERT OR IGNORE INTO canvas__page_slugs (layout_id, slug) {_CANVAS_SLUGS}; END"
+    ),
+    "canvas_page_slugs_update": (
+        "CREATE TRIGGER canvas_page_slugs_update AFTER UPDATE OF data ON canvas__layouts BEGIN "
+        "DELETE FROM canvas__page_slugs WHERE layout_id = old.id; "
+        f"INSERT OR IGNORE INTO canvas__page_slugs (layout_id, slug) {_CANVAS_SLUGS}; END"
+    ),
+    "canvas_page_slugs_delete": (
+        "CREATE TRIGGER canvas_page_slugs_delete AFTER DELETE ON canvas__layouts BEGIN "
+        "DELETE FROM canvas__page_slugs WHERE layout_id = old.id; END"
+    ),
 }
 # (table, column) -> (type, not null, default)
 ADDED = {
@@ -73,7 +104,7 @@ ADDED = {
     ("users", "bm_self"): ("TEXT", 1, "''"),
     ("site_settings", "easter_eggs"): ("TEXT", 1, "'{}'"),
 }
-FROZEN_UPTO = 15
+FROZEN_UPTO = 18
 
 
 def _database(path: Path, upto: int | None = None) -> Database:
@@ -128,7 +159,7 @@ def test_frozen_migrations_do_not_call_feature_code(name):
     assert not [module for module in imported if "features" in module.split(".")], imported
 
 
-def test_versions_8_to_15_create_the_pinned_schema(tmp_path):
+def test_versions_8_to_18_create_the_pinned_schema(tmp_path):
     fresh = _database(tmp_path / "fresh.db")
     fresh.initialize()
     schema = _schema(fresh)
@@ -138,7 +169,7 @@ def test_versions_8_to_15_create_the_pinned_schema(tmp_path):
         assert _column(fresh, table, column) == definition, (table, column)
 
 
-def test_versions_8_to_15_add_nothing_but_the_pinned_schema(tmp_path):
+def test_versions_8_to_18_add_nothing_but_the_pinned_schema(tmp_path):
     _version_3(tmp_path / "old.db")
     _database(tmp_path / "old.db", upto=7).initialize()
     names, columns = _objects_and_columns(_database(tmp_path / "old.db", upto=7))

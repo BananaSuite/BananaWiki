@@ -4,6 +4,10 @@ Pairing keys are needed in clear to compute signatures, so they are stored
 encrypted with the instance key (``core.crypto``) rather than hashed.
 Plaintext keys from 1.4 keep working and are encrypted by the poll job.
 Times in the ``federation_*`` tables are Unix seconds (REAL).
+
+A pairing and its shares are a standing outbound channel, so pairing,
+disconnecting, sharing, withdrawing and forking are audited
+(``federation.*``), with only the host of a peer's address.
 """
 
 from __future__ import annotations
@@ -12,13 +16,14 @@ import secrets
 import time
 import uuid
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from flask import current_app
 
 from ....core import crypto
 from ... import auth
 from ...db import db
+from ..audit import record
 from ..pages import service
 from . import protocol
 from .protocol import ProtocolError
@@ -80,6 +85,14 @@ def peer(remote_id: str) -> dict[str, Any] | None:
     return db.one("SELECT * FROM federation_peers WHERE wiki_id = ?", (remote_id,))
 
 
+def _audit(action: str, peer_row: dict[str, Any] | None, remote_id: str, *, target_type: str = "federation_peer",
+           target_id: Any = None, **details: Any) -> None:
+    peer_row = peer_row or {}
+    record(action, target_type=target_type, target_id=remote_id if target_id is None else target_id,
+           details={"wiki_id": remote_id, "name": peer_row.get("name"),
+                    "host": urlsplit(str(peer_row.get("base_url") or "")).hostname or "", **details})
+
+
 def pair(remote_id: str, name: str, origin: str, secret: str, *, category: int | None = None,
          allow_private: bool = False) -> None:
     remote_id = protocol.wiki_id(remote_id)
@@ -104,11 +117,28 @@ def pair(remote_id: str, name: str, origin: str, secret: str, *, category: int |
             "audience_category": category, "generation": secrets.token_hex(16),
             "allow_private_network": 1 if allow_private else 0,
         })
+        _audit("federation.paired", {"name": name, "base_url": origin}, remote_id, audience_category=category,
+               private_network=bool(allow_private))
+
+
+def audit_sync(peer_row: dict[str, Any], stored: bool) -> None:
+    """Record an administrator's *Sync now* (the poll job's own runs are not recorded)."""
+    _audit("federation.synced", peer_row, peer_row["wiki_id"], stored=stored)
 
 
 def disconnect(remote_id: str) -> None:
     """Remove a pairing; its grants, copies and nonces go with it (ON DELETE CASCADE)."""
-    db.execute("DELETE FROM federation_peers WHERE wiki_id = ?", (remote_id,))
+    with db.transaction():
+        row = peer(remote_id)
+        if row is None:
+            return
+        shares_removed = db.scalar("SELECT COUNT(*) FROM federation_shares WHERE peer_id = ?", (remote_id,),
+                                   default=0)
+        copies_removed = db.scalar("SELECT COUNT(*) FROM federation_copies WHERE peer_id = ?", (remote_id,),
+                                   default=0)
+        db.execute("DELETE FROM federation_peers WHERE wiki_id = ?", (remote_id,))
+        _audit("federation.disconnected", row, remote_id, shares_removed=shares_removed,
+               copies_removed=copies_removed)
 
 
 # Outgoing shares
@@ -150,13 +180,20 @@ def share(remote_id: str, page: dict[str, Any], user: dict[str, Any]) -> None:
                    (current["id"], str(uuid.uuid4())))
         db.execute("INSERT OR REPLACE INTO federation_shares (peer_id, page_id, granted_by, category_id) "
                    "VALUES (?, ?, ?, ?)", (remote_id, current["id"], user["id"], current["category_id"]))
+        _audit("federation.page_shared", peer(remote_id), remote_id, target_type="page", target_id=current["id"],
+               title=current["title"], slug=current["slug"])
 
 
 def unshare(remote_id: str, page_id: int, user: dict[str, Any]) -> bool:
-    row = db.one("SELECT granted_by FROM federation_shares WHERE peer_id = ? AND page_id = ?", (remote_id, page_id))
-    if row is None or (row["granted_by"] != user["id"] and not auth.is_admin(user)):
-        return False
-    db.execute("DELETE FROM federation_shares WHERE peer_id = ? AND page_id = ?", (remote_id, page_id))
+    with db.transaction():
+        row = db.one("SELECT granted_by FROM federation_shares WHERE peer_id = ? AND page_id = ?",
+                     (remote_id, page_id))
+        if row is None or (row["granted_by"] != user["id"] and not auth.is_admin(user)):
+            return False
+        db.execute("DELETE FROM federation_shares WHERE peer_id = ? AND page_id = ?", (remote_id, page_id))
+        page = service.get(page_id, with_content=False) or {}
+        _audit("federation.page_unshared", peer(remote_id), remote_id, target_type="page", target_id=page_id,
+               title=page.get("title"), slug=page.get("slug"))
     return True
 
 
@@ -322,6 +359,9 @@ def fork(item: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
         raise ProtocolError("federation.error.fork_needs_category")
     content = (f"Source: {item['base_url']}{item['source_path']}\nSource wiki: {item['peer_id']}\n"
                f"Revision: {item['revision']}\n\n{item['content']}")
-    return service.create(item["title"], content, category_id=item["audience_category"], author_id=user["id"],
+    page = service.create(item["title"], content, category_id=item["audience_category"], author_id=user["id"],
                           slug="federated-" + secrets.token_hex(12),
                           edit_message=f"Forked from {item['name']} ({item['peer_id']})")
+    _audit("federation.forked", item, item["peer_id"], target_type="page", target_id=page["id"],
+           title=page["title"], slug=page["slug"], revision=item["revision"])
+    return page

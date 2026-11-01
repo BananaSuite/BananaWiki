@@ -83,6 +83,7 @@ che non usi più.
 Se hai due account, la pagina di unione nelle Impostazioni
 (`/settings/merge-request`) chiede di unire uno all'altro. Entrambi gli
 account confermano con la propria password, poi un amministratore approva.
+Puoi chiedere al massimo 10 unioni in 24 ore, contando anche le richieste annullate.
 
 ## Eliminare l'account
 

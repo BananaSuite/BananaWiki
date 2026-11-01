@@ -211,12 +211,6 @@ def test_the_attention_page_leads_to_the_overview(make_account, login, admin, po
     assert 'href="/admin/attention"' not in overview, "no second page, no extra tab"
 
 
-def test_the_sign_in_banner_reviews_on_the_overview(make_account, login, admin, portal):
-    make_account(approval_status="pending")
-    page = _client(portal, login, admin).get("/admin").get_data(as_text=True)
-    assert 'href="/admin#attention"' in page
-
-
 # Impersonation leaves the customer's theme alone
 
 

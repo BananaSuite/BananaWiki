@@ -55,7 +55,7 @@
   "profiles.no_fields": "Non hai compilato nessun campo del profilo.",
   "profiles.no_fields_other": "{user} non ha compilato nessun campo del profilo.",
   "profiles.page.delete": "Elimina profilo",
-  "profiles.page.delete_confirm": "Eliminare i dati e l'immagine del profilo? I contributi restano.",
+  "profiles.page.delete_confirm": "Eliminare i dati, l'immagine e le risposte ai campi del profilo? I contributi restano.",
   "profiles.page.disabled": "Un amministratore ha disattivato la tua pagina profilo.",
   "profiles.page.hidden": "Il tuo profilo è nascosto: solo tu e gli amministratori potete aprirlo.",
   "profiles.page.hide": "Nascondi il mio profilo",
@@ -71,5 +71,6 @@
   "profiles.type.longtext": "Testo lungo",
   "profiles.type.number": "Numero",
   "profiles.type.text": "Testo breve",
-  "profiles.type.url": "Indirizzo web"
+  "profiles.type.url": "Indirizzo web",
+  "audit.action.user.profile_moderated": "Profilo pubblico modificato da un amministratore"
 }

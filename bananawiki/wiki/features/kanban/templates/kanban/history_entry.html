@@ -64,7 +64,7 @@
           <ul>{% for item in ticket.checklist %}<li>{{ '☑' if item.done else '☐' }} {{ item.text }}</li>{% endfor %}</ul>
         </details>
         {% endif %}
-        {% if ticket.description %}<div class="prose small kanban-snapshot__description">{{ ticket.description|markdown }}</div>{% endif %}
+        {% if ticket.description_html %}<div class="prose small kanban-snapshot__description">{{ ticket.description_html|safe }}</div>{% endif %}
       </li>
       {% else %}
       <li class="muted">{{ t('kanban.history.no_tickets') }}</li>

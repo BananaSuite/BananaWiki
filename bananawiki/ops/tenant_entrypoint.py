@@ -18,11 +18,21 @@ import time
 from collections.abc import Callable
 
 
+def _count(environ: dict[str, str] | os._Environ[str], name: str, default: int) -> int:
+    try:
+        return max(1, min(32, int(environ.get(name, "") or default)))
+    except ValueError:
+        return default
+
+
 def web_command(environ: dict[str, str] | os._Environ[str]) -> list[str]:
+    # --threads overrides the configuration file's threads, so it adds the threads kept for large responses
+    # (BW_DOWNLOAD_THREADS, which the wiki reads too: bananawiki.core.downloads) to the tenant's own.
+    threads = _count(environ, "BW_INSTANCE_GUNICORN_THREADS", 4) + _count(environ, "BW_DOWNLOAD_THREADS", 8)
     return [
         sys.executable, "-m", "gunicorn", "-c", "python:bananawiki.ops.gunicorn_conf",
         "--workers", environ.get("BW_INSTANCE_GUNICORN_WORKERS", "1"),
-        "--threads", environ.get("BW_INSTANCE_GUNICORN_THREADS", "4"),
+        "--threads", str(threads),
         "--graceful-timeout", "10", "bananawiki.ops.wsgi:app",
     ]
 
@@ -56,7 +66,7 @@ class Supervisor:
                 child.terminate()
 
     def run(self) -> int:
-        environment = {**self.environ, "PYTHONDONTWRITEBYTECODE": "1", "HOME": self.environ.get("HOME", "/tmp")}  # noqa: S108
+        environment = {**self.environ, "PYTHONDONTWRITEBYTECODE": "1", "HOME": self.environ.get("HOME", "/tmp")}  # noqa: S108  # nosec B108
         web = self.spawn(web_command(self.environ), env=environment)
         self.children.append(web)
         port = int(self.environ.get("BW_PORT", "5001"))

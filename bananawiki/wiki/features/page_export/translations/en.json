@@ -46,7 +46,9 @@
   "page_export.menu": "Export",
   "page_export.nav": "Bulk Markdown",
   "page_export.pdf": "PDF",
+  "page_export.pdf.busy": "PDF export is busy with another page. Try again in a moment.",
   "page_export.pdf.by": "Last edited by {user}",
+  "page_export.pdf.cut": "The PDF ends here: the rest of the page is too long to export. Read it in the wiki.",
   "page_export.pdf.edited": "{when}",
   "page_export.pdf.historical": "Historical revision"
 }

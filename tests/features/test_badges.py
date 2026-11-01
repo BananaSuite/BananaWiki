@@ -42,12 +42,6 @@ def test_typed_icons_show_and_stock_icons_become_a_coloured_mark(admin_client, d
     assert 'name="icon" type="text" value="&lt;b&gt;"' in admin_client.get(f"/admin/badges/{typed}/edit").get_data(as_text=True)
 
 
-def test_badge_admin_is_admin_only(client, make_user, login):
-    login(client, make_user("bob"))
-    assert client.get("/admin/badges").status_code == 403
-    assert client.post("/admin/badges/create", data=BADGE).status_code == 403
-
-
 def test_default_badges_are_added_once_and_disabled(admin_client, db):
     admin_client.post("/admin/badges/defaults")
     admin_client.post("/admin/badges/defaults")

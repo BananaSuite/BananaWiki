@@ -12,9 +12,10 @@ import shutil
 
 from flask import current_app, redirect, render_template, request, send_file, session, url_for
 
-from ....core.passwords import verify_password
+from ....core import downloads
 from ... import auth, i18n
 from ..audit import record
+from ..users.service import ProfileError, password_ok
 from . import migration
 from .blueprint import bp
 from .migration import MigrationError
@@ -46,7 +47,14 @@ def _confirmed(action: str) -> bool:
         auth.flash_t("site_admin.migration.error.impersonating", "error")
         return False
     password = request.form.get("password", "")
-    if not password or len(password) > 1024 or not verify_password(user.get("password"), password):
+    try:
+        # Counted against the account's password budget like every other re-entered password.
+        correct = bool(password) and password_ok(user, password)
+    except ProfileError as error:
+        record(f"site.{action}_refused", details={"reason": "too_many_attempts"})
+        auth.flash_t(error.key, "error")
+        return False
+    if not correct:
         record(f"site.{action}_refused", details={"reason": "wrong_password"})
         auth.flash_t("site_admin.migration.error.password", "error")
         return False
@@ -63,6 +71,7 @@ def migration_page():
 
 @bp.post("/admin/migration/export")
 @auth.admin_required
+@downloads.place_first
 def migration_export():
     if not _may_move_site():
         record("site.export_refused", details={"reason": "not_owner"})
@@ -80,6 +89,7 @@ def migration_export():
 
 @bp.post("/admin/migration/import")
 @auth.admin_required
+@auth.large_body(minimum_role="admin")
 def migration_import():
     if not _may_move_site():
         record("site.import_refused", details={"reason": "not_owner"})

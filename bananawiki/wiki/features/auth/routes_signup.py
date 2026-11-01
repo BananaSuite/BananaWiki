@@ -31,6 +31,7 @@ def _render(status: int = 200, error: str | None = None, form: dict | None = Non
 
 @bp.route("/signup", methods=["GET", "POST"], endpoint="signup")
 @auth.public
+@auth.exempt("approval")  # sends any signed-in account, refused ones too, on to the wiki
 def signup_page():
     if auth.current_user() is not None:
         return redirect("/")

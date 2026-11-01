@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import itertools
 import re
+import sqlite3
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -61,12 +63,69 @@ def _probe_blueprint():
     return bp
 
 
+def _cache_url_builders() -> None:
+    """Compile each URL rule's builder once per test process, not once per wiki.
+
+    Werkzeug turns every rule into Python code when an application is made,
+    the larger half of making one (and most tests make one). The code takes
+    the rule as an argument and depends only on its parsed form and defaults,
+    so wikis with the same routes can share it. Tests only.
+    """
+    from werkzeug.routing import rules
+
+    original = rules.Rule._compile_builder
+    compiled: dict[Any, Any] = {}
+
+    def cached(self, append_unknown: bool = True):
+        try:
+            key = (self.rule, tuple(self._trace), repr(sorted((self.defaults or {}).items())), append_unknown)
+            hash(key)
+        except TypeError:
+            return original(self, append_unknown)
+        builder = compiled.get(key)
+        if builder is None:
+            builder = compiled[key] = original(self, append_unknown)
+        return builder
+
+    rules.Rule._compile_builder = cached
+
+
+_cache_url_builders()
+
+
+# A new wiki's database, made once per test process for each set of overrides and copied into the
+# instance folder of every later wiki built with the same overrides: creating it (every migration since
+# the 1.4 schema) was a third of the time of a typical test.
+_DATABASE_TEMPLATES: dict[str, bytes] = {}
+
+
+def _template_key(overrides: dict[str, Any]) -> str | None:
+    try:
+        return repr(sorted((key, repr(value)) for key, value in overrides.items()))
+    except TypeError:
+        return None
+
+
 @pytest.fixture
 def app_factory(tmp_path):
     """Build extra wikis (or the same one twice) with custom environment variables."""
 
     def build(*, setup_done: bool = True, **overrides: Any):
-        application = create_app(make_config(tmp_path, **overrides))
+        config = make_config(tmp_path, **overrides)
+        database = Path(config.database_path)
+        key = _template_key(overrides)
+        fresh = not database.exists()
+        if fresh and key in _DATABASE_TEMPLATES:
+            database.parent.mkdir(parents=True, exist_ok=True)
+            database.write_bytes(_DATABASE_TEMPLATES[key])
+            Path(str(database) + ".initialized").write_bytes(b"BananaSuite SQLite initialized\n")
+        application = create_app(config)
+        if fresh and key is not None and key not in _DATABASE_TEMPLATES:
+            with sqlite3.connect(database) as source:
+                copy = sqlite3.connect(":memory:")
+                source.backup(copy)
+                _DATABASE_TEMPLATES[key] = copy.serialize()
+                copy.close()
         application.config["CSRF_DISABLED"] = True
         application.register_blueprint(_probe_blueprint())
         if setup_done:

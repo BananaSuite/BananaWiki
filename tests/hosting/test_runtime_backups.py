@@ -1,4 +1,4 @@
-"""Encrypted platform backups (BWBACKUP1), restore, Google Drive, DNS checks and runtime maintenance."""
+"""Encrypted platform backups (BWBACKUP2, and BWBACKUP1 restores), restore, Google Drive, DNS checks and runtime maintenance."""
 
 from __future__ import annotations
 
@@ -20,12 +20,14 @@ from types import SimpleNamespace
 
 import dns.resolver
 import pytest
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from bananawiki.hosting.db import open_database
 from bananawiki.hosting.runtime import DomainCheck, RuntimeFailure, UnavailableRuntime, crypto, gdrive
 from bananawiki.hosting.runtime.agent import GDRIVE_RETRY_SECONDS
-from bananawiki.hosting.runtime.crypto import MAGIC
+from bananawiki.hosting.runtime.crypto import LEGACY_MAGIC, MAGIC
 from bananawiki.ops.runtime_agent import AgentError
 
 from .agent_fakes import hold_above_plan, make_runtime, make_spec, provision
@@ -36,11 +38,17 @@ def _hosting_db(runtime) -> None:
 
 
 def _decrypt(path: Path, key: bytes) -> bytes:
-    """The 1.4 algorithm, written independently: AES-256-GCM over everything between nonce and tag."""
+    """BWBACKUP2, written independently: an HKDF-SHA256 file key from the salt, then 1 MiB AES-256-GCM segments
+    with the segment number and a final flag as nonce and the header as associated data."""
     data = path.read_bytes()
     assert data.startswith(MAGIC)
-    nonce = data[len(MAGIC):len(MAGIC) + 12]
-    return AESGCM(key).decrypt(nonce, data[len(MAGIC) + 12:], None)
+    header, body = data[:len(MAGIC) + 32], data[len(MAGIC) + 32:]
+    file_key = AESGCM(HKDF(algorithm=hashes.SHA256(), length=32, salt=header[len(MAGIC):],
+                           info=b"BananaWiki platform backup BWBACKUP2").derive(key))
+    size = 1024 * 1024 + 16
+    segments = [body[start:start + size] for start in range(0, len(body), size)]
+    return b"".join(file_key.decrypt(number.to_bytes(11, "big") + bytes([number == len(segments) - 1]), segment,
+                                     header) for number, segment in enumerate(segments))
 
 
 def test_backup_key_from_file_or_environment(tmp_path, monkeypatch):
@@ -75,7 +83,7 @@ def test_backup_key_refuses_public_or_nonregular_files(tmp_path, kind):
     assert error.value.code == "not_configured"
 
 
-def test_streaming_encryption_matches_the_1x_format(tmp_path):
+def test_streaming_encryption_matches_the_documented_format_and_reads_the_1x_one(tmp_path):
     key = os.urandom(32)
     target = tmp_path / "out.bwenc"
     output = crypto.EncryptedOutput(target, key)
@@ -85,7 +93,7 @@ def test_streaming_encryption_matches_the_1x_format(tmp_path):
     assert _decrypt(target, key) == b"hello world"
     legacy = tmp_path / "legacy.bwenc"
     nonce = os.urandom(12)
-    legacy.write_bytes(MAGIC + nonce + AESGCM(key).encrypt(nonce, b"from 1.4", None))
+    legacy.write_bytes(LEGACY_MAGIC + nonce + AESGCM(key).encrypt(nonce, b"from 1.4", None))
     assert crypto.decrypt_file(legacy, tmp_path / "plain", key).read_bytes() == b"from 1.4"
     with pytest.raises(RuntimeFailure) as error:
         crypto.decrypt_file(legacy, tmp_path / "wrong", os.urandom(32))

@@ -192,6 +192,7 @@ def test_linked_account_signs_in_by_stable_id(oauth_client, oauth_db, portal, ma
     user = make_user("renamed_locally")
     oauth_db.execute("INSERT INTO platform_oauth_links (account_id, user_id, linked_at) VALUES ('acct-1', ?, "
                      "'2026-01-01 00:00:00')", (user["id"],))
+    portal.links[user["id"]] = "acct-1"  # made by link(), which tells the portal too
     response = _callback(oauth_client, _start(oauth_client))
     assert response.status_code == 302
     assert oauth_client.get("/_probe/private").data == b"private"

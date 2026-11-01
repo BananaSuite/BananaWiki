@@ -84,6 +84,41 @@ def exempt(*gates: str) -> Callable[[Callable], Callable]:
     return decorate
 
 
+def large_body(view: Callable | None = None, *, minimum_role: str = "user") -> Any:
+    """Upload view that may receive more than ``BW_MAX_CONTENT_LENGTH_BYTES``.
+
+    Only bearer API calls with a valid token and signed-in accounts that pass
+    the approval and suspension gates and hold *minimum_role* get the larger
+    ceiling (the biggest upload limit); the view still checks its own, smaller
+    limit. Every other request body is limited before CSRF parses it.
+    """
+
+    def mark(target: Callable) -> Callable:
+        target._bw_large_body = minimum_role
+        return target
+
+    return mark(view) if view is not None else mark
+
+
+def view_large_body(view: Callable | None) -> str | None:
+    """The weakest role a view marked :func:`large_body` takes large bodies from, or None."""
+    return getattr(view, "_bw_large_body", None)
+
+
+def session_may_send_large_body(minimum_role: str) -> bool:
+    """Whether the session cookie holds a sign-in that may send a large body (a cheap check made before
+    the pipeline): an active session of an account that is not blocked and holds *minimum_role*."""
+    raw = session.get(SESSION_TOKEN_KEY)
+    if not raw:
+        return False
+    row = db.one(
+        "SELECT user_id FROM user_sessions WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?",
+        (crypto.sha256_hex(raw), now_sql()),
+    )
+    user = _load_user(row["user_id"]) if row else None
+    return user is not None and account_block(user) is None and has_role(minimum_role, user)
+
+
 def view_access(view: Callable | None) -> str:
     return getattr(view, _ACCESS_ATTR, "login") if view else "login"
 

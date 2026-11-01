@@ -174,33 +174,61 @@ The wiki itself: Markdown pages in a tree of categories.
   `[[canvas slug="…"]]` and `[[kanban board="…"]]` on their own line, bare
   YouTube/Vimeo links on their own line, and `@username` mentions.
 * **Page actions** menu: rename, change address (links in other pages
-  are rewritten), move to another category, make home page, hide from
-  navigation and search, print, delete.
+  the renamer may edit are rewritten), move to another category, make home
+  page, hide from navigation and search, print, delete.
 * **Search** at `/search` over a full-text index: all words must match,
   `"exact phrase"`, `-excluded`, and the fields `title:`, `content:`,
-  `category:`, `slug:`, `type:page|category`; sort by relevance, title or
-  recent edits. The sidebar search filters titles instantly.
+  `category:`, `slug:`, `type:page|category`; words without a letter or
+  digit are ignored, a repeated word counts once, and at most 12 words and
+  12 exclusions count, with 24 words in all (the words of quoted phrases
+  included); a word of
+  three letters or more, counted as the index splits words (underscores and
+  other characters it ignores do not count), also finds longer words
+  starting with it, a shorter one only itself; sort by relevance, title or recent edits. The sidebar search filters titles
+  instantly; like the link picker and `GET /api/v1/search` it finds nothing
+  for a query without a letter or digit. Where SQLite lacks FTS5 these
+  searches match the first 32 characters of the query as text instead, and
+  `/search` the first 32 characters of each word, phrase or exclusion. A result's excerpt shows the first match within the first
+  20,000 characters of the page (the start of the page otherwise), and a
+  search still running after 5 seconds is stopped with a message.
 * **Categories**: create, rename, move into another category, reorder (drag
   and drop on **All pages**), sequential navigation, delete (its pages are
-  moved, left without category, or deleted; subcategories move up).
+  moved, left without category, or deleted; subcategories move up). Moving
+  pages this way is refused while one of them is protected, checked out or
+  hidden from the editor, as moving it on its own would be. Categories nest
+  at most 32 levels deep and a wiki holds at most 10,000 of them; a deeper
+  tree left by an older version is shown with its deeper categories at the
+  32nd level. Category pickers (moving a page or a category, the editor, the
+  new-category form) show paths of at most about 160 characters: a longer one
+  keeps the category's name and its nearest parents after "… / ". Search
+  still matches every parent's name.
 * **Images** are stored once in the uploads folder; unused images are removed
   by a job after 24 hours.
 
-Settings: per-user daily upload quotas and the upload rules (**Admin → Site
+Settings: per-user daily upload quotas (images uploaded for pages, the page
+builder and canvases, page and Kanban ticket attachments, and the files of
+canvas and board imports count alike) and the upload rules (**Admin → Site
 settings → Uploads**). Permissions: `page.*`, `category.*`, `search.*` (see
 [permissions](permissions.md)).
 
 ## Page history
 
-Every save, rename or revert stores the full page in `page_history`.
+Every save, rename or revert stores the full page in `page_history`. When
+a page changes its address, the pages linking to it get the new links with a
+history version each, up to 4 million characters of them per change; pages
+past that get the new links without a version of their own.
 `/page/<slug>/history` lists versions; each version can be viewed rendered,
 as Markdown, or as a difference to the previous one, and restored (the
-current text stays in the history). Differences are computed within a fixed
+current text stays in the history; the old title comes back only for holders
+of `page.edit_metadata`). Differences are computed within a fixed
 work budget: when two versions are too different (or too repetitive) to
 compare in detail, the part that could not be compared shows as removed and
-re-added as a whole, with a note. Holders of the permissions can delete
-entries, clear a page's history, credit entries to another account or remove
-the author.
+re-added as a whole, with a note. Versions whose rendering is over 1 million
+characters show the difference of their Markdown in place of the rendered
+difference, and each account may open 30 versions and 30 history lists a
+minute. Holders of the
+permissions can delete entries, clear a page's history, credit entries to
+another account or remove the author.
 
 Permissions: `history.view`, `history.revert`, `history.delete`,
 `history.transfer` (the last three also need edit access to the page).
@@ -211,7 +239,8 @@ While someone edits a page, the editor autosaves their text as a private
 draft. Reopening the editor offers to restore or discard it; other editors'
 open drafts are listed. Saving the page clears the drafts on it and credits
 their authors in the edit summary. **My drafts** (`/drafts`) lists your
-drafts; **Take over draft** in the editor makes another editor's draft yours.
+drafts, 50 a page; **Take over draft** in the editor makes another editor's
+draft yours (recorded in the audit log).
 
 Setting: `draft_expiration_hours` (**Admin → Site settings → Content and
 exports**; 0 keeps drafts forever). Permissions: `draft.create`, `draft.view_own`,
@@ -221,6 +250,9 @@ exports**; 0 keeps drafts forever). Permissions: `draft.create`, `draft.view_own
 
 Files attached to a page, listed under it and in its editor, downloadable one
 by one or as a ZIP. Downloads always check that the reader may see the page.
+The ZIP stores the files as they are (no second compression) and is sent
+while it is made, never written to disk; each server process sends two at a
+time, and a third download returns to the page with a message.
 Files are added in the editor: the **File** button, dropping or pasting a file
 into the text (an image becomes a picture, any other file an attachment with
 a link at the cursor) or dropping it on the file list. A new page offers
@@ -230,6 +262,8 @@ progress bar with a Cancel button; files that are too large, empty or of a
 refused type are turned away before they are sent. An upload cut off half way
 leaves nothing behind: nothing is stored until the whole file has arrived, and
 a temporary file left by a killed worker is removed after a day.
+A page holds at most 500 attachments; uploads past that are refused until
+some are deleted.
 
 Settings (**Admin → Site settings → Uploads**): `upload_mode` (`allow_all`,
 `whitelist` or `blacklist`) with the extension lists, `upload_max_size_mb`
@@ -249,7 +283,16 @@ custom label with a colour. Permissions: `tag.edit_difficulty`,
 * **PDF** (`/page/<slug>/export-pdf`, and for old versions from the history):
   generated on the server with fpdf2 from the same sanitised HTML as the page.
   Images are included only when they were uploaded to this wiki; nothing is
-  fetched from the network. Install DejaVu fonts (`fonts-dejavu-core`) for
+  fetched from the network. They are embedded at print resolution (at most
+  1400 × 2000 pixels, as JPEG on white), up to 50 images and 32 MB of them per
+  PDF; later ones show their description. Each server process lays out one
+  PDF at a time: an export that waits more than ten seconds for its turn
+  returns to the page with a message. A PDF ends with a note after 500 pages
+  or 8 seconds of layout, also in the middle of one long code block or table; a PDF cut
+  by time (a busy server, say) is made again after five minutes. Links point to the wiki's public address
+  (`BW_BASE_URL` or **Admin → Notifications**) when one is set, and a PDF is
+  then made once per page version; without it they point to the address the
+  request came to, and each address gets its own PDF. Install DejaVu fonts (`fonts-dejavu-core`) for
   characters outside Latin-1. Needs `pdf_export_enabled` and the
   `page.export_pdf` permission.
 * **Markdown** (`/page/<slug>/export-md`) and **import into a page**
@@ -258,7 +301,9 @@ custom label with a colour. Permissions: `tag.edit_difficulty`,
   page as `<category folders>/<slug>.md` with front matter, embedded images
   and attachments in one ZIP; import `.md` files or ZIPs of them (folders
   become categories). Built on disk, never in memory; archives are checked for
-  size, entry count, compression ratio and unsafe paths.
+  size, entry count, compression ratio and unsafe paths, and one import unpacks
+  at most 256 MiB of Markdown across all its files (counted as the memory the
+  text takes once read, up to four times its size for text with emoji).
 
 ## Page builder
 
@@ -310,9 +355,12 @@ content, so search, history and exports keep working.
 Who may use it: the feature on, `page_builder_access` reached (administrators,
 editors or everyone), and the right to edit that page (so plain users cannot
 edit pages through it). Publishing goes through the normal page service
-(history, conflicts, protection). Settings on **Admin → Page builder**.
+(history, conflicts, protection); an account publishes at most 30 times a
+minute, as the Markdown editor saves. Settings on **Admin → Page builder**.
 Builder pages are hidden from anonymous visitors unless marked public by an
-administrator, and always under `BW_FORBID_PUBLIC_BUILDER_PAGES`.
+administrator, and always under `BW_FORBID_PUBLIC_BUILDER_PAGES`. A version
+published or restored from the history by anyone else is not public until an
+administrator publishes it again.
 `BW_FORBID_PAGE_BUILDER` switches it off.
 
 ## Page governance
@@ -321,15 +369,31 @@ Two tools for teams where pages have owners:
 
 * **Protection** (`page_protection_enabled`): an editor protects a page and
   becomes its controller; nobody else, administrators included, may edit or
-  delete it. An administrator who needs it files an unlock request and may
+  delete it, and an administrator impersonating the controller is not the
+  controller (nor can they protect pages in someone else's name). An administrator who needs it files an unlock request and may
   remove the protection 72 hours later; the controller can release it
-  earlier. Never applies to the home page.
+  earlier. Never applies to the home page, so a protected (or checked-out)
+  page cannot be made the home page. Each editor protects at most as many
+  pages as their reservation quota (below) allows, counted apart from their
+  reservations. If an editor locks pages against the team, demoting them
+  ends all their protections at once and for good: promoting them again does
+  not bring the protections back (recorded in the audit log).
+  Switching protection off, or the whole page governance feature, would lift
+  every protection at once, so it is refused while a page is protected by
+  someone else, administrators and owners included (the server's own
+  commands may); request the unlocks first. Each change of the protection
+  setting is recorded in the audit log.
 * **Reservations / check-outs** (`page_reservations_enabled`): an editor
   reserves a page for `page_reservation_duration_hours`; others cannot edit or
   delete it meanwhile (administrators can, with a warning). Releasing starts a
   cooldown (`page_reservation_cooldown_hours`). Each editor has a quota
   (`default_reserved_pages_quota`) and can request a bigger one; requests up to
-  `reservation_quota_auto_approve_max` are approved automatically.
+  `reservation_quota_auto_approve_max` are approved automatically; an editor
+  files at most 10 requests in 24 hours, cancelled ones included. A
+  check-out lapses while its holder may no longer edit the page (for
+  example after it moved into a category they cannot read): it stops
+  blocking others and leaves the holder's quota page; administrators still
+  see and release it under **Admin → Check-outs**.
 
 Pages: **Reservations** (`/reservations`), **Reservation quota**
 (`/settings/reservation-quota`), **Admin → Check-outs** and
@@ -341,13 +405,17 @@ People who may read a page but not edit it (`contribution.propose`) propose an
 edit with a reason from the page (`/page/<slug>/propose-edit`). Reviewers
 (`contribution.review` plus edit rights on the page, and administrators)
 approve or deny it at `/admin/contributions`; approving applies the edit
-credited to the proposer. An approval applies exactly the version the reviewer
+credited to the proposer (a proposed title only when the reviewer holds
+`page.edit_metadata`). An approval applies exactly the version the reviewer
 opened: if the proposal or the page changed in the meantime it is refused and
 the review shows the current state. The review lists at most 5000 lines of the
 diff and counts the changed lines it leaves out; approving still applies the
 whole proposal, not only what was shown. Each user has a quota of waiting
 proposals (`default_contribution_quota`, requests up to
-`contribution_quota_auto_approve_max` approved automatically). Old proposals
+`contribution_quota_auto_approve_max` approved automatically, at most 10
+requests in 24 hours per user, cancelled ones included). A proposal the
+proposer withdraws keeps no text, and an account opens the proposal form,
+proposes and withdraws at most 30 times a minute in all. Old proposals
 expire. **My contributions** at `/my-contributions`.
 
 ## Deletion slowdown
@@ -355,8 +423,10 @@ expire. **My contributions** at `/my-contributions`.
 Deleting a page hides it for 48 hours instead; **Admin → Pending deletions**
 restores or purges it. Holders of `page.delete` still see waiting pages. With
 `docs_bypass_deletion_slowdown` (on by default, set under **Admin → Pending
-deletions**, changes recorded in the audit log), pages of the built-in
-documentation category are deleted at once. While the feature is off, deletions are immediate and
+deletions**, changes recorded in the audit log), the built-in documentation
+pages are deleted at once (only the pages the guide's installer wrote, listed
+in `builtin_doc_pages`: pages moved into their category wait as usual, whatever
+their history says). While the feature is off, deletions are immediate and
 nothing is purged; waiting pages stay waiting until it is switched on again.
 
 ## Temporary items
@@ -368,17 +438,30 @@ nothing is purged; waiting pages stay waiting until it is switched on again.
 * deleting an account;
 * returning an account to its previous role (a temporary promotion).
 
-A scheduled page deletion can show a countdown on the page. The last
-administrator and owner are never deleted or demoted. While the feature is
-off every schedule pauses.
+A scheduled page deletion can show a countdown on the page. Page schedules
+are refused while the page is protected or checked out by someone else, or
+pending deletion, as the same change by hand would be; a deletion or a
+switch back that falls due while the page is frozen waits until it is not.
+The last administrator and owner are never deleted or demoted. While the feature is
+off every schedule pauses, so while a schedule waits for an account someone
+may not change (an administrator's revert or deletion, also their own), only
+owners and superusers switch the feature off.
+Setting and removing a schedule are audited, and so is the job carrying one
+out, with whoever set it as the actor (`temporary.*`).
+
+A temporary administrator holds every administrator power until the revert,
+including creating accounts and invite codes up to administrator; those do
+not expire with the promotion. Promote temporarily only people you would
+trust as administrators.
 
 ## Announcements
 
 Site-wide banners (**Admin → Announcements**): text with colour and size,
 shown to signed-in visitors, anonymous visitors or both, optionally only to
 (or to everyone except) chosen accounts, with an optional expiry and
-countdown. Visitors can dismiss a banner; editing it shows it again. Each has
-its own page at `/announcements/<id>`.
+countdown. Accounts still waiting for approval, denied or suspended count as
+anonymous visitors on their status page. Visitors can dismiss a banner;
+editing it shows it again. Each has its own page at `/announcements/<id>`.
 
 ## Assessments
 
@@ -386,7 +469,13 @@ A quiz or poll attached to a page (`/page/<slug>/assessment`): single choice,
 multiple choice and free-text questions, points for right and wrong answers,
 one or several attempts, and people or roles that may not take it. Scoring is
 automatic; a free-text question without accepted answers is an open question
-that scores nothing. Managers see results and can reset a person's attempts.
+that scores nothing. Managers see results (100 attempts a page) and can reset
+a person's attempts. Each person keeps their latest 20 attempts at a quiz and
+their best one, which their points come from; older ones are removed when a
+new one is submitted (at most 10 submissions a minute per account).
+Like any change to the page, editing, deleting or resetting an assessment is
+refused while the page is protected or checked out by someone else, or
+pending deletion; its results stay readable.
 The answer key is shown only to managers, and to takers who cannot try again.
 **My quiz points** (`/settings/assessment-points`) lists a member's results.
 
@@ -396,9 +485,12 @@ Permissions: `assessment.view`, `assessment.manage`. Settings on
 ## Kanban boards
 
 Boards (`/kanban`) with columns and tickets: descriptions in Markdown, labels,
-priorities, due dates, colours, several assignees, comments (up to 300 per
+priorities, due dates, colours, up to 20 assignees, comments (up to 300 per
 ticket), attachments and description history. A title shorthand fills fields
-as you type: `Fix login @alice +backend !high color:red due:tomorrow`.
+as you type: `Fix login @alice +backend !high color:red due:tomorrow`. A board
+holds at most 200 columns, 5,000 tickets (archived ones included) and 8 MB of
+ticket text (titles, descriptions, labels, checklists and assignees). Board
+text drops control characters other than tabs and line breaks.
 
 * Changes appear for everyone viewing the board within seconds (the page
   fetches only what changed, and catches up at once after a lost connection).
@@ -424,6 +516,14 @@ as you type: `Fix login @alice +backend !high color:red due:tomorrow`.
   left out of *My tickets*. The owner can archive a board: it leaves the board
   list (*Show archived boards* brings it back into view) and is read-only
   until restored.
+* **Board list** (`/kanban`): 100 boards a page, in your order (the shared
+  one with open access). Boards are moved on the first page; later pages
+  keep their order after it. *Show archived boards* lists the first 100
+  archived ones. Each account creates at most 10 boards a minute (in the
+  browser and through the REST API together) and saves the order at most 30
+  times a minute; the arrow buttons save once a run of moves
+  pauses for a second (or when the page is left), so a keyboard user moving
+  a board many places sends one save.
 * **My tickets** (`/kanban/mine`, JSON at `/api/kanban/my-tickets`): tickets
   assigned to you on every board you can open, grouped by due date (tickets
   in done columns apart, under *In done columns*), with a filter form.
@@ -434,11 +534,31 @@ as you type: `Fix login @alice +backend !high color:red due:tomorrow`.
   the archived state of the tickets it knew. The newest 200 entries are kept,
   within 64 MB per board (a large board keeps fewer versions, always the
   latest one). Moves of a ticket, reorderings and checklist changes of a
-  ticket by the same person within two minutes share one entry. Each ticket
-  keeps its newest 100 description changes, within 1 MB.
+  ticket by the same person within two minutes share one entry. A board with
+  more than 1 MB of ticket text gets a new entry at most once a minute, and a
+  smaller one at most once in a time proportional to its size (half a minute
+  for 512 KB; none under about 35 KB), so a board's history grows by about
+  1 MB a minute at most (the changes in between are part of the next entry,
+  and restoring a version first records the board as it is). A deleted ticket comes back under its old
+  number, so restoring the same version again does not add it twice; a
+  restore that would take the board past its 200 columns, 5,000 tickets or 8 MB
+  of text is
+  refused, as an import is. Like imports and exports, restores are limited
+  to 10 a minute per account. Each ticket
+  keeps its newest 100 description changes, within 1 MB. Each account
+  adds at most 128 MB of board history and imported board text in 24
+  hours, on all boards together, counted to the byte: what an entry adds to
+  its board's history counts, so a board whose history is full (200
+  versions or 64 MB) costs about nothing more, and deleting boards gives
+  nothing back. Past that, changes are still made and recorded, but the
+  history of the board they change no longer grows until the day moves on:
+  its oldest versions make room for the new one. Entries written when an
+  account is deleted or merged count against no one.
 * **Sharing**: private, shared or public boards; a role or a person gets view
   or write access. Board settings, sharing and deletion belong to the creator
-  and administrators.
+  and administrators. The sharing dialog lists active accounts (without their
+  roles) only to owners who may search the member list (`search.users`);
+  others type a user name.
 * **Deleted accounts**: deleting an account (by its holder, by an
   administrator, in a merge, or from the hosting portal) keeps what it added.
   Its boards pass to the administrator who deleted it (otherwise to the
@@ -457,8 +577,13 @@ as you type: `Fix login @alice +backend !high color:red due:tomorrow`.
   offered for any board). An import unpacks only the files its
   tickets refer to, streamed into storage, and skips those that no longer fit
   in the storage quota; its `board.json` is held to the 20 MB of a JSON
-  import. Imports refuse archives with more than 5,000 files, encrypted or
-  unusually compressed members, or members that cannot be read.
+  import. The files it stores count against the importing user's daily
+  upload quota, like ticket attachments: an import with more files or bytes
+  than are left today is refused whole. Imports refuse archives with more than 5,000 files, encrypted or
+  unusually compressed members, or members that cannot be read. Each account
+  imports at most 10 boards a minute; an import's text and its first history
+  entry both count against the 128 MB of board history a day (see
+  **History**), and an import whose text is past it is refused.
 * **Events** for other features and webhooks:
   `kanban.board.created|updated|deleted`,
   `kanban.ticket.created|updated|moved|deleted` (bulk changes: one per ticket)
@@ -487,6 +612,18 @@ links to wiki pages, connected by edges.
   anyone within a minute of the latest entry, share one entry, which keeps
   the name of the person who started it.
 * **Sharing** per person or role: view, edit, or an explicit "none".
+* **Canvas list** (`/canvas`): 100 canvases a page, in your order (the shared
+  one with open access). Canvases are moved on the first page; later pages
+  keep their order after it. An order places at most 5000 canvases; the
+  others follow, most recently changed first.
+* **Deleted accounts**: deleting an account (by its holder, by an
+  administrator, or from the hosting portal) keeps the canvases it created
+  that others can open (shared or public ones, private ones shared with a
+  person or a role, and, while open access is on, every canvas not archived):
+  they pass to the administrator who deleted it, otherwise (and always from
+  the hosting portal) to the longest-standing active owner or administrator.
+  Private canvases shared with nobody (archived or not) and, under open
+  access, archived ones shared with nobody are deleted with the account.
 * **ZIP export and import** with images, and embeds in pages with
   `[[canvas slug="…"]]`.
 * **Wiki-page nodes** store only the id of their page. The title, address
@@ -504,9 +641,20 @@ Limits:
   save or the REST API.
 * History keeps the newest 200 entries, and only as many as fit in 32 MB of
   snapshots per canvas.
+* Every change rewrites the whole canvas, so a canvas over 1 MB has its
+  latest history entry updated at most once a minute (changes in between
+  are written into it before someone else's change, a new session or a
+  restore starts another entry, so none is lost), and each account
+  sends it at most 60 editor batches and 15 whole-document saves a minute,
+  web editor and REST API together (the editor sends what is left with its
+  next batch).
 * One view renders about half a million characters of notes and code; the
-  remaining notes are shown as plain text.
-* An import reads at most 7 MB of canvas data and one image per node.
+  remaining notes are shown as plain text. A saved version in the history
+  renders about 64,000 characters, and each account (or address) opens at
+  most 30 saved versions and the history list 60 times a minute.
+* An import reads at most 7 MB of canvas data and one image per node. Its
+  images count against the importing user's daily upload quota; an import
+  with more than are left today is refused as a whole.
 * An export holds at most 2000 files and 512 MB of them; a canvas showing
   more is exported with a note in place of its files.
 
@@ -561,7 +709,17 @@ their individual permissions: such an explicit grant is enough, while the
 editors' default is not, so nobody else gains anything. Whoever may create
 also gets the canvas list and its sidebar link, showing their own canvases
 and those shared with them. The web interface (create, import) and the REST
-API (`POST /canvas`) apply the same rule. Limiting an editor's categories on
+API (`POST /canvas`) apply the same rule, and share one budget of 10
+creations a minute per account (imports have their own 10 a minute). What
+an account stores in canvases also counts against 128 MB per account in 24
+hours, counted to the byte, whatever becomes of the canvases: the content a
+canvas is created with (an import, a template, `POST /canvas` with `data`),
+what edits, saves and restores add to a canvas, and what new history entries
+add to a canvas's history (a canvas whose history is full costs about
+nothing more; making a canvas smaller gives nothing back). Past that, a
+change that makes a canvas larger is refused until the day moves on; other
+changes are made, and the canvas's oldest versions make room for their
+history entry. Limiting an editor's categories on
 **Editor access** gives them individual permissions copied from the defaults
 without `canvas.create`, so it never authorizes anyone. Where editors may
 create anyway (`canvas_write_access` `editor` or `all`, or open access), tick
@@ -572,6 +730,8 @@ create anyway (`canvas_write_access` `editor` or `all`, or open access), tick
 * **Direct messages** (`/chats`) between two members and **group chats**
   (`/groups`) with invite codes, a global room, owner/moderator/member roles,
   timeouts, bans, ownership transfer, and administrator takeover.
+  An account creates at most 20 groups in 24 hours, those it has since
+  transferred or deleted included, and `/groups` lists 100 groups a page.
 * File attachments (with a size limit and a daily count), plain-text or ZIP
   export, clearing a conversation. **Clearing a direct conversation hides it
   for you only**: the other participant keeps their copy, and messages both
@@ -590,14 +750,18 @@ create anyway (`canvas_write_access` `editor` or `all`, or open access), tick
   in their data export). The administration pages show withheld messages,
   marked as such.
 * Pages load the latest messages, then fetch only new ones, and poll less
-  while the tab is hidden.
+  while the tab is hidden. Each poll also names the messages deleted since
+  the previous one (at most the 500 newest deletions of the last day; a page
+  open longer shows older deletions once it is reloaded).
 * **Deleting a message erases its text and attachments for everyone**; a
   "deleted" marker keeps the conversation readable. In a direct conversation
   the sender can do so for 15 minutes after sending (to take back a
   mistake); later the message belongs to the other participant's copy too.
   Deleting an account is the exception: it removes the account's direct
-  conversations for both participants (a reported message keeps its copy in
-  the report).
+  conversations for both participants, with the attachment files either of
+  them sent, as soon as the deletion is done, whoever deletes it (also the
+  hosting portal's "remove wiki user"); a reported message keeps its copy in
+  the report.
 * Members may show their groups on their profile
   (`profile_group_badges_enabled`).
 
@@ -605,11 +769,15 @@ Administrators monitor conversations and groups, review reported messages,
 clear a direct conversation for both participants when moderating, and
 configure everything at **Admin → Chats** (`/admin/chats`). Opening a private
 conversation or a group they are not in, downloading its attachments,
-exporting, clearing or taking it over, and resolving a report are recorded in
-the audit log. Settings: message length, attachments, direct
+exporting, clearing, deleting or taking it over, deleting a member's message
+in a group they do not moderate, and resolving a report are recorded in the
+audit log. Settings: message length, attachments, direct
 messages and groups on/off, whether members may start them, and separate
 retention policies for messages and attachments of direct messages and groups
 (applied daily at `chat_cleanup_hour`, every `chat_cleanup_frequency_days`).
+Changes to these settings, and each run of the policy that deletes anything
+(`chat.retention_applied`, with how much it deleted), are recorded in the
+audit log.
 **Admin → Users** can switch chat off for one account. Permissions:
 `chat.dm`, `chat.group`, `chat.create_group`, `chat.upload`.
 
@@ -653,12 +821,22 @@ See [read aloud](tts.md) for installation and configuration.
 * **User profiles** feature (`user_profiles`): published profile pages,
   administrator-defined profile fields (**Admin → Profile fields**) and custom
   tags. While it is off, profiles are visible only to their owners and
-  administrators. Permissions: `profile.view`, `profile.edit_own`. Setting:
+  administrators. An administrator can disable a profile page; its owner
+  cannot publish it again until an administrator enables it, even after
+  deleting the profile (which removes its details, picture and profile field
+  answers, but keeps the block and the tags administrators gave). Permissions: `profile.view`, `profile.edit_own`. Setting:
   `profile_contribution_chart_enabled`.
 * **Account merges**: a member asks to merge another account into theirs
   (both confirm with their passwords), an administrator approves
   (**Admin → Account merges**), and everything the source account owns moves
-  to the target. Administrators can also merge directly
+  to the target. The form asks for the password before anything else and
+  says only that two accounts cannot be merged, not why (the reason is for
+  administrators). A request holds an account out of other merges only once
+  that account confirmed it, so nobody can block someone else's merges.
+  An account may file 10 requests in 24 hours, cancelled ones included, and
+  the merge page lists the 50 newest closed requests.
+  Sign-in credentials stay with the source: its password, two-step
+  verification, API tokens and hosting-portal link. Administrators can also merge directly
   (`/admin/users/merge`). The source is then deleted, or kept locked: renamed
   `merged_<name>`, made a plain user with an unknown password, signed out,
   its API tokens revoked and suspended so that only an administrator can
@@ -800,7 +978,10 @@ Everything under **Admin** (`/admin/dashboard`), for administrators:
   on and off, choose the default.
 * **Documentation**: add the built-in user guide (full or simplified,
   English, Italian or German) as a category of pages, or download it as
-  Markdown.
+  Markdown. Replacing it (here or in the onboarding wizard) deletes the pages
+  the guide wrote at once, and is refused, naming them, while its category
+  also holds pages people added or pages that are protected, checked out or
+  pending deletion: move those elsewhere first.
 * **Site migration** (owners and superusers): export the whole wiki (database
   and files) as one ZIP, or import one, which **replaces everything**,
   accounts included. Both ask for your password. Imports accept 1.4 archives,

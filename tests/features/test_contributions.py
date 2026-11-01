@@ -180,15 +180,20 @@ def test_routes_flow_and_idor(client, login, people, page, make_user):
     assert client.get("/admin/contributions").status_code == 403
     # the contribution id must match the page in the URL
     assert client.get(f"/page/{other_page['slug']}/contribution/{cid}/edit").status_code == 404
+    edit_url = f"/page/{page['slug']}/contribution/{cid}/edit"
+    assert client.get(edit_url).status_code == 200
+    assert client.post(edit_url, data={"title": "Article", "content": "newer", "reason": "better"}).status_code == 302
     client.post("/logout")
     login(client, people["other"])
     assert client.post(f"/page/{page['slug']}/contribution/{cid}/withdraw").status_code == 403
+    assert client.get(edit_url).status_code == 403
+    assert client.post(edit_url, data={"title": "Hijacked", "content": "x", "reason": "x"}).status_code == 403
     client.post("/logout")
     login(client, people["admin"])
     assert client.get("/admin/contributions").status_code == 200
     client.post(f"/admin/contributions/{cid}/approve", data={"review_reason": "ok", **_review_form(client, cid)})
     with client.application.test_request_context(), connection_scope():
-        assert pages.get(page["id"])["content"] == "new"
+        assert pages.get(page["id"])["content"] == "newer"
 
 
 def _review_form(client, contribution_id):

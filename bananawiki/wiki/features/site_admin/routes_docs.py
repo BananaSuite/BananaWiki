@@ -53,7 +53,11 @@ def docs_page():
 def spawn_docs():
     variant, language = _choice(request.form)
     user = auth.current_user()
-    category = docs.spawn(variant=variant, language=language, actor_id=user["id"])
+    try:
+        category = docs.spawn(variant=variant, language=language, actor_id=user["id"])
+    except categories.CategoryError as error:
+        auth.flash_t(error.key, "error", **error.values)
+        return redirect(url_for("site_admin.docs_page"))
     record("docs.spawned", target_type="category", target_id=category["id"],
            details={"variant": variant, "language": language})
     auth.flash_t("site_admin.docs.spawned", "success")

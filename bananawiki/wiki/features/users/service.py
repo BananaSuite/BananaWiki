@@ -16,7 +16,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from flask import current_app, url_for
+from flask import current_app, g, url_for
 from werkzeug.datastructures import FileStorage
 
 from ....core import passwords
@@ -89,10 +89,22 @@ def upsert_profile(user_id: str, **fields: Any) -> None:
         db.update("user_profiles", {**fields, "updated_at": now_sql()}, "user_id = ?", (user_id,))
 
 
-def delete_profile(user_id: str) -> None:
-    """Remove the profile row and its avatar (contributions stay)."""
-    profile = get_profile(user_id)
-    db.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
+def delete_profile(user_id: str, *, keep_block: bool = False) -> None:
+    """Remove the profile row and its avatar (contributions stay).
+
+    With *keep_block* (the owner deleting their own profile) a profile an administrator
+    disabled is emptied instead, so the block outlives the deletion and publishing it
+    again stays refused.
+    """
+    with db.transaction():
+        profile = get_profile(user_id)
+        if keep_block:
+            db.execute("UPDATE user_profiles SET real_name = '', bio = '', birth_date = '', avatar_filename = '', "
+                       "page_published = 0, updated_at = ? WHERE user_id = ? AND page_disabled_by_admin = 1",
+                       (now_sql(), user_id))
+            db.execute("DELETE FROM user_profiles WHERE user_id = ? AND page_disabled_by_admin = 0", (user_id,))
+        else:
+            db.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
     if profile:
         delete_upload(profile.get("avatar_filename"))
 
@@ -331,15 +343,39 @@ def delete_own_account(user: dict[str, Any], password: str | None) -> None:
 
 def delete_account(user: dict[str, Any], *, deleted_by: str | None, protect_last_admin: bool = False,
                    protect_superuser: bool = False, expected_password_hash: str | None = None) -> None:
-    """Delete an account and the images only it referenced."""
-    files = uploads_of(user)
+    """Delete an account; its images go with it (:func:`note_uploads_of_deleted`)."""
     try:
         accounts.delete(user, deleted_by=deleted_by, protect_last_admin=protect_last_admin,
                         protect_superuser=protect_superuser, expected_password_hash=expected_password_hash)
     except accounts.AccountError as error:
         raise ProfileError(error.key, **error.values) from error
-    for name in files:
-        delete_upload(name)
+
+
+# The images of accounts being deleted, by account id, until the deletion is announced.
+_DELETED_UPLOADS = "_users_deleted_uploads"
+
+
+def note_uploads_of_deleted(user: dict[str, Any], **_: Any) -> None:
+    """``user.delete`` interceptor: remember the account's images while its profile still names them.
+
+    Whoever deletes the account (the person, an administrator, a schedule, a
+    merge), the files go once ``user.deleted`` is announced, not at the next
+    daily orphan clean-up; a deletion that is rolled back is never announced.
+    """
+    g.setdefault(_DELETED_UPLOADS, {})[user["id"]] = uploads_of(user)
+
+
+def _still_used(name: str) -> bool:
+    """Whether another account shows *name* (a background a merge carried over)."""
+    return bool(db.scalar("SELECT 1 FROM user_profiles WHERE avatar_filename = ? LIMIT 1", (name,))
+                or db.scalar("SELECT 1 FROM users WHERE instr(accessibility, ?) > 0 LIMIT 1", (name,)))
+
+
+def delete_uploads_of_deleted(user: dict[str, Any], **_: Any) -> None:
+    """``user.deleted`` handler: delete the images :func:`note_uploads_of_deleted` remembered."""
+    for name in g.get(_DELETED_UPLOADS, {}).pop(user["id"], []):
+        if not _still_used(name):
+            delete_upload(name)
 
 
 def may_become_owner(user: dict[str, Any]) -> bool:

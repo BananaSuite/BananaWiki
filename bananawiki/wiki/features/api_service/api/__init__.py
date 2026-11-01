@@ -34,6 +34,7 @@ bp = registry.feature_blueprint("api_service", "api_v1", __name__, url_prefix="/
 
 RATE_WINDOW = 60
 RATE_BUCKET = "api_service"
+REFUSED_BUCKET = "api_service_refused"
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 log = logging.getLogger("bananawiki.api")
 
@@ -105,6 +106,11 @@ def _account_gate(user: dict[str, Any]) -> ApiError | None:
         return ApiError(403, "password_change_required")
     if user.get("onboarding_required"):
         return ApiError(403, "onboarding_required")
+    # Steps features add, as in the browser (auth.pending_account_step): an administrator who must
+    # turn on two-step verification first cannot go on with a token issued before the requirement.
+    step = registry.intercept("account.pending_step", user=user)
+    if step is not None:
+        return ApiError(403, "two_step_required" if step == "auth.two_step_settings" else "account_step_required")
     if settings.maintenance_active() and not tokens.is_admin_role(user):
         return ApiError(503, "maintenance")
     return None
@@ -249,6 +255,15 @@ def authenticate():
     g.user = g.real_user = user
     g.pop("_grants", None)
     g.api_token = token
+    # Every call of a known token counts, also those refused below: each one is kept in the call log.
+    if not _rate_limit(user):
+        tokens.touch(token)
+        # Past the limit, only the first refusal of each token in a window is kept in that log.
+        if not SqlLimiter(db.session).hit(f"token:{token['id']}", REFUSED_BUCKET, 1, RATE_WINDOW):
+            g.api_unrecorded = True
+        response = ApiError(429, "rate_limited").response()
+        response[0].headers["Retry-After"] = str(g.api_rate[2])
+        return response
     if not tokens.has_api_access(user):
         return ApiError(403, "api_access_disabled").response()
     blocked = _account_gate(user)
@@ -266,10 +281,6 @@ def authenticate():
     if feature and not registry.is_enabled(feature):
         return ApiError(404, "not_found").response()
     tokens.touch(token)
-    if not _rate_limit(user):
-        response = ApiError(429, "rate_limited").response()
-        response[0].headers["Retry-After"] = str(g.api_rate[2])
-        return response
     return _idempotency(user, token)
 
 
@@ -279,7 +290,8 @@ def record_call(response):
     if response.status_code >= 500 or response.status_code == 429:
         _rollback_idempotent_write()
     try:
-        if token is not None and g.get("user") is not None and not g.get("api_record_failed"):
+        if (token is not None and g.get("user") is not None and not g.get("api_record_failed")
+                and not g.get("api_unrecorded")):
             audit.record(
                 token_id=token["id"], user=g.user, endpoint=request.path, method=request.method,
                 status=response.status_code, ip=client_ip(),

@@ -31,6 +31,10 @@ def _bar_item(row: dict[str, Any], *, can_open: bool) -> dict[str, Any]:
 def render_bar() -> str:
     """The announcements the current visitor should see, above every page."""
     user = auth.current_user()
+    if user is not None and auth.account_block(user):
+        # A pending, denied or suspended account (on its status page) sees what anonymous visitors see,
+        # not the announcements meant for members.
+        user = None
     rows = service.visible_for(user)
     if not rows:
         return ""

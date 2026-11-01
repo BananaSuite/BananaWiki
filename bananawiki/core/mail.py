@@ -287,7 +287,7 @@ def _post(url: str, headers: dict[str, str], payload: dict, timeout: int) -> tup
         headers={"Content-Type": "application/json", "Accept": "application/json", **headers}, method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - fixed https URLs
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310  # nosec B310 - fixed https URLs
             response.read(65536)
             return 200 <= response.status < 300, ""
     except urllib.error.HTTPError as error:

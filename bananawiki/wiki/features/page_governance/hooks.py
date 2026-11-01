@@ -7,7 +7,6 @@ from typing import Any
 from flask import has_request_context, jsonify, redirect, render_template, request, url_for
 
 from ... import auth
-from ...db import db
 from ...i18n import t
 from ...permissions import EDITOR_ROLES
 from ..audit.service import record
@@ -36,21 +35,31 @@ def refuse_delete(page: dict[str, Any], user: dict[str, Any] | None) -> Any:
     return redirect(url_for("pages.view", slug=page["slug"]))
 
 
-def record_lapsed_protections(user: dict[str, Any], old_role: str = "", new_role: str = "",
-                              changed_by: Any = None, **_: Any) -> None:
-    """``user.role_changed``: name the protections a lost editing role ends.
+def end_lapsed_protections(user: dict[str, Any], old_role: str = "", new_role: str = "",
+                           changed_by: Any = None, **_: Any) -> None:
+    """``user.role_changed``: end, for good, the protections a lost editing role lapses, and name them.
 
     Protection lapses once its controller is no longer an editor (so a page
     is never locked by someone who lost their rights). A demotion may thus
-    release a page before the unlock delay; the audit log says which.
+    release a page before the unlock delay; the audit log says which. The
+    protections are cleared, not just suspended: otherwise an administrator
+    could demote the controller, edit the page and promote them back, and the
+    protection would return as if nothing had happened.
     """
     if old_role not in EDITOR_ROLES or new_role in EDITOR_ROLES:
         return
-    slugs = db.column("SELECT slug FROM pages WHERE protected_by = ? AND is_home = 0 ORDER BY slug", (user["id"],))
+    slugs = protection.end_all(user["id"])
     if slugs:
         record("page_governance.protection_lapsed", actor_id=changed_by, target_type="user", target_id=user["id"],
                details={"username": user.get("username"), "new_role": new_role, "pages": slugs[:50],
                         "count": len(slugs)})
+
+
+def refuse_switch_off(feature_id: str, enabled: bool, **_: Any) -> str | None:
+    """``feature.switch``: switching the feature off must not lift protections before their unlock delay."""
+    if feature_id != "page_governance" or enabled or not has_request_context():
+        return None  # the server's own commands may
+    return protection.switch_off_error(auth.real_user() or auth.current_user())
 
 
 def reserve_after_save(page: dict[str, Any], user: dict[str, Any] | None) -> None:

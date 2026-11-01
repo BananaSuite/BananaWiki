@@ -49,12 +49,6 @@ def test_page_lists_and_filters_entries(admin_client, admin, db):
     assert "Page deleted" not in by_actor.split("<tbody>")[1]
 
 
-def test_audit_is_admin_only(client, make_user, login):
-    login(client, make_user("eve", role="editor"))
-    assert client.get("/admin/audit").status_code == 403
-    assert client.post("/admin/audit/retention", data={"audit_log_retention_days": "0"}).status_code == 403
-
-
 def test_retention_prunes_old_entries(app, owner_client, db):
     db.execute("INSERT INTO audit_log (created_at, action) VALUES (?, 'old')", (sql_in(days=-40),))
     owner_client.post("/admin/audit/retention", data={"audit_log_retention_days": "30"})

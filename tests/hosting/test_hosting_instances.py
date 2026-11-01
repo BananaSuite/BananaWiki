@@ -144,6 +144,9 @@ def test_stop_restart_and_terminate(web, make_account, make_wiki, login, runtime
     row = query("SELECT subdomain, status, terminated_at FROM instances", one=True)
     assert row["status"] == "terminated" and row["terminated_at"]
     assert re.fullmatch(r"cycle--terminated-[0-9a-z]{8}", row["subdomain"])
+    # Its kept data holds the owner's place (audit NW4-1): the owner sees it until they delete that data.
+    assert web.get(f"/instances/{wiki['id']}").status_code == 200
+    web.post(f"/instances/{wiki['id']}/delete-data")
     assert web.get(f"/instances/{wiki['id']}").status_code == 404
 
 

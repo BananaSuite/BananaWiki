@@ -245,9 +245,10 @@ def save(*, mode: bool, features: dict[str, bool], simplifications_on: dict[str,
          self_service_on: bool | None = None, new_accounts_on: bool | None = None) -> dict[str, str]:
     """Store BM mode, the choices per item (unknown items are dropped) and, when given, the rules for accounts.
 
-    Hiding a feature counts as switching it off: a feature the person at the
-    keyboard may not switch off (the audit log, for plain administrators)
-    stays shown. Returns those features with the reason (a translation key).
+    Hiding a feature counts as switching it off, also when the feature was
+    already marked hidden and the save turns BM mode on: a feature the person
+    at the keyboard may not switch off (the audit log, for plain
+    administrators; temporary items while a schedule waits) stays shown. Returns those features with the reason (a translation key).
     """
     from .registry import registry, switch_refusal
 
@@ -255,8 +256,10 @@ def save(*, mode: bool, features: dict[str, bool], simplifications_on: dict[str,
                       if feature.toggle != "always" and not third_party(feature.id)}
     by_id = registry().features
     kept: dict[str, str] = {}
-    for key, value in features.items():
-        if key in known_features and not value and feature_shown_choice(by_id[key]):
+    for key in known_features:
+        # What the save hides that is not hidden now, by its tick box or by BM mode coming on.
+        shown_after = not mode or features.get(key, feature_shown_choice(by_id[key]))
+        if not shown_after and feature_shown(by_id[key]):
             refusal = switch_refusal(key, False)
             if refusal is not None:
                 kept[key] = refusal

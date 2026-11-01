@@ -1,5 +1,6 @@
 # Upgrading BananaWiki
 
+* [Upgrading from 1.7.3 to 1.7.6](#upgrading-from-173-to-176)
 * [Upgrading from 1.7.2 to 1.7.3](#upgrading-from-172-to-173)
 * [Upgrading from 1.7.1 to 1.7.2](#upgrading-from-171-to-172)
 * [Upgrading from 1.7.0 to 1.7.1](#upgrading-from-170-to-171)
@@ -7,9 +8,336 @@
 * [Upgrading from 1.4](#upgrading-from-14)
 
 Read every section between the release you run and the one you install. A
-1.6 installation that updates straight to 1.7.3 follows the 1.6 to 1.7
-section, then the 1.7.0 to 1.7.1, 1.7.1 to 1.7.2 and 1.7.2 to 1.7.3
-sections. A 1.4 installation follows all of them.
+1.6 installation that updates straight to 1.7.6 follows the 1.6 to 1.7
+section, then the 1.7.0 to 1.7.1, 1.7.1 to 1.7.2, 1.7.2 to 1.7.3 and 1.7.3 to
+1.7.6 sections. A 1.4 installation follows all of them.
+
+## Upgrading from 1.7.3 to 1.7.6
+
+This release carries the fixes of a security audit (see `AUDIT.md`). The
+first start migrates the wiki database from schema 15 to 19: a new index on
+canvases in the order of their lists (16), a list of the built-in
+documentation pages (17, see *Deletion slowdown* below), and a list of the page
+slugs that canvases' wiki-page nodes store (18), built by reading every canvas
+once, which takes about a second per gigabyte of canvases, and amounts in the
+shared rate-limit counters (19, for the daily Kanban and canvas budgets below).
+Afterwards 1.7.3 cannot open the database, so back up first
+(`sudo bananawiki backup` on a managed server) if you may want to go back.
+Behaviour that changes:
+
+* **Request bodies.** Requests other than uploads are now limited to
+  `BW_MAX_CONTENT_LENGTH_BYTES` (16 MiB by default); only upload views take the
+  larger upload limits, and only from a signed-in session or a valid API token.
+  The proxy may keep allowing 500 MiB bodies for site imports.
+* **Sign-in names** that cannot be user names (`[A-Za-z0-9_-]`, at most 50
+  characters) are refused before any account is looked up.
+* **Successful sign-ins** are limited to 30 per account and 200 per client
+  address (IPv6: /64) in 15 minutes; further sign-ins answer 429 until the
+  window moves on. Failed attempts keep their own limits.
+* **Setup token.** In production `/setup` refuses a `BW_SETUP_TOKEN` shorter
+  than 20 characters and allows 10 wrong tokens per network in 15 minutes.
+* **Two-step verification required for administrators** now also applies to
+  their API tokens: until the administrator turns it on, their tokens answer
+  403 `two_step_required`.
+* **Maintenance mode** now also sends anonymous visitors of a wiki in public
+  mode to the maintenance page (JSON requests: 503 `maintenance`), as the
+  documentation promised; sign-in pages, published custom pages and the API
+  guide stay open, but non-administrators see the latter as on a private
+  wiki: no page tree and no pages in a builder page's page lists.
+* **Custom group invite codes.** Each custom code an owner tries counts as one
+  join attempt (10 per account and 30 per network in 15 minutes), because a
+  taken code tells that another group uses it; random new codes are not limited
+  this way.
+* **Administrators' hierarchy.** A custom role held by an account a plain
+  administrator may not change (an owner, a superuser, another administrator)
+  can be edited or deleted only by an owner or superuser; only they can switch
+  temporary items off while a schedule waits on such an account.
+* **Pages.** Deleting a category with *move* or *uncategorize* is refused when
+  it holds pages hidden from or blocked for the editor; protections count
+  against the editor's reservation quota; a revert by a non-administrator
+  leaves a page-builder page non-public; a page pending deletion cannot become
+  the home page. A rename writes at most 4 M characters of history for the
+  pages it re-links (later pages get the new link without a history version).
+* **Categories** nest at most 32 levels deep and a wiki holds at most 10,000;
+  creating or moving a category past either bound is refused
+  (`category_too_deep`, `category_too_many` in the REST API). A deeper tree is
+  kept, and the navigation shows its deeper categories at the 32nd level.
+  Category paths in pickers and lookups (including `category_name` from
+  `/api/pages/search` and `/api/sidebar/search`) are shortened to about 160
+  characters ("… / Parent / Child"). Creating the built-in guide (Admin →
+  Documentation, or the onboarding wizard) on a wiki already at 10,000
+  categories is refused with the same message before the current guide is
+  removed; replacing an existing guide still works.
+* **Replacing the built-in guide** (Admin → Documentation, or the onboarding
+  wizard) no longer deletes every page of its category: it is refused, naming
+  the pages, while the category holds pages the guide did not write or pages
+  that are protected, checked out or pending deletion. Move those to another
+  category first (the ordinary paths apply their rules).
+* **Quota requests.** An account files at most 10 contribution quota requests
+  and 10 reservation quota requests in 24 hours, cancelled ones included,
+  whatever `quota_request_cooldown_hours` says.
+* **Proposed edits.** Withdrawing a proposal drops its text and reason (the
+  row stays in *My contributions* and in the account's data export, without
+  them; a reviewer who opens it sees that it was withdrawn and no changes). Opening the proposal form, proposing and withdrawing are limited to
+  30 times a minute per account (429 past that).
+* **Account merges.** An account files at most 10 merge requests in 24
+  hours, cancelled ones included; the merge page in Settings lists the 50
+  newest closed requests.
+* **Group chats.** An account creates at most 20 groups in 24 hours (429
+  past it), groups it has since transferred or deleted included;
+  `/groups` lists 100 groups a page, most recent activity first.
+* **Kanban text.** Ticket and board titles, descriptions and checklist items
+  drop control characters other than tabs and line breaks (when saved,
+  imported or restored); board history stores snapshots as UTF-8, so the first
+  change after the update adds a version even when nothing else changed.
+  Any edit that grows a ticket's title, description, labels or checklist
+  items in UTF-8 bytes (wider characters at the same length included), and
+  any edit that adds an assignee, now counts against the 8 MB board cap.
+* **Page builder.** Publishing is limited to 30 times a minute per account
+  (429 `Too many saves`), as saving in the Markdown editor already was.
+* **Page-builder rendering.** The Markdown blocks (text, columns, questions)
+  and code blocks of one builder page together get the limits of one
+  Markdown page (1,000 headings, 16 MB of HTML, 200 embedded players and
+  boards, the parse work, the code highlighting allowance). The 16 MB holds
+  the highlighted code and the blocks shown as source too: room for every
+  block to be shown as source is set aside first, and a Markdown block that
+  no longer fits is shown as escaped source (as an over-limit Markdown page
+  is), a code block as plain code. The rendering of all these blocks is then
+  kept in the render cache as one entry, so a builder page is not rendered
+  again on every view, however short its blocks; page lists and embeds are
+  still worked out for each reader.
+* **Refused accounts.** Pending, denied and suspended accounts see published
+  custom pages and `/api-docs` as anonymous visitors do: no page tree in the
+  sidebar and no pages in a builder page's page lists.
+* **Page history.** A version can be opened 30 times a minute per account,
+  and a page's history list 30 times a minute;
+  versions whose rendering is over 1 M characters show the source diff in
+  place of the rendered diff.
+* **Rendering.** A page whose HTML is over 16 MB as UTF-8 is shown as escaped
+  source, as pages over 16 M characters already were; only pages that are
+  mostly characters outside ASCII and expand a lot are affected. The render
+  cache keeps renderings UTF-8 encoded, so every rendering fits in it.
+* **Sidebar search, link picker and `GET /api/v1/search`** find nothing for a
+  query without a letter or digit, as `/search` already did. Where SQLite
+  lacks FTS5 they match the first 32 characters of the query, and `/search`
+  the first 32 characters of each word, phrase or exclusion.
+* **Kanban** boards hold at most 5,000 tickets and 8 MB of ticket text
+  (assignees included); boards already larger keep working, but changes that
+  would grow them are refused. A ticket has at most 20 assignees: tickets with
+  more keep them until their assignees are changed, and an import or a restored
+  version keeps the first 20.
+* **Daily upload quota.** Kanban ticket attachments (in the browser and
+  through the REST API) and the files of a board import now count against the
+  per-user daily upload quota, as page attachments and canvas uploads do; past
+  it, uploads answer 429 and imports are refused.
+* **Assessments** keep each person's latest 20 attempts at a quiz and their
+  best one; submitting again removes older attempts (points, which come from
+  the best attempt, do not change). The results page lists 100 attempts a page.
+* **Canvases.** The canvas list (`/canvas`) shows 100 canvases a page; only
+  the first page can be reordered, and a saved order keeps at most 5000
+  canvases (the first 5000 of a longer one, on its next save; the others
+  follow, most recently changed first). `POST /api/v1/canvas` now draws from the
+  browser's budget of 10 creations a minute per account (429 `rate_limited`,
+  `Retry-After: 60`) instead of only the API's global limit.
+* **Search.** A repeated word counts once and a query counts 24 words in all
+  (quoted phrases included); excerpts show the first match within the first
+  20,000 characters of a page, and a search still running after 5 seconds
+  answers 503 with a message.
+* **Page attachments.** A page holds at most 500 attachments; further uploads
+  are refused with a message (the REST API answers 400 `upload_refused`) until
+  some are deleted. A page that already has more keeps them all and still
+  offers them in *Download all*, but its page view and editor list only the
+  first 500.
+* **Exports.** *Download all attachments* streams an uncompressed ZIP (at most
+  two at once per process); PDF exports embed images at print resolution, up
+  to 160 MP decoded and 32 MB per PDF. A PDF stops with a note after 500
+  pages or 8 seconds of layout (also inside one long code block or table; a PDF cut by time is laid out again after 5 minutes), and its links point to the wiki's public
+  address (`BW_BASE_URL` or **Admin → Notifications**) when one is set,
+  otherwise to the address the request came to, as before.
+* **REST API.** `GET /categories/<id>` pages its `pages` (`limit`, default 500,
+  `offset`, `next_offset`); small categories answer as before.
+* **REST API rate limit.** Calls refused for the token's scope, the account
+  or a switched-off feature now count against the per-account limit, so a
+  script that keeps calling outside its scope gets 429. Past the limit, the
+  API call log keeps only the first 429 of each token in a minute.
+* **REST API tokens.** An account may create 20 tokens in 24 hours (or its
+  token limit, if higher), revoked ones and userbot keys included; past it the
+  token page, `POST /tokens` (429 `too_many_tokens_today`) and issuing a new
+  userbot key refuse until the day moves on. Rows of tokens revoked (and
+  created) or expired more than 90 days ago are deleted by the hourly prune.
+* **Password re-entry in the plugin manager and the site migration** now
+  counts against the account's shared budget (10 wrong passwords in 15
+  minutes, with renames and password changes); once it is spent they refuse
+  even the right password until the window moves on.
+* **Audit log.** The addresses of deleted accounts' entries are shown only to
+  owners and superusers. An administrator impersonating someone is recorded
+  downloading their data (`user.data_exported`), reading or exporting their
+  conversations and groups (`chat.dm_read`, `chat.dm_exported`,
+  `chat.group_read`, ...) and taking any chat action in their name
+  (`chat.impersonated_action`), and changing pages in their name
+  (`page.impersonated_action`, also proposed edits, contribution quota
+  requests and federation sharing), Kanban boards and canvases
+  (`kanban.impersonated_action`, `canvas.impersonated_action`) or their
+  account and public profile (`user.impersonated_action`); impersonating a
+  page's controller no longer lets an administrator edit the page or lift its protection, nor protect
+  pages in the account's name. While impersonating, the conversation and
+  group lists show no message previews.
+* **Deletion slowdown.** With `docs_bypass_deletion_slowdown`, only the pages
+  the documentation installer wrote skip the grace period; a page is no longer
+  taken for one because of its history. The migration lists the pages of the
+  guide already installed.
+* **Hosting platforms.**
+  * Platform backups use the new `BWBACKUP2` format (encrypted in
+    authenticated 1 MiB segments, no size ceiling). 1.7.3 and earlier cannot
+    restore them; `BWBACKUP1` backups still restore. Keep a backup made before
+    the update if you may go back.
+  * The admin dashboard warns while the tenant host firewall table is missing
+    or not checked since the server started (`sudo bananawiki status` checks it).
+  * Successful portal sign-ins are limited to 30 per account and 200 per
+    client address (IPv6: /64) in 15 minutes, as on the wiki; further sign-ins
+    answer 429 until the window moves on.
+  * A wiki files at most 10 requests per feature, an account at most 10 merge
+    requests and a wiki at most 10 ownership offers in 24 hours, cancelled
+    ones included. The wiki pages list the latest 20 feature requests (and
+    every waiting one).
+  * Of the 15 emails one address receives in 24 hours, at most 5 may be
+    notices other accounts caused (being added to a wiki, being offered one);
+    further ones are not sent, though the addition or offer still happens.
+    Password resets, user-name reminders and the *password changed* and
+    *address changed* notices no longer count towards the 15 and are never
+    held back by other mail; they keep their own caps (3 resets and 3
+    reminders, 5 of each notice).
+  * *Sign out other devices* also ends this device's platform sign-in sessions
+    on wikis; the owner of a suspended wiki can no longer transfer it, change
+    collaborators or domains; transfers are refused or cancelled around
+    suspension and deletion.
+  * Platform sign-in is no longer limited per wiki address: a wiki's code
+    exchanges are never refused while its credentials are right (only wrong
+    credentials, unknown tokens and refused codes are counted), and its other
+    sign-in calls share a ceiling of `HOSTING_OAUTH_CLIENT_RATE` (600 a
+    minute). Malformed requests to these endpoints count like wrong
+    credentials (30 a minute per network), and their bodies are limited to
+    64 KiB. Wikis of earlier releases need no change.
+  * While platform sign-in is off, its server-to-server endpoints count
+    against the portal's global per-network limit. A wiki that unlinks and
+    links the same account again is logged once a day per account and wiki.
+  * An account creates at most 20 portal API tokens in 24 hours (revoked ones
+    included); rows of tokens revoked or expired over 90 days ago are deleted.
+    One wiki is paused, resumed or restarted by non-administrators at most 6
+    times a minute and 100 times a day (API: 429; pages: an error message);
+    resuming is limited per minute only, and a factory reset (which stops and
+    starts the wiki) or switching a running wiki between easy (BM) and full
+    mode (which restarts it) counts as one change. Switching a paused wiki's
+    mode counts too, and resetting a wiki's administrator password is limited
+    to 3 times a minute and 20 times a day per wiki (administrators exempt;
+    the owner has that budget to themselves, collaborators share another).
+  * **Admin → the wiki → Download** is a button (a POST with the form's CSRF
+    token) and is counted, at most 10 a minute; a link or a bookmark to
+    `/admin/instances/<id>/download` now opens the wiki's page instead of
+    building an archive.
+  * Portal request bodies are limited to 2 MiB, except the administrator's
+    own archive import and platform restore uploads (32 MiB, or the chunk
+    size plus 1 MiB when larger).
+  * A wiki changing owner (a transfer, **Move now**) signs the previous owner
+    out of it and disconnects their portal account from the wiki account they
+    connected, and resetting a wiki's administrator password disconnects that
+    account from platform sign-in: whoever had connected it connects again
+    with the wiki password.
+  * Accepting an ownership offer removes the wiki's other collaborators,
+    except those the recipient ticks on the offer (each named with their
+    access); a recipient who wants to keep the team ticks them, or adds them
+    again afterwards. A client that posts the accept form itself keeps
+    collaborators only by sending their `keep` values.
+  * A custom domain's **Verify** counts against the wiki's 6 DNS checks a
+    minute, with **Check DNS now** and the page's own checks, and the lookups
+    of one verification share a 6-second deadline (a slow nameserver now gives
+    "DNS not ready yet" instead of a long wait).
+  * A wiki its owner terminated keeps one of the owner's
+    `MAX_INSTANCES_PER_ACCOUNT` places while its data is kept for the grace
+    period (not while an administrator pauses the countdown). The owner frees
+    it at once with **Delete data now** on the wiki's page, shown whether or
+    not owners may download terminated wikis; the wiki can then no longer be
+    restored. The kept data also counts towards the platform's storage limit,
+    and an account may create at most twice as many wikis in 24 hours as it
+    may hold (administrators exempt), counting the wikis it created and then
+    gave to another account. Such wikis, and those of a deleted account while
+    their data is kept, also count towards the platform's *Maximum wikis* and
+    the new accounts' share: a platform near its limit may refuse new wikis
+    until the grace period of those ends or an administrator deletes them.
+    `instance terminate` on the command line now records an administrator's
+    termination (reason `admin`, "Terminated by an administrator"), as the
+    administration pages do, so it frees the owner's place.
+  * When the portal proxies a wiki itself (a wiki host without its own
+    route), a request that finds no free slot waits only in one of four
+    waiting places per worker (three per wiki), each with a thread of its own
+    (`hosting/gunicorn.conf.py` now runs `HOSTING_THREADS` + 8 threads);
+    beyond that it gets the "busy" page at once. These requests are limited
+    to 600 a minute per client network and worker (429 past that). A worker
+    that Gunicorn retires (`max_requests`, a restart) cuts off the wiki
+    requests it is proxying instead of waiting for them.
+  * In port and onion mode the wikis of an account that is suspended,
+    denied or scheduled for deletion (and expired wikis) now have their
+    containers stopped, as subdomain mode already took them offline through
+    routing; their status stays *running* and the next maintenance pass
+    starts them once the account may be served again (meanwhile restarting
+    such a wiki is refused). A paused (or so held)
+    wiki's account list and analytics share a budget of 100 a day per wiki. A wiki
+    adds collaborators or widens their access at most 100 times and claims
+    at most 20 custom domains in 24 hours; removals are never refused.
+* **GPU speech server (contrib).** A client must send a whole request within
+  `TTS_REQUEST_TIMEOUT` (10 s), and one address may hold at most
+  `TTS_MAX_CONNECTIONS_PER_CLIENT` (8) connections; raise it when many wikis
+  reach the server through one address. One hosted wiki's token may have
+  `TTS_MAX_BUSY_PER_TENANT` (2) requests in progress (further ones get 429,
+  which the wiki postpones), waiting wikis take turns on the GPU, and request
+  log lines now carry `tenant=<wiki id>` (or `operator`, `-`) after the
+  address: adjust log parsers.
+* **Backups and rollback packages** store hard-linked files as separate copies;
+  packages written by earlier releases still restore.
+* **Large responses** (files, exports, bodies over 64 KiB) have their own
+  threads: each Gunicorn worker now runs `BW_THREADS` plus
+  `BW_DOWNLOAD_THREADS` (8) threads, writes at most `BW_DOWNLOAD_THREADS`
+  large responses at once and one account or network at most a quarter of
+  them (two by default); further ones are answered 503 or 429 with
+  `Retry-After: 5`, exports before they are built. The hosting portal's
+  workers run four more threads for its downloads, one per account; hosted
+  wikis run eight (`BW_DOWNLOAD_THREADS=8`, 12 threads with their own 4); the
+  desktop launcher serves with 12 threads, 8 of them for downloads.
+* **Keep-alive.** The wiki's and the portal's Gunicorn settings (and the
+  desktop launcher's) answer one request per connection (`keepalive = 0`,
+  previously 2) and close connections without waiting for the client. A
+  service command or `GUNICORN_CMD_ARGS` that sets `--keep-alive` brings the
+  old behaviour back; remove it.
+* **Desktop launcher.** With the gunicorn backend the wiki process no longer
+  starts in the data folder and no longer reads a `gunicorn.conf.py` there;
+  settings belong on the `serve` command line.
+* **Logs.** Text logs and the warnings of `sudo bananawiki` write control
+  characters in messages escaped (`\x1b`, `\x07`, `\u202e`): a tool that
+  matched them raw must match the escaped text. A line feed in a text log
+  message is written as `\n` (a traceback keeps its lines), and JSON logs
+  escape C1 controls and Unicode bidirectional overrides as `\u009b`, `\u202e`.
+* **Kanban history** is coarser for boards between about 35 KB and 1 MB of
+  ticket text: such a board gets a new history entry at most once in a time
+  proportional to its size (half a minute at 512 KB, a minute at 1 MB); the
+  changes in between are part of the next entry.
+* **Daily Kanban budget.** Each account adds at most 128 MB of Kanban board
+  history and imported board text in 24 hours, on all its boards together,
+  counted to the byte (a board whose history is full costs about nothing more).
+  Past that, an import is refused with a message; changes are still made and
+  recorded, but the history of the board they change no longer grows: its
+  oldest versions make room for the new one.
+* **Daily canvas budget.** Each account adds at most 128 MB to canvases and
+  their history in 24 hours, counted to the byte: content a canvas is created
+  with (imports, templates, `POST /api/v1/canvas` with `data`), what edits,
+  saves and restores add, and what new history entries add to a canvas's
+  history. Past that, a change that makes a canvas larger is refused with a
+  message and the REST API answers 429 `daily_limit`; other changes are made,
+  and the canvas's oldest versions make room for their history entry.
+* **Error log.** Plain administrators see network addresses in
+  **Admin → Server → Error log** as `[address]`; owners and superusers still
+  see them.
+* **Audit log.** An administrator's changes to a member's public profile
+  from the administration pages are recorded as `user.profile_moderated`.
 
 ## Upgrading from 1.7.2 to 1.7.3
 

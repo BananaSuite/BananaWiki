@@ -54,8 +54,9 @@ def may_upload(user: dict[str, Any] | None = None) -> bool:
     )
 
 
-def _check_quota(user: dict[str, Any], size: int) -> dict[str, Any]:
-    """Raise :class:`QuotaExceeded` if *size* more bytes break the daily limits; return new counters."""
+def _check_quota(user: dict[str, Any], size: int, files: int = 1) -> dict[str, Any]:
+    """Raise :class:`QuotaExceeded` if *files* more images of *size* bytes break the daily limits; return new
+    counters."""
     max_count = int(settings.get("upload_quota_per_day_count", 0) or 0)
     max_bytes = int(settings.get("upload_quota_per_day_bytes", 0) or 0)
     row = db.one("SELECT upload_window_start, upload_window_count, upload_window_bytes FROM users WHERE id = ?",
@@ -66,11 +67,12 @@ def _check_quota(user: dict[str, Any], size: int) -> dict[str, Any]:
     else:
         count, used, start_sql = int(row.get("upload_window_count") or 0), int(row.get("upload_window_bytes") or 0), \
             row["upload_window_start"]
-    if max_count and count + 1 > max_count:
+    if max_count and count + files > max_count:
         raise QuotaExceeded("pages.upload.quota_count", count=max_count)
     if max_bytes and used + size > max_bytes:
         raise QuotaExceeded("pages.upload.quota_bytes", limit_mb=max(1, max_bytes // (1024 * 1024)))
-    return {"upload_window_start": start_sql, "upload_window_count": count + 1, "upload_window_bytes": used + size}
+    return {"upload_window_start": start_sql, "upload_window_count": count + files,
+            "upload_window_bytes": used + size}
 
 
 def max_image_bytes() -> int:
@@ -87,9 +89,21 @@ def save_image(upload: FileStorage | None, user: dict[str, Any]) -> dict[str, st
 
     Raises :class:`storage.UploadError` (``key`` is a translation key).
     """
+    stored = save_counted(upload, user, allowed=IMAGE_EXTENSIONS, max_bytes=max_image_bytes())
+    return {"url": URL_PREFIX + stored.filename, "filename": stored.filename}
+
+
+def save_counted(upload: FileStorage | None, user: dict[str, Any], *, allowed: Any, max_bytes: int) -> Any:
+    """Store an image in the uploads folder, counted against *user*'s daily quota; the stored file.
+
+    Every feature that lets people put images there (pages, the page builder,
+    canvases) goes through this, so the administrator's daily limits hold
+    whichever way the picture comes. Raises :class:`storage.UploadError`
+    (:class:`QuotaExceeded` when a limit is reached).
+    """
     if int(settings.get("upload_quota_per_day_count", 0) or 0):
         _check_quota(user, 0)
-    stored = storage.save(upload, "uploads", allowed=IMAGE_EXTENSIONS, max_bytes=max_image_bytes(), images_only=True)
+    stored = storage.save(upload, "uploads", allowed=allowed, max_bytes=max_bytes, images_only=True)
     try:
         with db.transaction():
             counters = _check_quota(user, stored.size)
@@ -97,7 +111,30 @@ def save_image(upload: FileStorage | None, user: dict[str, Any]) -> dict[str, st
     except QuotaExceeded:
         storage.delete("uploads", stored.filename)
         raise
-    return {"url": URL_PREFIX + stored.filename, "filename": stored.filename}
+    return stored
+
+
+def check_room(user: dict[str, Any], files: int) -> None:
+    """Raise :class:`QuotaExceeded` if *user* may not upload *files* more images today (before storing any)."""
+    _check_quota(user, 0, files)
+
+
+def count_stored(user: dict[str, Any], files: int, size: int) -> None:
+    """Count *files* images of *size* bytes, stored together, against *user*'s daily quota.
+
+    For a batch (a canvas import) that is kept or refused as a whole: raises
+    :class:`QuotaExceeded`, counting nothing, and the caller removes the files.
+    """
+    with db.transaction():
+        db.update("users", _check_quota(user, size, files), "id = ?", (user["id"],))
+
+
+def uncount_stored(user: dict[str, Any], files: int, size: int) -> None:
+    """Give back what :func:`count_stored` counted for a batch removed after all (the canvas was not created)."""
+    with db.transaction():
+        db.execute("UPDATE users SET upload_window_count = MAX(0, COALESCE(upload_window_count, 0) - ?), "
+                   "upload_window_bytes = MAX(0, COALESCE(upload_window_bytes, 0) - ?) WHERE id = ?",
+                   (files, size, user["id"]))
 
 
 # Clean-up

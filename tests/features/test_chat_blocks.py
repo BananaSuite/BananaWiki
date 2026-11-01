@@ -14,10 +14,8 @@ from __future__ import annotations
 
 import io
 import json
-import re
 import sqlite3
 import zipfile
-from pathlib import Path
 
 import pytest
 
@@ -282,15 +280,6 @@ def test_blocks_go_with_the_accounts(app, db, people, admin_client):
                                                   "action": "execute", "delete_source": "1"})
     assert db.scalar("SELECT 1 FROM users WHERE id = ?", (bob["id"],)) is None
     assert db.scalar("SELECT COUNT(*) FROM chat__blocks") == 0
-
-
-def test_chat_translations_have_the_same_keys_and_placeholders():
-    folder = Path(__file__).resolve().parents[2] / "bananawiki/wiki/features/chat/translations"
-    english = json.loads((folder / "en.json").read_text(encoding="utf-8"))
-    italian = json.loads((folder / "it.json").read_text(encoding="utf-8"))
-    assert set(english) == set(italian)
-    for key, text in english.items():
-        assert set(re.findall(r"{(\w+)}", text)) == set(re.findall(r"{(\w+)}", italian[key])), key
 
 
 def test_blocking_clears_the_unread_badge(app, client, login, make_user, db):

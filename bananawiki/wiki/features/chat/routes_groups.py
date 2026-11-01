@@ -10,8 +10,10 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from flask import abort, current_app, jsonify, redirect, render_template, request, url_for
+from flask import abort, current_app, g, jsonify, redirect, render_template, request, url_for
 
+from ....core import downloads
+from ....core.numbers import ascii_int
 from ....core.ratelimit import SqlLimiter
 from ....core.timeutil import is_future, sql_in
 from ....core.web import client_ip, client_network, safe_next
@@ -27,6 +29,7 @@ from .web import (
     POLL_PER_MINUTE,
     SEND_PER_MINUTE,
     Refused,
+    audit_impersonated,
     bp,
     conversation,
     halt,
@@ -37,6 +40,7 @@ from .web import (
     succeed,
     throttle,
     too_many,
+    withhold_previews,
 )
 
 log = logging.getLogger("bananawiki.chat")
@@ -91,6 +95,16 @@ class Actor:
     @property
     def can_delete_any(self) -> bool:
         return self.can_moderate
+
+    @property
+    def moderates_as_admin(self) -> bool:
+        """Moderating only through the site administrator role, not a role in the group (audited)."""
+        return self.admin and (self.group["is_global"] or not self.is_moderator)
+
+    @property
+    def manages_as_admin(self) -> bool:
+        """Owner-level actions only through the site administrator role (audited)."""
+        return self.admin and (self.group["is_global"] or not self.is_owner)
 
     def outranks(self, target: dict[str, Any]) -> bool:
         """Moderators may not act on the owner or other moderators; nobody acts on the owner."""
@@ -152,6 +166,12 @@ def audit_admin_read(action: str, group: dict[str, Any] | None, *, polling: bool
     record(action, target_type="group", target_id=group["id"], details=details or None)
 
 
+def audit_member_read(action: str, group: dict[str, Any] | None, *, polling: bool = False, **details: Any) -> None:
+    """Record an administrator impersonating a member reading the member's group (the global room is open to all)."""
+    if group is not None and not group["is_global"]:
+        audit_impersonated(action, "group", group["id"], polling=polling, **details)
+
+
 def _back(group_id: int) -> str:
     return url_for("chat.group_view", group_id=group_id)
 
@@ -183,8 +203,12 @@ def _throttled() -> bool:
 def group_list():
     _require_groups()
     user = auth.current_user()
-    return render_template("chat/group_list.html", groups=groups.list_for(user["id"]),
-                           can_create=policy.can_create_group(user), display_name=display_name)
+    # One page of groups per request: an account can be added to any number of groups.
+    pages = max(1, -(-groups.count_for(user["id"]) // groups.LIST_PAGE_SIZE))
+    page = min(max(ascii_int(request.args.get("page", "1"), 6) or 1, 1), pages)
+    rows = groups.list_for(user["id"], limit=groups.LIST_PAGE_SIZE, offset=(page - 1) * groups.LIST_PAGE_SIZE)
+    return render_template("chat/group_list.html", groups=withhold_previews(rows, shown=lambda row: row["is_global"]),
+                           can_create=policy.can_create_group(user), display_name=display_name, page=page, pages=pages)
 
 
 @bp.route("/groups/new", methods=["GET", "POST"])
@@ -207,8 +231,19 @@ def group_new():
         error = t("chat.groups.error.description_too_long", limit=groups.DESCRIPTION_MAX)
     if error:
         return render_template("chat/group_new.html", form=request.form, error=error), 400
-    group = groups.create(name, description, auth.current_user())
+    try:
+        group = groups.create(name, description, auth.current_user())
+    except groups.TooManyGroups:
+        return refuse("chat.groups.error.too_many_created", url_for("chat.group_list"), 429,
+                      limit=groups.MAX_CREATES_PER_DAY)
     return succeed(_back(group["id"]), "chat.groups.created", group_id=group["id"])
+
+
+def _spend_code_guess(user: dict[str, Any]) -> bool:
+    """Spend one invite-code guess from the account's and the network's join budgets (False: none left)."""
+    limiter = SqlLimiter(db.session)
+    return (limiter.hit(user["id"], "group_join", JOIN_MAX_PER_USER, JOIN_WINDOW)
+            and limiter.hit(client_network(), "group_join_ip", JOIN_MAX_PER_IP, JOIN_WINDOW))
 
 
 @bp.route("/groups/join", methods=["GET", "POST"])
@@ -217,9 +252,7 @@ def group_join():
     if request.method == "GET":
         return render_template("chat/group_join.html")
     user = auth.current_user()
-    limiter = SqlLimiter(db.session)
-    if not (limiter.hit(user["id"], "group_join", JOIN_MAX_PER_USER, JOIN_WINDOW)
-            and limiter.hit(client_network(), "group_join_ip", JOIN_MAX_PER_IP, JOIN_WINDOW)):
+    if not _spend_code_guess(user):
         return refuse("chat.groups.error.join_rate_limited", url_for("chat.group_join"), 429)
     code = (request.form.get("invite_code") or "").strip()
     if not code:
@@ -266,6 +299,7 @@ def group_view(group_id: int):
     actor = _reader(group_id)
     if actor.is_member:
         groups.mark_read(group_id, actor.user["id"])
+        audit_member_read("chat.group_read", actor.group)
     else:
         # A site administrator reading a group they are not in.
         audit_admin_read("chat.group_read", actor.group)
@@ -293,6 +327,8 @@ def group_messages(group_id: int):
         return too_many()
     if not actor.is_member:
         audit_admin_read("chat.group_read", actor.group, polling=True)
+    else:
+        audit_member_read("chat.group_read", actor.group, polling=True)
     return jsonify(messages_payload(GROUP, group_id, can_delete_any=actor.can_delete_any,
                                     hide_blocked=actor.is_member))
 
@@ -305,6 +341,7 @@ def group_read(group_id: int):
 
 
 @bp.route("/groups/<int:group_id>/send", methods=["POST"])
+@auth.large_body
 def group_send(group_id: int):
     actor = _actor(group_id)
     back = _back(group_id)
@@ -337,6 +374,7 @@ def group_send(group_id: int):
         if stored is not None:
             storage.delete(store.FOLDER, stored.filename)
         raise
+    g.chat_message_id = message_id  # for the audit entry of an administrator impersonating the sender
     return succeed(back, message_id=message_id)
 
 
@@ -369,6 +407,10 @@ def group_delete_message(group_id: int):
         store.wipe(GROUP, message["id"], authorize=authorize_deletion)
         if not own:
             groups.system(group_id, "chat.system.message_deleted", actor=actor.user["username"])
+            if actor.moderates_as_admin:
+                # The system message goes with the next clear; the audit log keeps the deletion.
+                record("chat.group_message_deleted", target_type="group", target_id=group_id,
+                       details={"message_id": message["id"], "sender_id": message["sender_id"]})
     return succeed(back, "chat.message.deleted_flash", message_id=message["id"])
 
 
@@ -400,11 +442,14 @@ def group_attachment(attachment_id: int):
         if not admin:
             abort(404)
         audit_admin_read("chat.group_attachment_read", groups.get(item["parent_id"]), attachment_id=item["id"])
+    else:
+        audit_member_read("chat.group_attachment_read", groups.get(item["parent_id"]), attachment_id=item["id"])
     return storage.send(store.FOLDER, item["filename"], download_name=item["original_name"],
                         blob_id=item["blob_id"], max_age=0)
 
 
 @bp.route("/groups/<int:group_id>/export")
+@downloads.place_first
 def group_export(group_id: int):
     actor = _reader(group_id)
     if not actor.can_manage:
@@ -413,6 +458,8 @@ def group_export(group_id: int):
         return too_many()
     if not actor.is_member:
         audit_admin_read("chat.group_exported", actor.group)
+    else:
+        audit_member_read("chat.group_exported", actor.group)
     name = display_name(actor.group)
     return exports.export(GROUP, group_id, title=f"group_{name}", header=[t("chat.export.group_title", name=name)],
                           include_ip=actor.admin)
@@ -638,6 +685,9 @@ def group_regenerate_code(group_id: int):
     if custom and not groups.CUSTOM_CODE.fullmatch(custom):
         return refuse("chat.groups.error.bad_custom_code", back, 400, minimum=groups.CUSTOM_CODE_MIN,
                       maximum=groups.CUSTOM_CODE_MAX)
+    # "Code taken" tells whether another group uses the code, so a custom code costs a join guess.
+    if custom and not _spend_code_guess(actor.user):
+        return refuse("chat.groups.error.join_rate_limited", back, 429)
     try:
         with db.transaction():
             actor = _authority(group_id, manage=True)
@@ -659,6 +709,9 @@ def group_clear(group_id: int):
     messages, attachments = store.count(GROUP, group_id)
     groups.clear(group_id, actor.user, authorize=lambda: _authority(group_id).user)
     log.info("Group %s cleared by %s", group_id, actor.user["id"])
+    if actor.moderates_as_admin:
+        record("chat.group_cleared", target_type="group", target_id=group_id,
+               details={"messages": messages, "attachments": attachments})
     return succeed(back, "chat.clear.done", values={"messages": messages, "attachments": attachments})
 
 
@@ -669,8 +722,12 @@ def group_delete(group_id: int):
         return refuse("chat.groups.error.global_undeletable", _back(group_id), 409)
     if not actor.can_manage:
         return refuse("chat.groups.error.owner_only", _back(group_id), 403)
+    messages, attachments = store.count(GROUP, group_id)
     groups.delete(group_id, authorize=lambda: _authority(group_id, manage=True))
     log.info("Group %s deleted by %s", group_id, actor.user["id"])
+    if actor.manages_as_admin:
+        record("chat.group_deleted", target_type="group", target_id=group_id,
+               details={"name": actor.group["name"], "messages": messages, "attachments": attachments})
     target = url_for("chat.admin_groups") if request.form.get("from") == "admin" and actor.admin \
         else url_for("chat.group_list")
     return succeed(target, "chat.groups.deleted", values={"name": actor.group["name"]})

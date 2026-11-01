@@ -4,7 +4,8 @@ The ``page_governance`` row in ``plugins`` switches the feature;
 ``page_protection_enabled`` and ``page_reservations_enabled`` switch its two
 parts. Integration with the pages feature goes through the
 ``page.edit_blocked``, ``page.delete`` and ``page.saved`` interceptors and
-the page and editor slots.
+the page and editor slots; ``feature.switch`` keeps the feature on while it
+protects pages (see :func:`.protection.switch_off_error`).
 """
 
 from ... import attention, auth
@@ -46,11 +47,12 @@ FEATURE = Feature(
                         oldest=lambda user: oldest_pending(), order=30),
     ],
     jobs=[Job("page_governance.cleanup", 3600, reservations.cleanup)],
-    events={"user.role_changed": [hooks.record_lapsed_protections]},
+    events={"user.role_changed": [hooks.end_lapsed_protections]},
     interceptors={
         "page.edit_blocked": hooks.edit_blocked,
         "page.delete": hooks.refuse_delete,
         "page.saved": hooks.reserve_after_save,
+        "feature.switch": hooks.refuse_switch_off,
     },
     slots={
         "page.header_actions": hooks.header_actions,

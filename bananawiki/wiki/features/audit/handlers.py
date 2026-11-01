@@ -78,6 +78,19 @@ def category_deleted(category: dict[str, Any], actor_id: Any = None, **_: Any) -
            details={"name": category.get("name")})
 
 
+def kanban_board_deleted(board: dict[str, Any], actor_id: Any = None, **_: Any) -> None:
+    """A deleted board takes its tickets, comments, files and history with it, so it is always recorded."""
+    record("kanban.board_deleted", actor_id=actor_id, target_type="board", target_id=board.get("id"),
+           details={"title": board.get("title"), "creator": board.get("creator_username"),
+                    "visibility": board.get("visibility")})
+
+
+def canvas_deleted(canvas: dict[str, Any], actor_id: Any = None, **_: Any) -> None:
+    record("canvas.deleted", actor_id=actor_id, target_type="canvas", target_id=canvas.get("slug"),
+           details={"title": canvas.get("title"), "creator": canvas.get("creator_username"),
+                    "visibility": canvas.get("visibility")})
+
+
 EVENTS = {
     "user.created": [user_created],
     "user.deleted": [user_deleted],
@@ -91,4 +104,6 @@ EVENTS = {
     "page.deleted": [page_deleted],
     "page.restored": [page_restored],
     "category.deleted": [category_deleted],
+    "kanban.board.deleted": [kanban_board_deleted],
+    "canvas.deleted": [canvas_deleted],
 }

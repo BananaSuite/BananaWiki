@@ -4,7 +4,8 @@ A user with ``contribution.propose`` who can see a page but cannot edit it
 proposes a new title and content with a reason. Reviewers (``contribution.review``
 plus edit rights on that page; administrators always) approve or deny it.
 Approving applies the edit through the pages service, credited to the
-proposer. Each user may have at most their quota of proposals waiting.
+proposer; a new title only when the reviewer may rename the page
+(``page.edit_metadata``). Each user may have at most their quota of proposals waiting.
 
 ``pending_contributions`` keeps one row per (page, user) (``UNIQUE`` in the
 schema), so a new proposal for the same page reuses the resolved row.
@@ -24,6 +25,7 @@ from ....core.timeutil import now_sql, sql_in
 from ... import attention, auth, settings
 from ...db import db
 from ...registry import intercept
+from ..pages import access as page_access
 from ..pages import diff as page_diff
 from ..pages import service as pages
 from . import quota
@@ -76,8 +78,17 @@ def of_user(user_id: str) -> list[dict[str, Any]]:
     return db.all(f"{_SELECT} WHERE c.user_id = ? ORDER BY c.updated_at DESC, c.id DESC", (user_id,))
 
 
+# Lists and counts shown on every page view never read the proposed texts (up to a page each).
+_SUMMARY = (
+    "SELECT c.id, c.page_id, c.user_id, c.status, c.reason, c.created_at, c.updated_at, u.username, "
+    "p.title AS page_title, p.slug AS page_slug FROM pending_contributions c "
+    "JOIN users u ON u.id = c.user_id JOIN pages p ON p.id = c.page_id"
+)
+
+
 def pending_on_page(page_id: int) -> list[dict[str, Any]]:
-    return db.all(f"{_SELECT} WHERE c.page_id = ? AND c.status = 'pending' ORDER BY c.created_at", (page_id,))
+    """Waiting proposals on one page, oldest first, without their texts."""
+    return db.all(f"{_SUMMARY} WHERE c.page_id = ? AND c.status = 'pending' ORDER BY c.created_at", (page_id,))
 
 
 def pending_count(user_id: str) -> int:
@@ -86,33 +97,39 @@ def pending_count(user_id: str) -> int:
     ))
 
 
+def _reviewable(page_ids: list[int], user: dict[str, Any]) -> set[int]:
+    """The pages among *page_ids* that *user* may review, each checked once."""
+    return {page_id for page_id in page_ids if can_review(pages.get(page_id, with_content=False), user)}
+
+
 def pending_for_reviewer(user: dict[str, Any]) -> list[dict[str, Any]]:
-    """Waiting proposals on pages *user* may review, oldest first."""
-    rows = db.all(f"{_SELECT} WHERE c.status = 'pending' ORDER BY c.created_at, c.id")
+    """Waiting proposals on pages *user* may review, oldest first, without their texts."""
+    rows = db.all(f"{_SUMMARY} WHERE c.status = 'pending' ORDER BY c.created_at, c.id")
     if auth.is_admin(user):
         return rows
-    readable: dict[int, bool] = {}
-    result = []
-    for row in rows:
-        if row["page_id"] not in readable:
-            readable[row["page_id"]] = can_review(pages.get(row["page_id"], with_content=False), user)
-        if readable[row["page_id"]]:
-            result.append(row)
-    return result
+    allowed = _reviewable(list(dict.fromkeys(row["page_id"] for row in rows)), user)
+    return [row for row in rows if row["page_id"] in allowed]
+
+
+def _pending_per_page(user: dict[str, Any]) -> list[dict[str, Any]]:
+    """``page_id``, ``waiting`` and ``oldest`` for each page with proposals *user* may review."""
+    rows = db.all("SELECT page_id, COUNT(*) AS waiting, MIN(created_at) AS oldest FROM pending_contributions "
+                  "WHERE status = 'pending' GROUP BY page_id")
+    allowed = _reviewable([row["page_id"] for row in rows], user)
+    return [row for row in rows if row["page_id"] in allowed]
 
 
 def review_count(user: dict[str, Any]) -> int:
     if auth.is_admin(user):
         return int(db.scalar("SELECT COUNT(*) FROM pending_contributions WHERE status = 'pending'", default=0))
-    return len(pending_for_reviewer(user))
+    return sum(row["waiting"] for row in _pending_per_page(user))
 
 
 def oldest_for_reviewer(user: dict[str, Any]) -> str | None:
     """When the proposal waiting longest for *user* was filed."""
     if auth.is_admin(user):
         return db.scalar("SELECT MIN(created_at) FROM pending_contributions WHERE status = 'pending'")
-    rows = pending_for_reviewer(user)
-    return rows[0]["created_at"] if rows else None
+    return min((row["oldest"] for row in _pending_per_page(user)), default=None)
 
 
 # Proposing
@@ -179,8 +196,14 @@ def update_own(contribution: dict[str, Any], user: dict[str, Any], *, title: str
 
 
 def withdraw(contribution: dict[str, Any], user: dict[str, Any]) -> None:
+    """The proposer takes their proposal back; its text is dropped (nothing shows it again).
+
+    Withdrawing frees the quota at once, so a kept text would let anyone store
+    a page's worth of text for every page they can read, for
+    :data:`RESOLVED_RETENTION_DAYS`.
+    """
     changed = db.execute(
-        "UPDATE pending_contributions SET status = 'withdrawn', updated_at = ? "
+        "UPDATE pending_contributions SET status = 'withdrawn', content = '', reason = '', updated_at = ? "
         "WHERE id = ? AND user_id = ? AND status = 'pending'",
         (now_sql(), contribution["id"], user["id"]),
     ).rowcount
@@ -246,8 +269,10 @@ def approve(contribution_id: int, reviewer: dict[str, Any], note: str = "", *,
                 raise ContributionError("contributions.error.not_pending")
             message = f"Contribution #{contribution_id} by {contribution['username']}, approved by " \
                       f"{reviewer['username']}: {contribution['reason']}"
+            # A new title is part of the proposal, but only a reviewer who may rename the page applies it.
+            title = contribution["title"] if page_access.can_edit_metadata(page, reviewer) else None
             updated = pages.update(page, author_id=contribution["user_id"],
-                                   title=contribution["title"] or page["title"], content=contribution["content"],
+                                   title=title or page["title"], content=contribution["content"],
                                    edit_message=message[:pages.MAX_EDIT_MESSAGE], expected_revision=page_revision)
     except pages.EditConflict:
         raise ContributionError("contributions.error.page_changed_since_review") from None

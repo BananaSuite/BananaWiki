@@ -10,6 +10,13 @@
       <label class="check"><input type="radio" name="previous_owner" value="none" checked><span>{{ t('hosting.transfers.previous_owner_none') }}</span></label>
       <label class="check"><input type="radio" name="previous_owner" value="view"><span>{{ t('hosting.transfers.previous_owner_view') }}</span></label>
     </fieldset>
+    {%- if transfer.team %}
+    {#- Nobody is kept unless ticked: the previous owner chose these people, and may have added an account of their own. -#}
+    <fieldset class="plain"><legend>{{ t('hosting.transfers.team', username=transfer.from_username) }}</legend>
+      {% for member in transfer.team %}<label class="check"><input type="checkbox" name="keep" value="{{ member.keep }}"><span>{{ member.username }} · {{ t('hosting.collaborators.' ~ member.role) }}{% if member.role != 'full_access' %} ({% for p in member.granted %}{{ t('hosting.permission.' ~ p) }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}</span></label>
+      {% endfor %}
+    </fieldset>
+    {%- endif %}
     <div class="btn-row">
       <button type="submit" class="btn btn--small btn--primary">{{ t('hosting.transfers.accept') }}</button>
       <button type="submit" class="btn btn--small" form="decline-transfer-{{ transfer.id }}">{{ t('hosting.transfers.decline') }}</button>

@@ -94,6 +94,29 @@ class SqlLimiter:
                 return None
             return self.record(key, bucket)
 
+    def reserve_amount(self, key: str, bucket: str, amount: int, limit: int, window_seconds: int) -> bool:
+        """Atomically add *amount* to what *key* used of *bucket* unless that takes it past *limit* in the window.
+
+        For a budget of an amount rather than a count (bytes stored, say), counted exactly: what is added
+        within a minute shares one row (``amount``, wiki schema version 19), so a busy key keeps at most a
+        row a minute. Only for the wiki's ``rate_limit_hits``.
+        """
+        with self.db.transaction():
+            used = int(self.db.scalar(
+                f"SELECT COALESCE(SUM(amount), 0) FROM {self.TABLE} WHERE ip = ? AND bucket = ? AND hit_at > ?",
+                (key, bucket, sql_in(seconds=-window_seconds)), default=0) or 0)
+            if used + amount > limit:
+                return False
+            recent = self.db.scalar(
+                f"SELECT id FROM {self.TABLE} WHERE ip = ? AND bucket = ? AND hit_at > ? ORDER BY id DESC LIMIT 1",
+                (key, bucket, sql_in(seconds=-60)))
+            if recent is None:
+                self.db.execute(f"INSERT INTO {self.TABLE} (ip, bucket, hit_at, amount) VALUES (?, ?, ?, ?)",
+                                (key, bucket, sql_in(seconds=0), amount))
+            else:
+                self.db.execute(f"UPDATE {self.TABLE} SET amount = amount + ? WHERE id = ?", (amount, recent))
+            return True
+
     def release(self, reservation_id: int) -> None:
         """Release this attempt only, preserving other requests' counters."""
         self.db.execute(f"DELETE FROM {self.TABLE} WHERE id = ?", (reservation_id,))

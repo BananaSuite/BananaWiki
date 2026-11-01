@@ -47,6 +47,12 @@ def _group_unread(user: dict[str, Any] | None) -> int:
     return groups.unread_total(user["id"]) if user and policy.group_allowed(user) else 0
 
 
+def _forget_user(**context: Any) -> None:
+    """``user.delete``: blank the account's group addresses, erase its direct conversations."""
+    groups.forget_addresses(**context)
+    dms.forget_conversations(**context)
+
+
 def _settings_sections(**context: Any) -> Markup:
     """Slot ``account.settings_sections``: groups on the profile, then the people the user blocked."""
     return Markup(badges.render_settings_section(**context)) + Markup(blocks.render_settings_section(**context))
@@ -78,6 +84,7 @@ FEATURE = Feature(
         Job("chat.retention", 3600, retention.retention_job),
         Job("chat.housekeeping", 86400, retention.housekeeping_job, initial_delay=600),
     ],
+    interceptors={"user.delete": _forget_user},
     slots={
         "profile.sections": badges.render_profile_section,
         "account.settings_sections": _settings_sections,

@@ -43,6 +43,7 @@ ROLES = ("user", "editor", "admin", "owner")
 VOLATILE_TABLES = ("user_sessions", "rate_limit_hits", "tts_generations")
 MAX_REQUEST = 64 * 1024
 MAX_FIELD = 200
+MAX_RESET_IDS = 500
 PLUGIN_MANIFEST_MAX = 64 * 1024
 _ID_ALPHABET = string.ascii_lowercase + string.digits
 
@@ -160,7 +161,16 @@ def _revoke(db: Any, user_ids: list[str]) -> None:
             db.execute("UPDATE api_service__tokens SET active = 0 WHERE user_id = ? AND active = 1", (user_id,))
 
 
-def _audit(db: Any, action: str, user: dict[str, Any], details: dict[str, Any]) -> None:
+def _unlink_platform(db: Any, user_ids: list[str]) -> None:
+    """Drop the links of *user_ids* to portal accounts (platform sign-in)."""
+    from bananawiki.core.sqlite import table_exists
+
+    if table_exists(db.conn, "platform_oauth_links"):
+        for user_id in user_ids:
+            db.execute("DELETE FROM platform_oauth_links WHERE user_id = ?", (user_id,))
+
+
+def _audit(db: Any, action: str, user: dict[str, Any], details: dict[str, Any], target_type: str = "user") -> None:
     """One entry in the wiki's audit log, as the wiki records it, while the log is switched on."""
     from bananawiki.core.sqlite import table_exists
 
@@ -169,7 +179,7 @@ def _audit(db: Any, action: str, user: dict[str, Any], details: dict[str, Any]) 
     if table_exists(db.conn, "plugins") and db.scalar("SELECT enabled FROM plugins WHERE id = 'audit'",
                                                       default=1) == 0:
         return
-    db.insert("audit_log", {"created_at": _now(), "actor_id": None, "action": action, "target_type": "user",
+    db.insert("audit_log", {"created_at": _now(), "actor_id": None, "action": action, "target_type": target_type,
                             "target_id": str(user["id"]), "ip": None,
                             "details": json.dumps(details, ensure_ascii=False, sort_keys=True)})
 
@@ -367,10 +377,13 @@ def set_password(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
 
 
 def remove_user(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
-    """Delete the account, handing over its kanban boards and work as the wiki does.
+    """Delete the account, handing over its kanban boards and work, and its canvases others use, as the wiki does.
+
+    Its direct conversations go, with their attachment files once the deletion commits.
 
     Without the wiki application, the boards get no activity or history entry for it.
     """
+    from bananawiki.wiki.accounts import hand_over_canvases
     from bananawiki.wiki.features.kanban.service import release
 
     username = _username(request)
@@ -381,21 +394,128 @@ def remove_user(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
         if user["role"] == "owner":
             raise TaskError("protected_user", username)
         release(db, user["id"])
+        hand_over_canvases(db, user["id"])
+        # As the chat feature does (groups.forget_addresses): group messages stay, their addresses go.
+        db.execute("UPDATE group_messages SET ip_address = '' WHERE sender_id = ?", (user["id"],))
+        files = _erase_conversations(db, user["id"])
         db.execute("DELETE FROM users WHERE id = ?", (user["id"],))
+        db.after_commit(lambda: _remove_chat_files(cfg, files))
     return {}
+
+
+def _erase_conversations(db: Any, user_id: str) -> list[str]:
+    """As the chat feature does (dms.forget_conversations): the account's direct conversations go with it.
+
+    The rows would go with the account (``ON DELETE CASCADE``), but not the
+    legacy ``file_blobs`` copies nor the files, both participants' included;
+    return the file names to remove once the deletion commits.
+    """
+    rows = db.all(
+        "SELECT a.filename, a.blob_id FROM chat_attachments a JOIN chat_messages m ON m.id = a.message_id "
+        "JOIN chats c ON c.id = m.chat_id WHERE c.user1_id = ? OR c.user2_id = ?", (user_id, user_id))
+    blob_ids = [row["blob_id"] for row in rows if row["blob_id"]]
+    for start in range(0, len(blob_ids), 500):
+        chunk = blob_ids[start:start + 500]
+        db.execute(f"DELETE FROM file_blobs WHERE id IN ({','.join('?' * len(chunk))})", chunk)  # noqa: S608
+    db.execute("DELETE FROM chats WHERE user1_id = ? OR user2_id = ?", (user_id, user_id))
+    return [row["filename"] for row in rows if row["filename"]]
+
+
+def _remove_chat_files(cfg: Any, filenames: list[str]) -> None:
+    """Delete stored chat attachment files; names leading outside the folder are skipped."""
+    root = Path(cfg.folders.chat_attachments).resolve()
+    for name in filenames:
+        if not isinstance(name, str) or "\x00" in name or name != os.path.normpath(name) or name.startswith(("/", "..")):
+            continue
+        path = (root / name).resolve()
+        if root in path.parents and path.is_file():
+            path.unlink(missing_ok=True)
+
+
+def _retire_invites(db: Any, user_ids: list[str]) -> int:
+    """Deactivate the live invite codes the previous owner could still sign up with; returns how many.
+
+    Those are the codes *user_ids* (every admin and owner) made, and any code
+    granting more than a plain member account: sign-up only checks that the
+    creator is still an administrator, which a reset account is.
+    """
+    from bananawiki.core.sqlite import table_exists
+
+    if not table_exists(db.conn, "invite_codes"):
+        return 0
+    marks = ",".join("?" * len(user_ids))
+    rows = db.all(
+        "SELECT id FROM invite_codes WHERE deleted = 0 AND (max_uses = 0 OR use_count < max_uses) "  # noqa: S608
+        "AND (expires_at IS NULL OR expires_at > ?) AND (created_by IN (" + marks + ") "
+        "OR assigned_role IN ('editor', 'admin') OR assigned_custom_role_id IS NOT NULL)", (_now(), *user_ids))
+    for row in rows:
+        db.execute("UPDATE invite_codes SET deleted = 1, deleted_at = ? WHERE id = ?", (_now(), row["id"]))
+        _audit(db, "invite.deactivated", row, {"via": "hosting portal"}, target_type="invite")
+    return len(rows)
+
+
+def _pause_webhooks(db: Any) -> int:
+    """Switch off every active webhook: each sends the wiki's events, signed, to an address the previous owner
+    chose. Recorded as an administrator switching it off would be; the new owner can review and switch it on."""
+    from urllib.parse import urlsplit
+
+    from bananawiki.core.sqlite import table_exists
+
+    if not table_exists(db.conn, "api_service__webhooks"):
+        return 0
+    rows = db.all("SELECT id, url FROM api_service__webhooks WHERE active = 1")
+    for row in rows:
+        db.execute("UPDATE api_service__webhooks SET active = 0, disabled_reason = NULL, disabled_at = NULL, "
+                   "updated_at = ? WHERE id = ?", (_now(), row["id"]))
+        _audit(db, "api_service.webhook_updated", row, {"changed": "active", "via": "hosting portal",
+                                                        "host": urlsplit(str(row["url"] or "")).hostname or ""},
+               target_type="webhook")
+    return len(rows)
+
+
+def _withdraw_federation_shares(db: Any) -> int:
+    """Withdraw every page shared with a federation peer: each sends the page's current text to a wiki the previous
+    owner may have paired. The pairings stay (pages received from them are kept); the new owner can share again."""
+    from urllib.parse import urlsplit
+
+    from bananawiki.core.sqlite import table_exists
+
+    if not table_exists(db.conn, "federation_shares"):
+        return 0
+    rows = db.all("SELECT s.peer_id, s.page_id, p.name, p.base_url FROM federation_shares s "
+                  "JOIN federation_peers p ON p.wiki_id = s.peer_id")
+    for row in rows:
+        db.execute("DELETE FROM federation_shares WHERE peer_id = ? AND page_id = ?", (row["peer_id"], row["page_id"]))
+        _audit(db, "federation.page_unshared", {"id": row["page_id"]},
+               {"wiki_id": row["peer_id"], "name": row["name"], "via": "hosting portal",
+                "host": urlsplit(str(row["base_url"] or "")).hostname or ""}, target_type="page")
+    return len(rows)
 
 
 def reset_admin(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
     """New password (to be changed at next sign-in) for the named admin, else for every admin and owner.
 
-    Their two-step verification is turned off too, and their sessions and API tokens end.
+    With ``every_admin`` (the portal sets it once the wiki has changed owner) every admin and owner is reset
+    together with the named one, so no other administrator account the previous owner made keeps working,
+    and the invite codes they could sign up again with are deactivated (``invites_deactivated``), as are the
+    webhooks sending the wiki's events out (``webhooks_disabled``), the pages shared with federation peers
+    (``federation_shares_withdrawn``) and every external plugin, whose code the previous owner chose
+    (``plugins_disabled``, as :func:`quarantine`).
+
+    Their two-step verification is turned off too, their sessions and API tokens end, and their links to
+    portal accounts go (``user_ids`` names them, so the portal drops its copies): the reset is how a new
+    owner locks the previous one out, who may have connected the account for platform sign-in.
     """
     username = _username(request)
     hashed = _hash(cfg, _password(request))
     with _session(cfg) as db, db.transaction():
         named = db.one("SELECT id, username FROM users WHERE username = ? COLLATE NOCASE", (username,))
-        if named is not None:
+        if named is not None and not request.get("every_admin"):
             targets = [named]
+        elif named is not None:
+            others = db.all("SELECT id, username FROM users WHERE role IN ('admin', 'owner') AND id != ? "
+                            "ORDER BY created_at, rowid", (named["id"],))
+            targets = [named, *others]
         else:
             targets = db.all("SELECT id, username FROM users WHERE role IN ('admin', 'owner') "
                              "ORDER BY created_at, rowid")
@@ -405,10 +525,20 @@ def reset_admin(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
                                 "force_password_change": 1, "created_at": _now()})
             return {"username": username}
         for user in targets:
-            db.execute("UPDATE users SET password = ?, force_password_change = 1 WHERE id = ?", (hashed, user["id"]))
+            # A saved original password (an admin's "temporary password") goes too, as with any new password:
+            # restoring it would give back a password the previous owner knows.
+            db.execute("UPDATE users SET password = ?, force_password_change = 1, original_password_backup = NULL "
+                       "WHERE id = ?", (hashed, user["id"]))
         _revoke(db, [user["id"] for user in targets])
         two_step_reset = _reset_two_step(db, targets)
-    return {"username": targets[0]["username"], "two_step_reset": two_step_reset}
+        _unlink_platform(db, [user["id"] for user in targets])
+        retired = _retire_invites(db, [user["id"] for user in targets]) if request.get("every_admin") else 0
+        paused = _pause_webhooks(db) if request.get("every_admin") else 0
+        withdrawn = _withdraw_federation_shares(db) if request.get("every_admin") else 0
+        plugins_off = _disable_external_plugins(cfg, db) if request.get("every_admin") else 0
+    return {"username": targets[0]["username"], "two_step_reset": two_step_reset, "invites_deactivated": retired,
+            "webhooks_disabled": paused, "federation_shares_withdrawn": withdrawn, "plugins_disabled": plugins_off,
+            "user_ids": [str(user["id"])[:MAX_FIELD] for user in targets][:MAX_RESET_IDS]}
 
 
 def analytics(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
@@ -464,14 +594,23 @@ def quarantine(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
     A plugin that has run can set ``builtin=1`` on its own row, so the folder
     decides, not that column.
     """
-    ids = _external_plugin_ids(cfg)
     with _session(cfg) as db, db.transaction():
-        db.execute("CREATE TEMP TABLE quarantine_ids (id TEXT PRIMARY KEY)")
-        db.executemany("INSERT OR IGNORE INTO quarantine_ids (id) VALUES (?)", [(item,) for item in ids])
-        disabled = db.execute("UPDATE plugins SET enabled = 0, disabled_at = ? WHERE enabled = 1 AND "
-                              "(builtin = 0 OR id IN (SELECT id FROM quarantine_ids))", (_now(),)).rowcount
-        db.execute("DROP TABLE quarantine_ids")
+        disabled = _disable_external_plugins(cfg, db)
     return {"disabled": disabled}
+
+
+def _disable_external_plugins(cfg: Any, db: Any) -> int:
+    from bananawiki.core.sqlite import table_exists
+
+    if not table_exists(db.conn, "plugins"):
+        return 0
+    ids = _external_plugin_ids(cfg)
+    db.execute("CREATE TEMP TABLE quarantine_ids (id TEXT PRIMARY KEY)")
+    db.executemany("INSERT OR IGNORE INTO quarantine_ids (id) VALUES (?)", [(item,) for item in ids])
+    disabled = db.execute("UPDATE plugins SET enabled = 0, disabled_at = ? WHERE enabled = 1 AND "
+                          "(builtin = 0 OR id IN (SELECT id FROM quarantine_ids))", (_now(),)).rowcount
+    db.execute("DROP TABLE quarantine_ids")
+    return disabled
 
 
 def snapshot(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:

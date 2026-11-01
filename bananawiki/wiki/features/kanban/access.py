@@ -171,8 +171,23 @@ def can_comment(user: User, board: Board | None) -> bool:
     return user is not None and not is_archived(board) and can_view(user, board)
 
 
+def can_edit_comment(user: User, comment: dict[str, Any]) -> bool:
+    """Only its author rewrites a comment: it stays credited to them."""
+    return bool(user) and comment["user_id"] == user["id"]  # type: ignore[index]
+
+
 def can_moderate_comment(user: User, comment: dict[str, Any]) -> bool:
-    return bool(user) and (is_admin(user) or comment["user_id"] == user["id"])  # type: ignore[index]
+    """Delete *comment*: its author, or an administrator who may change the author's account."""
+    if not user:
+        return False
+    if comment["user_id"] == user["id"]:
+        return True
+    if not is_admin(user):
+        return False
+    from ..admin.service import protection_error  # admin imports the features
+
+    author = db.one("SELECT id, role, is_superuser FROM users WHERE id = ?", (comment["user_id"],))
+    return author is None or protection_error(user, author) is None
 
 
 def shareable_roles() -> list[str]:
@@ -189,17 +204,14 @@ _BOARD_SELECT = (
 )
 
 
-def visible_boards(user: User) -> list[dict[str, Any]]:
-    """Every board *user* can open, newest first (before any saved ordering)."""
-    order = " ORDER BY b.created_at DESC, b.id DESC"
+def _board_condition(user: User) -> tuple[str, dict[str, Any]] | None:
+    """The SQL condition (on ``b``) of the boards *user* can open, or None when there are none."""
     if user is None:
-        if not public_access_active():
-            return []
-        return db.all(f"{_BOARD_SELECT} WHERE b.visibility = 'public'{order}")
+        return ("b.visibility = 'public'", {}) if public_access_active() else None
     if not can_use(user):
-        return []
+        return None
     if is_admin(user):
-        return db.all(f"{_BOARD_SELECT}{order}")
+        return "1", {}
     individual = (
         "b.created_by = :uid OR EXISTS (SELECT 1 FROM kanban_board_shares s WHERE s.board_id = b.id "
         "AND s.share_type = 'user' AND s.target = :uid)"
@@ -211,7 +223,59 @@ def visible_boards(user: User) -> list[dict[str, Any]]:
         )
     else:
         condition = individual
-    return db.all(f"{_BOARD_SELECT} WHERE {condition}{order}", {"uid": user["id"], "role": user["role"]})
+    return condition, {"uid": user["id"], "role": user["role"]}
+
+
+def visible_board_ids(user: User) -> tuple[set[int], set[int]]:
+    """Ids of the active and of the archived boards *user* can open (only the ids are read)."""
+    found = _board_condition(user)
+    if found is None:
+        return set(), set()
+    condition, params = found
+    active: set[int] = set()
+    archived: set[int] = set()
+    for row in db.all(f"SELECT b.id, COALESCE(b.archived_at, '') != '' AS archived FROM kanban_boards b "
+                      f"WHERE {condition}", params):
+        (archived if row["archived"] else active).add(row["id"])
+    return active, archived
+
+
+def visible_boards(user: User) -> list[dict[str, Any]]:
+    """Every board *user* can open, newest first (before any saved ordering)."""
+    found = _board_condition(user)
+    if found is None:
+        return []
+    condition, params = found
+    return db.all(f"{_BOARD_SELECT} WHERE {condition} ORDER BY b.created_at DESC, b.id DESC", params)
+
+
+def ordered_boards(user: User, order_key: str | None, *, archived: bool, limit: int | None = None,
+                   offset: int = 0) -> list[dict[str, Any]]:
+    """The active (or *archived*) boards *user* can open: those in the saved order of *order_key*
+    first, in that order, then the others newest first; with *limit*, only that window of them."""
+    found = _board_condition(user)
+    if found is None:
+        return []
+    condition, params = found
+    position = ("(SELECT MIN(o.sort_order) FROM kanban_user_board_order o "
+                "WHERE o.board_id = b.id AND o.user_id IS :order_key)")
+    sql = (f"{_BOARD_SELECT} WHERE ({condition}) AND COALESCE(b.archived_at, '') {'!=' if archived else '='} '' "
+           f"ORDER BY {position} IS NULL, {position}, b.created_at DESC, b.id DESC")
+    params = {**params, "order_key": order_key}
+    if limit is not None:
+        sql += " LIMIT :limit OFFSET :offset"
+        params.update(limit=int(limit), offset=int(offset))
+    return db.all(sql, params)
+
+
+def count_boards(user: User, *, archived: bool) -> int:
+    """How many active (or *archived*) boards *user* can open."""
+    found = _board_condition(user)
+    if found is None:
+        return 0
+    condition, params = found
+    return int(db.scalar(f"SELECT COUNT(*) FROM kanban_boards b WHERE ({condition}) "
+                         f"AND COALESCE(b.archived_at, '') {'!=' if archived else '='} ''", params) or 0)
 
 
 # Assignees

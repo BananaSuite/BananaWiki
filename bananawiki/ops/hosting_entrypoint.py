@@ -3,7 +3,11 @@
 The portal owns tenant files on the host, so it must not be able to set XFS
 project quotas. systemd can only deny ioctl as a whole, which would break
 Python and Gunicorn, so this seccomp filter allows only FIONBIO, FIOCLEX and
-FIONCLEX and refuses every other ioctl. Child processes inherit the filter.
+FIONCLEX and refuses every other ioctl. It also refuses file_getattr and
+file_setattr (Linux 6.17), which read and write the same project ID and
+inheritance flag as the FS_IOC_FS[GS]ETXATTR ioctls, and answers every newer
+syscall with ENOSYS, as an older kernel would, so that a setter added later
+fails closed until a release reviews it. Child processes inherit the filter.
 """
 
 from __future__ import annotations
@@ -16,9 +20,13 @@ import sys
 
 _AUDIT_ARCH_X86_64 = 0xC000003E
 _IOCTL = 16
+_FILE_GETATTR = 468
+_FILE_SETATTR = 469
+_FIRST_UNREVIEWED = 470  # Every native syscall from here on is newer than this release.
 _X32 = 0x40000000
 _ALLOW = 0x7FFF0000
 _DENY = 0x00050000 | errno.EPERM
+_ABSENT = 0x00050000 | errno.ENOSYS
 _KILL = 0x80000000
 _SAFE_IOCTLS = (0x5421, 0x5451, 0x5450)  # FIONBIO, FIOCLEX, FIONCLEX.
 
@@ -36,6 +44,7 @@ def _instructions() -> list[tuple[int, int, int, int]]:
     # ioctl's kernel request is an unsigned int: inspecting its low 32 bits
     # denies filesystem setters even when callers supply upper-bit aliases.
     # x32 syscall numbers are rejected before the native ioctl comparison.
+    # file_[gs]etattr set what the refused ioctls set; newer syscalls look absent.
     return [
         (0x20, 0, 0, 4),                 # LD architecture.
         (0x15, 1, 0, _AUDIT_ARCH_X86_64),
@@ -43,13 +52,19 @@ def _instructions() -> list[tuple[int, int, int, int]]:
         (0x20, 0, 0, 0),                 # LD syscall number.
         (0x35, 0, 1, _X32),
         (0x06, 0, 0, _DENY),
-        (0x15, 0, 5, _IOCTL),
+        (0x15, 0, 6, _IOCTL),
         (0x20, 0, 0, 24),                # LD request (args[1]).
         (0x15, 3, 0, _SAFE_IOCTLS[0]),
         (0x15, 2, 0, _SAFE_IOCTLS[1]),
         (0x15, 1, 0, _SAFE_IOCTLS[2]),
         (0x06, 0, 0, _DENY),
         (0x06, 0, 0, _ALLOW),
+        (0x15, 3, 0, _FILE_GETATTR),     # Syscall number, not ioctl.
+        (0x15, 2, 0, _FILE_SETATTR),
+        (0x35, 2, 0, _FIRST_UNREVIEWED),
+        (0x06, 0, 0, _ALLOW),
+        (0x06, 0, 0, _DENY),
+        (0x06, 0, 0, _ABSENT),
     ]
 
 

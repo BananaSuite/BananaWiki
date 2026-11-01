@@ -1,0 +1,36 @@
+{% extends "admin/_layout.html" %}
+{% block title %}{{ t('admin.home.title') }}{% endblock %}
+{% block admin_content %}
+{% set menu = admin_grouped(nav_items('admin')) %}
+<header class="page-header">
+  <div>
+    <h1>{{ t('admin.home.title') }}</h1>
+    <p class="muted">{{ t('admin.home.intro') }}</p>
+  </div>
+</header>
+{% if menu.overview %}
+<a class="admin-overview" href="{{ menu.overview.url }}">
+  <span class="admin-overview__label">{{ menu.overview.label }}</span>
+  <span class="muted">{{ t('admin.home.overview_hint') }}</span>
+  {% if menu.overview.badge %}<span class="count-pill">{{ menu.overview.badge }}</span>{% endif %}
+</a>
+{% endif %}
+<div class="admin-find">
+  <label class="visually-hidden" for="admin-find">{{ t('admin.home.filter') }}</label>
+  <input id="admin-find" type="search" data-admin-find placeholder="{{ t('admin.home.filter') }}" autocomplete="off">
+  <p class="muted" data-admin-find-none hidden>{{ t('admin.home.none') }}</p>
+</div>
+<div class="admin-hub">
+  {% for group in menu.groups %}
+  <section class="card admin-hub__group" data-admin-group aria-labelledby="admin-group-{{ group.key }}">
+    <h2 id="admin-group-{{ group.key }}">{{ t('admin.nav.group.' ~ group.key) }}{% if group.badge %}<span class="count-pill">{{ group.badge }}</span>{% endif %}</h2>
+    <p class="muted">{{ t('admin.nav.group.' ~ group.key ~ '.hint') }}</p>
+    <ul class="admin-hub__links">
+      {% for item in group['items'] %}
+      <li data-admin-link><a href="{{ item.url }}"><span>{{ item.label }}</span>{% if item.badge %}<span class="count-pill">{{ item.badge }}</span>{% endif %}</a></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -16,12 +16,12 @@
     <tbody>
     {% for c in contributions %}
     <tr>
-      <td><a href="{{ url_for('pages.view', slug=c.page_slug) }}">{{ c.page_title }}</a></td>
+      <td>{% if c.page_slug %}<a href="{{ url_for('pages.view', slug=c.page_slug) }}">{{ c.page_title }}</a>{% else %}{{ c.title }} <span class="badge badge--warning">{{ t('contributions.page_unavailable') }}</span>{% endif %}</td>
       <td data-label="{{ t('common.status') }}"><span class="badge">{{ t('contributions.status.' ~ c.status) }}</span></td>
       <td class="nowrap" data-label="{{ t('common.updated') }}">{{ c.updated_at|datetime }}</td>
       <td data-label="{{ t('contributions.col.review') }}">{% if c.reviewed_by_username %}{{ c.reviewed_by_username }}{% if c.review_reason %}: {{ c.review_reason }}{% endif %}{% endif %}</td>
       <td class="actions">
-        {% if c.status == 'pending' %}<div class="cluster">
+        {% if c.status == 'pending' and c.page_slug %}<div class="cluster">
         <a class="btn btn--small" href="{{ url_for('contributions.edit', slug=c.page_slug, contribution_id=c.id) }}">{{ t('common.edit') }}</a>
         {{ forms.post_button(url_for('contributions.withdraw', slug=c.page_slug, contribution_id=c.id), t('contributions.withdraw'), cls='btn btn--small', confirm=t('contributions.withdraw_confirm')) }}
         </div>{% endif %}

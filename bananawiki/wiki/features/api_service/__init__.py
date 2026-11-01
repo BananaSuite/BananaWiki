@@ -28,6 +28,7 @@ def _prune() -> None:
     audit.prune()
     idempotency.prune()
     webhooks.prune()
+    tokens.prune()
 
 
 def _events() -> dict:

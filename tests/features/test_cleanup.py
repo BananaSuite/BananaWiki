@@ -41,7 +41,8 @@ def test_a_page_builder_the_host_forbids_is_locked_in_plugins_too(app_factory, l
         session.execute("UPDATE site_settings SET page_builder_enabled = 1")
     page = client.get("/admin/plugins").get_data(as_text=True)
     assert "Off (server setting)" in page
-    assert 'href="/admin/page-builder"' not in client.get("/admin/dashboard").get_data(as_text=True), \
+    overview = client.get("/admin/home").get_data(as_text=True)
+    assert 'href="/admin/users"' in overview and 'href="/admin/page-builder"' not in overview, \
         "no menu entry leading to a page that answers 404"
 
 

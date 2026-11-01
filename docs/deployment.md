@@ -366,6 +366,28 @@ Raise it to serve very slow links. Proxy stall timeouts also apply: Caddy's
 `send_timeout` (60 s). Do not add a total response timeout such as Caddy's
 `write`: it cuts off large downloads on slow connections.
 
+**Slow downloads.** A client that keeps reading, however slowly, is never
+disconnected, and it holds a thread until it has read the whole response
+(Caddy passes responses on as the client reads them). Large responses (files,
+exports, bodies over 64 KiB) therefore have their own threads,
+`BW_DOWNLOAD_THREADS` (8) per worker on top of `BW_THREADS`: a worker writes
+at most that many at once, one account or network at most a quarter of them
+(two of the default eight, so four clients reading slowly fill a worker), and
+answers further ones 503 or 429 with `Retry-After: 5`. Exports (personal data,
+whole site, Markdown, PDF, attachment and chat archives) take their place
+before they are built, so a refused one is neither counted against its limit
+nor audited. Pages and `/health`
+keep their threads. Raise `BW_DOWNLOAD_THREADS` if many people download large
+files at the same moment.
+
+**Connections.** Gunicorn answers one request per connection (`keepalive = 0`
+in the wiki's, the portal's and the desktop launcher's settings): a client
+that sent many requests at once and read the small answers slowly held every
+thread. Closing a connection never waits for the client to close its side
+(Gunicorn 26 waited up to 2 s for it on the loop that accepts connections).
+Proxies and browsers simply open the next connection; on a local network or
+loopback this costs nothing measurable.
+
 ### Updating a manual installation
 
 ```sh

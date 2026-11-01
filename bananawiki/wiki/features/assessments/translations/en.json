@@ -9,6 +9,7 @@
   "assessments.attempt": "Attempt",
   "assessments.attempt_by": "Attempt {n} by {user}",
   "assessments.attempts": "Attempts",
+  "assessments.attempts_kept": "Your latest {count} attempts and your best one are kept.",
   "assessments.back_to_quiz": "Back to the quiz",
   "assessments.back_to_results": "Back to the results",
   "assessments.banned_roles": "Roles that may not take this quiz",

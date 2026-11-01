@@ -46,7 +46,9 @@
   "page_export.menu": "Exportieren",
   "page_export.nav": "Markdown-Import und -Export",
   "page_export.pdf": "PDF",
+  "page_export.pdf.busy": "Der PDF-Export ist gerade mit einer anderen Seite beschäftigt. Versuche es gleich noch einmal.",
   "page_export.pdf.by": "Zuletzt bearbeitet von {user}",
+  "page_export.pdf.cut": "Das PDF endet hier: Der Rest der Seite ist zu lang für den Export. Lies ihn im Wiki.",
   "page_export.pdf.edited": "{when}",
   "page_export.pdf.historical": "Frühere Version"
 }

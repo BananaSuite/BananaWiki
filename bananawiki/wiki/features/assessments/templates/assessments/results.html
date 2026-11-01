@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% import "assessments/_macros.html" as quiz with context %}
+{% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('assessments.results_title', title=assessment.title) }}{% endblock %}
 {% block content %}
 {{ quiz.breadcrumbs(page) }}
@@ -43,5 +44,6 @@
     </tbody>
   </table>
 </div>
+{{ forms.pagination(number, pages_total, 'assessments.results', {'slug': page.slug}) }}
 {% endif %}
 {% endblock %}

@@ -158,7 +158,7 @@ def test_concurrent_password_checks_reserve_the_remaining_login_budget(app, make
     def seed():
         limiter = SqlLimiter(wiki_db.session)
         for _ in range(signin.MAX_PER_ACCOUNT - 1):
-            limiter.record(f"{user['username']}\nunknown", "login:account-ip")
+            limiter.record(f"id:{user['id']}\nunknown", "login:account-ip")
 
     in_app(app, seed)
     entered, release = threading.Event(), threading.Event()
@@ -198,9 +198,10 @@ def test_successful_login_refunds_only_its_aggregate_reservations(app, make_user
     def verify():
         limiter = SqlLimiter(wiki_db.session)
         previous_ip = limiter.record("unknown", "login:ip")
-        previous_account = limiter.record(user["username"], "login:account")
+        previous_account = limiter.record(f"id:{user['id']}", "login:account")
         assert signin.verify(user["username"], PASSWORD)["id"] == user["id"]
-        rows = wiki_db.all("SELECT id FROM rate_limit_hits")
+        # The success counters (``login:ok-*``) are the sign-in's own; every failure reservation is refunded.
+        rows = wiki_db.all("SELECT id FROM rate_limit_hits WHERE bucket NOT LIKE 'login:ok-%'")
         assert {row["id"] for row in rows} == {previous_ip, previous_account}
 
     in_app(app, verify)

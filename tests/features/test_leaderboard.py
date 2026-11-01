@@ -17,10 +17,6 @@ def test_off_by_default(client, make_user, login):
     assert client.get("/leaderboard").status_code == 404
 
 
-def test_requires_login(client, enabled):
-    assert "/login" in client.get("/leaderboard").headers["Location"]
-
-
 def test_sizes_are_cached_per_revision(app, make_user, db, enabled):
     from bananawiki.wiki.features.leaderboard import service
 

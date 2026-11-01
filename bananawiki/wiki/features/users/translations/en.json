@@ -117,8 +117,10 @@
   "users.merge.error.not_confirmed": "Both account owners must confirm the merge first.",
   "users.merge.error.not_found": "That merge request does not exist.",
   "users.merge.error.not_pending": "That merge request is no longer open.",
+  "users.merge.error.not_possible": "These accounts cannot be merged. An administrator can tell you why.",
   "users.merge.error.protected": "Protected accounts cannot be merged.",
   "users.merge.error.same_account": "An account cannot be merged with itself.",
+  "users.merge.error.too_many": "You have asked for {limit} merges in the last 24 hours. Try again tomorrow.",
   "users.merge.flash.cancelled": "The merge request was cancelled.",
   "users.merge.flash.confirmed": "You confirmed the merge.",
   "users.merge.flash.denied": "The merge request was refused.",
@@ -235,5 +237,6 @@
   "users.tab.profile": "Profile",
   "users.tab.sessions": "Sessions",
   "users.bm.simple_settings": "Shorter settings",
-  "users.bm.simple_settings_hint": "Settings show the profile, the user name, the password, the language, the email address and Customise; sessions, two-step verification, API tokens, data export, account merges and deleting the account move behind \"All settings\". Anything the person must do first stays shown."
+  "users.bm.simple_settings_hint": "Settings show the profile, the user name, the password, the language, the email address and Customise; sessions, two-step verification, API tokens, data export, account merges and deleting the account move behind \"All settings\". Anything the person must do first stays shown.",
+  "audit.action.user.impersonated_action": "Account or profile change made while viewing the wiki as someone else"
 }

@@ -60,13 +60,26 @@ def view(slug: str):
 @auth.public_read
 def navigation_page():
     user = auth.current_user()
+    nav = navigation.tree(user, per_category=navigation.BATCH_SIZE, total=5000)
+    can_create_category = bool(user) and auth.has_role("editor", user) and auth.has_permission("category.create", user)
     return render_template(
         "pages/navigation.html",
-        nav=navigation.tree(user, per_category=navigation.BATCH_SIZE, total=5000),
+        nav=nav,
         can_create=access.can_create_somewhere(user),
-        can_create_category=bool(user) and auth.has_role("editor", user)
-        and auth.has_permission("category.create", user),
+        can_create_category=can_create_category,
+        parent_choices=_parent_choices(nav["categories"]) if can_create_category else [],
     )
+
+
+def _parent_choices(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The tree's categories in order as ``{id, path}``, with shortened paths (:func:`categories.shorten_path`)."""
+    choices: list[dict[str, Any]] = []
+    stack = [(node, [node["name"]]) for node in reversed(nodes)]
+    while stack:
+        node, names = stack.pop()
+        choices.append({"id": node["id"], "path": categories.shorten_path(names)})
+        stack.extend((child, [*names, child["name"]]) for child in reversed(node["children"]))
+    return choices
 
 
 def _category_or_404(category_id: int) -> dict[str, Any]:

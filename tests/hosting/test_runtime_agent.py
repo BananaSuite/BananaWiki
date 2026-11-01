@@ -987,3 +987,21 @@ def test_the_portal_discards_a_duplicate_whose_copy_the_source_removed(tmp_path,
     assert clone == {"status": "terminated", "provisioning_state": "failed", "terminated_reason": "provisioning_failed"}
     assert sorted(path.name for path in (tmp_path / "instances").iterdir()) == ["team"], "its folder is removed"
     assert "clone" not in agent.containers
+
+
+def test_xw2_2_a_reset_after_a_change_of_owner_runs_with_the_wiki_stopped(setup):
+    runtime, agent = setup
+    spec = make_spec()
+    provision(runtime, spec)
+    with _db(runtime) as conn:
+        conn.execute("INSERT INTO plugins (id, name, version, builtin, enabled) VALUES ('kept', 'Kept', '1', 0, 1)")
+    starts = len(agent.ops("tenant.start"))
+    runtime.reset_admins(spec, "admin", WIKI_PASSWORD, every_admin=False)
+    assert len(agent.ops("tenant.start")) == starts
+    del agent.calls[:]
+    runtime.reset_admins(spec, "admin", WIKI_PASSWORD, every_admin=True)
+    # ZW2-1: stopped before the task, so no plugin code is loaded while it runs; started again afterwards.
+    order = [op for op, _args in agent.calls if op in ("tenant.stop", "tenant.task", "tenant.start")]
+    assert order == ["tenant.stop", "tenant.task", "tenant.start"]
+    with _db(runtime) as conn:
+        assert conn.execute("SELECT enabled FROM plugins WHERE id = 'kept'").fetchone()[0] == 0

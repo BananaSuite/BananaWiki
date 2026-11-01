@@ -1,4 +1,4 @@
-{#- Attachments under a wiki page. Context: page, attachments, can_view, can_upload, deletable, max_bytes, rules.
+{#- Attachments under a wiki page. Context: page, attachments, total, can_view, can_upload, deletable, max_bytes, rules.
     Only pages with files show it; files are added in the editor (or here, from the editor's no-script link). -#}
 {% import "macros/forms.html" as forms with context %}
 <link rel="stylesheet" href="{{ asset_url('attachments.css', blueprint='attachments') }}">
@@ -17,8 +17,8 @@
 {% if attachments %}
 <section class="card attachments no-print" id="attachments" aria-labelledby="attachments-h">
   <div class="card__header">
-    <h2 class="h3" id="attachments-h">{{ t('attachments.title_count', count=attachments|length) }}</h2>
-    {% if can_view and attachments|length > 1 %}
+    <h2 class="h3" id="attachments-h">{{ t('attachments.title_count', count=total) }}</h2>
+    {% if can_view and total > 1 %}
     <a class="btn btn--small" href="{{ url_for('attachments.download_all', slug=page.slug) }}">{{ t('attachments.download_all') }}</a>
     {% endif %}
   </div>

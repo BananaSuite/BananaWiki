@@ -99,6 +99,11 @@ Federation responses carry `Cache-Control: no-store` and
 Disconnecting deletes the peer, the shares pointing at it and the copies
 received from it. The other wiki keeps what it already received.
 
+Pairing, *Sync now*, disconnecting (with how many shares and copies went),
+sharing, withdrawing a share and forking a copy are recorded in the audit log
+(`federation.*`), with only the host of the peer's address. Shares the
+snapshot withdraws by itself, and the poll job's runs, are not.
+
 ## Tables
 
 `federation_identity` (this wiki's id and sequence), `federation_peers`

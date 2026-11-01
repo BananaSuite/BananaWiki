@@ -6,8 +6,10 @@ from typing import Any
 
 from flask import Response, abort, current_app, redirect, stream_with_context, url_for
 
+from ....core import downloads
 from ... import accounts, auth
 from ...registry import feature_blueprint
+from ..audit.service import record
 from . import service
 
 bp = feature_blueprint("user_data_export", "user_data_export", __name__, template_folder="templates")
@@ -20,6 +22,10 @@ def _download(user: dict[str, Any], requester: dict[str, Any]) -> Response:
     if not limiter.hit(f"export:{requester['id']}", EXPORTS_PER_HOUR, 3600):
         abort(429)
     current_app.logger.info("Data export of %s requested by %s", user["username"], requester["username"])
+    if requester["id"] != user["id"]:
+        # The archive holds the account's private messages and addresses: an administrator's copy is audited.
+        record("user.data_exported", target_type="user", target_id=user["id"],
+               details={"username": user["username"]})
     response = Response(stream_with_context(service.stream(user)), mimetype="application/zip")
     response.headers["Content-Disposition"] = f'attachment; filename="{service.filename(user)}"'
     response.headers["Cache-Control"] = "private, no-store"
@@ -27,9 +33,11 @@ def _download(user: dict[str, Any], requester: dict[str, Any]) -> Response:
 
 
 @bp.get("/settings/export")
+@downloads.place_first
 def own_export():
     user = auth.current_user()
-    return _download(user, user)
+    # While impersonating, the administrator downloads the account's data: audited as from the admin route.
+    return _download(user, auth.real_user() or user)
 
 
 @bp.get("/account/export")
@@ -39,6 +47,7 @@ def legacy_own_export():
 
 @bp.get("/admin/users/<user_id>/export")
 @auth.admin_required
+@downloads.place_first
 def admin_export(user_id: str):
     target = accounts.by_id(user_id)
     if target is None:

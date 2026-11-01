@@ -9,6 +9,7 @@
   "assessments.attempt": "Tentativo",
   "assessments.attempt_by": "Tentativo n. {n} di {user}",
   "assessments.attempts": "Tentativi",
+  "assessments.attempts_kept": "Vengono conservati i tuoi ultimi {count} tentativi e il migliore.",
   "assessments.back_to_quiz": "Torna al quiz",
   "assessments.back_to_results": "Torna ai risultati",
   "assessments.banned_roles": "Ruoli che non possono svolgere questo quiz",

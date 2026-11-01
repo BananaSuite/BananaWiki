@@ -152,7 +152,7 @@ def set_release_owner(path: Path, uid: int, gid: int, *, readonly: bool = False)
     def visit(descriptor: int) -> None:
         if readonly:
             os.fchown(descriptor, uid, gid)
-            os.fchmod(descriptor, 0o750)
+            os.fchmod(descriptor, 0o750)  # nosec B103 - release code read by the service group
         for name in os.listdir(descriptor):
             try:
                 child = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=descriptor)
@@ -502,6 +502,32 @@ class System:
         if result.returncode:
             return None
         return (result.stdout or "").strip() or ("" if present else None)
+
+    def tenant_firewall(self) -> str | None:
+        """Why the host firewall for tenant containers is not in force, or None once this release's rules
+        (the digest stamped on the table) are loaded.
+
+        Run as root on the host (``nft list table``); see :mod:`.firewall`.
+        """
+        from . import firewall
+
+        try:
+            result = self.run(["nft", "list", "table", *firewall.TABLE], check=False, timeout=30)
+        except FileNotFoundError:
+            return "nft is not installed"
+        except (OSError, subprocess.SubprocessError) as error:
+            return f"nft did not answer: {error}"
+        if result.returncode:
+            detail = " ".join((result.stderr or "").split())[:200]
+            return f"'nft list table {' '.join(firewall.TABLE)}' failed" + (f": {detail}" if detail else "")
+        try:
+            expected = firewall.expected_digest()
+        except (OSError, ValueError) as error:
+            return f"the shipped firewall rules cannot be read: {error}"
+        if firewall.loaded_digest(result.stdout or "") != expected:
+            return ("the loaded rules are not this release's for this host's resolvers "
+                    "(load them again: sudo bananawiki firewall | sudo nft -f -)")
+        return None
 
     def image_created(self, image: str) -> str | None:
         """When *image* was built (Docker's ``Created``), or None when unknown."""

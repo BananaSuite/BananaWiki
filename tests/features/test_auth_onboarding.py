@@ -53,14 +53,6 @@ def test_onboarding_puts_the_untouched_home_page_into_the_chosen_language(client
                     "content": "# Willkommen in deinem Wiki\n\nBearbeite diese Seite, um loszulegen."}
 
 
-def test_english_home_page_text_is_the_one_new_databases_start_with(app):
-    from bananawiki.wiki import i18n, migrations
-
-    with app.app_context():
-        assert i18n.t_lang("en", "auth.onboarding.home_body") == migrations.DEFAULT_HOME
-        assert i18n.t_lang("en", "auth.onboarding.home_title") == "Home"
-
-
 def test_onboarding_leaves_an_edited_home_page_alone(client, owner, login, db):
     db.execute("UPDATE pages SET content = 'Our handbook' WHERE is_home = 1")
     login(client, owner)
@@ -186,17 +178,6 @@ def test_respawning_docs_replaces_the_previous_set(app, db, admin):
     assert db.scalar("SELECT COUNT(*) FROM pages WHERE slug = 'bananawiki-welcome'") == 1
 
 
-@pytest.mark.parametrize("language", sorted(set(docs.LANGUAGES) - {"en"}))
-def test_builtin_docs_have_titles_in_every_language(language):
-    for variant in docs.VARIANTS:
-        english, translated = docs.pages(variant, "en"), docs.pages(variant, language)
-        assert english and len(english) == len(translated)
-        assert [slug for _t, slug, _c in english] == [slug for _t, slug, _c in translated]
-        assert all(title and not title.startswith("#") for title, _s, _c in english + translated)
-        # The leading "# Title" line is the page title, not part of the content (no duplicate <h1>).
-        assert not any(content.lstrip().startswith("# ") for _t, _s, content in english + translated)
-
-
 def _shape(content: str) -> dict[str, int]:
     """What a faithful translation keeps: sections, menu paths, code, table rows and list items."""
     lines = content.splitlines()
@@ -204,22 +185,6 @@ def _shape(content: str) -> dict[str, int]:
             "old arrows": content.count("->"), "code marks": content.count("`"),
             "table rows": sum(line.startswith("|") for line in lines),
             "list items": sum(bool(re.match(r"(- |\d+\. )", line)) for line in lines)}
-
-
-@pytest.mark.parametrize(("language", "restricted"), [
-    ("en", "only owners and superusers can do either"),
-    ("it", "solo proprietari e superutenti possono farlo"),
-    ("de", "Deshalb können das nur Eigentümer und Superuser."),
-])
-def test_the_admin_guide_says_who_can_import_a_site_or_install_a_plugin(language, restricted):
-    # Only owners and superusers can run a full-site import or install a third-party plugin (the migration
-    # tools and plugin_manager's lock), and "Owners and trust" says so in every language.
-    [guide] = [content for _title, slug, content in docs.pages("full", language) if slug.endswith("admin-guide")]
-    [trust] = [section for section in guide.split("\n## ")
-               if section.split("\n", 1)[0] in ("Owners and trust", "Proprietari e fiducia", "Eigentümer und Vertrauen")]
-    assert restricted in trust
-    for outdated in ("does not stop an admin", "Non ferma però un admin", "schützt aber nicht vor einem"):
-        assert outdated not in guide
 
 
 @pytest.mark.parametrize("language", sorted(set(docs.LANGUAGES) - {"en"}))

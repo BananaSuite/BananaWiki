@@ -16,12 +16,16 @@ from typing import Any
 from ....core.timeutil import now_sql, parse, sql_in, utcnow
 from ... import attention, settings
 from ...db import db
+from ..audit.service import record
 from .errors import GovernanceError
 
 MAX_REASON = 2000
 MAX_REVIEW_REASON = 1000
 MAX_QUOTA = 100_000
 UNLIMITED = -1
+# Requests an account may file in 24 hours, whatever became of them: with no
+# cooldown, cancelling and filing again would otherwise add rows without end.
+MAX_REQUESTS_PER_DAY = 10
 
 
 def _int_setting(name: str, default: int, minimum: int) -> int:
@@ -58,10 +62,20 @@ def effective(user_id: str) -> int:
         return default_quota()
 
 
-def set_quota(user_id: str, quota: int | None) -> None:
-    """Set a user's quota directly (``None`` returns to the site default)."""
+def set_quota(user_id: str, quota: int | None, *, via: str | None = None) -> None:
+    """Set a user's quota directly (``None`` returns to the site default).
+
+    A change is audited (``-1`` lets the account protect or reserve every
+    page); *via* names how it was made when not directly.
+    """
     value = None if quota is None else normalize(quota)
-    db.execute("UPDATE users SET reserved_pages_quota = ? WHERE id = ?", (value, user_id))
+    with db.transaction():
+        row = db.one("SELECT username, reserved_pages_quota FROM users WHERE id = ?", (user_id,))
+        db.execute("UPDATE users SET reserved_pages_quota = ? WHERE id = ?", (value, user_id))
+    if row is not None and row["reserved_pages_quota"] != value:
+        record("page_governance.quota_set", target_type="user", target_id=user_id,
+               details={"username": row["username"], "old": row["reserved_pages_quota"], "new": value,
+                        **({"via": via} if via else {})})
 
 
 def _cooldown_hours() -> int:
@@ -131,6 +145,10 @@ def create_request(user_id: str, requested: Any, reason: str) -> dict[str, Any]:
             minutes = cooldown_remaining_minutes(user_id)
             if minutes:
                 raise GovernanceError("page_governance.quota.error.cooldown", minutes=minutes)
+            filed = db.scalar("SELECT COUNT(*) FROM reservation_quota_requests WHERE user_id = ? AND created_at > ?",
+                              (user_id, sql_in(hours=-24)), default=0)
+            if int(filed) >= MAX_REQUESTS_PER_DAY:
+                raise GovernanceError("page_governance.quota.error.too_many", limit=MAX_REQUESTS_PER_DAY)
             current = effective(user_id)
             automatic = quota != UNLIMITED and current != UNLIMITED and current < quota <= auto_max
             now = now_sql()
@@ -141,7 +159,7 @@ def create_request(user_id: str, requested: Any, reason: str) -> dict[str, Any]:
                 "reviewed_at": now if automatic else None, "created_at": now,
             })
             if automatic:
-                set_quota(user_id, quota)
+                set_quota(user_id, quota, via="automatic")
                 _start_cooldown(user_id)
     except sqlite3.IntegrityError:
         raise GovernanceError("page_governance.quota.error.already_pending") from None
@@ -167,7 +185,7 @@ def review(request_id: int, reviewer_id: str, *, approve: bool, reason: str = ""
             "review_source": "manual", "reviewed_at": now_sql(),
         }, "id = ?", (request_id,))
         if approve:
-            set_quota(row["user_id"], row["requested_quota"])
+            set_quota(row["user_id"], row["requested_quota"], via="request")
         _start_cooldown(row["user_id"])
     reviewed = get_request(request_id)
     assert reviewed is not None

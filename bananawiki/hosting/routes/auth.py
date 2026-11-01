@@ -26,6 +26,11 @@ LOGIN_WINDOW = 15 * 60
 LOGIN_MAX_PER_IP = 20
 LOGIN_MAX_PER_ACCOUNT = 8
 LOGIN_MAX_PER_ACCOUNT_TOTAL = 100
+# Successful password checks in LOGIN_WINDOW, per account (from every address) and per client
+# network: each costs a password hash and opens a session, so they have a budget of their own.
+# Plenty for people, and for a class signing in to a shared account or behind one address.
+LOGIN_MAX_SIGN_INS_PER_ACCOUNT = 30
+LOGIN_MAX_SIGN_INS_PER_IP = 200
 MFA_PENDING_KEY = "hosting_mfa_pending_id"
 MFA_STARTED_KEY = "hosting_mfa_started_at"
 MFA_VERSION_KEY = "hosting_mfa_session_version"
@@ -128,10 +133,17 @@ def login():
         buckets.append((f"{account['id']}\n{device}", "login-device", LOGIN_MAX_PER_ACCOUNT))
     else:
         buckets.append((username.lower(), "login-account", LOGIN_MAX_PER_ACCOUNT_TOTAL))
+    # Counted only once the password matched, so strangers' failures never use them up. Keyed on
+    # the account found (user names never contain ":"), so no spelling of a name has a budget of its own.
+    sign_ins = [(network, "login-ok-ip", LOGIN_MAX_SIGN_INS_PER_IP),
+                (f"id:{account['id']}" if account is not None else username.lower(), "login-ok-account",
+                 LOGIN_MAX_SIGN_INS_PER_ACCOUNT)]
     limiter = HostingLimiter(_session())
     reservations = []
     try:
         with limiter.db.transaction():
+            if any(limiter.exceeded(key, bucket, limit, LOGIN_WINDOW) for key, bucket, limit in sign_ins):
+                raise ServiceError("hosting.login.too_many")
             for key, bucket, limit in buckets:
                 reservation = limiter.reserve(key, bucket, limit, LOGIN_WINDOW)
                 if reservation is None:
@@ -145,6 +157,8 @@ def login():
     with limiter.db.transaction():
         for reservation in reservations:
             limiter.release(reservation)
+        for key, bucket, _limit in sign_ins:
+            limiter.record(key, bucket)
     # The suspension page shows the reason and end date: with two-step
     # verification on, only after the second factor (login_mfa checks it).
     if account.get("totp_enabled"):  # type: ignore[union-attr]
@@ -173,15 +187,12 @@ def login_mfa():
         flash(t("hosting.mfa.sign_in_again"), "info")
         return redirect(url_for("auth.login"))
     if request.method == "POST":
-        reservations = _reserve_code_attempt(account)
+        reservations = reserve_code_attempt(account)
         if reservations is None:
             abort(429)
         method = mfa.verify_second_factor(account["id"], request.form.get("code", ""))
         if method:
-            limiter = HostingLimiter(_session())
-            with limiter.db.transaction():  # only wrong codes use up the budgets
-                for reservation in reservations:
-                    limiter.release(reservation)
+            release_code_attempt(reservations)
             if accounts.is_suspended(account):
                 session[auth.SUSPENDED_KEY] = account["id"]
                 return redirect(url_for("auth.account_suspended"))
@@ -202,7 +213,7 @@ def cancel_login_mfa():
     return redirect(url_for("auth.login"))
 
 
-def _reserve_code_attempt(account: dict) -> list[int] | None:
+def reserve_code_attempt(account: dict) -> list[int] | None:
     """Reserve one second-step attempt in every budget, or None (and nothing reserved) when one is spent.
 
     A browser that passed both steps for this account before (its device
@@ -228,6 +239,14 @@ def _reserve_code_attempt(account: dict) -> list[int] | None:
     except ServiceError:
         return None
     return reservations
+
+
+def release_code_attempt(reservations: list[int]) -> None:
+    """Give back a reserved attempt whose code was right: only wrong codes use up the budgets."""
+    limiter = HostingLimiter(_session())
+    with limiter.db.transaction():
+        for reservation in reservations:
+            limiter.release(reservation)
 
 
 @bp.post("/logout")

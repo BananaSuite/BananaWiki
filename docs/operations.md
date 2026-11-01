@@ -34,7 +34,8 @@ release, as the service user, with `config/app.env` loaded. So
   | `tenant_image_built` | Hosting: when the running tenant image was built, i.e. how old its distribution packages are. |
   | `package_files` | How many files a package would hold now. |
   | `package_file_limit` | The most files a package may hold. |
-  | `warnings` | Problems to act on: backups and updates near the file limit or about to fail, lost or refused tenant quotas. |
+  | `warnings` | Problems to act on: backups and updates near the file limit or about to fail, lost or refused tenant quotas, a host firewall that is not loaded. |
+  | `tenant_firewall` | Hosting: whether the [host firewall](hosting.md#host-firewall) table `inet bananawiki_tenants` is loaded with this release's rules (`loaded`, and `reason` when it is not). The check is recorded for the portal's administrators' dashboard. |
   | `failed_revision` | The commit automatic updates skip, with the stage that failed (`preparation`, `preflight` or `rollback`) and why. |
   | `failed_convergence` | Installing this release's units failed and is not retried (see below). |
   | `tenant_storage.setting` | Hosting: the value of `BW_HOSTING_TENANT_QUOTAS`. |
@@ -62,7 +63,20 @@ release, as the service user, with `config/app.env` loaded. So
 
 `BW_LOGGING_LEVEL` sets the detail (`medium` by default). **Admin → Server →
 Error log** shows the end of the log file with passwords, tokens and cookies
-masked.
+masked; plain administrators see network addresses as `[address]` too (the
+log names who failed to sign in from where, owners and superusers included),
+only owners and superusers see them.
+
+Text logs, and the warnings `sudo bananawiki` prints, write control characters
+in a message (escape sequences, carriage returns, Unicode bidirectional
+overrides) as `\x1b`, `\u202e` and so on, and line feeds as `\n`: a file,
+folder or wiki name chosen by a tenant or a user, or a request path, cannot act
+on the terminal that shows it or add a line that reads as another log entry.
+Only a traceback after the message keeps its lines. JSON logs escape the same
+characters as `\u001b`, `\u009b`, `\u202e` and so on.
+Gunicorn's access log (the wiki's and the portal's) escapes the same
+characters in the request line, the Referer, the User-Agent and every other
+field.
 
 `Socket error processing request` followed by `TimeoutError: timed out` in
 Gunicorn's output is a client that stopped reading a response, or read it
@@ -515,7 +529,16 @@ configuration and the source archive). `BANANA_PACKAGE_MAX_FILES=N` in
 `config/app.env` changes that (1000 to 100000000); it applies to backups,
 updates and restores on this server, and a server restoring the package
 needs a limit at least as high (`install --restore` on a new server uses
-the default). A backup or update of an installation with more files, with
+the default). On a hosting platform the hosted wikis' files count too, and
+a backup or update is refused rather than taken without some of them (a
+rollback from an incomplete snapshot would delete what it lacks): enforce
+[hard storage quotas](#hard-storage-quotas-hosting), which also cap each wiki
+at `HOSTING_AGENT_MAX_INODES` files, and set the limit above the most files the
+wikis may hold together (wikis × that cap, plus the platform's own); the
+refusal and `status` name the wikis holding the most files. Size the volume
+of `staging/` for a full snapshot copy of the wikis' data on top of their
+reserved quotas, and keep the installation's files under 1 TiB in total,
+uncompressed (verifying a package extracts at most that much). A backup or update of an installation with more files, with
 an invalid value, or without the free space for its snapshot is refused
 before anything is stopped (an update is then not recorded as a failed
 commit, and is refused before it prepares the new release), and `status`
@@ -819,8 +842,11 @@ minutes for a running job before it closes the data folder.
 ## Maintenance mode
 
 **Admin → Site settings → Maintenance mode** shows a maintenance page (with
-your message) to everyone except administrators, and the REST API answers
-503. Administrators sign in at `/admin` while it is on.
+your message) to everyone except administrators, anonymous visitors of a
+wiki in public mode included, and the REST API answers
+503. Administrators sign in at `/admin` while it is on. Published custom
+pages and the API guide stay open, but are shown as on a private wiki: no
+page tree and no pages in a builder page's page lists.
 
 The managed updater uses a different mechanism: while the file named by
 `BW_MAINTENANCE_FILE` exists, every request except the health check gets a

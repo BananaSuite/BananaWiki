@@ -269,7 +269,7 @@ def test_gunicorn_config_gives_up_on_stalled_downloads(monkeypatch):
     monkeypatch.setenv("HOSTING_WRITE_TIMEOUT", "20")
     config = _load("hosting_gunicorn_conf", ROOT / "hosting" / "gunicorn.conf.py")
     timeouts = []
-    worker = SimpleNamespace(wsgi=lambda _environ, _start: [b"backup"])
+    worker = SimpleNamespace(wsgi=lambda _environ, _start: [b"backup"], alive=True)  # post_worker_init watches it (NW4-2)
     config.post_worker_init(worker)
     assert list(worker.wsgi({"gunicorn.socket": SimpleNamespace(settimeout=timeouts.append)}, None)) == [b"backup"]
     assert timeouts == [20]

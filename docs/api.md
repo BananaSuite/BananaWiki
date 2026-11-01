@@ -26,7 +26,9 @@ The same page sets the per-minute request limits for members
 (`api_service_rate_limit`, default 60) and administrators
 (`api_service_admin_rate_limit`, default 120), and the number of tokens an
 account may hold (`api_service_max_tokens_per_user`, default 5). Values are
-clamped to 1–10000 and 1–100.
+clamped to 1–10000 and 1–100. Every call made with a valid token counts
+against the limit, also calls refused for the token's scope, the account or
+a switched-off feature.
 
 Administrators and owners may always use the API. Other accounts need API
 access switched on for them (`users.api_access_enabled`), on the same page or
@@ -79,11 +81,21 @@ Tokens stop working when they are revoked, expire, or when their account:
 
 * is suspended, pending approval or denied (`403 account_blocked`);
 * must change its password or finish onboarding (`403`);
+* is an administrator who must turn on two-step verification first, when
+  the wiki requires it of administrators (`403 two_step_required`);
 * is not an administrator while the wiki is in maintenance mode (`503`);
 * changes its password anywhere, has it reset by an administrator, or is
   suspended by an administrator (all tokens are revoked, including the
   userbot key);
 * is deleted (tokens are deleted with it).
+
+An account may create 20 tokens in 24 hours, or as many as it may hold if
+that is higher, revoked tokens and userbot keys included; past that the token
+page, `POST /tokens` (`429 too_many_tokens_today`) and a new userbot key are
+refused until the oldest of them is a day old. The rows of tokens revoked
+(and created) or expired more than 90 days ago are deleted by the hourly
+`api_service.prune` job, with the revoked tokens they issued; their calls
+stay in the audit log.
 
 ## Responses and errors
 
@@ -125,7 +137,9 @@ strings like `"false"` are refused.
 ## Conventions
 
 * **Paging.** Every list takes `limit` and `offset` and answers with
-  `limit`, `offset` and `next_offset` (null on the last page).
+  `limit`, `offset` and `next_offset` (null on the last page). A missing or
+  zero `limit` means the largest page, 500 items, never everything; only that
+  window is read from the database.
 * **Rate limit headers.** Every authenticated answer carries
   `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`
   (seconds until a request is freed).
@@ -178,7 +192,7 @@ are stored and replayed as usual.
 | `DELETE /pages/<slug>` | 200 `{"deleted": true}` or 202 `{"pending_deletion": true}` |
 | `GET /pages/<slug>/history` | revisions (needs `history.view`) |
 | `GET /history/<id>` | one revision with its content |
-| `GET /search?q=&titles_only=&limit=&offset=` | full-text search (needs `search.pages`) |
+| `GET /search?q=&titles_only=&limit=&offset=` | full-text search (needs `search.pages`; 503 `service_unavailable` when it runs over 5 seconds) |
 | `POST /pages/bulk`, `/pages/bulk-edit`, `/pages/bulk-delete` | up to 100 items, administrators only |
 
 The rules are the web editor's:
@@ -213,7 +227,9 @@ delete.
 
 ## Categories (`categories`)
 
-`GET /categories`, `GET /categories/<id>` (with its readable pages),
+`GET /categories`, `GET /categories/<id>?limit=&offset=` (with its readable
+pages, at most 500 per request: `limit`, `offset` and `next_offset` page
+through them as in other lists),
 `POST /categories {name, parent_id?}`,
 `PUT /categories/<id> {name?, parent_id?, sequential_nav?}`,
 `DELETE /categories/<id>?page_action=uncategorize|move|delete&target_id=`.
@@ -222,14 +238,25 @@ Creating needs `category.create`, renaming `category.edit`, moving
 `category.reorder` (with write access to the category and the new parent),
 sequential navigation `category.manage_sequential`, deleting
 `category.delete`. A category cannot move into itself or its subcategories;
-names are at most 100 characters. `GET /categories` lists categories only
-for callers with `category.view_all`.
+names are at most 100 characters. Categories nest at most 32 levels deep (400
+`category_too_deep`, also when a move would put the category's subcategories
+below that level) and a wiki holds at most 10,000 (400 `category_too_many`).
+`GET /categories` lists categories only for callers with `category.view_all`.
+
+Moving or uncategorising the pages is refused, and nothing changes, when the
+category holds pages the caller cannot see (403 `category_pages_hidden`) or
+protected, checked-out or pending pages (409 `category_pages_blocked`), as
+moving each page would be; uncategorising needs write access to the top level
+(403 `category_pages_top_level`). Subcategories move up to the category's
+parent, so the caller needs write access to each of them and to that parent
+(403 `category_pages_subcategories`).
 
 `page_action=delete` also needs `page.delete` and a token with the `pages`
 scope and write access (otherwise 403 `cannot_delete` or `scope_missing`).
 It deletes the pages as `DELETE /pages/<slug>` would, all or nothing: if the
 category holds pages the caller cannot see or may not delete, the answer is
-403 (`category_pages_hidden`, `category_pages_forbidden`); protected,
+403 (`category_pages_hidden`, `category_pages_forbidden`, or `category_pages_immovable`
+when pages that would move may not change category); protected,
 checked-out or pending pages give 409 (`category_pages_blocked`). Refused
 pages are listed by slug in `pages`. With deletion slowdown on, the answer is
 202 and `pending_deletion` lists the scheduled pages; they, and pages another
@@ -260,7 +287,7 @@ feature keeps (`kept`), lose the category.
 | `PUT` / `DELETE /kanban/checklist/<item id>` | `{text?, done?}` / delete |
 | `GET /kanban/my-tickets` | tickets assigned to the caller on boards they can open, earliest due date first, with `board_title` and `column_title` (paginated) |
 | `GET` / `POST /kanban/tickets/<id>/comments` | list / add `{content}` |
-| `PUT` / `DELETE /kanban/comments/<id>` | your own comments (administrators: any) |
+| `PUT` / `DELETE /kanban/comments/<id>` | edit your own comments; delete your own (administrators: any member's they may manage, recorded as `kanban.comment_deleted`) |
 | `GET` / `POST /kanban/tickets/<id>/attachments` | list / upload (multipart, field `file`) |
 | `GET` / `DELETE /kanban/attachments/<id>` | download / delete |
 
@@ -268,10 +295,16 @@ The board rules are the web interface's: a board the caller cannot see is
 404 with everything on it, a board they can see but not change 403; viewers
 may comment; visibility and deletion belong to the creator and
 administrators; creating boards needs `kanban.create` and global write
-access. Ticket titles accept the board shorthand (`@user`, `+label`,
+access, and each account creates at most 10 boards a minute, counted together
+with the web interface's (past that, 429 `rate_limited` with `Retry-After: 60`).
+Ticket titles accept the board shorthand (`@user`, `+label`,
 `!high`, `due:tomorrow`, `color:red`) for fields the request does not set.
-Assignees must be able to reach the board. Changes appear live on open
-boards and in the board's activity and history.
+Assignees must be able to reach the board, and a ticket has at most 20
+(more answer 400). Changes appear live on open
+boards and in the board's activity and history. Once the account has added
+128 MB of board history in 24 hours, web interface included, changes still
+succeed but the board's oldest history entries make room for the new ones
+(see Kanban in the features guide).
 
 Tickets include `checklist_total` and `checklist_done`; columns include
 `wip_limit` (`null` for none; a full column still accepts tickets, the board
@@ -314,6 +347,15 @@ A canvas the caller cannot see is 404, one they may only view 403 for
 changes. Wiki-page nodes pointing at pages the caller cannot read come back
 without title and slug. Documents are cleaned like the editor's saves; a
 stale `expected_version` is 409 `edit_conflict` (with `version`).
+On a canvas over 1 MB, each account gets 60 operation batches and 15 document
+saves a minute, counted together with the web editor's; past that, 429
+`rate_limited` with `Retry-After: 60`.
+Each account creates at most 10 canvases a minute, counted together with
+the web interface's (past that, 429 `rate_limited` with `Retry-After: 60`).
+Creating a canvas with `data`, and saves and operation batches that make a
+canvas larger, count against the account's 128 MB a day of canvas content
+and history, shared with the web interface (past that, 429 `daily_limit`;
+see Canvas in the features guide).
 
 Locked elements are protected on the server too: an operation batch or a
 document save that would move, resize, edit or delete a locked node is
@@ -362,10 +404,14 @@ columns of retired features. `PUT /settings` changes only the settings in the
 allow-list (`settings_rules.py`), with the bounds and choices of the admin
 forms, the feature they belong to switched on, and the hosting platform's
 restrictions. Unknown keys are 400; internal, platform-managed, remote-GPU,
-retired and secret keys are 403. **Nothing is saved when anything is
+retired and secret keys are 403, and so is `page_protection_enabled: false`
+while pages are protected by someone else (as on **Admin → Page
+governance**). **Nothing is saved when anything is
 refused.** A value equal to the stored one is always accepted, so a client
 can send back what `GET` returned with its changes. Expiry times without an
-offset are read in the site time zone.
+offset are read in the site time zone. A change is recorded in the site audit
+log as from the settings form (`settings.updated`, with the changed keys and
+`via: api`).
 
 ## Tokens (`tokens`) and administration (`admin`)
 
@@ -502,7 +548,8 @@ bot.update_profile(real_name="Bot", bio="Automated", page_published=True)
 ## Audit log
 
 Every authenticated call is recorded in `api_service__audit_log`: account,
-token, method, path, status, duration and IP address. Request bodies are
+token, method, path, status, duration and IP address. Past the rate limit,
+only the first 429 of each token in a minute is recorded. Request bodies are
 never stored as sent: write requests keep a short summary where values of
 keys that look like credentials read `[redacted]`, page content is reduced to
 its length and long values are cut (2000 characters at most). Entries older

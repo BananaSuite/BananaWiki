@@ -167,18 +167,18 @@ def redeem_code(code: str, client_id: str, redirect_uri: str, verifier: str) -> 
     """
     if not code:
         return None
+    # A refused code costs reads only: the portal-wide write lock is taken for a code that would be exchanged, or
+    # a replay that has tokens to revoke (one per sign-in since the last replay). Re-checked under the lock.
+    row = _code_row(code, client_id)
+    if row is None or _refused(row, redirect_uri, verifier):
+        return None
     with db.transaction():
-        row = db.one("SELECT * FROM hosting_oauth_authorization_codes WHERE code = ? AND client_id = ? "
-                     "AND expires_at > ?", (sha256_hex(code), client_id, now_sql()))
-        if row is not None and row["used"]:
+        row = _code_row(code, client_id)
+        if row is None or _refused(row, redirect_uri, verifier):
+            return None
+        if row["used"]:
             db.execute("DELETE FROM hosting_oauth_access_tokens WHERE client_id = ? AND account_id = ?",
                        (client_id, row["account_id"]))
-            return None
-        if row is None or not crypto.constant_time_equals(str(row["redirect_uri"] or ""), redirect_uri):
-            return None
-        if not account_may_sign_in(accounts.get(row["account_id"])):
-            return None
-        if row["code_challenge"] and not pkce_matches(row["code_challenge"], verifier):
             return None
         if db.execute("UPDATE hosting_oauth_authorization_codes SET used = 1 WHERE id = ? AND used = 0",
                       (row["id"],)).rowcount != 1:
@@ -192,6 +192,24 @@ def redeem_code(code: str, client_id: str, redirect_uri: str, verifier: str) -> 
         db.execute("UPDATE hosting_oauth_grants SET last_used_at = ? WHERE account_id = ? AND instance_id = "
                    "(SELECT id FROM instances WHERE oauth_client_id = ?)", (now_sql(), row["account_id"], client_id))
     return token
+
+
+def _code_row(code: str, client_id: str) -> dict[str, Any] | None:
+    return db.one("SELECT * FROM hosting_oauth_authorization_codes WHERE code = ? AND client_id = ? AND expires_at > ?",
+                  (sha256_hex(code), client_id, now_sql()))
+
+
+def _refused(row: dict[str, Any], redirect_uri: str, verifier: str) -> bool:
+    """Whether :func:`redeem_code` refuses *row* without writing: a replayed code whose tokens are already
+    revoked, or an unused one sent with the wrong redirect URI or verifier, or for an account shut out."""
+    if row["used"]:
+        return db.one("SELECT 1 FROM hosting_oauth_access_tokens WHERE client_id = ? AND account_id = ? LIMIT 1",
+                      (row["client_id"], row["account_id"])) is None
+    if not crypto.constant_time_equals(str(row["redirect_uri"] or ""), redirect_uri):
+        return True
+    if not account_may_sign_in(accounts.get(row["account_id"])):
+        return True
+    return bool(row["code_challenge"]) and not pkce_matches(row["code_challenge"], verifier)
 
 
 def token_row(raw: str) -> dict[str, Any] | None:
@@ -224,10 +242,11 @@ def revoke_account_tokens(account_id: str) -> int:
 
 
 def sign_out_everywhere(account_id: str) -> int:
-    """End the account's platform sessions on every wiki and drop its access tokens; returns how many wikis."""
+    """End the account's platform sessions on every wiki and drop its access tokens and unused sign-in codes;
+    returns how many wikis."""
     with db.transaction():
         asked = signouts.queue(account_id, "signed_out")
-        revoke_account_tokens(account_id)
+        revoke_account_credentials(account_id)
     return asked
 
 
@@ -291,6 +310,29 @@ def remove_access(account_id: str, instance_id: str) -> bool:
         removed = db.execute("DELETE FROM hosting_oauth_grants WHERE account_id = ? AND instance_id = ?",
                              (account_id, instance_id)).rowcount
     return bool(removed or asked)
+
+
+def end_former_owner_access(account_id: str, inst: dict[str, Any]) -> int:
+    """After *account_id* stopped owning *inst*: sign it out there and drop its consent, access tokens and
+    the link to a wiki account, on the portal and (through the sign-out) on the wiki.
+
+    An owner usually connects the wiki's administrator account to their portal
+    account; kept, that link would sign them in as the administrator after the
+    wiki changed hands. Their next platform sign-in asks for consent and starts
+    over at the connect page. Run in the transaction that changes the owner.
+    """
+    asked = _end_wiki_access(account_id, inst, "owner_changed")  # while the link and grant still name the wiki
+    db.execute("DELETE FROM hosting_oauth_grants WHERE account_id = ? AND instance_id = ?", (account_id, inst["id"]))
+    db.execute("DELETE FROM hosting_oauth_account_links WHERE account_id = ? AND instance_id = ?",
+               (account_id, inst["id"]))
+    return asked
+
+
+def forget_wiki_users(instance_id: str, wiki_user_ids: list[str]) -> int:
+    """Drop the portal's links to these wiki accounts of one wiki (their password was reset for a new
+    owner, and the wiki dropped its own links); returns how many."""
+    return sum(db.execute("DELETE FROM hosting_oauth_account_links WHERE instance_id = ? AND wiki_user_id = ?",
+                          (instance_id, user_id)).rowcount for user_id in wiki_user_ids)
 
 
 def connected_wikis(account_id: str) -> list[dict[str, Any]]:

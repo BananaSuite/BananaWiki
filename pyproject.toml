@@ -115,3 +115,13 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "B011"]
+
+[tool.bandit]
+# bandit -c pyproject.toml -r bananawiki -ll
+# B608 (SQL built from strings): every hit interpolates column or table names
+# written in the code, "?" placeholder lists or WHERE fragments made of such
+# names; values always go through "?" parameters (ARCHITECTURE.md, Database).
+# B704 (markupsafe.Markup): all uses traced to constants, escaped values or
+# sanitised Markdown in the security audit (AUDIT.md, Static analysis).
+# Other intentional hits are marked inline with "# nosec <id> - <reason>".
+skips = ["B608", "B704"]

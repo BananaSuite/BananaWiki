@@ -102,7 +102,9 @@ and is assigned to accounts on the role page or from the account page.
 Invite codes can assign a base role or a custom role to the people who sign
 up with them. When a custom role is deleted, its members move to another
 custom role you choose (or the most similar one), or keep their base role with
-its default permissions.
+its default permissions. Changing or deleting a role changes its holders'
+accounts, so it is refused while one of them is an account you may not
+change (for example a superuser).
 
 Use custom roles when several people need the same access; individual
 permissions are for exceptions.
@@ -123,7 +125,9 @@ Some features also have their own site settings (see [features](features.md)):
   can be switched off for one account.
 * Page governance: protected pages and check-outs block editing by others.
 * Temporary items: a role can be granted until a date and reverts
-  automatically.
+  automatically. Only owners and superusers can pause a revert of an
+  administrator by switching the feature off; what a temporary
+  administrator does meanwhile (such as creating other administrators) stays.
 
 ## Permission catalogue
 

@@ -288,6 +288,10 @@ def set_home(slug: str):
     page = visible_page_or_404(slug)
     if not access.can_set_home():
         abort(403)
+    # Protection never applies to the home page: making a protected page home would lift it unrecorded.
+    refused = _blocked_redirect(page)
+    if refused is not None:
+        return refused
     service.set_home(page)
     auth.flash_t("pages.flash.home_set", "success", title=page["title"])
     return redirect(url_for("pages.home"))

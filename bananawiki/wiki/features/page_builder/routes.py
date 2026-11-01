@@ -9,6 +9,7 @@ from flask import abort, current_app, jsonify, redirect, render_template, reques
 from ... import auth, registry, settings, storage
 from ...i18n import t
 from ...permissions import ROLES
+from ..audit import record_settings
 from ..pages import access as page_access
 from ..pages import categories, uploads
 from ..pages import service as pages
@@ -22,6 +23,7 @@ ACCESS_LEVELS = ("admin", "editor", "user")
 IMAGE_UPLOADS_PER_MINUTE = 20
 PREVIEWS_PER_MINUTE = 120
 LOOKUPS_PER_MINUTE = 120
+PUBLISHES_PER_MINUTE = 30  # as many as the Markdown editor saves: each publish stores a history version
 
 
 @bp.before_request
@@ -216,6 +218,7 @@ def discard_draft(slug: str):
 @bp.post("/api/page/<slug>/builder/publish")
 def publish(slug: str):
     page, user = _buildable_page(slug)
+    rate_limit("publish", user, PUBLISHES_PER_MINUTE, "page_builder.error.publish_slow_down")
     data = json_payload()
     title = data.get("title")
     if title is not None and not isinstance(title, str):
@@ -237,6 +240,7 @@ def publish(slug: str):
 
 
 @bp.post("/api/page/<slug>/builder/image")
+@auth.large_body
 def upload_image(slug: str):
     _page, user = _buildable_page(slug)
     return store_image(user)
@@ -325,7 +329,9 @@ def admin_settings():
     if request.method == "POST":
         level = request.form.get("page_builder_access")
         if level in ACCESS_LEVELS:
+            previous = settings.load()
             settings.update({"page_builder_access": level})
+            record_settings(previous, {"page_builder_access": level}, via="page_builder")
             auth.flash_t("common.saved", "success")
         return redirect(url_for("page_builder.admin_settings"))
     current = settings.get("page_builder_access")

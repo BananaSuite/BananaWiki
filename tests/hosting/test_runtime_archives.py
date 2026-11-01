@@ -951,14 +951,14 @@ def test_wiki_downloads_carry_the_wikis_storage_limit(web, runtime, make_account
     monkeypatch.setattr(runtime, "export_archive", recording)
     login(web, admin)
     for wiki in (limited, own):
-        assert web.get(f"/admin/instances/{wiki['id']}/download").status_code == 200
+        assert web.post(f"/admin/instances/{wiki['id']}/download").status_code == 200
     assert seen == {"limited": 5 * 1024 ** 2, "own": 0}, "administrators' wikis have no limit"
 
     def too_large(_spec, _destination_dir):
         raise RuntimeFailure("too_large", "its files take more than the 5 MiB its storage limit allows")
 
     monkeypatch.setattr(runtime, "export_archive", too_large)
-    page = web.get(f"/admin/instances/{limited['id']}/download", follow_redirects=True).get_data(as_text=True)
+    page = web.post(f"/admin/instances/{limited['id']}/download", follow_redirects=True).get_data(as_text=True)
     assert "storage limit allows in a download, so no archive was made" in page
 
 
@@ -993,7 +993,7 @@ def test_a_download_that_fails_unexpectedly_says_so_and_leaves_no_files(web, por
 
     monkeypatch.setattr(runtime, "export_archive", broken)
     login(web, admin)
-    response = web.get(f"/admin/instances/{wiki['id']}/download", follow_redirects=True)
+    response = web.post(f"/admin/instances/{wiki['id']}/download", follow_redirects=True)
     assert response.status_code == 200 and "The operation failed." in response.get_data(as_text=True)
     assert not list(Path(portal.config["HOSTING"].archives.export_temp_dir).iterdir())
 

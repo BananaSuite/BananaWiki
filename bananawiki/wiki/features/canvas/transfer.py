@@ -12,7 +12,10 @@ this wiki.
 An import creates a new canvas owned by the importing user. From ``assets/``
 only images that a node points at are restored; each goes through
 :func:`storage.save` (image check, metadata stripping, a new random name,
-size and quota limits) and the node URLs are rewritten to the new names. A
+size and storage quota limits) and the node URLs are rewritten to the new
+names. Together they count against the importing user's daily upload quota
+(:mod:`..pages.uploads`), as uploads to a canvas do: an import with more
+images, or more bytes of them, than the user has left today is refused. A
 refused import removes every file it already stored.
 
 Nothing is read beyond what a valid export can hold: ``canvas.json`` (or a
@@ -42,6 +45,7 @@ from ....core.json import loads as safe_json_loads
 from ....core.zipcheck import readable_member
 from ... import storage
 from ...i18n import t
+from ..pages import uploads
 from . import model
 
 #: The largest stored canvas plus room for the indentation and page titles of its export (an export that
@@ -163,8 +167,8 @@ def _parse(payload: Any) -> tuple[str, str, dict[str, Any]]:
     return " ".join(title.split())[:200] or "Imported canvas", description.strip()[:2000], doc
 
 
-def read_import(upload: FileStorage | None) -> tuple[str, str, dict[str, Any], list[str]]:
-    """Parse an uploaded export; return title, description, document and stored file names."""
+def read_import(upload: FileStorage | None, user: dict[str, Any]) -> tuple[str, str, dict[str, Any], list[str]]:
+    """Parse an export uploaded by *user*; return title, description, document and stored file names."""
     if upload is None or not upload.filename:
         raise CanvasImportError("canvas.import.no_file")
     stream = upload.stream
@@ -179,7 +183,7 @@ def read_import(upload: FileStorage | None) -> tuple[str, str, dict[str, Any], l
         if _listing_too_large(stream):
             raise CanvasImportError("canvas.import.too_many_files", limit=MAX_MEMBERS)
         with zipfile.ZipFile(stream) as bundle:
-            return _read_bundle(bundle)
+            return _read_bundle(bundle, user)
     except (ValueError, UnicodeDecodeError, zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError,
             RuntimeError) as error:
         if isinstance(error, CanvasImportError | model.DocumentError):
@@ -206,7 +210,7 @@ def _listing_too_large(stream: IO[bytes]) -> bool:
     return end[entries] > MAX_MEMBERS or end[size] > MAX_MEMBERS * _LISTING_BYTES_PER_MEMBER
 
 
-def _read_bundle(bundle: zipfile.ZipFile) -> tuple[str, str, dict[str, Any], list[str]]:
+def _read_bundle(bundle: zipfile.ZipFile, user: dict[str, Any]) -> tuple[str, str, dict[str, Any], list[str]]:
     json_member, assets = None, {}
     members = bundle.infolist()
     if len(members) > MAX_MEMBERS:
@@ -231,14 +235,19 @@ def _read_bundle(bundle: zipfile.ZipFile) -> tuple[str, str, dict[str, Any], lis
     wanted = {name: info for name, info in assets.items() if name in model.upload_names(doc)}
     limit = _limit_bytes()
     stored: dict[str, str] = {}
-    total = 0
+    total = kept = 0
     try:
+        if wanted:
+            uploads.check_room(user, len(wanted))
         for name, info in sorted(wanted.items()):
             data = _read_member(bundle, info, limit - total)
             total += len(data)
             saved = storage.save(FileStorage(io.BytesIO(data), filename=name), "uploads", allowed=None,
                                  max_bytes=limit, images_only=True)
             stored[name] = saved.filename
+            kept += saved.size
+        if stored:
+            uploads.count_stored(user, len(stored), kept)
     except storage.UploadError as error:
         discard(list(stored.values()))
         raise CanvasImportError(error.key, **error.values) from error
@@ -249,9 +258,15 @@ def _read_bundle(bundle: zipfile.ZipFile) -> tuple[str, str, dict[str, Any], lis
     return title, description, doc, list(stored.values())
 
 
-def discard(filenames: list[str]) -> None:
+def discard(filenames: list[str], user: dict[str, Any] | None = None) -> None:
+    """Remove images an import stored; with *user*, they were counted already and are given back."""
+    size = 0
     for name in filenames:
+        path = storage.resolve("uploads", name) if user is not None else None
+        size += path.stat().st_size if path is not None else 0
         storage.delete("uploads", name)
+    if user is not None and filenames:
+        uploads.uncount_stored(user, len(filenames), size)
 
 
 def _markdown_line(text: str) -> str:

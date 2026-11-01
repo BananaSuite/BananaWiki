@@ -227,8 +227,16 @@ def switch_refusal(feature_id: str, enabled: bool) -> str | None:
     """Why the person at the keyboard may not switch *feature_id* on or off (a translation key), or None.
 
     Asks the ``feature.switch`` interceptors of the enabled features (the
-    audit log keeps plain administrators from switching it off).
+    audit log keeps plain administrators from switching it off). Switching a
+    third-party plugin on runs its code, so in a request only the owner and
+    superusers may do it, whichever page asks (the onboarding wizard too).
     """
+    if enabled and has_request_context():
+        from .features.plugin_manager.service import can_trust_code
+        from .plugins_external import runtime
+
+        if feature_id in runtime().loaded_ids() and not can_trust_code():
+            return "plugin_manager.lock.owner_only"
     answer = intercept("feature.switch", feature_id=feature_id, enabled=bool(enabled))
     return None if answer is None else str(answer)
 

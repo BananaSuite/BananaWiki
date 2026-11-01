@@ -20,7 +20,12 @@ HTTP Basic ``client_id:client_secret`` (preferred), or ``client_id`` and
 hosting account that has signed in to it (holds a live access token).
 Every endpoint answers 404 while platform sign-in is switched off. The
 server-to-server endpoints are exempt from the account gates: they take
-bearer or client credentials, never a portal session.
+bearer or client credentials, never a portal session. They are not limited
+per network either, since every call of a wiki comes from its own address:
+they count failures and each wiki's calls instead (see :mod:`..limits`). While
+sign-in is off they count against the global limit like any other path. A
+network that sent too many wrong credentials or malformed requests is refused
+before its next request is read, except by the bearer endpoints.
 
 An account merge moves the source's links to the target here only, so the
 wiki's own row still names the source. ``link-status`` therefore also answers
@@ -39,6 +44,7 @@ from urllib.parse import urlencode
 from flask import Blueprint, abort, jsonify, redirect, render_template, request, url_for
 
 from ...core.numbers import ascii_int
+from ...core.timeutil import sql_in
 from ...core.web import allow_form_action, csrf_exempt, safe_next
 from .. import accounts, auth, events, limits, oauth, signouts
 from ..db import db
@@ -74,14 +80,29 @@ def _client_credentials(data: dict[str, Any]) -> tuple[str, str]:
 
 
 def _authenticated_instance(data: dict[str, Any]) -> dict[str, Any] | None:
-    """The wiki whose credentials the request carries (1.4: instance_id + secret)."""
+    """The wiki whose credentials the request carries (1.4: instance_id + secret).
+
+    Wrong credentials count against the network, which :func:`limits.server_to_server` refuses once over.
+    """
     client_id, secret = _client_credentials(data)
     if not client_id and data.get("instance_id"):
         client_id = db.scalar("SELECT oauth_client_id FROM instances WHERE id = ?", (str(data["instance_id"]),)) or ""
     inst = oauth.authenticate_client(client_id, secret) if client_id and secret else None
     if inst and data.get("instance_id") and str(data["instance_id"]) != inst["id"]:
-        return None
+        inst = None
+    if inst is None:
+        limits.record(limits.BAD_CLIENT)
     return inst
+
+
+def _client(data: dict[str, Any], status: int, error: str) -> tuple[dict[str, Any] | None, Any]:
+    """(the authenticated wiki, None), or (None, the answer refusing the request) in *status* and *error*."""
+    inst = _authenticated_instance(data)
+    if inst is None:
+        return None, _json_error(status, error)
+    if not limits.client_call(inst["oauth_client_id"]):
+        return None, _json_error(429, "too_many_requests")
+    return inst, None
 
 
 def _json_error(code: int, error: str):
@@ -139,20 +160,31 @@ def authorize():
 @auth.exempt(*auth.GATES)
 @csrf_exempt
 @_enabled
-@rate_limit(20)
+@limits.server_to_server
 def token():
+    """A code for an access token. Never limited for a wiki whose credentials and code are right: a wiki's
+    visitors can make it send codes they made up (or none), which must not use up its users' sign-ins.
+
+    Malformed requests count against the network like wrong credentials: no wiki sends them."""
     data = request.form.to_dict()
     if data.get("grant_type") != "authorization_code":
+        limits.record(limits.BAD_CLIENT)
         return jsonify({"error": "unsupported_grant_type"}), 400
     client_id, secret = _client_credentials(data)
-    if not client_id or not secret or not data.get("code"):
+    if not client_id or not secret:
+        limits.record(limits.BAD_CLIENT)
         return jsonify({"error": "invalid_request"}), 400
-    if oauth.authenticate_client(client_id, secret) is None:
+    inst = _authenticated_instance(data)
+    if inst is None:
         return jsonify({"error": "invalid_client"}), 401
-    raw = oauth.redeem_code(data["code"].strip(), client_id, (data.get("redirect_uri") or "").strip(),
-                            (data.get("code_verifier") or "").strip())
+    code = (data.get("code") or "").strip()
+    raw = oauth.redeem_code(code, client_id, (data.get("redirect_uri") or "").strip(),
+                            (data.get("code_verifier") or "").strip()) if code else None
     if raw is None:
-        return jsonify({"error": "invalid_grant"}), 400
+        error = "invalid_grant" if code else "invalid_request"
+        if not limits.failure(limits.BAD_GRANT, limits.BAD_GRANT_PER_MINUTE, key=inst["id"]):
+            return jsonify({"error": error}), 429
+        return jsonify({"error": error}), 400
     response = jsonify({"access_token": raw, "token_type": "Bearer", "expires_in": oauth.TOKEN_SECONDS,
                         "scope": oauth.SCOPE})
     response.headers["Cache-Control"] = "no-store"
@@ -163,7 +195,13 @@ def _bearer() -> tuple[dict[str, Any] | None, Any]:
     scheme, _, value = request.headers.get("Authorization", "").partition(" ")
     row = oauth.token_row(value.strip()) if scheme.lower() == "bearer" else None
     if row is None:
+        # Expired tokens are ordinary (1.4 wikis verify theirs): a valid one is never refused for them. Over the
+        # limit, a refusal costs a read only.
+        if not limits.failure(limits.BAD_TOKEN, limits.BAD_TOKEN_PER_MINUTE):
+            return None, (jsonify({"error": "too_many_requests"}), 429)
         return None, (jsonify({"error": "invalid_token"}), 401)
+    if not limits.client_call(row["client_id"]):
+        return None, (jsonify({"error": "too_many_requests"}), 429)
     return row, None
 
 
@@ -172,7 +210,7 @@ def _bearer() -> tuple[dict[str, Any] | None, Any]:
 @auth.public
 @auth.exempt(*auth.GATES)
 @_enabled
-@rate_limit(60)
+@limits.server_to_server(bearer=True)
 def userinfo():
     row, refusal = _bearer()
     if row is None:
@@ -191,7 +229,7 @@ def userinfo():
 @auth.public
 @auth.exempt(*auth.GATES)
 @_enabled
-@rate_limit(60)
+@limits.server_to_server(bearer=True)
 def verify():
     row, refusal = _bearer()
     if row is None:
@@ -209,11 +247,11 @@ def verify():
 @auth.public
 @auth.exempt(*auth.GATES)
 @_enabled
-@rate_limit(60)
+@limits.server_to_server
 def link_status():
-    inst = _authenticated_instance(request.args.to_dict())
+    inst, refusal = _client(request.args.to_dict(), 401, "invalid_client")
     if inst is None:
-        return _json_error(401, "invalid_client")
+        return refusal
     wiki_user_id = (request.args.get("wiki_user_id") or "").strip()
     account_id = (request.args.get("account_id") or "").strip()
     if wiki_user_id:
@@ -235,12 +273,12 @@ def link_status():
 @auth.exempt(*auth.GATES)
 @csrf_exempt
 @_enabled
-@rate_limit(30)
+@limits.server_to_server
 def link():
     data = _payload()
-    inst = _authenticated_instance(data)
+    inst, refusal = _client(data, 403, "invalid_client_secret")
     if inst is None:
-        return _json_error(403, "invalid_client_secret")
+        return refusal
     wiki_user_id = str(data.get("wiki_user_id") or "").strip()[:128]
     wiki_username = str(data.get("wiki_username") or "").strip()[:200]
     access = oauth.token_row(str(data.get("access_token") or "").strip()) if data.get("access_token") else None
@@ -264,7 +302,9 @@ def link():
                    (inst["id"], wiki_user_id))
         db.insert("hosting_oauth_account_links", {"instance_id": inst["id"], "account_id": account_id,
                                                   "wiki_user_id": wiki_user_id, "wiki_username": wiki_username})
-        events.record("account", account_id, "oauth.linked", account_id, inst["subdomain"])
+        # A wiki may unlink and link again at will: one entry a day per account and wiki keeps the log bounded.
+        if not events.recorded_since("account", account_id, "oauth.linked", inst["subdomain"], sql_in(days=-1)):
+            events.record("account", account_id, "oauth.linked", account_id, inst["subdomain"])
     return jsonify({"ok": True})
 
 
@@ -273,12 +313,12 @@ def link():
 @auth.exempt(*auth.GATES)
 @csrf_exempt
 @_enabled
-@rate_limit(30)
+@limits.server_to_server
 def unlink():
     data = _payload()
-    inst = _authenticated_instance(data)
+    inst, refusal = _client(data, 403, "invalid_client_secret")
     if inst is None:
-        return _json_error(403, "invalid_client_secret")
+        return refusal
     account_id = str(data.get("account_id") or "").strip()
     wiki_user_id = str(data.get("wiki_user_id") or "").strip()[:128]
     if not account_id and not wiki_user_id:
@@ -294,7 +334,7 @@ def unlink():
 @auth.public
 @auth.exempt(*auth.GATES)
 @_enabled
-@rate_limit(60)
+@limits.server_to_server
 def signout_events():
     """The sign-outs a wiki must carry out, after the id it got last (``after``), oldest first.
 
@@ -303,9 +343,9 @@ def signout_events():
     asks the wiki to end the platform sessions of the wiki account linked to
     ``account_id`` that started at or before ``at``.
     """
-    inst = _authenticated_instance(request.args.to_dict())
+    inst, refusal = _client(request.args.to_dict(), 401, "invalid_client")
     if inst is None:
-        return _json_error(401, "invalid_client")
+        return refusal
     after = ascii_int(request.args.get("after") or "0", 19)
     if after is None or after < 0 or after >= 2**63:
         return _json_error(400, "invalid_cursor")

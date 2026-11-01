@@ -20,6 +20,11 @@ issued it (``parent_id``) and never carries the ``tokens`` scope itself:
 revoking a token revokes what it issued, so a leaked token cannot leave
 replacements behind. The ``userbot`` scope belongs to the automation key
 alone (:mod:`.userbot`); ordinary tokens are never given it.
+
+An account may create :func:`daily_creation_limit` tokens in 24 hours,
+revoked ones and userbot keys included, so creating and revoking in a loop
+stops there; the rows of tokens revoked or expired long ago are pruned
+(:func:`prune`).
 """
 
 from __future__ import annotations
@@ -36,6 +41,7 @@ from ....core import crypto
 from ....core.timeutil import is_past, now_sql, parse, sql_in, to_sql, utcnow
 from ... import settings
 from ...db import db
+from ..audit.service import record
 from .errors import ApiError
 from .serialize import iso
 
@@ -46,6 +52,10 @@ USERBOT_SCOPE = "userbot"
 MAX_NAME = 64
 RATE_LIMIT_BOUNDS = (1, 10000)
 MAX_TOKENS_BOUNDS = (1, 100)
+# Tokens an account may create in 24 hours, revoked or not (at least its active-token limit).
+MAX_CREATED_PER_DAY = 20
+# Rows of revoked tokens created, and of tokens expired, more than this many days ago are deleted.
+RETENTION_DAYS = 90
 # Tokens expire at most this far ahead (or never, without an expiry).
 MAX_EXPIRY_YEARS = 10
 LAST_USED_RESOLUTION_SECONDS = 60
@@ -141,21 +151,52 @@ def create(user_id: str, *, name: str = "", grant: Grant, expires_at: str | None
            parent_id: int | None = None) -> tuple[str, int]:
     """Issue a token (through *parent_id*, when a token issues it); return ``(raw_token, token_id)``.
 
-    The raw value is never stored.
+    The raw value is never stored. Refused (``too_many_tokens_today``) once
+    the account created :func:`daily_creation_limit` tokens in 24 hours.
     """
     raw = crypto.new_token(32)
-    token_id = db.insert("api_service__tokens", {
-        "user_id": user_id,
-        "name": (name or "").strip()[:MAX_NAME],
-        "token_hash": digest(raw),
-        "permissions": json.dumps(grant.as_dict()),
-        "expires_at": expires_at,
-        "active": 1,
-        "created_at": now_sql(),
-        "credential_stamp": credential_stamp(db.scalar("SELECT password FROM users WHERE id = ?", (user_id,))),
-        "parent_id": parent_id,
-    })
+    with db.transaction():
+        limit = daily_creation_limit()
+        created = db.scalar("SELECT COUNT(*) FROM api_service__tokens WHERE user_id = ? AND created_at > ?",
+                            (user_id, sql_in(hours=-24)), default=0)
+        if int(created or 0) >= limit:
+            raise ApiError(429, "too_many_tokens_today", limit=limit)
+        token_id = db.insert("api_service__tokens", {
+            "user_id": user_id,
+            "name": (name or "").strip()[:MAX_NAME],
+            "token_hash": digest(raw),
+            "permissions": json.dumps(grant.as_dict()),
+            "expires_at": expires_at,
+            "active": 1,
+            "created_at": now_sql(),
+            "credential_stamp": credential_stamp(db.scalar("SELECT password FROM users WHERE id = ?", (user_id,))),
+            "parent_id": parent_id,
+        })
     return raw, token_id
+
+
+def daily_creation_limit() -> int:
+    """Tokens an account may create in 24 hours: :data:`MAX_CREATED_PER_DAY`, or its active limit if higher."""
+    return max(MAX_CREATED_PER_DAY, service_settings()["max_tokens_per_user"])
+
+
+def prune() -> int:
+    """Delete rows of tokens revoked or expired long ago (see :data:`RETENTION_DAYS`); return how many.
+
+    The table records no revocation time, so a revoked token goes once it was
+    created that long ago. Tokens it issued are revoked with it and go too.
+    Its calls stay in the audit log.
+    """
+    cutoff = sql_in(days=-RETENTION_DAYS)
+    with db.transaction():
+        return db.execute(
+            "WITH RECURSIVE gone(id) AS (SELECT id FROM api_service__tokens "
+            "WHERE (active = 0 AND created_at < ?) OR expires_at < ? "
+            "UNION SELECT t.id FROM api_service__tokens t JOIN gone ON t.parent_id = gone.id WHERE t.active = 0 "
+            "OR t.expires_at < ?) "
+            "DELETE FROM api_service__tokens WHERE id IN (SELECT id FROM gone)",
+            (cutoff, cutoff, cutoff),
+        ).rowcount
 
 
 def _outdated(token: dict[str, Any], owner: dict[str, Any]) -> bool:
@@ -257,6 +298,14 @@ def revoke(token_id: int) -> bool:
         (token_id,),
     )
     return revoked
+
+
+def set_api_access(target: dict[str, Any], enabled: bool) -> None:
+    """Allow or refuse *target* the API (an administrator's choice, recorded when it changes)."""
+    if db.execute("UPDATE users SET api_access_enabled = ? WHERE id = ? AND api_access_enabled IS NOT ?",
+                  (1 if enabled else 0, target["id"], 1 if enabled else 0)).rowcount:
+        record("user.api_access_changed", target_type="user", target_id=target["id"],
+               details={"username": target["username"], "enabled": bool(enabled)})
 
 
 def revoke_all_for_user(user_id: str) -> int:

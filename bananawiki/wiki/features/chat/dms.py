@@ -13,9 +13,9 @@ An administrator moderating a conversation can still clear it for both
 A sender may delete a message for both only within
 :data:`DELETE_WINDOW_MINUTES` of sending it, to take back a mistake; after
 that it belongs to the recipient's copy too. Deleting an account is the
-exception: ``chats`` and ``chat_messages`` go with either participant's
-account (``ON DELETE CASCADE``), so the conversation disappears for both;
-reported messages keep their copy in ``chat__reports``.
+exception: its conversations are erased for both participants, attachment
+files included (:func:`forget_conversations`); reported messages keep their
+copy in ``chat__reports``.
 
 A message sent to someone who blocked the sender is withheld: stored for its
 sender (who is not told) and the administrators, never delivered to the
@@ -197,3 +197,35 @@ def delete_empty_before(cutoff: str) -> int:
         "DELETE FROM chats WHERE created_at < ? AND NOT EXISTS (SELECT 1 FROM chat_messages WHERE chat_id = chats.id)",
         (cutoff,),
     ).rowcount
+
+
+def erase_between(user_id: str, other_user_id: str) -> list[str]:
+    """Delete the conversation of two accounts with its messages, attachments and blobs.
+
+    Call inside a transaction; return the file names to remove with
+    :func:`store.remove_files` once it commits (an account merge, whose pair
+    would otherwise become a conversation with oneself).
+    """
+    chat = find(user_id, other_user_id)
+    if chat is None:
+        return []
+    files = store.clear(DM, chat["id"])
+    db.execute("DELETE FROM chats WHERE id = ?", (chat["id"],))
+    return files
+
+
+def forget_conversations(user: dict[str, Any], **_: Any) -> None:
+    """``user.delete`` interceptor: erase the account's conversations, attachments and blobs included.
+
+    The database would drop the rows with the account (``ON DELETE CASCADE``)
+    but not the files, including those the other participant sent: they go
+    as soon as the deletion commits (:meth:`Session.after_commit`, whether or
+    not the chat feature is switched on or hidden by BM mode, since
+    ``user.delete`` reaches it either way), not at the next daily orphan
+    clean-up. A deletion that is rolled back keeps them.
+    """
+    files: list[str] = []
+    for chat_id in db.column("SELECT id FROM chats WHERE user1_id = ? OR user2_id = ?", (user["id"], user["id"])):
+        files += store.clear(DM, chat_id)
+    if files:
+        db.after_commit(lambda: store.remove_files(files))

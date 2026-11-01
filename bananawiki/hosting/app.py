@@ -19,13 +19,13 @@ from werkzeug.http import parse_accept_header, parse_cookie
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .. import __version__
-from ..core import logformat, web
+from ..core import downloads, logformat, web
 from ..core.assets import SharedAssetsFlask, asset_url
 from ..core.i18n import FALLBACK, Catalog
 from ..core.json import SafeJSONProvider
 from ..core.ratelimit import MemoryLimiter
 from ..core.sqlite import Database, DatabaseUnavailable, is_unavailable
-from . import auth, i18n, settings, templating, wikihosts
+from . import auth, i18n, limits, oauth, settings, templating, wikihosts
 from .config import DEFAULT_SERVICE_NAME, PACKAGE_ROOT, HostingConfig, load_config
 from .db import EXTENSION as DB_EXTENSION
 from .db import close_request_session, connection_scope, open_database
@@ -36,6 +36,10 @@ log = logging.getLogger("bananawiki.hosting")
 RUNTIME_EXTENSION = "bananawiki.hosting.runtime"
 GLOBAL_RATE_LIMIT = 300
 MAX_BODY = 32 * 1024 * 1024
+# Every request body except an administrator's archive and backup uploads (see auth.large_body).
+SMALL_BODY = 2 * 1024 * 1024
+# Answered without the global per-client limit (health checks, assets).
+UNLIMITED_ENDPOINTS = frozenset({"static", "health", "healthz", "favicon_ico"})
 SESSION_COOKIE = "bwh_session"
 SECURE_SESSION_COOKIE = "__Host-" + SESSION_COOKIE
 
@@ -196,6 +200,12 @@ def create_app(config: HostingConfig | None = None, *, runtime: Runtime | None =
     app.extensions[i18n.EXTENSION] = Catalog([PACKAGE_ROOT / "translations"])
     app.extensions[RUNTIME_EXTENSION] = runtime if runtime is not None else load_runtime()
     app.extensions["bananawiki.hosting.limiter"] = MemoryLimiter()
+    app.extensions[limits.CLIENT_LIMITER] = MemoryLimiter()
+    # Test clients do not close responses, which would keep their places (see core.downloads).
+    app.extensions["bananawiki.hosting.downloads"] = None if cfg.testing else downloads.Places(downloads.PORTAL_PLACES)
+    app.extensions[downloads.POLICY] = downloads.Policy("bananawiki.hosting.downloads", _download_client,
+                                                        _downloads_refused)
+    app.teardown_request(downloads.give_back)
     with app.app_context(), connection_scope(database):
         settings.encrypt_legacy_secrets(cfg.secret_key)
 
@@ -225,6 +235,22 @@ def _startup_warnings(cfg: HostingConfig) -> None:
         log.warning("Tenant containers have outbound network access (HOSTING_TENANT_NETWORK=outbound).")
 
 
+def _download_client() -> str:
+    """Whose share of the download places a response takes: the signed-in account, else the network."""
+    account = g.get("real_account") or g.get("account")
+    return f"account:{account['id']}" if account else f"network:{web.client_network()}"
+
+
+def _downloads_refused(status: int) -> Response:
+    """503 while the process sends as many large responses as it may, 429 while the client sends its share."""
+    if auth.wants_json():
+        response = jsonify({"error": "Server busy." if status == 503 else "Too many requests."})
+    else:
+        response = Response(render_template("hosting/error.html", code=status))
+    response.status_code = status
+    return response
+
+
 def is_api_path(path: str) -> bool:
     return path == "/api/v1" or path.startswith("/api/v1/") or path.startswith("/api/")
 
@@ -233,23 +259,44 @@ def _install_pipeline(app: Flask) -> None:
     def bearer_request() -> bool:
         return is_api_path(request.path)
 
+    @app.before_request
+    def _request_limits():
+        # Runs before CSRF, which reads the whole form: requests it refuses must count against the
+        # global limit, and their bodies must be bounded. MAX_CONTENT_LENGTH is the largest upload a
+        # view accepts (an archive or a platform backup); only views marked @auth.large_body get it,
+        # and only for an administrator's own session. Everyone else gets SMALL_BODY, so nobody can
+        # make the CSRF check spool tens of MiB to disk before being turned away. Safe methods are
+        # capped too (Werkzeug parses a GET's form body as readily as a POST's), and requests that
+        # match no route (404, 405) count like any other: CSRF parses their bodies as well.
+        g.request_id = uuid.uuid4().hex[:16]
+        g.started = time.perf_counter()
+        view = app.view_functions.get(request.endpoint or "")
+        # The wikis' server-to-server OAuth calls are counted by their views instead (see limits). While
+        # platform sign-in is off those views answer 404 before counting anything, so they count here.
+        wiki_call = limits.is_server_to_server(view) and oauth.enabled()
+        if request.endpoint not in UNLIMITED_ENDPOINTS and not wiki_call:
+            limiter: MemoryLimiter = app.extensions["bananawiki.hosting.limiter"]
+            # Caddy's on-demand TLS "ask" shares the loopback bucket with the portal's own calls; a 429
+            # there would make Caddy refuse a certificate it should issue.
+            asking = (request.endpoint == "public.authorize_certificate"
+                      and request.remote_addr in ("127.0.0.1", "::1"))
+            if not asking and not limiter.hit(f"g:{web.client_network()}", GLOBAL_RATE_LIMIT, 60):
+                if auth.wants_json():
+                    return jsonify({"error": "Too many requests."}), 429
+                return render_template("hosting/error.html", code=429), 429
+        if request.method not in web.SAFE_METHODS and auth.view_large_body(view) and auth.session_may_send_large_body():
+            return None
+        # A wiki's server-to-server calls carry a small form or JSON object.
+        request.max_content_length = min(app.config["MAX_CONTENT_LENGTH"],
+                                         limits.SERVER_TO_SERVER_BODY if wiki_call else SMALL_BODY)
+        return None
+
     web.install_csrf(app, exempt_when=bearer_request)
 
     @app.before_request
     def _pipeline():
-        g.request_id = uuid.uuid4().hex[:16]
-        g.started = time.perf_counter()
-        if request.endpoint in ("static", "health", "healthz", "favicon_ico") or (
-                request.endpoint is None and not is_api_path(request.path)):
+        if request.endpoint in UNLIMITED_ENDPOINTS or (request.endpoint is None and not is_api_path(request.path)):
             return None
-        limiter: MemoryLimiter = app.extensions["bananawiki.hosting.limiter"]
-        # Caddy's on-demand TLS "ask" shares the loopback bucket with the portal's own calls; a 429 there
-        # would make Caddy refuse a certificate it should issue.
-        asking = request.endpoint == "public.authorize_certificate" and request.remote_addr in ("127.0.0.1", "::1")
-        if not asking and not limiter.hit(f"g:{web.client_network()}", GLOBAL_RATE_LIMIT, 60):
-            if auth.wants_json():
-                return jsonify({"error": "Too many requests."}), 429
-            return render_template("hosting/error.html", code=429), 429
         if is_api_path(request.path):
             if not settings.flag("api_enabled"):
                 return _api_not_found()
@@ -272,6 +319,8 @@ def _install_pipeline(app: Flask) -> None:
 
     @app.after_request
     def _after(response: Response) -> Response:
+        response = downloads.hold(response, app.extensions.get("bananawiki.hosting.downloads"), _download_client(),
+                                  _downloads_refused)
         policy: web.SecurityPolicy = app.extensions.setdefault(
             "bananawiki.hosting.csp",
             web.SecurityPolicy(frame_src=[], img_src=["'self'", "data:"], media_src=["'self'"],

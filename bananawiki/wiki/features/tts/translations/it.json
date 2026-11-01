@@ -213,5 +213,6 @@
   "tts.voice.downloadable": "scaricata al primo uso",
   "tts.voice.missing": "mancante",
   "tts.voice.ready": "installata",
-  "tts.voice.unmapped": "nessuna voce"
+  "tts.voice.unmapped": "nessuna voce",
+  "tts.panel.seek": "Posizione nell'audio"
 }

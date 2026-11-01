@@ -160,6 +160,7 @@
   <p class="small muted">{% if backup.complete_at %}{{ tm('hosting.settings.backup_complete_at', when=nowrap(backup.complete_at|datetime)) }}{% else %}{{ t('hosting.settings.backup_complete_never') }}{% endif %}</p>
   {% if backup.skipped %}<div class="alert alert--warning"><div class="alert__body">{{ tm('hosting.settings.backup_skipped', when=nowrap(backup.finished_at|datetime)) }}
     <ul>{% for item in backup.skipped %}<li><code>{{ item.tenant }}</code>: {{ t('hosting.runtime.' ~ item.code, t('hosting.runtime.failed')) }}{% if item.detail %}<br><span class="small">{{ item.detail|server_text }}</span>{% endif %}</li>{% endfor %}</ul></div></div>{% endif %}
+  {% if backup.size and restore_limit and backup.size > restore_limit %}<div class="alert alert--warning"><div class="alert__body">{{ t('hosting.settings.backup_over_restore_limit', size=backup.size|filesize, limit=restore_limit|filesize) }}</div></div>{% endif %}
   <div class="btn-row">
     {{ ui.post(url_for('admin.export_platform'), t('hosting.settings.export_platform'), 'btn btn--primary') }}
   </div>

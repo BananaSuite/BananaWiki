@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 import subprocess
@@ -21,7 +22,8 @@ from secrets import token_hex
 from typing import Any
 
 from ..core import cloudflare
-from . import DEFAULT_ROOT, PRODUCT, caddy, caddy_blocks, profile, tenant_quotas
+from ..core.logformat import StderrHandler, printable
+from . import DEFAULT_ROOT, PRODUCT, caddy, caddy_blocks, firewall, profile, tenant_quotas
 from .files import (
     atomic_write,
     digest_file,
@@ -261,7 +263,7 @@ def configure_proxy(manager: Manager, args: argparse.Namespace) -> dict[str, Any
     if not args.install:
         print(text, end="")
         for warning in warnings:
-            print(f"Warning: {warning}", file=sys.stderr)
+            print(printable(f"Warning: {warning}"), file=sys.stderr)
         return None
     if hosting:
         manager.system.ensure_routes_directory(settings)
@@ -322,6 +324,7 @@ def lifecycle(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | No
         services = manager.services(settings)
         names = [service.name for service in services]
         # Before anything is stopped; a restart must also be able to bring the running wikis back.
+        unprotected = manager.check_tenant_firewall(settings) if args.command in {"start", "restart"} else None
         if args.command == "restart":
             manager.preflight(settings)
         elif args.command == "stop":
@@ -364,6 +367,8 @@ def lifecycle(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | No
             unready = {*details.get("unready_tenants", ()), *manager.check_tenants(settings, None, waited=serving)}
             if unready:
                 details["unready_tenants"] = sorted(unready)
+            if unprotected:
+                details["firewall_warning"] = firewall.warning(unprotected)
         return manager.event(args.command, "complete", recovered=recovered, **details)
 
 
@@ -495,8 +500,6 @@ def dispatch(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | Non
     if command == "status":
         return manager.status()
     if command == "firewall":
-        from . import firewall
-
         print(firewall.rules(), end="")
         return None
     if command == "updates":
@@ -568,6 +571,9 @@ def dispatch(manager: Manager, args: argparse.Namespace) -> dict[str, Any] | Non
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    # Without a handler, warnings reach the terminal through logging's last resort; this one escapes the control
+    # characters of the tenant folder and file names they may carry.
+    logging.lastResort = StderrHandler()
     if os.geteuid() != 0:
         print("Server maintenance needs root. Run this command with sudo.", file=sys.stderr)
         return 1
@@ -596,7 +602,7 @@ def main(argv: list[str] | None = None) -> int:
         isolated = isinstance(result, dict) and bool(result.get("isolated_tenants"))
         return 2 if outcome in FAILED_OUTCOMES or isolated else 0
     except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as error:
-        print(f"{PRODUCT}: {error}", file=sys.stderr)
+        print(printable(f"{PRODUCT}: {error}"), file=sys.stderr)
         if manager.config_dir.exists():
             manager.event(args.command, "failed", reason=str(error))
         return 1

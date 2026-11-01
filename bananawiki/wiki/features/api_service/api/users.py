@@ -16,12 +16,12 @@ creates an owner or a superuser.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from typing import Any
 
 from flask import g
 
+from .....core.json import loads as safe_json_loads
 from .... import accounts, settings
 from ....db import db
 from ...admin import service as admin_service
@@ -89,7 +89,8 @@ def prehash_passwords(body: bytes) -> dict[tuple[str, str], str]:
     refuses them as it would anyway.
     """
     try:
-        data = json.loads(body or b"{}")
+        # As every other API body: bounded depth, so a deeply nested one is refused (400) by the view.
+        data = safe_json_loads(body or b"{}")
     except (TypeError, ValueError):
         return {}
     entries = data.get("users") if isinstance(data, dict) and isinstance(data.get("users"), list) else [data]
@@ -225,7 +226,7 @@ def update_user(user_id: str):
     elif suspended is False:
         _service(admin_service.unsuspend, target)
     if api_access is not None:
-        db.execute("UPDATE users SET api_access_enabled = ? WHERE id = ?", (1 if api_access else 0, target["id"]))
+        tokens.set_api_access(target, api_access)
     if new_password is not None:
         payload["api_tokens_revoked"] = tokens.revoke_all_for_user(target["id"])
         if own:

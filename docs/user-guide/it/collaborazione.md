@@ -74,7 +74,9 @@ decide qualcosa, scrivilo in una pagina.
   lettori di schermo.
 * **Cronologia** mostra gli stati precedenti della bacheca, con i limiti delle
   colonne, le checklist e le schede archiviate, e cosa è cambiato in
-  ciascuno; ripristinarne uno non elimina mai schede, commenti o file.
+  ciascuno; ripristinarne uno non elimina mai schede, commenti o file. In una
+  bacheca grande solo le prime descrizioni (circa 200.000 caratteri) sono
+  formattate; le altre sono mostrate come sono state scritte.
 * Chi ha creato la bacheca può condividerla con persone o ruoli (lettura o
   scrittura), renderla pubblica, esportarla o eliminarla. **Altro → Esporta
   senza allegati** esporta solo la bacheca, per esempio quando i suoi file

@@ -42,6 +42,7 @@ class FakeRuntime:
         self.addresses: dict[str, tuple[str, ...]] = {}  # lookup_addresses answers, per host name
         self.upstreams: dict[str, tuple[str, int]] = {}
         self.backup_status: dict[str, Any] = {}
+        self.firewall: dict[str, Any] = {}
         self.storage: dict[str, Any] = {}  # what storage_protection() reports ({} = unknown)
         self.archive_two_step: list[str] = []  # accounts with two-step verification in imported archives
         self._failures: dict[str, RuntimeFailure] = {}
@@ -179,6 +180,13 @@ class FakeRuntime:
         tenant.passwords[admin_username] = new_password
         return admin_username
 
+    def reset_admins(self, spec: TenantSpec, admin_username: str, new_password: str, *,
+                     every_admin: bool = False) -> tuple[str, list[str]]:
+        """The fake wiki's user ids are its user names."""
+        name = self.reset_admin_password(spec, admin_username, new_password)
+        self._record("reset_admins_every" if every_admin else "reset_admins_named", spec.data_dir_name)
+        return name, [admin_username]
+
     def reset_content(self, spec: TenantSpec, *, admin_username: str, admin_password: str) -> None:
         self._record("reset_content", spec.data_dir_name)
         tenant = self._tenant(spec)
@@ -295,6 +303,9 @@ class FakeRuntime:
 
     def storage_protection(self) -> dict[str, Any]:
         return dict(self.storage)
+
+    def host_firewall(self) -> dict[str, Any]:
+        return dict(self.firewall)
 
     def backup_key(self) -> bytes:
         return b"k" * 32

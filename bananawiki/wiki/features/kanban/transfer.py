@@ -7,10 +7,20 @@ an import accepts. Imports accept both. Every limit of a ZIP is checked
 before anything is unpacked: ``board.json`` is held to ``MAX_JSON`` like a
 plain JSON upload, and only the files tickets refer to are streamed into
 storage, through the normal upload checks, within ``MAX_UNCOMPRESSED`` and
-the storage left under a quota. Beyond the 1.4 format, exports carry each
+the storage left under a quota. The files an import stores count against
+the importing user's daily upload quota (:mod:`..pages.uploads`), as page
+attachments and canvas imports do: an import with more files than are left
+today is refused before anything is unpacked, one whose files exceed the
+bytes left is refused after, and a refused import costs nothing. Beyond the 1.4 format, exports carry each
 column's ``wip_limit`` and ``done`` flag, each ticket's ``checklist`` and
 ``"archived": true`` on archived tickets and on an archived board (imported
 as archived again). Documents without these fields still import.
+
+The text an account imports is bounded per day as well as per minute: the
+board's text (see :func:`history.board_bytes`) and its first history entry
+are both counted against the account's ``history.STORED_MIB_PER_DAY`` (see
+:func:`history.charge`); an import whose text is past it is refused and costs
+nothing.
 """
 
 from __future__ import annotations
@@ -32,11 +42,12 @@ from ....core.zipcheck import readable_member
 from ... import storage
 from ...db import db
 from ...i18n import t
+from ..pages import uploads
 from . import access, events, extras, fields, history, logtext, signals, store
 from .fields import KanbanError
 
 FORMAT_VERSION = "1.2"
-MAX_COLUMNS = 200
+MAX_COLUMNS = fields.MAX_COLUMNS_PER_BOARD
 MAX_TICKETS = 5000
 MAX_MEMBERS = 5000
 MIB = 1024 * 1024
@@ -227,7 +238,7 @@ def _decode(raw: bytes) -> dict[str, Any]:
 
 
 def _clean(value: Any, maximum: int, fallback: str) -> str:
-    return " ".join(str(value or "").split())[:maximum] or fallback
+    return " ".join(fields.plain_text(value).split())[:maximum] or fallback
 
 
 def _ticket_values(item: dict[str, Any]) -> dict[str, Any]:
@@ -241,7 +252,7 @@ def _ticket_values(item: dict[str, Any]) -> dict[str, Any]:
         color = ""
     return {
         "title": _clean(item.get("title"), fields.MAX_TICKET_TITLE, t("kanban.import.untitled_ticket")),
-        "description": str(item.get("description") or "")[:fields.MAX_DESCRIPTION],
+        "description": fields.plain_text(item.get("description"))[:fields.MAX_DESCRIPTION],
         "priority": item.get("priority") if item.get("priority") in fields.PRIORITIES else "medium",
         "due_date": due, "color": color,
         "labels": fields.encode_labels(fields.labels(item.get("labels") or [])),
@@ -256,16 +267,22 @@ def _unpack_budget() -> int:
     return max(0, min(MAX_UNCOMPRESSED, quota - storage.storage_used()))
 
 
-def _store_bundled(parsed: _Parsed, columns: list[dict[str, Any]], saved: dict[str, storage.StoredFile]) -> None:
+def _store_bundled(parsed: _Parsed, columns: list[dict[str, Any]], saved: dict[str, storage.StoredFile],
+                   user: dict[str, Any]) -> None:
     """Save every referenced bundled file into *saved*, through the normal upload checks.
 
     Only files a ticket refers to are unpacked, each streamed from the
     archive into storage. Files the upload checks refuse, and files beyond
     the import's budget (:func:`_unpack_budget`), are skipped; a member
-    packed more tightly than ``MAX_RATIO`` makes the archive invalid.
+    packed more tightly than ``MAX_RATIO`` makes the archive invalid. Raises
+    ``uploads.QuotaExceeded`` first when *user* may not upload that many files today.
     """
     if parsed.archive is None:
         return
+    wanted = {str(attachment.get("bundle_path") or "") for column in columns for item in column["tickets"]
+              for attachment in item.get("attachments") or [] if isinstance(attachment, dict)}
+    if wanted & parsed.members.keys():
+        uploads.check_room(user, len(wanted & parsed.members.keys()))
     limit = storage.max_upload_bytes(current_app.config["BW"].max_kanban_attachment_size)
     budget = _unpack_budget()
     for column in columns:
@@ -318,8 +335,11 @@ def import_board(user: dict[str, Any], upload: FileStorage | None) -> dict[str, 
                                 "done": item.get("done"), "tickets": tickets})
         if sum(len(column["tickets"]) for column in columns) > MAX_TICKETS:
             raise KanbanError("kanban.error.import_invalid")
-        _store_bundled(parsed, columns, saved)
-        return _create(user, parsed.document, columns, saved)
+        try:
+            _store_bundled(parsed, columns, saved, user)
+            return _create(user, parsed.document, columns, saved)
+        except uploads.QuotaExceeded as error:
+            raise KanbanError(error.key, 429, **error.values) from error
     except BaseException:
         for stored in saved.values():
             storage.delete(store.FOLDER, stored.filename)
@@ -335,8 +355,10 @@ def _create(user: dict[str, Any], document: dict[str, Any], columns: list[dict[s
     now = now_sql()
     archived = document.get("archived") is True
     with db.transaction():
+        if saved:  # counted with the board, so a refused import gives the quota back
+            uploads.count_stored(user, len(saved), sum(stored.size for stored in saved.values()))
         board_id = db.insert("kanban_boards", {
-            "title": title, "description": str(document.get("description") or "")[:fields.MAX_DESCRIPTION],
+            "title": title, "description": fields.plain_text(document.get("description"))[:fields.MAX_DESCRIPTION],
             "created_by": user["id"], "created_at": now, "visibility": "public",
             "archived_at": now if archived else None, "archived_by": user["id"] if archived else None,
         })
@@ -374,6 +396,10 @@ def _create(user: dict[str, Any], document: dict[str, Any], columns: list[dict[s
                         "original_name": stored.original_name, "file_size": stored.size,
                         "uploaded_by": user["id"], "uploaded_at": now,
                     })
+        size = history.board_bytes(board_id)
+        if size > fields.MAX_BOARD_BYTES:
+            raise KanbanError("kanban.error.board_full", 409, maximum=fields.MAX_BOARD_BYTES // (1024 * 1024))
+        history.charge(user["id"], size)  # and the first history entry, in history.record
         message = logtext.message("kanban.log.board_imported", title=title)
         events.append(board_id, "board_reset", {}, user["id"])
         events.log_activity(board_id, user["id"], "board_imported", message)

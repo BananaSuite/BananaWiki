@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import pytest
-from markdown.extensions import codehilite
 
 from bananawiki.wiki import markdown
 from bananawiki.wiki.features.kanban import fields
@@ -43,13 +42,13 @@ def ticket(admin_client):
 def highlighted(monkeypatch):
     """Characters of code handed to Pygments."""
     sizes: list[int] = []
-    original = codehilite.highlight
+    original = markdown._highlight
 
-    def counting(source, lexer, formatter):
+    def counting(source, *args):
         sizes.append(len(source))
-        return original(source, lexer, formatter)
+        return original(source, *args)
 
-    monkeypatch.setattr(codehilite, "highlight", counting)
+    monkeypatch.setattr(markdown, "_highlight", counting)
     return sizes
 
 

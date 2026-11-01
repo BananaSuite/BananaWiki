@@ -14,6 +14,7 @@
 <section class="card assessment-attempts">
   <h2>{{ t('assessments.your_attempts') }}</h2>
   {{ quiz.attempts_table(page, attempts) }}
+  {% if assessment.allow_multiple_attempts %}<p class="hint">{{ t('assessments.attempts_kept', count=max_kept_attempts) }}</p>{% endif %}
 </section>
 {% endif %}
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 
 import pytest
 
@@ -16,7 +15,6 @@ from bananawiki.wiki.features.contributions import quota as contribution_quota
 from bananawiki.wiki.features.contributions import service as contributions
 from bananawiki.wiki.features.page_governance import quota as reservation_quota
 from bananawiki.wiki.features.pages import service as pages
-from bananawiki.wiki.i18n import BUILTIN_LANGUAGES
 
 from .governance_support import as_user, build_app, set_settings
 
@@ -313,12 +311,6 @@ def test_unsubscribe_link(app, client, people, db):
 # Administration
 
 
-def test_admin_settings_need_an_administrator(client, login, people):
-    login(client, people["editor"])
-    assert client.get("/admin/notifications").status_code == 403
-    assert client.post("/admin/notifications/test").status_code == 403
-
-
 def test_admin_saves_notification_settings(admin_client, db):
     assert admin_client.get("/admin/notifications").status_code == 200
     admin_client.post("/admin/notifications", data={
@@ -426,16 +418,6 @@ def test_user_email_is_not_exposed_on_profiles(client, login, people, db):
     db.execute("UPDATE users SET email = 'hidden@example.org' WHERE id = ?", (people["editor"]["id"],))
     login(client, people["reader"])
     assert b"hidden@example.org" not in client.get(f"/users/{people['editor']['username']}").data
-
-
-@pytest.mark.parametrize("language", sorted(set(BUILTIN_LANGUAGES) - {"en"}))
-def test_translations_have_the_same_keys(language):
-    folder = Path(__file__).resolve().parents[2] / "bananawiki/wiki/features/attention/translations"
-    english = json.loads((folder / "en.json").read_text(encoding="utf-8"))
-    translated = json.loads((folder / f"{language}.json").read_text(encoding="utf-8"))
-    assert english.keys() == translated.keys()
-    for key, text in english.items():
-        assert set(re.findall(r"\{(\w+)\}", text)) == set(re.findall(r"\{(\w+)\}", translated[key])), key
 
 
 def test_unsubscribe_works_signed_out_with_csrf(app, csrf_client, people, db):

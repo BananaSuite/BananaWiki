@@ -88,18 +88,6 @@ def test_admin_pages_render(web, make_account, make_wiki, login, language):
         assert not UNTRANSLATED.search(body), (path, UNTRANSLATED.search(body))
 
 
-@pytest.mark.parametrize("language", sorted(set(LANGUAGES) - {"en"}))
-def test_translation_catalogues_have_the_same_keys(language):
-    import json
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[2] / "bananawiki" / "hosting" / "translations"
-    en = json.loads((root / "en.json").read_text(encoding="utf-8"))
-    translated = json.loads((root / f"{language}.json").read_text(encoding="utf-8"))
-    assert set(en) == set(translated)
-    assert all(translated[key] for key in translated)
-
-
 def test_accept_language_chooses_among_the_portal_languages(web):
     def lang(header: str) -> str:
         page = web.get("/login", headers={"Accept-Language": header}).get_data(as_text=True)

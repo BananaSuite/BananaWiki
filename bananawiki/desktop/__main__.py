@@ -97,4 +97,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    import multiprocessing
+
+    # The packaged app starts syntax-highlighting helpers (bananawiki.wiki.highlighter) from its own
+    # executable: they must not start another app.
+    multiprocessing.freeze_support()
     raise SystemExit(main())

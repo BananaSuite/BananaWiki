@@ -16,15 +16,27 @@ by the hash of everything they are made from, up to :data:`CACHE_LIMIT`
 bytes: exporting an unchanged page again costs nothing. The embedded upload
 files are part of that (name, size and modification time of each): a PDF
 kept from before an image was deleted or replaced is not served again.
+
+The work of one PDF is bounded: each process lays out one PDF at a time
+(others wait up to :data:`BUILD_WAIT_SECONDS`, then :class:`Busy`), a PDF
+stops with a note after :data:`MAX_PAGES` pages or :data:`LAYOUT_SECONDS` of
+layout (checked at each page break and at the end of each paragraph, so inside
+one long code block or table too; a PDF cut by time is kept for
+:data:`TIME_CUT_CACHE_SECONDS` only), and images are decoded one at a time (:func:`storage.image_slot`), within
+:data:`MAX_DECODED_PIXELS` per PDF, and embedded as JPEG pictures of at most
+:data:`IMAGE_BOX` pixels (enough for print), within :data:`MAX_IMAGE_BYTES`
+per PDF. Images past either budget are shown by their description.
 """
 
 from __future__ import annotations
 
 import hashlib
+import io
 import logging
 import os
 import re
 import threading
+import time
 from collections import OrderedDict
 from html import escape
 from html.parser import HTMLParser
@@ -53,7 +65,23 @@ FONT_DIRS = (
     "/Library/Fonts",
 )
 MAX_IMAGES = 50
+#: Pixels of the uploads one PDF decodes (JPEGs are decoded at a reduced scale when they are large).
+MAX_DECODED_PIXELS = 160_000_000
+#: Bytes of (re-encoded) pictures one PDF embeds.
+MAX_IMAGE_BYTES = 32 * 1024 * 1024
+#: The largest embedded picture, in pixels: about 200 dpi across an A4 page's text width.
+IMAGE_BOX = (1400, 2000)
+JPEG_QUALITY = 85
 CACHE_LIMIT = 32 * 1024 * 1024
+#: How long an export waits for this process's other PDF to be laid out before :class:`Busy`.
+BUILD_WAIT_SECONDS = 10
+#: A PDF ends with a note once its layout has this many pages or has run this long; a 1 M-character page of
+#: text is 150 to 300 pages and takes a few seconds, while a page of tiny paragraphs could run to 10,000.
+MAX_PAGES = 500
+LAYOUT_SECONDS = 8.0
+#: A PDF cut by :data:`LAYOUT_SECONDS` (which depends on how busy the CPU was) is kept this long only, then
+#: laid out again; one cut by :data:`MAX_PAGES` is kept like a complete one.
+TIME_CUT_CACHE_SECONDS = 300
 # A4, in millimetres, and the margins of every page.
 PAGE_WIDTH = 210
 MARGIN = 18
@@ -61,6 +89,7 @@ MARGIN = 18
 _IMAGE_WIDTH = (PAGE_WIDTH - 2 * MARGIN) * 72 / 25.4
 IMAGE_TYPES = frozenset({"png", "jpg", "jpeg", "gif", "webp"})
 _UPLOAD_PATH = re.compile(r"^/static/uploads/([0-9A-Za-z_.-]+)$")
+_IMAGE_MARK = re.compile(r'<img src="bw-image:(\d+)" width="\d+">')
 _ACCENT = (138, 101, 0)
 _MUTED = (107, 105, 100)
 _TEXT = (32, 33, 36)
@@ -123,7 +152,10 @@ class _Simplifier(HTMLParser):
         self.in_cell = False
         self.dropped = 0
         self.images = 0
+        self.decoded = 0  # pixels the embedded images will cost to decode
         self.files: list[str] = []  # what each embedded upload was when it was read
+        self.paths: list[Path] = []  # the uploads behind ``bw-image:<index>``
+        self.alts: list[str] = []
 
     # Helpers
 
@@ -139,13 +171,21 @@ class _Simplifier(HTMLParser):
         path = None
         if match and self.images < MAX_IMAGES and storage.extension(match.group(1)) in IMAGE_TYPES:
             path = storage.resolve("uploads", match.group(1))
-        size = _pixel_size(path) if path else None
-        if not size:
-            return f"<i>[{escape(alt or 'image')}]</i>" if alt else ""
+        found = _pixel_size(path) if path else None
+        if found:
+            size, decoded = found
+            if self.decoded + decoded > MAX_DECODED_PIXELS:
+                found = None
+        if not found:
+            return _placeholder(alt)
         self.images += 1
+        self.decoded += decoded
         self.files.append(_file_state(path))
+        self.paths.append(path)
+        self.alts.append(alt)
         width = min(self.image_width, size[0] * 0.75)
-        return f'<img src="{escape(str(path))}" width="{width:.0f}">'
+        # Replaced by the picture (or the description) when the PDF is laid out: see _embed_images.
+        return f'<img src="bw-image:{len(self.paths) - 1}" width="{width:.0f}">'
 
     # Parser callbacks
 
@@ -236,23 +276,87 @@ def _file_state(path: Path) -> str:
     return f"{path.name}:{status.st_size}:{status.st_mtime_ns}"
 
 
-def _pixel_size(path: Path) -> tuple[int, int] | None:
+def _placeholder(alt: str) -> str:
+    return f"<i>[{escape(alt or 'image')}]</i>" if alt else ""
+
+
+def _draft_scale(size: tuple[int, int]) -> int:
+    """The reduction (1, 2, 4 or 8) a JPEG of *size* is decoded at to fill :data:`IMAGE_BOX`."""
+    scale = 1
+    while scale < 8 and size[0] // (scale * 2) >= IMAGE_BOX[0] and size[1] // (scale * 2) >= IMAGE_BOX[1]:
+        scale *= 2
+    return scale
+
+
+def _pixel_size(path: Path) -> tuple[tuple[int, int], int] | None:
+    """The image's size from its header, and the pixels decoding it for the PDF costs."""
     from PIL import Image, UnidentifiedImageError
 
     try:
         with Image.open(path) as image:
-            return image.size
+            width, height = image.size
+            if width * height > storage.MAX_IMAGE_PIXELS:
+                return None
+            scale = _draft_scale(image.size) if image.format == "JPEG" else 1
+            return image.size, (width // scale) * (height // scale)
     except (OSError, UnidentifiedImageError, Image.DecompressionBombError):
         return None
+
+
+def _picture(path: Path) -> bytes | None:
+    """The upload at *path* as a JPEG of at most :data:`IMAGE_BOX` pixels on white, decoded in this
+    process's image slot; None when it cannot be read."""
+    from PIL import Image, UnidentifiedImageError
+
+    Image.MAX_IMAGE_PIXELS = storage.MAX_IMAGE_PIXELS
+    try:
+        with storage.image_slot(), Image.open(path) as image:
+            if image.size[0] * image.size[1] > storage.MAX_IMAGE_PIXELS:
+                return None
+            if image.format == "JPEG":
+                image.draft("RGB", (image.size[0] // _draft_scale(image.size),
+                                    image.size[1] // _draft_scale(image.size)))
+            picture = image.convert("RGBA")
+            picture.thumbnail(IMAGE_BOX)
+            flat = Image.new("RGB", picture.size, (255, 255, 255))
+            flat.paste(picture, mask=picture.getchannel("A"))
+            out = io.BytesIO()
+            flat.save(out, "JPEG", quality=JPEG_QUALITY)
+            return out.getvalue()
+    except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError, storage.UploadError):
+        return None
+
+
+def _embed_images(body: str, paths: list[Path], alts: list[str]) -> tuple[str, dict[str, bytes]]:
+    """*body* with each ``bw-image:<index>`` picture prepared (see :func:`_picture`), or its
+    description once :data:`MAX_IMAGE_BYTES` are used; and the pictures by ``src``."""
+    pictures: dict[str, bytes] = {}
+    used = 0
+
+    def embed(match: re.Match[str]) -> str:
+        nonlocal used
+        index = int(match.group(1))
+        data = _picture(paths[index]) if used < MAX_IMAGE_BYTES else None
+        if data is None or used + len(data) > MAX_IMAGE_BYTES:
+            used = MAX_IMAGE_BYTES if data is not None else used
+            return _placeholder(alts[index])
+        used += len(data)
+        pictures[f"bw-image:{index}"] = data
+        return match.group(0)
+
+    return _IMAGE_MARK.sub(embed, body), pictures
 
 
 class _Document(FPDF):
     """A4 document with a running header (from page 2) and a page-number footer."""
 
-    def __init__(self, *, title: str, site_name: str):
+    def __init__(self, *, title: str, site_name: str, deadline: float | None = None):
         super().__init__(format="A4")
         self.doc_title = title
         self.site_name = site_name
+        self.deadline = time.monotonic() + LAYOUT_SECONDS if deadline is None else deadline
+        self.budgeted = True  # off once the layout is cut, for the note
+        self.cut_by_time = False
         self.sans, self.mono, self.unicode = _register_fonts(self)
         self.set_auto_page_break(auto=True, margin=MARGIN)
         self.set_margins(MARGIN, MARGIN, MARGIN)
@@ -261,6 +365,53 @@ class _Document(FPDF):
 
     def clean(self, text: str) -> str:
         return _clean(text, self.unicode)
+
+    def check_budget(self) -> None:
+        """Raise :class:`_LayoutCut` once :data:`MAX_PAGES` pages are laid out or :data:`LAYOUT_SECONDS` passed."""
+        if not self.budgeted:
+            return
+        if self.page_no() >= MAX_PAGES:
+            raise _LayoutCut
+        if time.monotonic() > self.deadline:
+            self.cut_by_time = True
+            raise _LayoutCut
+
+    def _perform_page_break(self) -> None:
+        """fpdf2's page break, checking the budget first: one block (a long code block, a table, a page the
+        Markdown budget renders as plain text) is laid out in one go and can run to thousands of pages.
+
+        The cut note then starts from the states fpdf2 left open: :func:`_render` closes them.
+        """
+        self.check_budget()
+        super()._perform_page_break()
+
+    def close_graphics_states(self) -> None:
+        """Close the graphics states fpdf2 left open in this page's stream (a table opens one), as fpdf2
+        does before each new page: a layout cut in the middle leaves them open, and every ``q`` in a page's
+        stream needs its ``Q``."""
+        while self._is_current_graphics_state_nested():
+            self._pop_local_stack()
+            self._end_local_context()
+
+    def text_columns(self, *args, **kwargs):
+        """fpdf2's text region, forgetting each paragraph once it is laid out, then checking the budget.
+
+        ``write_html`` puts the whole page in one region and lays it out again at the end of every
+        paragraph, rebuilding (empty) lines for all the paragraphs before it: 12,000 paragraphs took a
+        minute. A laid-out paragraph has nothing left to lay out, so dropping it changes nothing else.
+        """
+        columns = super().text_columns(*args, **kwargs)
+        render = columns.render
+
+        def render_and_forget() -> None:
+            render()
+            paragraphs = getattr(columns, "_paragraphs", None)
+            if isinstance(paragraphs, list):
+                del paragraphs[:-1]  # the last one stays: fpdf2 may still write into it
+            self.check_budget()
+
+        columns.render = render_and_forget
+        return columns
 
     def header(self) -> None:
         if self.page_no() == 1:
@@ -317,11 +468,11 @@ def _tag_styles(pdf: _Document) -> dict[str, TextStyle]:
     return styles
 
 
-def _write_body(pdf: _Document, html: str) -> None:
+def _write_body(pdf: _Document, html: str, pictures: dict[str, bytes]) -> None:
     pdf.set_font(pdf.sans, "", 10.5)
     pdf.set_text_color(*_TEXT)
     pdf.write_html(html, font_family=pdf.sans, tag_styles=_tag_styles(pdf), li_prefix_color=_ACCENT,
-                   warn_on_tags_not_matching=False)
+                   warn_on_tags_not_matching=False, image_map=lambda src: io.BytesIO(pictures[src]))
 
 
 def _write_plain(pdf: _Document, source: str) -> None:
@@ -333,11 +484,34 @@ def _write_plain(pdf: _Document, source: str) -> None:
         if text:
             pdf.multi_cell(0, 5, text, new_x="LMARGIN", new_y="NEXT")
             pdf.ln(2)
+            pdf.check_budget()
+
+
+def _write_cut_note(pdf: _Document, note: str) -> None:
+    pdf.budgeted = False
+    pdf.ln(4)
+    pdf.set_font(pdf.sans, "I", 10)
+    pdf.set_text_color(*_MUTED)
+    pdf.multi_cell(0, 5, pdf.clean(note), new_x="LMARGIN", new_y="NEXT")
 
 
 _cache: OrderedDict[bytes, bytes] = OrderedDict()
 _cache_size = 0
+_cache_expiry: dict[bytes, float] = {}  # the PDFs cut by time: when they are laid out again
 _cache_lock = threading.Lock()
+_build_slot = threading.BoundedSemaphore(1)
+
+
+class Busy(Exception):
+    """This process is laying out another PDF (for longer than :data:`BUILD_WAIT_SECONDS`)."""
+
+
+class _LayoutCut(Exception):
+    """The layout used its budget (:meth:`_Document.check_budget`); the PDF ends with the cut note."""
+
+
+#: The note a cut PDF ends with, when the caller gives none.
+CUT_NOTE = "The PDF ends here: the rest of the page is too long to export. Read it in the wiki."
 
 
 def _cache_key(*parts: str) -> bytes:
@@ -348,51 +522,97 @@ def _cache_key(*parts: str) -> bytes:
     return digest.digest()
 
 
-def _simplify(content: str, *, base_url: str, unicode: bool) -> tuple[str, list[str]]:
-    """The page HTML fpdf2 lays out, and the state of the upload files it embeds."""
+def _simplify(content: str, *, base_url: str, unicode: bool) -> _Simplifier:
+    """The page HTML fpdf2 lays out (``result()``), the uploads it embeds and their state (``files``)."""
     simplifier = _Simplifier(base_url=base_url, clean_text=lambda text: _clean(text, unicode),
                              image_width=_IMAGE_WIDTH)
     simplifier.feed(markdown.render(content, embed_videos=False))
     simplifier.close()
-    return simplifier.result(), simplifier.files
+    return simplifier
 
 
-def render(*, title: str, content: str, site_name: str, base_url: str, meta: list[str]) -> bytes:
+def _now() -> float:
+    return time.monotonic()
+
+
+def _cached(key: bytes) -> bytes | None:
+    global _cache_size
+    with _cache_lock:
+        expiry = _cache_expiry.get(key)
+        if expiry is not None and _now() >= expiry:
+            del _cache_expiry[key]
+            _cache_size -= len(_cache.pop(key, b""))
+        cached = _cache.get(key)
+        if cached is not None:
+            _cache.move_to_end(key)
+        return cached
+
+
+def render(*, title: str, content: str, site_name: str, base_url: str, meta: list[str],
+           cut_note: str = CUT_NOTE) -> bytes:
     """The PDF for one page (or history entry) as bytes, from the cache when it was made before.
 
     The key covers the embedded upload files as they are now, so the
     (cheap) simplification runs every time and the layout only when needed.
+    Raises :class:`Busy` when this process's turn to lay out a PDF does not
+    come within :data:`BUILD_WAIT_SECONDS`. A layout cut short (see
+    :data:`MAX_PAGES`) ends with *cut_note*, and is kept like any other, or
+    for :data:`TIME_CUT_CACHE_SECONDS` only when it was cut by time.
     """
     global _cache_size
     unicode = _unicode_font() is not None
-    body, files = _simplify(content, base_url=base_url, unicode=unicode)
-    key = _cache_key(title, content, site_name, base_url, str(unicode), str(len(meta)), *meta, *files)
-    with _cache_lock:
-        cached = _cache.get(key)
+    simplified = _simplify(content, base_url=base_url, unicode=unicode)
+    key = _cache_key(title, content, site_name, base_url, cut_note, str(unicode), str(len(meta)), *meta,
+                     *simplified.files)
+    cached = _cached(key)
+    if cached is not None:
+        return cached
+    if not _build_slot.acquire(timeout=BUILD_WAIT_SECONDS):
+        raise Busy
+    try:
+        cached = _cached(key)  # made while this export waited
         if cached is not None:
-            _cache.move_to_end(key)
             return cached
-    data = _render(title=title, content=content, body=body, site_name=site_name, meta=meta)
+        body, pictures = _embed_images(simplified.result(), simplified.paths, simplified.alts)
+        data, cut_by_time = _render(title=title, content=content, body=body, pictures=pictures,
+                                    site_name=site_name, meta=meta, cut_note=cut_note)
+    finally:
+        _build_slot.release()
     if len(data) <= CACHE_LIMIT // 4:
         with _cache_lock:
             if key not in _cache:
                 _cache[key] = data
                 _cache_size += len(data)
+                if cut_by_time:
+                    _cache_expiry[key] = _now() + TIME_CUT_CACHE_SECONDS
             while _cache_size > CACHE_LIMIT and _cache:
-                _key, dropped = _cache.popitem(last=False)
+                dropped_key, dropped = _cache.popitem(last=False)
+                _cache_expiry.pop(dropped_key, None)
                 _cache_size -= len(dropped)
     return data
 
 
-def _render(*, title: str, content: str, body: str, site_name: str, meta: list[str]) -> bytes:
-    """Lay out *body* (from :func:`_simplify`); *content* is the fallback when fpdf2 rejects it."""
+def _render(*, title: str, content: str, body: str, pictures: dict[str, bytes], site_name: str,
+            meta: list[str], cut_note: str = CUT_NOTE) -> tuple[bytes, bool]:
+    """Lay out *body* (from :func:`_embed_images`); *content* is the fallback when fpdf2 rejects it.
+
+    Returns the PDF and whether :data:`LAYOUT_SECONDS` cut it.
+    """
     pdf = _Document(title=title, site_name=site_name)
     _cover(pdf, meta)
     try:
-        _write_body(pdf, body)
-    except Exception:  # noqa: BLE001 - fpdf2 rejects some nestings; fall back to plain text
-        log.warning("PDF layout failed for %r; exporting plain text", title, exc_info=True)
-        pdf = _Document(title=title, site_name=site_name)
-        _cover(pdf, meta)
-        _write_plain(pdf, content)
-    return bytes(pdf.output())
+        try:
+            _write_body(pdf, body, pictures)
+        except _LayoutCut:
+            raise
+        except Exception:  # noqa: BLE001 - fpdf2 rejects some nestings; fall back to plain text
+            log.warning("PDF layout failed for %r; exporting plain text", title, exc_info=True)
+            pdf = _Document(title=title, site_name=site_name, deadline=pdf.deadline)  # the same budget
+            _cover(pdf, meta)
+            _write_plain(pdf, content)
+    except _LayoutCut:
+        # Stopped at the end of a paragraph or before a new page, maybe inside a graphics state fpdf2 opened.
+        log.info("PDF of %r cut after %d pages", title, pdf.page_no())
+        pdf.close_graphics_states()
+        _write_cut_note(pdf, cut_note)
+    return bytes(pdf.output()), pdf.cut_by_time

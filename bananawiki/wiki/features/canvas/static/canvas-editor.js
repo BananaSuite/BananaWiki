@@ -40,6 +40,8 @@
   var GRID = 24;
   var GUIDE_PX = 6;  /* how close, in screen pixels, an edge must come to a guide line to snap to it */
   var ARROW_CLICK_PX = 8;  /* how far, in screen pixels, the connect arrow may wander and still be a click */
+  var DOUBLE_TAP_MS = 350;
+  var DOUBLE_TAP_PX = 30;
   var BELOW_GAP = GRID * 3;  /* between an element and the note its connect arrow adds below it */
   var Canvas = BW.Canvas;
 
@@ -806,14 +808,41 @@
     });
 
     stage.addEventListener("dblclick", function (event) {
-      var edgeEl = event.target.closest(".cv-edge");
-      if (edgeEl) { editor.openEdgeDialog(edgeEl.getAttribute("data-edge-id")); return; }
-      var nodeEl = event.target.closest(".cv-node");
-      if (nodeEl && !event.target.closest("a, iframe")) editor.openNodeDialog(nodeEl.dataset.id);
-      else if (!nodeEl && editor.scene.isBackground(event.target)) {
-        editor.openNodeDialog(null, "text", editor.scene.toWorld(event.clientX, event.clientY));
-      }
+      editor.activateAt(event.clientX, event.clientY, event.target);
     });
+
+    /* A double tap does what a double click does on touch screens, where browsers often send no dblclick. */
+    var lastTap = null;
+    stage.addEventListener("pointerup", function (event) {
+      if (event.pointerType !== "touch" || event.button > 0) return;
+      var now = Date.now();
+      if (lastTap && now - lastTap.time < DOUBLE_TAP_MS &&
+          Math.abs(event.clientX - lastTap.x) + Math.abs(event.clientY - lastTap.y) < DOUBLE_TAP_PX) {
+        lastTap = null;
+        editor.activateAt(event.clientX, event.clientY, event.target);
+        return;
+      }
+      lastTap = { time: now, x: event.clientX, y: event.clientY };
+    });
+  };
+
+  /* Opens what is under a double click or tap for editing: a line's, an element's, or on the empty canvas a
+   * new note. A press on an element captured the pointer for the stage, so the browser reports the stage as
+   * the target of the clicks that follow: look at what is really under the pointer instead. */
+  Editor.prototype.activateAt = function (clientX, clientY, fallback) {
+    var now = Date.now();
+    if (now - (this.lastActivated || 0) < 400 || document.querySelector("dialog[open]")) return;
+    var stage = this.stage;
+    var hit = document.elementFromPoint(clientX, clientY) || fallback;
+    if (!hit || !stage.contains(hit)) hit = fallback;
+    if (!hit || !hit.closest) return;
+    var edgeEl = hit.closest(".cv-edge");
+    var nodeEl = hit.closest(".cv-node");
+    if (edgeEl) this.openEdgeDialog(edgeEl.getAttribute("data-edge-id"));
+    else if (nodeEl && !hit.closest("a, iframe")) this.openNodeDialog(nodeEl.dataset.id);
+    else if (!nodeEl && this.scene.isBackground(hit)) this.openNodeDialog(null, "text", this.scene.toWorld(clientX, clientY));
+    else return;
+    this.lastActivated = now;
   };
 
   /* The pointer offset of a move or resize after snapping: to an alignment guide within reach, else to

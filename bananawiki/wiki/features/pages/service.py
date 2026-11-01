@@ -24,23 +24,34 @@ edit directly (they propose contributions, see the governance feature).
 
 from __future__ import annotations
 
+import itertools
 import re
+import sqlite3
+import threading
+import time
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
 from flask import current_app
+from werkzeug.exceptions import ServiceUnavailable
 
 from ....core.timeutil import now_sql
 from ... import auth, settings
 from ...db import db
+from ...i18n import t
 from ...registry import emit
 
 MAX_TITLE = 200
 MAX_CONTENT = 1_000_000
 MAX_EDIT_MESSAGE = 500
 REWRITE_ATTEMPTS = 3  # reads of a page whose links or mentions change while others save it
+# Characters of linking pages one change of address saves as new history versions. The pages
+# past it get the new links without a version of their own: a rename cannot copy every page
+# that links to it into the history.
+MAX_REWRITE_HISTORY_CHARS = 4_000_000
 PAGE_COLUMNS = (
     "id, title, slug, category_id, is_home, sort_order, is_deindexed, pending_deletion, "
     "pending_deletion_by, pending_deletion_at, protected_by, protected_at, difficulty_tag, "
@@ -450,9 +461,14 @@ def move(page: dict[str, Any], category_id: int | None, *, actor_id: str | None)
 def change_slug(page: dict[str, Any], new_slug: str, *, actor_id: str | None = None) -> dict[str, Any]:
     """Give *page* a new address and rewrite ``/page/<old>`` links in other pages and drafts.
 
-    Each rewritten page gets a history entry attributed to *actor_id*. A page
-    that cannot take the new links keeps the old ones (it is logged); the
-    rename stands and ``page.renamed`` is emitted all the same.
+    Each rewritten page gets a history entry attributed to *actor_id*, until
+    those entries reach :data:`MAX_REWRITE_HISTORY_CHARS`; later pages are
+    rewritten without one. Only pages the actor may edit right now are
+    rewritten (with their drafts): a page they cannot read or write, or that
+    is protected, checked out or pending deletion, keeps the old links, as
+    does a page that cannot take the new ones (it is logged). The rename
+    stands and ``page.renamed`` is emitted all the same. Without *actor_id*
+    (the system) every page is rewritten.
     """
     slug = slugify(new_slug)
     if slug in RESERVED_SLUGS:
@@ -476,6 +492,26 @@ def _like_pattern(text: str) -> str:
     return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
+def _actor(user_id: str | None) -> dict[str, Any] | None:
+    """The account behind *user_id* (the signed-in one without a query); None for the system."""
+    if not user_id:
+        return None
+    current = auth.current_user()
+    if current is not None and current["id"] == user_id:
+        return current
+    return db.one("SELECT * FROM users WHERE id = ?", (str(user_id),))
+
+
+def _may_rewrite(page_id: int, actor: dict[str, Any] | None) -> bool:
+    """Whether a rename by *actor* may change the links in page *page_id* (always for the system)."""
+    if actor is None:
+        return True
+    from .access import edit_blocked  # access imports this module
+
+    page = get(page_id, with_content=False)
+    return page is not None and can_edit(page, actor) and not edit_blocked(page, actor)
+
+
 def _rewrite_links(old_slug: str, new_slug: str, *, exclude_page_id: int, actor_id: str | None) -> None:
     old_link, new_link = f"/page/{old_slug}", f"/page/{new_slug}"
     # "/page/notes" must not match "/page/notes-archive".
@@ -485,21 +521,45 @@ def _rewrite_links(old_slug: str, new_slug: str, *, exclude_page_id: int, actor_
         return pattern.sub(new_link, text)
 
     like = _like_pattern(old_link)
+    actor = _actor(actor_id)
+    history_left = MAX_REWRITE_HISTORY_CHARS
     # A builder page's Markdown twin shows every link of its document, so the content finds those too.
-    for row in db.all("SELECT id FROM pages WHERE id != ? AND content LIKE ? ESCAPE '\\'", (exclude_page_id, like)):
+    for row in db.all("SELECT id, length(content) + length(builder_json) AS size FROM pages "
+                      "WHERE id != ? AND content LIKE ? ESCAPE '\\' ORDER BY id", (exclude_page_id, like)):
+        if not _may_rewrite(row["id"], actor):
+            # Someone who may not edit that page does not change it, nor appear in its history.
+            current_app.logger.info("Links to /page/%s left in page %s: not editable by the renamer",
+                                    old_slug, row["id"])
+            continue
+        record = row["size"] <= history_left
+        if record:
+            history_left -= row["size"]
         try:
             _rewrite_page(row["id"], change, author_id=actor_id, edit_message=f"Updated links to /page/{new_slug}",
-                          renamed=(old_slug, new_slug))
+                          renamed=(old_slug, new_slug), record_history=record)
         except PageError as error:
             current_app.logger.warning("Links to /page/%s left in page %s: %s", old_slug, row["id"], error)
-    for draft in db.all("SELECT id, content FROM drafts WHERE content LIKE ? ESCAPE '\\'", (like,)):
-        rewritten = change(draft["content"])
-        if rewritten != draft["content"]:
-            db.execute("UPDATE drafts SET content = ? WHERE id = ?", (rewritten, draft["id"]))
+    for draft in db.all("SELECT id, page_id FROM drafts WHERE content LIKE ? ESCAPE '\\' ORDER BY id", (like,)):
+        if _may_rewrite(draft["page_id"], actor):
+            _rewrite_draft(draft["id"], change)
+
+
+def _rewrite_draft(draft_id: int, change: Callable[[str], str]) -> None:
+    """Apply *change* to the text of draft *draft_id*.
+
+    Drafts are read one at a time: the matching drafts of every account
+    together can hold far more text than a worker should keep at once.
+    """
+    content = db.scalar("SELECT content FROM drafts WHERE id = ?", (draft_id,))
+    if content is None:
+        return
+    rewritten = change(content)
+    if rewritten != content:
+        db.execute("UPDATE drafts SET content = ? WHERE id = ?", (rewritten, draft_id))
 
 
 def _rewrite_page(page_id: int, change: Callable[[str], str], *, author_id: str | None, edit_message: str,
-                  renamed: tuple[str, str] | None = None) -> bool:
+                  renamed: tuple[str, str] | None = None, record_history: bool = True) -> bool:
     """Save page *page_id* with *change* applied to its text; whether it changed.
 
     A builder page whose body comes from its document gets the change in the
@@ -517,7 +577,7 @@ def _rewrite_page(page_id: int, change: Callable[[str], str], *, author_id: str 
             return False
         try:
             update(page, author_id=author_id, edit_message=edit_message, expected_revision=page["revision"],
-                   **values)
+                   record_history=record_history, **values)
         except EditConflict:
             if attempt == REWRITE_ATTEMPTS:
                 raise
@@ -570,13 +630,31 @@ def delete(page: dict[str, Any], *, actor_id: str | None) -> None:
     emit("page.deleted", page=page, actor_id=actor_id)
 
 
+def may_publish_public(user: dict[str, Any]) -> bool:
+    """Only administrators may expose a builder page to public-mode visitors, if the host allows it."""
+    return auth.is_admin(user) and not current_app.config["BW"].forbid_public_builder_pages
+
+
 def revert(page: dict[str, Any], history_id: int, *, author_id: str | None) -> dict[str, Any]:
+    """Save history entry *history_id* again as the page's newest version, on behalf of *author_id*.
+
+    The title comes back only for someone who may change it
+    (``page.edit_metadata``); otherwise the page keeps its current title. As
+    when publishing in the page builder, a builder page stays public only when
+    an administrator restores a public version: a revert by anyone else needs
+    a fresh approval.
+    """
     entry = db.one("SELECT * FROM page_history WHERE id = ? AND page_id = ?", (history_id, page["id"]))
     if entry is None:
         raise PageError("wiki.error.revision_missing")
+    from .access import can_edit_metadata  # access imports this module
+
+    actor = _actor(author_id)
     return update(
-        page, author_id=author_id, title=entry["title"], content=entry["content"],
-        builder_json=entry.get("builder_json") or "", builder_public=bool(entry.get("builder_public")),
+        page, author_id=author_id, title=entry["title"] if actor is None or can_edit_metadata(page, actor) else None,
+        content=entry["content"],
+        builder_json=entry.get("builder_json") or "",
+        builder_public=bool(entry.get("builder_public")) and (actor is None or may_publish_public(actor)),
         edit_message=f"Reverted to revision {history_id}", is_revert=True,
     )
 
@@ -650,16 +728,35 @@ def rewrite_mentions(old_username: str, replacement: str) -> int:
                 changed += 1
         except PageError as error:
             current_app.logger.warning("Mention of @%s left in page %s: %s", old_username, row["id"], error)
-    for draft in db.all("SELECT id, content FROM drafts WHERE content LIKE ? ESCAPE '\\'", (like,)):
-        new_content = change(draft["content"])
-        if new_content != draft["content"]:
-            db.execute("UPDATE drafts SET content = ? WHERE id = ?", (new_content, draft["id"]))
+    for draft_id in db.column("SELECT id FROM drafts WHERE content LIKE ? ESCAPE '\\' ORDER BY id", (like,)):
+        _rewrite_draft(draft_id, change)
     return changed
 
 
 # Search
 
-_FTS_TOKEN = re.compile(r"\w+", re.UNICODE)
+# The tokenizer of ``pages_fts`` (migrations/v4_takeover.py). Search words are split by SQLite itself, not a
+# regular expression: unicode61 knows Unicode 6.1, so some characters Python counts as letters are separators to it.
+FTS_TOKENIZE = "unicode61 remove_diacritics 2"
+_tokenizer_lock = threading.Lock()
+_tokenizer: sqlite3.Connection | None = None
+
+
+def fts_words(text: str) -> list[str]:
+    """The words of *text* exactly as the full-text index sees them (case and diacritics folded)."""
+    global _tokenizer
+    with _tokenizer_lock:
+        if _tokenizer is None:
+            conn = sqlite3.connect(":memory:", isolation_level=None, check_same_thread=False)
+            conn.execute(f"CREATE VIRTUAL TABLE words USING fts5(text, tokenize='{FTS_TOKENIZE}')")
+            conn.execute("CREATE VIRTUAL TABLE words_vocab USING fts5vocab(words, 'instance')")
+            _tokenizer = conn
+        _tokenizer.execute("BEGIN")
+        try:
+            _tokenizer.execute("INSERT INTO words (rowid, text) VALUES (1, ?)", (text,))
+            return [row[0] for row in _tokenizer.execute("SELECT term FROM words_vocab ORDER BY offset")]
+        finally:
+            _tokenizer.execute("ROLLBACK")
 
 
 def fts_available() -> bool:
@@ -671,6 +768,111 @@ def fts_available() -> bool:
     return cache
 
 
+# Shorter words are matched whole: as a prefix, one or two letters stand for nearly every word in the index.
+MIN_PREFIX = 3
+
+
+def fts_phrase(words: list[str]) -> str:
+    """An FTS5 phrase for *words*, the last one also matching longer words when it has MIN_PREFIX characters.
+
+    The words are split again by the index's own tokenizer, so padding (``a__``, or letters newer than the
+    tokenizer's Unicode 6.1 such as ``a`` + U+19B0 U+19B0) cannot make a short word long.
+    """
+    words = fts_words(" ".join(words))
+    return '"' + " ".join(words) + '"' + ("*" if words and len(words[-1]) >= MIN_PREFIX else "")
+
+
+# A backstop: a search statement still running after this long is stopped (SQLite cannot be stopped otherwise).
+SEARCH_SECONDS = 5.0
+_PROGRESS_STEPS = 10_000  # SQLite virtual machine steps between two looks at the clock
+# One page's LIKE is a single step, costing up to the pattern's length times the page's: look after each page.
+_LIKE_PROGRESS_STEPS = 10
+# Without the index a query is one substring to find; only its start is matched, bounding each page's LIKE.
+LIKE_CHARS = 32
+
+
+class SearchTooSlow(ServiceUnavailable):
+    """A search stopped after SEARCH_SECONDS; answered as 503 with its own message."""
+
+    def __init__(self) -> None:
+        super().__init__(t("pages.search.too_slow"))
+
+
+@contextmanager
+def time_limit(steps: int | None = None) -> Iterator[None]:
+    """Interrupt the statements run inside on the current connection after SEARCH_SECONDS (SearchTooSlow).
+
+    The clock is read every *steps* virtual machine steps (default _PROGRESS_STEPS); a statement is never
+    stopped within one step.
+    """
+    conn = db.session.conn
+    deadline = time.monotonic() + SEARCH_SECONDS
+    conn.set_progress_handler(lambda: time.monotonic() > deadline, steps or _PROGRESS_STEPS)
+    try:
+        yield
+    except sqlite3.OperationalError as error:
+        # "interrupted", or another message when it stopped SQLite opening the index ("vtable constructor failed")
+        if time.monotonic() > deadline:
+            raise SearchTooSlow() from error
+        raise
+    finally:
+        conn.set_progress_handler(None, 0)
+
+
+# Excerpts are made from the start of each page shown, not by FTS5's snippet(), whose cost grows with the square
+# of the query's matches in the page (thousands of copies of one word took tens of seconds for one page).
+EXCERPT_SCAN = 20_000
+# A word of an excerpt; a longer run of characters without a space is cut into pieces that count as words.
+_WORD = re.compile(r"\S{1,30}")
+
+
+def excerpts(phrases: list[str], ids: list[int], tokens: int) -> dict[int, str]:
+    """Excerpts of about *tokens* words of the pages *ids*, around the first match of *phrases* (FTS5 phrases).
+
+    Only the first EXCERPT_SCAN characters of a page are searched. Matches are marked by FTS5's highlight()
+    on that slice in a private in-memory index, so words match exactly as in search, and the work grows with
+    the slice, not with the page or the number of matches. A page without a match there gets its first words.
+    """
+    if not ids:
+        return {}
+    marks = ",".join("?" for _ in ids)
+    texts = {row["id"]: (row["text"] or "").replace("\x02", "").replace("\x03", "") for row in db.all(
+        f"SELECT id, substr(content, 1, {EXCERPT_SCAN}) AS text FROM pages WHERE id IN ({marks})", ids)}
+    marked: dict[int, str] = {}
+    if phrases and texts:
+        conn = sqlite3.connect(":memory:", isolation_level=None)
+        try:
+            conn.execute(f"CREATE VIRTUAL TABLE excerpt USING fts5(text, tokenize='{FTS_TOKENIZE}')")
+            conn.executemany("INSERT INTO excerpt (rowid, text) VALUES (?, ?)", texts.items())
+            marked = dict(conn.execute(
+                "SELECT rowid, highlight(excerpt, 0, char(2), char(3)) FROM excerpt WHERE excerpt MATCH ?",
+                (" OR ".join(dict.fromkeys(phrases)),)))
+        finally:
+            conn.close()
+    return {page_id: _excerpt(marked.get(page_id, text), tokens, more=len(text) >= EXCERPT_SCAN)
+            for page_id, text in texts.items()}
+
+
+def _excerpt(text: str, tokens: int, *, more: bool) -> str:
+    """About *tokens* words of *text* from just before its first \\x02 mark, with "…" where it is cut.
+
+    Spaces between the words become one space, or one line break where there was one (Markdown lists and
+    headings are recognised by the line start).
+    """
+    words = list(_WORD.finditer(text))
+    if not words:
+        return ""
+    first = next((index for index, word in enumerate(words) if "\x02" in word.group()), 0)
+    start = max(0, min(first - 2, len(words) - tokens))
+    end = min(len(words), start + tokens)
+    parts = [words[start].group()]
+    for before, word in itertools.pairwise(words[start:end]):
+        gap = text[before.end():word.start()]
+        parts.append(("\n" if "\n" in gap else " ") if gap else "")
+        parts.append(word.group())
+    return ("… " if start else "") + "".join(parts) + (" …" if end < len(words) or more else "")
+
+
 def search(query: str, *, user: dict[str, Any] | None = None, limit: int = 20, offset: int = 0,
            titles_only: bool = False) -> list[dict[str, Any]]:
     """Full-text search over the pages *user* may see, best matches first."""
@@ -678,23 +880,32 @@ def search(query: str, *, user: dict[str, Any] | None = None, limit: int = 20, o
     if not query:
         return []
     where, params = visible_filter(user)
-    tokens = _FTS_TOKEN.findall(query)
-    if fts_available() and tokens:
+    # A repeated word adds nothing to the result but would cost one more pass over the index.
+    tokens = list(dict.fromkeys(fts_words(query)))[:12] if fts_available() else []
+    if tokens:
         columns = "{title}" if titles_only else "{title content}"
-        match = " AND ".join(f'{columns} : "{token}"*' for token in tokens[:12])
-        return db.all(
-            f"SELECT p.id, p.title, p.slug, p.category_id, p.last_edited_at, "
-            f"snippet(pages_fts, 1, '\x02', '\x03', ' … ', 14) AS snippet, bm25(pages_fts, 8.0, 1.0) AS score "
-            f"FROM pages_fts JOIN pages p ON p.id = pages_fts.rowid "
-            f"WHERE pages_fts MATCH ? AND {where} ORDER BY score LIMIT ? OFFSET ?",
-            [match, *params, limit, offset],
-        )
-    like = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        phrases = [fts_phrase([token]) for token in tokens]
+        match = " AND ".join(f"{columns} : {phrase}" for phrase in phrases)
+        with time_limit():
+            rows = db.all(
+                f"SELECT p.id, p.title, p.slug, p.category_id, p.last_edited_at, bm25(pages_fts, 8.0, 1.0) AS score "
+                f"FROM pages_fts JOIN pages p ON p.id = pages_fts.rowid "
+                f"WHERE pages_fts MATCH ? AND {where} ORDER BY score LIMIT ? OFFSET ?",
+                [match, *params, limit, offset],
+            )
+        snippets = excerpts([] if titles_only else phrases, [row["id"] for row in rows], 14)
+        return [{**{key: value for key, value in row.items() if key != "score"},
+                 "snippet": snippets.get(row["id"], ""), "score": row["score"]} for row in rows]
+    if fts_available():
+        return []  # only signs and punctuation, which the index does not hold (as on /search)
+    sought = query[:LIKE_CHARS].strip()
+    like = "%" + sought.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
     field = "p.title LIKE ? ESCAPE '\\'" if titles_only else "(p.title LIKE ? ESCAPE '\\' OR p.content LIKE ? ESCAPE '\\')"
     like_params = [like] if titles_only else [like, like]
-    return db.all(
-        f"SELECT p.id, p.title, p.slug, p.category_id, p.last_edited_at, substr(p.content, 1, 240) AS snippet, "
-        f"0 AS score FROM pages p WHERE {field} AND {where} "
-        f"ORDER BY CASE WHEN p.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, p.title COLLATE NOCASE LIMIT ? OFFSET ?",
-        [*like_params, *params, like, limit, offset],
-    )
+    with time_limit(_LIKE_PROGRESS_STEPS):
+        return db.all(
+            f"SELECT p.id, p.title, p.slug, p.category_id, p.last_edited_at, substr(p.content, 1, 240) AS snippet, "
+            f"0 AS score FROM pages p WHERE {field} AND {where} "
+            f"ORDER BY CASE WHEN p.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, p.title COLLATE NOCASE LIMIT ? OFFSET ?",
+            [*like_params, *params, like, limit, offset],
+        )

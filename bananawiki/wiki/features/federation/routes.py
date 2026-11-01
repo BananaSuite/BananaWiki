@@ -88,7 +88,11 @@ def disconnect(remote_id: str):
 @bp.post("/admin/federation/<remote_id>/sync")
 @auth.admin_required
 def sync_now(remote_id: str):
-    if sync.sync_peer(remote_id, force=True):
+    row = store.peer(remote_id)
+    stored = sync.sync_peer(remote_id, force=True)
+    if row is not None:
+        store.audit_sync(row, stored)
+    if stored:
         auth.flash_t("federation.flash.synced", "success")
     else:
         auth.flash_t("federation.flash.not_synced", "info")

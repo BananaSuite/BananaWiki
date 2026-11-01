@@ -5,14 +5,19 @@ is suspended, deleted, scheduled for deletion or merged away, or that signs
 out of a wiki from its account page, would otherwise stay signed in to every
 wiki it reached through platform sign-in. Each of those queues one row per
 wiki the account is known to (a link to a wiki account, a remembered consent
-or a live access token) in ``hosting_oauth_signouts``.
+or a live access token) in ``hosting_oauth_signouts``. A repeated event
+replaces the identical older one, so the queue holds at most one event per
+wiki, account, wiki account and reason, however often an account signs out.
 
 Wikis fetch their rows with their client credentials
 (``GET /oauth/signouts?after=<id>``, see :mod:`.routes.oauth`) every minute
 and end the sessions that the linked wiki account started through platform
 sign-in *before* the row was written. Fetching a row twice, or every row
 again after the portal was restored from a backup, therefore never ends a
-session that started later. Nothing is pushed to the wikis: the portal never
+session that started later. For ``owner_changed`` (the account no longer owns
+the wiki) the wiki also drops its own link to the wiki account when that link
+is no newer than the row, as the portal drops its copy: a former owner who
+had connected the wiki's administrator account must not keep signing in as it. Nothing is pushed to the wikis: the portal never
 opens connections to tenant containers.
 """
 
@@ -27,6 +32,7 @@ RETENTION_DAYS = 30
 PAGE_SIZE = 200
 REASONS = frozenset({
     "signed_out", "access_removed", "password_changed", "suspended", "deleted", "deletion_scheduled", "merged",
+    "owner_changed",
 })
 
 
@@ -55,10 +61,16 @@ def queue(account_id: str, reason: str, *, instance_id: str | None = None) -> in
         return 0
     now = now_sql()
     rows = _wikis_of(account_id, instance_id)
-    for row in rows:
-        db.insert("hosting_oauth_signouts", {"instance_id": row["instance_id"], "account_id": account_id,
-                                             "wiki_user_id": str(row["wiki_user_id"])[:128], "reason": reason,
-                                             "created_at": now})
+    with db.transaction():
+        for row in rows:
+            wiki_user_id = str(row["wiki_user_id"])[:128]
+            # A newer event reaches every session and link an identical older one does, so repeated
+            # sign-outs replace it: an account keeps at most one event per wiki, wiki account and reason.
+            # Ids are AUTOINCREMENT, so the new event's id is always beyond the wiki's cursor.
+            db.execute("DELETE FROM hosting_oauth_signouts WHERE instance_id = ? AND account_id = ? "
+                       "AND wiki_user_id = ? AND reason = ?", (row["instance_id"], account_id, wiki_user_id, reason))
+            db.insert("hosting_oauth_signouts", {"instance_id": row["instance_id"], "account_id": account_id,
+                                                 "wiki_user_id": wiki_user_id, "reason": reason, "created_at": now})
     return len(rows)
 
 

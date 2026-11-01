@@ -38,7 +38,8 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
 
-from . import tenant_quotas
+from ..core.logformat import TextFormatter
+from . import firewall, tenant_quotas
 from .caddy_blocks import HSTS, addresses, https_policy, parse_version, proxy, supports_client_ip
 from .files import read_environment, read_json
 from .project_quota import ProjectQuota, QuotaError, check_storage
@@ -49,7 +50,7 @@ TENANT = re.compile(r"[a-z0-9][a-z0-9-]{0,62}(?:__apex)?")
 ENV_KEY = re.compile(r"BW_[A-Z0-9_]{1,100}")
 FORBIDDEN_ENV = frozenset({"BW_SECRET_KEY", "BW_SETUP_TOKEN"})
 FORCED_ENV = {
-    "BW_HOST": "0.0.0.0",  # noqa: S104 - inside the container's own network namespace
+    "BW_HOST": "0.0.0.0",  # noqa: S104  # nosec B104 - inside the container's network namespace
     "BW_PROXY_MODE": "1", "BW_MANAGED_HOSTING": "1", "BW_PLUGIN_ISOLATION": "container", "BW_ENV": "production",
     "BW_INSTANCE_DIR": "/data", "BW_DATABASE_PATH": "/data/bananawiki.db",
     "BW_MAINTENANCE_FILE": "/data/.banana-maintenance", "BW_EXTERNAL_PLUGINS_DIR": "/data/external_plugins",
@@ -676,8 +677,12 @@ class TenantRuntime:
         except AgentError as error:
             storage = {"setting": str(self.config.get("tenant_quotas")), "hard_quotas": False, "refused": True,
                        "reason": error.message}
-        return {"protocol": PROTOCOL, "docker": available.returncode == 0, "image": self.config["image"],
-                "storage": storage}
+        answer = {"protocol": PROTOCOL, "docker": available.returncode == 0, "image": self.config["image"],
+                  "storage": storage}
+        if self.config.get("firewall_record"):
+            # Checked by the root controller, which shares the host's network (this agent does not).
+            answer["firewall"] = firewall.recorded(Path(self.config["firewall_record"]))
+        return answer
 
     def image_status(self, args: dict[str, Any]) -> dict[str, Any]:
         present = self.docker("image", "inspect", self.config["image"], timeout=20, check=False).returncode == 0
@@ -842,7 +847,7 @@ class TenantRuntime:
             "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
             "--security-opt", "seccomp=" + str(seccomp_profile()),
             *(flag for key, value in IPV6_SYSCTLS.items() for flag in ("--sysctl", f"{key}={value}")),
-            "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=128m,mode=1777",  # noqa: S108 - container tmpfs
+            "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=128m,mode=1777",  # noqa: S108  # nosec B108 - container tmpfs
             "--tmpfs", "/run:rw,nosuid,nodev,size=16m,mode=1777",
             "--user", self._user(data_dir), "--mount", f"type=bind,src={mount_source or data_dir},dst=/data",
             "--env-file", str(env_file),
@@ -1366,6 +1371,7 @@ def load_config(root: Path) -> dict[str, Any]:
         "service": service, "service_uid": entry.pw_uid, "service_gid": entry.pw_gid,
         "instances_dir": environment.get("INSTANCES_DIR", str(root / "data/instances")),
         "routes_dir": routes_dir(service),
+        "firewall_record": str(root / "config" / firewall.RECORD_NAME),
         "tenant_quotas": quota_mode,
         "quota": {
             "state_dir": f"/var/lib/{service}-quotas",
@@ -1463,7 +1469,7 @@ class AgentServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         self._requests = threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
         path.unlink(missing_ok=True)
         super().__init__(str(path), _Handler)
-        os.chmod(path, 0o660)
+        os.chmod(path, 0o660)  # nosec B103 - the agent checks each caller's credentials
 
     def process_request(self, request: socket.socket, client_address: Any) -> None:
         if not self._requests.acquire(blocking=False):
@@ -1540,7 +1546,9 @@ def log_storage_policy(runtime: TenantRuntime) -> None:
 
 
 def serve(root: Path, socket_path: Path) -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    handler = logging.StreamHandler()
+    handler.setFormatter(TextFormatter("%(levelname)s %(name)s: %(message)s"))
+    logging.basicConfig(level=logging.INFO, handlers=[handler])
     server = AgentServer(socket_path, root)
     signal.signal(signal.SIGTERM, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
     log.info("Runtime agent listening on %s", socket_path)

@@ -27,6 +27,9 @@ from ... import markdown
 WORK_BUDGET = 1_000_000
 # What setting up one comparison costs beyond its items, in the same steps (measured).
 MATCHER_STEPS = 64
+# Larger renderings get no rendered diff: splitting, splicing and sanitising them is not
+# bounded by the budget (about half a second of CPU at this size).
+RENDERED_DIFF_CHARS = 1_000_000
 _WORDS = re.compile(r"(\s+)")
 _TAGS = re.compile(r"(<[^<>]+>)")
 
@@ -297,13 +300,15 @@ def _html_chunks(html: str) -> list[str]:
     return [piece for piece in _TAGS.split(html) if piece]
 
 
-def rendered_diff(old_html: str, new_html: str) -> Diff:
-    """Rendered HTML of the new version with changed text marked.
+def rendered_diff(old_html: str, new_html: str) -> Diff | None:
+    """Rendered HTML of the new version with changed text marked (None: too large, see RENDERED_DIFF_CHARS).
 
     Structure comes from the new version; deleted text from the old one is
     shown struck through. The result is sanitised again, because splicing
     fragments of two documents could otherwise produce unexpected markup.
     """
+    if max(len(old_html or ""), len(new_html or "")) > RENDERED_DIFF_CHARS:
+        return None
     runs, complete = _runs(_html_lines(old_html or ""), _html_lines(new_html or ""), _html_tokens, _html_chunks)
     parts: list[str] = []
     for op, old_tokens, new_tokens in runs:

@@ -29,8 +29,8 @@ from typing import Any
 
 from flask import request
 
-from .... import storage
-from ...kanban import access, extras, filters, service, store
+from .... import auth, storage
+from ...kanban import access, extras, filters, guard, service, store
 from ...kanban.fields import (
     MAX_BOARD_TITLE,
     MAX_CHECKLIST_TEXT,
@@ -149,8 +149,7 @@ def list_boards():
     archived = request.args.get("archived", "0")
     if archived not in ("0", "1", "true", "false"):
         raise invalid("archived", "boolean")
-    boards = service.ordered_boards(caller(), archived=archived in ("1", "true"))
-    window = boards[offset:offset + limit + 1]
+    window = service.ordered_boards(caller(), archived=archived in ("1", "true"), limit=limit + 1, offset=offset)
     return ok(boards=[_board_payload(board) for board in window[:limit]], **window_fields(limit, offset, len(window)))
 
 
@@ -160,6 +159,11 @@ def create_board():
     user = caller()
     if not access.can_create(user):
         raise ApiError(403, "cannot_create_board")
+    # The browser's per-account budget (``guard.CREATES_PER_MINUTE``), shared with it.
+    if not guard.within_limit("create", guard.CREATES_PER_MINUTE, user["id"]):
+        response, status = ApiError(429, "rate_limited").response()
+        response.headers["Retry-After"] = "60"
+        return response, status
     data = json_body()
     description = data.get("description", "")
     if not isinstance(description, str):
@@ -501,12 +505,12 @@ def _content(data: dict[str, Any]) -> str:
     return value
 
 
-def _own_comment(comment_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
+def _own_comment(comment_id: int, *, edit: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
     comment = extras.get_comment(comment_id)
     if comment is None:
         raise ApiError(404, "comment_not_found")
     _board_row, ticket = _ticket(comment["ticket_id"], "comment")
-    if not access.can_moderate_comment(caller(), comment):
+    if not (access.can_edit_comment(caller(), comment) if edit else access.can_moderate_comment(caller(), comment)):
         raise ApiError(403, "comment_forbidden")
     return ticket, comment
 
@@ -529,7 +533,7 @@ def add_comment(ticket_id: int):
 @bp.put("/kanban/comments/<int:comment_id>")
 @requires("kanban", write=True, feature=FEATURE)
 def edit_comment(comment_id: int):
-    _ticket_row, comment = _own_comment(comment_id)
+    _ticket_row, comment = _own_comment(comment_id, edit=True)
     _run(extras.edit_comment, comment, _content(json_body()))
     return ok(comment=serialize.comment(extras.get_comment(comment_id)))
 
@@ -562,6 +566,7 @@ def list_ticket_attachments(ticket_id: int):
 
 @bp.post("/kanban/tickets/<int:ticket_id>/attachments")
 @requires("kanban", write=True, feature=FEATURE)
+@auth.large_body
 def upload_ticket_attachment(ticket_id: int):
     """``multipart/form-data`` with the file in the ``file`` field."""
     _board_row, ticket = _ticket(ticket_id, "write")

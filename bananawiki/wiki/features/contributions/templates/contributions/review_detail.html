@@ -21,11 +21,13 @@
     <p>{{ contribution.reason }}</p>
     {% if contribution.title != page.title %}
     <p>{{ t('contributions.title_change') }} <del>{{ page.title }}</del> → <ins>{{ contribution.title }}</ins></p>
+    {% if not can_rename %}<p class="hint">{{ t('contributions.title_change_not_applied') }}</p>{% endif %}
     {% endif %}
   </section>
   <section class="card">
     <h2>{{ t('contributions.changes') }}</h2>
-    {% if diff %}
+    {% if text_dropped %}<p class="muted">{{ t('contributions.no_text_withdrawn') }}</p>
+    {% elif diff %}
     {#- The container keeps line breaks (pre-wrap): the rows must not leave newlines between them. #}
     <div class="diff" role="group" aria-label="{{ t('contributions.changes') }}">
       {%- for row in diff %}

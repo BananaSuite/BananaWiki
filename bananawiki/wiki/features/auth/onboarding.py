@@ -11,6 +11,7 @@ from ....core.timeutil import now_sql
 from ... import accounts, bm, i18n, migrations, settings
 from ...db import db
 from ...registry import Feature, emit, is_enabled, registry, set_enabled, switch_refusal
+from ..audit.service import record_settings
 from . import docs
 
 MAX_SITE_NAME = 100
@@ -101,12 +102,16 @@ def apply(choices: Choices, admin: dict[str, Any]) -> list[dict[str, Any]]:
     ]
     created = []
     with db.transaction():
-        settings.update({
+        values = {
             "site_name": choices.site_name,
             "interface_language": choices.language,
             "default_theme_mode": choices.theme,
             "new_user_intro_enabled": 1 if choices.new_user_intro else 0,
-        })
+        }
+        previous = settings.load()
+        settings.update(values)
+        # Before the feature switches below, which may turn the audit log off.
+        record_settings(previous, values, via="onboarding")
         for row in prepared:
             created.append(accounts.create(
                 row["username"], None, role=row["role"], password_hash=row["password_hash"],

@@ -151,6 +151,7 @@
   "site_admin.locked.two_step_yours_first": "Schalte zuerst für dein eigenes Konto die Bestätigung in zwei Schritten ein (Einstellungen → Bestätigung in zwei Schritten).",
   "site_admin.log.empty": "Nichts anzuzeigen.",
   "site_admin.log.empty_errors": "Im neueren Teil des Protokolls gibt es keine Fehler.",
+  "site_admin.log.addresses_hidden": "Auch Netzwerkadressen sind ausgeblendet: nur Eigentümer und Superuser sehen sie.",
   "site_admin.log.intro": "Das Ende des Serverprotokolls. Passwörter, Tokens und Schlüssel sind ausgeblendet.",
   "site_admin.log.intro_errors": "Die Fehler am Ende des Serverprotokolls. Passwörter, Tokens und Schlüssel sind ausgeblendet.",
   "site_admin.log.missing": "Es wird keine Protokolldatei geschrieben. Setze BW_LOG_FILE oder prüfe BW_LOGGING_LEVEL.",

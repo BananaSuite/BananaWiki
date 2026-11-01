@@ -24,15 +24,20 @@ from __future__ import annotations
 import http.client
 import logging
 import os
+import re
 import secrets
+import socket
 import threading
 import time
-from collections.abc import Iterable, Iterator
+import weakref
+from collections.abc import Callable, Iterable, Iterator
+from http import HTTPStatus
 from typing import Any
 from urllib.parse import quote
 
 from flask import Flask, render_template
 
+from ..core import web
 from ..core.timeutil import is_past, now_sql
 from .runtime import RuntimeFailure
 
@@ -51,6 +56,19 @@ CHUNK = 64 * 1024
 # the others to the remaining wikis.
 PER_WIKI = 3
 QUEUE_SECONDS = 10
+# Requests that may wait for a proxy slot at once, per process and per wiki. The
+# portal's Gunicorn settings run a thread for each waiting place on top of
+# HOSTING_THREADS, so waiting requests never take the threads the portal's own
+# pages use, and one that finds no waiting place is answered "busy" at once.
+# Proxied requests do run on HOSTING_THREADS: all but one of them at most
+# (_Slots), and for one wiki one fewer still, up to PER_WIKI (2 by default).
+WAITING_PLACES = 4
+WAITING_PER_WIKI = 3
+# Wiki-host requests per client network and minute, per process. Twice the
+# wikis' own limit, which does not count their static files.
+RATE_LIMIT = 600
+# How often a portal worker checks whether Gunicorn is retiring it (max_requests, a restart): see watch().
+DRAIN_CHECK_SECONDS = 0.25
 MAX_BUFFERED_BODY = 16 * 1024 * 1024
 HOP_BY_HOP = frozenset({
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "proxy-connection", "te",
@@ -75,8 +93,9 @@ def _is_address(host: str) -> bool:
 
 
 def _thread_count() -> int:
+    """HOSTING_THREADS as hosting/gunicorn.conf.py reads it (1 to 32)."""
     try:
-        return max(1, min(64, int(os.environ.get("HOSTING_THREADS") or 4)))
+        return max(1, min(32, int(os.environ.get("HOSTING_THREADS") or 4)))
     except ValueError:
         return 4
 
@@ -84,17 +103,57 @@ def _thread_count() -> int:
 class _Slot:
     """One proxied request: a place for its wiki and one in the process-wide pool."""
 
-    def __init__(self, wiki: threading.BoundedSemaphore, pool: threading.BoundedSemaphore):
+    def __init__(self, wiki: threading.BoundedSemaphore, waiting_here: threading.BoundedSemaphore,
+                 pool: threading.BoundedSemaphore, waiting: threading.BoundedSemaphore, draining: threading.Event):
         self._wiki = wiki
+        self._waiting_here = waiting_here
         self._pool = pool
+        self._waiting = waiting
+        self._draining = draining
 
     def acquire(self, timeout: float) -> bool:
-        if not self._wiki.acquire(timeout=timeout):
+        """Take the slot, waiting up to *timeout* only in a waiting place of its wiki and of the process.
+
+        Never while the process drains (:meth:`_Slots.drain`), and a wait in progress ends then.
+        """
+        if self._draining.is_set():
             return False
-        if not self._pool.acquire(timeout=timeout):
-            self._wiki.release()
+        if self._take():
+            return True
+        if not self._waiting_here.acquire(blocking=False):
             return False
-        return True
+        try:
+            if not self._waiting.acquire(blocking=False):
+                return False
+            try:
+                deadline = time.monotonic() + timeout
+                if not self._wait(self._wiki, deadline):
+                    return False
+                if not self._wait(self._pool, deadline):
+                    self._wiki.release()
+                    return False
+                return True
+            finally:
+                self._waiting.release()
+        finally:
+            self._waiting_here.release()
+
+    def _wait(self, semaphore: threading.BoundedSemaphore, deadline: float) -> bool:
+        while not self._draining.is_set():
+            remaining = deadline - time.monotonic()
+            if semaphore.acquire(timeout=max(0.0, min(DRAIN_CHECK_SECONDS, remaining))):
+                return True
+            if remaining <= 0:
+                return False
+        return False
+
+    def _take(self) -> bool:
+        if not self._wiki.acquire(blocking=False):
+            return False
+        if self._pool.acquire(blocking=False):
+            return True
+        self._wiki.release()
+        return False
 
     def release(self) -> None:
         self._pool.release()
@@ -102,35 +161,100 @@ class _Slot:
 
 
 class _Slots:
-    """Bounded concurrent proxied requests, per wiki and per portal process."""
+    """Bounded concurrent proxied requests, per wiki and per portal process.
 
-    def __init__(self, total: int | None = None) -> None:
+    Once the process drains (Gunicorn retires the worker), proxied requests
+    are cut off and waiting ones answered at once: Gunicorn stops accepting
+    connections and waits for the requests in progress before it starts a
+    new worker, so a slow wiki would otherwise keep the portal from
+    answering for as long as it likes.
+    """
+
+    def __init__(self, total: int | None = None, waiting: int | None = None) -> None:
         total = total or max(1, _thread_count() - 1)
+        waiting = WAITING_PLACES if waiting is None else waiting
         self._per_wiki = max(1, min(PER_WIKI, total - 1))
+        self._waiting_per_wiki = max(1, min(WAITING_PER_WIKI, waiting - 1))
         self._pool = threading.BoundedSemaphore(total)
+        self._waiting = threading.BoundedSemaphore(max(1, waiting))
         self._lock = threading.Lock()
-        self._slots: dict[str, threading.BoundedSemaphore] = {}
+        self._slots: dict[str, tuple[threading.BoundedSemaphore, threading.BoundedSemaphore]] = {}
+        self.draining = threading.Event()
+        # The sockets themselves: the connection lets go of its socket once a response will close it.
+        self._sockets: weakref.WeakSet[socket.socket] = weakref.WeakSet()
+        _ALL_SLOTS.add(self)
 
     def get(self, name: str) -> _Slot:
         with self._lock:
-            slot = self._slots.get(name)
-            if slot is None:
-                slot = self._slots[name] = threading.BoundedSemaphore(self._per_wiki)
-            return _Slot(slot, self._pool)
+            wiki = self._slots.get(name)
+            if wiki is None:
+                wiki = self._slots[name] = (threading.BoundedSemaphore(self._per_wiki),
+                                            threading.BoundedSemaphore(self._waiting_per_wiki))
+            return _Slot(wiki[0], wiki[1], self._pool, self._waiting, self.draining)
+
+    def connect(self, address: str, port: int) -> http.client.HTTPConnection:
+        """A connection to a wiki, which :meth:`drain` cuts off."""
+        connection = http.client.HTTPConnection(address, port, timeout=CONNECT_TIMEOUT)
+        connection.connect()
+        with self._lock:
+            self._sockets.add(connection.sock)
+        if self.draining.is_set():  # drain() listed the sockets before this one was added
+            connection.close()
+            raise ConnectionAbortedError("the portal worker is shutting down")
+        return connection
+
+    def drain(self) -> None:
+        """Stop proxying: no new slots, waits end, and every connection to a wiki is shut down."""
+        self.draining.set()
+        with self._lock:
+            sockets = list(self._sockets)
+        for sock in sockets:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+
+_ALL_SLOTS: weakref.WeakSet[_Slots] = weakref.WeakSet()
+
+
+def drain() -> None:
+    """Drain the proxy slots of every portal application in this process (see :class:`_Slots`)."""
+    for slots in list(_ALL_SLOTS):
+        slots.drain()
+
+
+def watch(alive: Callable[[], bool]) -> None:
+    """Drain this process once *alive* turns false (hosting/gunicorn.conf.py passes the worker's ``alive``).
+
+    Gunicorn has no hook for a worker that reached ``max_requests`` or got
+    SIGTERM: it only stops its loop, so a thread checks.
+    """
+
+    def run() -> None:
+        while alive():
+            time.sleep(DRAIN_CHECK_SECONDS)
+        drain()
+
+    threading.Thread(target=run, name="wikihosts-drain", daemon=True).start()
 
 
 class _Body:
     """The upstream response body; closing it frees the connection and the slot."""
 
     def __init__(self, response: http.client.HTTPResponse, connection: http.client.HTTPConnection,
-                 slot: _Slot):
+                 slot: _Slot, draining: threading.Event | None = None):
         self._response = response
         self._connection = connection
         self._slot: _Slot | None = slot
+        self._draining = draining or threading.Event()
         self._deadline = time.monotonic() + RESPONSE_SECONDS
 
     def __iter__(self) -> Iterator[bytes]:
         while True:
+            if self._draining.is_set():
+                log.warning("Wiki response cut off: the portal worker is shutting down")
+                return
             remaining = self._deadline - time.monotonic()
             if remaining <= 0:
                 log.warning("Wiki response cut off after %d seconds", RESPONSE_SECONDS)
@@ -170,7 +294,8 @@ class WikiHosts:
                 or host in (cfg.base_domain, cfg.effective_portal_domain) or "." not in host):
             return self.wsgi_app(environ, start_response)
         with self.app.request_context(environ):
-            decision = self._decide(host)
+            # The portal's request limits never see a wiki host: count it here, before any lookup.
+            decision = self._decide(host) if self._admit() else ("limited", host)
             page = None if decision is None or decision[0] == "proxy" else self._page(*decision)
         if decision is None:
             return self.wsgi_app(environ, start_response)
@@ -180,6 +305,10 @@ class WikiHosts:
             return [body]
         _state, name, address, port = decision
         return self._proxy(environ, start_response, host, name, address, port)
+
+    def _admit(self) -> bool:
+        limiter = self.app.extensions.get("bananawiki.hosting.limiter")
+        return limiter is None or limiter.hit(f"wikihost:{web.client_network()}", RATE_LIMIT, 60)
 
     # Which wiki, in which state
 
@@ -237,7 +366,7 @@ class WikiHosts:
         # Never 502 or 504: Cloudflare replaces those with its own "Bad gateway" page,
         # hiding this one and its automatic refresh.
         codes = {"missing": 404, "suspended": 403, "unavailable": 503, "expired": 503, "paused": 503,
-                 "starting": 503, "busy": 503, "timeout": 503, "bad_gateway": 503}
+                 "starting": 503, "busy": 503, "timeout": 503, "bad_gateway": 503, "limited": 429}
         status = code or codes.get(state, 503)
         details: dict[str, Any] = {}
         if state == "suspended" and row:
@@ -252,8 +381,8 @@ class WikiHosts:
         body = render_template("hosting/wiki_status.html", state=state, host=host, details=details,
                                refresh=refresh, nonce=nonce,
                                portal_url=urls.portal_base_url(), contact=cfg.contact_email)
-        reasons = {403: "Forbidden", 404: "Not Found", 502: "Bad Gateway", 503: "Service Unavailable",
-                   504: "Gateway Timeout"}
+        reasons = {403: "Forbidden", 404: "Not Found", 429: "Too Many Requests", 502: "Bad Gateway",
+                   503: "Service Unavailable", 504: "Gateway Timeout"}
         headers = [
             ("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "no-store"),
             ("Content-Security-Policy", PAGE_CSP + (f"; script-src 'nonce-{nonce}'" if nonce else "")),
@@ -262,6 +391,8 @@ class WikiHosts:
         ]
         if status == 503:
             headers.append(("Retry-After", "5"))
+        elif status == 429:
+            headers.append(("Retry-After", "60"))
         encoded = body.encode("utf-8")
         headers.append(("Content-Length", str(len(encoded))))
         return f"{status} {reasons.get(status, 'Error')}", headers, encoded
@@ -281,8 +412,8 @@ class WikiHosts:
             return self._error(environ, start_response, host, "busy")
         connection: http.client.HTTPConnection | None = None
         try:
-            connection = http.client.HTTPConnection(address, port, timeout=CONNECT_TIMEOUT)
             method = environ.get("REQUEST_METHOD", "GET")
+            connection = self.slots.connect(address, port)
             connection.putrequest(method, _target(environ), skip_host=True, skip_accept_encoding=True)
             body = _request_body(environ)
             for key, value in _request_headers(environ, host):
@@ -313,7 +444,8 @@ class WikiHosts:
             _close(connection)
             slot.release()
             return self._error(environ, start_response, host, "timeout")
-        except (OSError, http.client.HTTPException) as error:
+        except (OSError, http.client.HTTPException, ValueError) as error:
+            # ValueError: anything else http.client refuses to send (a request line or header it cannot encode).
             log.warning("Proxy to wiki %s (%s:%s) failed: %s", name, address, port, error)
             _close(connection)
             slot.release()
@@ -322,14 +454,36 @@ class WikiHosts:
             _close(connection)
             slot.release()
             raise
-        headers = [(key, value) for key, value in response.getheaders() if key.lower() not in HOP_BY_HOP]
-        start_response(f"{response.status} {response.reason}", headers)
+        # A wiki's own code (a plugin) could answer with a header the server refuses (a folded line, a
+        # control character): it is left out, and nothing taken for this request is ever left held.
+        headers = [(key, value) for key, value in response.getheaders()
+                   if key.lower() not in HOP_BY_HOP and _HEADER_NAME.fullmatch(key) and not _BAD_VALUE.search(value)]
+        try:
+            start_response(_status_line(response.status), headers)
+        except BaseException:
+            response.close()
+            _close(connection)
+            slot.release()
+            raise
         if method == "HEAD":
             response.close()
             _close(connection)
             slot.release()
             return []
-        return _Body(response, connection, slot)
+        return _Body(response, connection, slot, self.slots.draining)
+
+
+_HEADER_NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
+_BAD_VALUE = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
+
+
+def _status_line(code: int) -> str:
+    """The status line for *code* with its standard phrase: the wiki's own reason text is not passed on
+    (it could hold a bare CR)."""
+    try:
+        return f"{code} {HTTPStatus(code).phrase}"
+    except ValueError:
+        return f"{code} Unknown"
 
 
 def _close(connection: http.client.HTTPConnection | None) -> None:
@@ -337,14 +491,29 @@ def _close(connection: http.client.HTTPConnection | None) -> None:
         connection.close()
 
 
+_PRINTABLE = "".join(chr(code) for code in range(0x21, 0x7f))
+
+
+def _ascii(text: str) -> str:
+    """*text* with every character outside printable ASCII percent-encoded, as the bytes the client sent
+    (the server hands them over decoded as Latin-1): http.client sends only ASCII request lines."""
+    if text.isascii() and text.isprintable() and " " not in text:
+        return text
+    try:
+        sent = text.encode("latin-1")
+    except UnicodeEncodeError:
+        sent = text.encode("utf-8", "surrogateescape")
+    return quote(sent, safe=_PRINTABLE)
+
+
 def _target(environ: dict[str, Any]) -> str:
-    """The request target as the client sent it (origin form)."""
+    """The request target as the client sent it (origin form), in ASCII."""
     raw = environ.get("RAW_URI") or environ.get("REQUEST_URI") or ""
     if raw.startswith("/") and not raw.startswith("//") and not any(c in raw for c in "\r\n "):
-        return raw
+        return _ascii(raw)
     path = (environ.get("SCRIPT_NAME", "") + environ.get("PATH_INFO", "")).encode("latin-1", "replace")
     target = quote(path, safe="/:@!$&'()*+,;=~-._%") or "/"
-    query = environ.get("QUERY_STRING", "")
+    query = _ascii(environ.get("QUERY_STRING", ""))
     return f"{target}?{query}" if query else target
 
 

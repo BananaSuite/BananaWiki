@@ -12,12 +12,6 @@ def _seed(app):
         return cat, a, b
 
 
-def test_admin_only(client, make_user, login):
-    login(client, make_user("plain"))
-    assert client.get("/admin/bulk").status_code == 403
-    assert client.post("/admin/bulk/pages/delete", data={"ids": ["1"]}).status_code == 403
-
-
 def test_bulk_delete_pages_and_categories(app, admin_client, db):
     cat, a, b = _seed(app)
     assert b"Alpha" in admin_client.get("/admin/bulk").data

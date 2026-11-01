@@ -22,16 +22,13 @@ def _fail(error: merge.MergeError, endpoint: str):
 @bp.route("/settings/merge-request/from/<username>", methods=["GET", "POST"])
 def merge_request(username: str | None = None):
     user = auth.current_user()
-    other_name = request.form.get("other_username", username or "").strip()
+    other_name = (username or "").strip()
     if request.method == "POST":
+        other_name = request.form.get("other_username", other_name).strip()
         if auth.is_impersonating():
             abort(403)
-        other = accounts.by_username(other_name)
-        if other is None:
-            auth.flash_t("users.merge.error.no_such_user", "error")
-            return render_template("users/merge_request.html", user=user, tab="account", other_name=other_name)
         try:
-            merge.create(user, other, into_mine=request.form.get("direction", "into_mine") != "into_other",
+            merge.create(user, accounts.by_username(other_name), into_mine=request.form.get("direction", "into_mine") != "into_other",
                          reason=request.form.get("reason", ""), password=request.form.get("password"))
         except merge.MergeError as error:
             auth.flash_t(error.key, "error", **error.values)

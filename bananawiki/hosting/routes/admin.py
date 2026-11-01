@@ -27,6 +27,7 @@ from flask import (
     url_for,
 )
 
+from ...core import downloads
 from ...core.timeutil import now_sql, sql_in
 from ...core.web import one_line
 from .. import (
@@ -49,7 +50,7 @@ from .. import (
 from ..db import db
 from ..errors import ServiceError
 from ..i18n import t, tn
-from ..limits import rate_limit
+from ..limits import confirm_password, rate_limit
 from ..runtime import RuntimeFailure
 from .common import (
     account,
@@ -120,7 +121,7 @@ def dashboard():
         "hosting/admin/dashboard.html", stats=stats, pending=accounts.pending(),
         feature_queue=features.pending_queue(), signup_mode=settings.signup_mode(),
         signup_approval=settings.approval_required(), invites=invites.list_all(),
-        accounts=accounts.all_accounts(), instances=wikis, storage=_storage_protection(),
+        accounts=accounts.all_accounts(), instances=wikis, storage=_storage_protection(), firewall=_host_firewall(),
         attention_entries=attention.items(account(), with_oldest=True),
     )
 
@@ -131,6 +132,16 @@ def _storage_protection() -> dict[str, Any]:
         value = instances.runtime().storage_protection()
     except Exception:  # noqa: BLE001 - the dashboard renders whatever the runtime does
         log.warning("The storage protection could not be read", exc_info=True)
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _host_firewall() -> dict[str, Any]:
+    """The latest check of the host firewall for tenant containers; ``{}`` when the runtime cannot say."""
+    try:
+        value = instances.runtime().host_firewall()
+    except Exception:  # noqa: BLE001 - the dashboard renders whatever the runtime does
+        log.warning("The host firewall state could not be read", exc_info=True)
         return {}
     return value if isinstance(value, dict) else {}
 
@@ -1004,6 +1015,14 @@ def instance_logs(instance_id: str):
 
 @bp.get("/admin/instances/<instance_id>/download")
 @auth.admin_required
+def download_instance_page(instance_id: str):
+    """The download builds a whole archive: a link (or a HEAD) only leads to the wiki's page and its button."""
+    return redirect(url_for("admin.instance", instance_id=_instance_or_404(instance_id)["id"]))
+
+
+@bp.post("/admin/instances/<instance_id>/download")
+@auth.admin_required
+@downloads.place_first
 @rate_limit(10)
 def download_instance(instance_id: str):
     inst = _instance_or_404(instance_id)
@@ -1522,6 +1541,7 @@ def _settings_context() -> dict[str, Any]:
         "suffix": urls.instance_suffix(), "email_configured": notifications.configured(),
         "notify_interval": settings.NOTIFY_INTERVAL_MINUTES, "renewal_window": instances.RENEWAL_WINDOW_DAYS,
         "backup_status": instances.runtime().platform_backup_status(),
+        "restore_limit": current_app.config["HOSTING"].archives.import_max_bytes,
         "signup_mode": settings.signup_mode(), "email_policies": settings.EMAIL_POLICIES,
         "signup_email": settings.signup_email(), "existing_email": settings.existing_email(),
         "shared_addresses": 0 if settings.email_shared() else accounts.shared_addresses(),
@@ -1693,6 +1713,7 @@ def _restore(path: Path, meta: dict[str, Any]) -> str:
 
 
 @bp.route("/admin/instances/import", methods=["GET", "POST"])
+@auth.large_body
 @auth.admin_required
 @rate_limit(5, 300)
 def import_instance():
@@ -1730,6 +1751,7 @@ def import_chunk_start():
 
 
 @bp.post("/admin/instances/import/chunk/<upload_id>")
+@auth.large_body
 @auth.admin_required
 def import_chunk(upload_id: str):
     return _append_chunk(upload_id, "import")
@@ -1752,6 +1774,7 @@ def import_chunk_status(upload_id: str):
 
 @bp.post("/admin/export-platform")
 @auth.admin_required
+@downloads.place_first
 @rate_limit(5)
 def export_platform():
     root = Path(current_app.config["HOSTING"].archives.export_temp_dir)
@@ -1763,6 +1786,9 @@ def export_platform():
         shutil.rmtree(work, ignore_errors=True)
         flash(t(f"hosting.runtime.{error.code}"), "error")
         return redirect(url_for("admin.settings_page"))
+    except BaseException:
+        shutil.rmtree(work, ignore_errors=True)  # never leave a work folder behind
+        raise
     events.record("account", account()["id"], "platform.exported", account()["id"])
     return stream_file(path, path.name, work)
 
@@ -1771,7 +1797,7 @@ def export_platform():
 @auth.admin_required
 @rate_limit(3, 300)
 def export_backup_key():
-    if not accounts.verify_password(auth.real_account(), request.form.get("current_password") or ""):
+    if not confirm_password(auth.real_account(), request.form.get("current_password") or ""):
         flash(t("hosting.account.wrong_password"), "error")
         return redirect(url_for("admin.settings_page"))
     try:
@@ -1785,6 +1811,7 @@ def export_backup_key():
 
 
 @bp.post("/admin/restore-platform")
+@auth.large_body
 @auth.admin_required
 @rate_limit(5)
 def restore_platform():
@@ -1817,6 +1844,7 @@ def restore_chunk_start():
 
 
 @bp.post("/admin/restore-platform/chunk/<upload_id>")
+@auth.large_body
 @auth.admin_required
 def restore_chunk(upload_id: str):
     return _append_chunk(upload_id, "restore")

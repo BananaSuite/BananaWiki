@@ -21,6 +21,9 @@ MAX_REASON = 2000
 MAX_REVIEW_REASON = 1000
 MAX_QUOTA = 100_000
 UNLIMITED = -1
+# Requests an account may file in 24 hours, whatever became of them: with no
+# cooldown, cancelling and filing again would otherwise add rows without end.
+MAX_REQUESTS_PER_DAY = 10
 
 
 def _int_setting(name: str, default: int, minimum: int) -> int:
@@ -122,6 +125,10 @@ def create_request(user_id: str, requested: Any, reason: str) -> dict[str, Any]:
             minutes = cooldown_remaining_minutes(user_id)
             if minutes:
                 raise ContributionError("contributions.quota.error.cooldown", minutes=minutes)
+            filed = db.scalar("SELECT COUNT(*) FROM contribution_quota_requests WHERE user_id = ? AND created_at > ?",
+                              (user_id, sql_in(hours=-24)), default=0)
+            if int(filed) >= MAX_REQUESTS_PER_DAY:
+                raise ContributionError("contributions.quota.error.too_many", limit=MAX_REQUESTS_PER_DAY)
             current = effective(user_id)
             automatic = quota != UNLIMITED and current != UNLIMITED and current < quota <= auto_max
             now = now_sql()

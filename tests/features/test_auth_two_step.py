@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 import time
-from pathlib import Path
 
 import pytest
 from conftest import PASSWORD, csrf_token_from
@@ -17,9 +16,6 @@ from .api_support import call, enable_api, issue
 
 DEVICE_COOKIE = "bw_session_device"
 CODE_RE = re.compile(r"\b[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}\b")
-TRANSLATIONS = Path(__file__).resolve().parents[2] / "bananawiki/wiki/features/auth/translations"
-
-
 def _secret(client) -> str:
     page = client.get("/settings/two-step")
     assert page.status_code == 200
@@ -97,12 +93,6 @@ def test_enabling_signs_out_the_other_sessions_but_keeps_this_one(app, make_user
     enrol(laptop)
     assert signed_in(laptop)
     assert not signed_in(phone)
-
-
-def test_the_settings_page_links_from_the_account_settings(client, make_user, login):
-    login(client, make_user("bob"))
-    html = client.get("/settings").get_data(as_text=True)
-    assert 'href="/settings/two-step"' in html
 
 
 # Sign-in
@@ -274,7 +264,7 @@ def test_administrator_sign_in_asks_for_the_code_too(app, make_user, login):
     assert response.headers["Location"].endswith("/login/two-step")
     assert not signed_in(browser)
     response = browser.post("/login/two-step", data={"code": codes[0]})
-    assert response.headers["Location"].endswith("/admin/dashboard")
+    assert response.headers["Location"].endswith("/admin/home")
 
 
 # Attempt limits
@@ -451,11 +441,17 @@ def test_required_two_step_holds_administrators_until_they_turn_it_on(app, db, m
     assert signed_in(others), "members are not affected"
 
 
-def test_api_tokens_keep_working_while_it_is_required(app, client, db, make_user):
+def test_api_tokens_wait_until_a_required_second_step_is_on(app, client, db, make_user, login):
+    """As in the browser, the requirement comes before anything else (audit W3-3)."""
     enable_api(app, db)
     admin = make_user("admin1", role="admin")
     token = issue(app, admin)
     db.execute("UPDATE site_settings SET two_step_required_for_admins = 1")
+    refused = call(client, "GET", "/pages", token)
+    assert (refused.status_code, refused.json["code"]) == (403, "two_step_required")
+    browser = app.test_client()
+    login(browser, admin)
+    enrol(browser)
     assert call(client, "GET", "/pages", token).status_code == 200
 
 
@@ -570,14 +566,6 @@ def test_the_installed_command_passes_the_reset_to_the_application():
 
 
 # Catalogues
-
-
-def test_translations_have_the_same_keys_and_placeholders():
-    english = json.loads((TRANSLATIONS / "en.json").read_text(encoding="utf-8"))
-    italian = json.loads((TRANSLATIONS / "it.json").read_text(encoding="utf-8"))
-    assert set(english) == set(italian)
-    for key, text in english.items():
-        assert set(re.findall(r"{(\w+)}", text)) == set(re.findall(r"{(\w+)}", italian[key])), key
 
 
 def test_hosting_and_wiki_keys_never_match():

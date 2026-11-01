@@ -21,6 +21,7 @@ import json
 import os
 import re
 import stat
+import sys
 import tempfile
 import zipfile
 from dataclasses import dataclass, field
@@ -226,21 +227,38 @@ def _hidden(parts: list[str]) -> bool:
 
 
 def read_uploads(uploads: list[FileStorage], result: ImportResult) -> list[tuple[list[str], str]]:
-    """Markdown files from the uploaded ``.md`` files and ZIP archives: ``[(path parts, text)]``."""
+    """Markdown files from the uploaded ``.md`` files and ZIP archives: ``[(path parts, text)]``.
+
+    Every text is held until the import starts, so ``MAX_TOTAL_BYTES`` bounds the whole request:
+    an archive or file that would take the total past it is refused, the ones before it are kept.
+    Each file counts as the larger of its bytes and the memory its decoded text takes (``_held``).
+    """
     files: list[tuple[list[str], str]] = []
+    unpacked = 0
     for upload in uploads:
         name = os.path.basename((upload.filename or "").replace("\\", "/"))
         if name.lower().endswith(".zip"):
             try:
-                files.extend(_read_zip(upload.stream, name, result))
+                read, size = _read_zip(upload.stream, name, result, MAX_TOTAL_BYTES - unpacked)
             except ImportRefused as refused:
                 result.problems.append((refused.key, {"name": name, **refused.values}))
+            else:
+                files.extend(read)
+                unpacked += size
         elif _is_markdown(name):
             raw = upload.stream.read(MAX_FILE_BYTES + 1)
             if len(raw) > MAX_FILE_BYTES:
                 result.problems.append(("page_export.import.file_too_large", {"name": name}))
+            elif unpacked + len(raw) > MAX_TOTAL_BYTES:
+                result.problems.append(("page_export.import.too_large_unpacked", {"name": name}))
             else:
-                files.append(([name], mdf.decode(raw)))
+                text = mdf.decode(raw)
+                size = _held(raw, text)
+                if unpacked + size > MAX_TOTAL_BYTES:
+                    result.problems.append(("page_export.import.too_large_unpacked", {"name": name}))
+                else:
+                    files.append(([name], text))
+                    unpacked += size
         elif name:
             result.problems.append(("page_export.import.unsupported", {"name": name}))
         if len(files) > MAX_FILES:
@@ -248,13 +266,20 @@ def read_uploads(uploads: list[FileStorage], result: ImportResult) -> list[tuple
     return files
 
 
-def _check_archive(members: list[zipfile.ZipInfo]) -> list[zipfile.ZipInfo]:
+def _held(raw: bytes, text: str) -> int:
+    """What a file counts against ``MAX_TOTAL_BYTES``: a str with one character above U+FFFF takes
+    4 bytes for every character, so an ASCII file holds up to 4x its size once decoded."""
+    return max(len(raw), sys.getsizeof(text))
+
+
+def _check_archive(members: list[zipfile.ZipInfo], allowance: int) -> list[zipfile.ZipInfo]:
+    """The Markdown members to read; ``allowance`` is what is left of the request's unpacked bound."""
     if len(members) > MAX_ZIP_ENTRIES:
         raise ImportRefused("page_export.import.too_many_entries", limit=MAX_ZIP_ENTRIES)
     wanted = [m for m in members if not m.is_dir() and _is_markdown(m.filename)]
     if len(wanted) > MAX_FILES:
         raise ImportRefused("page_export.import.too_many_files", limit=MAX_FILES)
-    if sum(m.file_size for m in wanted) > MAX_TOTAL_BYTES:
+    if sum(m.file_size for m in wanted) > allowance:
         raise ImportRefused("page_export.import.too_large_unpacked")
     for member in wanted:
         if member.file_size > 1024 * 1024 and member.file_size > MAX_RATIO * max(member.compress_size, 1):
@@ -264,14 +289,22 @@ def _check_archive(members: list[zipfile.ZipInfo]) -> list[zipfile.ZipInfo]:
     return wanted
 
 
-def _read_zip(stream: IO[bytes], archive_name: str, result: ImportResult) -> list[tuple[list[str], str]]:
+def _read_zip(stream: IO[bytes], archive_name: str, result: ImportResult,
+              allowance: int) -> tuple[list[tuple[list[str], str]], int]:
+    """The archive's Markdown files and what they count against the request's bound.
+
+    Declared sizes are checked first (a member never unpacks to more); the decoded texts are then
+    counted as they are held, and the whole archive is refused once they pass ``allowance``.
+    """
     try:
         archive = zipfile.ZipFile(stream)
     except (zipfile.BadZipFile, OSError, ValueError):
         raise ImportRefused("page_export.import.bad_zip") from None
     files: list[tuple[list[str], str]] = []
+    held = 0
     with archive:
-        for member in _check_archive(archive.infolist()):
+        wanted = _check_archive(archive.infolist(), allowance)
+        for member in wanted:
             parts = _safe_parts(member.filename)
             if parts is None or stat.S_ISLNK(member.external_attr >> 16):
                 result.problems.append(("page_export.import.unsafe_path", {"name": member.filename}))
@@ -290,8 +323,12 @@ def _read_zip(stream: IO[bytes], archive_name: str, result: ImportResult) -> lis
             if len(raw) > MAX_FILE_BYTES:
                 result.problems.append(("page_export.import.file_too_large", {"name": member.filename}))
                 continue
-            files.append((parts, mdf.decode(raw)))
-    return files
+            text = mdf.decode(raw)
+            held += _held(raw, text)
+            if held > allowance:
+                raise ImportRefused("page_export.import.too_large_unpacked")
+            files.append((parts, text))
+    return files, max(held, sum(m.file_size for m in wanted))
 
 
 # Creating pages

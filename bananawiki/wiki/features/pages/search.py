@@ -4,13 +4,14 @@ Syntax: plain words must all match; ``"exact phrase"``;
 ``title:``, ``content:``, ``category:``, ``slug:`` and ``type:page|category``
 fields; ``-word`` excludes. Results are filtered by visibility in SQL
 (:func:`service.visible_filter`), so pages the reader cannot open are never
-loaded, and snippets are built by SQLite.
+loaded. Excerpts come from the start of each page shown (:func:`service.excerpts`).
 """
 
 from __future__ import annotations
 
 import re
 import shlex
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,8 +26,10 @@ SCOPES = ("all", "title", "content", "category")
 TYPES = ("all", "page", "category")
 SORTS = ("relevance", "title", "recent")
 PER_PAGE = 20
+MAX_CATEGORY_RESULTS = 50
 MAX_TERMS = 12
-_WORD = re.compile(r"\w+", re.UNICODE)
+# Words of every term, phrase and exclusion together: each word of a phrase costs a pass over a position list.
+MAX_WORDS = 24
 
 
 @dataclass
@@ -44,7 +47,13 @@ class Query:
         return [*self.terms, *self.fields["title"], *self.fields["content"]]
 
 
+def _usable(term: str) -> bool:
+    """Whether *term* has a letter or digit; punctuation alone matches nothing useful and is ignored."""
+    return any(char.isalnum() for char in term)
+
+
 def parse(raw: str) -> Query:
+    """Split *raw* into terms; words without a letter or digit (``.``, ``-#``, ``title:..``) are dropped."""
     query = Query()
     raw = (raw or "")[:300]
     try:
@@ -58,17 +67,31 @@ def parse(raw: str) -> Query:
             token = token[1:]
         name, _, value = token.partition(":")
         if value.strip() and name.lower() in FIELDS and not negative:
-            query.fields[name.lower()].append(value.strip())
+            if name.lower() not in ("title", "content") or _usable(value):
+                query.fields[name.lower()].append(value.strip())
         elif negative:
-            query.excluded.append(token)
-        elif token:
+            if _usable(token):
+                query.excluded.append(token)
+        elif _usable(token):
             query.terms.append(token)
     return query
 
 
-def _phrase(term: str) -> str | None:
-    words = _WORD.findall(term)
-    return '"' + " ".join(words) + '"*' if words else None
+def _bounded(matches: list[tuple[str, str]], excluded: list[str]) -> tuple[list[tuple[str, str]], list[str]]:
+    """*matches* (column filter, FTS5 phrase) and *excluded* phrases, each once, MAX_WORDS words in all.
+
+    A repeated term adds nothing to the result. A phrase is cut to the words left, and once none are left
+    the remaining terms are dropped, as terms after the MAX_TERMS-th are.
+    """
+    left = MAX_WORDS
+    kept: dict[tuple[str, str], None] = {}
+    for columns, term in [*matches, *(("-", term) for term in excluded)]:
+        if left <= 0:
+            break
+        words = service.fts_words(term)[:left]
+        left -= len(words)
+        kept[(columns, service.fts_phrase(words))] = None
+    return [key for key in kept if key[0] != "-"], [phrase for columns, phrase in kept if columns == "-"]
 
 
 def _like(term: str) -> str:
@@ -90,11 +113,19 @@ def _requested_types(query: Query, result_type: str) -> set[str]:
 
 def _readable_paths(user: dict[str, Any] | None) -> dict[int, str]:
     readable = {c["id"] for c in categories.all_categories() if auth.can_read_category(c["id"], user)}
-    return {cid: path for cid, path in categories.paths(lambda cid: cid in readable).items() if cid in readable}
+    return {cid: path for cid, path in categories.paths(lambda cid: cid in readable, limit=None).items() if cid in readable}
 
 
-def _category_ids(paths: dict[int, str], terms: list[str]) -> list[int]:
-    return [cid for cid, path in paths.items() if all(term.casefold() in path.casefold() for term in terms)]
+def _category_ids(paths: dict[int, str], terms: list[str], excluded: Sequence[str] = ()) -> list[int]:
+    """Categories whose full path holds every term and none of *excluded*, ignoring case."""
+    wanted = [term.casefold() for term in terms]
+    unwanted = [term.casefold() for term in excluded]
+    found = []
+    for cid, path in paths.items():
+        folded = path.casefold()
+        if all(term in folded for term in wanted) and not any(term in folded for term in unwanted):
+            found.append(cid)
+    return found
 
 
 def search_pages(query: Query, *, user: dict[str, Any] | None, scope: str = "all", sort: str = "relevance",
@@ -114,45 +145,61 @@ def search_pages(query: Query, *, user: dict[str, Any] | None, scope: str = "all
             return [], 0
         clauses.append(f"p.category_id IN ({','.join('?' for _ in ids)})")
         values.extend(ids)
-    for term in query.fields["slug"]:
+    for term in query.fields["slug"][:MAX_TERMS]:
         clauses.append("p.slug LIKE ? ESCAPE '\\'")
         values.append(_like(term))
 
     general_columns = {"all": "{title content}", "title": "{title}", "content": "{content}"}.get(scope, "{title content}")
     matches = [(general_columns, t) for t in general]
     matches += [("{title}", t) for t in query.fields["title"]] + [("{content}", t) for t in query.fields["content"]]
-    fts = service.fts_available() and any(_phrase(t) for _c, t in matches)
+    # Every term costs a pass over the index (or, without it, over every page's text): both lists are capped.
+    matches, excluded = matches[:MAX_TERMS], query.excluded[:MAX_TERMS]
+    fts = service.fts_available() and bool(matches)
     join, score, snippet = "", "", "substr(p.content, 1, 240)"
     if fts:
-        positive = [f"{columns} : {_phrase(term)}" for columns, term in matches[:MAX_TERMS] if _phrase(term)]
-        expression = " AND ".join(positive)
-        for term in query.excluded[:MAX_TERMS]:
-            if _phrase(term):
-                expression = f"({expression}) NOT {{title content}} : {_phrase(term)}"
+        phrases, excluded_phrases = _bounded(matches, excluded)
+        expression = " AND ".join(f"{columns} : {phrase}" for columns, phrase in phrases)
+        for phrase in excluded_phrases:
+            expression = f"({expression}) NOT {{title content}} : {phrase}"
         join = "JOIN pages_fts ON pages_fts.rowid = p.id"
         clauses.append("pages_fts MATCH ?")
         values.append(expression)
         score = "bm25(pages_fts, 8.0, 1.0)"
-        snippet = "snippet(pages_fts, 1, char(2), char(3), ' … ', 16)"
+        snippet = "''"  # computed below for the rows shown only
+    elif service.fts_available():
+        # Only category:, slug: or type: narrow the list; exclusions still use the index.
+        _, excluded_phrases = _bounded([], excluded)
+        if excluded_phrases:
+            clauses.append("p.id NOT IN (SELECT rowid FROM pages_fts WHERE pages_fts MATCH ?)")
+            values.append(" OR ".join(f"{{title content}} : {phrase}" for phrase in excluded_phrases))
     else:
-        column_sql = {"{title content}": "(p.title || ' ' || p.content)", "{title}": "p.title", "{content}": "p.content"}
+        # One page's LIKE costs the term's length times the page's: only a term's start is matched (as in
+        # service.search), and the clock is read after each page.
+        column_sql = {"{title content}": "(p.title LIKE ? ESCAPE '\\' OR p.content LIKE ? ESCAPE '\\')",
+                      "{title}": "p.title LIKE ? ESCAPE '\\'", "{content}": "p.content LIKE ? ESCAPE '\\'"}
         for columns, term in matches:
-            clauses.append(f"{column_sql[columns]} LIKE ? ESCAPE '\\'")
-            values.append(_like(term))
-        for term in query.excluded:
-            clauses.append("(p.title || ' ' || p.content) NOT LIKE ? ESCAPE '\\'")
-            values.append(_like(term))
+            clauses.append(column_sql[columns])
+            values.extend([_like(term[:service.LIKE_CHARS])] * column_sql[columns].count("?"))
+        for term in excluded:
+            clauses.append("p.title NOT LIKE ? ESCAPE '\\' AND p.content NOT LIKE ? ESCAPE '\\'")
+            values.extend([_like(term[:service.LIKE_CHARS])] * 2)
     condition = " AND ".join(clauses)
-    total = int(db.scalar(f"SELECT COUNT(*) FROM pages p {join} WHERE {condition}", values, default=0))
     order = {
         "title": "lower(p.title), p.id",
         "recent": "COALESCE(p.last_edited_at, p.created_at) DESC, p.id DESC",
     }.get(sort, f"{score}, lower(p.title), p.id" if fts else "lower(p.title), p.id")
-    rows = db.all(
-        f"SELECT p.id, p.title, p.slug, p.category_id, p.is_home, p.is_deindexed, p.last_edited_at, "
-        f"{snippet} AS snippet FROM pages p {join} WHERE {condition} ORDER BY {order} LIMIT ? OFFSET ?",
-        [*values, PER_PAGE, (max(1, page) - 1) * PER_PAGE],
-    )
+    with service.time_limit(None if service.fts_available() else service._LIKE_PROGRESS_STEPS):
+        total = int(db.scalar(f"SELECT COUNT(*) FROM pages p {join} WHERE {condition}", values, default=0))
+        rows = db.all(
+            f"SELECT p.id, p.title, p.slug, p.category_id, p.is_home, p.is_deindexed, p.last_edited_at, "
+            f"{snippet} AS snippet FROM pages p {join} WHERE {condition} ORDER BY {order} LIMIT ? OFFSET ?",
+            [*values, PER_PAGE, (max(1, page) - 1) * PER_PAGE],
+        )
+    if fts:
+        shown = [phrase for columns, phrase in phrases if columns != "{title}"]
+        snippets = service.excerpts(shown, [row["id"] for row in rows], 16)
+        for row in rows:
+            row["snippet"] = snippets.get(row["id"], "")
     for row in rows:
         row["category_path"] = paths.get(row["category_id"], "") if row["category_id"] else ""
         row["snippet_html"] = snippet_html(row["snippet"] or "", query.highlight, marked=fts)
@@ -167,15 +214,18 @@ def search_categories(query: Query, *, user: dict[str, Any] | None,
     if not terms:
         return []
     paths = _readable_paths(user) if paths is None else paths
-    excluded = [term.casefold() for term in query.excluded]
+    matching = sorted(_category_ids(paths, terms, query.excluded), key=lambda cid: paths[cid].casefold())
+    # Only the categories shown are highlighted: a full path is up to 32 names long.
     found = []
-    for cid in _category_ids(paths, terms):
-        path = paths[cid]
-        if any(term in path.casefold() for term in excluded) or not categories.listed(cid, user):
+    for cid in matching:
+        if not categories.listed(cid, user):
             continue
+        path = paths[cid]
         found.append({"id": cid, "name": path.rsplit(" / ", 1)[-1], "path": path,
                       "path_html": highlight(path, terms)})
-    return sorted(found, key=lambda item: item["path"].casefold())[:50]
+        if len(found) == MAX_CATEGORY_RESULTS:
+            break
+    return found
 
 
 def run(raw: str, *, user: dict[str, Any] | None, scope: str, result_type: str, sort: str,

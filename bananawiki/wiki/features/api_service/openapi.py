@@ -113,8 +113,8 @@ ENDPOINTS: tuple[Endpoint, ...] = (
     # Categories
     Endpoint("GET", "/categories", "Categories the caller may read", "categories", group="categories",
              paginated=True, result={"categories": _list(_ref("Category"))}),
-    Endpoint("GET", "/categories/{category_id}", "One category and its pages", "categories", group="categories",
-             responses=(200, 404), result={"category": _ref("Category")}),
+    Endpoint("GET", "/categories/{category_id}", "One category and a page of its pages", "categories",
+             group="categories", paginated=True, responses=(200, 404), result={"category": _ref("Category")}),
     Endpoint("POST", "/categories", "Create a category", "categories", True, group="categories",
              body={"name": STRING, "parent_id": NULLABLE_ID}, required=("name",), responses=(201, 400, 403),
              result={"category": _ref("Category")}),

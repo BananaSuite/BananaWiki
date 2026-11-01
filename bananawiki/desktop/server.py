@@ -6,7 +6,11 @@ Two ways to serve, both production WSGI servers:
   wiki runs inside the launcher process on a background thread, so stopping
   is immediate and nothing is left behind.
 * **gunicorn** (Linux and macOS, when waitress is not installed): the wiki
-  runs as a child process with one worker.
+  runs as a child process with one worker. Nothing in the data folder is
+  code: the child starts in the package's parent directory, with
+  :mod:`.gunicorn_child` as its configuration and Python's ``-P``, so neither
+  a ``gunicorn.conf.py`` nor a module in the folder (or the user's current
+  directory) is ever imported.
 
 The listen address is chosen by the caller: loopback unless ``share_on_lan``
 is set, which the launcher only does after the user agreed to it. The data
@@ -45,8 +49,28 @@ READY_TIMEOUT = 90.0
 STOP_TIMEOUT = 15.0
 # A background job that is still running gets this much longer before the folder is released.
 JOB_STOP_TIMEOUT = 120.0
-THREADS = 8
+# Four for pages and /health, plus one for each download place (datafolder: BW_DOWNLOAD_THREADS).
+THREADS = 12
+# No proxy sits in front of the desktop wiki: the server bounds what one device on the network can hold (see
+# waitress_server and gunicorn_child). Seconds a client has to send a request's headers.
+HEADER_TIMEOUT = 30.0
+# Connections one address keeps open with waitress (a browser opens at most six to one server), and in all.
+CONNECTIONS_PER_ADDRESS = 16
+CONNECTION_LIMIT = 256
+# Seconds a response may wait for its client to take in a byte, as with gunicorn (BW_WRITE_TIMEOUT in
+# bananawiki/ops/gunicorn_conf.py, which the data folder's environment leaves at its default).
+WRITE_TIMEOUT = 300
+# Bytes of request bodies one address may have arriving or waiting at once with waitress, as a multiple of the
+# wiki's largest upload (MAX_CONTENT_LENGTH, which also bounds each body): waitress spools a body to a temporary
+# file before the wiki can refuse it.
+BODY_BUDGET_UPLOADS = 2
+_WAITRESS_MAX_BODY = 1024 * 1024 * 1024  # waitress's own default, for an application without MAX_CONTENT_LENGTH
+# How often waitress looks for expired connections (seconds).
+CLEANUP_INTERVAL = 5
+# gunicorn reads a request's headers on one of its THREADS: connections one address may have sending them at once.
+HEADER_READERS_PER_ADDRESS = 8
 _PACKAGE_PARENT = Path(__file__).resolve().parents[2]
+_GUNICORN_CONFIG = Path(__file__).resolve().with_name("gunicorn_child.py")
 _INHERITED_BLOCKLIST = ("SECRET_KEY", "GUNICORN_CMD_ARGS", "WSGI_APP")
 START_HEADER = "X-BananaWiki-Start"
 _START_VARIABLE = "BW_DESKTOP_START_NONCE"
@@ -171,9 +195,11 @@ class _WaitressRunner:
     name = "waitress"
 
     def __init__(self, app: Any, host: str, candidates: list[int], nonce: str):
-        from waitress import create_server
+        from . import waitress_server
 
         self.app = app
+        # The largest body any view accepts (the wiki checks its own, smaller limits once the body is in).
+        body_limit = int(getattr(app, "config", {}).get("MAX_CONTENT_LENGTH") or _WAITRESS_MAX_BODY)
         last_error: OSError | None = None
         for port in candidates:
             try:
@@ -186,8 +212,13 @@ class _WaitressRunner:
                 last_error = error
                 continue
             try:
-                self.server = create_server(tag_health(app, nonce), sockets=[sock], threads=THREADS,
-                                            ident="BananaWiki", clear_untrusted_proxy_headers=True)
+                self.server = waitress_server.create(
+                    tag_health(app, nonce), sock, header_timeout=HEADER_TIMEOUT, write_timeout=WRITE_TIMEOUT,
+                    per_address=CONNECTIONS_PER_ADDRESS, body_budget=BODY_BUDGET_UPLOADS * body_limit,
+                    # Waitress refuses a body of max_request_body_size bytes or more.
+                    max_request_body_size=body_limit + 1, connection_limit=CONNECTION_LIMIT,
+                    cleanup_interval=CLEANUP_INTERVAL, threads=THREADS, ident="BananaWiki",
+                    clear_untrusted_proxy_headers=True)
             except BaseException:
                 sock.close()
                 raise
@@ -246,8 +277,12 @@ class _GunicornRunner:
         env.update(environ)
         env[_START_VARIABLE] = nonce
         env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(_PACKAGE_PARENT), env.get("PYTHONPATH", "")]))
+        # The data folder is someone's data, never code: gunicorn reads ./gunicorn.conf.py unless given a
+        # configuration, and both "python -m" and gunicorn put the working directory first on sys.path. The
+        # child therefore starts in the package's parent (already on its path), with -P and an explicit -c.
+        env["PWD"] = str(_PACKAGE_PARENT)
         command = [
-            sys.executable, "-m", "gunicorn",
+            sys.executable, "-P", "-m", "gunicorn", "-c", str(_GUNICORN_CONFIG), "--chdir", str(_PACKAGE_PARENT),
             "--bind", f"{host}:{port}", "--workers", "1", "--threads", str(THREADS),
             "--graceful-timeout", "10", "--worker-tmp-dir", str(folder.root / "tmp_exports"),
             "bananawiki.desktop.server:gunicorn_app()",
@@ -255,7 +290,7 @@ class _GunicornRunner:
         self.port = port
         self._log = (folder.logs / "server.log").open("ab")
         try:
-            self.process = subprocess.Popen(command, cwd=str(folder.root), env=env, stdin=subprocess.DEVNULL,
+            self.process = subprocess.Popen(command, cwd=str(_PACKAGE_PARENT), env=env, stdin=subprocess.DEVNULL,
                                             stdout=self._log, stderr=subprocess.STDOUT, start_new_session=True)
         except OSError:
             self._log.close()

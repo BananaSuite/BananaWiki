@@ -11,6 +11,7 @@ from werkzeug.routing import Map
 from ....core.web import csrf_exempt
 from ... import auth, registry, settings, storage
 from ...i18n import t
+from ..audit import record_settings
 from . import rendering, service
 
 log = logging.getLogger("bananawiki.custom_pages")
@@ -90,12 +91,15 @@ def admin_settings():
     if not 1 <= size <= MAX_VIDEO_MB:
         auth.flash_t("custom_pages.error.video_size", "error", maximum=MAX_VIDEO_MB)
     else:
+        previous = settings.load()
         settings.update({"custom_pages_max_video_size_mb": size})
+        record_settings(previous, {"custom_pages_max_video_size_mb": size}, via="custom_pages")
         auth.flash_t("common.saved", "success")
     return redirect(url_for("custom_pages.admin_list"))
 
 
 @bp.route("/admin/custom-pages/create", methods=["GET", "POST"])
+@auth.large_body(minimum_role="admin")
 def admin_create():
     _require_manager()
     if request.method == "POST":
@@ -116,6 +120,7 @@ def admin_create():
 
 
 @bp.route("/admin/custom-pages/<int:page_id>/edit", methods=["GET", "POST"])
+@auth.large_body(minimum_role="admin")
 def admin_edit(page_id: int):
     _require_manager()
     page = _page_or_404(page_id)
@@ -165,7 +170,8 @@ def _members_gate(page: dict | None):
     """
     if not service.members_only(page) or service.is_visible(page):
         return None
-    if auth.current_user() is None:
+    # The pipeline serves refused accounts as anonymous visitors here; real_user still names them.
+    if auth.current_user() is None and auth.real_user() is None:
         return auth.redirect_to_login()
     return redirect(url_for("auth.account_status"))
 

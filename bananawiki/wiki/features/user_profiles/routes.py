@@ -8,6 +8,7 @@ from flask import abort, redirect, render_template, request, url_for
 
 from ... import accounts, auth, storage
 from ...registry import feature_blueprint
+from ..audit.service import record as audit_record
 from ..users import service as users
 from . import service
 
@@ -25,6 +26,20 @@ def _target(user_id: str) -> dict[str, Any]:
     if not service.can_moderate(target):
         abort(403)
     return target
+
+
+def _audit(target: dict[str, Any], action: str, changed: list[str] | None = None) -> None:
+    """Record an administrator's change to *target*'s public profile: what was done and which parts
+    changed, never the values (the profile shows the member as their author)."""
+    details: dict[str, Any] = {"username": target["username"], "action": action}
+    if changed is not None:
+        details["changed"] = ", ".join(changed)
+    audit_record("user.profile_moderated", target_type="user", target_id=target["id"], details=details)
+
+
+def _changed(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
+    """The profile parts that differ (a missing profile has them all empty)."""
+    return [name for name in users.PROFILE_FIELDS if (before.get(name) or None) != (after.get(name) or None)]
 
 
 def _fields_form(target: dict[str, Any], action: str, back: str, *, admin_view: bool = False):
@@ -68,7 +83,7 @@ def publish():
 @bp.post("/settings/profile/delete")
 @auth.permission_required("profile.edit_own")
 def delete_own():
-    users.delete_profile(auth.current_user()["id"])
+    service.delete_own(auth.current_user()["id"])
     auth.flash_t("profiles.flash.deleted", "success")
     return redirect(url_for("users.settings"))
 
@@ -82,6 +97,8 @@ def admin_profile(user_id: str):
     target = _target(user_id)
     if request.method == "POST":
         action = request.form.get("action", "")
+        before = users.get_profile(target["id"]) or {}
+        failed = True
         try:
             if action == "edit_profile":
                 users.save_basics(target["id"], real_name=request.form.get("real_name"),
@@ -93,9 +110,16 @@ def admin_profile(user_id: str):
                 users.remove_avatar(target["id"])
             else:
                 service.moderate(target["id"], action.removesuffix("_profile"))
+            failed = False
         except (users.ProfileError, service.ProfileFieldError, storage.UploadError) as error:
             _flash_error(error)
-        else:
+        finally:
+            # The name and biography are saved before the avatar: a refused avatar (or any later error)
+            # leaves them changed, and that is recorded too.
+            changed = _changed(before, users.get_profile(target["id"]) or {})
+            if not failed or changed:
+                _audit(target, action, changed)
+        if not failed:
             auth.flash_t("profiles.flash.moderated", "success")
         return redirect(url_for("user_profiles.admin_profile", user_id=target["id"]))
     record = users.get_profile(target["id"]) or {}
@@ -109,11 +133,18 @@ def admin_profile(user_id: str):
 def admin_fields(user_id: str):
     target = _target(user_id)
     if request.method == "POST":
+        before = service.values(target["id"])
         try:
             service.save_values(target["id"], request.form)
         except service.ProfileFieldError as error:
             _flash_error(error)
         else:
+            after = service.values(target["id"])
+            labels = {field["id"]: field["label"] for field in service.definitions()}
+            changed = [labels.get(field_id, str(field_id)) for field_id in sorted(set(before) | set(after))
+                       if {k: (before.get(field_id) or {}).get(k) for k in ("value", "visible")}
+                       != {k: (after.get(field_id) or {}).get(k) for k in ("value", "visible")}]
+            _audit(target, "profile_fields", changed)
             auth.flash_t("profiles.flash.fields_saved", "success")
         return redirect(url_for("user_profiles.admin_fields", user_id=target["id"]))
     return _fields_form(target, url_for("user_profiles.admin_fields", user_id=target["id"]),
@@ -141,11 +172,19 @@ def admin_tags(user_id: str):
     except service.ProfileFieldError as error:
         _flash_error(error)
     else:
+        _audit(target, action)
         auth.flash_t("profiles.flash.tags_saved", "success")
     return redirect(url_for("user_profiles.admin_profile", user_id=target["id"]))
 
 
 # Administrators: field definitions
+
+
+def _audit_definition(action: str, definition: dict[str, Any], **details: Any) -> None:
+    """Record a field definition change: every public profile shows these fields."""
+    audit_record(action, target_type="profile_field", target_id=definition["id"],
+                 details={"key": definition["key"], "label": definition["label"],
+                          "field_type": definition["field_type"], **details})
 
 
 @bp.route("/admin/profile-fields", methods=["GET", "POST"])
@@ -157,13 +196,21 @@ def admin_definitions():
         field_id = form.get("field_id", type=int) or 0
         try:
             if action == "create":
-                service.create_definition(form.get("label"), form.get("field_type"))
-            elif service.get_definition(field_id) is None:
+                created = service.create_definition(form.get("label"), form.get("field_type"))
+                _audit_definition("profile_field.created", service.get_definition(created))
+            elif (previous := service.get_definition(field_id)) is None:
                 abort(404)
             elif action == "update":
                 service.update_definition(field_id, form.get("label"), form.get("field_type"))
+                current = service.get_definition(field_id)
+                if current and (current["label"], current["field_type"]) != (previous["label"],
+                                                                            previous["field_type"]):
+                    _audit_definition("profile_field.updated", current, previous_label=previous["label"],
+                                      previous_field_type=previous["field_type"])
             elif action == "delete":
+                values = service.value_count(field_id)
                 service.delete_definition(field_id)
+                _audit_definition("profile_field.deleted", previous, values=values)
             elif action in ("move_up", "move_down"):
                 service.move_definition(field_id, -1 if action == "move_up" else 1)
             else:

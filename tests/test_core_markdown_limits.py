@@ -154,9 +154,7 @@ def test_normal_links_lists_emphasis_and_code_remain_compatible():
 
 
 def test_fence_display_options_cannot_become_unbounded_pygments_arguments(monkeypatch):
-    from markdown.extensions import fenced_code
-
-    original = fenced_code.CodeHilite
+    original = markdown._BoundedHilite
     observed = []
 
     def checked_highlighter(*args, **kwargs):
@@ -170,7 +168,7 @@ def test_fence_display_options_cannot_become_unbounded_pygments_arguments(monkey
         observed.append(kwargs)
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(fenced_code, "CodeHilite", checked_highlighter)
+    monkeypatch.setattr(markdown, "_BoundedHilite", checked_highlighter)
     highlights = " ".join(map(str, range(1, 600))) + " 9999999999999999999999999 -1 bad"
     source = ('```{.python tabsize=1000000000 linenostart=9999999999 guess_lang=true '
               'encoding=invalid style=missing-style pygments_style=missing-style '
@@ -192,9 +190,7 @@ def test_invalid_fence_options_degrade_without_render_errors(options):
 
 @pytest.mark.parametrize("legacy", [False, True])
 def test_highlight_line_list_is_bounded_in_both_fence_syntaxes(monkeypatch, legacy):
-    from markdown.extensions import fenced_code
-
-    original = fenced_code.CodeHilite
+    original = markdown._BoundedHilite
     observed = []
 
     def checked_highlighter(*args, **kwargs):
@@ -202,7 +198,7 @@ def test_highlight_line_list_is_bounded_in_both_fence_syntaxes(monkeypatch, lega
         assert len(kwargs["hl_lines"]) <= markdown.MAX_HIGHLIGHT_LINES
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(fenced_code, "CodeHilite", checked_highlighter)
+    monkeypatch.setattr(markdown, "_BoundedHilite", checked_highlighter)
     highlights = " ".join(map(str, range(1, 600)))
     opening = f'```python hl_lines="{highlights}"' if legacy else f'```{{.python hl_lines="{highlights}"}}'
     html = render(opening + '\nprint("hello")\n```', mentions=False)

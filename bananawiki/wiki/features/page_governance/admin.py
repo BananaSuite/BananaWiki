@@ -15,6 +15,7 @@ from flask import abort, redirect, render_template, request, url_for
 from ....core.web import safe_next
 from ... import accounts, auth, settings
 from ...db import db
+from ..audit import record_settings
 from ..pages import service as pages
 from . import protection, quota, reservations
 from .errors import GovernanceError
@@ -169,8 +170,18 @@ def _handle_admin_quota_form(target: dict[str, Any]) -> None:
 def governance():
     if request.method == "POST":
         values = _settings_from_form()
-        if values is not None:
+        switched = values is not None and values["page_protection_enabled"] != int(
+            bool(settings.get("page_protection_enabled")))
+        refusal = (protection.switch_off_error(auth.real_user() or auth.current_user())
+                   if switched and not values["page_protection_enabled"] else None)
+        if refusal is not None:
+            auth.flash_t(refusal, "error")
+        elif values is not None:
+            previous = settings.load()
             settings.update(values)
+            record_settings(previous, values, via="page_governance")
+            if switched:
+                protection.record_switch(values["page_protection_enabled"])
             auth.flash_t("common.saved", "success")
         return redirect(url_for("page_governance.governance"))
     return render_template("page_governance/admin_governance.html", protected=protection.list_protected(),

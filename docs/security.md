@@ -10,15 +10,23 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   rights), export the whole site (every password hash and private message)
   or import an archive (which replaces every account). Each gives complete
   control of the wiki; the pages say so where the decision is made, ask for
-  the password again, and log it.
+  the password again, and log it. These re-entered passwords count against
+  the same per-account budget as every other one of a signed-in account
+  (renames, password changes, deletion: 10 wrong passwords in 15 minutes),
+  after which even the right one is refused until the window moves on.
 * **Administrators** run the wiki: accounts, roles, settings and content.
   They are kept below owners and superusers everywhere: only owners and
   superusers change administrators (their role, password, profile,
   sessions), only an owner changes an owner, only a superuser changes a
   superuser or impersonates an administrator, and the addresses of
   accounts an administrator may not change (sign-ins, audit entries, the
-  chat messages they sent) are hidden from them. They cannot
-  switch the audit log off or shorten how long it keeps entries. This
+  chat messages they sent; in the error log every address) are hidden from
+  them. They cannot
+  switch the audit log off or shorten how long it keeps entries. Deleting
+  an account erases the addresses its group messages were sent from (its
+  sessions, direct messages and API call log go with it); the audit log
+  keeps the addresses of what a deleted account did, shown only to owners
+  and superusers. This
   protects against a careless or compromised administrator account; give the
   role only to people you trust with the wiki's content and members.
 * **Everyone else** gets exactly what their role, permissions and category
@@ -72,17 +80,24 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
 * **Sign-in limits:** at most 20 failed attempts per address, 8 per account
   name from one address, and 100 per account name from all addresses
   together, in 15 minutes, shared by all workers; an IPv6 client counts as
-  its whole /64 network. A browser that has signed in to the account before
+  its whole /64 network. The account counters follow the account, not the
+  spelling typed: a name that no account can have (for example one with
+  spaces) is refused without a lookup. A browser that has signed in to the account before
   carries a device cookie (`<session cookie name>_device`, `__Host-` on
   HTTPS, signed with the secret key and the account's device epoch, which a
   new password and every change to two-step verification retire) and gets
   its own budget of 8 instead of the shared 100: strangers cannot lock the
   owner out. A successful sign-in clears only its own account-and-address
-  counter. Passwords stored with an older hash method or cost are re-hashed
-  with the configured one at the next sign-in; the password stays the same,
-  so the account's API tokens and device cookies keep working.
+  counter. Successful sign-ins are limited as well, to 30 per account and
+  200 per address in 15 minutes (refused before the password is checked):
+  each costs a password hash, a session and an audit entry. Passwords
+  stored with an older hash method or cost are re-hashed with the configured
+  one at the next sign-in; the password stays the same, so the account's API
+  tokens and device cookies keep working.
 * **Two-step verification** (**Settings → Two-step verification**), optional
-  for every account. API tokens and impersonation do not involve it.
+  for every account. API tokens and impersonation do not involve it, but
+  while it is required of administrators an administrator who has not
+  turned it on cannot use their API tokens either (`403 two_step_required`).
   * **Codes:** after the password, or after the hosting portal's sign-in,
     the wiki asks for a 6-digit code from an authenticator app (TOTP,
     30-second steps, each code accepted once) or one of ten single-use
@@ -121,10 +136,33 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
 * **Impersonation** (**Admin → Users → Impersonate**) keeps the
   administrator's own session, is logged, and needs a superuser for
   administrators and owners. While impersonating, lasting credentials of the
-  account (API tokens, the userbot key) cannot be created.
+  account (API tokens, the userbot key) cannot be created, and what the
+  administrator does with the account's private data is audited under their
+  own name: downloading its data, reading or exporting its conversations and
+  groups, every chat action taken in its name (messages sent, deleted or
+  reported, conversations started or cleared) and every page change
+  (`page.impersonated_action`: edits, renames, moves, deletions, reverts,
+  attachments, reservations, protections, proposing, changing, withdrawing,
+  approving or denying edits, contribution quota requests and their
+  cancellation, sharing pages with federated wikis or withdrawing them,
+  difficulty tags, assessments, bulk Markdown imports, bulk deletions,
+  restoring or purging pending deletions, forking federated copies, creating
+  the built-in guide and scheduling a page's deletion or visibility; a site
+  migration import is refused while impersonating), every Kanban change
+  (`kanban.impersonated_action`: comments, tickets, columns, boards, sharing,
+  imports and reverts; not the account's own order of the board list), every
+  canvas change (`canvas.impersonated_action`) and every change to the
+  account or its public profile (`user.impersonated_action`: name,
+  biography, picture, profile fields, username, merges, deletion; not
+  display, accessibility or language preferences). Protections still bind the
+  administrator: impersonating a page's controller does not lift them. The lists of conversations and
+  groups leave out the latest messages, so reading one means opening it.
 * **Setup token:** the first account needs the token from
   `bananawiki setup-token` (or `BW_SETUP_TOKEN`), accepted only in the posted
-  form, never in the URL.
+  form, never in the URL. At most 10 wrong tokens per client network in 15
+  minutes, shared by all workers; in production a `BW_SETUP_TOKEN` shorter
+  than 20 characters is refused (the server still starts, so an upgraded
+  wiki whose setup is done is not affected).
 
 ## Access control
 
@@ -135,6 +173,9 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   canvases, read-aloud audio). Public mode can have an end date and can be
   forbidden by a host (`BW_FORBID_PUBLIC_MODE`), which also keeps published
   custom pages for signed-in members.
+* Pending, denied and suspended accounts are sent to their account status
+  page; on the views open to everyone (published custom pages, the API guide)
+  they are served as anonymous visitors, without the page tree or page lists.
 * Every action checks a permission from the [catalogue](permissions.md) and
   the object itself: this page, this category, this board. Objects you may
   not read answer 404, so their existence is not revealed.
@@ -148,21 +189,34 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   bearer token is exempt, and it refuses requests carrying an `Origin` from
   another site.
 * **Rate limits:** 300 requests per minute per client address (IPv6: per
-  /64) and worker, plus per-action limits (editing, uploads, search, chats,
+  /64) and worker, static files excepted (requests that match no route, such
+  as an unknown method, count too), plus per-action limits (editing, uploads, search, chats,
   the API …), per account or, for visitors and group joins, per address
   (IPv6: per /64).
+  Every custom invite code a group owner tries spends a group-join attempt,
+  since a taken code tells that another group uses it.
+  For the same reason an editor with delegated invite rights may try only 10
+  custom site invite codes an hour (30 per address); administrators, who see
+  every code, are not limited.
   Sign-in and sign-up limits are stored in the database, so they hold across
   all workers.
 * **Body limits:** JSON bodies 2 MiB, form fields 2 MiB in memory; file
   uploads stream to disk and are checked against their own limits (see
-  [configuration](configuration.md#limits)).
+  [configuration](configuration.md#limits)). A GET or HEAD request body is
+  never allowed more than `BW_MAX_CONTENT_LENGTH_BYTES`.
 * **Proxies:** with `BW_PROXY_MODE=1` one hop of `X-Forwarded-For`, `-Proto`
   and `-Host` is trusted; `X-Forwarded-Prefix` never.
 * **Slow clients:** the shipped Caddy configuration allows 10 s for request
   headers and 5 minutes for a request body. A response is abandoned once a
   write has waited `BW_WRITE_TIMEOUT` seconds (300); a proxy minimum rate
   (Caddy's `write_idle <duration> <min_rate>`) covers clients that read
-  slowly on purpose (see [deployment](deployment.md#reverse-proxy)).
+  slowly on purpose (see [deployment](deployment.md#reverse-proxy)). Large
+  responses (over 64 KiB, files, streams) only use `BW_DOWNLOAD_THREADS`
+  threads of a worker, at most a quarter of them for one account or network,
+  so slow readers never take the threads pages and `/health` need. Gunicorn
+  answers one request per connection and closes it without waiting for the
+  client, so requests sent back to back and clients that never close hold
+  no thread either.
 
 ## Response headers
 
@@ -217,10 +271,36 @@ ask editors to upload images instead of linking them.
     The blocks of a page-builder page share that allowance, and so do the
     comments of one kanban ticket. Excerpts and plain text highlight
     nothing.
+  * Highlighting is bounded in time too, whatever the language: many
+    Pygments lexers need time growing with the square of a run of similar
+    characters (or worse), so code is lexed in pieces of at most 1 KB, cut
+    between lines, and one page (or one answer: a canvas, a page-builder
+    page, a ticket's comments) spends at most 0.5 s highlighting; the block
+    being highlighted then, and every later one, stay plain code. Some
+    lexers, common ones included (Bash, Scala, reStructuredText), need
+    exponential time inside a single token on a few dozen characters, which
+    nothing inside a process can interrupt: lexers therefore run in two
+    helper processes per web process (`bananawiki.wiki.highlighter`), and a
+    helper that outlives the time left is stopped and replaced. Where helper
+    processes cannot start, code is shown without colours. Code with a line
+    over 1 KB, and code in the few languages whose lexer is slow even on
+    1 KB (Maple, Easytrieve), is shown without colours.
+    `scripts/measure_lexers.py` finds those again after a Pygments upgrade.
   * A kanban ticket holds at most 300 comments. One listing renders at most
     about 4 MB of HTML, newest first; older comments show as plain text.
+  * The Markdown and code blocks of a page-builder page together get the
+    limits of one Markdown page (parse work, blocks, 1,000 headings, 200
+    embeds, the highlighting allowance, 16 MB of HTML). The 16 MB counts
+    highlighted code and blocks shown as source too, with room for every
+    block as source set aside first, so the whole always fits in one cache
+    entry; a Markdown block that no longer fits is shown as escaped source,
+    a code block as plain code.
   * Rendered pages, snippets and PDF exports are cached by the hash of their
-    source (a PDF also by the state of the uploaded images it embeds).
+    source (a PDF also by the state of the uploaded images it embeds); a
+    page-builder page by the sources of all its Markdown and code blocks
+    (page lists and embeds are still worked out for each reader).
+    Readers who ask for a rendering that is being made wait for it instead of
+    making it again.
   * The live preview and code highlighting endpoints are for editors only,
     at most 60 requests a minute.
 * Page-builder documents are validated against an allow-list of block types
@@ -246,6 +326,9 @@ ask editors to upload images instead of linking them.
   `BW_BACKGROUND_IMAGE_MAX_PIXELS` for display backgrounds. Each worker
   process decodes one picture at a time, and an account can change its avatar
   or background ten times in ten minutes.
+* A PDF export decodes at most 160 megapixels of uploads (large JPEGs at a
+  reduced scale) and embeds them re-encoded at print resolution, within 32 MB
+  per PDF; each worker process lays out one PDF at a time.
 * Downloads send `X-Content-Type-Options: nosniff` and
   `Content-Security-Policy: default-src 'none'; sandbox`. Only images, audio,
   video, PDF and plain text are shown inline; everything else is a download
@@ -321,20 +404,66 @@ account and address:
   the code itself).
 * **Roles and access:** role and custom-role changes, superuser grants,
   permission overrides, protections ended by a demotion, impersonation,
-  attribution and role-history clean-up.
+  page governance (an administrator's unlock requests and removals of a
+  page protection, check-outs released, given to an editor or their
+  cooldowns cleared, and reservation quota changes with the old and new
+  value),
+  attribution and role-history clean-up, REST API access granted or taken
+  away.
+* **Public profiles:** an administrator's changes to a member's public
+  profile from **Admin → Users → Profile** (`user.profile_moderated`: name,
+  biography, birth date, picture, profile fields, tags, publishing,
+  disabling, deletion), naming what was done and which parts changed,
+  never their content.
 * **Credentials and sessions:** password changes and resets, two-step
   verification turned on, off or reset, new recovery codes, sign-ins with a
   recovery code, session revocations and mass sign-outs.
 * **Content:** page and category deletions and restores, bulk deletions,
-  attachment uploads and deletions.
+  assessments deleted and a member's assessment attempts reset
+  (`assessment.deleted`, `assessment.attempts_reset`, with the page, the
+  member and the number of attempts removed), and an assessment saved with
+  questions or answers removed, an answer key or points changed, or new
+  rules on who may take it and how often (`assessment.saved`, with the counts),
+  attachment uploads and deletions; page versions deleted, a page's history
+  cleared, and versions credited to another account or made anonymous
+  (`page.history_*`, with the version and both accounts); another
+  account's draft taken over (`draft.taken_over`, with the page, both
+  accounts and the draft's size, never its text); Kanban boards and
+  canvases deleted (`kanban.board_deleted`, `canvas.deleted`, with the title
+  and the member who made them, from any page, the REST API or bulk
+  management), and their versions deleted or history cleared
+  (`kanban.history_*`, `canvas.history_*`); custom pages
+  created, changed (in the form or the builder), deleted, and their files
+  added or deleted, with the path, type, whether it is published, for a
+  redirect the host it leads to, and the account acted as when made while
+  impersonating; site-wide announcements created, changed or deleted
+  (`announcement.*`, with who sees them, until when, the hosts their links
+  lead to and how they begin); badge types created, changed or deleted, and
+  badges an administrator awards or takes away (`badge.*`, with the badge
+  and the member; automatic awards are not recorded); public profile fields
+  added, changed or deleted (`profile_field.*`, with the label, type and,
+  for a deletion, how many members' answers went with it); temporary
+  schedules set or removed and each one the job carries out, with whoever
+  set it as the actor (`temporary.*`), because the job's own deletions and
+  role changes name nobody.
 * **Site:** site settings, appearance and language changes, features and
   plugins switched, installed or removed, documentation, server restarts.
+  Every settings page records which settings it changed (the REST API page
+  and the onboarding wizard too), and webhooks created, changed, deleted or given a new secret (with
+  only the host of their address, which often carries a credential).
+  Federation pairings made, synchronised by hand or disconnected, and pages
+  shared, withdrawn or forked (`federation.*`, with only the peer's host).
 * **Exports and imports:** bulk Markdown and whole-site exports and imports,
-  and refused attempts.
-* **Chat moderation:** administrators opening, exporting, clearing or taking
-  over private conversations and groups they are not in, and resolving
-  reported messages. Reading a group's messages as JSON, or downloading its
-  attachments, is recorded once per ten minutes.
+  and refused attempts; an administrator's download of another account's
+  data (its private messages and sign-in addresses).
+* **Chat moderation:** administrators opening, exporting, clearing, deleting
+  or taking over private conversations and groups they are not in (or do not
+  moderate), deleting members' messages there, and resolving
+  reported messages; each run of the retention policy that deletes messages,
+  attachments or conversations. Reading a group's messages as JSON, or downloading its
+  attachments, is recorded once per ten minutes. The same entries, and every
+  chat action, are recorded for an administrator impersonating a participant
+  (the global room, open to all, excepted).
 
 Only owners and superusers can switch the audit log off (the switch is
 recorded as its last entry), whichever page switches it: the plugin manager

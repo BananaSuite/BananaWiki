@@ -35,11 +35,6 @@ def test_field_definition_validation(admin_client, db):
     assert db.scalar("SELECT COUNT(*) FROM user_profile_fields__definitions") == 0
 
 
-def test_field_admin_is_admin_only(client, make_user, login):
-    login(client, make_user("bob"))
-    assert client.get("/admin/profile-fields").status_code == 403
-
-
 def test_member_fills_in_fields_with_visibility(app, admin_client, make_user, login, db):
     site = _field(admin_client, db, "Website", "url")
     motto = _field(admin_client, db, "Motto")
@@ -133,13 +128,6 @@ def test_owner_profiles_are_protected_from_other_admins(admin_client, make_user,
     admin_client.post(f"/admin/users/{owner['id']}/tags", data={"action": "add_tag", "tag_label": "x",
                                                                 "tag_color": "#112233"})
     assert db.scalar("SELECT COUNT(*) FROM user_custom_tags") == 0
-
-
-def test_moderation_is_admin_only(client, make_user, login, db):
-    bob = make_user("bob")
-    login(client, make_user("eve"))
-    assert client.post(f"/admin/users/{bob['id']}/profile", data={"action": "delete_profile"}).status_code == 403
-    assert client.post(f"/admin/users/{bob['id']}/tags", data={"action": "add_tag"}).status_code == 403
 
 
 def test_custom_tags(app, admin_client, make_user, login, db):

@@ -19,6 +19,7 @@ from ....core.ratelimit import SqlLimiter
 from ....core.web import safe_next
 from ... import attention, auth, settings
 from ...db import db
+from ..audit import record_settings
 from . import mailer, service
 from .service import NotificationError
 
@@ -204,9 +205,12 @@ def admin_settings():
             if request.form.get("section") == "mail":
                 if service.mail_source() != "settings":
                     abort(403)
-                settings.update(_mail_values())
+                values = _mail_values()
             else:
-                settings.update(_notification_values())
+                values = _notification_values()
+            previous = settings.load()
+            settings.update(values)
+            record_settings(previous, values, via="attention")
         except NotificationError as error:
             _flash_error(error)
         else:

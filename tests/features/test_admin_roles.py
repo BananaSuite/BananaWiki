@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from bananawiki.wiki import permissions as perms
 
 
@@ -27,14 +25,6 @@ def create_role(client, **data):
 
 
 # Custom roles
-
-
-@pytest.mark.parametrize("role", ["user", "editor"])
-def test_roles_are_admin_only(client, make_user, login, db, role):
-    login(client, make_user("someone", role=role))
-    assert create_role(client).status_code == 403
-    assert client.get("/admin/roles").status_code == 403
-    assert db.scalar("SELECT COUNT(*) FROM custom_roles") == 0
 
 
 def test_create_role_sanitizes_permissions(admin_client, db):

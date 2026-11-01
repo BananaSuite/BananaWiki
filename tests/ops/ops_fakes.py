@@ -66,6 +66,10 @@ class FakeSystem(System):
             self.docker_group = False
         elif command[:1] == ["docker"]:
             code, stdout, stderr = self._docker(command)
+        elif command[:3] == ["nft", "list", "table"]:
+            from bananawiki.ops import firewall
+
+            stdout = firewall.rules()  # the current rules are loaded
         return subprocess.CompletedProcess(command, code, stdout, stderr)
 
     def _docker(self, command: list[str]) -> tuple[int, str, str]:

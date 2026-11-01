@@ -6,6 +6,11 @@ role. When a role is deleted its holders move to the replacement the
 administrator picked or, by default, to the most similar surviving role: the
 highest Jaccard overlap of permission keys, with a bonus for the
 same base role.
+
+Changing or deleting a role changes every holder's account, so it follows
+the administrators' hierarchy (``service.protection_error``) for each of
+them: while a holder is an account the administrator may not change (a
+superuser, say), the role is left as it is.
 """
 
 from __future__ import annotations
@@ -21,7 +26,7 @@ from ...accounts import AccountError
 from ...db import db
 from ...registry import emit
 from ..audit.service import record
-from .service import clear_overrides, existing_category_ids, record_role_change
+from .service import clear_overrides, existing_category_ids, protection_error, record_role_change
 
 BASE_ROLES = ("user", "editor")
 MAX_NAME = 100
@@ -152,11 +157,21 @@ def create(data: RoleForm, *, actor_id: str) -> int:
     return role_id
 
 
+def _require_manageable_holders(role_id: int, actor_id: str) -> None:
+    """Refuse when *actor_id* may not change the account of one of the role's holders (in the transaction)."""
+    actor = db.one("SELECT * FROM users WHERE id = ?", (actor_id,))
+    for holder in db.all("SELECT * FROM users WHERE custom_role_id = ? ORDER BY username COLLATE NOCASE",
+                         (role_id,)):
+        if actor is None or protection_error(actor, holder):
+            raise AccountError("admin.roles.error.protected_holder", username=holder["username"])
+
+
 def update(role: dict[str, Any], data: RoleForm, *, actor_id: str) -> None:
     """Replace a role's definition; holders follow a change of base role."""
     data.clean()
     moved: list[dict[str, Any]] = []
     with db.transaction():
+        _require_manageable_holders(role["id"], actor_id)
         if _name_taken(data.name, role["id"]):
             raise AccountError("admin.roles.error.name_taken")
         db.update("custom_roles", {
@@ -212,6 +227,7 @@ def delete(role: dict[str, Any], replacement: str, *, actor_id: str) -> dict[str
         raise AccountError("admin.roles.error.invalid_replacement")
     moved: list[dict[str, Any]] = []
     with db.transaction():
+        _require_manageable_holders(role["id"], actor_id)
         users = holders(role["id"])
         for user in users:
             clear_overrides(user["id"])
