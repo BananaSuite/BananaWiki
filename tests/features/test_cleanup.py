@@ -41,8 +41,8 @@ def test_a_page_builder_the_host_forbids_is_locked_in_plugins_too(app_factory, l
         session.execute("UPDATE site_settings SET page_builder_enabled = 1")
     page = client.get("/admin/plugins").get_data(as_text=True)
     assert "Off (server setting)" in page
-    overview = client.get("/admin/home").get_data(as_text=True)
-    assert 'href="/admin/users"' in overview and 'href="/admin/page-builder"' not in overview, \
+    menu = page[page.index('id="sidebar"'):]
+    assert 'href="/admin/users"' in menu and 'href="/admin/page-builder"' not in menu, \
         "no menu entry leading to a page that answers 404"
 
 
@@ -53,7 +53,7 @@ def test_the_guide_bypass_is_set_on_pending_deletions_only(app, admin_client, db
     set_feature(app, "deletion_slowdown", True)
     page = admin_client.get("/admin/documentation").get_data(as_text=True)
     assert 'name="docs_bypass_deletion_slowdown"' not in page
-    assert 'href="/admin/pending-deletions#docs-bypass"' in page and "deleted at once" in page
+    assert 'href="/admin/pending-deletions#docs-bypass"' in page and "deleted immediately" in page
     response = admin_client.post("/admin/pending-deletions/settings", data={})
     assert response.status_code == 302
     assert db.scalar("SELECT docs_bypass_deletion_slowdown FROM site_settings") == 0
@@ -121,7 +121,7 @@ def test_no_empty_profile_fields_card_on_a_wiki_without_fields(app, admin_client
     admin_client.post("/admin/profile-fields", data={"action": "create", "label": "Motto", "field_type": "text"})
     page = client.get("/users/member").get_data(as_text=True)
     assert "Profile fields" in page and "Edit profile fields" in page
-    assert "You have not filled in any profile fields." in page
+    assert "No profile fields filled in." in page
 
 
 # The built-in guide is offered in the wiki's own language
@@ -161,8 +161,8 @@ def test_visitors_still_choose_their_language_on_the_display_page(app, db):
 
 def test_the_display_page_has_one_name(app, make_user, login):
     page = _signed_in(app, login, make_user("member")).get("/settings/display").get_data(as_text=True)
-    assert "Display preferences</title>" not in page
-    assert page.count(">Customise<") >= 2, "the top bar, the account menu and the tab agree"
+    assert "Display preferences</title>" not in page and ">Appearance · " in page
+    assert page.count(">Appearance<") >= 2, "the account menu and the tab agree"
 
 
 # Plugins: what the server and the feature's own switches say
@@ -182,9 +182,9 @@ def test_federation_switched_off_on_the_server_is_shown_as_off(app_factory, logi
 def test_the_rest_api_row_says_when_the_api_itself_is_off(app, admin_client, db):
     set_feature(app, "api_service", True)
     page = admin_client.get("/admin/plugins").get_data(as_text=True)
-    assert 'href="/admin/api-service"' in page and "The API itself is switched off" in page
+    assert 'href="/admin/api-service"' in page and "The API is turned off" in page
     db.execute("UPDATE site_settings SET api_service_enabled = 1")
-    assert "The API itself is switched off" not in admin_client.get("/admin/plugins").get_data(as_text=True)
+    assert "The API is turned off" not in admin_client.get("/admin/plugins").get_data(as_text=True)
 
 
 # The sidebar keeps related apps together

@@ -73,6 +73,14 @@ def _dashboard():
     return redirect(url_for("admin.dashboard"))
 
 
+def _account_list():
+    return redirect(url_for("admin.account_list"))
+
+
+def _wiki_list():
+    return redirect(url_for("admin.wiki_list"))
+
+
 def _account_or_404(account_id: str) -> dict[str, Any]:
     target = accounts.get(account_id)
     if target is None:
@@ -119,11 +127,27 @@ def dashboard():
         stats[status] = sum(1 for inst in wikis if inst["status"] == status and not inst.get("expired"))
     return render_template(
         "hosting/admin/dashboard.html", stats=stats, pending=accounts.pending(),
-        feature_queue=features.pending_queue(), signup_mode=settings.signup_mode(),
-        signup_approval=settings.approval_required(), invites=invites.list_all(),
-        accounts=accounts.all_accounts(), instances=wikis, storage=_storage_protection(), firewall=_host_firewall(),
+        feature_queue=features.pending_queue(), main_wikis=[inst for inst in wikis if inst.get("is_main")],
+        storage=_storage_protection(), firewall=_host_firewall(),
         attention_entries=attention.items(account(), with_oldest=True),
     )
+
+
+@bp.get("/admin/accounts")
+@auth.admin_required
+def account_list():
+    """Every account, with bulk deletion, account creation and the invite codes."""
+    return render_template(
+        "hosting/admin/accounts.html", accounts=accounts.all_accounts(), signup_mode=settings.signup_mode(),
+        signup_approval=settings.approval_required(), invites=invites.list_all(),
+    )
+
+
+@bp.get("/admin/wikis")
+@auth.admin_required
+def wiki_list():
+    """Every wiki, with the bulk actions."""
+    return render_template("hosting/admin/wikis.html", instances=instances.admin_list())
 
 
 def _storage_protection() -> dict[str, Any]:
@@ -200,10 +224,10 @@ def create_account():
                                   is_admin=bool(request.form.get("is_admin")), email=request.form.get("email") or "")
     except ServiceError as error:
         flash_error(error)
-        return _dashboard()
+        return _account_list()
     events.record("account", created["id"], "account.created_by_admin", account()["id"])
     _done("hosting.admin.account_created", username=created["username"])
-    return _dashboard()
+    return _account_list()
 
 
 def _not_self(target: dict[str, Any]) -> None:
@@ -296,7 +320,7 @@ def delete_account(account_id: str):
     if address and request.form.get("notify_user"):
         notifications.send(address, "account_deleted", username=username)
     _done("hosting.admin.account_deleted", username=username)
-    return _dashboard()
+    return _account_list()
 
 
 @bp.post("/admin/accounts/bulk-delete")
@@ -322,7 +346,7 @@ def bulk_delete_accounts():
     _done("hosting.admin.accounts_deleted", count=done)
     if failed:
         flash(tn("hosting.admin.accounts_not_deleted", failed), "error")
-    return _dashboard()
+    return _account_list()
 
 
 @bp.post("/admin/accounts/<account_id>/schedule-deletion")
@@ -514,15 +538,15 @@ def signup_mode():
     mode = (request.form.get("signup_mode") or "").strip().lower()
     if mode not in settings.SIGNUP_MODES:
         flash(t("hosting.admin.invalid_signup_mode"), "error")
-        return _dashboard()
+        return _account_list()
     before = dict(settings.load(fresh=True))
     try:
         _change_signups(mode, 1 if settings.flag("hosting_activation_required") else 0)
     except _ConfirmPending as pending:
-        return _confirm_pending(pending.count, url_for("admin.signup_mode"), url_for("admin.dashboard"))
+        return _confirm_pending(pending.count, url_for("admin.signup_mode"), url_for("admin.account_list"))
     _record_settings_change(before)
     _done("hosting.admin.signup_mode_saved", mode=t(f"hosting.signup_mode.{mode}"))
-    return _dashboard()
+    return _account_list()
 
 
 @bp.post("/admin/invites/create")
@@ -536,9 +560,9 @@ def create_invite():
                              expires_at=expires, code=(request.form.get("custom_code") or "").strip() or None)
     except ServiceError as error:
         flash_error(error)
-        return _dashboard()
+        return _account_list()
     _done("hosting.admin.invite_created", code=row["code"])
-    return _dashboard()
+    return _account_list()
 
 
 @bp.post("/admin/invites/<int:invite_id>/delete")
@@ -549,7 +573,7 @@ def delete_invite(invite_id: int):
         _done("hosting.admin.invite_deleted")
     else:
         flash(t("hosting.invites.invalid"), "error")
-    return _dashboard()
+    return _account_list()
 
 
 # Wikis
@@ -726,7 +750,7 @@ def delete_terminated(instance_id: str):
     except ServiceError as error:
         flash_error(error)
         return admin_back(instance_id)
-    return _dashboard()
+    return _wiki_list()
 
 
 @bp.post("/admin/instances/<instance_id>/grace-suspend")
@@ -1124,7 +1148,7 @@ def _admin_bulk(action, allowed: tuple[str, ...], key: str):
     flash(t(key, done=done, skipped=skipped), "success")
     if failed:
         flash(tn("hosting.bulk.failed", failed), "error")
-    return _dashboard()
+    return _wiki_list()
 
 
 @bp.post("/admin/instances/bulk-stop")
@@ -1693,7 +1717,8 @@ def _finish_upload(upload_id: str, kind: str, handler):
         return jsonify(ok=False, error=t(f"hosting.runtime.{error.code}")), 400
     finally:
         shutil.rmtree(directory, ignore_errors=True)
-    return jsonify(ok=True, message=message, redirect=url_for("admin.dashboard"))
+    return jsonify(ok=True, message=message,
+                   redirect=url_for("admin.wiki_list" if kind == "import" else "admin.dashboard"))
 
 
 def _import(path: Path, meta: dict[str, Any]) -> str:
@@ -1738,7 +1763,7 @@ def import_instance():
         shutil.rmtree(work, ignore_errors=True)
     _done("hosting.archives.imported", url=urls.instance_url(inst))
     _two_step_off(inst)
-    return _dashboard()
+    return _wiki_list()
 
 
 @bp.post("/admin/instances/import/chunk/start")

@@ -1,5 +1,5 @@
 {
-  "drafts.editor.credit": "Saving the page credits them in the edit summary and clears their drafts.",
+  "drafts.editor.credit": "Saving the page credits them and deletes their drafts.",
   "drafts.editor.discard": "Discard draft",
   "drafts.editor.discard_confirm": "Discard your saved draft of this page? This cannot be undone.",
   "drafts.editor.have_draft": "You have an unsaved draft of this page (saved {when}).",
@@ -21,7 +21,6 @@
   "drafts.mine.continue": "Continue editing",
   "drafts.mine.discard_confirm": "Discard this draft? This cannot be undone.",
   "drafts.mine.empty": "You have no unsaved drafts.",
-  "drafts.mine.intro": "Drafts are saved automatically while you edit a page and cleared when you save it.",
   "drafts.mine.page": "Page",
   "drafts.mine.saved": "Last saved",
   "drafts.mine.title": "My drafts",

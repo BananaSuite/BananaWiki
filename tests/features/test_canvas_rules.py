@@ -180,7 +180,7 @@ def test_editor_ops_skip_changes_to_locked_nodes_and_say_why(editor, canvas, db)
     assert response.status_code == 200
     assert body["rejected"] == [{"op": "upsert_node", "id": "a", "reason": "locked"},
                                 {"op": "delete_node", "id": "a", "reason": "locked"}]
-    assert "unlock them first" in body["error"] and "a" in body["error"]
+    assert "Unlock them first" in body["error"] and "a" in body["error"]
     assert [op["node"]["id"] for op in body["applied"]] == ["b"]
     doc = stored(db, canvas)
     assert {n["id"]: n["x"] for n in doc["nodes"]} == {"a": 0, "b": 70} and len(doc["edges"]) == 1
@@ -221,7 +221,7 @@ def test_whole_document_saves_respect_locks(app, editor, canvas, db):
     ops(editor, canvas, {"op": "upsert_node", "node": node("a", locked=True)})
     slug = canvas["slug"]
     moved = editor.post(f"/canvas/{slug}/data", json={"data": {"nodes": [node("a", locked=True, x=5)], "edges": []}})
-    assert moved.status_code == 400 and "unlock" in moved.get_json()["error"]
+    assert moved.status_code == 400 and "Unlock" in moved.get_json()["error"]
     dropped = editor.post(f"/canvas/{slug}/data", json={"data": {"nodes": [], "edges": []}})
     assert dropped.status_code == 400
     kept = editor.post(f"/canvas/{slug}/data",

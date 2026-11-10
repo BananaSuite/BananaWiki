@@ -6,7 +6,8 @@ import pytest
 
 from .hosting_support import PASSWORD
 
-ADMIN_GETS = ["/admin", "/admin/settings", "/global-settings", "/admin/banners", "/admin/moderation",
+ADMIN_GETS = ["/admin", "/admin/accounts", "/admin/wikis", "/admin/settings", "/global-settings", "/admin/banners",
+              "/admin/moderation",
               "/admin/merge-requests", "/admin/merge-accounts", "/admin/instances/import"]
 
 
@@ -112,7 +113,7 @@ def test_lifting_an_account_says_its_wikis_held_for_storage_reopen_by_themselves
     page = web.post(f"/admin/accounts/{user['id']}/unsuspend", data={"unsuspend_instances": "1", "notify_user": "0"},
                     follow_redirects=True).get_data(as_text=True)
     assert "1 wiki restarted" in page
-    assert "1 wiki stays suspended because it uses more storage than its limit allows" in page
+    assert "1 wiki stays suspended because it is over its storage limit" in page
     assert "suspended on its own" not in page
     status = {row["id"]: row["status"] for row in query("SELECT id, status FROM instances")}
     assert status == {together["id"]: "running", full["id"]: "suspended"}
@@ -273,17 +274,17 @@ def test_paused_deletion_countdown_blocks_owner_downloads_and_says_so(portal, ma
     login(owner_client, owner)
     admin_client.post(f"/admin/instances/{wiki['id']}/terminate")
     page = admin_client.get(f"/admin/instances/{wiki['id']}").get_data(as_text=True)
-    assert "the owner cannot download the data" in page
+    assert "The owner cannot download it" in page
     admin_client.post(f"/admin/instances/{wiki['id']}/grace-suspend")
     page = admin_client.get(f"/admin/instances/{wiki['id']}").get_data(as_text=True)
-    assert "countdown paused" in page and "the owner cannot download it in the meantime" in page
+    assert "countdown paused" in page and "The owner cannot download the data until you resume it" in page
     assert "countdown paused" in owner_client.get(f"/instances/{wiki['id']}").get_data(as_text=True)
     assert owner_client.post(f"/instances/{wiki['id']}/download").status_code == 302
     assert runtime.called("export_archive") == []
     again = admin_client.post(f"/admin/instances/{wiki['id']}/grace-suspend", follow_redirects=True)
     assert "The deletion countdown was already paused." in again.get_data(as_text=True)
     resumed = admin_client.post(f"/admin/instances/{wiki['id']}/grace-unsuspend", follow_redirects=True)
-    assert "the paused time was added" in resumed.get_data(as_text=True)
+    assert "The paused time was added" in resumed.get_data(as_text=True)
     assert owner_client.post(f"/instances/{wiki['id']}/download").status_code == 200
     again = admin_client.post(f"/admin/instances/{wiki['id']}/grace-unsuspend", follow_redirects=True)
     assert "The deletion countdown was not paused." in again.get_data(as_text=True)

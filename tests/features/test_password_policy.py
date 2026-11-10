@@ -20,7 +20,7 @@ from bananawiki.wiki.db import connection_scope
 from .api_support import call, enable_api, issue
 
 COMMON = "password123"
-PERSONAL = "must not contain your username"  # from auth.error.password_personal
+PERSONAL = "contain your username"  # from auth.error.password_personal
 TRANSLATIONS = Path(__file__).resolve().parents[2] / "bananawiki/wiki/features/auth/translations"
 
 

@@ -3,8 +3,8 @@
 {% set active_page = 'admin' if current_account.is_admin and instance.account_id != current_account.id else 'dashboard' %}
 {% block title %}{{ t('hosting.domains.title') }}{% endblock %}
 {% block content %}
-{#- An administrator on someone else's wiki came from the administration: its tabs, and the way back to its wiki page. -#}
-{% if active_page == 'admin' %}{% include "hosting/admin/_nav.html" %}
+{#- An administrator on someone else's wiki came from the administration: the way back is its admin page. -#}
+{% if active_page == 'admin' %}
 <nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('admin.instance', instance_id=instance.id) }}">{{ instance.subdomain }}</a></nav>
 {% else %}<nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('dashboard.instance_detail', instance_id=instance.id) }}">{{ instance.subdomain }}</a></nav>{% endif %}
 <h1>{{ t('hosting.domains.title') }}</h1>
@@ -34,7 +34,6 @@
   <p><span class="badge badge--warning">{{ t('hosting.features.status.pending') }}</span> {{ t('hosting.domains.ask_pending') }}</p>
   {% if can_act and instance.account_id == current_account.id %}{{ ui.post(url_for('dashboard.cancel_feature', instance_id=instance.id, request_id=pending_request.id), t('hosting.features.cancel_request'), hidden={'back': 'domain'}) }}{% endif %}
   {% elif can_act and instance.account_id == current_account.id %}
-  <p class="small muted">{{ t('hosting.domains.ask_intro') }}</p>
   <form method="post" action="{{ url_for('dashboard.request_feature', instance_id=instance.id, feature='custom_domain') }}" class="form">{{ ui.csrf() }}<input type="hidden" name="back" value="domain">
     {{ ui.textarea('reason', t('hosting.domains.ask_reason'), required=true, hint=t('hosting.domains.ask_reason_hint'), attrs={'minlength': 20, 'maxlength': 2000, 'rows': 3}, id='f-domain-reason') }}
     <p><button class="btn btn--primary" type="submit">{{ t('hosting.domains.ask') }}</button></p></form>

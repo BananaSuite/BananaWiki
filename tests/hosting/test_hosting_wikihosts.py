@@ -100,6 +100,7 @@ def test_paused_and_unknown_wikis_get_a_status_page(web, runtime, make_account, 
     query("UPDATE instances SET status = 'stopped' WHERE id = ?", (inst["id"],))
     paused = web.get("/login", headers={"Host": _host("team")})
     assert paused.status_code == 503 and "paused" in paused.get_data(as_text=True)
+    assert ":root { --page: #0f151c;" in paused.get_data(as_text=True)  # the portal's default dark theme
     missing = web.get("/", headers={"Host": _host("nobody")})
     assert missing.status_code == 404 and "No wiki at this address" in missing.get_data(as_text=True)
 

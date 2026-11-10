@@ -95,7 +95,7 @@ def test_administrators_learn_which_account_keeps_a_name(app, admin_client, make
     alice, carol = make_user("alice"), make_user("carol")
     _rename(app, alice, "alice_new")
     page = _create(admin_client, "Alice").get_data(as_text=True)
-    assert "Alice is a former name of alice_new and stays reserved for that account" in page
+    assert "Alice is a former name of alice_new and is reserved for that account" in page
     assert db.scalar("SELECT COUNT(*) FROM users WHERE username = 'Alice' COLLATE NOCASE") == 0
     page = admin_client.post(f"/admin/users/{carol['id']}/edit", data={"action": "change_username",
                                                                        "username": "alice"},
@@ -117,7 +117,7 @@ def test_a_name_given_up_by_several_accounts_passes_to_the_one_before(app, admin
     assert admin_client.get("/users/bob").headers["Location"].endswith("/users/beta")
 
     page = _release(admin_client, beta, "bob").get_data(as_text=True)
-    assert "bob no longer leads to this account, but it is also a former name of alpha" in page
+    assert "bob no longer leads to this account. It is also a former name of alpha" in page
     assert "was released" not in page
     assert _former_names(db, beta) == []
     assert _former_names(db, alpha) == ["bob"], "the other account is left alone"

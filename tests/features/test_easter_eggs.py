@@ -48,7 +48,7 @@ def test_every_easter_egg_is_on_by_default(app, admin_client):
     assert 'id="mascot-eggs-heading"' in page
     for egg in ALL_ON:
         assert f'name="egg_{egg}" value="1" checked' in page
-    assert "Clicking the mascot 11 times in a row" in page
+    assert "11 clicks in a row on the mascot" in page
 
 
 def test_switching_the_konami_code_off_marks_the_button(app, admin_client):
@@ -76,7 +76,7 @@ def test_without_the_sunglasses_egg_nobody_wears_them_until_it_is_back(app, admi
     button = _button(html)
     assert 'data-mascot-clicks="0"' in button and "data-mascot-url" not in button
     assert "mascot-sprite--shades" not in html
-    # Nothing to take off under Customise, and the clicks' endpoint is gone.
+    # Nothing to take off under Appearance, and the clicks' endpoint is gone.
     assert 'id="mascot-heading"' not in client.get("/settings/display").get_data(as_text=True)
     assert client.post("/mascot/shades").status_code == 404
     assert client.delete("/mascot/shades").status_code == 404

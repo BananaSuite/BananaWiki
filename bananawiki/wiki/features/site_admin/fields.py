@@ -37,6 +37,9 @@ class Field:
     in bytes). ``locked`` returns a translation key explaining why the host
     does not allow changes, or None. ``depends_on`` names a flag: when that
     flag is off the value is cleared instead of validated (expiry dates).
+    ``reveal`` is ``(field name, values)``: the form shows the control only
+    while that field has one of the space-separated values (admin.js), so a
+    page lists only what applies; the value is still sent and stored.
     """
 
     name: str
@@ -50,6 +53,7 @@ class Field:
     visible: Callable[[], bool] | None = None
     empty: Any = None
     choices: Callable[[], tuple[str, ...]] | None = field(default=None, compare=False)
+    reveal: tuple[str, str] | None = None
 
     @property
     def label(self) -> str:

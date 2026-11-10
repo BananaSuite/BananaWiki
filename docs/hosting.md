@@ -536,7 +536,7 @@ addresses, the limits per address are best effort everywhere (same section).
   switch): open, invite codes, approval by an administrator, or closed. In
   approval mode new accounts always need approval. Leaving approval mode while
   accounts are waiting asks first whether to keep them waiting or approve
-  them all; the Overview only shows the current mode. The first account is the
+  them all; **Administration → Accounts** shows the current mode beside the invite codes. The first account is the
   administrator and needs `HOSTING_BOOTSTRAP_TOKEN`.
 * Email verification, password and user-name recovery, and notices by email
   through Brevo, Resend or SMTP (`HOSTING_EMAIL_*`), with daily limits (see
@@ -949,7 +949,7 @@ wiki:
 * starts first when the maintenance service brings wikis back after an
   update or a reboot.
 
-Main wikis are listed at the top of the Overview and of the wiki list. One
+Main wikis are listed on the Overview, after the requests, and marked in **Administration → Wikis**. One
 owned by an administrator is shown as a *Platform wiki*, another as the
 *Main wiki* of its owner. Only administrators see the mark: owners,
 collaborators, the REST API and personal data exports do not show it, and an

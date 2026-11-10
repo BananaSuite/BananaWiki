@@ -4,7 +4,6 @@
 {% block content %}
 <nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('account.account') }}#more">{{ t('hosting.nav.account') }}</a></nav>
 <h1>{{ t('hosting.wikis.title') }}</h1>
-<p>{{ t('hosting.wikis.intro', service=service_name) }}</p>
 {% if wikis %}
 <div class="table-wrap"><table class="table table--stack">
   <thead><tr><th>{{ t('hosting.wikis.wiki') }}</th><th>{{ t('hosting.wikis.wiki_account') }}</th><th>{{ t('hosting.wikis.last_sign_in') }}</th><th><span class="visually-hidden">{{ t('hosting.admin.actions') }}</span></th></tr></thead>

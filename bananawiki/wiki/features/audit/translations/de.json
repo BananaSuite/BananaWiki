@@ -164,7 +164,6 @@
   "audit.filter.action": "Aktion",
   "audit.filter.actor": "Ausgeführt von (Benutzername)",
   "audit.filter.apply": "Filtern",
-  "audit.intro": "Sicherheitsrelevante Aktionen in diesem Wiki, neueste zuerst.",
   "audit.ip_hidden": "Ausgeblendet",
   "audit.nav": "Audit-Protokoll",
   "audit.retention.current": "Einträge werden {days} Tage lang aufbewahrt.",
@@ -192,6 +191,6 @@
   "audit.target.user": "Konto",
   "audit.title": "Audit-Protokoll",
   "audit.value.all": "Alle",
-  "feature.audit.description": "Zeichnet sicherheitsrelevante Aktionen auf: Anmeldungen, Änderungen an Konten und Rollen, Löschungen und Website-Einstellungen.",
+  "feature.audit.description": "Zeichnet Anmeldungen, Änderungen an Konten und Rollen, Löschungen und Website-Einstellungen auf.",
   "feature.audit.name": "Audit-Protokoll"
 }

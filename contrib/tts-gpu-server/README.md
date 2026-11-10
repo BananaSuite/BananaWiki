@@ -63,7 +63,7 @@ See [Connect a wiki](../../docs/tts.md#connect-a-wiki) in the read-aloud documen
 
 ## API
 
-* `GET /health` → `{"status": "ok", "version": "1.7.6"}`. Without a token it reports nothing
+* `GET /health` → `{"status": "ok", "version": "1.8.0"}`. Without a token it reports nothing
   else; with the bearer token it also reports `gpu_available`, `cuda_enabled`, `loaded_voices`
   and `output_format`.
 * Every answer to a request without a valid token (`/health` included) closes the connection

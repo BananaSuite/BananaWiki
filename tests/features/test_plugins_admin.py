@@ -181,4 +181,4 @@ def test_restart_with_preloaded_app_does_not_signal(app, admin_client, monkeypat
     page = admin_client.post("/admin/plugins/restart", environ_base={"SERVER_SOFTWARE": "gunicorn/23.0.0"},
                              follow_redirects=True)
     assert sent == []
-    assert "main process" in page.get_data(as_text=True)
+    assert "Workers can&#39;t load plugins" in page.get_data(as_text=True)

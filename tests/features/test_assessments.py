@@ -221,7 +221,7 @@ def test_multiple_attempts_hide_key_and_points_count_best(client, login, editor,
     numbers = db.column("SELECT attempt_number FROM assessment_attempts ORDER BY id")
     assert numbers == [1, 2]
     detail = client.get(first.headers["Location"])
-    assert b"Lemon" not in detail.data and b"stay hidden" in detail.data
+    assert b"Lemon" not in detail.data and b"are hidden because you can retake" in detail.data
     with app.test_request_context(), connection_scope():
         assert service.total_points(reader["id"]) == 6
 

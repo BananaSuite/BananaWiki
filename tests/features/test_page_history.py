@@ -46,9 +46,9 @@ def test_diff_of_repetitive_versions_is_bounded_and_says_so(app, admin_client, a
     for view in ("source_diff", "diff"):
         response = admin_client.get(f"/page/lines/history/{newest}?view={view}")
         assert response.status_code == 200
-        assert "too different to compare in detail" in response.get_data(as_text=True)
+        assert "differ too much for a line-by-line comparison" in response.get_data(as_text=True)
     ordinary = admin_client.get(f"/page/lines/history/{newest}?view=source").get_data(as_text=True)
-    assert "too different to compare in detail" not in ordinary
+    assert "differ too much for a line-by-line comparison" not in ordinary
 
 
 def test_entry_of_other_page_is_404(app, admin_client, admin):

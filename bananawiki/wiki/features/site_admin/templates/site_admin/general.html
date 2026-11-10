@@ -1,30 +1,23 @@
 {% extends "admin/_layout.html" %}
 {% import "macros/forms.html" as forms with context %}
-{% block title %}{{ t('site_admin.settings.title') }}{% endblock %}
+{% block title %}{{ t('site_admin.section.' ~ section) }} · {{ t('site_admin.settings.title') }}{% endblock %}
 {% block admin_content %}
-<header class="page-header">
-  <h1>{{ t('site_admin.settings.title') }}</h1>
-  <p class="page-header__meta">{{ t('site_admin.settings.intro') }}</p>
-</header>
+<header class="page-header"><h1>{{ t('site_admin.settings.title') }}</h1></header>
 <nav class="tabs" aria-label="{{ t('site_admin.settings.sections') }}">
-  {% for section, _fields in sections %}<a href="#s-{{ section }}">{{ t('site_admin.section.' ~ section) }}</a>{% endfor %}
-</nav>
-<form method="post" action="{{ url_for('site_admin.general') }}" class="form admin-settings" novalidate>
-  {{ forms.csrf() }}
-  {% for section, fields in sections %}
-  <section class="form-section admin-settings__section" id="s-{{ section }}">
-    <h2>{{ t('site_admin.section.' ~ section) }}</h2>
-    <div class="form admin-settings__fields">
-    {% for item in fields if item.shown() %}{% include "site_admin/_field.html" %}{% endfor %}
-    {% if section == 'content' %}
-    <p class="hint">{{ t('site_admin.settings.features_hint') }} <a href="{{ url_for('plugin_manager.index') }}">{{ t('site_admin.settings.features_link') }}</a></p>
-    {% endif %}
-    {% if section == 'uploads' and platform_blacklist %}
-    <p class="hint">{{ t('site_admin.settings.platform_blacklist', extensions=platform_blacklist|join(', ')) }}</p>
-    {% endif %}
-    </div>
-  </section>
+  {% for name, _fields in sections %}
+  <a href="{{ url_for('site_admin.general', section=None if loop.first else name) }}"{% if name == section %} aria-current="page"{% endif %}>{{ t('site_admin.section.' ~ name) }}</a>
   {% endfor %}
-  <div class="btn-row btn-row--end form-actions--sticky"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+</nav>
+<form method="post" action="{{ url_for('site_admin.general', section=None if section == sections[0][0] else section) }}" class="form form--narrow admin-settings" novalidate>
+  {{ forms.csrf() }}
+  <input type="hidden" name="section" value="{{ section }}">
+  {% for item in fields if item.shown() %}{% include "site_admin/_field.html" %}{% endfor %}
+  {% if section == 'uploads' and platform_blacklist %}
+  <p class="hint">{{ t('site_admin.settings.platform_blacklist', extensions=platform_blacklist|join(', ')) }}</p>
+  {% endif %}
+  {% if section == 'content' %}
+  <p class="hint">{{ t('site_admin.settings.features_hint') }} <a href="{{ url_for('plugin_manager.index') }}">{{ t('site_admin.settings.features_link') }}</a></p>
+  {% endif %}
+  <div class="form-actions"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
 </form>
 {% endblock %}

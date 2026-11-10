@@ -190,7 +190,7 @@ def test_administrator_actions_change_every_account(app, admin_client, make_user
     section = _section(page, "mascot-admin-heading")
     assert _actions(section) == ["shades_on", "shades_off"]
     assert "Show to everyone" not in section and "Hide for everyone" not in section
-    assert "under Customise" in section and "switch it back on" not in section
+    assert "under Appearance" in section and "switch it back on" not in section
 
     admin_client.post("/admin/appearance/mascot", data={"action": "shades_on"})
     for user in (alice, bob, admin):

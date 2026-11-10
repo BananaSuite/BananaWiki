@@ -116,7 +116,7 @@ def test_qw2_4_uploads_stop_at_the_per_page_limit(app, db, make_user, login, mon
     response = editor.post(f"/api/page/{page_id}/attachments", content_type="multipart/form-data",
                            data={"file": (io.BytesIO(b"y"), "late.txt")}, headers={"Accept": "application/json"})
     assert response.status_code == 400
-    assert response.get_json()["error"].startswith("This page already has 5 attachments")
+    assert response.get_json()["error"].startswith("This page has reached its limit of 5 attachments")
     assert db.scalar("SELECT COUNT(*) FROM page_attachments WHERE page_id = ?", (page_id,)) == 5
 
 

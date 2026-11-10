@@ -6,7 +6,6 @@
 {% block admin_content %}
 <header class="page-header">
   <h1>{{ t('plugin_manager.title') }}</h1>
-  <p class="page-header__meta">{{ t('plugin_manager.intro') }}</p>
 </header>
 <nav class="pm-section-links" aria-label="{{ t('plugin_manager.sections') }}">
   <a href="#features">{{ t('plugin_manager.features.title') }}</a>
@@ -42,7 +41,6 @@
 {%- endmacro %}
 <section class="pm-section" aria-labelledby="features-title" id="features">
   <h2 id="features-title">{{ t('plugin_manager.features.title') }}</h2>
-  <p class="small muted">{{ t('plugin_manager.features.intro') }}</p>
   <div class="field pm-filter" data-feature-search hidden>
     <label for="feature-filter">{{ t('plugin_manager.filter.label') }}</label>
     <input type="search" id="feature-filter" placeholder="{{ t('plugin_manager.filter.placeholder') }}" aria-controls="features">
@@ -132,7 +130,6 @@
 
 <section class="pm-section" aria-labelledby="sidebar-order-title" id="sidebar-order">
   <h2 id="sidebar-order-title">{{ t('plugin_manager.order.title') }}</h2>
-  <p class="small muted">{{ t('plugin_manager.order.intro') }}</p>
   {% if apps %}
   <form method="post" action="{{ url_for('plugin_manager.save_order') }}" data-sidebar-order>
     {{ forms.csrf() }}

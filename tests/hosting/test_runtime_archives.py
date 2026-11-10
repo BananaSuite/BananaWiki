@@ -959,7 +959,7 @@ def test_wiki_downloads_carry_the_wikis_storage_limit(web, runtime, make_account
 
     monkeypatch.setattr(runtime, "export_archive", too_large)
     page = web.post(f"/admin/instances/{limited['id']}/download", follow_redirects=True).get_data(as_text=True)
-    assert "storage limit allows in a download, so no archive was made" in page
+    assert "exceed the storage limit for downloads. No archive was made" in page
 
 
 @pytest.mark.parametrize("failure", [errno.ENOSPC, errno.EDQUOT])

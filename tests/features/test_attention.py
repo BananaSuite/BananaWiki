@@ -149,7 +149,7 @@ def test_no_dot_without_pending_work(client, login, people):
     login(client, people["reader"])
     html = client.get("/attention").data.decode()
     assert "attention-dot" not in html
-    assert "Nothing is waiting for your review right now." in html
+    assert "Nothing waiting." in html
 
 
 def test_reviewer_sees_only_reviews(app, client, login, people, page, make_user):
@@ -259,9 +259,10 @@ def test_dismiss_needs_csrf(app, client, login, people, db):
 
 def test_account_settings_store_a_valid_address(client, login, people, db):
     login(client, people["editor"])
-    assert b'id="notifications"' in client.get("/settings").data
-    client.post("/settings/notifications", data={"email": " Rev@Example.ORG ", "attention_choice": "1",
-                                                 "decision_emails": "1"})
+    assert b'id="notifications"' in client.get("/settings/notifications").data
+    response = client.post("/settings/notifications", data={"email": " Rev@Example.ORG ", "attention_choice": "1",
+                                                            "decision_emails": "1"})
+    assert response.headers["Location"].endswith("/settings/notifications"), "back to the Notifications tab"
     row = db.one("SELECT email, attention_emails, decision_emails FROM users WHERE id = ?", (people["editor"]["id"],))
     assert row == {"email": "Rev@example.org", "attention_emails": 0, "decision_emails": 1}
 
@@ -428,5 +429,5 @@ def test_unsubscribe_works_signed_out_with_csrf(app, csrf_client, people, db):
     page = csrf_client.get(f"/attention/unsubscribe/{token}")
     assert csrf_client.post(f"/attention/unsubscribe/{token}").status_code == 400
     response = csrf_client.post(f"/attention/unsubscribe/{token}", data={"csrf_token": csrf_token_from(page)})
-    assert response.status_code == 200 and b"no longer receive" in response.data
+    assert response.status_code == 200 and b"no longer get emails" in response.data
     assert db.scalar("SELECT decision_emails FROM users WHERE id = ?", (people["reader"]["id"],)) == 0

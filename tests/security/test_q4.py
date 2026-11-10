@@ -161,7 +161,7 @@ def test_qw3_4_kanban_imports_are_bounded_per_day_by_their_size(client, make_use
     def refused() -> bool:
         answer = client.post("/kanban/import", content_type="multipart/form-data", follow_redirects=True,
                              data={"import_file": (io.BytesIO(doc), "b.kanban.json")})
-        return "in the last 24 hours" in answer.get_data(as_text=True)
+        return "daily limit of" in answer.get_data(as_text=True)
 
     _import_board(client, db, 30, "x" * 9_900)  # 300 KB, stored twice: 600 of the 1,024 KB
     # The second one's text fits (900 KB) and its first history entry, which does not, is still stored: a
@@ -291,7 +291,7 @@ def test_qw3_4_canvas_imports_are_bounded_per_day_by_their_size(client, make_use
     # The second one's document fits (900 KB); its first history entry, which does not, is still stored.
     assert post().status_code == 200
     assert db.scalar("SELECT COUNT(*) FROM canvas__layouts") == 2
-    assert "in the last 24 hours" in post().get_data(as_text=True)
+    assert "daily limit of" in post().get_data(as_text=True)
     assert db.scalar("SELECT COUNT(*) FROM canvas__layouts") == 2
     # An empty canvas costs next to nothing.
     assert client.post("/canvas/create", data={"title": "Blank"}).status_code == 302
@@ -311,7 +311,7 @@ def test_qw3_4_empty_canvases_filled_by_saves_and_ops_share_the_daily_budget(cli
     assert 429 in answers, answers
     assert _canvas_bytes(db) <= 2 * 1024 * 1024 + 12 * 1024
     refused = client.post(f"/canvas/{slug}/data", json={"data": _canvas_data(60)})
-    assert refused.status_code == 429 and "in the last 24 hours" in refused.json["error"]
+    assert refused.status_code == 429 and "daily limit of" in refused.json["error"]
     # What does not grow a canvas is still allowed.
     assert client.post(f"/canvas/{slug}/data", json={"data": {"nodes": [], "edges": []}}).status_code == 200
 

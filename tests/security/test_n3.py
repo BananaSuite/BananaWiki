@@ -127,7 +127,7 @@ def test_nw2_1_spawning_the_guide_at_the_category_bound_is_refused_not_a_500(app
     spawned = admin.post("/admin/spawn-docs", data={"variant": "simplified", "docs_language": "en"})
     assert spawned.status_code == 302
     assert db.scalar("SELECT docs_category_id FROM site_settings") is None
-    refusal = "categories, the most it can hold"
+    refusal = "This wiki has reached its limit of"
     assert refusal in admin.get(spawned.headers["Location"]).get_data(as_text=True)
     # The onboarding wizard applies everything else and says why the guide is missing.
     owner = make_user("firstrun", role="owner", onboarding_required=1)

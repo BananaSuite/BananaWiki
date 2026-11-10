@@ -20,7 +20,7 @@ from flask import (
 from ....core import passwords
 from ....core.timeutil import utcnow
 from ....core.web import safe_next
-from ... import accounts, auth, bm, settings, storage
+from ... import accounts, auth, bm, registry, settings, storage
 from ...i18n import enabled_languages, t
 from ..audit.service import record as audit_record
 from . import preferences, service, sessions
@@ -117,6 +117,39 @@ def _settings_context() -> dict[str, Any]:
     return {"short_settings": short_settings(auth.current_user()), "short_settings_keep": SHORT_SETTINGS_KEEP}
 
 
+# Settings tabs (users/_tabs.html): Account, Security, Notifications, Appearance, Profile and Privacy.
+# The sections other features add to the settings (the account.settings_sections slot) go on the tab of
+# their feature; any other feature's section (points, account notices, third-party plugins) is on Account.
+SECTION_TABS = {
+    "auth": "security",  # two-step verification, the hosting-portal account
+    "api_service": "security",
+    "attention": "notifications",
+    "user_profiles": "privacy",  # who can see the profile
+    "chat": "privacy",  # groups shown on the profile, blocked people
+    "drafts": "privacy",
+    "user_data_export": "privacy",
+}
+RETURN_TABS = {"account": "users.settings", "security": "users.security"}
+
+
+def tab_sections(tab: str, *, short: bool = False) -> list[tuple[str, Any]]:
+    """The other features' settings sections on *tab*, as ``(feature id, HTML)`` pairs.
+
+    In BM mode's short settings (*short*) Account is the only tab shown: it also takes the sections
+    that stay in the short version (the email address, notices about the account).
+    """
+    parts = [(feature_id, html) for feature_id, html in registry.slot_parts("account.settings_sections")
+             if SECTION_TABS.get(feature_id, "account") == tab
+             or (short and tab == "account" and feature_id in SHORT_SETTINGS_KEEP)]
+    order = list(SECTION_TABS)  # sorted() keeps the registry order of everything else
+    return sorted(parts, key=lambda part: order.index(part[0]) if part[0] in order else len(order))
+
+
+def _return_endpoint() -> str:
+    """The settings tab a form came from (its ``return_to`` field), Account by default."""
+    return RETURN_TABS.get(request.form.get("return_to", ""), "users.settings")
+
+
 # Account
 
 
@@ -126,7 +159,33 @@ def settings_page():
     return render_template(
         "users/settings.html", user=user, tab="account", languages=enabled_languages(),
         display_prefs=preferences.current(user), may_become_owner=service.may_become_owner(user),
+        sections=tab_sections("account", short=short_settings(user)),
+        tour_available=not settings.get("onboarding_replay_disabled"),
     )
+
+
+@bp.get("/settings/security")
+def security():
+    user = auth.current_user()
+    impersonating = auth.is_impersonating()
+    return render_template(
+        "users/security.html", user=user, tab="security", impersonating_view=impersonating,
+        active=[] if impersonating else sessions.active(user["id"], auth.current_session_id()),
+        history=[] if impersonating else sessions.history(user["id"]),
+        sections=tab_sections("security"),
+    )
+
+
+@bp.get("/settings/notifications")
+def notifications():
+    return render_template("users/settings_tab.html", tab="notifications", title=t("users.tab.notifications"),
+                           sections=tab_sections("notifications"))
+
+
+@bp.get("/settings/privacy")
+def privacy():
+    return render_template("users/settings_tab.html", tab="privacy", title=t("users.tab.privacy"),
+                           sections=tab_sections("privacy"))
 
 
 @bp.route("/account")
@@ -160,9 +219,9 @@ def change_password():
         accounts.set_password(user["id"], new, keep_session_id=auth.current_session_id(),
                               expected_password_hash=user["password"])
     except (service.ProfileError, accounts.AccountError) as error:
-        return _fail(error, "users.settings")
+        return _fail(error, _return_endpoint())
     auth.flash_t("users.flash.password_changed", "success")
-    return redirect(url_for("users.settings"))
+    return redirect(url_for(_return_endpoint()))
 
 
 @bp.post("/settings/owner")
@@ -376,13 +435,8 @@ def api_background():
 
 @bp.get("/settings/sessions")
 def sessions_page():
-    user = auth.current_user()
-    impersonating = auth.is_impersonating()
-    return render_template(
-        "users/sessions.html", user=user, tab="sessions", impersonating_view=impersonating,
-        active=[] if impersonating else sessions.active(user["id"], auth.current_session_id()),
-        history=[] if impersonating else sessions.history(user["id"]),
-    )
+    """The sessions are on the Security tab."""
+    return redirect(url_for("users.security", _anchor="sessions"))
 
 
 @bp.post("/settings/sessions/<session_id>/revoke")
@@ -397,7 +451,7 @@ def revoke_session(session_id: str):
         auth.flash_t("users.flash.session_revoked", "info")
         return redirect(url_for("auth.login"))
     auth.flash_t("users.flash.session_revoked", "success")
-    return redirect(url_for("users.sessions_page"))
+    return redirect(url_for("users.security", _anchor="sessions"))
 
 
 @bp.post("/settings/sessions/logout-all")
@@ -414,7 +468,7 @@ def clear_session_history():
     _no_impersonation()
     sessions.clear_history(auth.current_user()["id"])
     auth.flash_t("users.flash.history_cleared", "success")
-    return redirect(url_for("users.sessions_page"))
+    return redirect(url_for("users.security", _anchor="sessions"))
 
 
 # Members and profiles

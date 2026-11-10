@@ -62,8 +62,8 @@ def test_simplifications_reach_the_pages(easy, admin, login):
     assert EDITOR_RULE in editor and 'data-bm-hide="pages.simple_editor"' in editor
     dashboard = client.get("/admin/dashboard").get_data(as_text=True)
     assert "Getting started" in dashboard and 'href="/create-page"' in dashboard
-    overview = client.get("/admin/home").get_data(as_text=True)
-    assert 'href="/admin/users"' in overview and 'href="/admin/roles"' not in overview, "the short menu leaves roles out"
+    menu = dashboard[dashboard.index('id="sidebar"'):]
+    assert 'href="/admin/users"' in menu and 'href="/admin/roles"' not in menu, "the short menu leaves roles out"
     assert client.get("/admin/roles").status_code == 200, "but the page stays reachable"
     assert client.get("/chats").status_code == 404, "a hidden feature answers 404 like a switched-off one"
 
@@ -171,7 +171,7 @@ def test_administrators_decide_who_may_switch(app, admin, make_user, login):
     admin_client.post("/admin/bm-mode", data={"feature_kanban": "1"})  # "everyone may switch" left unticked
     client = _signed_in(app, login, member)
     assert client.post("/settings/bm-mode", data={"bm_mode": "1"}).status_code == 403
-    assert "Your administrators decide" in client.get("/settings/display").get_data(as_text=True)
+    assert "Only administrators can change it" in client.get("/settings/display").get_data(as_text=True)
     admin_client.post(f"/admin/users/{member['id']}/bm-mode", data={"bm_self": "allow"})
     assert client.post("/settings/bm-mode", data={"bm_mode": "1"}).status_code == 302, "allowed for them alone"
     assert _signed_in(app, login, other).post("/settings/bm-mode", data={"bm_mode": "1"}).status_code == 403
@@ -256,7 +256,7 @@ def test_a_plain_administrator_ticking_administrators_changes_only_their_own_acc
     colleague, boss = make_user("colleague", role="admin"), make_user("boss", role="owner")
     keeper, member = make_user("keeper", is_superuser=1), make_user("member")
     client = _signed_in(app, login, admin)
-    assert "Just your own account" in client.get("/admin/bm-mode").get_data(as_text=True)
+    assert "Only your own account." in client.get("/admin/bm-mode").get_data(as_text=True)
     _everyone(client, "on", "admin")
     assert _states(app, admin, colleague, boss, keeper, member) == [1, 0, 0, 0, 0]
     _everyone(client, "on", "user", "editor", "admin")
@@ -267,7 +267,7 @@ def test_an_owner_ticking_administrators_changes_the_other_administrators(app, a
     boss, other_owner = make_user("boss", role="owner"), make_user("other_owner", role="owner")
     root_admin, member = make_user("root_admin", role="admin", is_superuser=1), make_user("member")
     client = _signed_in(app, login, boss)
-    assert "Other administrators and your own account" in client.get("/admin/bm-mode").get_data(as_text=True)
+    assert "Not other owners or superusers." in client.get("/admin/bm-mode").get_data(as_text=True)
     _everyone(client, "on", "user")
     assert _states(app, boss, admin, member) == [0, 0, 1]
     _everyone(client, "on", "admin")
@@ -334,7 +334,7 @@ def test_hiding_follows_the_same_rules_as_switching_off(easy, admin, make_user, 
     response = _save(client, mode=True, features=("kanban",))
     assert response.status_code == 302
     assert _in(easy, lambda: registry.is_enabled("audit"))
-    assert "Only owners and superusers can switch the audit log off." in client.get("/admin/bm-mode").get_data(
+    assert "Only owners and superusers can turn the audit log off." in client.get("/admin/bm-mode").get_data(
         as_text=True)
     owner = _signed_in(easy, login, make_user("boss", role="owner"))
     _save(owner, mode=True, features=("kanban",))

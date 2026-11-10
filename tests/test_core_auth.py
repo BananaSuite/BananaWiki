@@ -167,7 +167,7 @@ def test_scripts_get_a_translated_reason_and_a_code_from_the_gates(client, make_
     db.execute("UPDATE site_settings SET maintenance_mode = 1")
     response = client.get("/_probe/private?lang=it", headers=json_headers)
     assert response.status_code == 503 and response.json == {
-        "error": "La wiki non è disponibile per qualche momento mentre gli amministratori ci lavorano.",
+        "error": "La wiki non è disponibile mentre gli amministratori ci lavorano.",
         "code": "maintenance"}
     db.execute("UPDATE site_settings SET maintenance_mode = 0")
     db.execute("UPDATE users SET suspended = 1 WHERE id = ?", (user["id"],))

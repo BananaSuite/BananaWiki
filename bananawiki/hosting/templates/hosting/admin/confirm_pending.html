@@ -2,7 +2,6 @@
 {% import "hosting/_macros.html" as ui with context %}
 {% block title %}{{ t('hosting.settings.pending_title') }}{% endblock %}
 {% block content %}
-{% include "hosting/admin/_nav.html" %}
 <div class="card card--narrow"><h1>{{ t('hosting.settings.pending_title') }}</h1>
 <p>{{ tn('hosting.settings.pending_body', count) }}</p>
 <form method="post" action="{{ action_url }}" class="form">{{ ui.csrf() }}

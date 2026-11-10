@@ -46,16 +46,18 @@ def test_settings_show_the_essentials_and_keep_the_rest_one_click_away(setup):
     for kept in ('action="/settings/username"', 'action="/settings/password"', 'id="f-language"',
                  'id="notifications"', 'href="/settings/display"'):
         assert kept in page, kept
-    assert 'href="/settings/sessions" data-bm-hide="users.simple_settings"' in page
+    for tab in ("security", "notifications", "privacy"):
+        assert f'href="/settings/{tab}" data-bm-hide="users.simple_settings"' in page, tab
     assert 'aria-labelledby="delete-heading" data-bm-hide="users.simple_settings"' in page
-    two_step = page.index('id="two-step"')
-    assert page.rfind('data-bm-hide="users.simple_settings"', 0, two_step) > page.rfind("</div>", 0, two_step), \
-        "two-step verification is inside a hidden section"
+    assert 'id="two-step"' not in page, "two-step verification is on the Security tab"
     assert 'href="/settings?all=1"' in page and "All settings" in page
     everything = client.get("/settings?all=1").get_data(as_text=True)
-    assert 'data-bm-hide="users.simple_settings"' not in everything and 'id="two-step"' in everything
+    assert 'data-bm-hide="users.simple_settings"' not in everything
+    assert 'href="/settings/security?all=1"' in everything, "the tabs keep the whole view"
     assert "All settings" not in everything
-    assert client.get("/settings/sessions").status_code == 200, "a hidden section stays at its address"
+    security = client.get("/settings/security").get_data(as_text=True)
+    assert 'id="two-step"' in security, "a hidden tab stays at its address"
+    assert 'href="/settings/security" aria-current="page"' in security
 
 
 def test_customise_and_profile_stay_whole(setup):

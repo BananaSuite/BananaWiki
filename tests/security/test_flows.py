@@ -134,7 +134,7 @@ def test_session_list_revoke_one_and_sign_out_everywhere(app, make_user, login, 
     assert len(ids) == 3
     login(eves, eve)
     eve_session = db.scalar("SELECT id FROM user_sessions WHERE user_id = ?", (eve["id"],))
-    page = here.get("/settings/sessions").get_data(as_text=True)
+    page = here.get("/settings/security").get_data(as_text=True)
     assert all(session_id in page for session_id in ids[1:]) and eve_session not in page
 
     assert here.post(f"/settings/sessions/{eve_session}/revoke").status_code == 404

@@ -402,7 +402,7 @@ def test_only_owners_and_superusers_can_require_it_of_administrators(app, db, ma
     login(plain, make_user("admin1", role="admin"))
     assert plain.post("/admin/settings", data=_settings_form(two_step_required_for_admins="1")).status_code == 302
     assert db.scalar("SELECT two_step_required_for_admins FROM site_settings") == 0
-    assert "disabled" in plain.get("/admin/settings").get_data(as_text=True).split(
+    assert "disabled" in plain.get("/admin/settings?section=security").get_data(as_text=True).split(
         'name="two_step_required_for_admins"', 1)[1].split(">", 1)[0]
 
     owner = app.test_client()
@@ -410,8 +410,8 @@ def test_only_owners_and_superusers_can_require_it_of_administrators(app, db, ma
     assert owner.post("/admin/settings", data=_settings_form(two_step_required_for_admins="1")).status_code == 302
     assert db.scalar("SELECT two_step_required_for_admins FROM site_settings") == 0, \
         "owners turn it on for themselves first, so requiring it cannot lock them out"
-    assert "Turn on two-step verification for your own account first" in owner.get("/admin/settings").get_data(
-        as_text=True)
+    assert "Turn on two-step verification for your own account first" in owner.get(
+        "/admin/settings?section=security").get_data(as_text=True)
     enrol(owner)
     assert owner.post("/admin/settings", data=_settings_form(two_step_required_for_admins="1")).status_code == 302
     assert db.scalar("SELECT two_step_required_for_admins FROM site_settings") == 1

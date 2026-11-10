@@ -221,11 +221,13 @@ def test_block_and_unblock_buttons_in_the_member_list(client, login, people, db)
 def test_blocking_by_name_and_unblocking_from_the_settings(client, login, people, db):
     alice, bob, _carol = people
     login(client, alice)
-    page = client.get("/settings").get_data(as_text=True)
+    page = client.get("/settings/privacy").get_data(as_text=True)
     assert 'id="blocked-people"' in page and "You have not blocked anyone." in page
+    response = client.post("/chats/blocks", data={"username": "BOB"})
+    assert response.status_code == 302 and response.headers["Location"].endswith("/settings/privacy#blocked-people")
     response = client.post("/chats/blocks", data={"username": "BOB", "next": "/settings#blocked-people"})
     assert response.status_code == 302 and response.headers["Location"].endswith("/settings#blocked-people")
-    page = client.get("/settings").get_data(as_text=True)
+    page = client.get("/settings/privacy").get_data(as_text=True)
     assert 'aria-label="Unblock bob"' in page
     client.post("/chats/blocks/remove", data={"user_id": bob["id"]})
     assert db.scalar("SELECT COUNT(*) FROM chat__blocks") == 0
@@ -236,7 +238,7 @@ def test_blocking_is_private(admin_client, client, login, people, db, admin):
     login(client, alice)
     _block(client, bob)
     switch(client, login, bob)
-    assert "alice" not in client.get("/settings").get_data(as_text=True).split('id="blocked-people"')[1]
+    assert "alice" not in client.get("/settings/privacy").get_data(as_text=True).split('id="blocked-people"')[1]
     assert db.scalar("SELECT COUNT(*) FROM audit_log WHERE action LIKE '%block%'") == 0
     switch(client, login, admin)
     exported = zipfile.ZipFile(io.BytesIO(client.get(f"/admin/users/{bob['id']}/export").get_data()))

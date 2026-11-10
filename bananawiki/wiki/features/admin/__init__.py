@@ -2,10 +2,9 @@
 
 The admin layout
 ----------------
-Every administration page extends ``admin/_layout.html``. It renders a
-breadcrumb and a "Jump to" list above the page body; both, and the overview
-page at ``/admin/home``, are built from the ``NavItem(area="admin")`` entries of
-every enabled feature, grouped by :mod:`.hub`. A feature adds an admin page by
+Every administration page extends ``admin/_layout.html``. Its sidebar is the
+administration menu, built from the ``NavItem(area="admin")`` entries of every
+enabled feature and grouped by :mod:`.hub`. A feature adds an admin page by
 
 1. declaring a nav entry in its ``Feature``::
 

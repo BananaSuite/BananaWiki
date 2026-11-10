@@ -18,7 +18,7 @@ def login_below_form(next_url: str = "") -> str:
 
 
 def account_settings_sections() -> str:
-    """``account.settings_sections``: guided tour, two-step verification and hosting-portal account link."""
+    """``account.settings_sections`` (Settings → Security): two-step verification and the hosting-portal account link."""
     user = auth.current_user()
     if user is None:
         return ""

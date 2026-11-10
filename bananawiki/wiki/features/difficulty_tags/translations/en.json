@@ -3,7 +3,7 @@
   "difficulty_tags.dialog.title": "Difficulty tag",
   "difficulty_tags.error.color": "Choose a colour in the form #rrggbb.",
   "difficulty_tags.error.forbidden": "You may not set this tag.",
-  "difficulty_tags.error.invalid": "That is not a valid tag.",
+  "difficulty_tags.error.invalid": "Invalid tag.",
   "difficulty_tags.error.label_required": "A custom tag needs a label.",
   "difficulty_tags.error.label_too_long": "The label may have at most {limit} characters.",
   "difficulty_tags.field.color": "Colour",
@@ -20,7 +20,7 @@
   "difficulty_tags.level.intermediate": "Intermediate",
   "difficulty_tags.level.none": "No tag",
   "difficulty_tags.bm.hide_tags": "No difficulty tags",
-  "difficulty_tags.bm.hide_tags_hint": "Hides the tags on pages, the \"Tag\" action and the tag fields in the editor; the tags themselves are kept.",
+  "difficulty_tags.bm.hide_tags_hint": "Hides tags on pages and in the editor. Existing tags are kept.",
   "feature.difficulty_tags.description": "Label pages with a difficulty level or a custom coloured tag.",
   "feature.difficulty_tags.name": "Difficulty tags"
 }

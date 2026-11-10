@@ -1,0 +1,28 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.admin.instances') }}{% endblock %}
+{% block column_class %}wide{% endblock %}
+{% block content %}
+<div class="page-header"><h1>{{ t('hosting.admin.instances') }}</h1>
+  <div class="page-header__actions"><a class="btn" href="{{ url_for('admin.import_instance') }}">{{ t('hosting.archives.import_title') }}</a></div></div>
+<form method="post" id="inst-bulk">{{ ui.csrf() }}</form>
+<div class="table-wrap"><table class="table">
+<thead><tr><th class="cell-check"><span class="visually-hidden">{{ t('hosting.bulk.select') }}</span></th><th>{{ t('hosting.instance.name') }}</th><th class="col-owner">{{ t('hosting.instance.owner') }}</th><th>{{ t('hosting.instance.status') }}</th><th class="col-optional">{{ t('hosting.instance.expires') }}</th><th class="col-optional">{{ t('hosting.instance.storage') }}</th></tr></thead>
+<tbody>
+{% for inst in instances %}
+<tr><td class="cell-check"><input type="checkbox" name="instance_ids" value="{{ inst.id }}" form="inst-bulk" aria-label="{{ inst.original_slug }}"></td>
+  {#- On the narrowest phones the owner moves under the name, so the status badge is not cut off. -#}
+  <td><a href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ inst.original_slug }}</a>{% if inst.is_main %} <span class="badge badge--primary">{{ t('hosting.main.badge_platform') if inst.owner_admin else t('hosting.main.badge') }}</span>{% endif %}{% if inst.domain_mode == 'apex' %} <span class="badge">{{ t('hosting.admin.apex_badge') }}</span>{% endif %}<span class="small muted cell-note owner-note"><span class="visually-hidden">{{ t('hosting.instance.owner') }}: </span>{{ inst.owner_username }}</span></td>
+  <td class="col-owner">{{ inst.owner_username }}</td><td>{{ ui.status(inst.status, expired=inst.expired) }}{% if inst.grace_active %}<span class="small muted cell-note">{{ t('hosting.admin.retained') }}</span>{% endif %}</td>
+  <td class="small nowrap col-optional">{% if inst.status == 'terminated' %}—{% elif inst.is_main or inst.seconds_left is never_expiring %}{{ t('hosting.instance.never') }}{% elif inst.expired %}{{ inst.expires_at|date }}{% else %}{{ inst.seconds_left|duration }}{% endif %}</td>
+  <td class="small nowrap col-optional">{{ inst.storage_mb|mb }} MB</td></tr>
+{% else %}<tr><td colspan="6" class="muted">{{ t('hosting.common.none') }}</td></tr>
+{% endfor %}</tbody>
+{% if instances %}
+<tfoot><tr><td colspan="6"><div class="bulk-bar"><span class="bulk-bar__label">{{ t('hosting.bulk.with_selected') }}</span>
+  {%- for action, label in [('admin.bulk_stop', 'hosting.bulk.stop'), ('admin.bulk_restart', 'hosting.bulk.start'), ('admin.bulk_suspend', 'hosting.bulk.suspend'), ('admin.bulk_unsuspend', 'hosting.bulk.unsuspend'), ('admin.bulk_restore', 'hosting.bulk.restore'), ('admin.bulk_terminate', 'hosting.bulk.terminate'), ('admin.bulk_purge', 'hosting.bulk.purge')] %}
+  <button class="btn btn--small{% if action in ('admin.bulk_terminate', 'admin.bulk_purge') %} btn--danger-quiet{% endif %}" form="inst-bulk" formaction="{{ url_for(action) }}" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ t(label) }}</button>{% endfor %}
+</div></td></tr></tfoot>
+{% endif %}
+</table></div>
+{% endblock %}

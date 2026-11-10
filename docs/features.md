@@ -80,7 +80,7 @@ else. It replaces the 1.7 "easy wiki" setting. **Admin → BM mode**
     other apps (people, messages, the leaderboard, reservations, plugins'
     apps);
   * shorter settings: profile, user name, password, language, email address
-    and **Customise**; sessions, two-step verification, API tokens, data
+    and **Appearance**; sessions, two-step verification, API tokens, data
     export, account merges, deleting the account and the other sections move
     behind an **All settings** link. Anything the person must do first (two-step
     verification an administrator must turn on, for example) shows the whole
@@ -136,7 +136,7 @@ keep working for the wiki: their background jobs and the REST API
 run as before, and their checks (page protection and reservations, for
 example) still apply to that person's actions.
 
-* **Customise → BM mode**: people switch it for their own account when the
+* **Appearance → BM mode**: people switch it for their own account when the
   wiki allows it (*Everyone may switch BM mode on or off for their own
   account*, on by default) and their account is not set otherwise.
 * **Admin → Users → an account → BM mode**: administrators switch it for that
@@ -242,8 +242,7 @@ their authors in the edit summary. **My drafts** (`/drafts`) lists your
 drafts, 50 a page; **Take over draft** in the editor makes another editor's
 draft yours (recorded in the audit log).
 
-Setting: `draft_expiration_hours` (**Admin → Site settings → Content and
-exports**; 0 keeps drafts forever). Permissions: `draft.create`, `draft.view_own`,
+Setting: `draft_expiration_hours` (**Admin → Site settings → Content**; 0 keeps drafts forever). Permissions: `draft.create`, `draft.view_own`,
 `draft.delete_own`, `draft.transfer`.
 
 ## Attachments
@@ -800,7 +799,7 @@ See [read aloud](tts.md) for installation and configuration.
 ## People and profiles
 
 * **Settings** (`/settings`): profile (real name, bio, birth date, avatar),
-  user name, password, language (on the **Account** tab), **Customise**
+  user name, password, language (on the **Account** tab), **Appearance**
   (theme, text size,
   line and letter spacing, content and sidebar width, contrast, colours,
   background picture, dyslexia-friendly font, reduced motion, the
@@ -866,7 +865,7 @@ A pixel-art banana in the top bar, in place of the logo, for every signed-in
 person; visitors who are not signed in see the logo. It bobs, blinks and hops
 when clicked (Enter and Space too), and stands still with reduced motion.
 Eleven clicks on the same page put sunglasses on it for that account, and
-eleven more take them off. **Customise** takes them off too;
+eleven more take them off. **Appearance** takes them off too;
 **Admin → Appearance** puts them on or takes them off for every account, and
 records it in the audit log. Switch the plugin off (or deny it with
 `BW_MANAGED_PLUGIN_DENYLIST`) to show the logo for everyone. While it is on, the

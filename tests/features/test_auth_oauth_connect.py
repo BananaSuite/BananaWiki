@@ -120,7 +120,7 @@ def test_an_account_connected_to_another_hosting_account_is_refused(browser, por
     _arrive(browser)
     refused = browser.post("/platform-oauth/merge", data={"username": "alexbanana", "password": PASSWORD})
     assert refused.status_code == 409
-    assert "already connected to a different hosting account" in refused.get_data(as_text=True)
+    assert "linked to a different hosting account" in refused.get_data(as_text=True)
     assert _link_of(wiki_db) is None and _link_of(wiki_db, "acct-someone") == people["mine"]["id"]
     assert not signed_in(browser)
 
@@ -164,7 +164,7 @@ def test_the_portal_refusing_the_link_is_explained(browser, portal, people, wiki
     monkeypatch.setattr(platform_oauth.http, "request", conflict)
     refused = browser.post("/platform-oauth/signup", data={"username": "alex2"})
     assert refused.status_code == 409
-    assert "already linked to another account of this wiki" in refused.get_data(as_text=True)
+    assert "linked to another account on this wiki" in refused.get_data(as_text=True)
     assert wiki_db.scalar("SELECT COUNT(*) FROM users WHERE username = 'alex2'") == 0, "the new account is undone"
 
 

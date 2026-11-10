@@ -2,8 +2,7 @@
 
 ## Signing in
 
-Open the wiki and sign in with your user name and password. Tick **Keep me
-signed in for 30 days** on your own device; otherwise you are signed out when
+Open the wiki and sign in with your user name and password. Tick **Stay signed in for 30 days** on your own device; otherwise you are signed out when
 you close the browser (and after 7 days at the latest). Depending on the wiki
 you can create an account yourself (**Create an account**; you may need an
 invite code, and an administrator may have to approve you), or an
@@ -11,8 +10,7 @@ administrator creates it for you. Some wikis are in **public mode**: then you
 can read without an account.
 
 The first time you sign in you may be asked to change your password and see a
-short introduction. You can replay the tour later from Settings (**Open the
-guided tour**).
+short introduction. You can replay the tour later from Settings (**Guided tour**).
 
 ## Finding your way
 

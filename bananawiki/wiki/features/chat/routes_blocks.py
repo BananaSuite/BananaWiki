@@ -25,7 +25,7 @@ def _require_chat() -> dict[str, Any]:
 
 
 def _back() -> str:
-    return safe_next(url_for("users.settings", _anchor="blocked-people"), request.form.get("next"))
+    return safe_next(url_for("users.privacy", _anchor="blocked-people"), request.form.get("next"))
 
 
 @bp.route("/chats/blocks", methods=["POST"])

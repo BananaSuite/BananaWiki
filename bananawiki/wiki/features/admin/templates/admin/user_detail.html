@@ -27,6 +27,7 @@
 {% if locked %}
 <div class="alert alert--warning"><div class="alert__body">{{ t(protection) }}</div></div>
 {% endif %}
+<div class="section-stack form-sections">
 
 <section class="card">
   <dl class="definition-list">
@@ -90,7 +91,7 @@
       </select>
       <p class="hint">{{ t('admin.users.role_hint') }}</p>
     </div>
-    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+    <div class="btn-row"><button class="btn" type="submit">{{ t('common.save') }}</button></div>
   </form>
   {% endif %}
 </section>
@@ -100,7 +101,7 @@
   <form method="post" action="{{ edit_url }}" class="form">
     {{ forms.csrf() }}<input type="hidden" name="action" value="change_username">
     {{ forms.field('username', t('admin.users.new_username'), target.username, required=true, hint=t('auth.hint.username'), attrs={'maxlength': 50}) }}
-    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+    <div class="btn-row"><button class="btn" type="submit">{{ t('common.save') }}</button></div>
   </form>
 </section>
 
@@ -108,7 +109,7 @@
   <h2>{{ t('admin.password.title') }}</h2>
   {% if is_self %}
   <p>{{ t('admin.password.own_hint') }}</p>
-  <p><a class="btn" href="{{ url_for('users.settings') }}#password-heading">{{ t('users.settings.change_password') }}</a></p>
+  <p><a class="btn" href="{{ url_for('users.security') }}#password">{{ t('users.settings.change_password') }}</a></p>
   {% else %}
   <form method="post" action="{{ edit_url }}" class="form">
     {{ forms.csrf() }}<input type="hidden" name="action" value="change_password">
@@ -117,7 +118,7 @@
     {{ forms.checkbox('force_password_change', t('admin.password.require_change'), checked=true) }}
     {{ forms.checkbox('keep_original', t('admin.password.keep_original'), hint=t('admin.password.keep_original_hint')) }}
     <p class="hint">{{ t('admin.password.signs_out') }}</p>
-    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('admin.password.submit') }}</button></div>
+    <div class="btn-row"><button class="btn" type="submit">{{ t('admin.password.submit') }}</button></div>
   </form>
   {% if target.original_password_backup %}
   <p>{{ t('admin.password.backup_exists') }}</p>
@@ -130,7 +131,7 @@
 <section class="card">
   <h2>{{ t('admin.suspend.title') }}</h2>
   {% if target.suspended %}
-  {{ forms.post_button(edit_url, t('admin.suspend.lift'), 'btn btn--primary', hidden={'action': 'unsuspend'}) }}
+  {{ forms.post_button(edit_url, t('admin.suspend.lift'), 'btn', hidden={'action': 'unsuspend'}) }}
   {% else %}
   <form method="post" action="{{ edit_url }}" class="form">
     {{ forms.csrf() }}<input type="hidden" name="action" value="suspend">
@@ -191,4 +192,5 @@
   {{ forms.post_button(edit_url, t('admin.users.delete'), 'btn btn--danger', confirm=t('admin.users.delete_confirm', username=target.username), hidden={'action': 'delete'}) }}
 </section>
 {% endif %}
+</div>
 {% endblock %}

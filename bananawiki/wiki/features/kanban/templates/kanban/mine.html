@@ -40,7 +40,7 @@
 {% if filter.active %}
 <p class="empty-state">{{ t('kanban.mine.no_match') }}</p>
 {% else %}
-<div class="empty-state"><p>{{ t('kanban.mine.empty') }}</p><p>{{ t('kanban.mine.empty_help') }}</p></div>
+<div class="empty-state"><p>{{ t('kanban.mine.empty') }}</p></div>
 {% endif %}
 {% endif %}
 {% for name, tickets in groups %}

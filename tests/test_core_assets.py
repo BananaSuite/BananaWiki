@@ -38,7 +38,10 @@ def test_design_system_uses_the_canonical_source(application):
     assert response.mimetype == "text/css"
     assert response.data == source
     assert response.headers["Content-Security-Policy"]
-    assert url.encode() in application.test_client().get("/login").data
+    # The wiki's pages link the shared design system. The hosting portal still serves it at the same address,
+    # but its pages use a stylesheet of their own (hosting.css) since 1.8.0.
+    linked = url.encode() in application.test_client().get("/login").data
+    assert linked is (application.import_name != "bananawiki.hosting")
 
 
 def test_shared_assets_keep_static_cache_and_conditional_requests(application):

@@ -72,8 +72,42 @@ def test_time_limits_must_lie_in_the_future(admin_client, db):
 
 def test_expired_public_mode_is_shown_as_off(admin_client, db):
     db.execute("UPDATE site_settings SET public_mode = 1, public_mode_until = ? WHERE id = 1", (sql_in(hours=-1),))
-    page = admin_client.get("/admin/settings").get_data(as_text=True)
-    assert 'name="public_mode" value="1" checked' not in page
+    page = admin_client.get("/admin/settings?section=access").get_data(as_text=True)
+    assert 'name="public_mode" value="1"' in page and 'name="public_mode" value="1" checked' not in page
+
+
+def test_each_tab_shows_and_saves_its_own_section(admin_client, db):
+    general = admin_client.get("/admin/settings").get_data(as_text=True)
+    assert 'name="site_name"' in general and 'name="public_mode"' not in general
+    access = admin_client.get("/admin/settings?section=access").get_data(as_text=True)
+    assert 'name="public_mode"' in access and 'name="site_name"' not in access and 'name="section" value="access"' in access
+    assert admin_client.get("/admin/settings?section=nonsense").status_code == 404
+    assert admin_client.get("/admin/settings/restart-server").status_code == 405, "the 1.4 POST address stays POST-only"
+    db.execute("UPDATE site_settings SET pdf_export_enabled = 1, session_limit_enabled = 1 WHERE id = 1")
+    response = admin_client.post("/admin/settings?section=access", data={
+        "section": "access", "open_signup": "1", "approval_pending_timeout_hours": "0",
+        "approval_denied_timeout_hours": "24", "maintenance_message": "", "public_mode_message": ""})
+    assert response.status_code == 302 and response.headers["Location"].endswith("/admin/settings?section=access")
+    row = settings_row(db)
+    assert row["open_signup"] == 1, "the tab's own fields are saved"
+    assert row["pdf_export_enabled"] == 1 and row["session_limit_enabled"] == 1, "other tabs' switches stay as they were"
+
+
+def test_a_refused_tab_shows_its_error_and_saves_nothing(admin_client, db):
+    response = admin_client.post("/admin/settings?section=uploads", data={
+        "section": "uploads", "upload_mode": "allow_all", "upload_whitelist": "", "upload_blacklist": "",
+        "upload_max_size_mb": "0", "upload_quota_per_day_count": "0", "upload_quota_per_day_bytes": "0"})
+    assert response.status_code == 400
+    page = response.get_data(as_text=True)
+    assert 'name="upload_max_size_mb"' in page and 'name="site_name"' not in page
+    assert settings_row(db)["upload_max_size_mb"] != 0
+
+
+def test_dependent_fields_are_revealed_by_their_switch(admin_client):
+    access = admin_client.get("/admin/settings?section=access").get_data(as_text=True)
+    assert 'data-reveal-for="maintenance_mode" data-reveal-values="1"' in access
+    uploads = admin_client.get("/admin/settings?section=uploads").get_data(as_text=True)
+    assert 'data-reveal-for="upload_mode" data-reveal-values="whitelist"' in uploads
 
 
 def test_host_locks_are_shown_and_respected(app_factory, login):
@@ -86,8 +120,8 @@ def test_host_locks_are_shown_and_respected(app_factory, login):
     with app.test_request_context(), connection_scope():
         admin = accounts.create("boss", "correct horse battery", role="admin", emit_event=False)
     login(client, admin)
-    page = client.get("/admin/settings").get_data(as_text=True)
-    assert "does not allow public access" in page and "php, sh" in page
+    assert "does not allow public access" in client.get("/admin/settings?section=access").get_data(as_text=True)
+    assert "php, sh" in client.get("/admin/settings?section=uploads").get_data(as_text=True)
     client.post("/admin/settings", data=valid_form(public_mode="1", page_builder_enabled="1",
                                                     upload_max_size_mb="2000"))
     from bananawiki.core.sqlite import Session

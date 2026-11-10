@@ -88,7 +88,7 @@ def test_mw2_2_rendered_diff_of_large_versions_shows_the_source_diff(app, db, ma
     monkeypatch.setattr(diff, "_runs", lambda *args, _real=diff._runs: calls.append(args) or _real(*args))
     response = reader.get(f"/page/notes/history/{latest}?view=diff")
     assert response.status_code == 200
-    assert b"too large to compare as rendered pages" in response.data
+    assert b"too large to compare as pages" in response.data
     assert b'<pre class="diff"><del>@abc ' in response.data and b"<ins>@abd " in response.data
     assert len(calls) == 1  # the source diff only, never the rendered one
     assert diff.rendered_diff("<p>a</p>", "x" * 2_001) is None

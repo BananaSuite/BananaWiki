@@ -100,7 +100,7 @@ def test_a_blocked_member_is_not_told_in_a_conversation_they_already_have(client
     # The administrators see everything, and what was not delivered.
     switch(client, login, admin)
     page = client.get(f"/admin/chats/{chat}").get_data(as_text=True)
-    assert "are you there?" in page and "Not delivered: the recipient had blocked the sender" in page
+    assert "are you there?" in page and "Not delivered. The recipient had blocked the sender" in page
 
 
 def test_people_who_blocked_you_are_not_suggested_and_answer_like_inactive_accounts(client, login, people, db,

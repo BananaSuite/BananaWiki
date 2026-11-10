@@ -26,9 +26,10 @@
     {% if display_prefs[key] %}{% set advanced.customized = true %}{% endif %}
   {% endfor %}
   <details class="disclosure users-display__advanced"{% if advanced.customized %} open{% endif %}>
-    <summary><span>{{ t('users.display.more_options') }}<small class="hint">{{ t('users.display.more_options_hint') }}</small></span></summary>
+    <summary>{{ t('users.display.more_options') }}</summary>
     <section class="form-section" aria-labelledby="colors-heading">
       <h2 id="colors-heading">{{ t('users.display.colors') }}</h2>
+      <div class="stack">
       <p class="hint">{{ t('users.display.colors_hint') }}</p>
       <div class="form-grid">
         {% for key in ('custom_bg', 'custom_text', 'custom_primary', 'custom_secondary', 'custom_accent', 'custom_sidebar') %}
@@ -38,10 +39,12 @@
         </div>
         {% endfor %}
       </div>
+      </div>
     </section>
 
     <section class="form-section" aria-labelledby="reading-heading">
       <h2 id="reading-heading">{{ t('users.display.reading') }}</h2>
+      <div class="stack">
       <p class="hint">{{ t('users.display.semantic_hint') }}</p>
       <div class="form-grid">
         {% for key in ('semantic_bold', 'semantic_italic', 'semantic_code', 'semantic_link', 'semantic_heading') %}
@@ -49,6 +52,7 @@
         {% endfor %}
         {{ forms.field('sidebar_width', t('users.display.sidebar_width'), display_prefs.sidebar_width or '', type='number', hint=t('users.display.pixels_hint'), attrs={'min': 0, 'max': 500}) }}
         {{ forms.field('content_max_width', t('users.display.content_width'), display_prefs.content_max_width or '', type='number', hint=t('users.display.pixels_hint'), attrs={'min': 0, 'max': 5000}) }}
+      </div>
       </div>
     </section>
   </details>

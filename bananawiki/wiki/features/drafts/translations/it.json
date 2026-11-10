@@ -1,5 +1,5 @@
 {
-  "drafts.editor.credit": "Salvando la pagina, queste persone verranno citate nel riepilogo della modifica e le loro bozze saranno eliminate.",
+  "drafts.editor.credit": "Salvando la pagina, queste persone vengono citate e le loro bozze eliminate.",
   "drafts.editor.discard": "Elimina bozza",
   "drafts.editor.discard_confirm": "Eliminare la bozza salvata di questa pagina? L'operazione non si può annullare.",
   "drafts.editor.have_draft": "Hai una bozza non pubblicata di questa pagina (salvata {when}).",
@@ -21,7 +21,6 @@
   "drafts.mine.continue": "Riprendi",
   "drafts.mine.discard_confirm": "Eliminare questa bozza? L'operazione non si può annullare.",
   "drafts.mine.empty": "Non hai bozze non pubblicate.",
-  "drafts.mine.intro": "Le bozze vengono salvate automaticamente mentre modifichi una pagina ed eliminate quando la salvi.",
   "drafts.mine.page": "Pagina",
   "drafts.mine.saved": "Ultimo salvataggio",
   "drafts.mine.title": "Le mie bozze",

@@ -77,7 +77,8 @@ def test_admin_pages_render(web, make_account, make_wiki, login, language):
     wiki = make_wiki(user)
     login(web, admin)
     web.post("/language", data={"language": language})
-    pages = ["/admin", "/admin/settings", "/admin/banners", "/admin/merge-requests", "/admin/moderation",
+    pages = ["/admin", "/admin/accounts", "/admin/wikis", "/admin/settings", "/admin/banners", "/admin/merge-requests",
+             "/admin/moderation",
              "/admin/instances/import", "/admin/merge-accounts", f"/admin/accounts/{user['id']}",
              f"/admin/accounts/{user['id']}/delete", f"/admin/instances/{wiki['id']}",
              f"/admin/instances/{wiki['id']}/logs", f"/instances/{wiki['id']}"]

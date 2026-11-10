@@ -2,9 +2,7 @@
 {% set entries = attention_entries if attention_entries is defined else attention_items() %}
 {% if entries %}
 <section class="card attention-card" id="attention" aria-labelledby="attention-card-title">
-  <div class="card__header">
-    <h2 id="attention-card-title">{{ t('hosting.attention.title') }}</h2>
-  </div>
+  <h2 id="attention-card-title">{{ t('hosting.attention.title') }}</h2>
   <ul class="attention-list">
     {% for entry in entries %}
     <li class="attention-list__item">
@@ -15,9 +13,7 @@
     </li>
     {% endfor %}
   </ul>
-  <p class="small muted"><a href="{{ url_for('admin.settings_page', open='notifications') }}#notifications">{{ t('hosting.attention.email_settings') }}</a></p>
 </section>
 {% else %}
-<div class="attention-empty" id="attention"><p class="muted">{{ t('hosting.attention.empty') }}</p>
-  <a href="{{ url_for('admin.settings_page', open='notifications') }}#notifications">{{ t('hosting.attention.email_settings') }}</a></div>
+<p class="attention-empty muted" id="attention">{{ t('hosting.attention.empty') }}</p>
 {% endif %}

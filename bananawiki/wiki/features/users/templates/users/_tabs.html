@@ -1,9 +1,16 @@
-{#- Tabs shared by the account settings pages. Expects `tab`; `short_settings` comes from the users blueprint
-    (BM mode's short settings: Sessions leaves the tabs unless it is the page being shown). -#}
+{#- Tabs of the settings pages. Expects `tab`. BM mode's short settings (`short_settings`) keep Account, Appearance
+    and Profile; the other tabs are left out unless they are the page being shown. "All settings" (?all=1) shows
+    every tab, and the tabs keep it. -#}
 {% set bm_short = 'data-bm-hide="users.simple_settings"'|safe if short_settings else '' %}
+{% set keep = {'all': 1} if request.args.get('all') == '1' else {} %}
+{% macro tab_link(name, endpoint, label, short=false) -%}
+<a href="{{ url_for(endpoint, **keep) }}"{% if tab == name %} aria-current="page"{% elif short %} {{ bm_short }}{% endif %}>{{ label }}</a>
+{%- endmacro %}
 <nav class="tabs" aria-label="{{ t('users.settings.sections') }}">
-  <a href="{{ url_for('users.settings') }}"{% if tab == 'account' %} aria-current="page"{% endif %}>{{ t('users.tab.account') }}</a>
-  {% if has_permission('profile.edit_own') %}<a href="{{ url_for('users.edit_profile') }}"{% if tab == 'profile' %} aria-current="page"{% endif %}>{{ t('users.tab.profile') }}</a>{% endif %}
-  <a href="{{ url_for('users.display') }}"{% if tab == 'display' %} aria-current="page"{% endif %}>{{ t('users.tab.display') }}</a>
-  <a href="{{ url_for('users.sessions_page') }}"{% if tab == 'sessions' %} aria-current="page"{% else %} {{ bm_short }}{% endif %}>{{ t('users.tab.sessions') }}</a>
+  {{ tab_link('account', 'users.settings', t('users.tab.account')) }}
+  {{ tab_link('security', 'users.security', t('users.tab.security'), short=true) }}
+  {% if feature_enabled('attention') %}{{ tab_link('notifications', 'users.notifications', t('users.tab.notifications'), short=true) }}{% endif %}
+  {{ tab_link('display', 'users.display', t('users.tab.display')) }}
+  {% if has_permission('profile.edit_own') %}{{ tab_link('profile', 'users.edit_profile', t('users.tab.profile')) }}{% endif %}
+  {{ tab_link('privacy', 'users.privacy', t('users.tab.privacy'), short=true) }}
 </nav>

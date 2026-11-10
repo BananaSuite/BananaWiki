@@ -6,35 +6,35 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
-  <meta name="color-scheme" content="light dark">
+  <meta name="color-scheme" content="dark">
   {% if refresh %}<noscript><meta http-equiv="refresh" content="10"></noscript>{% endif %}
   <title>{{ t('hosting.wiki_status.' ~ state ~ '.title') }} · {{ host }}</title>
   <style>
-    :root { --bg: #faf9f5; --card: #fff; --text: #202124; --muted: #5f6368; --line: #dcdad3; --accent: #8a6500; }
-    @media (prefers-color-scheme: dark) {
-      :root { --bg: #141414; --card: #1d1d1d; --text: #ededed; --muted: #a9a9a9; --line: #3a3a3a; --accent: #e6be32; }
-    }
+    /* The portal's board in miniature: a bordered box with a glossy title bar, in the portal's default dark theme. */
+    :root { --page: #0f151c; --card: #18202a; --text: #dde5ed; --muted: #a3b2c2; --line: #34465a; --soft: #202a37;
+            --link: #9cc4f5; --link-hover: #ffc56e; --bar: linear-gradient(#3a5c82, #31517a 49%, #284669 51%, #213c5c); }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; padding: 3rem 1rem; background: var(--bg); color: var(--text);
-           font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-    main { max-width: 34rem; margin: 0 auto; background: var(--card); border: 1px solid var(--line);
-           border-radius: 6px; padding: 1.5rem 1.75rem; overflow-wrap: anywhere; }
-    h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 650; line-height: 1.25; letter-spacing: -.035em; }
-    p { margin: .5rem 0; }
-    .host { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; word-break: break-all; }
-    .muted { color: var(--muted); font-size: .9rem; }
-    dl { margin: 1rem 0; padding: .75rem 1rem; border-left: 3px solid var(--line); }
-    dt { font-size: .8rem; color: var(--muted); }
-    dd { margin: 0 0 .5rem; }
+    body { margin: 0; min-height: 100vh; padding: 3rem 1rem; background: var(--page); color: var(--text);
+           font: .8125rem/1.5 Verdana, Tahoma, "DejaVu Sans", sans-serif; }
+    main { max-width: 32rem; margin: 0 auto; overflow: hidden; background: var(--card); border: 1px solid var(--line);
+           border-radius: 6px; box-shadow: 0 8px 26px rgba(0, 0, 0, .3); overflow-wrap: anywhere; }
+    h1 { margin: 0; padding: .4rem .75rem; background: var(--bar); color: #fff; font-size: .8125rem; line-height: 1.4;
+         text-shadow: 0 1px 0 rgba(0, 0, 0, .3); }
+    main > p, main > dl { margin: .75rem; }
+    .host { font-family: "Lucida Console", "DejaVu Sans Mono", monospace; word-break: break-all; }
+    .muted { color: var(--muted); font-size: .75rem; }
+    dl { padding: .4rem .6rem; border: 1px solid var(--line); background: var(--soft); }
+    dt { font-weight: bold; font-size: .75rem; }
+    dd { margin: 0 0 .4rem; }
     dd:last-child { margin-bottom: 0; }
-    a { color: var(--accent); }
-    a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-    footer { margin-top: 1.25rem; padding-top: .75rem; border-top: 1px solid var(--line); display: grid; gap: .6rem; }
+    a { color: var(--link); }
+    a:hover { color: var(--link-hover); }
+    a:focus-visible, .link:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+    footer { display: grid; gap: .35rem; padding: .5rem .75rem; border-top: 1px solid var(--line); background: var(--soft); }
     footer p { margin: 0; }
-    .brand { font-weight: 600; color: var(--text); }
-    .link { font: inherit; color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline;
+    .brand { font-weight: bold; color: var(--text); }
+    .link { font: inherit; color: var(--link); background: none; border: 0; padding: 0; text-decoration: underline;
             cursor: pointer; }
-    .link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   </style>
 </head>
 <body>

@@ -105,7 +105,7 @@ def test_edit_conflict_diff_is_bounded(app, admin_client, admin):
     response = admin_client.post("/page/lines/edit", data={"title": "Lines", "content": "a\n" * 20_000 + "c",
                                                             "revision": page["revision"]})
     assert response.status_code == 409
-    assert "too different to compare in detail" in response.get_data(as_text=True)
+    assert "differ too much for a line-by-line comparison" in response.get_data(as_text=True)
 
 
 def test_edit_requires_edit_all_and_category_write(app, client, make_user, login, db):

@@ -68,7 +68,7 @@ from typing import Any, Protocol
 
 log = logging.getLogger("bananawiki-tts-gpu")
 
-VERSION = "1.7.6"  # a test checks it matches bananawiki.__version__
+VERSION = "1.8.0"  # a test checks it matches bananawiki.__version__
 _LANGUAGE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z]{2})?$")
 _CONTENT_LENGTH = re.compile(r"[0-9]+")
 _VOICE_NAME = re.compile(r"^[\w.-]{1,120}$")

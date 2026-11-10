@@ -1,6 +1,28 @@
-<nav class="tabs" aria-label="{{ t('hosting.nav.admin') }}">
-  {% for endpoint, label in [('admin.dashboard', 'hosting.admin.nav.overview'), ('admin.settings_page', 'hosting.admin.nav.settings'), ('admin.banners_page', 'hosting.admin.nav.banners'), ('admin.merge_requests', 'hosting.admin.nav.merges'), ('admin.moderation', 'hosting.admin.nav.moderation'), ('admin.import_instance', 'hosting.admin.nav.import')] %}
-  <a href="{{ url_for(endpoint) }}"{% if request.endpoint == endpoint or (endpoint == 'admin.merge_requests' and request.endpoint == 'admin.merge_accounts') %} aria-current="page"{% endif %}>{{ t(label) }}</a>
-  {% endfor %}
+{#- The administration menu, beside every administration page (base.html adds it). A page opened from
+    a list (an account, a wiki, its logs) marks the list it belongs to. -#}
+{%- set sections = [
+  ('overview', 'admin.dashboard', t('hosting.admin.nav.overview')),
+  ('accounts', 'admin.account_list', t('hosting.admin.accounts')),
+  ('wikis', 'admin.wiki_list', t('hosting.admin.instances')),
+  ('settings', 'admin.settings_page', t('hosting.admin.nav.settings')),
+  ('banners', 'admin.banners_page', t('hosting.admin.nav.banners')),
+  ('merges', 'admin.merge_requests', t('hosting.admin.nav.merges')),
+  ('log', 'admin.moderation', t('hosting.admin.nav.moderation')),
+] -%}
+{%- set owner_pages = ('dashboard.instance_detail', 'dashboard.instance_domain', 'dashboard.collaborators_page', 'dashboard.analytics') -%}
+{%- set section_of = {
+  'admin.dashboard': 'overview', 'admin.account_list': 'accounts', 'admin.account_page': 'accounts',
+  'admin.delete_account': 'accounts', 'admin.wiki_list': 'wikis', 'admin.instance': 'wikis',
+  'admin.instance_logs': 'wikis', 'admin.import_instance': 'wikis', 'admin.settings_page': 'settings',
+  'admin.signup_mode': 'settings', 'admin.banners_page': 'banners', 'admin.merge_requests': 'merges',
+  'admin.merge_accounts': 'merges', 'admin.moderation': 'log',
+} -%}
+{%- set current = section_of.get(request.endpoint, 'wikis' if request.endpoint in owner_pages else 'overview') -%}
+<nav class="side-nav admin-nav" aria-labelledby="admin-nav-title">
+  <h2 class="side-nav__title" id="admin-nav-title">{{ t('hosting.nav.admin') }}</h2>
+  <ul>
+    {% for key, endpoint, label in sections %}
+    <li><a href="{{ url_for(endpoint) }}"{% if key == current %} aria-current="page"{% endif %}>{{ label }}</a></li>
+    {% endfor %}
+  </ul>
 </nav>
-{% if email_paused() %}<div class="alert alert--warning" role="status"><div class="alert__body">{{ t('hosting.admin.email_paused_banner') }} <a href="{{ url_for('admin.settings_page', open='save_email') }}#save_email">{{ t('hosting.admin.email_paused_link') }}</a></div></div>{% endif %}

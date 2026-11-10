@@ -1,4 +1,4 @@
-{#- Page shell. Blocks: title, head, body_class, topbar_actions, sidebar, main_class, content, scripts. -#}
+{#- Page shell. Blocks: title, head, body_class, topbar_actions, sidebar, sidebar_label, main_class, content, scripts. -#}
 {%- set prefs = accessibility_prefs() -%}
 {#- BM mode's simplifications applying to this person, for scripts and stylesheets (data-bm). -#}
 {%- set bm_ids = bm_applied() -%}
@@ -46,13 +46,12 @@
       <div class="topbar__actions">
         {% block topbar_actions %}{% endblock %}
         {{ slot('topbar.actions') }}
-        {% include "layout/_topbar_shortcuts.html" %}
         <button type="button" class="btn btn--ghost btn--icon" data-theme-toggle aria-label="{{ t('nav.toggle_theme') }}" title="{{ t('nav.toggle_theme') }}"><svg class="icon" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="10" cy="10" r="6.5" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M10 3.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg></button>
         {% include "layout/_user_menu.html" %}
       </div>
     </header>
     {% if has_sidebar %}
-    <nav class="sidebar" id="sidebar" aria-label="{{ t('nav.sidebar') }}">
+    <nav class="sidebar" id="sidebar" aria-label="{% block sidebar_label %}{{ t('nav.sidebar') }}{% endblock %}">
       {{ sidebar_html }}
     </nav>
     {% endif %}

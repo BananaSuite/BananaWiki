@@ -102,3 +102,14 @@ def test_the_maintenance_gate_has_a_page_in_every_portal_language():
         assert f'<html lang="{language}">' in page(HTTP_COOKIE=f"bw_lang={language}")
     assert '<html lang="en">' in page(HTTP_ACCEPT_LANGUAGE="*")
     assert '<html lang="en">' in page(HTTP_ACCEPT_LANGUAGE="de, en")  # a tie that includes English
+
+
+def test_the_maintenance_page_is_dark_unless_the_visitor_chose_light():
+    gate = _MaintenanceGate(lambda environ, start: [b"app"], __file__)
+
+    def page(**environ) -> str:
+        return b"".join(gate({"PATH_INFO": "/", "HTTP_ACCEPT": "text/html", **environ},
+                             lambda status, headers: None)).decode()
+
+    assert ":root{--page:#0f151c;" in page() and "prefers-color-scheme" not in page()
+    assert '<html data-theme="light" lang="en">' in page(HTTP_COOKIE="bw_theme=light")

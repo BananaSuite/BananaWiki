@@ -77,7 +77,7 @@ def publish():
         _flash_error(error)
     else:
         auth.flash_t("profiles.flash.published" if published else "profiles.flash.hidden", "success")
-    return redirect(url_for("users.settings"))
+    return redirect(url_for("users.privacy"))
 
 
 @bp.post("/settings/profile/delete")
@@ -85,7 +85,7 @@ def publish():
 def delete_own():
     service.delete_own(auth.current_user()["id"])
     auth.flash_t("profiles.flash.deleted", "success")
-    return redirect(url_for("users.settings"))
+    return redirect(url_for("users.privacy"))
 
 
 # Administrators: one account

@@ -169,10 +169,10 @@ def test_w1_6_merge_form_tells_nothing_about_the_other_account_without_the_passw
 
     for name in ("theowner", "member", "nobody_here"):
         page = _request_merge(client, name, password="wrong-password").get_data(as_text=True)
-        assert "Your current password is not correct." in page, name
+        assert "Wrong current password." in page, name
     page = _request_merge(client, "theowner").get_data(as_text=True)
     assert "Protected accounts" not in page and "last owner" not in page
-    assert "These accounts cannot be merged." in page
+    assert "These accounts can&#39;t be merged." in page
 
 
 def test_w1_6_an_unconfirmed_request_does_not_block_the_other_account(app, make_user, login, db):

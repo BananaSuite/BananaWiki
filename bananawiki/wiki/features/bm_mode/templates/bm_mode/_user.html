@@ -8,7 +8,7 @@
   {% else %}
   <form class="form" method="post" action="{{ url_for('bm_mode.account_switch', user_id=target.id) }}">
     {{ forms.csrf() }}
-    {{ forms.checkbox('bm_mode', t('bm_mode.user.switch', username=target.username), checked=on, hint=t('bm_mode.user.switch_hint')) }}
+    {{ forms.checkbox('bm_mode', t('bm_mode.user.switch', username=target.username), checked=on) }}
     {{ forms.select('bm_self', t('bm_mode.user.rule'), [('', t('bm_mode.user.rule_wiki_yes') if wiki_rule else t('bm_mode.user.rule_wiki_no')), ('allow', t('bm_mode.user.rule_allow')), ('deny', t('bm_mode.user.rule_deny'))], selected=rule, id='bm-self') }}
     <div class="btn-row"><button type="submit" class="btn">{{ t('common.save') }}</button></div>
   </form>

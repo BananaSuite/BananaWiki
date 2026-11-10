@@ -32,31 +32,6 @@
   }
 
   BW.onReady(function () {
-    var jump = document.querySelector("[data-admin-jump]");
-    if (jump) {
-      jump.addEventListener("change", function () {
-        if (jump.value) window.location.href = jump.value;
-      });
-    }
-    var find = document.querySelector("[data-admin-find]");
-    if (find) {
-      find.addEventListener("input", function () {
-        var needle = find.value.trim().toLowerCase();
-        var shown = 0;
-        document.querySelectorAll("[data-admin-group]").forEach(function (group) {
-          var inGroup = 0;
-          group.querySelectorAll("[data-admin-link]").forEach(function (link) {
-            var match = !needle || link.textContent.toLowerCase().indexOf(needle) !== -1;
-            link.hidden = !match;
-            if (match) inGroup++;
-          });
-          group.hidden = !inGroup;
-          shown += inGroup;
-        });
-        var none = document.querySelector("[data-admin-find-none]");
-        if (none) none.hidden = !!shown;
-      });
-    }
     document.querySelectorAll("form").forEach(function (form) {
       if (!form.querySelector("[data-reveal-for], [data-base-role]")) return;
       form.addEventListener("change", function () { refresh(form); });

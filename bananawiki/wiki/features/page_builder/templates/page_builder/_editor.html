@@ -17,7 +17,6 @@
       <a class="btn btn--ghost" href="{{ urls.exit or urls.view }}">{{ t('page_builder.editor.exit') }}</a>
       <button type="button" class="btn btn--primary" id="builder-publish">{% block publish_label %}{{ t('page_builder.editor.publish') }}{% endblock %}</button>
     </div>
-    <p class="page-header__meta">{{ t('page_builder.editor.intro') }}</p>
   </header>
   {% block notices %}{% endblock %}
   <div class="alert alert--danger" id="builder-conflict" hidden>
@@ -79,7 +78,6 @@
           {% endfor %}
         </ul>
       </div>
-      <p class="hint">{{ t('page_builder.editor.safety') }}</p>
     </aside>
 
     <section class="builder-stage-wrap" aria-labelledby="builder-title-label">

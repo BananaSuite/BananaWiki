@@ -164,7 +164,7 @@ def test_after_a_password_mismatch_typing_starts_at_the_first_field(tmp_path):
     assert "autofocus" not in re.search(r'<input id="f-confirm_password"[^>]*>', page).group(0)
     # The message is under the field; the top of the page only points there.
     assert page.count("The passwords do not match.") == 1
-    assert "Please correct the field marked below." in page
+    assert "Correct the field marked below." in page
 
 
 def test_the_two_step_code_accepts_recovery_codes_on_phones(web, make_account, query):

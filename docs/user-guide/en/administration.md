@@ -14,7 +14,9 @@ other administrators: only owners and superusers can change an administrator.
 
 ## The Admin area
 
-Open **Administration** from the account menu.
+Open **Administration** from the account menu. It opens on the dashboard, and the sidebar lists
+every administration page by group (People, Wiki, Content, System); **Back to the wiki** returns to
+the page tree.
 
 * **Dashboard**: accounts waiting for approval, suspended accounts, traffic.
 * **Users**: create accounts, approve or deny sign-ups, change roles, assign

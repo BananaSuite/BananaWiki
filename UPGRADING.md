@@ -1,5 +1,6 @@
 # Upgrading BananaWiki
 
+* [Upgrading from 1.7.6 to 1.8.0](#upgrading-from-176-to-180)
 * [Upgrading from 1.7.3 to 1.7.6](#upgrading-from-173-to-176)
 * [Upgrading from 1.7.2 to 1.7.3](#upgrading-from-172-to-173)
 * [Upgrading from 1.7.1 to 1.7.2](#upgrading-from-171-to-172)
@@ -8,9 +9,29 @@
 * [Upgrading from 1.4](#upgrading-from-14)
 
 Read every section between the release you run and the one you install. A
-1.6 installation that updates straight to 1.7.6 follows the 1.6 to 1.7
-section, then the 1.7.0 to 1.7.1, 1.7.1 to 1.7.2, 1.7.2 to 1.7.3 and 1.7.3 to
-1.7.6 sections. A 1.4 installation follows all of them.
+1.6 installation that updates straight to 1.8.0 follows the 1.6 to 1.7
+section, then the 1.7.0 to 1.7.1, 1.7.1 to 1.7.2, 1.7.2 to 1.7.3, 1.7.3 to
+1.7.6 and 1.7.6 to 1.8.0 sections. A 1.4 installation follows all of them.
+
+## Upgrading from 1.7.6 to 1.8.0
+
+Interface release. No database migration: 1.7.6 can still open the wiki and portal databases.
+
+* **Moved pages and renamed labels.** Update your own guides and screenshots.
+  * *Customise* is now **Appearance** (Italian *Aspetto*, German *Darstellung*), in the account menu.
+    The top bar no longer has Customise, Settings or Sign out.
+  * Settings tabs: Account, Security, Notifications, Appearance, Profile, Privacy. Sessions are on
+    Security (`/settings/sessions` redirects). Blocked people, drafts and the data download are on Privacy.
+  * Administration opens on the dashboard. The sidebar lists every admin page. The overview page is gone;
+    `/admin/home` opens the dashboard.
+  * Site settings tabs: `/admin/settings?section=access`, `security`, `signin`, `uploads`, `content`.
+    Links to anchors of the old single page open the General tab.
+* **Uploaded interface languages.** New texts show in English until translated. Removed keys are ignored.
+  Many English texts are shorter, so compare older translations with the English file
+  (**Administration → Languages**).
+* **Hosting platform.** New look and own stylesheet; the portal no longer loads `/static/css/bananawiki.css`
+  (still served for wikis). New visitors get the light theme. Account and wiki tables are under
+  **Administration → Accounts** and **Wikis**. **Import a wiki** is a button on **Wikis**.
 
 ## Upgrading from 1.7.3 to 1.7.6
 

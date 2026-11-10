@@ -257,7 +257,7 @@ def test_description_diff_is_bounded(admin_client, board):
     started = time.monotonic()
     detail = admin_client.get(f"/api/kanban/history/{newest['id']}").get_json()
     assert time.monotonic() - started < 30  # generous: well under a second
-    assert "too different to compare in detail" in detail["diff_html"]
+    assert "differ too much for a line-by-line comparison" in detail["diff_html"]
     assert '<ins class="diff-add">x</ins>' in detail["diff_html"]
     small = admin_client.put(f"/api/kanban/tickets/{ticket['id']}", json={"description": "x\nab\ny"})
     assert small.status_code == 200

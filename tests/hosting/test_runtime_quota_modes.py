@@ -429,7 +429,7 @@ def test_administrators_are_told_when_wikis_run_without_hard_quotas(portal, runt
     assert "BW_HOSTING_TENANT_QUOTAS=<wbr>auto" in shown and "prjquota" in shown and EXT4 in shown
     assert "no longer available" not in shown and "Wikis cannot start" not in shown
     # It states the trade-off: the limit is only checked, so a wiki can fill the shared disk between two checks.
-    assert "is still checked" in shown and "still enforced" not in shown and "at worst, fill the disk" in shown
+    assert "is still checked" in shown and "still enforced" not in shown and "fill the disk between checks" in shown
     # Neutral about the cause (the storage, or services under units an older controller wrote): status says which.
     assert "sudo bananawiki status" in shown
     # Lost: the loss is named, as a warning.
@@ -451,7 +451,7 @@ def test_administrators_are_told_when_wikis_run_without_hard_quotas(portal, runt
     assert 'class="alert alert--info" id="storage-protection"' in shown
     assert "Hard per-wiki storage quotas are switched off on this server" in shown
     assert "config set tenant-quotas auto" in shown and "turns them off" not in shown
-    assert "at worst, fill the disk" in shown
+    assert "fill the disk between checks" in shown
     # An agent from before the lost flag: as never enforced.
     runtime.storage = {key: value for key, value in NEVER.items() if key != "lost"}
     assert "alert--info" in banner(client)

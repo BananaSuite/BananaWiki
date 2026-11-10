@@ -55,10 +55,7 @@
 {% endif %}
 {{ forms.pagination(page, pages, 'kanban.index', {'archived': 1} if show_archived else {}) }}
 {% else %}
-<div class="empty-state">
-  <h2>{{ t('kanban.list.empty') }}</h2>
-  {% if can_create %}<p>{{ t('kanban.list.empty_help') }}</p>{% endif %}
-</div>
+<div class="empty-state"><p>{{ t('kanban.list.empty') }}</p></div>
 {% endif %}
 
 {% if show_archived and archived_boards %}

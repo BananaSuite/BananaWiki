@@ -156,7 +156,7 @@
 
 <section class="card" id="audit">
   <h2>{{ t('api_service.admin.audit') }}</h2>
-  <p class="hint hint--block">{{ t('api_service.admin.audit_count', count=entries|length, total=total_entries) }}</p>
+  {% if entries %}<p class="hint hint--block">{{ t('api_service.admin.audit_count', count=entries|length, total=total_entries) }}</p>{% endif %}
   {% if current_user.is_superuser %}
   <form method="post" action="{{ url_for('api_service.admin_clear_audit') }}" class="inline-fields inline-fields--spaced" data-confirm="{{ t('api_service.admin.clear_confirm') }}">
     {{ forms.csrf() }}

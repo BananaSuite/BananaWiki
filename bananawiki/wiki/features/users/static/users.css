@@ -35,6 +35,12 @@
 :is(.users-settings, .users-display, .users-display__advanced) > section > :not(h2) { grid-column: 2; min-width: 0; }
 :is(.users-settings, .users-display) > section > :is(.btn, form.inline) { justify-self: start; }
 :is(.users-settings, .users-display, .users-display__advanced) > section > p { margin: 0; }
+/* The Account tab's summary: role, membership date and a few links in one row, without a heading column. */
+.users-settings > .users-settings__summary { display: flex; flex-wrap: wrap; align-items: center;
+  justify-content: space-between; gap: .75rem 1.5rem; padding-top: .5rem; }
+.users-settings__summary > p { margin: 0; }
+/* Forms keep a readable width beside their headings. */
+:is(.users-settings, .users-display) > section > form { max-width: 34rem; }
 .users-display .form-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
 .users-display > section > .check { margin-top: 0; }
 .users-display > .users-display__save { border-bottom: 0; }
@@ -74,8 +80,6 @@ a.users-member__identity:hover strong, a.users-member__identity:focus-visible st
 .users-member__text > * { overflow: hidden; text-overflow: ellipsis; }
 
 .users-sessions { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--border); }
-.users-session-section + .users-session-section { margin-top: 1.5rem; }
-.users-session-section h2 { font-size: 1rem; }
 /* "Sign out" sits at the top right of every session, whatever the length of its facts: the facts wrap
    beside it instead of pushing the button below them on some rows only. */
 .users-session { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem .75rem;

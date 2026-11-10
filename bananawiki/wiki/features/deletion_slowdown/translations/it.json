@@ -7,7 +7,7 @@
   "deletion_slowdown.docs_bypass": "Elimina subito le pagine della documentazione",
   "deletion_slowdown.docs_bypass_hint": "Le pagine della categoria della documentazione integrata saltano l'attesa.",
   "deletion_slowdown.empty": "Nessuna pagina è in attesa di eliminazione.",
-  "deletion_slowdown.intro": "Le pagine eliminate restano nascoste per {hours} ore prima di essere rimosse definitivamente. Puoi ripristinarle o eliminarle subito.",
+  "deletion_slowdown.intro": "Le pagine eliminate vengono conservate per {hours} ore prima di essere rimosse definitivamente.",
   "deletion_slowdown.nav": "Eliminazioni in attesa",
   "deletion_slowdown.notice": "{user} ha eliminato questa pagina. Sarà rimossa definitivamente il {date}.",
   "deletion_slowdown.notice_no_date": "Questa pagina è in attesa di eliminazione.",
@@ -19,6 +19,6 @@
   "deletion_slowdown.scheduled": "La pagina sarà eliminata tra {hours} ore. Fino ad allora può essere ripristinata.",
   "deletion_slowdown.settings": "Impostazioni",
   "deletion_slowdown.title": "Pagine in attesa di eliminazione",
-  "feature.deletion_slowdown.description": "Le pagine eliminate restano recuperabili per 48 ore prima di sparire.",
+  "feature.deletion_slowdown.description": "Le pagine eliminate restano recuperabili per 48 ore.",
   "feature.deletion_slowdown.name": "Eliminazione ritardata"
 }

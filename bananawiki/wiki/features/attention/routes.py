@@ -76,13 +76,18 @@ def save_preferences():
         service.set_email(user["id"], request.form.get("email", ""))
     except NotificationError as error:
         _flash_error(error)
-        return redirect(url_for("users.settings") + "#notifications")
+        return _settings_back()
     attention_emails = bool(request.form.get("attention_emails")) if request.form.get("attention_choice") \
         else bool(user.get("attention_emails", 1))
     service.set_preferences(user["id"], attention_emails=attention_emails,
                             decision_emails=bool(request.form.get("decision_emails")))
     auth.flash_t("common.saved", "success")
-    return redirect(url_for("users.settings") + "#notifications")
+    return _settings_back()
+
+
+def _settings_back():
+    """Back to the settings page the form was on: Notifications, or Account in BM mode's short settings."""
+    return redirect(safe_next(url_for("users.notifications"), request.form.get("next")))
 
 
 @bp.post("/account-status/notify-email")

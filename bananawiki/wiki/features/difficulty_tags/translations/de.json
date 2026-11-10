@@ -3,7 +3,7 @@
   "difficulty_tags.dialog.title": "Schwierigkeitsgrad",
   "difficulty_tags.error.color": "Wähle eine Farbe im Format #rrggbb.",
   "difficulty_tags.error.forbidden": "Du darfst dieses Label nicht festlegen.",
-  "difficulty_tags.error.invalid": "Das ist kein gültiges Label.",
+  "difficulty_tags.error.invalid": "Ungültiges Label.",
   "difficulty_tags.error.label_required": "Ein eigenes Label braucht einen Text.",
   "difficulty_tags.error.label_too_long": "Der Text darf höchstens {limit} Zeichen lang sein.",
   "difficulty_tags.field.color": "Farbe",
@@ -20,7 +20,7 @@
   "difficulty_tags.level.intermediate": "Mittel",
   "difficulty_tags.level.none": "Kein Label",
   "difficulty_tags.bm.hide_tags": "Keine Schwierigkeitsgrade",
-  "difficulty_tags.bm.hide_tags_hint": "Blendet die Schwierigkeitsgrade auf Seiten, die Aktion „Label“ und die Felder dafür im Editor aus; die Grade selbst bleiben gespeichert.",
+  "difficulty_tags.bm.hide_tags_hint": "Blendet die Grade auf Seiten und im Editor aus. Vorhandene Grade bleiben gespeichert.",
   "feature.difficulty_tags.description": "Seiten mit einem Schwierigkeitsgrad oder einem eigenen farbigen Label kennzeichnen.",
   "feature.difficulty_tags.name": "Schwierigkeitsgrade"
 }

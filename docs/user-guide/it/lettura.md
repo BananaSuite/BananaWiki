@@ -12,7 +12,7 @@ leggere anche senza account.
 
 Al primo accesso potrebbe esserti chiesto di cambiare la password e potresti
 vedere una breve introduzione. Puoi rivedere il tour più tardi dalle
-Impostazioni (**Apri il tour guidato**).
+Impostazioni (**Visita guidata**).
 
 ## Orientarsi
 

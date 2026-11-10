@@ -12,7 +12,7 @@ from functools import lru_cache
 from typing import Any
 from zoneinfo import available_timezones
 
-from flask import current_app, redirect, render_template, request, url_for
+from flask import abort, current_app, redirect, render_template, request, url_for
 
 from ... import auth, registry, settings
 from ...i18n import t
@@ -67,16 +67,18 @@ SECTIONS: list[tuple[str, list[Field]]] = [
     ]),
     ("access", [
         Field("public_mode", "flag", locked=_public_mode_locked),
-        Field("public_mode_until", "until", depends_on="public_mode", locked=_public_mode_locked),
-        Field("public_mode_show_message", "flag", locked=_public_mode_locked),
-        Field("public_mode_message", "textarea", max_length=1000, empty="", locked=_public_mode_locked),
+        Field("public_mode_until", "until", depends_on="public_mode", locked=_public_mode_locked,
+              reveal=("public_mode", "1")),
+        Field("public_mode_show_message", "flag", locked=_public_mode_locked, reveal=("public_mode", "1")),
+        Field("public_mode_message", "textarea", max_length=1000, empty="", locked=_public_mode_locked,
+              reveal=("public_mode_show_message", "1")),
         Field("open_signup", "flag"),
-        Field("open_signup_until", "until", depends_on="open_signup"),
+        Field("open_signup_until", "until", depends_on="open_signup", reveal=("open_signup", "1")),
         Field("approval_required", "flag"),
-        Field("approval_pending_timeout_hours", "number", minimum=0, maximum=8760),
-        Field("approval_denied_timeout_hours", "number", minimum=1, maximum=8760),
+        Field("approval_pending_timeout_hours", "number", minimum=0, maximum=8760, reveal=("approval_required", "1")),
+        Field("approval_denied_timeout_hours", "number", minimum=1, maximum=8760, reveal=("approval_required", "1")),
         Field("maintenance_mode", "flag"),
-        Field("maintenance_message", "textarea", max_length=1000, empty=""),
+        Field("maintenance_message", "textarea", max_length=1000, empty="", reveal=("maintenance_mode", "1")),
     ]),
     ("security", [
         Field("session_limit_enabled", "flag"),
@@ -89,12 +91,12 @@ SECTIONS: list[tuple[str, list[Field]]] = [
         Field("new_user_intro_enabled", "flag"),
         Field("onboarding_replay_disabled", "flag"),
         Field("intro_role_switching_enabled", "flag"),
-        Field("intro_role_switching_roles", "roles", options=ROLES),
+        Field("intro_role_switching_roles", "roles", options=ROLES, reveal=("intro_role_switching_enabled", "1")),
     ]),
     ("uploads", [
         Field("upload_mode", "choice", options=("allow_all", "whitelist", "blacklist")),
-        Field("upload_whitelist", "extensions", max_length=2000),
-        Field("upload_blacklist", "extensions", max_length=2000),
+        Field("upload_whitelist", "extensions", max_length=2000, reveal=("upload_mode", "whitelist")),
+        Field("upload_blacklist", "extensions", max_length=2000, reveal=("upload_mode", "blacklist")),
         Field("upload_max_size_mb", "number", minimum=1, maximum=2048, locked=_platform_owned),
         Field("upload_quota_per_day_count", "number", minimum=0, maximum=100_000),
         Field("upload_quota_per_day_bytes", "megabytes", minimum=0, maximum=100_000),
@@ -112,6 +114,22 @@ def all_fields() -> list[Field]:
     return [item for _section, fields in SECTIONS for item in fields]
 
 
+def section_fields(section: str | None) -> list[Field]:
+    """The fields of one tab, or every field when *section* is None (a form that sends them all)."""
+    if section is None:
+        return all_fields()
+    return next(fields for name, fields in SECTIONS if name == section)
+
+
+def _section_or_404(section: str | None) -> str:
+    names = [name for name, _fields in SECTIONS]
+    if section is None:
+        return names[0]
+    if section not in names:
+        abort(404)
+    return section
+
+
 def _current_values() -> dict[str, Any]:
     """Stored values as the form shows them; expired time limits show as off."""
     stored = settings.load()
@@ -123,9 +141,9 @@ def _current_values() -> dict[str, Any]:
     return values
 
 
-def _submitted_values(values: dict[str, Any]) -> dict[str, Any]:
+def _submitted_values(values: dict[str, Any], fields: list[Field]) -> dict[str, Any]:
     shown = dict(_current_values())
-    for item in all_fields():
+    for item in fields:
         if item.name in values:
             shown[item.name] = item.display(values[item.name])
         elif item.kind != "flag" and item.name in request.form and not item.lock_reason():
@@ -141,31 +159,44 @@ def _platform_blacklist() -> list[str]:
     return sorted(set(items))
 
 
-def _render(values: dict[str, Any], errors: dict[str, Any], status: int = 200):
+def _render(section: str, values: dict[str, Any], errors: dict[str, Any], status: int = 200):
     return render_template(
         "site_admin/general.html",
-        sections=SECTIONS, values=values, errors=errors, platform_blacklist=_platform_blacklist(),
-        role_options=ROLES,
+        sections=SECTIONS, section=section, fields=section_fields(section), values=values, errors=errors,
+        platform_blacklist=_platform_blacklist(), role_options=ROLES,
     ), status
 
 
+def _tab_url(section: str) -> str:
+    first = SECTIONS[0][0]
+    return url_for("site_admin.general") if section == first else url_for("site_admin.general", section=section)
+
+
+# One tab per section (?section=access), each a form of its own. A form posted without a "section" field
+# (a script, or the one-page form of 1.7) still sets every field at once.
 @bp.route("/admin/settings", methods=["GET", "POST"])
 @bp.route("/global-settings", methods=["GET", "POST"], endpoint="general_legacy")
 @auth.admin_required
 def general():
+    section = request.args.get("section") or None
     if request.method == "GET":
         if request.endpoint == "site_admin.general_legacy":
             return redirect(url_for("site_admin.general"))
-        return _render(_current_values(), {})
-    values, errors = parse_form(all_fields(), request.form)
+        return _render(_section_or_404(section), _current_values(), {})
+    posted = request.form.get("section") or section
+    shown = _section_or_404(posted)
+    fields = section_fields(posted)
+    values, errors = parse_form(fields, request.form)
     if errors:
         auth.flash_t("site_admin.error.form", "error")
         messages = {name: t(error.key, **error.values) for name, error in errors.items()}
-        return _render(_submitted_values(values), messages, 400)
+        if posted is None:  # the page shows the first tab with an error
+            shown = next(name for name, items in SECTIONS if any(item.name in messages for item in items))
+        return _render(shown, _submitted_values(values, fields), messages, 400)
     previous = settings.load()
     changed = sorted(name for name, value in values.items() if previous.get(name) != value)
     settings.update(values)
     if changed:
         record("settings.updated", details={"changed": ", ".join(changed)})
     auth.flash_t("site_admin.settings.saved", "success")
-    return redirect(url_for("site_admin.general"))
+    return redirect(_tab_url(shown))

@@ -165,7 +165,7 @@ def test_zip_export_the_import_would_refuse_is_not_built(admin_client, board, mo
     response = admin_client.get(f"/kanban/{board}/export")
     assert response.status_code == 302 and response.headers["Location"].endswith(f"/kanban/{board}")
     page = admin_client.get(f"/kanban/{board}").get_data(as_text=True)
-    assert "without them from the More menu" in page and f"/kanban/{board}/export?format=json" in page
+    assert "without attachments from the More menu" in page and f"/kanban/{board}/export?format=json" in page
     assert admin_client.get(f"/kanban/{board}/export?format=json").mimetype == "application/json"
     monkeypatch.setattr(transfer, "MAX_UNCOMPRESSED", 1024 * 1024)
     monkeypatch.setattr(transfer, "MAX_MEMBERS", 2)

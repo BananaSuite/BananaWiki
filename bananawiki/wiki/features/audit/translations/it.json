@@ -164,13 +164,12 @@
   "audit.filter.action": "Azione",
   "audit.filter.actor": "Eseguita da (nome utente)",
   "audit.filter.apply": "Filtra",
-  "audit.intro": "Azioni rilevanti per la sicurezza su questa wiki, dalla più recente.",
   "audit.ip_hidden": "Nascosto",
   "audit.nav": "Registro di controllo",
   "audit.retention.current": "Le voci vengono conservate per {days} giorni.",
   "audit.retention.current_forever": "Le voci vengono conservate per sempre.",
   "audit.retention.days": "Conserva le voci per (giorni)",
-  "audit.retention.hint": "Le voci più vecchie vengono eliminate una volta al giorno. 0 le conserva per sempre.",
+  "audit.retention.hint": "Le voci più vecchie vengono eliminate una volta al giorno. 0 per conservarle per sempre.",
   "audit.retention.invalid": "Inserisci un numero di giorni tra {minimum} e {maximum}.",
   "audit.retention.owner_only": "Solo proprietari e superutenti possono cambiare per quanto tempo vengono conservate le voci.",
   "audit.retention.title": "Conservazione",
@@ -192,6 +191,6 @@
   "audit.target.user": "Account",
   "audit.title": "Registro di controllo",
   "audit.value.all": "Tutte",
-  "feature.audit.description": "Registra le azioni rilevanti per la sicurezza: accessi, modifiche ad account e ruoli, eliminazioni e impostazioni del sito.",
+  "feature.audit.description": "Registra accessi, modifiche ad account e ruoli, eliminazioni e impostazioni del sito.",
   "feature.audit.name": "Registro di controllo"
 }

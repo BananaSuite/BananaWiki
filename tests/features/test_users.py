@@ -33,7 +33,23 @@ def test_settings_page_lists_sections(client, make_user, login):
     login(client, make_user("bob"))
     page = client.get("/settings")
     assert page.status_code == 200
-    assert b"Change username" in page.data and b"Your data" in page.data
+    assert b"Change username" in page.data and b"Delete account" in page.data
+    for tab in (b'href="/settings/security"', b'href="/settings/notifications"', b'href="/settings/display"',
+                b'href="/settings/privacy"'):
+        assert tab in page.data, tab
+    assert b"Your data" in client.get("/settings/privacy").data
+    security = client.get("/settings/security").data
+    assert b'action="/settings/password"' in security and b'id="two-step"' in security and b'id="sessions"' in security
+
+
+def test_the_password_form_returns_to_its_tab(client, make_user, login):
+    login(client, make_user("bob"))
+    wrong = {"current_password": "not it", "new_password": NEW_PASSWORD, "confirm_password": NEW_PASSWORD}
+    assert client.post("/settings/password", data=wrong).headers["Location"].endswith("/settings")
+    response = client.post("/settings/password", data={**wrong, "return_to": "security"})
+    assert response.headers["Location"].endswith("/settings/security")
+    assert client.post("/settings/password", data={**wrong, "return_to": "//evil.example"}).headers[
+        "Location"].endswith("/settings")
 
 
 def test_change_username_needs_password(client, make_user, login, db):
@@ -213,7 +229,8 @@ def test_sessions_list_and_revoke_other(app, make_user, login, db):
     first, second = app.test_client(), app.test_client()
     login(first, user)
     login(second, user)
-    assert first.get("/settings/sessions").data.count(b"users-session") >= 2
+    assert first.get("/settings/sessions").headers["Location"].endswith("/settings/security#sessions")
+    assert first.get("/settings/security").data.count(b'class="users-session') >= 2
     other = db.all("SELECT id FROM user_sessions WHERE user_id = ? ORDER BY created_at", (user["id"],))
     ids = [row["id"] for row in other]
     first.post(f"/settings/sessions/{ids[1]}/revoke")
@@ -487,7 +504,8 @@ def test_orphan_profile_images_are_collected(app, make_user, db):
 
 def test_pages_render_for_admins(admin_client, make_user):
     bob = make_user("bob")
-    for url in ("/settings", "/settings/profile", "/settings/display", "/settings/sessions", "/settings/merge-request",
+    for url in ("/settings", "/settings/profile", "/settings/display", "/settings/security", "/settings/notifications",
+                "/settings/privacy", "/settings/merge-request",
                 f"/settings/merge-request/from/{bob['username']}", "/settings/merge/pending", "/users", "/users/bob",
                 "/admin/merge-requests", "/admin/merge-requests?status=all", "/admin/users/merge",
                 "/admin/badges", "/admin/profile-fields", f"/admin/users/{bob['id']}/profile-fields",

@@ -10,60 +10,53 @@
   {% for key in ('running', 'stopped', 'shared') %}
   <div><dt>{{ t('hosting.dashboard.stat.' ~ key ~ ('_one' if stats[key] == 1 else '_other')) }}</dt><dd>{{ stats[key] }}</dd></div>
   {% endfor %}
+  <div><dt>{{ t('hosting.dashboard.storage_label') }}</dt><dd>{{ stats.storage_mb|mb }} MB</dd></div>
+  <div><dt>{{ t('hosting.dashboard.limit_label') }}</dt><dd>{{ max_instances }}</dd></div>
 </dl>
-<p class="stats-note">{{ t('hosting.dashboard.limit', max=max_instances) }} · {{ t('hosting.dashboard.storage', mb=stats.storage_mb|mb) }}</p>
 {% if items %}
 {% set bulk = items|selectattr('role', 'equalto', 'owner')|list|length > 1 %}
-{% if bulk %}
-<details class="bulk-actions">
-<summary>{{ t('hosting.bulk.title') }}</summary>
-<p class="hint">{{ t('hosting.bulk.hint') }}</p>
-<form method="post" id="bulk" class="bulk-bar">{{ ui.csrf() }}
-  <button class="btn btn--small" formaction="{{ url_for('dashboard.bulk_stop') }}">{{ t('hosting.bulk.stop') }}</button>
-  <button class="btn btn--small" formaction="{{ url_for('dashboard.bulk_restart') }}">{{ t('hosting.bulk.start') }}</button>
-  <button class="btn btn--small btn--danger-quiet" formaction="{{ url_for('dashboard.bulk_delete') }}" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ t('hosting.bulk.terminate') }}</button>
-</form>
-</details>
-{% endif %}
-<ul class="instance-list">
+{% if bulk %}<form method="post" id="bulk">{{ ui.csrf() }}</form>{% endif %}
+<div class="table-wrap"><table class="table table--stack wiki-table">
+<thead><tr>{% if bulk %}<th class="cell-check"><span class="visually-hidden">{{ t('hosting.bulk.select') }}</span></th>{% endif %}<th>{{ t('hosting.wikis.wiki') }}</th><th>{{ t('hosting.instance.status') }}</th><th>{{ t('hosting.instance.storage') }}</th><th><span class="visually-hidden">{{ t('hosting.admin.actions') }}</span></th></tr></thead>
+<tbody>
 {% for item in items %}
-  <li class="instance-row">
+  <tr>
     {#- An expired wiki can only be terminated by its owner where the platform allows it. -#}
-    {% if bulk %}{% if item.role == 'owner' and item.status != 'terminated' and (not item.expired or can_terminate_expired) %}<input class="instance-row__check" type="checkbox" name="instance_ids" value="{{ item.id }}" form="bulk" aria-label="{{ t('hosting.bulk.select') }}: {{ item.original_slug }}">{% else %}<span class="instance-row__check"></span>{% endif %}{% endif %}
-    <div class="instance-row__main">
-      <div class="instance-row__title">
-        <a class="instance-row__name" href="{{ url_for('dashboard.instance_detail', instance_id=item.id) }}">{{ item.original_slug }}</a>
-        {{ ui.status(item.status, expired=item.expired) }}
-        {% if item.status == 'running' and item.health not in ('running', 'unknown') %}<span class="badge badge--warning">{{ t('hosting.health.' ~ item.health, item.health) }}</span>{% endif %}
-        {% if item.role == 'collaborator' %}<span class="small muted">{{ t('hosting.dashboard.shared_by', username=item.owner_username) }}</span>{% endif %}
-      </div>
-      <div class="instance-row__meta">
-        {% if item.url %}<a href="{{ item.url }}" rel="noopener">{{ item.url }}</a>{% endif %}
-        <span>{% if item.status == 'terminated' %}{% if item.grace_active and item.data_retained_until %}{{ t('hosting.dashboard.data_kept_until', date=item.data_retained_until|date) }}{% endif %}
-          {%- elif item.seconds_left is never_expiring %}{{ t('hosting.dashboard.never_expires') }}
-          {%- elif item.expired %}{{ t('hosting.dashboard.expired_on', date=item.expires_at|date) }}
-          {%- else %}<span{% if item.seconds_left < 7 * 86400 %} class="text-warning"{% endif %}>{{ t('hosting.dashboard.time_left', time=item.seconds_left|duration) }}</span>{% endif %}</span>
-        {% if item.id in outgoing %}<span>{{ t('hosting.dashboard.transfer_pending', username=outgoing[item.id]) }}</span>{% endif %}
-      </div>
-    </div>
-    <div class="instance-row__side">
-      {% if item.status != 'terminated' %}
+    {% if bulk %}<td class="cell-check">{% if item.role == 'owner' and item.status != 'terminated' and (not item.expired or can_terminate_expired) %}<input type="checkbox" name="instance_ids" value="{{ item.id }}" form="bulk" aria-label="{{ t('hosting.bulk.select') }}: {{ item.original_slug }}">{% endif %}</td>{% endif %}
+    <td>
+      <a class="wiki-name" href="{{ url_for('dashboard.instance_detail', instance_id=item.id) }}">{{ item.original_slug }}</a>
+      {% if item.role == 'collaborator' %}<span class="small muted">{{ t('hosting.dashboard.shared_by', username=item.owner_username) }}</span>{% endif %}
+      <span class="wiki-meta">
+        {%- if item.url %}<a href="{{ item.url }}" rel="noopener">{{ item.url }}</a> · {% endif -%}
+        {% if item.status == 'terminated' %}{% if item.grace_active and item.data_retained_until %}{{ t('hosting.dashboard.data_kept_until', date=item.data_retained_until|date) }}{% endif %}
+        {%- elif item.seconds_left is never_expiring %}{{ t('hosting.dashboard.never_expires') }}
+        {%- elif item.expired %}{{ t('hosting.dashboard.expired_on', date=item.expires_at|date) }}
+        {%- else %}<span{% if item.seconds_left < 7 * 86400 %} class="text-warning"{% endif %}>{{ t('hosting.dashboard.time_left', time=item.seconds_left|duration) }}</span>{% endif %}
+        {%- if item.id in outgoing %} · {{ t('hosting.dashboard.transfer_pending', username=outgoing[item.id]) }}{% endif %}
+      </span>
+    </td>
+    <td data-label="{{ t('hosting.instance.status') }}">{{ ui.status(item.status, expired=item.expired) }}
+      {% if item.status == 'running' and item.health not in ('running', 'unknown') %}<span class="badge badge--warning">{{ t('hosting.health.' ~ item.health, item.health) }}</span>{% endif %}</td>
+    <td class="wiki-storage" data-label="{{ t('hosting.instance.storage') }}">{% if item.status != 'terminated' %}
       {% set over = item.storage_limit_effective_mb and item.storage_mb > item.storage_limit_effective_mb %}
-      <div class="instance-row__storage">
-        {% if item.storage_limit_effective_mb %}<div class="progress{% if over %} progress--danger{% endif %}" aria-hidden="true"><span style="width: {{ item.storage_pct }}%"></span></div>{% endif %}
-        <span{% if over %} class="instance-row__flag"{% endif %}>{{ item.storage_mb|mb }}{% if item.storage_limit_effective_mb %} / {{ item.storage_limit_effective_mb|mb }}{% endif %} MB{% if over %}<span class="visually-hidden"> ({{ t('hosting.instance.over_limit') }})</span>{% endif %}</span>
-      </div>
-      {% endif %}
-      <div class="btn-row">
-        {% if item.url and item.status == 'running' and not item.expired %}<a class="btn btn--small" href="{{ wiki_open_url(item) }}" rel="noopener">{{ t('hosting.instance.open_wiki') }}</a>{% endif %}
-        {% if item.can_start and item.status == 'stopped' and not item.expired %}{{ ui.post(url_for('dashboard.restart', instance_id=item.id), t('hosting.instance.start'), 'btn btn--small', hidden={'next': url_for('dashboard.dashboard')}) }}{% endif %}
-        <a class="btn btn--small" href="{{ url_for('dashboard.instance_detail', instance_id=item.id) }}">{{ t('hosting.instance.manage') }}</a>
-      </div>
-    </div>
-  </li>
+      {% if item.storage_limit_effective_mb %}<span class="progress{% if over %} progress--danger{% endif %}" aria-hidden="true"><span style="width: {{ item.storage_pct }}%"></span></span>{% endif %}
+      <span{% if over %} class="instance-row__flag"{% endif %}>{{ item.storage_mb|mb }}{% if item.storage_limit_effective_mb %} / {{ item.storage_limit_effective_mb|mb }}{% endif %} MB{% if over %}<span class="visually-hidden"> ({{ t('hosting.instance.over_limit') }})</span>{% endif %}</span>
+    {% endif %}</td>
+    <td class="actions"><div class="btn-row">
+      {% if item.url and item.status == 'running' and not item.expired %}<a class="btn btn--small" href="{{ wiki_open_url(item) }}" rel="noopener">{{ t('hosting.instance.open_wiki') }}</a>{% endif %}
+      {% if item.can_start and item.status == 'stopped' and not item.expired %}{{ ui.post(url_for('dashboard.restart', instance_id=item.id), t('hosting.instance.start'), 'btn btn--small', hidden={'next': url_for('dashboard.dashboard')}) }}{% endif %}
+      <a class="btn btn--small" href="{{ url_for('dashboard.instance_detail', instance_id=item.id) }}">{{ t('hosting.instance.manage') }}</a>
+    </div></td>
+  </tr>
 {% endfor %}
-</ul>
+</tbody>
+{% if bulk %}<tfoot><tr><td colspan="5"><div class="bulk-bar"><span class="bulk-bar__label">{{ t('hosting.bulk.with_selected') }}</span>
+  <button class="btn btn--small" form="bulk" formaction="{{ url_for('dashboard.bulk_stop') }}">{{ t('hosting.bulk.stop') }}</button>
+  <button class="btn btn--small" form="bulk" formaction="{{ url_for('dashboard.bulk_restart') }}">{{ t('hosting.bulk.start') }}</button>
+  <button class="btn btn--small btn--danger-quiet" form="bulk" formaction="{{ url_for('dashboard.bulk_delete') }}" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ t('hosting.bulk.terminate') }}</button>
+</div></td></tr></tfoot>{% endif %}
+</table></div>
 {% else %}
-<div class="empty-state"><p>{{ t('hosting.dashboard.empty_body') }}</p></div>
+<p class="empty-state">{{ t('hosting.dashboard.empty_body') }}</p>
 {% endif %}
 {% endblock %}

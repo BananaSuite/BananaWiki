@@ -1,6 +1,7 @@
 # Your account
 
-Open **Settings** at the top right. On phones, open it from the account menu.
+Open **Settings** from the account menu at the top right. Its tabs are Account, Security,
+Notifications, Appearance, Profile and Privacy.
 
 ## Profile
 
@@ -9,9 +10,9 @@ enabled you can **publish** your profile so other members see it, and fill in
 the profile fields your wiki defined. **My profile** shows it as others see
 it.
 
-## Customise
+## Appearance
 
-Open **Customise** in the top bar (or the **Customise** tab of Settings). These change
+Open **Appearance** from the account menu (or the **Appearance** tab of Settings). These change
 how the wiki looks for you only: light or dark theme, text size, line and
 letter spacing, content and sidebar width, contrast, your own colours, a
 background picture, a dyslexia-friendly font, reduced motion, and how
@@ -28,7 +29,7 @@ everyone is in it.
 In BM mode the sidebar shows the pages, Kanban boards and canvases only,
 pages leave out the link to their history and their difficulty tag, and
 Settings shows your profile, user name, password, language, email address
-and **Customise**. The rest (sessions, two-step verification, your data,
+and **Appearance**. The rest (sessions, two-step verification, your data,
 account merges, deleting the account) is under **All settings** at the bottom
 of the Settings page. Your administrators choose which of these
 simplifications apply.
@@ -37,12 +38,12 @@ Some wikis show a mascot, a banana, in place of the logo in the top bar.
 Clicking it makes it hop; the site name next to it leads to the home page. It
 stays in the top bar for as long as your administrators keep it on. If you
 found out how to put sunglasses on it, you can take them off here under
-**Customise**.
+**Appearance**.
 
 ## Language
 
 Choose the interface language on the **Account** tab of Settings (before
-you sign in, **Customise** has it too): English, Italian, German and any
+you sign in, **Appearance** has it too): English, Italian, German and any
 language the administrators added, as long as they have not switched it off.
 Pages themselves are not translated.
 
@@ -58,7 +59,7 @@ releases it. You can change it three times a day.
 
 ## Sessions
 
-**Sessions** lists where you are signed in (browser, address, last activity).
+**Sessions**, on the **Security** tab, lists where you are signed in (browser, address, last activity).
 End a single session, or **Sign out everywhere** if you lost a device or
 suspect someone knows your password. The wiki may be set to allow only one
 session per account: signing in elsewhere then signs you out here.

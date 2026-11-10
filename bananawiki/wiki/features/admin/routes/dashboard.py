@@ -22,22 +22,22 @@ PENDING_ON_DASHBOARD = 10
 @auth.public
 @auth.exempt("maintenance", "approval")  # sends refused accounts to their status itself
 def entry():
-    """1.4 administrator sign-in URL: sends administrators to the administration overview."""
+    """1.4 administrator sign-in URL: sends administrators to the dashboard."""
     user = auth.current_user()
     if user is None:
-        return redirect(url_for("auth.login", next=url_for("admin.home")))
+        return redirect(url_for("auth.login", next=url_for("admin.dashboard")))
     if auth.account_block(user):
         return redirect(url_for("auth.account_status"))
     if not auth.is_admin(user):
         return auth.deny()
-    return redirect(url_for("admin.home"))
+    return redirect(url_for("admin.dashboard"))
 
 
 @bp.get("/admin/home")
 @auth.admin_required
 def home():
-    """The administration overview: every admin page, grouped (the pages themselves carry no side menu)."""
-    return render_template("admin/home.html")
+    """The 1.7 administration overview: every admin page is in the menu beside each admin page now."""
+    return redirect(url_for("admin.dashboard"))
 
 
 def _stats() -> dict[str, int]:

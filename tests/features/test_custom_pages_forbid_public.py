@@ -183,4 +183,4 @@ def test_only_builder_pages_hidden_when_public_builder_pages_are_forbidden(enabl
     assert '<section class="builder-page">' in member.get("/landing").get_data(as_text=True)
     page_id = db.scalar("SELECT id FROM custom_pages WHERE path = '/landing'")
     edit = admin_client.get(f"/admin/custom-pages/{page_id}/edit").get_data(as_text=True)
-    assert "does not allow public builder pages" in edit and "anyone can open them" in edit
+    assert "does not allow public builder pages" in edit and "Anyone can open them" in edit

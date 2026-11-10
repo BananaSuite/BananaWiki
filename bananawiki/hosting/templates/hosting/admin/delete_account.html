@@ -2,7 +2,6 @@
 {% import "hosting/_macros.html" as ui with context %}
 {% block title %}{{ t('hosting.admin.delete_account') }}{% endblock %}
 {% block content %}
-{% include "hosting/admin/_nav.html" %}
 <nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('admin.account_page', account_id=target.id) }}">{{ target.username }}</a></nav>
 <h1>{{ t('hosting.admin.delete_account') }}: {{ target.username }}</h1>
 <section class="page-form card--danger">

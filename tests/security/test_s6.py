@@ -148,9 +148,41 @@ def _nest(directory: Path, depth: int) -> None:
     os.close(fd)
 
 
-def test_sw5_2_a_deep_tree_under_the_marker_name_is_set_aside(tmp_path):
+def _unnest(parent: Path, name: str) -> None:
+    """Remove a chain from :func:`_nest` one level at a time: Python 3.11's rmtree recurses once per level."""
+    fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        while True:
+            top = os.open(name, os.O_RDONLY | os.O_DIRECTORY, dir_fd=fd)
+            try:
+                deeper = "x" in os.listdir(top)
+                if deeper:
+                    os.rename("x", ".lifted", src_dir_fd=top, dst_dir_fd=fd)
+            finally:
+                os.close(top)
+            os.rmdir(name, dir_fd=fd)
+            if not deeper:
+                return
+            os.rename(".lifted", name, src_dir_fd=fd, dst_dir_fd=fd)
+    finally:
+        os.close(fd)
+
+
+@pytest.fixture
+def deep_trees():
+    """Folders whose marker chains are removed after the test, before pytest deletes its temporary folder."""
+    parents: list[Path] = []
+    yield parents
+    for parent in parents:
+        for name in os.listdir(parent):
+            if name.startswith(MAINTENANCE_MARKER):
+                _unnest(parent, name)
+
+
+def test_sw5_2_a_deep_tree_under_the_marker_name_is_set_aside(tmp_path, deep_trees):
     tenant = tmp_path / "acme"
     tenant.mkdir()
+    deep_trees.append(tenant)
     _nest(tenant, TENANT_DEPTH - 2)
     untrusted_marker(tenant, MAINTENANCE_MARKER, "on\n")  # within the bound: removed
     assert (tenant / MAINTENANCE_MARKER).read_text() == "on\n"
@@ -182,9 +214,10 @@ def test_sw5_2_a_marker_directory_that_cannot_be_listed_leaks_no_descriptor(tmp_
     assert len(listdir("/proc/self/fd")) == before
 
 
-def test_sw5_2_a_deep_tenant_marker_tree_does_not_keep_the_platform_in_maintenance(hosting):
+def test_sw5_2_a_deep_tenant_marker_tree_does_not_keep_the_platform_in_maintenance(hosting, deep_trees):
     root = hosting.root
     _nest(root / "data/instances/acme", 1200)
+    deep_trees.append(root / "data/instances/acme")
     for _ in range(2):
         assert hosting.manager.backup()
         assert not (root / "data" / MAINTENANCE_MARKER).exists()

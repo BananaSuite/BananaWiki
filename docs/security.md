@@ -133,7 +133,7 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   `BW_MIN_FORM_SECONDS`.
 * **Forced steps:** "change password at next sign-in" and the first-run
   wizard block every other page until done.
-* **Impersonation** (**Admin → Users → Impersonate**) keeps the
+* **Impersonation** (**View the wiki as this person** on an account's page in **Admin → Users**) keeps the
   administrator's own session, is logged, and needs a superuser for
   administrators and owners. While impersonating, lasting credentials of the
   account (API tokens, the userbot key) cannot be created, and what the

@@ -32,7 +32,7 @@
   {% else %}
   <form method="post" action="{{ url_for('api_service.create_token') }}" class="form">
     {{ forms.csrf() }}
-    {{ forms.field('name', t('api_service.tokens.name'), hint=t('api_service.tokens.name_hint'), attrs={'maxlength': 64}) }}
+    {{ forms.field('name', t('api_service.tokens.name'), attrs={'maxlength': 64}) }}
     <fieldset class="field">
       <legend>{{ t('api_service.tokens.scopes') }}</legend>
       {% for scope in scopes %}

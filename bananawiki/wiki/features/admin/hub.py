@@ -1,4 +1,4 @@
-"""The administration hub: every admin page, grouped, for the settings overview and the page header.
+"""The administration menu: every admin page, grouped, in the sidebar of each admin page.
 
 Features add their pages with ``NavItem(area="admin")``; this module only decides which group each one is
 listed under.

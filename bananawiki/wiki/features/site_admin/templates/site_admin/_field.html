@@ -1,12 +1,15 @@
-{#- One settings field. Context: item (fields.Field), values, errors. -#}
+{#- One settings field. Context: item (fields.Field), values, errors. A field with `reveal` is shown only while
+    the field it names has one of the given values (admin.js); without scripts every field shows. -#}
 {% set value = values.get(item.name) %}
 {% set lock = item.lock_reason() %}
 {% set error = errors.get(item.name) %}
 {% set fid = 'f-' ~ item.name %}
+{% set hint = t(lock) if lock else t(item.hint, '') %}
+{% if item.reveal %}<div class="field-reveal" data-reveal-for="{{ item.reveal[0] }}" data-reveal-values="{{ item.reveal[1] }}">{% endif %}
 {% if item.kind == 'flag' %}
 <label class="check">
   <input type="checkbox" name="{{ item.name }}" value="1"{% if value %} checked{% endif %}{% if lock %} disabled{% endif %}>
-  <span>{{ t(item.label) }}<small>{{ t(lock) if lock else t(item.hint, '') }}</small></span>
+  <span>{{ t(item.label) }}{% if hint %}<small>{{ hint }}</small>{% endif %}</span>
 </label>
 {% elif item.kind == 'roles' %}
 <fieldset class="field">
@@ -14,28 +17,29 @@
   {% for role in item.options %}
   <label class="check"><input type="checkbox" name="{{ item.name }}" value="{{ role }}"{% if role in (value or []) %} checked{% endif %}{% if lock %} disabled{% endif %}><span>{{ t('site_admin.role.' ~ role) }}</span></label>
   {% endfor %}
-  <p class="hint">{{ t(item.hint, '') }}</p>
+  {% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
   {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 </fieldset>
 {% else %}
 <div class="field">
   <label for="{{ fid }}">{{ t(item.label) }}</label>
   {% if item.kind == 'choice' %}
-  <select id="{{ fid }}" name="{{ item.name }}"{% if lock %} disabled{% endif %} aria-describedby="{{ fid }}-hint">
+  <select id="{{ fid }}" name="{{ item.name }}"{% if lock %} disabled{% endif %}{% if hint %} aria-describedby="{{ fid }}-hint"{% endif %}>
     {% for option in item.allowed_options() %}
     <option value="{{ option }}"{% if option == value %} selected{% endif %}>{{ t('site_admin.option.' ~ item.name ~ '.' ~ option, option) }}</option>
     {% endfor %}
   </select>
   {% elif item.kind == 'textarea' %}
-  <textarea id="{{ fid }}" name="{{ item.name }}" rows="3" maxlength="{{ item.max_length }}"{% if lock %} disabled{% endif %} aria-describedby="{{ fid }}-hint">{{ value or '' }}</textarea>
+  <textarea id="{{ fid }}" name="{{ item.name }}" rows="3" maxlength="{{ item.max_length }}"{% if lock %} disabled{% endif %}{% if hint %} aria-describedby="{{ fid }}-hint"{% endif %}>{{ value or '' }}</textarea>
   {% elif item.kind == 'until' %}
-  <input id="{{ fid }}" name="{{ item.name }}" type="datetime-local" value="{{ value|datetime_local if value and value is string and ' ' in value else (value or '') }}"{% if lock %} disabled{% endif %} aria-describedby="{{ fid }}-hint">
+  <input id="{{ fid }}" name="{{ item.name }}" type="datetime-local" value="{{ value|datetime_local if value and value is string and ' ' in value else (value or '') }}"{% if lock %} disabled{% endif %}{% if hint %} aria-describedby="{{ fid }}-hint"{% endif %}>
   {% elif item.kind in ('number', 'megabytes') %}
-  <input id="{{ fid }}" name="{{ item.name }}" type="number" min="{{ item.minimum }}" max="{{ item.maximum }}" value="{{ value if value is not none else '' }}" required{% if lock %} disabled{% endif %} aria-describedby="{{ fid }}-hint">
+  <input id="{{ fid }}" name="{{ item.name }}" type="number" min="{{ item.minimum }}" max="{{ item.maximum }}" value="{{ value if value is not none else '' }}" required{% if lock %} disabled{% endif %}{% if hint %} aria-describedby="{{ fid }}-hint"{% endif %}>
   {% else %}
-  <input id="{{ fid }}" name="{{ item.name }}" type="text" value="{{ value or '' }}" maxlength="{{ item.max_length }}"{% if lock %} disabled{% endif %} aria-describedby="{{ fid }}-hint">
+  <input id="{{ fid }}" name="{{ item.name }}" type="text" value="{{ value or '' }}" maxlength="{{ item.max_length }}"{% if lock %} disabled{% endif %}{% if hint %} aria-describedby="{{ fid }}-hint"{% endif %}>
   {% endif %}
-  <p class="hint" id="{{ fid }}-hint">{{ t(lock) if lock else t(item.hint, '') }}</p>
+  {% if hint %}<p class="hint" id="{{ fid }}-hint">{{ hint }}</p>{% endif %}
   {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 </div>
 {% endif %}
+{% if item.reveal %}</div>{% endif %}

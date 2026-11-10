@@ -2,7 +2,6 @@
 {% import "hosting/_macros.html" as ui with context %}
 {% block title %}{{ target.username }}{% endblock %}
 {% block content %}
-{% include "hosting/admin/_nav.html" %}
 <div class="page-header"><h1>{{ target.username }}</h1>{% if target.is_admin %}<span class="badge badge--primary">{{ t('hosting.admin.admin_badge') }}</span>{% endif %}</div>
 <section class="card"><dl class="kv">
   <dt>ID</dt><dd class="mono">{{ target.id }}</dd>

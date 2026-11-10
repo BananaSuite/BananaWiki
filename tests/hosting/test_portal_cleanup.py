@@ -78,7 +78,7 @@ def test_an_administrator_runs_someone_elses_wiki_from_admin_tools(make_account,
     owner = make_account()
     wiki = make_wiki(owner)
     page = _client(portal, login, admin).get(f"/instances/{wiki['id']}").get_data(as_text=True)
-    assert "You are seeing this wiki as its owner sees it" in page
+    assert "Owner view. Manage this wiki from" in page
     assert f'href="/admin/instances/{wiki["id"]}"' in page
     assert f"/instances/{wiki['id']}/terminate" not in page and f"/instances/{wiki['id']}/stop" not in page
     assert "Wiki controls" not in page
@@ -138,9 +138,9 @@ def test_an_administrator_moves_a_wiki_from_admin_tools_not_with_an_offer(make_a
     wiki = make_wiki(owner)
     page = _client(portal, login, admin).get(f"/instances/{wiki['id']}/collaborators").get_data(as_text=True)
     assert f"/instances/{wiki['id']}/transfer" not in page
-    assert "Only the owner can offer this wiki to someone" in page
+    assert "Only the owner can offer this wiki" in page
     tools = _client(portal, login, admin).get(f"/admin/instances/{wiki['id']}").get_data(as_text=True)
-    assert "Move now" in tools and "without asking them to accept" in tools
+    assert "Move now" in tools and "without asking the new owner" in tools
     own = _client(portal, login, owner).get(f"/instances/{wiki['id']}/collaborators").get_data(as_text=True)
     assert f"/instances/{wiki['id']}/transfer" in own and "Only the owner can offer" not in own
 
@@ -222,6 +222,13 @@ def test_the_theme_toggle_while_impersonating_is_the_administrators(make_account
     assert query("SELECT theme_mode FROM accounts WHERE id = ?", (customer["id"],), one=True)["theme_mode"] == "light"
     assert query("SELECT theme_mode FROM accounts WHERE id = ?", (admin["id"],), one=True)["theme_mode"] == "dark"
     assert 'data-theme="dark"' in client.get("/dashboard").get_data(as_text=True)
+
+
+def test_new_visitors_get_the_dark_theme_until_they_choose_light(portal):
+    client = portal.test_client()
+    assert 'data-theme="dark"' in client.get("/login").get_data(as_text=True)
+    client.set_cookie("bw_theme", "light")
+    assert 'data-theme="light"' in client.get("/login").get_data(as_text=True)
 
 
 # Texts

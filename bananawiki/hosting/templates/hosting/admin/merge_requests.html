@@ -2,7 +2,6 @@
 {% import "hosting/_macros.html" as ui with context %}
 {% block title %}{{ t('hosting.admin.nav.merges') }}{% endblock %}
 {% block content %}
-{% include "hosting/admin/_nav.html" %}
 <h1>{{ t('hosting.admin.nav.merges') }}</h1>
 <p><a class="btn btn--small" href="{{ url_for('admin.merge_accounts') }}">{{ t('hosting.merges.admin_title') }}</a></p>
 {% for m in merges %}

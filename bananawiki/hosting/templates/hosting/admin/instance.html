@@ -4,7 +4,6 @@
 {% block title %}{{ inst.original_slug }}{% endblock %}
 {% block column_class %}wide{% endblock %}
 {% block content %}
-{% include "hosting/admin/_nav.html" %}
 <div class="page-header"><h1>{{ inst.original_slug }}</h1>{{ ui.status(inst.status) }}{% if inst.is_main %} <span class="badge badge--primary">{{ t('hosting.main.badge_platform') if owner and owner.is_admin else t('hosting.main.badge') }}</span>{% endif %}
   <div class="page-header__actions">{% if inst.status != 'terminated' %}<a class="btn btn--small" href="{{ url_for('dashboard.instance_detail', instance_id=inst.id) }}">{{ t('hosting.admin.owner_view') }}</a>{% endif %}</div></div>
 <section class="card"><dl class="kv">
@@ -85,7 +84,7 @@
 {% if inst.status != 'suspended' %}<details class="card" id="panel-2" data-remember><summary>{{ t('hosting.admin.suspend_instance') }}</summary>{{ ui.suspension_form(url_for('admin.suspend_instance', instance_id=inst.id)) }}</details>{% endif %}
 <details class="card" id="panel-3" data-remember><summary>{{ t('hosting.admin.limits') }}</summary>
   <form method="post" action="{{ url_for('admin.storage_limit', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}
-    {{ ui.field('storage_limit_mb', t('hosting.admin.storage_limit_mb'), inst.storage_limit_mb or '', type='number', attrs={'min': 1}) }}{{ ui.check('unlimited', t('hosting.admin.no_storage_limit'), hint=t('hosting.admin.no_storage_limit_hint')) }}
+    {{ ui.field('storage_limit_mb', t('hosting.admin.storage_limit_mb'), inst.storage_limit_mb or '', type='number', attrs={'min': 1}) }}{{ ui.check('unlimited', t('hosting.admin.no_storage_limit')) }}
     <p><button class="btn">{{ t('common.save') }}</button></p></form>
   <form method="post" action="{{ url_for('admin.upload_policy', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}
     {{ ui.field('upload_max_size_mb', t('hosting.admin.upload_max_mb'), inst.upload_max_size_mb or '', type='number', attrs={'min': 1, 'max': 2048}) }}

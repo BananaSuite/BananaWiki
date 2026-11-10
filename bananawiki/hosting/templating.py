@@ -262,7 +262,7 @@ def theme() -> str:
     if account and account.get("theme_mode") in ("dark", "light"):
         return account["theme_mode"]
     cookie = request.cookies.get("bw_theme")
-    return cookie if cookie in ("dark", "light") else "dark"
+    return cookie if cookie in ("dark", "light") else "dark"  # midnight blue until someone chooses light
 
 
 def banners() -> list[dict[str, Any]]:

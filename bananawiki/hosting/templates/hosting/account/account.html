@@ -77,7 +77,6 @@
 {% if show_notifications %}
 <section class="card" id="notifications">
   <h2>{{ t('hosting.account.notifications.title') }}</h2>
-  <p class="hint">{{ t('hosting.account.notifications.hint') }}</p>
   <form method="post" action="{{ url_for('account.notification_preferences') }}" class="form">{{ ui.csrf() }}
     {{ ui.check('attention_emails', t('hosting.account.notifications.attention'), current_account.attention_emails) }}
     <p><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></p>

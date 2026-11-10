@@ -5,40 +5,34 @@
       {% block admin_content %}…{% endblock %}
 
     Optional blocks: admin_head (tags in <head>), admin_scripts (end of body).
-    Above the page: a breadcrumb back to the administration overview (admin/home.html, which lists the
-    NavItem(area="admin") entries of enabled features by group) and a "Jump to" list of the same pages;
-    see bananawiki/wiki/features/admin/__init__.py. -#}
+    The sidebar holds the administration menu instead of the page tree: the dashboard, then the
+    NavItem(area="admin") entries of enabled features in a few groups (admin/hub.py), the current page
+    marked. On phones it is the menu button's drawer, like the page tree. -#}
 {% extends "base.html" %}
 {% block head %}
 <link rel="stylesheet" href="{{ asset_url('admin.css', blueprint='admin') }}">
 {% block admin_head %}{% endblock %}
 {% endblock %}
-{% block content %}
+{% block sidebar_label %}{{ t('admin.nav.label') }}{% endblock %}
+{% block sidebar %}
 {% set menu = admin_grouped(nav_items('admin')) %}
-<div class="admin-shell">
-  {% if menu.groups or menu.overview %}
-  <nav class="admin-bar" aria-label="{{ t('admin.nav.label') }}">
-    <ol class="admin-crumbs">
-      <li><a href="{{ url_for('admin.home') }}"{% if not menu.current %} aria-current="page"{% endif %}>{{ t('admin.nav.label') }}</a></li>
-      {% if menu.current_group %}<li><span>{{ t('admin.nav.group.' ~ menu.current_group.key) }}</span></li>{% endif %}
-    </ol>
-    <label class="admin-jump">
-      <span class="visually-hidden">{{ t('admin.nav.jump') }}</span>
-      <select data-admin-jump>
-        <option value="">{{ t('admin.nav.jump') }}</option>
-        {% if menu.overview %}<option value="{{ menu.overview.url }}">{{ menu.overview.label }}</option>{% endif %}
-        {% for group in menu.groups %}
-        <optgroup label="{{ t('admin.nav.group.' ~ group.key) }}">
-          {% for item in group['items'] %}<option value="{{ item.url }}"{% if item.active %} selected{% endif %}>{{ item.label }}</option>{% endfor %}
-        </optgroup>
-        {% endfor %}
-      </select>
-    </label>
-  </nav>
-  {% endif %}
-  <div class="admin-main section-stack">
-    {% block admin_content %}{% endblock %}
-  </div>
+<a class="admin-nav__back" href="/"><span aria-hidden="true">←</span> {{ t('admin.nav.back') }}</a>
+{% macro admin_link(item) -%}
+<li><a href="{{ item.url }}"{% if item.active %} aria-current="page"{% endif %}><span class="nav-label">{{ item.label }}</span>{% if item.badge %}<span class="count-pill">{{ item.badge }}</span>{% endif %}</a></li>
+{%- endmacro %}
+{% if menu.overview %}<ul class="nav-list">{{ admin_link(menu.overview) }}</ul>{% endif %}
+{% for group in menu.groups %}
+<div class="admin-nav__group">
+  <p class="sidebar__section-title" id="admin-nav-{{ group.key }}">{{ t('admin.nav.group.' ~ group.key) }}</p>
+  <ul class="nav-list" aria-labelledby="admin-nav-{{ group.key }}">
+    {% for item in group['items'] %}{{ admin_link(item) }}{% endfor %}
+  </ul>
+</div>
+{% endfor %}
+{% endblock %}
+{% block content %}
+<div class="admin-main section-stack">
+  {% block admin_content %}{% endblock %}
 </div>
 {% endblock %}
 {% block scripts %}

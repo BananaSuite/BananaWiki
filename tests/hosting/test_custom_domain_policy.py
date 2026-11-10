@@ -79,7 +79,7 @@ def test_administrators_choose_selected_accounts_or_everyone(portal, make_accoun
     assert query("SELECT custom_domains_allowed FROM accounts WHERE id = ?", (chosen["id"],), one=True)[
         "custom_domains_allowed"] == 1
     page = admin_client.get(f"/admin/accounts/{chosen['id']}").get_data(as_text=True)
-    assert "This account may use custom domains." in page and "This counts once" in page, "moot until 'selected'"
+    assert "This account may use custom domains." in page and "Applies once" in page, "moot until 'selected'"
     _claim(_client(portal, login, chosen), chosen_wiki)
     assert _bound(query, chosen_wiki) is None, "the policy still says administrators only"
     _policy(portal, login, admin, "selected")
@@ -150,7 +150,7 @@ def test_an_owner_asks_and_an_administrator_approves(portal, make_account, make_
     assert response.headers["Location"].endswith(f"/instances/{wiki['id']}/domain")
     request = query("SELECT * FROM instance_feature_requests", one=True)
     assert request["feature"] == "custom_domain" and request["status"] == "pending"
-    assert "You asked for a custom domain" in owner_client.get(f"/instances/{wiki['id']}/domain").get_data(as_text=True)
+    assert "Request sent. The answer appears here" in owner_client.get(f"/instances/{wiki['id']}/domain").get_data(as_text=True)
     admin_client = _client(portal, login, admin)
     overview = admin_client.get("/admin").get_data(as_text=True)
     assert REASON in overview and "Custom domain" in overview
@@ -276,7 +276,7 @@ def test_the_page_checks_dns_and_turns_the_domain_on_by_itself(portal, runtime, 
     assert data["verified"] and data["state"] == "active" and data["poll"] == 0
     assert _bound(query, wiki)["verified_at"]
     page = client.get(f"/instances/{wiki['id']}/domain").get_data(as_text=True)
-    assert "Your wiki answers at" in page and "https://docs.example.org" in page
+    assert "Your wiki is available at" in page and "https://docs.example.org" in page
 
 
 def test_the_check_is_limited_and_only_for_the_owner(portal, runtime, make_account, make_wiki, login, query):
@@ -378,7 +378,7 @@ def test_private_names_and_addresses_are_never_looked_up_or_shown(portal, runtim
         "ownership": False, "routing": False, "proxied": False, "dns_error": False}
     html = client.post(f"/instances/{wiki['id']}/domain/check").get_json()["html"]
     assert "10.1.2.3" not in html and "fd00::1" not in html and "internal-zone" not in html
-    assert "not public" in html
+    assert "non-public address" in html
 
 
 def test_a_check_that_passes_once_but_not_twice_keeps_polling(portal, runtime, make_account, make_wiki, login,

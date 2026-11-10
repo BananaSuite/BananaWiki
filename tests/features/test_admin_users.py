@@ -35,8 +35,8 @@ def test_non_admins_cannot_post_account_actions(client, make_user, login, db):
     assert fetch(db, victim)["suspended"] == 0
 
 
-def test_admin_entry_redirects_admins_to_the_administration_overview(admin_client):
-    assert admin_client.get("/admin").headers["Location"].endswith("/admin/home")
+def test_admin_entry_redirects_admins_to_the_dashboard(admin_client):
+    assert admin_client.get("/admin").headers["Location"].endswith("/admin/dashboard")
 
 
 def test_unknown_user_is_404(admin_client):
@@ -301,7 +301,7 @@ def test_own_password_is_changed_only_in_account_settings(admin_client, admin, d
     row = fetch(db, admin)
     assert row["password"] == admin["password"] and row["original_password_backup"] == "saved-hash"
     page = admin_client.get(f"/admin/users/{admin['id']}").get_data(as_text=True)
-    assert 'value="change_password"' not in page and "/settings#password-heading" in page
+    assert 'value="change_password"' not in page and "/settings/security#password" in page
 
 
 def test_password_mismatch_is_refused(admin_client, make_user, db):

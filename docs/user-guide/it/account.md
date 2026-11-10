@@ -1,6 +1,7 @@
 # Il tuo account
 
-Apri **Impostazioni** in alto a destra. Sul telefono, usa il menu dell'account.
+Apri **Impostazioni** dal menu dell'account in alto a destra. Le schede sono Account,
+Sicurezza, Notifiche, Aspetto, Profilo e Privacy.
 
 ## Profilo
 
@@ -9,9 +10,9 @@ i profili sono attivi puoi **pubblicare** il profilo perché gli altri membri
 lo vedano e compilare i campi del profilo definiti dalla tua wiki. **Il mio
 profilo** lo mostra come lo vedono gli altri.
 
-## Personalizza
+## Aspetto
 
-Apri **Personalizza** nella barra superiore (o la scheda **Personalizza**
+Apri **Aspetto** dal menu dell'account (o la scheda **Aspetto**
 delle Impostazioni). Queste cambiano l'aspetto della wiki solo per te: tema
 chiaro o scuro, dimensione del testo, interlinea e spaziatura delle lettere,
 larghezza del contenuto e della barra laterale, contrasto, colori personali,
@@ -29,7 +30,7 @@ wiki usa la modalità BM, ci sono dentro tutti.
 In modalità BM la barra laterale mostra solo pagine, Kanban e canvas, le
 pagine non mostrano il collegamento alla cronologia né l'etichetta di
 difficoltà e le Impostazioni mostrano profilo, nome utente, password, lingua,
-indirizzo email e **Personalizza**. Il resto (sessioni, verifica in due
+indirizzo email e **Aspetto**. Il resto (sessioni, verifica in due
 passaggi, i tuoi dati, unione di account, eliminazione dell'account) è in
 **Tutte le impostazioni**, in fondo alla pagina delle Impostazioni. Gli
 amministratori scelgono quali di queste semplificazioni valgono.
@@ -38,12 +39,12 @@ Se la tua wiki ha la mascotte, una banana al posto del logo nella barra
 superiore, un clic la fa saltare; il nome del sito accanto porta alla pagina
 iniziale. Resta nella barra finché gli amministratori la tengono attiva. Se
 hai scoperto come metterle gli occhiali da sole, puoi toglierglieli qui in
-**Personalizza**.
+**Aspetto**.
 
 ## Lingua
 
 Scegli la lingua dell'interfaccia nella scheda **Account** delle
-Impostazioni (prima di accedere la trovi anche in **Personalizza**): inglese, italiano,
+Impostazioni (prima di accedere la trovi anche in **Aspetto**): inglese, italiano,
 tedesco e le lingue aggiunte dagli amministratori, se non le hanno
 disattivate. Le pagine non vengono tradotte.
 
@@ -60,7 +61,7 @@ cambiarlo tre volte al giorno.
 
 ## Sessioni
 
-**Sessioni** elenca dove hai effettuato l'accesso (browser, indirizzo, ultima
+**Sessioni**, nella scheda **Sicurezza**, elenca dove hai effettuato l'accesso (browser, indirizzo, ultima
 attività). Chiudi una singola sessione oppure **Esci ovunque** se hai perso un
 dispositivo o temi che qualcuno conosca la tua password. La wiki può
 consentire una sola sessione per account: accedendo altrove verrai

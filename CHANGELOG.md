@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.8.0 — 2026-11-09
+
+### Upgrading
+
+* There are no database changes, so 1.7.6 can still open the wiki and portal databases. Some pages have moved and some labels have changed, as described in [UPGRADING.md](UPGRADING.md#upgrading-from-176-to-180).
+
+### Interface
+
+* The interface has a quieter style. Yellow is now only used for primary buttons, the current menu item and links in page text. Avatars and badges are neutral, and page titles are smaller.
+* The top bar only has the theme switch and the account menu. Settings, **Appearance** (previously *Customise*) and Sign out are now in the account menu.
+* Settings are split into tabs: Account, Security, Notifications, Appearance, Profile and Privacy. The new URLs are `/settings/security`, `/settings/notifications` and `/settings/privacy`, and `/settings/sessions` redirects to Security.
+* Every admin page has a sidebar menu grouped into People, Wiki, Content and System. The overview page, the breadcrumb and the *Jump to* list are gone, and `/admin` now opens the dashboard.
+* Site settings are split into tabs: General, Access, Security, Sign-in, Uploads and Content. Each tab has one form with one Save button, and dependent fields only appear when their switch is on.
+* Interface text in English, Italian and German is shorter. Page introductions and hints that only described the interface have been removed.
+
+### Hosting platform
+
+* The portal has its own stylesheet with a late-2000s forum look: a centred board with rounded corners and a soft shadow, glossy header and title bars, tabbed navigation, ruled tables and two-tone buttons. It comes in light and midnight-blue themes.
+* New visitors get the midnight-blue theme by default. The top bar switches to light.
+* Every admin page has a menu with Overview, Accounts, Wikis, Settings, Banners, Account merges and Activity log. The account and wiki tables have moved to **Accounts** (`/admin/accounts`) and **Wikis** (`/admin/wikis`), and **Import a wiki** is now a button on **Wikis**.
+* *Your wikis* is now a table with bulk actions for the selected wikis.
+
+### Dependencies
+
+* Updated pyasn1 to 0.6.5 to fix four known vulnerabilities.
+
 ## 1.7.6 — 2026-10-30
 
 ### Upgrading

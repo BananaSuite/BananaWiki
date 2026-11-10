@@ -123,27 +123,30 @@ def _maintenance_pages(service_name: str = DEFAULT_SERVICE_NAME) -> dict[str, by
                 "hosting.maintenance.body": "The platform is being updated. Try again in a minute."}
     service = html.escape(service_name)
     pages: dict[str, bytes] = {}
-    light = "--bg:#faf9f5;--card:#fff;--text:#202124;--muted:#5f6368;--line:#dcdad3;color-scheme:light"
-    dark = "--bg:#141414;--card:#1d1d1d;--text:#ededed;--muted:#a9a9a9;--line:#3a3a3a;color-scheme:dark"
+    # The portal's board in miniature: dark like the portal, light when the visitor chose it there (data-theme,
+    # set by the gate from the portal's cookie).
+    light = ("--page:#dfe5ec;--card:#fff;--text:#1b2733;--muted:#536477;--line:#a9b8c6;"
+             "--bar:linear-gradient(#55779c,#4a6c91 49%,#3d5f85 51%,#33557a);color-scheme:light")
+    dark = ("--page:#0f151c;--card:#18202a;--text:#dde5ed;--muted:#a3b2c2;--line:#34465a;"
+            "--bar:linear-gradient(#3a5c82,#31517a 49%,#284669 51%,#213c5c);color-scheme:dark")
     for lang, strings in catalogues.items():
         text = {key: html.escape(str(strings.get(key) or catalogues["en"].get(key) or default))
                 for key, default in fallback.items()}
-        # Dark like the portal; light when the visitor chose it there (data-theme, set by the gate from the
-        # portal's cookie) or, without a choice, when the browser asks for it. Retry-After is 30 seconds:
-        # the page looks again by itself.
+        # Retry-After is 30 seconds: the page looks again by itself.
         pages[lang] = (
             f'<!doctype html><html lang="{lang}"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
-            '<meta name="robots" content="noindex"><meta name="color-scheme" content="dark light">'
+            '<meta name="robots" content="noindex"><meta name="color-scheme" content="light dark">'
             '<meta http-equiv="refresh" content="30">'
             f"<title>{text['hosting.maintenance.title']} · {service}</title><style>"
             f":root{{{dark}}}:root[data-theme=light]{{{light}}}"
-            f"@media (prefers-color-scheme:light){{:root:not([data-theme]){{{light}}}}}"
-            "*{box-sizing:border-box}body{margin:0;min-height:100vh;padding:3rem 1rem;"
-            "background:var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,'Segoe UI',Roboto,"
-            "sans-serif}main{max-width:34rem;margin:0 auto;background:var(--card);border:1px solid var(--line);"
-            "border-radius:6px;padding:1.5rem 1.75rem}h1{margin:0 0 .5rem;font-size:1.5rem;line-height:1.25}"
-            "p{margin:.5rem 0}main>:last-child{margin-bottom:0}.muted{color:var(--muted);font-size:.9rem}"
+            "*{box-sizing:border-box}body{margin:0;min-height:100vh;padding:3rem 1rem;background:var(--page);"
+            "color:var(--text);font:.8125rem/1.5 Verdana,Tahoma,'DejaVu Sans',sans-serif}"
+            "main{max-width:30rem;margin:0 auto;overflow:hidden;background:var(--card);border:1px solid var(--line);"
+            "border-radius:6px;box-shadow:0 8px 26px rgba(0,0,0,.3)}"
+            "h1{margin:0;padding:.4rem .75rem;background:var(--bar);color:#fff;font-size:.8125rem;"
+            "text-shadow:0 1px 0 rgba(0,0,0,.3)}p{margin:.75rem}"
+            ".muted{margin:0;padding:.4rem .75rem;border-top:1px solid var(--line);color:var(--muted);font-size:.6875rem}"
             "</style></head><body><main>"
             f"<h1>{text['hosting.maintenance.title']}</h1><p>{text['hosting.maintenance.body']}</p>"
             f'<p class="muted">{service}</p></main></body></html>\n'
