@@ -2,9 +2,9 @@
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('bm_mode.title') }}{% endblock %}
 {% block admin_content %}
-<header class="page-header"><h1>{{ t('bm_mode.title') }}</h1></header>
+<header class="page-header page-header--save"><h1>{{ t('bm_mode.title') }}</h1>{{ forms.page_save('bm-settings-form') }}</header>
 <p class="muted">{{ t('bm_mode.intro') }}</p>
-<form class="form section-stack" method="post" action="{{ url_for('bm_mode.settings') }}">
+<form class="form section-stack" id="bm-settings-form" method="post" action="{{ url_for('bm_mode.settings') }}">
   {{ forms.csrf() }}
   <section class="form-section" aria-labelledby="bm-switch-heading">
     <h2 id="bm-switch-heading">{{ t('bm_mode.switch_title') }}</h2>
@@ -32,7 +32,6 @@
     {{ forms.checkbox('simplify_' ~ item.id, item.feature ~ ': ' ~ item.label, checked=item.on, hint=item.description) }}
     {% else %}<p class="muted">{{ t('bm_mode.no_simplifications') }}</p>{% endfor %}
   </section>
-  <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('common.save') }}</button></div>
 </form>
 <section class="card" id="bm-everyone" aria-labelledby="bm-everyone-heading">
   <h2 id="bm-everyone-heading">{{ t('bm_mode.everyone.title') }}</h2>

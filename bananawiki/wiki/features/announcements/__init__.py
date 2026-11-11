@@ -12,7 +12,7 @@ FEATURE = Feature(
     description="feature.announcements.description",
     toggle="plugin",
     blueprints=[bp],
-    nav=[NavItem("announcements.nav.admin", "announcements.admin", icon="megaphone", area="admin",
+    nav=[NavItem("announcements.nav.admin", "announcements.admin", icon="megaphone", area="admin", order=58,
                  visible=lambda user: auth.is_admin(user) if user else False)],
     jobs=[Job("announcements.prune", 86400, service.prune_expired)],
     slots={"page.banners": render_bar},

@@ -2,14 +2,15 @@
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('api_service.admin.title') }}{% endblock %}
 {% block admin_content %}
-<div class="page-header">
+<div class="page-header page-header--save">
   <h1>{{ t('api_service.admin.title') }}</h1>
-  <div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('api_service.docs') }}">{{ t('api_service.docs.link') }}</a></div>
+  <div class="page-header__actions"><a class="btn" href="{{ url_for('api_service.docs') }}">{{ t('api_service.docs.link') }}</a>
+    <button class="btn btn--primary" type="submit" form="api-settings-form">{{ t('common.save') }}</button></div>
 </div>
 
 <section class="card" id="settings">
   <h2>{{ t('api_service.admin.settings') }}</h2>
-  <form method="post" action="{{ url_for('api_service.admin_settings') }}" class="form">
+  <form method="post" action="{{ url_for('api_service.admin_settings') }}" class="form" id="api-settings-form">
     {{ forms.csrf() }}
     {{ forms.checkbox('enabled', t('api_service.admin.enabled'), checked=service.enabled, hint=t('api_service.admin.enabled_hint')) }}
     <div class="form-grid">
@@ -18,7 +19,6 @@
       {{ forms.field('max_tokens_per_user', t('api_service.admin.max_tokens'), value=service.max_tokens_per_user, type='number', attrs={'min': bounds.tokens[0], 'max': bounds.tokens[1]}) }}
     </div>
     {{ forms.field('webhook_max_failures', t('api_service.admin.webhook_max_failures'), value=webhook_max_failures, type='number', hint=t('api_service.admin.webhook_max_failures_hint', days=auto_disable_days), attrs={'min': bounds.failures[0], 'max': bounds.failures[1], 'class': 'input--short', 'inputmode': 'numeric'}) }}
-    <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('common.save') }}</button></div>
   </form>
 </section>
 

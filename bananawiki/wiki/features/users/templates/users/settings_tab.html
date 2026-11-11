@@ -1,9 +1,14 @@
 {#- A settings tab made only of the sections other features add (Notifications, Privacy). Expects `tab`, `title`
-    and `sections`. -#}
+    and `sections`; `save_form` is the id of the tab's one form, saved from the page header. -#}
 {% extends "base.html" %}
+{% import "macros/forms.html" as forms with context %}
 {% block title %}{{ title }}{% endblock %}
 {% block content %}
+{% if save_form and sections %}
+<header class="page-header page-header--save"><h1>{{ t('users.settings.title') }}</h1>{{ forms.page_save(save_form) }}</header>
+{% else %}
 <header class="page-header"><h1>{{ t('users.settings.title') }}</h1></header>
+{% endif %}
 {% include "users/_tabs.html" %}
 <div class="section-stack users-settings">
   {% for _feature_id, section in sections %}{{ section }}{% else %}<p class="muted">{{ t('users.settings.empty_tab') }}</p>{% endfor %}

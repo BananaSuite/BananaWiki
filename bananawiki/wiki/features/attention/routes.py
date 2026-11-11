@@ -207,10 +207,15 @@ def _mail_values() -> dict[str, Any]:
 def admin_settings():
     if request.method == "POST":
         try:
-            if request.form.get("section") == "mail":
+            section = request.form.get("section")
+            if section == "mail":
                 if service.mail_source() != "settings":
                     abort(403)
                 values = _mail_values()
+            elif section == "all":  # the page's one form: the mail server too, where it is set here
+                values = _notification_values()
+                if service.mail_source() == "settings":
+                    values.update(_mail_values())
             else:
                 values = _notification_values()
             previous = settings.load()

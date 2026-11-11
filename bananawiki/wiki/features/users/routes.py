@@ -126,7 +126,6 @@ SECTION_TABS = {
     "attention": "notifications",
     "user_profiles": "privacy",  # who can see the profile
     "chat": "privacy",  # groups shown on the profile, blocked people
-    "drafts": "privacy",
     "user_data_export": "privacy",
 }
 RETURN_TABS = {"account": "users.settings", "security": "users.security"}
@@ -179,6 +178,7 @@ def security():
 @bp.get("/settings/notifications")
 def notifications():
     return render_template("users/settings_tab.html", tab="notifications", title=t("users.tab.notifications"),
+                           save_form="notification-prefs-form",
                            sections=tab_sections("notifications"))
 
 

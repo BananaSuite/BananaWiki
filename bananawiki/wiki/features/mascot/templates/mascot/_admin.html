@@ -27,8 +27,10 @@
   <form method="post" action="{{ url_for('mascot.easter_eggs') }}" class="form">
     {{ forms.csrf() }}
     {% for egg in egg_ids %}
-    {{ forms.checkbox('egg_' ~ egg, t('mascot.eggs.' ~ egg), checked=eggs[egg], hint=t('mascot.eggs.' ~ egg ~ '_hint', count=clicks)) }}
+    {#- Each switch applies when ticked: the page's Save is for the colours. -#}
+    <label class="check"><input type="checkbox" data-autosubmit name="egg_{{ egg }}" value="1"{% if eggs[egg] %} checked{% endif %}>
+      <span>{{ t('mascot.eggs.' ~ egg) }}<small>{{ t('mascot.eggs.' ~ egg ~ '_hint', count=clicks) }}</small></span></label>
     {% endfor %}
-    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+    <noscript><div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div></noscript>
   </form>
 </section>

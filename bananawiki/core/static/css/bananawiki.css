@@ -44,8 +44,8 @@
   --font-size-ui: .875rem;
   --font-size-body: .9375rem;
   --font-size-lg: 1.05rem;
-  --control-height: 2.25rem;
-  --control-height-sm: 1.875rem;
+  --control-height: 2rem;
+  --control-height-sm: 1.75rem;
   --font-scale: 1;
   --line-height: 1.6;
   --radius: 6px;
@@ -232,6 +232,12 @@ p.page-header__meta { display: block; }
 /* A table that ends the page: the footer draws the last rule. */
 .section-stack > .table-wrap:last-child, .section-stack > .table-wrap:has(+ .pagination:last-child) { border-bottom: 0; }
 .page-header__actions { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+/* A settings page has one Save, in its header (forms.page_save): the header stays in view while the form
+   scrolls under it. A section another feature adds keeps its own button for the pages without that header
+   and marks it .form-save, which the header's Save replaces. */
+.page-header--save { position: sticky; top: var(--topbar-height); z-index: 20; background: var(--bw-bg);
+  margin-top: -.75rem; padding-top: .75rem; }
+.main:has(.page-header--save) .form-save { display: none; }
 .page-header__status { width: 100%; display: flex; flex-wrap: wrap; gap: .5rem; }
 .page-header__status:not(:has(> :not([hidden]))) { display: none; }
 .breadcrumbs { display: flex; flex-wrap: wrap; gap: .35rem; font-size: var(--font-size-sm); color: var(--muted); margin-bottom: .85rem; }
@@ -267,7 +273,7 @@ p.page-header__meta { display: block; }
 /* Buttons */
 .btn, :where(button:not([class]), input[type="submit"], input[type="button"], input[type="reset"]) {
   display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-height: var(--control-height);
-  padding: .4rem .75rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
+  padding: .3rem .7rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
   background: var(--surface); color: var(--bw-text); font: inherit; font-size: var(--font-size-ui); font-weight: 500;
   cursor: pointer; text-decoration: none; white-space: nowrap; line-height: 1.2;
   transition: background-color .12s ease, border-color .12s ease, color .12s ease;
@@ -288,8 +294,8 @@ p.page-header__meta { display: block; }
 .btn-link:hover { text-decoration-thickness: 2px; }
 .btn--ghost { background: transparent; border-color: transparent; }
 .btn--ghost:hover { background: var(--surface-2); }
-.btn--small { min-height: var(--control-height-sm); padding: .25rem .625rem; font-size: var(--font-size-sm); }
-.btn--icon { padding: .35rem; min-width: 2.25rem; }
+.btn--small { min-height: var(--control-height-sm); padding: .2rem .55rem; font-size: var(--font-size-sm); }
+.btn--icon { padding: .3rem; min-width: var(--control-height); }
 .btn-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .btn-row--end { justify-content: flex-end; }
 /* A hint under a row of buttons keeps the usual hint gap. */
@@ -325,7 +331,7 @@ input:not([type]), select, textarea {
 /* One height for every single-line control, so inputs, selects and date pickers line up in a row. */
 :is(.input, input[type="text"], input[type="password"], input[type="email"], input[type="search"], input[type="url"],
   input[type="number"], input[type="date"], input[type="datetime-local"], input[type="time"], input[type="tel"],
-  input:not([type])), select:not([multiple]):not([size]) { height: var(--control-height); padding-block: .4rem; }
+  input:not([type])), select:not([multiple]):not([size]) { height: var(--control-height); padding-block: .3rem; }
 textarea { min-height: 7rem; resize: vertical; line-height: 1.5; }
 textarea[rows] { min-height: 2.35rem; }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: .85; }
@@ -796,6 +802,8 @@ label.btn:has(> input.visually-hidden:focus-visible), .btn:has(> input.visually-
 /* Responsive control sizing. */
 @media (pointer: coarse) {
   .btn, .nav-list a, .nav-tree summary, .disclosure > summary, .menu__panel a, .menu__panel button { min-height: 2.75rem; }
+  /* A short label ("Save") stays a wide button, not a square, at that height. */
+  .btn:not(.btn--icon):not(.btn--ghost) { padding-inline: 1.1rem; }
   .sidebar__section-title .btn { min-height: 2.75rem; padding-inline: .6rem; }
   .topbar__brand { min-height: 2.75rem; }
   /* Small text links get a finger-sized tap area without moving anything: an inline link's padding

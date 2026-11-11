@@ -353,6 +353,11 @@ used, so bookmarks and links in page content keep working.
   Feature CSS goes in the feature's static folder and defines feature layout.
 * Use the shared form macros, button classes and `section-stack` (settings
   use `form-section` inside it); `card` only for standalone surfaces.
+* A settings page has one Save, in its header: give the form an `id`, the
+  header the class `page-header--save` and put `forms.page_save('<form id>')`
+  in it. Do not add a Save per section. A lone switch applies on change with
+  `data-autosubmit` and keeps a button inside `<noscript>`. A settings section
+  a feature adds to another page marks its own button `form-save`.
 * Pages must work at 360 px wide and with the keyboard alone.
 
 ## Rules

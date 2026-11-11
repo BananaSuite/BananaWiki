@@ -1370,6 +1370,16 @@ def _apply_to_all_running() -> int:
     return failures
 
 
+# The sections of the settings page, in its order: the page's Save ("save_all") applies them all. Each is
+# still accepted as an action of its own (forms and scripts from before the single Save).
+SETTINGS_SECTIONS = (
+    "save_signups", "save_email", "save_notices", "save_notifications", "save_admin_mfa", "save_bot_protection",
+    "save_limits", "save_lifetime", "save_expired_wiki_permissions", "save_instance_url_suffix",
+    "save_custom_domains", "save_wiki_features", "save_wiki_upload_policy", "save_tour", "save_tts_policy",
+    "save_tts_gpu", "save_oauth", "save_api", "gdrive_save", "save_easter_eggs",
+)
+
+
 def _save_settings(action: str) -> str:
     """Apply one settings form; returns the success translation key."""
     if action == "save_limits":
@@ -1431,9 +1441,12 @@ def _save_settings(action: str) -> str:
                 {source.id: _checked(f"attention_source_{source.id}") for source in attention.SOURCES}),
         )
     elif action == "save_wiki_upload_policy":
-        settings.update(global_wiki_upload_max_size_mb=int_field("global_wiki_upload_max_size_mb", 100, minimum=1, maximum=2048),
-                        global_wiki_blocked_extensions=(request.form.get("global_wiki_blocked_extensions") or "").strip()[:2000])
-        if _apply_to_all_running():
+        policy = {"global_wiki_upload_max_size_mb": int_field("global_wiki_upload_max_size_mb", 100, minimum=1, maximum=2048),
+                  "global_wiki_blocked_extensions": (request.form.get("global_wiki_blocked_extensions") or "").strip()[:2000]}
+        # The page's Save sends every section: running wikis restart only when the policy changed.
+        changed = any(str(settings.get(key) or "") != str(value or "") for key, value in policy.items())
+        settings.update(**policy)
+        if changed and _apply_to_all_running():
             flash(t("hosting.admin.some_restarts_failed"), "error")
     elif action == "save_lifetime":
         settings.update(grace_period_days=int_field("grace_period_days", 30, minimum=0, maximum=3650),
@@ -1458,8 +1471,10 @@ def _save_settings(action: str) -> str:
             if conflicts:
                 raise ServiceError("hosting.admin.suffix_conflict",
                                    wikis=", ".join(sorted(urls.platform_host(row) for row in conflicts)))
+        changed = effective != urls.instance_suffix()
         settings.update(instance_url_suffix=suffix or "hosting", instance_suffix_disabled=disabled)
-        instances.sync_routes()
+        if changed:
+            instances.sync_routes()
     elif action == "save_tour":
         settings.update(global_tour_enabled=_checked("global_tour_enabled"))
     elif action == "save_oauth":
@@ -1589,18 +1604,30 @@ def _custom_domain_readiness() -> dict[str, Any]:
             **domains.policy_counts()}
 
 
-@bp.route("/admin/settings", methods=["GET", "POST"])
-@bp.route("/global-settings", methods=["GET", "POST"])
+@bp.route("/global-settings", methods=["GET", "POST"])  # the address before 1.8, still answered
+@bp.route("/admin/settings", methods=["GET", "POST"])  # listed last: registered first, so links are built to it
 @auth.admin_required
 @auth.exempt("contact_email")  # an administrator can always reach the setting that asks everyone for an address
 @rate_limit(20)
 def settings_page():
     if request.method == "POST":
         action = request.form.get("action", "")
+        failed = ""  # save_all: the section being saved when an error stopped it
         before = dict(settings.load(fresh=True))
         try:
             if action in ("gdrive_test", "gdrive_backup_now", "gdrive_upload_credentials"):
                 _gdrive(action)
+            elif action == "save_all":
+                # The page's one Save: every section in the order of the page. One that refuses its
+                # values stops there and is opened; the sections before it are saved.
+                for section in SETTINGS_SECTIONS:
+                    failed = section
+                    _save_settings(section)
+                failed = ""
+                upload = request.files.get("gdrive_credentials_file")
+                if upload and upload.filename:
+                    _gdrive("gdrive_upload_credentials")
+                _done("hosting.admin.settings_saved")
             else:
                 _done(_save_settings(action))
         except _ConfirmPending as pending:
@@ -1611,7 +1638,7 @@ def settings_page():
         except RuntimeFailure as error:
             flash(t(f"hosting.runtime.{error.code}"), "error")
         _record_settings_change(before)
-        section = action if re.fullmatch(r"save_[a-z_]+|gdrive_save", action) else ""
+        section = failed if action == "save_all" else action if re.fullmatch(r"save_[a-z_]+|gdrive_save", action) else ""
         if action == "save_activation":
             section = "save_signups"
         return redirect(url_for("admin.settings_page", open=section) + f"#{section}" if section

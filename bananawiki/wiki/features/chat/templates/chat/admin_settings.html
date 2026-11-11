@@ -11,10 +11,10 @@
 {%- endmacro %}
 {% macro flag(name) -%}{{ forms.checkbox(name, t('chat.settings.' ~ name), values.get(name)) }}{%- endmacro %}
 {% block admin_content %}
-<header class="page-header"><h1>{{ t('chat.admin.title') }}</h1></header>
+<header class="page-header page-header--save"><h1>{{ t('chat.admin.title') }}</h1>{{ forms.page_save('chat-settings-form') }}</header>
 {% with tab='settings' %}{% include "chat/_admin_tabs.html" %}{% endwith %}
 {% if error %}<div class="alert alert--error"><div class="alert__body">{{ error }}</div></div>{% endif %}
-<form method="post" class="form section-stack" action="{{ url_for('chat.admin_settings') }}">
+<form method="post" class="form section-stack" id="chat-settings-form" action="{{ url_for('chat.admin_settings') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <section class="card stack">
     <h2>{{ t('chat.settings.access') }}</h2>
@@ -58,6 +58,5 @@
       {% if next_run %}· {{ t('chat.settings.next_run', when=next_run|datetime) }}{% endif %}
     </p>
   </section>
-  <div class="btn-row form-actions--sticky"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
 </form>
 {% endblock %}

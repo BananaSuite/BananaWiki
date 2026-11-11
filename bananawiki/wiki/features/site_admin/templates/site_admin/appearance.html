@@ -3,16 +3,17 @@
 {% block title %}{{ t('site_admin.appearance.title') }}{% endblock %}
 {% block admin_head %}<link rel="stylesheet" href="{{ asset_url('site_admin.css', blueprint='site_admin') }}">{% endblock %}
 {% block admin_content %}
-<header class="page-header">
+<header class="page-header page-header--save">
   <h1>{{ t('site_admin.appearance.title') }}</h1>
   <div class="page-header__actions">
-    <a class="btn btn--small" href="{{ url_for('site_admin.theme_export') }}">{{ t('site_admin.appearance.export') }}</a>
+    <a class="btn" href="{{ url_for('site_admin.theme_export') }}">{{ t('site_admin.appearance.export') }}</a>
+    <button class="btn btn--primary" type="submit" form="colors-form">{{ t('common.save') }}</button>
   </div>
 </header>
 
 <section class="card">
   <h2>{{ t('site_admin.appearance.colors') }}</h2>
-  <form method="post" action="{{ url_for('site_admin.save_colors') }}" class="form" data-theme-editor>
+  <form method="post" action="{{ url_for('site_admin.save_colors') }}" class="form" id="colors-form" data-theme-editor>
     {{ forms.csrf() }}
     {{ forms.select('default_theme_mode', t('site_admin.appearance.default_mode'),
                     [('dark', t('site_admin.appearance.mode.dark')), ('light', t('site_admin.appearance.mode.light'))],
@@ -41,8 +42,7 @@
       {% endfor %}
     </div>
     <div class="btn-row">
-      <button class="btn btn--primary" type="submit">{{ t('common.save') }}</button>
-      {#- Submits the separate form below, so the colour form's Save and Restore share one row. -#}
+      {#- The page's Save (in the header) saves the colours; this submits the separate form below. -#}
       <button class="btn" type="submit" form="reset-colors-form">{{ t('site_admin.appearance.reset') }}</button>
     </div>
   </form>

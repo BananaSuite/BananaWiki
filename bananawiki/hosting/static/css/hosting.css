@@ -259,6 +259,8 @@ form.inline { display: inline-flex; margin: 0; }
 .page-header .page-header__actions { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-left: auto; }
 .content-column > h1, .admin-layout__main > h1 { padding-bottom: .35rem; border-bottom: 1px solid var(--line); }
 .page-header { padding-bottom: .35rem; border-bottom: 1px solid var(--line); }
+/* The settings page has one Save, in its header, which stays in view while the sections scroll under it. */
+.page-header--save { position: sticky; top: 0; z-index: 5; margin-top: -.5rem; padding-top: .5rem; background: var(--board-bg); }
 /* A wiki's sub-pages: a row of links under its details. */
 .instance-tools { display: flex; flex-wrap: wrap; margin: 0 0 .9rem; overflow: clip; border: 1px solid var(--line-strong);
   border-radius: var(--radius-box); background: var(--subbar-bg); box-shadow: var(--box-shadow); }
@@ -687,8 +689,6 @@ pre.card { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--font
   .card--narrow { margin: .5rem auto; }
   .form-grid { grid-template-columns: minmax(0, 1fr); }
   .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .btn, .hosting-lang, .alert__close { min-height: 2.75rem; }
-  .btn--small { min-height: 2.25rem; }
   input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="hidden"]), select, textarea {
     min-height: 2.5rem; font-size: 16px; }
   .check { min-height: 2.25rem; align-items: center; }
@@ -722,6 +722,11 @@ pre.card { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--font
 }
 
 @media (pointer: coarse) {
+  /* Finger-sized buttons belong to touch screens, not to a narrow window on a desktop. */
+  .btn, .hosting-lang, .alert__close { min-height: 2.75rem; }
+  .btn--small { min-height: 2.25rem; }
+  /* A short label ("Save") stays a wide button, not a square, at that height. */
+  .btn:not(.btn--small) { padding-inline: 1.1rem; }
   .hosting-nav__links > a, .side-nav a, .account-index a, .tabs a, .link-list a, details.card > summary { min-height: 2.75rem; }
   .hosting-nav__links > a, .side-nav a, .account-index a, .tabs a { display: flex; align-items: center; justify-content: center; }
   .breadcrumbs a { display: inline-flex; align-items: center; min-height: 2.75rem; }

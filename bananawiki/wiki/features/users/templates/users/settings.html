@@ -42,12 +42,12 @@
       {#- The section heading already says "Language": the field label is for screen readers only. -#}
       <div class="input-group input-group--compact">
         <label class="visually-hidden" for="f-language">{{ t('auth.field.language') }}</label>
-        <select class="select" id="f-language" name="language">
+        <select class="select" id="f-language" name="language" data-autosubmit>
           {% for value, text in [('default', t('users.display.site_default'))] + languages.items()|list %}
           <option value="{{ value }}"{% if value|string == display_prefs.interface_language|string %} selected{% endif %}>{{ text }}</option>
           {% endfor %}
         </select>
-        <button class="btn" type="submit">{{ t('common.save') }}</button>
+        <noscript><button class="btn" type="submit">{{ t('common.save') }}</button></noscript>
       </div>
     </form>
   </section>

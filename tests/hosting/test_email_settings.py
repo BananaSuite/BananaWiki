@@ -353,9 +353,9 @@ def test_settings_changes_are_logged_by_name(portal, query, login, admin):
 def test_misplaced_switches_moved_to_their_sections(portal, login, admin):
     page = _signed_in(portal, login, admin).get("/admin/settings").get_data(as_text=True)
 
-    def section(action):
-        start = page.index(f'value="{action}"')
-        return page[start:page.index("</form>", start)]
+    def section(action):  # one form for the page: a section is the <details> with the action's name as id
+        start = page.index(f'<details class="card" id="{action}"')
+        return page[start:page.index("</details>", start)]
 
     assert 'name="email_flag_block_reentry"' in section("save_email")
     assert 'name="owner_renewal_enabled"' in section("save_lifetime")

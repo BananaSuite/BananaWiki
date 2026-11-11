@@ -81,17 +81,6 @@
   {% if 'toggle_mode' in permissions %}<p class="small muted">{{ t('hosting.instance.mode_hint') }}</p>{% endif %}
 </details>
 {% endif %}
-{#- The platform may keep owners from terminating an expired wiki: then the button is not offered. -#}
-{% set can_terminate = 'terminate' in permissions and (not inst.expired or owner_can_delete_expired or current_account.is_admin) %}
-{% if 'reset_wiki' in permissions or can_terminate %}
-<details class="card" id="wiki-delete">
-  <summary>{{ t('hosting.instance.reset_or_delete') }}</summary>
-  <div class="btn-row">
-    {% if 'reset_wiki' in permissions %}{{ ui.post(url_for('dashboard.reset_wiki', instance_id=inst.id), t('hosting.instance.reset_wiki'), 'btn btn--small btn--danger', confirm=t('hosting.instance.reset_wiki_confirm')) }}{% endif %}
-    {% if can_terminate %}{{ ui.post(url_for('dashboard.terminate', instance_id=inst.id), t('hosting.instance.terminate'), 'btn btn--small btn--danger', confirm=t('hosting.instance.terminate_confirm')) }}{% endif %}
-  </div>
-</details>
-{% endif %}
 {% endif %}
 {% if not is_owner and not current_account.is_admin %}
 <div class="btn-row leave-row">{{ ui.post(url_for('dashboard.remove_collaborator', instance_id=inst.id, collab_account_id=current_account.id), t('hosting.collaborators.leave'), 'btn btn--small', confirm=t('hosting.common.are_you_sure')) }}</div>
@@ -157,5 +146,20 @@
 <div class="table-wrap"><table class="table"><thead><tr><th>{{ t('hosting.field.username') }}</th><th>{{ t('hosting.instance.role') }}</th><th>{{ t('hosting.instance.created') }}</th></tr></thead><tbody>
 {% for user in users %}<tr><td>{{ user.username }}</td><td>{{ t('hosting.wiki_role.' ~ user.role, user.role) }}</td><td class="date">{{ user.created_at|date }}</td></tr>{% endfor %}
 </tbody></table></div></details>
+{% endif %}
+
+{#- Resetting and closing come last, below everything that changes nothing. -#}
+{% if active_page != 'admin' and inst.status not in ('terminated', 'provisioning', 'provisioning_failed') %}
+{#- The platform may keep owners from terminating an expired wiki: then the button is not offered. -#}
+{% set can_terminate = 'terminate' in permissions and (not inst.expired or owner_can_delete_expired or current_account.is_admin) %}
+{% if 'reset_wiki' in permissions or can_terminate %}
+<details class="card" id="wiki-delete">
+  <summary>{{ t('hosting.instance.reset_or_delete') }}</summary>
+  <div class="btn-row">
+    {% if 'reset_wiki' in permissions %}{{ ui.post(url_for('dashboard.reset_wiki', instance_id=inst.id), t('hosting.instance.reset_wiki'), 'btn btn--small btn--danger', confirm=t('hosting.instance.reset_wiki_confirm')) }}{% endif %}
+    {% if can_terminate %}{{ ui.post(url_for('dashboard.terminate', instance_id=inst.id), t('hosting.instance.terminate'), 'btn btn--small btn--danger', confirm=t('hosting.instance.terminate_confirm')) }}{% endif %}
+  </div>
+</details>
+{% endif %}
 {% endif %}
 {% endblock %}

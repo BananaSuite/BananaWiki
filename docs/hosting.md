@@ -833,12 +833,12 @@ platforms.
   account linked to another portal account is never taken over. New accounts
   follow the wiki's own sign-up policy. Later sign-ins through the portal ask
   for the wiki's two-step code as well.
-* **Account → Wiki sign-ins** (`/account/wikis`) lists every wiki the account
+* **Your account → Wiki sign-ins** (`/account/wikis`) lists every wiki the account
   signs in to, with the wiki account, the last sign-in and whether the wiki
   asks again: **Sign out** ends its sessions on that wiki, **Remove access**
   also forgets the consent. Both are refused while impersonating.
-* **Single sign-out**: *Sign out everywhere* (**Account → Wiki sign-ins**),
-  *Sign out other devices* (**Account → Signed-in devices**), a password
+* **Single sign-out**: *Sign out everywhere* (**Your account → Wiki sign-ins**),
+  *Sign out other devices* (**Your account → Signed-in devices**), a password
   change, suspension, deletion or scheduled deletion of the account, a merge,
   removing a wiki's access and a wiki changing owner (for the previous owner)
   are queued as sign-out events
@@ -1029,7 +1029,7 @@ cause a rollback is in
 ## Portal REST API
 
 Off until an administrator switches it on in the platform settings. Tokens
-(`bwh_…`, created under **Account → API tokens**, shown once, stored as
+(`bwh_…`, created under **Your account → API tokens**, shown once, stored as
 SHA-256) carry scopes:
 
 | Scope | Endpoints (under `/api/v1`) |

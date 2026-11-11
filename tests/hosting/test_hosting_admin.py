@@ -398,3 +398,37 @@ def test_moderation_log_records_admin_actions(web, make_account, login):
     login(web, admin)
     web.post(f"/admin/accounts/{user['id']}/suspend", data={"suspend_duration": "permanent", "notify_user": "0"})
     assert "account.suspend" in web.get("/admin/moderation").get_data(as_text=True)
+
+
+def test_the_settings_page_has_one_save_for_every_section(web, make_account, make_wiki, login, query, runtime):
+    from bananawiki.hosting.routes.admin import SETTINGS_SECTIONS
+
+    admin = make_account(admin=True)
+    make_wiki(admin, "team")
+    login(web, admin)
+    page = web.get("/admin/settings").get_data(as_text=True)
+    assert page.count('value="save_all"') == 1 and 'form="settings-form"' in page
+    assert all(f'id="{section.replace("save_notifications", "notifications")}"' in page for section in SETTINGS_SECTIONS)
+    # No section has a Save of its own any more.
+    assert not any(f'name="action" value="{section}"' in page for section in SETTINGS_SECTIONS)
+
+    def save(**changed):
+        fields = {"action": "save_all", "signup_mode": "open", "signup_email": "optional", "existing_email": "optional",
+                  "email_shared": "1", "custom_domains_policy": "admins", "approval_notify_mode": "digest",
+                  "global_wiki_upload_max_size_mb": "100", "global_wiki_blocked_extensions": "",
+                  "instance_url_suffix": "hosting", "forbid_non_admin_public_wikis": "1",
+                  "forbid_non_admin_page_builder": "1", **changed}
+        return web.post("/admin/settings", data=fields, follow_redirects=True).get_data(as_text=True)
+
+    restarts = len(runtime.calls)
+    assert "Settings saved" in save(api_enabled="1", grace_period_days="12", easter_shades="1")
+    row = query("SELECT api_enabled, grace_period_days, global_tour_enabled FROM hosting_settings", one=True)
+    assert (row["api_enabled"], row["grace_period_days"], row["global_tour_enabled"]) == (1, 12, 0)
+    # Nothing about the wikis changed, so none was restarted and no route was rewritten.
+    assert len(runtime.calls) == restarts
+
+    # A section that refuses its values is named; the sections before it are saved.
+    page = save(grace_period_days="20", instance_url_suffix="not a suffix!")
+    assert "Not saved" in page or "suffix" in page.lower()
+    assert query("SELECT grace_period_days FROM hosting_settings", one=True)["grace_period_days"] == 20
+    assert query("SELECT api_enabled FROM hosting_settings", one=True)["api_enabled"] == 1

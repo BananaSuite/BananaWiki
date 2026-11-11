@@ -299,5 +299,6 @@
   "site_admin.settings.upload_quota_per_day_count.hint": "0 for no limit.",
   "site_admin.settings.upload_whitelist": "Allowed extensions",
   "site_admin.settings.upload_whitelist.hint": "Separate with commas, for example: pdf, png.",
-  "site_admin.settings.features_hint": "Optional features, such as the visual page builder, are turned on and off under Plugins."
+  "site_admin.settings.features_hint": "Optional features, such as the visual page builder, are turned on and off under Plugins.",
+  "site_admin.settings.features_link": "Open Plugins"
 }

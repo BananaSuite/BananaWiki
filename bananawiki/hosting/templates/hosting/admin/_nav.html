@@ -1,13 +1,14 @@
 {#- The administration menu, beside every administration page (base.html adds it). A page opened from
-    a list (an account, a wiki, its logs) marks the list it belongs to. -#}
+    a list (an account, a wiki, its logs) marks the list it belongs to. What is looked at every day comes
+    first (accounts with their merges, wikis), then the banners and the log; the settings are last. -#}
 {%- set sections = [
   ('overview', 'admin.dashboard', t('hosting.admin.nav.overview')),
   ('accounts', 'admin.account_list', t('hosting.admin.accounts')),
   ('wikis', 'admin.wiki_list', t('hosting.admin.instances')),
-  ('settings', 'admin.settings_page', t('hosting.admin.nav.settings')),
-  ('banners', 'admin.banners_page', t('hosting.admin.nav.banners')),
   ('merges', 'admin.merge_requests', t('hosting.admin.nav.merges')),
+  ('banners', 'admin.banners_page', t('hosting.admin.nav.banners')),
   ('log', 'admin.moderation', t('hosting.admin.nav.moderation')),
+  ('settings', 'admin.settings_page', t('hosting.admin.nav.settings')),
 ] -%}
 {%- set owner_pages = ('dashboard.instance_detail', 'dashboard.instance_domain', 'dashboard.collaborators_page', 'dashboard.analytics') -%}
 {%- set section_of = {

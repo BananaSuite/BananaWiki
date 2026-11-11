@@ -299,5 +299,6 @@
   "site_admin.settings.upload_quota_per_day_count.hint": "0 für kein Limit.",
   "site_admin.settings.upload_whitelist": "Erlaubte Dateiendungen",
   "site_admin.settings.upload_whitelist.hint": "Mit Kommas trennen, zum Beispiel: pdf, png.",
-  "site_admin.settings.features_hint": "Optionale Funktionen wie den visuellen Seitenbaukasten schaltest du unter „Plugins“ ein und aus."
+  "site_admin.settings.features_hint": "Optionale Funktionen wie den visuellen Seitenbaukasten schaltest du unter „Plugins“ ein und aus.",
+  "site_admin.settings.features_link": "Plugins öffnen"
 }

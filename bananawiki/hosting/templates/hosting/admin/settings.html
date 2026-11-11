@@ -3,14 +3,17 @@
 {% set s = settings %}
 {% block title %}{{ t('hosting.admin.nav.settings') }}{% endblock %}
 {% block content %}
-<h1>{{ t('hosting.admin.nav.settings') }}</h1>
-{#- Each section is its own form with one Save button; ?open=<section> (after saving, or from a link) opens it.
-    extra: more forms in the same section, after its own (Google Drive: credentials and run now). -#}
+{#- The settings are one form with one Save, in the page header: it is the form's first submit button, so
+    Enter in a field saves too. Every other button in the form names what it does instead (`action`, or its
+    own address) and skips the browser's checks. ?open=<section> (from a link, or after an error) opens a section.
+    extra: tools of the same section, after its fields (Google Drive: credentials and run now). -#}
+<header class="page-header page-header--save"><h1>{{ t('hosting.admin.nav.settings') }}</h1>
+  <div class="page-header__actions"><button class="btn btn--primary" type="submit" form="settings-form" name="action" value="save_all">{{ t('common.save') }}</button></div></header>
 {% macro section(action, title, hint='', extra=none) %}
 <details class="card" id="{{ action }}" data-remember{% if request.args.get('open') == action %} open{% endif %}><summary>{{ title }}</summary>{% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
-<form method="post" action="{{ url_for('admin.settings_page') }}" class="form" enctype="multipart/form-data">{{ ui.csrf() }}<input type="hidden" name="action" value="{{ action }}">
+<div class="form">
 {{ caller() }}
-<p><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></p></form>{% if extra %}{{ extra() }}{% endif %}</details>
+</div>{% if extra %}{{ extra() }}{% endif %}</details>
 {% endmacro %}
 {% macro choices(name, legend, options, current, hint='') %}
 <fieldset class="plain"><legend>{{ legend }}</legend>{% if hint %}<p class="hint hint--block">{{ hint }}</p>{% endif %}
@@ -18,6 +21,7 @@
 </fieldset>
 {% endmacro %}
 
+<form method="post" action="{{ url_for('admin.settings_page') }}" enctype="multipart/form-data" id="settings-form">{{ ui.csrf() }}
 <section class="settings-group" aria-labelledby="settings-accounts">
 <h2 class="settings-group__title" id="settings-accounts">{{ t('hosting.settings.group.accounts') }}</h2>
 {% call section('save_signups', t('hosting.settings.signups')) %}
@@ -54,7 +58,7 @@
 {% endcall %}
 <details class="card" id="notifications" data-remember{% if request.args.get('open') in ('notifications', 'save_notifications') %} open{% endif %}><summary>{{ t('hosting.settings.notifications') }}</summary>
 {% if not email_configured %}<div class="alert alert--warning"><div class="alert__body">{{ t('hosting.settings.email_missing') }}</div></div>{% endif %}
-<form method="post" action="{{ url_for('admin.settings_page') }}" class="form">{{ ui.csrf() }}<input type="hidden" name="action" value="save_notifications">
+<div class="form">
   {{ ui.check('approval_notify_admins', t('hosting.settings.notify_admins'), s.approval_notify_admins, hint=t('hosting.settings.notify_admins_hint')) }}
   {{ ui.field('approval_notify_email', t('hosting.settings.notify_email'), s.approval_notify_email, type='email') }}
   <fieldset class="plain"><legend>{{ t('hosting.settings.notify_sources') }}</legend>
@@ -65,11 +69,11 @@
   {{ ui.field('approval_notify_interval_minutes', t('hosting.settings.notify_interval'), s.approval_notify_interval_minutes, type='number', hint=t('hosting.settings.notify_interval_hint'), attrs={'min': notify_interval[0], 'max': notify_interval[1]}) }}
   {{ ui.field('approval_notify_daily_hour', t('hosting.settings.notify_daily_hour'), s.approval_notify_daily_hour, type='number', hint=t('hosting.settings.notify_daily_hour_hint'), attrs={'min': 0, 'max': 23}) }}
   </div>
-  <p><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></p></form>
-<form method="post" action="{{ url_for('admin.send_test_email') }}" class="cluster">{{ ui.csrf() }}
-  <button class="btn btn--small" type="submit"{% if not current_account.email %} disabled{% endif %}>{{ t('hosting.attention.test_send') }}</button>
+</div>
+<div class="cluster">
+  <button class="btn btn--small" type="submit" formaction="{{ url_for('admin.send_test_email') }}" formnovalidate{% if not current_account.email %} disabled{% endif %}>{{ t('hosting.attention.test_send') }}</button>
   <span class="small muted">{{ t('hosting.attention.test_help', address=current_account.email) if current_account.email else t('hosting.attention.test_no_address') }}</span>
-</form>
+</div>
 </details>
 {% call section('save_admin_mfa', t('hosting.settings.admin_mfa')) %}
   {{ ui.check('admin_mfa_required', t('hosting.settings.admin_mfa_required'), s.admin_mfa_required) }}
@@ -147,12 +151,13 @@
 {% call section('save_api', t('hosting.settings.api')) %}{{ ui.check('api_enabled', t('hosting.settings.api_enabled'), s.api_enabled) }}{% endcall %}
 {#- Everything about Google Drive in one section: its settings, then the credentials it needs, then running it. -#}
 {% macro gdrive_tools() %}
-  <form method="post" action="{{ url_for('admin.settings_page') }}" enctype="multipart/form-data" class="form">{{ ui.csrf() }}<input type="hidden" name="action" value="gdrive_upload_credentials">
+  {#- A credentials file chosen here is stored by the page's Save as well. -#}
+  <div class="form">
     <div class="field"><label for="f-cred">{{ t('hosting.settings.gdrive_credentials') }}</label><input id="f-cred" type="file" name="gdrive_credentials_file" accept=".json"></div>
-    <p><button class="btn" type="submit">{{ t('hosting.settings.upload') }}</button></p></form>
+    <p><button class="btn" type="submit" name="action" value="gdrive_upload_credentials" formnovalidate>{{ t('hosting.settings.upload') }}</button></p></div>
   <div class="btn-row gdrive-run">
-    {{ ui.post(url_for('admin.settings_page'), t('hosting.settings.gdrive_test'), 'btn', hidden={'action': 'gdrive_test'}) }}
-    {{ ui.post(url_for('admin.settings_page'), t('hosting.settings.gdrive_now'), 'btn', hidden={'action': 'gdrive_backup_now'}) }}
+    <button class="btn" type="submit" name="action" value="gdrive_test" formnovalidate>{{ t('hosting.settings.gdrive_test') }}</button>
+    <button class="btn" type="submit" name="action" value="gdrive_backup_now" formnovalidate>{{ t('hosting.settings.gdrive_now') }}</button>
   </div>
 {% endmacro %}
 {% call section('gdrive_save', t('hosting.settings.gdrive'), extra=gdrive_tools) %}
@@ -165,6 +170,14 @@
 
 <section class="settings-group" aria-labelledby="settings-platform">
 <h2 class="settings-group__title" id="settings-platform">{{ t('hosting.settings.group.platform') }}</h2>
+{% call section('save_easter_eggs', t('hosting.settings.easter_eggs'), t('hosting.settings.easter_eggs_hint')) %}
+  {% for egg in ('shades', 'konami', 'peek') %}{{ ui.check('easter_' ~ egg, t('hosting.settings.easter.' ~ egg), eggs_on[egg]) }}{% endfor %}
+{% endcall %}
+</section>
+</form>
+
+{#- Backups are downloads and a restore with their own confirmations, not settings: outside the form. -#}
+<section class="settings-group" aria-label="{{ t('hosting.settings.backups') }}">
 <details class="card backups-card" id="backups" data-remember{% if request.args.get('open') == 'backups' %} open{% endif %}><summary>{{ t('hosting.settings.backups') }}</summary>
   {% set backup = backup_status or {} %}
   <p class="small muted">{% if backup.complete_at %}{{ tm('hosting.settings.backup_complete_at', when=nowrap(backup.complete_at|datetime)) }}{% else %}{{ t('hosting.settings.backup_complete_never') }}{% endif %}</p>
@@ -183,8 +196,5 @@
     <div class="field"><label for="f-restore">{{ t('hosting.settings.backup_file') }}</label><input id="f-restore" type="file" name="backup_files" accept=".zip,.bwenc"></div>
     <p><button class="btn btn--danger" type="submit">{{ t('hosting.settings.restore_platform') }}</button> <span class="small" data-upload-status role="status"></span></p></form>
 </details>
-{% call section('save_easter_eggs', t('hosting.settings.easter_eggs'), t('hosting.settings.easter_eggs_hint')) %}
-  {% for egg in ('shades', 'konami', 'peek') %}{{ ui.check('easter_' ~ egg, t('hosting.settings.easter.' ~ egg), eggs_on[egg]) }}{% endfor %}
-{% endcall %}
 </section>
 {% endblock %}

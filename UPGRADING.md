@@ -21,10 +21,15 @@ Interface release. No database migration: 1.7.6 can still open the wiki and port
   * *Customise* is now **Appearance** (Italian *Aspetto*, German *Darstellung*), in the account menu.
     The top bar no longer has Customise, Settings or Sign out.
   * Settings tabs: Account, Security, Notifications, Appearance, Profile, Privacy. Sessions are on
-    Security (`/settings/sessions` redirects). Blocked people, drafts and the data download are on Privacy.
+    Security (`/settings/sessions` redirects). Blocked people and the data download are on Privacy; the drafts are on Account.
   * Administration opens on the dashboard. The sidebar lists every admin page. The overview page is gone;
     `/admin/home` opens the dashboard.
   * Site settings tabs: `/admin/settings?section=access`, `security`, `signin`, `uploads`, `content`.
+  * Settings pages have one Save button, at the top right. A single switch (your language, BM mode, the
+    Easter eggs) applies when you change it.
+  * Hosting portal: **Settings** is one form with one Save (`action=save_all`); the old per-section
+    actions (`save_signups`, `save_email`, …) are still accepted. *Account* in the top bar is now
+    **Your account**, and Settings is the last entry of the administration menu.
     Links to anchors of the old single page open the General tab.
 * **Uploaded interface languages.** New texts show in English until translated. Removed keys are ignored.
   Many English texts are shorter, so compare older translations with the English file

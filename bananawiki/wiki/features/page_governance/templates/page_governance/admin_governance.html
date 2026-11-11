@@ -2,14 +2,15 @@
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('page_governance.admin.governance_title') }}{% endblock %}
 {% block admin_content %}
-<header class="page-header">
+<header class="page-header page-header--save">
   <h1>{{ t('page_governance.admin.governance_title') }}</h1>
-  <div class="page-header__actions"><a class="btn btn--small" href="{{ url_for('page_governance.checkouts') }}">{{ t('page_governance.nav.checkouts') }}</a></div>
+  <div class="page-header__actions"><a class="btn" href="{{ url_for('page_governance.checkouts') }}">{{ t('page_governance.nav.checkouts') }}</a>
+    <button class="btn btn--primary" type="submit" form="governance-settings-form">{{ t('common.save') }}</button></div>
 </header>
 <div class="section-stack">
 <section class="card">
   <h2>{{ t('page_governance.admin.settings') }}</h2>
-  <form method="post" class="form">
+  <form method="post" class="form" id="governance-settings-form">
     {{ forms.csrf() }}
     {{ forms.checkbox('page_protection_enabled', t('page_governance.setting.page_protection_enabled'), checked=settings_values.page_protection_enabled, hint=t('page_governance.setting.page_protection_enabled_hint')) }}
     {{ forms.checkbox('page_reservations_enabled', t('page_governance.setting.page_reservations_enabled'), checked=settings_values.page_reservations_enabled, hint=t('page_governance.setting.page_reservations_enabled_hint')) }}
@@ -18,7 +19,6 @@
       {{ forms.field(name, t('page_governance.setting.' ~ name), value=settings_values[name], type='number', required=true, hint=t('page_governance.setting.' ~ name ~ '_hint', ''), attrs={'min': minimum, 'max': maximum}) }}
     {% endfor %}
     </div>
-    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
   </form>
 </section>
 

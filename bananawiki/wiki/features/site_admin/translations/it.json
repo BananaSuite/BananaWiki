@@ -299,5 +299,6 @@
   "site_admin.settings.upload_quota_per_day_count.hint": "0 per nessun limite.",
   "site_admin.settings.upload_whitelist": "Estensioni consentite",
   "site_admin.settings.upload_whitelist.hint": "Separale con virgole, per esempio: pdf, png.",
-  "site_admin.settings.features_hint": "Le funzioni facoltative, come l'editor visuale delle pagine, si attivano e disattivano in Plugin."
+  "site_admin.settings.features_hint": "Le funzioni facoltative, come l'editor visuale delle pagine, si attivano e disattivano in Plugin.",
+  "site_admin.settings.features_link": "Apri Plugin"
 }

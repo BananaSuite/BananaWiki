@@ -47,6 +47,12 @@
 </div>
 {%- endmacro %}
 
+{#- The one Save of a settings page, in its page header: <header class="page-header page-header--save">.
+    It submits the form with that id, wherever the form is on the page. -#}
+{% macro page_save(form_id, label='') -%}
+<div class="page-header__actions"><button class="btn btn--primary" type="submit" form="{{ form_id }}">{{ label or t('common.save') }}</button></div>
+{%- endmacro %}
+
 {% macro post_button(action, label, cls='btn', confirm='', hidden={}, attrs={}) -%}
 <form class="inline" method="post" action="{{ action }}"{% if confirm %} data-confirm="{{ confirm }}"{% endif %}>
   {{ csrf() }}

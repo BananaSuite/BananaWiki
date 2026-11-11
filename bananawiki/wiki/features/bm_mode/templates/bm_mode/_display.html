@@ -7,8 +7,9 @@
   {% elif may_switch %}
   <form class="form" method="post" action="{{ url_for('bm_mode.own_switch') }}">
     {{ forms.csrf() }}
-    {{ forms.checkbox('bm_mode', t('bm_mode.own.switch'), checked=on) }}
-    <div class="btn-row"><button type="submit" class="btn">{{ t('common.save') }}</button></div>
+    {#- The switch applies as soon as it is ticked: the page's Save is for the display form above. -#}
+    <label class="check"><input type="checkbox" name="bm_mode" value="1"{% if on %} checked{% endif %} data-autosubmit> <span>{{ t('bm_mode.own.switch') }}</span></label>
+    <noscript><div class="btn-row"><button type="submit" class="btn">{{ t('common.save') }}</button></div></noscript>
   </form>
   {% else %}
   <p>{{ t('bm_mode.own.on_by_admin') if on else t('bm_mode.own.off_by_admin') }}</p>

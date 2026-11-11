@@ -3,7 +3,7 @@
 {% import "users/_macros.html" as m with context %}
 {% block title %}{{ t('users.profile_edit.title') }}{% endblock %}
 {% block content %}
-<header class="page-header"><h1>{{ t('users.settings.title') }}</h1></header>
+<header class="page-header page-header--save"><h1>{{ t('users.settings.title') }}</h1>{{ forms.page_save('profile-form') }}</header>
 {% include "users/_tabs.html" %}
 <div class="section-stack users-settings">
 <section class="form-section" aria-labelledby="profile-heading">
@@ -11,7 +11,7 @@
   <div class="stack">
   <div class="btn-row"><a class="btn btn--small" href="{{ url_for('users.my_profile') }}">{{ t('users.settings.view_profile') }}</a></div>
   {% if profile.page_disabled_by_admin %}<div class="alert alert--warning"><div class="alert__body">{{ t('users.profile_edit.disabled_notice') }}</div></div>{% endif %}
-  <form method="post" action="{{ url_for('users.edit_profile') }}" enctype="multipart/form-data" class="form">
+  <form method="post" action="{{ url_for('users.edit_profile') }}" enctype="multipart/form-data" class="form" id="profile-form">
     {{ forms.csrf() }}
     {{ forms.field('real_name', t('users.profile_edit.real_name'), profile.real_name, attrs={'maxlength': 100, 'autocomplete': 'name'}) }}
     {{ forms.textarea('bio', t('users.profile_edit.bio'), profile.bio, rows=4, hint=t('users.profile_edit.bio_hint')) }}
@@ -24,7 +24,6 @@
       </div>
       <p class="hint" id="f-avatar-hint">{{ t('users.profile_edit.avatar_hint') }}</p>
     </div>
-    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
   </form>
   {% if profile.avatar_filename %}
   <form method="post" action="{{ url_for('users.remove_avatar') }}" class="btn-row">

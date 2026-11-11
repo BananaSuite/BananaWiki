@@ -2,13 +2,13 @@
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('site_admin.section.' ~ section) }} · {{ t('site_admin.settings.title') }}{% endblock %}
 {% block admin_content %}
-<header class="page-header"><h1>{{ t('site_admin.settings.title') }}</h1></header>
+<header class="page-header page-header--save"><h1>{{ t('site_admin.settings.title') }}</h1>{{ forms.page_save('site-settings-form') }}</header>
 <nav class="tabs" aria-label="{{ t('site_admin.settings.sections') }}">
   {% for name, _fields in sections %}
   <a href="{{ url_for('site_admin.general', section=None if loop.first else name) }}"{% if name == section %} aria-current="page"{% endif %}>{{ t('site_admin.section.' ~ name) }}</a>
   {% endfor %}
 </nav>
-<form method="post" action="{{ url_for('site_admin.general', section=None if section == sections[0][0] else section) }}" class="form form--narrow admin-settings" novalidate>
+<form method="post" action="{{ url_for('site_admin.general', section=None if section == sections[0][0] else section) }}" class="form form--narrow admin-settings" id="site-settings-form" novalidate>
   {{ forms.csrf() }}
   <input type="hidden" name="section" value="{{ section }}">
   {% for item in fields if item.shown() %}{% include "site_admin/_field.html" %}{% endfor %}
@@ -18,6 +18,5 @@
   {% if section == 'content' %}
   <p class="hint">{{ t('site_admin.settings.features_hint') }} <a href="{{ url_for('plugin_manager.index') }}">{{ t('site_admin.settings.features_link') }}</a></p>
   {% endif %}
-  <div class="form-actions"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
 </form>
 {% endblock %}

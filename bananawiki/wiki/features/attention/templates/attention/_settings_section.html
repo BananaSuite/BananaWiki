@@ -1,7 +1,7 @@
 {% import "macros/forms.html" as forms with context %}
 <section class="form-section" id="notifications" aria-labelledby="notifications-heading">
   <h2 id="notifications-heading">{{ t('attention.settings.title') }}</h2>
-  <form method="post" action="{{ url_for('attention.save_preferences') }}" class="form">
+  <form method="post" action="{{ url_for('attention.save_preferences') }}" class="form" id="notification-prefs-form">
     {{ forms.csrf() }}
     <input type="hidden" name="next" value="{{ request.path }}">
     {% if not mail_ready %}<p class="hint">{{ t('attention.settings.mail_off') }}</p>{% endif %}
@@ -11,6 +11,7 @@
     {{ forms.checkbox('attention_emails', t('attention.settings.attention_emails'), user.attention_emails) }}
     {% endif %}
     {{ forms.checkbox('decision_emails', t('attention.settings.decision_emails'), user.decision_emails) }}
-    <div><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+    {#- The Notifications tab has the Save in its header; BM mode's short Account tab shows this one. -#}
+    <div class="form-save"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
   </form>
 </section>

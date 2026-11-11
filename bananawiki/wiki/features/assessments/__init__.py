@@ -20,7 +20,7 @@ FEATURE = Feature(
     nav=[
         NavItem("assessments.nav.points", "assessments.points", icon="award", area="user",
                 visible=lambda user: bool(user) and bool(settings.get(POINTS_SETTING))),
-        NavItem("assessments.nav.admin", "assessments.admin", icon="check-square", area="admin",
+        NavItem("assessments.nav.admin", "assessments.admin", icon="check-square", area="admin", order=59,
                 visible=lambda user: auth.is_admin(user) if user else False),
     ],
     slots={

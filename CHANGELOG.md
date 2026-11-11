@@ -13,6 +13,12 @@
 * Settings are split into tabs: Account, Security, Notifications, Appearance, Profile and Privacy. The new URLs are `/settings/security`, `/settings/notifications` and `/settings/privacy`, and `/settings/sessions` redirects to Security.
 * Every admin page has a sidebar menu grouped into People, Wiki, Content and System. The overview page, the breadcrumb and the *Jump to* list are gone, and `/admin` now opens the dashboard.
 * Site settings are split into tabs: General, Access, Security, Sign-in, Uploads and Content. Each tab has one form with one Save button, and dependent fields only appear when their switch is on.
+* A settings page has one Save button, at the top right of the page, and it stays in view while the page scrolls. This applies to Site settings, the Appearance, Notifications and Profile tabs of your own settings, and the admin pages for Appearance, BM mode, Notifications, Chats, Canvas, Page builder, Page governance, Sessions and the REST API. **Admin → Notifications** saves the notification choices and the mail server together.
+* A single switch applies as soon as you change it, without a Save button: your language, **Use BM mode** and the Easter eggs.
+* Buttons and form fields are a little smaller (32 pixels high instead of 36).
+* **My drafts** in your settings is on the Account tab instead of Privacy.
+* In the administration menu, Announcements and Assessments come first under Content, and the bulk tools stay last.
+* Site settings → Content showed a raw text key instead of the link to Plugins. The link is back.
 * Interface text in English, Italian and German is shorter. Page introductions and hints that only described the interface have been removed.
 
 ### Hosting platform
@@ -21,6 +27,12 @@
 * New visitors get the midnight-blue theme by default. The top bar switches to light.
 * Every admin page has a menu with Overview, Accounts, Wikis, Settings, Banners, Account merges and Activity log. The account and wiki tables have moved to **Accounts** (`/admin/accounts`) and **Wikis** (`/admin/wikis`), and **Import a wiki** is now a button on **Wikis**.
 * *Your wikis* is now a table with bulk actions for the selected wikis.
+* **Settings** is one form with one Save button at the top right, instead of a Save in each of its 20 sections. Saving restarts the running wikis only when the upload policy really changed. If a section refuses its values, that section opens with the error and the sections before it are saved. Backups are below the form, because they are not settings.
+* The portal's own account page is called **Your account**, so it is no longer confused with **Accounts** in the administration (in Italian both were *Account*).
+* The administration menu lists Account merges next to Accounts and puts Settings last. Links to the settings open `/admin/settings`; `/global-settings` still works.
+* On a wiki's page, **Reset or close the wiki** is the last section.
+* The notification switch on **Your account** applies as soon as you change it.
+* Buttons only grow to finger size on touch screens, not in a narrow window on a desktop.
 
 ### Dependencies
 

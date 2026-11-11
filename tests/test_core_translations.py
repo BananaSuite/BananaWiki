@@ -96,3 +96,20 @@ def test_every_error_status_with_a_title_has_an_explanation():
     english = _load(PACKAGE / "wiki" / "translations" / "en.json")
     statuses = {key.removesuffix(".title") for key in english if re.fullmatch(r"error\.\d{3}\.title", key)}
     assert statuses and sorted(status for status in statuses if f"{status}.body" not in english) == []
+
+
+T_CALL = re.compile(r"""\bt\(\s*(['"])([A-Za-z0-9_.\-]+)\1\s*[,)]""")
+
+
+@pytest.mark.parametrize("application", ["wiki", "hosting"])
+def test_templates_only_name_texts_that_exist(application):
+    """A text key a template names literally is in the English catalogue (a missing one is shown as the key)."""
+    known: set[str] = set()
+    for folder in CATALOGUES:
+        if application in folder.relative_to(PACKAGE).parts or "core" in folder.relative_to(PACKAGE).parts:
+            known |= set(_load(folder / "en.json"))
+    missing = sorted({f"{path.relative_to(PACKAGE)}: {match.group(2)}"
+                      for path in (PACKAGE / application).rglob("templates/**/*.html")
+                      for match in T_CALL.finditer(path.read_text(encoding="utf-8"))
+                      if match.group(2) not in known and not match.group(2).endswith(".")})
+    assert known and missing == []

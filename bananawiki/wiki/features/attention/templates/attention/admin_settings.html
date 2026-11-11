@@ -2,14 +2,15 @@
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('attention.admin.title') }}{% endblock %}
 {% block admin_content %}
-<header class="page-header"><h1>{{ t('attention.admin.title') }}</h1></header>
-<div class="section-stack">
+<header class="page-header page-header--save"><h1>{{ t('attention.admin.title') }}</h1>{{ forms.page_save('notify-settings-form') }}</header>
+{#- One form for the page: the notification choices and, when the mail server is set here, its settings. -#}
+<form method="post" class="section-stack" id="notify-settings-form" autocomplete="off">
+  {{ forms.csrf() }}
+  <input type="hidden" name="section" value="all">
   <section class="card" aria-labelledby="notify-heading">
     <h2 id="notify-heading">{{ t('attention.admin.notify_title') }}</h2>
     {% if not mail_ready %}<div class="alert alert--warning"><div class="alert__body">{{ t('attention.admin.mail_missing') }}</div></div>{% endif %}
-    <form method="post" class="form">
-      {{ forms.csrf() }}
-      <input type="hidden" name="section" value="notifications">
+    <div class="form">
       {{ forms.checkbox('attention_email_enabled', t('attention.admin.enabled'), values.attention_email_enabled, hint=t('attention.admin.enabled_hint', count=recipients)) }}
       <div class="form" data-reveal-for="attention_email_enabled" data-reveal-values="1">
         {{ forms.select('attention_email_mode', t('attention.admin.mode'), [('immediate', t('attention.admin.mode.immediate')), ('digest', t('attention.admin.mode.digest')), ('daily', t('attention.admin.mode.daily'))], values.attention_email_mode) }}
@@ -26,8 +27,7 @@
       {% else %}
       {{ forms.field('public_base_url', t('attention.admin.base_url'), values.public_base_url or suggested_base_url, type='url', hint=t('attention.admin.base_url_hint'), attrs={'maxlength': 300}) }}
       {% endif %}
-      <div><button class="btn" type="submit">{{ t('common.save') }}</button></div>
-    </form>
+    </div>
   </section>
 
   <section class="card" aria-labelledby="mail-heading">
@@ -37,9 +37,7 @@
     {% elif mail_source == 'host_only' %}
     <p>{{ t('attention.admin.mail_host_only') }}</p>
     {% else %}
-    <form method="post" class="form" autocomplete="off">
-      {{ forms.csrf() }}
-      <input type="hidden" name="section" value="mail">
+    <div class="form">
       {{ forms.select('mail_provider', t('attention.admin.provider'), [('', t('attention.admin.provider.none')), ('smtp', 'SMTP'), ('brevo', 'Brevo'), ('resend', 'Resend')], values.mail_provider) }}
       <div class="form" data-reveal-for="mail_provider" data-reveal-values="smtp brevo resend">
         <div class="form-grid grid--pairs">
@@ -64,11 +62,12 @@
         </div>
       </div>
       <p class="hint">{{ t('attention.admin.env_hint') }}</p>
-      <div><button class="btn" type="submit">{{ t('common.save') }}</button></div>
-    </form>
+    </div>
     {% endif %}
   </section>
+</form>
 
+<div class="section-stack">
   <section class="card" aria-labelledby="test-heading">
     <h2 id="test-heading">{{ t('attention.admin.test_title') }}</h2>
     {% if own_email %}
