@@ -1,4 +1,9 @@
-"""OAuth 2.0 provider endpoints used by hosted wikis (``BW_PLATFORM_OAUTH_*`` URLs).
+"""OAuth 2.0 provider endpoints used by hosted wikis (``BW_PLATFORM_OAUTH_*`` URLs) and apps.
+
+Apps (:mod:`..oauth_apps`) use ``/oauth/authorize``, ``/oauth/token``,
+``/oauth/userinfo`` and ``/oauth/verify``, always with PKCE, and find them
+in ``/.well-known/oauth-authorization-server`` (RFC 8414). The wiki-only
+endpoints refuse their credentials.
 
 Browser-facing: ``/oauth/authorize`` (consent) and ``/oauth/revoke``.
 Server-to-server (called by the wiki, CSRF-exempt, never using the portal
@@ -46,7 +51,7 @@ from flask import Blueprint, abort, jsonify, redirect, render_template, request,
 from ...core.numbers import ascii_int
 from ...core.timeutil import sql_in
 from ...core.web import allow_form_action, csrf_exempt, safe_next
-from .. import accounts, auth, events, limits, oauth, signouts
+from .. import accounts, auth, events, limits, oauth, oauth_apps, signouts, urls
 from ..db import db
 from ..limits import rate_limit
 
@@ -95,6 +100,17 @@ def _authenticated_instance(data: dict[str, Any]) -> dict[str, Any] | None:
     return inst
 
 
+def _authenticated_client(data: dict[str, Any]) -> dict[str, Any] | None:
+    """The wiki or the app whose credentials the request carries (wrong ones count like :func:`_authenticated_instance`)."""
+    client_id, secret = _client_credentials(data)
+    if not client_id.startswith(oauth_apps.CLIENT_PREFIX):
+        return _authenticated_instance(data)
+    app = oauth_apps.authenticate(client_id, secret) if secret else None
+    if app is None:
+        limits.record(limits.BAD_CLIENT)
+    return app
+
+
 def _client(data: dict[str, Any], status: int, error: str) -> tuple[dict[str, Any] | None, Any]:
     """(the authenticated wiki, None), or (None, the answer refusing the request) in *status* and *error*."""
     inst = _authenticated_instance(data)
@@ -112,6 +128,24 @@ def _json_error(code: int, error: str):
     return response
 
 
+@bp.get("/.well-known/oauth-authorization-server")
+@auth.public
+@auth.exempt(*auth.GATES)
+@_enabled
+def metadata():
+    """Where apps find the endpoints (RFC 8414)."""
+    base = urls.portal_base_url().rstrip("/")
+    response = jsonify({
+        "issuer": base, "authorization_endpoint": f"{base}/oauth/authorize", "token_endpoint": f"{base}/oauth/token",
+        "userinfo_endpoint": f"{base}/oauth/userinfo", "scopes_supported": list(oauth_apps.SCOPES),
+        "response_types_supported": ["code"], "grant_types_supported": ["authorization_code"],
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+    })
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return response
+
+
 @bp.route("/oauth/authorize", methods=["GET", "POST"])
 @auth.public
 @_enabled
@@ -124,7 +158,13 @@ def authorize():
     challenge = (args.get("code_challenge") or "").strip()
     method = (args.get("code_challenge_method") or ("S256" if challenge else "")).strip()
     inst = oauth.instance_for_client(client_id)
-    if args.get("response_type") != "code" or inst is None or not oauth.redirect_allowed(inst, redirect_uri):
+    app = oauth_apps.for_client(client_id) if inst is None else None
+    if args.get("response_type") != "code" or (inst is None and app is None):
+        abort(400)
+    if inst is not None and not oauth.redirect_allowed(inst, redirect_uri):
+        abort(400)
+    # Apps must use PKCE: a code that leaks through the app's own pages is useless without the verifier.
+    if app is not None and (not oauth_apps.redirect_allowed(app, redirect_uri) or not challenge):
         abort(400)
     if challenge and (method != "S256" or not oauth.valid_pkce_challenge(challenge)):
         abort(400)
@@ -133,26 +173,39 @@ def authorize():
         return redirect(url_for("auth.login", next=request.full_path))
     if auth.pending_gate(current, None) or not oauth.account_may_sign_in(current) or auth.impersonating():
         abort(403)
+    if app is not None and not oauth_apps.usable_by(app, current):
+        return render_template("hosting/oauth_unavailable.html", app=app), 403
+    scope = oauth_apps.requested_scopes(args.get("scope")) if app is not None else ""
 
     def answer(query: dict[str, str]):
         query = {**query, **({"state": state} if state else {})}
         return redirect(f"{redirect_uri}{'&' if '?' in redirect_uri else '?'}{urlencode(query)}")
 
     def issue():
-        oauth.remember_consent(current["id"], inst["id"])
+        if app is not None:
+            oauth_apps.remember_consent(current["id"], app["id"], scope)
+        else:
+            oauth.remember_consent(current["id"], inst["id"])  # type: ignore[index]
         return answer({"code": oauth.issue_code(client_id, current["id"], redirect_uri, challenge,
-                                                "S256" if challenge else "")})
+                                                "S256" if challenge else "", scope)})
 
     if request.method == "POST":
         if request.form.get("action") != "allow":
             return answer({"error": "access_denied"})
         return issue()
-    if (args.get("prompt") != "consent" and oauth.consent_remembered(current, inst)
+    remembered = (oauth_apps.consent_covers(current["id"], app["id"], scope) if app is not None
+                  else oauth.consent_remembered(current, inst))  # type: ignore[arg-type]
+    if (args.get("prompt") != "consent" and remembered
             and limits.hit("oauth_auto_code", oauth.AUTO_CODES_PER_MINUTE, 60, key=current["id"])):
         return issue()
-    # The consent form is answered with a redirect to the wiki checked above.
+    # The consent form is answered with a redirect to the wiki or app checked above.
     allow_form_action(redirect_uri)
-    return render_template("hosting/oauth_consent.html", instance=inst)
+    if app is not None:
+        owner = accounts.get(app["account_id"])
+        return render_template("hosting/oauth_consent.html", instance=None, app=app, scopes=scope.split(),
+                               owner_name=owner["username"] if owner else "",
+                               email_shared=bool("email" in scope.split() and oauth_apps.verified_email(current)))
+    return render_template("hosting/oauth_consent.html", instance=inst, app=None)
 
 
 @bp.post("/oauth/token")
@@ -174,7 +227,7 @@ def token():
     if not client_id or not secret:
         limits.record(limits.BAD_CLIENT)
         return jsonify({"error": "invalid_request"}), 400
-    inst = _authenticated_instance(data)
+    inst = _authenticated_client(data)  # a wiki or an app
     if inst is None:
         return jsonify({"error": "invalid_client"}), 401
     code = (data.get("code") or "").strip()
@@ -185,8 +238,9 @@ def token():
         if not limits.failure(limits.BAD_GRANT, limits.BAD_GRANT_PER_MINUTE, key=inst["id"]):
             return jsonify({"error": error}), 429
         return jsonify({"error": error}), 400
+    issued = oauth.token_row(raw)
     response = jsonify({"access_token": raw, "token_type": "Bearer", "expires_in": oauth.TOKEN_SECONDS,
-                        "scope": oauth.SCOPE})
+                        "scope": (issued or {}).get("scope") or oauth.SCOPE})
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -205,6 +259,19 @@ def _bearer() -> tuple[dict[str, Any] | None, Any]:
     return row, None
 
 
+def _token_account(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None, Any]:
+    """(the account a live token is for, the app holding it or None, None), or (None, None, the refusal)."""
+    account = accounts.get(row["account_id"])
+    if account is None or account["deleted_at"]:
+        return None, None, (jsonify({"error": "account_not_found"}), 404)
+    if not oauth.account_may_sign_in(account):
+        return None, None, (jsonify({"error": oauth.refusal(account)}), 403)
+    app = oauth_apps.for_client(row["client_id"])
+    if app is not None and not oauth_apps.token_usable(app, account):
+        return None, None, (jsonify({"error": "invalid_token"}), 401)  # suspended since, or its owner was
+    return account, app, None
+
+
 @bp.get("/oauth/userinfo")
 @bp.get("/oauth/me")
 @auth.public
@@ -215,14 +282,23 @@ def userinfo():
     row, refusal = _bearer()
     if row is None:
         return refusal
-    account = accounts.get(row["account_id"])
-    if account is None or account["deleted_at"]:
-        return jsonify({"error": "account_not_found"}), 404
-    if not oauth.account_may_sign_in(account):
-        return jsonify({"error": oauth.refusal(account)}), 403
-    return jsonify({"sub": account["id"], "username": account["username"], "preferred_username": account["username"],
-                    "is_admin": bool(account["is_admin"]) and not auth.admin_mfa_missing(account),
-                    "created_at": account["created_at"]})
+    account, app, refusal = _token_account(row)
+    if account is None:
+        return refusal
+    if app is None:
+        return jsonify({"sub": account["id"], "username": account["username"],
+                        "preferred_username": account["username"],
+                        "is_admin": bool(account["is_admin"]) and not auth.admin_mfa_missing(account),
+                        "created_at": account["created_at"]})
+    # Apps are never told who administers the platform, and get an address only when they asked for it.
+    info = {"sub": account["id"], "username": account["username"], "preferred_username": account["username"],
+            "name": account["username"], "created_at": account["created_at"]}
+    email = oauth_apps.verified_email(account) if "email" in (row["scope"] or "").split() else ""
+    if email:
+        info.update(email=email, email_verified=True)
+    response = jsonify(info)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @bp.get("/oauth/verify")
@@ -234,11 +310,9 @@ def verify():
     row, refusal = _bearer()
     if row is None:
         return refusal
-    account = accounts.get(row["account_id"])
-    if account is None or account["deleted_at"]:
-        return jsonify({"error": "account_not_found"}), 404
-    if not oauth.account_may_sign_in(account):
-        return jsonify({"error": oauth.refusal(account)}), 403
+    account, _app, refusal = _token_account(row)
+    if account is None:
+        return refusal
     return jsonify({"active": True, "sub": row["account_id"], "client_id": row["client_id"],
                     "exp": row["expires_at"], "scope": row["scope"]})
 

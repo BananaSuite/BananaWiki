@@ -1,13 +1,24 @@
 {% extends "hosting/base.html" %}
 {% import "hosting/_macros.html" as ui with context %}
-{% block title %}{{ t('hosting.oauth.title') }}{% endblock %}
+{% block title %}{{ t('hosting.apps.consent.title', app=app.name) if app else t('hosting.oauth.title') }}{% endblock %}
 {% block content %}
 <div class="card card--narrow">
+  {% if app %}
+  <h1>{{ t('hosting.apps.consent.title', app=app.name) }}</h1>
+  <p>{{ tm('hosting.apps.consent.body', app=strong(app.name), username=strong(current_account.username)) }}</p>
+  {% if app.description %}<p class="small">{{ app.description }}</p>{% endif %}
+  <p class="small muted">{{ t('hosting.apps.consent.by', owner=owner_name) }}{% if app.homepage_url %} · <span class="mono">{{ app.homepage_url }}</span>{% endif %}</p>
+  {% if app.status == 'pending' %}<div class="alert alert--warning" role="status"><div class="alert__body">{{ t('hosting.apps.consent.pending') }}</div></div>{% endif %}
+  <p class="small muted">{{ t('hosting.apps.consent.shared_email') if email_shared else t('hosting.apps.consent.shared') }}</p>
+  {% if 'email' in scopes and not email_shared %}<p class="small muted">{{ t('hosting.apps.consent.no_email') }}</p>{% endif %}
+  <p class="small muted">{{ t('hosting.apps.consent.remembered') }}</p>
+  {% else %}
   <h1>{{ t('hosting.oauth.title') }}</h1>
   <p>{{ tm('hosting.oauth.body', wiki=strong(instance.subdomain), username=strong(current_account.username)) }}</p>
   {% set address = instance_url(instance) %}{% if address %}<p class="small"><span class="muted">{{ t('hosting.instance.url') }}:</span> <span class="mono">{{ address }}</span></p>{% endif %}
   <p class="small muted">{{ t('hosting.oauth.shared') }}</p>
   <p class="small muted">{{ t('hosting.oauth.remembered') }}</p>
+  {% endif %}
   <form method="post" class="btn-row">{{ ui.csrf() }}
     <button class="btn btn--primary" type="submit" name="action" value="allow">{{ t('hosting.oauth.allow') }}</button>
     <button class="btn" type="submit" name="action" value="deny">{{ t('hosting.oauth.deny') }}</button>

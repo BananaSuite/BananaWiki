@@ -1,5 +1,6 @@
 """The signed-in account: details, password, sessions, email, two-step sign-in,
-API tokens, data export, deletion and account merges."""
+API tokens, the wikis and apps it signs in to, the apps it registered, data
+export, deletion and account merges."""
 
 from __future__ import annotations
 
@@ -23,7 +24,20 @@ from flask import (
 from ...core.crypto import constant_time_equals
 from ...core.timeutil import sql_in
 from ...core.web import safe_next
-from .. import accounts, api_tokens, attention, auth, instances, merges, mfa, notifications, oauth, settings
+from .. import (
+    accounts,
+    api_tokens,
+    attention,
+    auth,
+    instances,
+    merges,
+    mfa,
+    notifications,
+    oauth,
+    oauth_apps,
+    settings,
+    urls,
+)
 from ..errors import ServiceError
 from ..i18n import t
 from ..limits import confirm_password, rate_limit
@@ -33,6 +47,7 @@ from .common import account, flash_error
 bp = Blueprint("account", __name__)
 
 TOKEN_NONCE_KEY = "hosting_api_token_form_nonce"
+APP_NONCE_KEY = "hosting_oauth_app_form_nonce"
 ENROLLMENT_KEY = "mfa_enrollment"
 ENROLLMENT_AT_KEY = "mfa_enrollment_at"
 # The account page is open while an account waits for approval, verification, a contact address or new
@@ -65,7 +80,8 @@ def _render_account(**extra):
         token_scopes=api_tokens.scopes_for(current), token_limit=api_tokens.MAX_ACTIVE,
         email_required=accounts.address_required(current), cooldown=accounts.cooldown_remaining(current),
         email_configured=notifications.configured(), merges=merges.for_account(current["id"]),
-        show_wiki_signins=oauth.enabled(), **extra,
+        show_wiki_signins=oauth.enabled(), show_developer_apps=oauth.enabled() and (
+            oauth_apps.enabled() or bool(oauth_apps.for_owner(current["id"]))), **extra,
     )
 
 
@@ -204,11 +220,11 @@ def _platform_sign_in() -> None:
 @bp.get("/account/wikis")
 @auth.exempt(*ACCOUNT_PAGE_GATES)
 def wiki_signins():
-    """The wikis this account signs in to with the portal: open, sign out of one or all, withdraw consent."""
+    """The wikis and apps this account signs in to with the portal: open, sign out, withdraw consent."""
     _platform_sign_in()
     current = account()
     return render_template("hosting/account/wikis.html", wikis=oauth.connected_wikis(current["id"]),
-                           can_act=not auth.impersonating())
+                           apps=oauth_apps.connected(current["id"]), can_act=not auth.impersonating())
 
 
 @bp.post("/account/wikis/<instance_id>/sign-out")
@@ -235,6 +251,145 @@ def wiki_remove_access(instance_id: str):
     else:
         flash(t("hosting.wikis.not_signed_in"), "info")
     return redirect(url_for("account.wiki_signins"))
+
+
+@bp.post("/account/apps/<app_id>/remove")
+@auth.exempt(*auth.GATES)  # removing access only takes it away: never held up by an account state
+@rate_limit(20)
+def app_remove_access(app_id: str):
+    _platform_sign_in()
+    _no_impersonation()
+    if oauth_apps.remove_access(account()["id"], app_id[:64]):
+        flash(t("hosting.apps.access_removed"), "success")
+    else:
+        flash(t("hosting.apps.not_connected"), "info")
+    return redirect(url_for("account.wiki_signins") + "#apps")
+
+
+# Apps the account registered (developer apps)
+
+
+def _developer_apps() -> dict:
+    """The signed-in account, while it may see its developer apps (404 without platform sign-in)."""
+    _platform_sign_in()
+    current = account()
+    if current["approval_status"] != "approved":
+        abort(403)
+    return current
+
+
+def _app_or_404(current: dict, app_id: str) -> dict:
+    app = oauth_apps.owned(current["id"], app_id)
+    if app is None:
+        abort(404)
+    return app
+
+
+def _endpoints() -> dict[str, str]:
+    base = urls.portal_base_url().rstrip("/")
+    return {"authorize": f"{base}/oauth/authorize", "token": f"{base}/oauth/token",
+            "userinfo": f"{base}/oauth/userinfo", "metadata": f"{base}/.well-known/oauth-authorization-server"}
+
+
+def _render_apps(current: dict, status: int = 200, **extra):
+    nonce = session.get(APP_NONCE_KEY) or secrets.token_urlsafe(24)
+    session[APP_NONCE_KEY] = nonce
+    can_create = oauth_apps.enabled() or bool(current.get("is_admin"))
+    return render_template("hosting/account/apps.html", apps=oauth_apps.for_owner(current["id"]), form_nonce=nonce,
+                           can_create=can_create and not auth.impersonating(), limit=oauth_apps.per_account_limit(),
+                           is_admin=bool(current.get("is_admin")), form=extra.pop("form", {}), **extra), status
+
+
+def _render_app(current: dict, app: dict, status: int = 200, **extra):
+    response = make_response(render_template("hosting/account/app.html", app=app, endpoints=_endpoints(),
+                                             can_act=not auth.impersonating(), **extra), status)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@bp.get("/account/developer-apps")
+def developer_apps():
+    return _render_apps(_developer_apps())
+
+
+@bp.post("/account/developer-apps")
+@rate_limit(10)
+def create_developer_app():
+    current = _developer_apps()
+    _no_impersonation()
+    if not oauth_apps.enabled() and not current.get("is_admin"):
+        abort(404)
+    form = {key: request.form.get(key) or "" for key in ("name", "description", "homepage_url", "redirect_uris")}
+    expected = session.get(APP_NONCE_KEY) or ""
+    if not expected or not constant_time_equals(expected, request.form.get("form_nonce") or ""):
+        flash(t("hosting.apps.form_used"), "info")
+        return redirect(url_for("account.developer_apps"))
+    try:
+        app, secret = oauth_apps.create(current, form["name"], form["description"], form["homepage_url"],
+                                        form["redirect_uris"], actor_id=current["id"])
+    except ServiceError as error:
+        flash_error(error)
+        return _render_apps(current, 400, form=form)
+    session.pop(APP_NONCE_KEY, None)
+    flash(t("hosting.apps.created_approved" if app["status"] == "approved" else "hosting.apps.created_pending"),
+          "success")
+    return _render_app(current, app, new_secret=secret)
+
+
+@bp.get("/account/developer-apps/<app_id>")
+def developer_app(app_id: str):
+    current = _developer_apps()
+    return _render_app(current, _app_or_404(current, app_id))
+
+
+@bp.post("/account/developer-apps/<app_id>/edit")
+@rate_limit(20)
+def edit_developer_app(app_id: str):
+    current = _developer_apps()
+    _no_impersonation()
+    app = _app_or_404(current, app_id)
+    try:
+        updated = oauth_apps.update(app, request.form.get("name") or "", request.form.get("description") or "",
+                                    request.form.get("homepage_url") or "", request.form.get("redirect_uris") or "",
+                                    actor=current)
+    except ServiceError as error:
+        flash_error(error)
+        return _render_app(current, app, 400)
+    if updated["status"] == "pending" and app["status"] == "approved":
+        flash(t("hosting.apps.saved_review"), "info")
+    else:
+        flash(t("hosting.apps.saved"), "success")
+    return redirect(url_for("account.developer_app", app_id=app_id))
+
+
+@bp.post("/account/developer-apps/<app_id>/rotate-secret")
+@rate_limit(5)
+def rotate_developer_app_secret(app_id: str):
+    current = _developer_apps()
+    _no_impersonation()
+    app = _app_or_404(current, app_id)
+    if not confirm_password(current, request.form.get("current_password") or ""):
+        flash(t("hosting.account.wrong_password"), "error")
+        return redirect(url_for("account.developer_app", app_id=app_id))
+    secret = oauth_apps.rotate_secret(app, actor_id=current["id"])
+    flash(t("hosting.apps.secret_rotated"), "success")
+    return _render_app(current, oauth_apps.get(app_id), new_secret=secret)  # type: ignore[arg-type]
+
+
+@bp.post("/account/developer-apps/<app_id>/delete")
+@auth.exempt(*auth.GATES)  # deleting only takes access away: never held up by an account state
+@rate_limit(10)
+def delete_developer_app(app_id: str):
+    _platform_sign_in()
+    current = account()
+    _no_impersonation()
+    app = _app_or_404(current, app_id)
+    if not confirm_password(current, request.form.get("current_password") or ""):
+        flash(t("hosting.account.wrong_password"), "error")
+        return redirect(url_for("account.developer_app", app_id=app_id))
+    oauth_apps.delete(app, actor_id=current["id"])
+    flash(t("hosting.apps.deleted", app=app["name"]), "success")
+    return redirect(url_for("account.developer_apps"))
 
 
 @bp.post("/account/sessions/history/clear")

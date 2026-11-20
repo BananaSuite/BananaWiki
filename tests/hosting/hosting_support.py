@@ -12,6 +12,7 @@ from bananawiki.hosting.db import connection_scope
 from bananawiki.hosting.runtime.fake import FakeRuntime
 
 PASSWORD = "correct horse 42"
+REDIRECT = "https://git.example.org/user/oauth2/bananawiki/callback"
 BOOTSTRAP = "bootstrap-token-for-tests"
 counter = itertools.count(1)
 
@@ -50,3 +51,7 @@ def csrf_token(client, path: str = "/login") -> str:
     match = re.search(r'name="csrf_token" value="([^"]+)"', html)
     assert match, "no CSRF token on " + path
     return match.group(1)
+
+
+def count(query, table: str) -> int:
+    return query(f"SELECT COUNT(*) AS n FROM {table}", one=True)["n"]

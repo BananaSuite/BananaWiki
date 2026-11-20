@@ -26,6 +26,9 @@ Version history
 11   Who may use custom domains (administrators only, accounts an
      administrator allows, or everyone), and owners asking for one. See
      :mod:`.v11_custom_domain_policy`.
+12   Sign in to other apps with a hosting account (apps any account
+     registers and administrators review, the consent given to each) and
+     how members sign in to each wiki. See :mod:`.v12_oauth_apps`.
 
 A 1.4 database at version 2 upgrades in place. A new database is created from
 the baseline followed by every later migration, so fresh and upgraded
@@ -51,6 +54,7 @@ from . import (
     v9_email_policy,
     v10_main_wikis,
     v11_custom_domain_policy,
+    v12_oauth_apps,
 )
 
 APPLICATION_ID = 0x42574850  # "BWHP", unchanged from 1.4
@@ -65,6 +69,7 @@ MIGRATIONS = (
     v9_email_policy.upgrade,  # 8 -> 9
     v10_main_wikis.upgrade,  # 9 -> 10
     v11_custom_domain_policy.upgrade,  # 10 -> 11
+    v12_oauth_apps.upgrade,  # 11 -> 12
 )
 LATEST = BASELINE + len(MIGRATIONS)
 SIGNUP_MODES = ("open", "invite", "approval", "closed")

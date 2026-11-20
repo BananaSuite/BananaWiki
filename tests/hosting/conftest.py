@@ -17,7 +17,7 @@ import pytest
 from bananawiki.hosting.db import connection_scope
 from bananawiki.hosting.runtime.fake import FakeRuntime
 
-from .hosting_support import PASSWORD, build_portal, counter
+from .hosting_support import PASSWORD, REDIRECT, build_portal, counter
 
 
 @pytest.fixture
@@ -91,5 +91,25 @@ def make_wiki(portal):
 
             inst, _username, _password = instances.create(owner, slug, **kwargs)
             return inst
+
+    return make
+
+
+@pytest.fixture
+def oauth_on(query):
+    query("UPDATE hosting_settings SET platform_oauth_enabled = 1 WHERE id = 1")
+
+
+@pytest.fixture
+def make_app(portal, oauth_on):
+    def make(owner, name="BananaGit", *, status=None, redirects=REDIRECT, description="", homepage=""):
+        with portal.test_request_context("/"), connection_scope():
+            from bananawiki.hosting import oauth_apps
+
+            app, secret = oauth_apps.create(owner, name, description, homepage, redirects, actor_id=owner["id"],
+                                            approved=None if status is None else status == "approved")
+            if status in ("denied", "suspended"):
+                app = oauth_apps.review(app, "deny" if status == "denied" else "suspend", actor_id=None)
+            return {**app, "secret": secret}
 
     return make

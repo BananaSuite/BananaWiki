@@ -1,0 +1,9 @@
+{% extends "hosting/base.html" %}
+{% block title %}{{ t('hosting.apps.unavailable.title') }}{% endblock %}
+{% block content %}
+<div class="card card--narrow">
+  <h1>{{ t('hosting.apps.unavailable.title') }}</h1>
+  <p>{{ t('hosting.apps.unavailable.' ~ (app.status if app.status in ('pending', 'denied', 'suspended') else 'other'), app=app.name) }}</p>
+  <p><a class="btn" href="{{ url_for('dashboard.dashboard') }}">{{ t('hosting.apps.unavailable.back') }}</a></p>
+</div>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ app.name }}{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('admin.apps_page') }}">{{ t('hosting.admin.nav.apps') }}</a></nav>
+<h1>{{ app.name }} <span class="badge {{ {'approved': 'badge--success', 'pending': 'badge--warning', 'denied': 'badge--danger', 'suspended': 'badge--danger'}.get(app.status, '') }}">{{ t('hosting.apps.status.' ~ app.status) }}</span></h1>
+<section class="card"><dl class="kv">
+  <dt>{{ t('hosting.apps.owner') }}</dt><dd>{% if owner %}<a href="{{ url_for('admin.account_page', account_id=owner.id) }}">{{ owner.username }}</a>{% if owner.suspended %} <span class="badge badge--danger">{{ t('hosting.status.suspended') }}</span>{% endif %}{% endif %}</dd>
+  <dt>{{ t('hosting.apps.client_id') }}</dt><dd class="mono">{{ app.client_id }}</dd>
+  {% if app.description %}<dt>{{ t('hosting.apps.description') }}</dt><dd>{{ app.description }}</dd>{% endif %}
+  {% if app.homepage_url %}<dt>{{ t('hosting.apps.homepage') }}</dt><dd class="mono">{{ app.homepage_url }}</dd>{% endif %}
+  <dt>{{ t('hosting.apps.redirect_uris') }}</dt><dd>{% for uri in app.redirect_uris %}<span class="mono">{{ uri }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}</dd>
+  <dt>{{ t('hosting.apps.created') }}</dt><dd>{{ app.created_at|datetime }}</dd>
+  <dt>{{ t('hosting.apps.last_used') }}</dt><dd>{{ app.last_used_at|time_ago if app.last_used_at else t('hosting.wikis.never') }}</dd>
+  {% if app.reviewed_at %}<dt>{{ t('hosting.admin.apps.reviewed') }}</dt><dd>{{ app.reviewed_at|datetime }}{% if reviewer %} · {{ reviewer.username }}{% endif %}</dd>{% endif %}
+  {% if app.review_note %}<dt>{{ t('hosting.apps.review_note') }}</dt><dd>{{ app.review_note }}</dd>{% endif %}
+</dl></section>
+
+<section class="card">
+  <h2>{{ t('hosting.admin.apps.review_title') }}</h2>
+  <form method="post" action="{{ url_for('admin.review_app', app_id=app.id) }}" class="form">{{ ui.csrf() }}
+    {{ ui.textarea('note', t('hosting.apps.review_note'), value=app.review_note, hint=t('hosting.admin.apps.note_hint'), attrs={'maxlength': 500, 'rows': 2}) }}
+    <div class="btn-row">
+      {% if app.status != 'approved' %}<button class="btn btn--small btn--primary" name="decision" value="approve">{{ t('hosting.admin.apps.approve') }}</button>{% endif %}
+      {% if app.status == 'pending' %}<button class="btn btn--small btn--danger-quiet" name="decision" value="deny">{{ t('hosting.admin.deny') }}</button>{% endif %}
+      {% if app.status in ('approved', 'pending') %}<button class="btn btn--small btn--danger-quiet" name="decision" value="suspend" data-confirm="{{ t('hosting.admin.apps.suspend_confirm') }}">{{ t('hosting.admin.apps.suspend') }}</button>{% endif %}
+    </div>
+  </form>
+  <p class="hint hint--block">{{ t('hosting.admin.apps.review_hint') }}</p>
+</section>
+
+<details class="card card--danger">
+  <summary>{{ t('hosting.apps.delete_title') }}</summary>
+  <p>{{ t('hosting.admin.apps.delete_body') }}</p>
+  {{ ui.post(url_for('admin.delete_app', app_id=app.id), t('hosting.apps.delete'), 'btn btn--danger', confirm=t('hosting.common.are_you_sure')) }}
+</details>
+{% endblock %}

@@ -4,7 +4,7 @@
 
 ### Upgrading
 
-* Wiki databases move to schema 20 (`site_settings.signin_mode`); 1.8.0 cannot open them afterwards, so back up first if you may want to go back. Read [UPGRADING.md](UPGRADING.md#upgrading-from-180-to-unreleased) first.
+* Wiki databases move to schema 20 (`site_settings.signin_mode`) and the hosting portal's database to schema 12; 1.8.0 cannot open them afterwards, so back up first if you may want to go back. Read [UPGRADING.md](UPGRADING.md#upgrading-from-180-to-unreleased) first.
 
 ### Sign-in
 
@@ -15,6 +15,13 @@
 * Hosting providers can set the mode with `BW_PLATFORM_SIGNIN_MODE` (`local`, `both` or `platform`). It then wins over the wiki's setting, which is shown as set by the hosting provider.
 * `bananawiki signin-mode [local|both|platform]` shows or sets the mode from the server, for example to let everyone use passwords again after a lock-out.
 * Account merges: a locked source account now loses its hosting-portal link too, and the portal is asked to drop it. Its hosting account can then connect another account on its next sign-in, instead of only ever reaching the locked account. The link still never moves to the target.
+
+### Hosting platform
+
+* Any hosting account can register an app (BananaChat, BananaGit, your own) that signs people in with their hosting account: **Your account → Developer apps**. New apps wait for an administrator (**Admin → Apps**); until then only their owner and administrators can use them. The OAuth provider gets PKCE-only apps, an `email` scope (verified addresses only), server metadata at `/.well-known/oauth-authorization-server` and a `bananawiki hosting-admin app` command group. Apps never see whether an account is an administrator and cannot use the wiki endpoints.
+* **Your account → Wiki sign-ins** is now **Connected wikis and apps**: it also lists the apps you allowed, what each one receives, and takes their access away.
+* A portal administrator can decide how members sign in to a wiki (wiki accounts, hosting accounts or both), over the wiki's own setting: **Admin → Wikis → the wiki**, or `hosting-admin instance signin-mode`. Hosting accounts only is refused until somebody has linked their account on that wiki.
+* Schema 12 adds the apps, the consent given to each, the scopes of a sign-in code and the sign-in mode of a wiki.
 
 ## 1.8.0 — 2026-11-09
 

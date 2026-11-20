@@ -13,7 +13,9 @@ effects (events, suspension audit, runtime calls, routing) are identical.
   read from the first line of standard input when it is not a terminal.
 * The audit log is written next to ``hosting.db`` (the data directory),
   not into the read-only release tree, and a failure to write it is reported.
-* Output never includes password hashes, secrets or tokens.
+* Output never includes password hashes, secrets or tokens, except the client
+  secret of an app it registers or rotates (``app create``,
+  ``app rotate-secret``), which is shown that once and stored nowhere.
 """
 
 from __future__ import annotations
@@ -504,6 +506,89 @@ def cmd_invite_delete(args: argparse.Namespace) -> None:
     _print(args, {"ok": True}, "Invite code revoked.")
 
 
+def cmd_instance_signin_mode(args: argparse.Namespace) -> None:
+    from . import instances
+
+    inst = _instance(args.instance, args.domain_mode)
+    mode = "" if args.mode == "wiki" else args.mode
+    applied = instances.set_signin_mode(inst, mode, actor_id=None, force=args.force)
+    _audit("instance.signin_mode", {"instance_id": inst["id"], "slug": inst["subdomain"], "mode": args.mode})
+    message = f"{inst['subdomain']}: sign-in mode {args.mode}" + ("" if applied else " (saved; the restart failed)")
+    _print(args, {"ok": applied, "instance": inst["id"], "signin_mode": mode}, message)
+
+
+def _app(ref: str) -> dict[str, Any]:
+    from . import oauth_apps
+
+    found = oauth_apps.get(ref) or oauth_apps.for_client(ref)
+    if found is None:
+        raise CliError(f"App not found: {ref}")
+    return found
+
+
+def _app_public(app: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in app.items() if key != "client_secret_hash"}
+
+
+def cmd_app_list(args: argparse.Namespace) -> None:
+    from . import oauth_apps
+
+    apps = oauth_apps.list_all(args.status)
+    if args.json:
+        _print(args, [_app_public(app) for app in apps])
+        return
+    for app in apps:
+        print(printable(f"{app['id']}  {app['status']:<9}  {app['client_id']}  {app['name']}  "
+                        f"(owner {app.get('owner_name') or '?'}, {app['users']} users)"))
+
+
+def cmd_app_show(args: argparse.Namespace) -> None:
+    _print(args, _app_public(_app(args.app)))
+
+
+def cmd_app_create(args: argparse.Namespace) -> None:
+    from . import oauth_apps
+
+    owner = _account(args.owner)
+    app, secret = oauth_apps.create(owner, args.name, args.description, args.homepage, "\n".join(args.redirect_uri),
+                                    actor_id=None, approved=not args.pending)
+    _audit("app.create", {"app_id": app["id"], "owner": owner["id"], "status": app["status"]})
+    _print(args, {**_app_public(app), "client_secret": secret},
+           f"Registered {app['name']} ({app['status']}).\nclient_id:     {app['client_id']}\n"
+           f"client_secret: {secret}\nThe secret is shown only now.")
+
+
+def _review(decision: str) -> Callable[[argparse.Namespace], None]:
+    def command(args: argparse.Namespace) -> None:
+        from . import oauth_apps
+
+        app = oauth_apps.review(_app(args.app), decision, actor_id=None, note=args.note)
+        _audit(f"app.{decision}", {"app_id": app["id"]})
+        _print(args, _app_public(app), f"{app['name']}: {app['status']}.")
+
+    return command
+
+
+def cmd_app_rotate_secret(args: argparse.Namespace) -> None:
+    from . import oauth_apps
+
+    app = _app(args.app)
+    secret = oauth_apps.rotate_secret(app, actor_id=None)
+    _audit("app.rotate_secret", {"app_id": app["id"]})
+    _print(args, {"ok": True, "app": app["id"], "client_secret": secret},
+           f"New client_secret for {app['name']}: {secret}\nThe secret is shown only now.")
+
+
+def cmd_app_delete(args: argparse.Namespace) -> None:
+    from . import oauth_apps
+
+    _require_yes(args, "Deleting an app")
+    app = _app(args.app)
+    oauth_apps.delete(app, actor_id=None)
+    _audit("app.delete", {"app_id": app["id"], "name": app["name"]})
+    _print(args, {"ok": True}, f"Deleted {app['name']}.")
+
+
 INSTANCE_ACTIONS: dict[str, tuple[str, Callable[[Any, dict[str, Any]], Any], bool]] = {
     "stop": ("Stopped", lambda m, i: m.stop(i, actor_id=None, allow_suspended=True), False),
     "start": ("Started", lambda m, i: m.start(i, actor_id=None, allow_suspended=True), False),
@@ -642,6 +727,41 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("username")
     p.add_argument("--yes", action="store_true")
     _instance_parser(inst, "quarantine-plugins", cmd_instance_quarantine_plugins)
+
+    p = _instance_parser(inst, "signin-mode", cmd_instance_signin_mode,
+                         help="How members sign in (over the wiki's own choice; 'wiki' gives it back)")
+    p.add_argument("mode", choices=("wiki", "local", "both", "platform"))
+    p.add_argument("--force", action="store_true",
+                   help="Allow 'platform' although no wiki account is linked to a hosting account yet")
+
+    app = groups.add_parser("app", help="Apps that sign people in with their hosting account").add_subparsers(
+        dest="action", required=True)
+    p = app.add_parser("list")
+    p.add_argument("--status", choices=("pending", "approved", "denied", "suspended"))
+    p.set_defaults(handler=cmd_app_list)
+    p = app.add_parser("show")
+    p.add_argument("app", help="App id or client id")
+    p.set_defaults(handler=cmd_app_show)
+    p = app.add_parser("create", help="Register an app (approved unless --pending); prints its secret once")
+    p.add_argument("owner", help="Owner account (id or username)")
+    p.add_argument("name")
+    p.add_argument("--redirect-uri", action="append", required=True, help="Repeat for several (exact match)")
+    p.add_argument("--description", default="")
+    p.add_argument("--homepage", default="")
+    p.add_argument("--pending", action="store_true", help="Leave it waiting for review")
+    p.set_defaults(handler=cmd_app_create)
+    for name, decision in (("approve", "approve"), ("deny", "deny"), ("suspend", "suspend")):
+        p = app.add_parser(name)
+        p.add_argument("app", help="App id or client id")
+        p.add_argument("--note", default="", help="Shown to the owner")
+        p.set_defaults(handler=_review(decision))
+    p = app.add_parser("rotate-secret")
+    p.add_argument("app", help="App id or client id")
+    p.set_defaults(handler=cmd_app_rotate_secret)
+    p = app.add_parser("delete")
+    p.add_argument("app", help="App id or client id")
+    p.add_argument("--yes", action="store_true")
+    p.set_defaults(handler=cmd_app_delete)
 
     settings = groups.add_parser("settings", help="Platform settings").add_subparsers(dest="action", required=True)
     p = settings.add_parser("signup-mode")

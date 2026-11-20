@@ -16,7 +16,8 @@ section, then the 1.7.0 to 1.7.1, 1.7.1 to 1.7.2, 1.7.2 to 1.7.3, 1.7.3 to
 
 ## Upgrading from 1.8.0 to unreleased
 
-The first start migrates the wiki database from schema 19 to 20: how members
+The first start migrates the wiki database from schema 19 to 20 (and the hosting
+portal's from 11 to 12, see below): how members
 sign in (`site_settings.signin_mode`, `both` on every existing wiki, which is
 the behaviour of 1.8.0). Afterwards 1.8.0 cannot open the database, so back up
 first (`sudo bananawiki backup` on a managed server) if you may want to go back.
@@ -29,6 +30,16 @@ Behaviour that changes:
   `/login/recovery`; `bananawiki signin-mode both` undoes it from the server.
 * **Account merges.** A locked source account no longer keeps its
   hosting-portal link.
+* **Hosting portal, schema 11 to 12** (portal operators). The first start adds
+  the tables for apps and the consent given to each, the scopes of a sign-in
+  code, the sign-in mode of a wiki (`instances.platform_signin_mode`, empty:
+  the wiki's administrators decide) and two settings (`oauth_apps_enabled`,
+  `oauth_apps_per_account`). Accounts can register apps as soon as platform
+  sign-in is on; switch that off under **Admin → Settings → Platform sign-in**
+  if you do not want it. New apps wait for an administrator. Afterwards 1.8.0
+  cannot open the portal database, so back it up first.
+* **Account → Wiki sign-ins** is now **Connected wikis and apps**, and its
+  address `/account/wikis` is unchanged.
 
 ## Upgrading from 1.7.6 to 1.8.0
 

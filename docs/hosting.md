@@ -833,8 +833,8 @@ platforms.
   account linked to another portal account is never taken over. New accounts
   follow the wiki's own sign-up policy. Later sign-ins through the portal ask
   for the wiki's two-step code as well.
-* **Your account → Wiki sign-ins** (`/account/wikis`) lists every wiki the account
-  signs in to, with the wiki account, the last sign-in and whether the wiki
+* **Your account → Connected wikis and apps** (`/account/wikis`) lists every wiki and
+  every [app](#apps-that-sign-in-with-a-hosting-account) the account signs in to, with the wiki account, the last sign-in and whether the wiki
   asks again: **Sign out** ends its sessions on that wiki, **Remove access**
   also forgets the consent. Both are refused while impersonating.
 * **Single sign-out**: *Sign out everywhere* (**Your account → Wiki sign-ins**),
@@ -881,6 +881,77 @@ platforms.
   Linking the same portal account to a wiki again (after the wiki unlinked
   it) is recorded in the moderation log at most once a day per account and
   wiki.
+
+### How members sign in to a wiki
+
+A wiki signs its members in with their wiki accounts, with hosting accounts, or
+with both. The wiki's administrators choose under **Admin → Site settings →
+Sign-in** (default: both). A portal administrator can override the choice for
+one wiki (**Admin → Wikis → the wiki → Sign-in**, or
+`bananawiki hosting-admin instance signin-mode WIKI local|both|platform|wiki`;
+`wiki` gives the choice back). The wiki receives it as `BW_PLATFORM_SIGNIN_MODE`
+when it restarts, and its settings page shows the mode as set by the hosting
+provider.
+
+| Mode | The wiki's login page |
+| --- | --- |
+| `local` | Wiki accounts only. |
+| `both` | Wiki accounts and "Sign in with the hosting portal". |
+| `platform` | Hosting accounts only. New members come in through the connect page, which applies the wiki's sign-up policy. |
+
+* Hosting accounts only is refused while nobody has linked a wiki account to a
+  hosting account on that wiki (`--force` on the command line skips this): the
+  only way in would be the wiki's recovery page.
+* The wiki keeps `/login/recovery` for its administrators in `platform` mode
+  (password and two-step code, rate limited, always audited). `bananawiki
+  signin-mode both` inside the wiki turns the mode back when no environment
+  override is set.
+* Wiki accounts are never linked to a hosting account by name or email: only
+  by the account id, after the person proves the wiki account with its
+  password (and two-step code).
+
+### Apps that sign in with a hosting account
+
+Other products (BananaChat, BananaGit, a forum, your own app) can use hosting
+accounts as an OAuth 2.0 login. Any approved account registers apps under
+**Your account → Developer apps** (`/account/developer-apps`); administrators
+register theirs there too, or with `bananawiki hosting-admin app create`.
+
+* **Registration**: a name, a description and home page (both shown when
+  people are asked to allow the app) and up to five redirect URIs, compared
+  exactly. They must be `https://`; `http://localhost`, `127.0.0.1` and `[::1]`
+  are allowed for development. The client id is `bwa_…` and the client secret
+  is shown once, when the app is created and when it is rotated (which also
+  ends every token and code issued so far). Accounts may register
+  `oauth_apps_per_account` apps (default 5; administrators have no limit),
+  and 10 in 24 hours. **Admin → Settings → Platform sign-in** switches
+  registration off.
+* **Review**: a new app is `pending`. Until an administrator approves it
+  (**Admin → Apps**, or `app approve`), only its owner and administrators can
+  sign in to it, and the consent page says so. Renaming an approved app or
+  changing its description or home page sends it back for review; redirect
+  URIs can change at any time. Denying or suspending an app revokes its
+  tokens at once; suspending, denying or losing its owner has the same effect
+  on sign-ins. The owner gets a notice (and an email) about the decision, and
+  pending apps are one of the administrators' "needs your attention" queues.
+* **Protocol**: authorization code with PKCE (S256, required), client
+  authentication with HTTP Basic (or form fields), bearer access tokens that
+  live one hour, no refresh tokens. Endpoints and metadata are at
+  `/.well-known/oauth-authorization-server`. Scopes: `profile` (always; the
+  account id as `sub`, and the username) and `email` (asked for, and allowed
+  by the person: the verified address, only when the account has one and it
+  is not flagged). Apps identify people by `sub` only. They are never told
+  whether an account is an administrator, and they cannot call the wiki-only
+  endpoints (link, link status, unlink, sign-outs).
+* **Consent** is asked once per app and again when it asks for more than was
+  allowed. **Your account → Connected wikis and apps** lists what each app
+  gets and takes access away (which revokes its tokens). Signing out everywhere
+  and a password change revoke app tokens too. Deleting an account deletes its
+  apps; a merge moves them to the account that remains and keeps the widest
+  consent.
+* **BananaGit** (a Gitea fork) has a "BananaWiki Hosting" login source, and
+  **BananaChat** a hosting sign-in mode of its own (`local`, `both`,
+  `hosting`); both are apps like any other.
 
 ## Administration
 

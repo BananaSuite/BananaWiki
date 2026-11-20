@@ -1,0 +1,55 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ app.name }}{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('account.account') }}#more">{{ t('hosting.nav.account') }}</a> / <a href="{{ url_for('account.developer_apps') }}">{{ t('hosting.apps.title') }}</a></nav>
+<h1>{{ app.name }} <span class="badge {{ {'approved': 'badge--success', 'pending': 'badge--warning', 'denied': 'badge--danger', 'suspended': 'badge--danger'}.get(app.status, '') }}">{{ t('hosting.apps.status.' ~ app.status) }}</span></h1>
+<p class="hint hint--block">{{ t('hosting.apps.status_help.' ~ app.status) }}</p>
+{% if app.review_note %}<p class="small"><span class="muted">{{ t('hosting.apps.review_note') }}:</span> {{ app.review_note }}</p>{% endif %}
+
+{% if new_secret %}
+<div class="alert alert--success"><div class="alert__body"><p>{{ t('hosting.apps.secret_shown_once') }}</p>
+  <p class="secret-box">{{ new_secret }}</p><p class="btn-row"><button type="button" class="btn btn--small" data-copy="{{ new_secret }}">{{ t('common.copy') }}</button></p></div></div>
+{% endif %}
+
+<section class="card">
+  <h2>{{ t('hosting.apps.credentials') }}</h2>
+  <dl class="kv">
+    <dt>{{ t('hosting.apps.client_id') }}</dt><dd><span class="mono">{{ app.client_id }}</span> <button type="button" class="btn btn--small" data-copy="{{ app.client_id }}">{{ t('common.copy') }}</button></dd>
+    <dt>{{ t('hosting.apps.endpoint.authorize') }}</dt><dd class="mono">{{ endpoints.authorize }}</dd>
+    <dt>{{ t('hosting.apps.endpoint.token') }}</dt><dd class="mono">{{ endpoints.token }}</dd>
+    <dt>{{ t('hosting.apps.endpoint.userinfo') }}</dt><dd class="mono">{{ endpoints.userinfo }}</dd>
+    <dt>{{ t('hosting.apps.endpoint.metadata') }}</dt><dd class="mono">{{ endpoints.metadata }}</dd>
+  </dl>
+  <p class="hint hint--block">{{ t('hosting.apps.protocol_hint') }}</p>
+  {% if can_act %}
+  <form method="post" action="{{ url_for('account.rotate_developer_app_secret', app_id=app.id) }}" class="form" data-confirm="{{ t('hosting.apps.rotate_confirm') }}">{{ ui.csrf() }}
+    {{ ui.field('current_password', t('hosting.field.current_password'), type='password', required=true, attrs={'autocomplete': 'current-password'}, id='rotate-password') }}
+    <p><button class="btn" type="submit">{{ t('hosting.apps.rotate') }}</button></p>
+  </form>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>{{ t('hosting.apps.settings') }}</h2>
+  <form method="post" action="{{ url_for('account.edit_developer_app', app_id=app.id) }}" class="form">{{ ui.csrf() }}
+    {{ ui.field('name', t('hosting.apps.name'), value=app.name, required=true, attrs={'maxlength': 60, 'minlength': 2}) }}
+    {{ ui.textarea('description', t('hosting.apps.description'), value=app.description, hint=t('hosting.apps.description_hint'), attrs={'maxlength': 300, 'rows': 2}) }}
+    {{ ui.field('homepage_url', t('hosting.apps.homepage'), value=app.homepage_url, type='url', attrs={'maxlength': 512, 'placeholder': 'https://'}) }}
+    {{ ui.textarea('redirect_uris', t('hosting.apps.redirect_uris'), value=app.redirect_uris|join('\n'), required=true, hint=t('hosting.apps.redirect_uris_hint'), attrs={'rows': 3, 'class': 'mono', 'spellcheck': 'false'}) }}
+    {% if app.status == 'approved' %}<p class="hint hint--block">{{ t('hosting.apps.edit_review_hint') }}</p>{% endif %}
+    {% if can_act %}<p><button class="btn btn--primary" type="submit">{{ t('hosting.apps.save') }}</button></p>{% endif %}
+  </form>
+</section>
+
+{% if can_act %}
+<details class="card card--danger">
+  <summary>{{ t('hosting.apps.delete_title') }}</summary>
+  <p>{{ t('hosting.apps.delete_body') }}</p>
+  <form method="post" action="{{ url_for('account.delete_developer_app', app_id=app.id) }}" class="form" data-confirm="{{ t('hosting.common.are_you_sure') }}">{{ ui.csrf() }}
+    {{ ui.field('current_password', t('hosting.field.current_password'), type='password', required=true, attrs={'autocomplete': 'current-password'}, id='delete-app-password') }}
+    <p><button class="btn btn--danger" type="submit">{{ t('hosting.apps.delete') }}</button></p>
+  </form>
+</details>
+{% endif %}
+{% endblock %}

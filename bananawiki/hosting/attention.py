@@ -7,6 +7,8 @@ The portal's approval queues (sources):
 * ``features.requests``  wiki feature requests (public access, page builder);
 * ``merges.awaiting``    account merges both owners confirmed, waiting for an
                          administrator to run them;
+* ``apps.review``        apps accounts registered (or renamed), waiting for an
+                         administrator to approve them (see :mod:`.oauth_apps`);
 * ``email.recovery_paused`` (1 or 0) the day's share of email for password
                          resets is spent: nobody can recover an account by
                          email until it frees up (see :mod:`.email`).
@@ -63,6 +65,10 @@ SOURCES = (
     Source("merges.awaiting", "hosting.attention.source.merges.awaiting", "admin.merge_requests",
            lambda: int(db.scalar("SELECT COUNT(*) FROM hosting_account_merge_requests WHERE status = 'approved'") or 0),
            lambda: db.scalar("SELECT MIN(created_at) FROM hosting_account_merge_requests WHERE status = 'approved'")),
+    Source("apps.review", "hosting.attention.source.apps.review", "admin.apps_page",
+           lambda: int(db.scalar("SELECT COUNT(*) FROM hosting_oauth_apps WHERE status = 'pending'") or 0),
+           lambda: db.scalar("SELECT MIN(updated_at) FROM hosting_oauth_apps WHERE status = 'pending'"),
+           {"status": "pending"}),
     Source("email.recovery_paused", "hosting.attention.source.email.recovery_paused", "admin.settings_page",
            lambda: _recovery_paused(), lambda: None, {"open": "notifications", "_anchor": "notifications"}),
 )

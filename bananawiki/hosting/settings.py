@@ -41,7 +41,7 @@ WRITABLE = frozenset({
     "hosting_activation_required", "hosting_activation_denied_timeout_seconds", "signup_use_case_required",
     "approval_notify_email", "approval_notify_mode", "approval_notify_digest_hours",
     "approval_notify_last_digest_at", "approval_notify_admins", "approval_notify_interval_minutes",
-    "approval_notify_daily_hour", "platform_oauth_enabled", "allow_owner_delete_expired",
+    "approval_notify_daily_hour", "platform_oauth_enabled", "oauth_apps_enabled", "oauth_apps_per_account", "allow_owner_delete_expired",
     "allow_owner_download_expired", "email_flag_block_reentry", "instance_url_suffix", "instance_suffix_disabled",
     "api_enabled", "gdrive_backup_enabled", "gdrive_credentials_path", "gdrive_folder_id",
     "gdrive_retention_days", "gdrive_backup_time", "admin_mfa_required", "owner_renewal_enabled",

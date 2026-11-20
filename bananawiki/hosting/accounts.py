@@ -751,6 +751,9 @@ def delete(account_id: str) -> None:
             db.execute("DELETE FROM hosting_oauth_grants WHERE account_id = ?", (account_id,))
             db.execute("DELETE FROM hosting_api_tokens WHERE account_id = ?", (account_id,))
             db.execute("DELETE FROM hosting_oauth_access_tokens WHERE account_id = ?", (account_id,))
+            from . import oauth_apps  # imports this module
+
+            oauth_apps.forget_account(account_id)
             db.execute("DELETE FROM instance_collaborators WHERE account_id = ?", (account_id,))
             db.update("accounts", {
                 "username": tombstone_name(account_id), "email": "", "password": "!", "suspended": 1,

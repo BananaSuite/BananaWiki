@@ -65,7 +65,7 @@ def test_counts_cover_every_queue(portal, ctx, make_account, make_wiki, query, a
           "source_approved, target_approved) VALUES (?, ?, ?, 'approved', 1, 1)",
           (source["id"], target["id"], source["id"]))
     assert attention.counts() == {"accounts.pending": 1, "features.requests": 1, "merges.awaiting": 1,
-                                  "email.recovery_paused": 0}
+                                  "apps.review": 0, "email.recovery_paused": 0}
     assert attention.total(admin) == 3
     assert attention.items(owner) == []
 

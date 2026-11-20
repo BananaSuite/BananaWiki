@@ -49,6 +49,11 @@
   {% if inst.status != 'suspended' %}{{ ui.post(url_for('admin.toggle_easy_wiki', instance_id=inst.id), t('hosting.instance.to_full') if inst.easy_wiki else t('hosting.instance.to_easy'), hidden={'enable': '0' if inst.easy_wiki else '1'}) }}{% endif %}
 </div>
 <p class="small muted">{{ t('hosting.instance.mode') }}: {{ t('hosting.instance.easy_wiki') if inst.easy_wiki else t('hosting.instance.full_wiki') }} · {{ t('hosting.instance.mode_hint') }}</p>
+<form method="post" action="{{ url_for('admin.signin_mode_override', instance_id=inst.id) }}" class="cluster">{{ ui.csrf() }}
+  <label class="small" for="f-signin-mode">{{ t('hosting.admin.signin_mode') }}</label>
+  <select id="f-signin-mode" name="mode" aria-describedby="f-signin-mode-hint">{% for mode in ('', 'local', 'both', 'platform') %}<option value="{{ mode }}"{% if (inst.platform_signin_mode or '') == mode %} selected{% endif %}>{{ t('hosting.admin.signin_mode.' ~ (mode or 'wiki')) }}</option>{% endfor %}</select>
+  <button class="btn btn--small">{{ t('hosting.apps.save') }}</button></form>
+<p class="small muted" id="f-signin-mode-hint">{{ t('hosting.admin.signin_mode_hint') }}</p>
 <div class="btn-row">
   <a class="btn btn--small" href="{{ url_for('admin.instance_logs', instance_id=inst.id) }}">{{ t('hosting.admin.logs') }}</a>
   {{ ui.post(url_for('admin.download_instance', instance_id=inst.id), t('hosting.instance.download')) }}

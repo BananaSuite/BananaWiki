@@ -117,14 +117,17 @@ class OAuthClient:
     ``..._VERIFY_URL`` (``/oauth/verify``), ``..._LINK_URL`` (``/oauth/link``),
     ``..._UNLINK_URL`` (``/oauth/unlink``), ``..._LINK_STATUS_URL``
     (``/oauth/link-status``), ``..._SIGNOUTS_URL`` (``/oauth/signouts``) and
-    ``BW_PLATFORM_INSTANCE_ID``. Without an ``OAuthClient`` the tenant gets
-    ``BW_PLATFORM_OAUTH_ENABLED=0``.
+    ``BW_PLATFORM_INSTANCE_ID``. ``signin_mode`` (how members sign in, set by
+    a portal administrator over the wiki's own choice: ``local``, ``both`` or
+    ``platform``) becomes ``BW_PLATFORM_SIGNIN_MODE`` when set. Without an
+    ``OAuthClient`` the tenant gets ``BW_PLATFORM_OAUTH_ENABLED=0``.
     """
 
     client_id: str
     client_secret: str = field(repr=False)
     portal_base: str
     instance_id: str
+    signin_mode: str = ""
 
     def urls(self) -> dict[str, str]:
         base = self.portal_base.rstrip("/")

@@ -1,0 +1,29 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% block title %}{{ t('hosting.admin.nav.apps') }}{% endblock %}
+{% block column_class %}wide{% endblock %}
+{% block content %}
+<h1>{{ t('hosting.admin.nav.apps') }}</h1>
+<p class="hint hint--block">{{ t('hosting.admin.apps.intro') }}</p>
+<nav class="btn-row" aria-label="{{ t('hosting.apps.status') }}">
+  {% for value in ('', 'pending', 'approved', 'denied', 'suspended') %}
+  <a class="btn btn--small{% if status == value %} btn--primary{% endif %}" href="{{ url_for('admin.apps_page', status=value or None) }}"{% if status == value %} aria-current="page"{% endif %}>{{ t('hosting.apps.status.' ~ value) if value else t('hosting.admin.apps.all') }}</a>
+  {% endfor %}
+</nav>
+{% if apps %}
+<div class="table-wrap"><table class="table table--stack">
+  <thead><tr><th>{{ t('hosting.apps.name') }}</th><th>{{ t('hosting.apps.owner') }}</th><th>{{ t('hosting.apps.status') }}</th><th>{{ t('hosting.apps.users') }}</th><th>{{ t('hosting.apps.created') }}</th></tr></thead>
+  <tbody>
+  {% for app in apps %}
+  <tr>
+    <td><a href="{{ url_for('admin.app_page', app_id=app.id) }}"><strong>{{ app.name }}</strong></a><br><span class="small mono muted">{{ app.client_id }}</span></td>
+    <td data-label="{{ t('hosting.apps.owner') }}">{% if app.owner_name %}<a href="{{ url_for('admin.account_page', account_id=app.account_id) }}">{{ app.owner_name }}</a>{% endif %}</td>
+    <td data-label="{{ t('hosting.apps.status') }}"><span class="badge {{ {'approved': 'badge--success', 'pending': 'badge--warning', 'denied': 'badge--danger', 'suspended': 'badge--danger'}.get(app.status, '') }}">{{ t('hosting.apps.status.' ~ app.status) }}</span></td>
+    <td data-label="{{ t('hosting.apps.users') }}">{{ app.users }}</td>
+    <td class="nowrap" data-label="{{ t('hosting.apps.created') }}">{{ app.created_at|time_ago }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="empty-state">{{ t('hosting.common.none') }}</p>{% endif %}
+{% endblock %}

@@ -27,6 +27,26 @@
   </tbody>
 </table></div>
 {% else %}<p class="empty-state">{{ t('hosting.wikis.none') }}</p>{% endif %}
+<section id="apps">
+<h2>{{ t('hosting.apps.connected_title') }}</h2>
+{% if apps %}
+<div class="table-wrap"><table class="table table--stack">
+  <thead><tr><th>{{ t('hosting.apps.app') }}</th><th>{{ t('hosting.apps.shared') }}</th><th>{{ t('hosting.wikis.last_sign_in') }}</th><th><span class="visually-hidden">{{ t('hosting.admin.actions') }}</span></th></tr></thead>
+  <tbody>
+  {% for app in apps %}
+  <tr>
+    <td><strong>{{ app.name }}</strong>{% if app.status != 'approved' %} <span class="badge badge--warning">{{ t('hosting.apps.status.' ~ app.status) }}</span>{% endif %}
+      {% if app.homepage_url %}<br><span class="small mono muted">{{ app.homepage_url }}</span>{% endif %}
+      {% if app.owner_name %}<br><span class="small muted">{{ t('hosting.apps.consent.by', owner=app.owner_name) }}</span>{% endif %}</td>
+    <td class="small" data-label="{{ t('hosting.apps.shared') }}">{{ t('hosting.apps.shared.email') if 'email' in app.scopes else t('hosting.apps.shared.profile') }}</td>
+    <td class="nowrap" data-label="{{ t('hosting.wikis.last_sign_in') }}">{{ app.last_used_at|time_ago if app.last_used_at else t('hosting.wikis.never') }}</td>
+    <td class="actions">{% if can_act %}{{ ui.post(url_for('account.app_remove_access', app_id=app.id), t('hosting.wikis.remove'), 'btn btn--small btn--danger-quiet', confirm=t('hosting.apps.remove_confirm')) }}{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="empty-state">{{ t('hosting.apps.connected_none') }}</p>{% endif %}
+</section>
 <section class="card">
   <h2>{{ t('hosting.oauth.revoke_all') }}</h2>
   <p class="hint">{{ t('hosting.wikis.sign_out_all_hint') }}</p>

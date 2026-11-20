@@ -2025,6 +2025,34 @@ def set_easy_wiki(inst: dict[str, Any], enable: bool, *, actor_id: str, charge: 
         raise ServiceError("hosting.instances.restart_failed")
 
 
+SIGNIN_MODES = ("", "local", "both", "platform")
+
+
+def set_signin_mode(inst: dict[str, Any], mode: str, *, actor_id: str | None, force: bool = False) -> bool:
+    """Decide how members sign in to the wiki over its administrators' choice (``""`` gives it back to them).
+
+    The wiki gets it as ``BW_PLATFORM_SIGNIN_MODE`` when it restarts (now, if it runs); returns False when the
+    restart failed (the setting is kept, the next start picks it up). ``platform`` (hosting accounts only) is
+    refused while no wiki account of the wiki is linked to a hosting account, unless *force*: nobody could
+    sign in except through the wiki's recovery page. The wiki's own settings page applies the same guard to
+    its administrators' choice, which this setting overrides.
+    """
+    require_ready(inst)
+    mode = (mode or "").strip()
+    if mode not in SIGNIN_MODES:
+        raise ServiceError("hosting.instances.signin_mode_invalid")
+    if inst["status"] == "terminated":
+        raise ServiceError("hosting.instances.cannot_modify")
+    if (inst.get("platform_signin_mode") or "") == mode:
+        return True
+    if mode == "platform" and not force and not db.scalar(
+            "SELECT 1 FROM hosting_oauth_account_links WHERE instance_id = ? LIMIT 1", (inst["id"],)):
+        raise ServiceError("hosting.instances.signin_mode_nobody_linked")
+    db.update("instances", {"platform_signin_mode": mode}, "id = ?", (inst["id"],))
+    events.record("instance", inst["id"], "oauth.signin_mode", actor_id, mode or "wiki")
+    return apply_policy(inst, actor_id=actor_id)
+
+
 def set_use_case(inst: dict[str, Any], text: str) -> None:
     require_ready(inst)
     text = (text or "").strip()

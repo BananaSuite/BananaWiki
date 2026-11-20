@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..core.timeutil import now_sql, sql_in
-from . import accounts, api_tokens, attention, events, signouts
+from . import accounts, api_tokens, attention, events, oauth_apps, signouts
 from .db import db
 from .errors import ServiceError
 
@@ -171,6 +171,7 @@ def _merge(source_id: str, target_id: str, admin: dict[str, Any]) -> int:
                "SELECT ?, instance_id, granted_at, last_used_at FROM hosting_oauth_grants WHERE account_id = ?",
                (target_id, source_id))
     db.execute("DELETE FROM hosting_oauth_grants WHERE account_id = ?", (source_id,))
+    oauth_apps.merge_accounts(source_id, target_id)
     api_tokens.revoke_all(source_id, admin["id"], "Account merged into another")
     db.insert("hosting_account_merge_logs", {"target_account_id": target_id, "source_account_id": source_id,
                                              "merged_by": admin["id"], "instances_transferred": moved,

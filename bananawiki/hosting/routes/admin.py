@@ -1,4 +1,4 @@
-"""Platform administration: accounts, wikis, settings, banners, merges, archives."""
+"""Platform administration: accounts, wikis, apps, settings, banners, merges, archives."""
 
 from __future__ import annotations
 
@@ -44,6 +44,7 @@ from .. import (
     merges,
     notifications,
     oauth,
+    oauth_apps,
     settings,
     urls,
 )
@@ -1111,6 +1112,24 @@ def account_custom_domains(account_id: str):
     return redirect(url_for("admin.account_page", account_id=account_id) + "#custom-domains")
 
 
+@bp.post("/admin/instances/<instance_id>/signin-mode")
+@auth.admin_required
+@rate_limit(10)
+def signin_mode_override(instance_id: str):
+    """How members sign in to the wiki, over its administrators' choice (or back to them)."""
+    inst = _instance_or_404(instance_id)
+    try:
+        applied = instances.set_signin_mode(inst, request.form.get("mode") or "", actor_id=_actor())
+    except ServiceError as error:
+        flash_error(error)
+        return admin_back(instance_id)
+    if applied:
+        _done("hosting.admin.signin_mode_saved")
+    else:
+        flash(t("hosting.admin.signin_mode_saved_restart_failed"), "error")
+    return admin_back(instance_id)
+
+
 @bp.post("/admin/instances/<instance_id>/rotate-oauth-credentials")
 @auth.admin_required
 @rate_limit(10)
@@ -1310,6 +1329,57 @@ def merge_accounts():
     return render_template("hosting/admin/merge_accounts.html")
 
 
+# Apps that sign people in with their hosting account
+
+
+def _app_or_404(app_id: str) -> dict[str, Any]:
+    app = oauth_apps.get(app_id)
+    if app is None:
+        abort(404)
+    return app
+
+
+@bp.get("/admin/apps")
+@auth.admin_required
+def apps_page():
+    status = request.args.get("status") or ""
+    return render_template("hosting/admin/apps.html", apps=oauth_apps.list_all(status or None),
+                           status=status if status in oauth_apps.STATUSES else "")
+
+
+@bp.get("/admin/apps/<app_id>")
+@auth.admin_required
+def app_page(app_id: str):
+    app = _app_or_404(app_id)
+    return render_template("hosting/admin/app.html", app=app, owner=accounts.get(app["account_id"]),
+                           reviewer=accounts.get(app["reviewed_by"]) if app.get("reviewed_by") else None)
+
+
+@bp.post("/admin/apps/<app_id>/review")
+@auth.admin_required
+@rate_limit(30)
+def review_app(app_id: str):
+    app = _app_or_404(app_id)
+    decision = request.form.get("decision") or ""
+    try:
+        oauth_apps.review(app, decision, actor_id=_actor(), note=request.form.get("note") or "")
+    except ServiceError as error:
+        flash_error(error)
+        return redirect(url_for("admin.app_page", app_id=app_id))
+    _done(f"hosting.admin.apps.{oauth_apps.DECISIONS[decision]}", app=app["name"])
+    return redirect(url_for("admin.app_page", app_id=app_id))
+
+
+@bp.post("/admin/apps/<app_id>/delete")
+@auth.admin_required
+@rate_limit(20)
+def delete_app(app_id: str):
+    app = _app_or_404(app_id)
+    oauth_apps.delete(app, actor_id=_actor())
+    _done("hosting.admin.apps.deleted", app=app["name"])
+    return redirect(url_for("admin.apps_page"))
+
+
 @bp.get("/admin/merge-requests")
 @auth.admin_required
 def merge_requests():
@@ -1478,7 +1548,9 @@ def _save_settings(action: str) -> str:
     elif action == "save_tour":
         settings.update(global_tour_enabled=_checked("global_tour_enabled"))
     elif action == "save_oauth":
-        settings.update(platform_oauth_enabled=_checked("platform_oauth_enabled"))
+        settings.update(platform_oauth_enabled=_checked("platform_oauth_enabled"),
+                        oauth_apps_enabled=_checked("oauth_apps_enabled"),
+                        oauth_apps_per_account=int_field("oauth_apps_per_account", 5, minimum=0, maximum=100))
     elif action == "save_api":
         settings.update(api_enabled=_checked("api_enabled"))
     elif action == "save_admin_mfa":

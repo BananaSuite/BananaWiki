@@ -214,6 +214,8 @@ def tenant_environment(spec: TenantSpec, cfg: HostingConfig, *, quarantined: boo
             "BW_PLATFORM_INSTANCE_ID": policy.oauth.instance_id,
             **{f"BW_PLATFORM_OAUTH_{name.upper()}_URL": url for name, url in urls.items()},
         })
+        if policy.oauth.signin_mode:
+            env["BW_PLATFORM_SIGNIN_MODE"] = policy.oauth.signin_mode
     return env
 
 

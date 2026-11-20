@@ -147,7 +147,9 @@
 
 <section class="settings-group" aria-labelledby="settings-integrations">
 <h2 class="settings-group__title" id="settings-integrations">{{ t('hosting.settings.group.integrations') }}</h2>
-{% call section('save_oauth', t('hosting.settings.oauth')) %}{{ ui.check('platform_oauth_enabled', t('hosting.settings.oauth_enabled'), s.platform_oauth_enabled) }}{% endcall %}
+{% call section('save_oauth', t('hosting.settings.oauth')) %}{{ ui.check('platform_oauth_enabled', t('hosting.settings.oauth_enabled'), s.platform_oauth_enabled) }}
+{{ ui.check('oauth_apps_enabled', t('hosting.settings.oauth_apps_enabled'), s.oauth_apps_enabled, hint=t('hosting.settings.oauth_apps_enabled_hint')) }}
+{{ ui.field('oauth_apps_per_account', t('hosting.settings.oauth_apps_per_account'), value=s.oauth_apps_per_account, type='number', attrs={'min': 0, 'max': 100, 'class': 'hosting-num hosting-num--sm'}, hint=t('hosting.settings.oauth_apps_per_account_hint')) }}{% endcall %}
 {% call section('save_api', t('hosting.settings.api')) %}{{ ui.check('api_enabled', t('hosting.settings.api_enabled'), s.api_enabled) }}{% endcall %}
 {#- Everything about Google Drive in one section: its settings, then the credentials it needs, then running it. -#}
 {% macro gdrive_tools() %}

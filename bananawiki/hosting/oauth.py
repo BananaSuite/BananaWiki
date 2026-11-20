@@ -12,6 +12,9 @@ then satisfy. Access tokens are opaque, stored as SHA-256 digests, live one
 hour and are checked against the database on every use, so revoking them and
 suspending or deleting the account take effect at once.
 
+Apps other than wikis (:mod:`.oauth_apps`) share the codes and tokens tables
+(their codes carry the scopes they were allowed) and these functions.
+
 Consent is asked once per wiki and remembered in ``hosting_oauth_grants``
 (the owner's own wikis never ask): later sign-ins go straight back to the
 wiki. An account sees and withdraws its grants on **Account → Wikis**, which
@@ -91,7 +94,7 @@ def client_for(inst: dict[str, Any]) -> OAuthClient | None:
     if not client_id or not secret or not check_secret(inst.get("oauth_client_secret_hash"), secret):
         client_id, secret = rotate_credentials(inst["id"])
     return OAuthClient(client_id=client_id, client_secret=secret, portal_base=urls.portal_base_url(),
-                       instance_id=inst["id"])
+                       instance_id=inst["id"], signin_mode=inst.get("platform_signin_mode") or "")
 
 
 def instance_for_client(client_id: str) -> dict[str, Any] | None:
@@ -137,13 +140,15 @@ def redirect_allowed(inst: dict[str, Any], redirect_uri: str) -> bool:
     return origin in allowed
 
 
-def issue_code(client_id: str, account_id: str, redirect_uri: str, challenge: str, method: str) -> str:
+def issue_code(client_id: str, account_id: str, redirect_uri: str, challenge: str, method: str,
+               scope: str = "") -> str:
+    """A new authorization code; *scope* is an app's (:mod:`.oauth_apps`), empty for a wiki."""
     code = secrets.token_urlsafe(32)
     db.execute("DELETE FROM hosting_oauth_authorization_codes WHERE expires_at < ?", (now_sql(),))
     db.insert("hosting_oauth_authorization_codes", {
         "code": sha256_hex(code), "client_id": client_id, "account_id": account_id, "redirect_uri": redirect_uri,
         "expires_at": sql_in(seconds=CODE_SECONDS), "created_at": now_sql(), "code_challenge": challenge,
-        "code_challenge_method": method,
+        "code_challenge_method": method, "scope": scope,
     })
     return code
 
@@ -160,7 +165,7 @@ def pkce_matches(challenge: str, verifier: str) -> bool:
 
 
 def redeem_code(code: str, client_id: str, redirect_uri: str, verifier: str) -> str | None:
-    """Exchange a code for an access token; returns the raw token or None.
+    """Exchange a code for an access token (with the code's scopes); returns the raw token or None.
 
     A code presented a second time was intercepted (or replayed): the tokens
     this wiki holds for that account are revoked (RFC 6749 section 4.1.2).
@@ -187,10 +192,13 @@ def redeem_code(code: str, client_id: str, redirect_uri: str, verifier: str) -> 
         db.execute("DELETE FROM hosting_oauth_access_tokens WHERE expires_at < ?", (now_sql(),))
         db.insert("hosting_oauth_access_tokens", {
             "token_hash": sha256_hex(token), "client_id": client_id, "account_id": row["account_id"],
-            "scope": SCOPE, "expires_at": sql_in(seconds=TOKEN_SECONDS), "created_at": now_sql(),
+            "scope": row.get("scope") or SCOPE, "expires_at": sql_in(seconds=TOKEN_SECONDS), "created_at": now_sql(),
         })
         db.execute("UPDATE hosting_oauth_grants SET last_used_at = ? WHERE account_id = ? AND instance_id = "
                    "(SELECT id FROM instances WHERE oauth_client_id = ?)", (now_sql(), row["account_id"], client_id))
+        db.execute("UPDATE hosting_oauth_app_grants SET last_used_at = ? WHERE account_id = ? AND app_id = "
+                   "(SELECT id FROM hosting_oauth_apps WHERE client_id = ?)", (now_sql(), row["account_id"], client_id))
+        db.execute("UPDATE hosting_oauth_apps SET last_used_at = ? WHERE client_id = ?", (now_sql(), client_id))
     return token
 
 
