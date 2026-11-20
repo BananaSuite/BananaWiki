@@ -212,7 +212,8 @@ def account_page(account_id: str):
                            events=events.recent("account", account_id, 50),
                            deletion_remaining=remaining,
                            deletion_at=sql_in(seconds=remaining) if remaining is not None else None,
-                           domain_policy=settings.custom_domains_policy(), domains_configured=domains.configured())
+                           domain_policy=settings.custom_domains_policy(), domains_configured=domains.configured(),
+                           email_removable=accounts.email_removable())
 
 
 @bp.post("/admin/accounts/create")
@@ -487,6 +488,24 @@ def unflag_email(account_id: str):
     target = _account_or_404(account_id)
     accounts.clear_email_flag(account_id)
     _done("hosting.admin.email_unflagged", username=target["username"])
+    return back(url_for("admin.account_page", account_id=account_id))
+
+
+@bp.post("/admin/accounts/<account_id>/remove-email")
+@auth.admin_required
+@rate_limit(20)
+def remove_email(account_id: str):
+    """Take the account's address away; it stays without one while Settings → Email does not require one."""
+    target = _account_or_404(account_id)
+    try:
+        if target["deleted_at"]:
+            raise ServiceError("hosting.accounts.not_found")
+        address = accounts.remove_email(target, actor_id=account()["id"])
+    except ServiceError as error:
+        flash_error(error)
+        return back(url_for("admin.account_page", account_id=account_id))
+    notifications.email_changed(target, address, by_account=False)  # only a confirmed address hears of it
+    _done("hosting.admin.email_removed", username=target["username"])
     return back(url_for("admin.account_page", account_id=account_id))
 
 

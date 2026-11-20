@@ -49,6 +49,9 @@ Runner = Callable[..., subprocess.CompletedProcess]
 AUXILIARY_SUFFIXES = ("-tts", "-maintenance", "-agent")
 TENANT_FILTER = "label=org.bananawiki.role=tenant"
 TRUE_VALUES = frozenset({"1", "true", "yes", "on"})  # how the portal reads a boolean setting
+# The PATH of commands run through runuser as the service account: minimal, but with the sbin directories,
+# where runuser itself is on Debian, Ubuntu and Fedora.
+SERVICE_PATH = "/usr/sbin:/usr/bin:/sbin:/bin"
 INSTANCE_ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]{0,63}")  # the portal's plugin state names (never an option)
 PLUGIN_FOLDER = "external_plugins"  # BW_EXTERNAL_PLUGINS_DIR inside the tenant's /data
 QUARANTINE_MARKER = "plugin_quarantine"  # under HOSTING_PLATFORM_STATE_DIR/<instance id>/
@@ -1088,7 +1091,7 @@ class System:
             raise ValueError("Invalid instance id.")
         root = Path(settings["root"])
         current = root / "current"
-        environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": str(root / "data"),
+        environment = {"PATH": SERVICE_PATH, "LANG": "C.UTF-8", "HOME": str(root / "data"),
                        **read_environment(root / "config/app.env")}
         self.run(["runuser", "-u", settings["service"], "--", current / ".venv/bin/python", "-m",
                   "bananawiki.hosting.admin", "instance", "quarantine-plugins", instance_id],

@@ -678,7 +678,7 @@ def test_the_portal_command_run_as_the_service_account_gets_none_of_the_controll
                     or subprocess.CompletedProcess(command, 0, "", ""))
     system.quarantine_plugins({"root": str(root), "service": "svc"}, "abc123")
     environment = seen[0][1]["env"]
-    assert environment == {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": str(root / "data"),
+    assert environment == {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8", "HOME": str(root / "data"),
                            "HOSTING_DATABASE_PATH": "/srv/hosting.db"}
 
 

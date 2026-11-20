@@ -588,6 +588,12 @@ addresses, the limits per address are best effort everywhere (same section).
 * **Accounts without an address**: must add one (a page they cannot skip;
   administrators can still open the settings), are asked once after signing in
   and may skip, or are not asked.
+  While accounts are not required to have one, an administrator can take an
+  account's address away (**Admin → Accounts → the account → Remove email
+  address**): the account keeps signing in with its password, gets no reset
+  link or notice, and is not asked for an address again (unless the setting
+  later requires one). The old address is told, when it was confirmed, and the
+  account's history records who removed it.
 * **One address on several accounts**: not allowed (the default) or allowed.
   The check ignores case and runs in the same transaction as the save, so two
   sign-ups racing for one address cannot both get it. Switching to *not
@@ -957,7 +963,8 @@ register theirs there too, or with `bananawiki hosting-admin app create`.
 
 `/admin` on the portal (platform administrators):
 
-* accounts: approve, deny, suspend, delete, impersonate, promote, flag email;
+* accounts: approve, deny, suspend, delete, impersonate, promote, flag email,
+  remove the email address (while addresses are not required);
 * wikis: every lifecycle action above plus suspend (the expiry clock stops),
   extend, set storage limits and upload policy, move between owners,
   duplicate, restart, bulk actions, import an archive (chunked upload),

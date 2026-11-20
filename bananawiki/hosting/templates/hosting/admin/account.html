@@ -25,8 +25,10 @@
   {% if target.approval_status == 'pending' %}{{ ui.post(url_for('admin.deny_account', account_id=target.id), t('hosting.admin.deny'), 'btn btn--small btn--danger-quiet') }}{% endif %}
   {% if target.suspended %}{{ ui.post(url_for('admin.unsuspend_account', account_id=target.id), t('hosting.admin.unsuspend'), 'btn btn--small btn--primary', hidden={'unsuspend_instances': '1'}) }}{% endif %}
   {% if target.email_flagged_invalid %}{{ ui.post(url_for('admin.unflag_email', account_id=target.id), t('hosting.admin.unflag_email')) }}{% endif %}
+  {% if target.email and email_removable %}{{ ui.post(url_for('admin.remove_email', account_id=target.id), t('hosting.admin.remove_email'), confirm=t('hosting.admin.remove_email_confirm', email=target.email)) }}{% endif %}
   {% if target.pending_deletion %}{{ ui.post(url_for('admin.cancel_deletion', account_id=target.id), t('hosting.admin.cancel_deletion')) }}{% endif %}
 </div>
+{% if target.email and not email_removable %}<p class="small muted">{{ t('hosting.admin.remove_email_blocked') }}</p>{% endif %}
 <div class="btn-row btn-row--danger"><a class="btn btn--small btn--danger-quiet" href="{{ url_for('admin.delete_account', account_id=target.id) }}">{{ t('hosting.admin.delete_account') }}</a></div></section>
 <div class="panel-list">
 <details class="card" id="panel-1" data-remember><summary>{{ t('hosting.admin.edit_account') }}</summary>

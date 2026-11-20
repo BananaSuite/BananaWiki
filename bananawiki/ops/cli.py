@@ -34,7 +34,7 @@ from .files import (
     write_json,
 )
 from .manager import FAILED_CONVERGENCE, PROXY_ROLLBACK, Manager, tenant_names
-from .system import TenantStorageUnsupported
+from .system import SERVICE_PATH, TenantStorageUnsupported
 
 APP_COMMANDS = ("create-admin", "reset-password", "reset-two-step", "signin-mode", "db", "jobs", "config",
                 "setup-token", "hosting-admin")
@@ -433,7 +433,9 @@ def run_app_command(manager: Manager, command: str, arguments: list[str]) -> int
     if (settings["mode"] == "hosting") != hosting_command:
         raise ValueError("hosting-admin is for hosting installations; the other application commands are for wikis.")
     current = manager.root / "current"
-    environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": str(manager.root / "data"),
+    # runuser is in /usr/sbin (or /sbin) on Debian, Ubuntu and Fedora: without it in PATH, every app command
+    # failed with "No such file or directory: 'runuser'".
+    environment = {"PATH": SERVICE_PATH, "LANG": "C.UTF-8", "HOME": str(manager.root / "data"),
                    **read_environment(manager.config_dir / "app.env")}
     module = ["bananawiki.hosting.admin"] if hosting_command else ["bananawiki.cli", command]
     argv = ["runuser", "-u", settings["service"], "--", str(current / ".venv/bin/python"), "-m", *module,

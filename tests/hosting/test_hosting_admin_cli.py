@@ -245,3 +245,24 @@ def test_sigterm_ends_a_pass_between_steps(portal, runtime, monkeypatch):
     finally:
         maintenance._stop.clear()
     assert calls == ["first"] and list(results) == ["instance suspensions"]
+
+
+def test_app_commands_find_runuser_in_sbin(tmp_path, monkeypatch):
+    """runuser is in /usr/sbin or /sbin on Debian, Ubuntu and Fedora: the minimal PATH must reach it."""
+    from bananawiki.ops import cli as ops_cli
+
+    class Manager:
+        root = tmp_path
+        config_dir = tmp_path / "config"
+
+        def settings(self):
+            return {"mode": "hosting", "service": "svc"}
+
+    Manager.config_dir.mkdir()
+    (Manager.config_dir / "app.env").write_text("")
+    seen = {}
+    monkeypatch.setattr(ops_cli.subprocess, "run", lambda argv, **options: seen.update(options) or
+                        type("R", (), {"returncode": 0})())
+    assert ops_cli.run_app_command(Manager(), "hosting-admin", ["status"]) == 0
+    path = seen["env"]["PATH"].split(":")
+    assert "/usr/sbin" in path and "/sbin" in path

@@ -407,6 +407,34 @@ def dismiss_email_prompt(account_id: str) -> None:
     db.execute("UPDATE accounts SET email_prompt_dismissed = 1 WHERE id = ?", (account_id,))
 
 
+def email_removable() -> bool:
+    """Whether an administrator may take an account's address away: not while the platform requires an
+    address of every account (Settings → Email → existing accounts: ``required``)."""
+    return settings.existing_email() != "required"
+
+
+def remove_email(account: dict[str, Any], *, actor_id: str | None) -> str:
+    """An administrator removes *account*'s address; returns the address it had.
+
+    The account keeps signing in with its password, has no address (no reset
+    link or notice can reach it) and is not asked for one again, for as long
+    as the platform does not require one. Refused while it does, and for an
+    account without an address.
+    """
+    if not email_removable():
+        raise ServiceError("hosting.accounts.email_required_by_policy")
+    address = account.get("email") or ""
+    if not address:
+        raise ServiceError("hosting.accounts.no_email")
+    with db.transaction():
+        db.update("accounts", {"email": "", "email_prompt_dismissed": 1, "email_claimed_at": None,
+                               "email_verified_at": None, "email_verification_token_hash": "",
+                               "email_verification_sent_at": None, "email_verification_expires_at": None,
+                               **_RESET_CLEARED}, "id = ? AND email = ?", (account["id"], address))
+        events.record("account", account["id"], "email.removed", actor_id, "address removed by an administrator")
+    return address
+
+
 def set_password(account_id: str, password: str, *, actor_id: str | None, reason: str,
                  keep_session_id: str | None = None) -> int:
     """Replace the password and end sessions, API/OAuth tokens and grants and any pending reset link, on

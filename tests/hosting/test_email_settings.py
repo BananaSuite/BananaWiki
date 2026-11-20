@@ -134,6 +134,48 @@ def test_an_account_that_has_an_address_keeps_one_when_sign_up_requires_it(porta
     assert query("SELECT username FROM accounts WHERE id = ?", (loose["id"],), one=True)["username"] == "renamed"
 
 
+
+# Administrators removing an address
+
+
+@pytest.mark.parametrize("policy", ["optional", "off"])
+def test_an_administrator_removes_an_address_and_the_account_stays_without_one(
+        portal, query, make_account, login, admin, outbox, policy):
+    _settings(query, existing_email=policy)
+    member = make_account("member", email="member@example.org", email_verified_at="2026-01-01 00:00:00")
+    query("UPDATE accounts SET password_reset_token_hash = 'pending' WHERE id = ?", (member["id"],))
+    client = _signed_in(portal, login, admin)
+    page = client.get(f"/admin/accounts/{member['id']}").get_data(as_text=True)
+    assert f"/admin/accounts/{member['id']}/remove-email" in page
+    assert client.post(f"/admin/accounts/{member['id']}/remove-email").status_code == 302
+    row = query("SELECT * FROM accounts WHERE id = ?", (member["id"],), one=True)
+    assert row["email"] == "" and row["email_verified_at"] is None and row["email_prompt_dismissed"] == 1
+    assert row["password_reset_token_hash"] == "", "a reset link sent to the old address stops working"
+    assert outbox and outbox[-1].to == "member@example.org", "the confirmed old address is told"
+    assert query("SELECT actor_id FROM hosting_events WHERE subject_id = ? AND action = 'email.removed'",
+                 (member["id"],), one=True)["actor_id"] == admin["id"]
+    signed_in = login(portal.test_client(), member)
+    assert "/account/contact-email" not in (signed_in.headers.get("Location") or ""), "not asked for one again"
+
+
+def test_an_address_cannot_be_removed_while_every_account_needs_one(portal, query, make_account, login, admin):
+    _settings(query, existing_email="required")
+    member = make_account("member", email="member@example.org")
+    client = _signed_in(portal, login, admin)
+    page = client.get(f"/admin/accounts/{member['id']}").get_data(as_text=True)
+    assert "/remove-email" not in page and "Accounts without an address" in page, "the page says why"
+    client.post(f"/admin/accounts/{member['id']}/remove-email")
+    assert query("SELECT email FROM accounts WHERE id = ?", (member["id"],), one=True)["email"] == "member@example.org"
+
+
+def test_only_administrators_remove_addresses(portal, query, make_account, login):
+    _settings(query, existing_email="optional")
+    member = make_account("member", email="member@example.org")
+    other = make_account("other", email="other@example.org")
+    _signed_in(portal, login, member).post(f"/admin/accounts/{other['id']}/remove-email")
+    assert query("SELECT email FROM accounts WHERE id = ?", (other["id"],), one=True)["email"] == "other@example.org"
+
+
 # One or several accounts per address
 
 
