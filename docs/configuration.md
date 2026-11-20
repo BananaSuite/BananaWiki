@@ -167,6 +167,7 @@ run yourself, leave them unset.
 | `BW_INSTANCE_EXPIRES_AT` | none | Accepted for compatibility; the portal enforces expiry. |
 | `BW_EASY_DEPLOYMENT` | `0` | Set by the desktop launcher; accepted for compatibility. |
 | `BW_PLATFORM_OAUTH_ENABLED` | `0` | Sign in with the hosting portal. When on, the portal also sets `BW_PLATFORM_OAUTH_CLIENT_ID`, `_CLIENT_SECRET`, `_AUTHORIZE_URL`, `_TOKEN_URL`, `_USERINFO_URL`, `_PORTAL_BASE`, `_LINK_URL`, `_LINK_STATUS_URL`, `_UNLINK_URL`, `_VERIFY_URL` and `_SIGNOUTS_URL` (single sign-out events, read every minute by the `auth.platform_signouts` job; without it the wiki uses `<_PORTAL_BASE>/oauth/signouts`). |
+| `BW_PLATFORM_SIGNIN_MODE` | unset (the wiki decides) | How members sign in while platform sign-in is configured: `local` (wiki accounts only), `both` (wiki and hosting accounts) or `platform` (hosting accounts only; administrators keep `/login/recovery`). When set, it wins over **Admin → Site settings → Sign-in**, which shows the mode as set by the hosting provider. Empty means unset. Another value is ignored with a warning in the log. Without platform sign-in configuration the wiki always uses `local`. See [Security](security.md#sign-in-modes). |
 
 ## Web server (Gunicorn)
 

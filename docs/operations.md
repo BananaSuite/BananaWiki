@@ -14,7 +14,7 @@ health checks, and the two command-line tools.
 
 On a managed server the installed `bananawiki` command is `banana`. It also
 passes the application commands (`create-admin`, `reset-password`,
-`reset-two-step`, `db`, `jobs`, `config`, `setup-token`) to the running
+`reset-two-step`, `signin-mode`, `db`, `jobs`, `config`, `setup-token`) to the running
 release, as the service user, with `config/app.env` loaded. So
 `sudo bananawiki reset-password alice` works there too.
 
@@ -896,7 +896,7 @@ wikis that did not start under the new release.
 | `backups keygen\|configure\|status\|list\|run\|enable\|disable\|prune\|verify\|download\|restore` | Encrypted Git backups (see above); `configure --append-only` never deletes snapshots while uploading and `prune [--token-file FILE]` applies retention; `verify`, `download` and `restore` take `--allow-unauthenticated` for snapshots made before authentication, and `restore` takes `--trust-source REVISION`. |
 | `uninstall [--purge --confirm NAME]` | Remove the services. |
 | `agent serve\|status [--socket PATH]` | Hosting runtime agent (`serve` is run by its unit; `status` pings it). |
-| `create-admin`, `reset-password`, `reset-two-step`, `db`, `jobs`, `config`, `setup-token` | Passed to the release's `bananawiki` command as the service user (wiki installations). |
+| `create-admin`, `reset-password`, `reset-two-step`, `signin-mode`, `db`, `jobs`, `config`, `setup-token` | Passed to the release's `bananawiki` command as the service user (wiki installations). |
 | `hosting-admin status\|account\|instance …` | Hosting: the operator command line, run as the service user. `hosting-admin --help` lists the commands. |
 
 Source options: `--repo URL`, `--track tags|branch`, `--branch NAME`,
@@ -926,6 +926,7 @@ Results are printed as JSON; errors exit with status 1.
 | `create-admin NAME [--owner] [--password-file F]` | Create an administrator (or owner). Marks setup as done. |
 | `reset-password NAME [--password-file F \| --generate] [--temporary]` | Set a new password, end the account's sessions and revoke its API tokens. `--generate` prints a random password and requires a change at next sign-in; `--temporary` requires the change for a password you chose. |
 | `reset-two-step NAME` | Turn off two-step verification for an account that lost its authenticator app and recovery codes (owners and superusers included), end its sessions and record it in the audit log. |
+| `signin-mode [local\|both\|platform]` | Show (no argument) or set how members sign in: the stored mode, the mode in force and the host's `BW_PLATFORM_SIGNIN_MODE`, if any (which wins over the stored mode). `signin-mode both` is the way back in after a wiki that takes hosting accounts only has locked everyone out; the change is recorded in the audit log. |
 | `jobs list`, `jobs run [NAME]` | Background jobs. |
 | `config check` | Validate the environment and print warnings. |
 | `export --output FILE` | Pack the instance directory with a consistent database copy. |

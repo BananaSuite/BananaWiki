@@ -15,11 +15,20 @@ covered), keeps the target's row on unique conflicts, and then deletes or
 locks the source account (suspended for good, see :func:`_lock_source`).
 Credentials, audit trails and the source's own permission grants are not
 transferred.
+
+Hosting-portal links never move either: the target keeps its own link (or
+stays unlinked) and the source's link goes with the source. A deleted source
+takes it along (``ON DELETE CASCADE``); a locked source loses it too, here
+and, after the commit, on the portal, so the portal account is free to
+connect another account on its next sign-in (on a wiki that takes hosting
+accounts only, the person could otherwise only ever reach the locked
+account).
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 from typing import Any
 
@@ -29,10 +38,13 @@ from ... import accounts, attention, auth
 from ...db import db
 from ...registry import emit
 from ..admin.service import clear_overrides, protection_error
+from ..auth import platform_oauth
 from ..chat import dms as chat_dms
 from ..chat import store as chat_store
 from ..pages import service as pages
 from . import preferences, service
+
+log = logging.getLogger("bananawiki.merge")
 
 ACTIVE = ("pending", "approved_by_both")
 MAX_REASON = 500
@@ -356,6 +368,29 @@ def _uploads_left_behind(source: dict[str, Any], target_id: str) -> list[str]:
     return [name for name in service.uploads_of(source) if name not in kept]
 
 
+def _drop_platform_link(source_id: str) -> dict[str, Any] | None:
+    """Remove the locked source's hosting-portal link here; return it so the portal can be told."""
+    link = platform_oauth.link_of(source_id)
+    if link is not None:
+        db.execute("DELETE FROM platform_oauth_links WHERE user_id = ?", (source_id,))
+    return link
+
+
+def _tell_portal_unlinked(link: dict[str, Any], source_id: str) -> None:
+    """After the commit (never inside the merge transaction): the portal drops the link too.
+
+    Best effort: while the portal still has it, the next sign-in of that
+    portal account adopts it again (``realign_portal_link``) and reaches the
+    locked account, as before this change.
+    """
+    if platform_oauth.config() is None:
+        return
+    try:
+        platform_oauth.portal_unlink(link["account_id"], source_id)
+    except platform_oauth.OAuthError as error:
+        log.warning("The portal could not drop the link of merged account %s: %s", source_id, error)
+
+
 def _lock_source(source: dict[str, Any], target: dict[str, Any], admin: dict[str, Any],
                  password_hash: str) -> None:
     """Keep the emptied source for the record, out of reach of whoever knew its password.
@@ -411,6 +446,7 @@ def execute(source: dict[str, Any], target: dict[str, Any], admin: dict[str, Any
     unusable_password = None if delete_source else accounts.hash_password(secrets.token_urlsafe(32))
     leftovers: list[str] = []
     moved: dict[str, int] = {}
+    dropped_link = None
     with db.transaction():
         source, target, admin = _current(source, target, admin, merge_id)
         chat_files = _prepare_special_tables(source["id"], target["id"])
@@ -445,7 +481,10 @@ def execute(source: dict[str, Any], target: dict[str, Any], admin: dict[str, Any
                 raise MergeError(error.key, **error.values) from error
         else:
             _lock_source(source, target, admin, unusable_password)
+            dropped_link = _drop_platform_link(source["id"])
     chat_store.remove_files(chat_files)
+    if dropped_link is not None:
+        _tell_portal_unlinked(dropped_link, source["id"])
     if unusable_password is None:
         emit("user.deleted", user=source, deleted_by=admin["id"])
         for name in leftovers:

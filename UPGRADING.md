@@ -1,5 +1,6 @@
 # Upgrading BananaWiki
 
+* [Upgrading from 1.8.0 to unreleased](#upgrading-from-180-to-unreleased)
 * [Upgrading from 1.7.6 to 1.8.0](#upgrading-from-176-to-180)
 * [Upgrading from 1.7.3 to 1.7.6](#upgrading-from-173-to-176)
 * [Upgrading from 1.7.2 to 1.7.3](#upgrading-from-172-to-173)
@@ -12,6 +13,22 @@ Read every section between the release you run and the one you install. A
 1.6 installation that updates straight to 1.8.0 follows the 1.6 to 1.7
 section, then the 1.7.0 to 1.7.1, 1.7.1 to 1.7.2, 1.7.2 to 1.7.3, 1.7.3 to
 1.7.6 and 1.7.6 to 1.8.0 sections. A 1.4 installation follows all of them.
+
+## Upgrading from 1.8.0 to unreleased
+
+The first start migrates the wiki database from schema 19 to 20: how members
+sign in (`site_settings.signin_mode`, `both` on every existing wiki, which is
+the behaviour of 1.8.0). Afterwards 1.8.0 cannot open the database, so back up
+first (`sudo bananawiki backup` on a managed server) if you may want to go back.
+Behaviour that changes:
+
+* **Sign-in modes.** Nothing changes until an administrator (or the hosting
+  provider, with `BW_PLATFORM_SIGNIN_MODE`) picks another mode under
+  **Admin → Site settings → Sign-in**. With hosting accounts only, password
+  sign-in, `/admin/sign-in` and `/signup` close and administrators keep
+  `/login/recovery`; `bananawiki signin-mode both` undoes it from the server.
+* **Account merges.** A locked source account no longer keeps its
+  hosting-portal link.
 
 ## Upgrading from 1.7.6 to 1.8.0
 

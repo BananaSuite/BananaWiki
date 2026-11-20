@@ -10,6 +10,7 @@ Wiki commands (configuration comes from ``BW_*`` variables, as for the server)::
     bananawiki create-admin NAME [--owner] [--password-file F]
     bananawiki reset-password NAME [--password-file F | --generate] [--temporary]
     bananawiki reset-two-step NAME                    turn off two-step verification (lost app and codes)
+    bananawiki signin-mode [local|both|platform]      how members sign in (no argument: show it)
     bananawiki jobs list | jobs run [NAME]            background jobs (e.g. from cron)
     bananawiki config check                           validate the environment
     bananawiki export --output FILE | import FILE     move a wiki's instance directory
@@ -287,6 +288,28 @@ def cmd_reset_two_step(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_signin_mode(args: argparse.Namespace) -> int:
+    """Show or set how members sign in: the way back from a hosting-only wiki nobody can sign in to."""
+    from .wiki import settings
+    from .wiki.features.audit.service import record
+    from .wiki.features.auth import signin_modes
+
+    with _app_scope():
+        previous = signin_modes.stored()
+        if args.mode and args.mode != previous:
+            settings.update({"signin_mode": args.mode})
+            record("settings.updated", actor_id=None, ip=None,
+                   details={"changed": "signin_mode", "via": "command line"})
+        result = {"stored": signin_modes.stored(), "effective": signin_modes.current(),
+                  "host_override": signin_modes.override() or None,
+                  "platform_sign_in_configured": signin_modes.configured()}
+    if args.mode and result["host_override"]:
+        print("Note: BW_PLATFORM_SIGNIN_MODE is set and wins over the stored mode; "
+              "the hosting provider changes it.", file=sys.stderr)
+    _print(result)
+    return 0
+
+
 def cmd_jobs(args: argparse.Namespace) -> int:
     with _app_scope() as app:
         scheduler = app.extensions["bananawiki.scheduler"]
@@ -413,6 +436,9 @@ def parser() -> argparse.ArgumentParser:
     two_step = commands.add_parser("reset-two-step", help="Turn off two-step verification and end the "
                                                           "account's sessions")
     two_step.add_argument("username")
+    mode = commands.add_parser("signin-mode", help="Show or set how members sign in (wiki accounts, hosting "
+                                                   "accounts or both)")
+    mode.add_argument("mode", nargs="?", choices=("local", "both", "platform"))
     jobs = commands.add_parser("jobs", help="Background jobs")
     job_actions = jobs.add_subparsers(dest="jobs_action", required=True)
     job_actions.add_parser("list")
@@ -430,6 +456,7 @@ def parser() -> argparse.ArgumentParser:
 HANDLERS = {
     "serve": cmd_serve, "setup-token": cmd_setup_token, "migrate": cmd_migrate, "db": cmd_db,
     "create-admin": cmd_create_admin, "reset-password": cmd_reset_password, "reset-two-step": cmd_reset_two_step,
+    "signin-mode": cmd_signin_mode,
     "jobs": cmd_jobs, "config": cmd_config, "export": cmd_export, "import": cmd_import,
 }
 

@@ -1,7 +1,8 @@
 """Routes: first-run setup, sign-in and sign-out, account status and forced steps.
 
 /setup, /login, /admin/sign-in (administrator sign-in, also during maintenance;
-POST /admin for 1.4 forms),
+POST /admin for 1.4 forms; the password forms close while only hosting
+accounts may sign in, see :mod:`.signin_modes`),
 /logout, /session-conflict[/force], /app-selector, /account-status (and the
 1.4 status URLs), /account-suspended/delete, /maintenance, /lockdown,
 /force-change-password, /impersonation/stop.
@@ -27,7 +28,7 @@ from ...permissions import ADMIN_ROLES
 from ...registry import emit
 from ...templating import nav_items
 from ..audit.service import record
-from . import signin, signup
+from . import signin, signin_modes, signup
 from .blueprint import ALL_GATES, SIGN_IN_GATES, bp
 
 # Guesses at the setup token per client network, shared by all workers. The
@@ -123,15 +124,29 @@ def _sign_in(template: str, *, admin_only: bool = False, default: str = "/", **c
     return signin.finish(user, remember=remember, next_url=next_url, default=default)
 
 
+def _login_context() -> dict[str, Any]:
+    password = signin_modes.password_allowed()
+    return {"password_sign_in": password, "signup_available": password and signup.signup_available()}
+
+
+def _password_closed():
+    """A password posted while only hosting accounts may sign in: the sign-in page, with its portal button."""
+    auth.flash_t("auth.signin_mode.password_closed", "error")
+    return render_template("auth/login.html", next_url=request.values.get("next", ""), username="",
+                           **_login_context()), 403
+
+
 @bp.route("/login", methods=["GET", "POST"])
 @auth.public
 @auth.exempt(*SIGN_IN_GATES)
 def login():
     if auth.current_user() is not None and request.method == "GET":
         return redirect(safe_next("/", request.args.get("next")))
-    context = {"signup_available": signup.signup_available()}
+    context = _login_context()
     if request.method == "GET":
         return render_template("auth/login.html", next_url=request.args.get("next", ""), username="", **context)
+    if not context["password_sign_in"]:
+        return _password_closed()
     return _sign_in("auth/login.html", **context)
 
 
@@ -144,8 +159,16 @@ def _admin_home() -> str:
 @auth.public
 @auth.exempt(*SIGN_IN_GATES)
 def admin_login():
-    """Administrator sign-in; the way back in while the wiki is under maintenance."""
+    """Administrator sign-in; the way back in while the wiki is under maintenance.
+
+    While only hosting accounts may sign in, administrators use the portal
+    too (or, without it, ``/login/recovery``).
+    """
     user = auth.current_user()
+    if not signin_modes.password_allowed():
+        if request.method == "GET":
+            return redirect(url_for("auth.login", next=request.args.get("next") or None))
+        return _password_closed()
     if request.method == "GET":
         if user is not None and auth.is_admin(user):
             return redirect(_admin_home())
@@ -179,7 +202,8 @@ def session_conflict():
         session.pop(auth.SESSION_CONFLICT_KEY, None)
         return redirect(url_for("auth.login", next=request.args.get("next") or None))
     return render_template("auth/session_conflict.html", username=user["username"],
-                           next_url=request.args.get("next", ""))
+                           next_url=request.args.get("next", ""),
+                           password_sign_in=signin_modes.password_allowed())
 
 
 @bp.post("/session-conflict/force")
@@ -187,7 +211,9 @@ def session_conflict():
 @auth.exempt(*SIGN_IN_GATES)
 def session_conflict_force():
     """Sign in here anyway: the new session ends the one on the other device."""
-    return _sign_in("auth/session_conflict.html")
+    if not signin_modes.password_allowed():
+        return _password_closed()
+    return _sign_in("auth/session_conflict.html", password_sign_in=True)
 
 
 @bp.get("/app-selector")

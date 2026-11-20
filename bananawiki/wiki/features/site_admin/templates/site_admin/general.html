@@ -15,6 +15,9 @@
   {% if section == 'uploads' and platform_blacklist %}
   <p class="hint">{{ t('site_admin.settings.platform_blacklist', extensions=platform_blacklist|join(', ')) }}</p>
   {% endif %}
+  {% if signin_recovery_url %}
+  <p class="hint">{{ t('site_admin.settings.signin_mode.recovery', url=signin_recovery_url) }}</p>
+  {% endif %}
   {% if section == 'content' %}
   <p class="hint">{{ t('site_admin.settings.features_hint') }} <a href="{{ url_for('plugin_manager.index') }}">{{ t('site_admin.settings.features_link') }}</a></p>
   {% endif %}

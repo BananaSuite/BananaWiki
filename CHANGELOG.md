@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Upgrading
+
+* Wiki databases move to schema 20 (`site_settings.signin_mode`); 1.8.0 cannot open them afterwards, so back up first if you may want to go back. Read [UPGRADING.md](UPGRADING.md#upgrading-from-180-to-unreleased) first.
+
+### Sign-in
+
+* Wikis with sign-in through the hosting portal choose how members sign in: with wiki accounts only, with hosting accounts only, or with both (the default, as before). The choice is under **Admin → Site settings → Sign-in**.
+* With hosting accounts only, the sign-in page shows only the hosting portal's button. Passwords are refused at `/login`, `/admin/sign-in` and the "signed in somewhere else" page, and `/signup` leads to the portal, keeping the invite code of the link. New members get their account the first time they sign in, under the wiki's sign-up rules, and existing members connect their account once with its password and two-step code. API tokens are not affected.
+* An administrator can only switch to hosting accounts only after linking their own account to a hosting account.
+* With hosting accounts only, administrators can still sign in with their wiki password (and two-step code) at `/login/recovery`. The page is not linked from the sign-in page, allows 10 attempts per hour from one network, and records every attempt in the audit log, even while the audit log is switched off. Other accounts get the same answer as for a wrong password.
+* Hosting providers can set the mode with `BW_PLATFORM_SIGNIN_MODE` (`local`, `both` or `platform`). It then wins over the wiki's setting, which is shown as set by the hosting provider.
+* `bananawiki signin-mode [local|both|platform]` shows or sets the mode from the server, for example to let everyone use passwords again after a lock-out.
+* Account merges: a locked source account now loses its hosting-portal link too, and the portal is asked to drop it. Its hosting account can then connect another account on its next sign-in, instead of only ever reaching the locked account. The link still never moves to the target.
+
 ## 1.8.0 — 2026-11-09
 
 ### Upgrading

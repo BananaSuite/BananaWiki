@@ -280,6 +280,12 @@
   "auth.two_step.too_many_today": "Troppi codici errati per questo account oggi. Riprova domani.",
   "auth.two_step.verify": "Verifica",
   "auth.two_step.wait": "Troppi codici errati. Attendi {minutes} min prima di riprovare.",
+  "auth.recovery.intro": "Per gli amministratori, finché questa wiki accetta solo account di hosting: accedi con la password della wiki se il portale di hosting non è raggiungibile. Ogni tentativo viene registrato nel registro di controllo.",
+  "auth.recovery.title": "Accesso di emergenza per amministratori",
+  "auth.signin_mode.error.link_yours_first": "Collega prima il tuo account a un account di hosting (Impostazioni → Sicurezza → Account del portale di hosting), altrimenti non potresti più accedere. Se la wiki usa solo i propri account, scegli prima «Account della wiki e account di hosting».",
+  "auth.signin_mode.error.not_configured": "L'accesso con il portale di hosting non è configurato per questa wiki.",
+  "auth.signin_mode.password_closed": "Questa wiki accetta solo l'accesso con il portale di hosting.",
+  "auth.signin_mode.platform_only_notice": "Questa wiki usa gli account del portale di hosting. Se sei nuovo, il tuo account su questa wiki viene creato al primo accesso.",
   "feature.auth.description": "Account, accesso e configurazione iniziale.",
   "feature.auth.name": "Accesso"
 }

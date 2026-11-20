@@ -162,7 +162,12 @@ limited impact), **Low** (hardening, defence in depth, minor leaks).
   made inside the merge transaction: a portal link naming a deleted wiki user resolves to
   nobody (`realign_portal_link` finds no account). docs/features.md lists the credentials
   that stay with the source.
-- **Test:** `tests/security/test_wauth.py::test_w1_7_merge_keeps_the_portal_link_with_the_source`
+- **Test:** `tests/security/test_wauth.py::test_w1_7_merge_never_moves_the_portal_link_to_the_target`
+- **Later change (sign-in modes):** a locked source loses its link as well, inside the merge
+  transaction, and the portal is asked to drop it after the commit (best effort). On a wiki
+  that takes hosting accounts only, the portal account could otherwise only ever reach the
+  locked account; now its next sign-in offers to connect another account (password and
+  two-step code). The link still never moves to the target.
 
 ### W3-3 API tokens bypass the "two-step verification required for administrators" gate
 - **Severity:** Low. **Attacker:** holder of an administrator's API token issued before the requirement.

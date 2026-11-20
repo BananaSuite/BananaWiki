@@ -119,6 +119,8 @@
   "audit.action.bm_mode.feature_shown": "Feature made available in BM mode",
   "audit.action.bm_mode.account_changed": "BM mode changed for an account",
   "audit.action.bm_mode.everyone_changed": "BM mode changed for accounts by role",
+  "audit.action.user.recovery_sign_in": "Signed in at the administrator recovery page",
+  "audit.action.user.recovery_sign_in_failed": "Refused at the administrator recovery page",
   "audit.col.action": "Action",
   "audit.col.actor": "By",
   "audit.col.details": "Details",

@@ -1,4 +1,5 @@
-"""Sign-in: setup, password, portal and two-step sign-in, sign-up, account status, onboarding and the tour."""
+"""Sign-in: setup, password, portal and two-step sign-in, sign-in modes and recovery, sign-up, account status,
+onboarding and the tour."""
 
 from ...registry import Feature, Job
 from . import (  # noqa: F401 - the route modules register views
@@ -8,6 +9,7 @@ from . import (  # noqa: F401 - the route modules register views
     routes,
     routes_oauth,
     routes_onboarding,
+    routes_recovery,
     routes_signup,
     routes_two_step,
     slots,

@@ -500,8 +500,9 @@ def test_nw3_4_upgrade_notes_say_1_7_3_cannot_open_the_migrated_database(tmp_pat
     root = Path(__file__).resolve().parents[2]
     upgrading = (root / "UPGRADING.md").read_text(encoding="utf-8")
     section = upgrading.split("\n## Upgrading from 1.7.3 to 1.7.6\n", 1)[1].split("\n## ", 1)[0]
-    assert f"schema 15 to {migrations.LATEST}" in section
+    shipped = 19  # the schema of 1.7.6 (and 1.8.0, which had no migration)
+    assert f"schema 15 to {shipped}" in section
     assert "1.7.3 cannot open the database" in section and "`sudo bananawiki backup`" in section
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = changelog.split("## 1.7.6", 1)[1].split("\n## ", 1)[0]
-    assert f"schema {migrations.LATEST}" in unreleased and "1.7.3 cannot open" in unreleased
+    released = changelog.split("## 1.7.6", 1)[1].split("\n## ", 1)[0]
+    assert f"schema {shipped}" in released and "1.7.3 cannot open" in released

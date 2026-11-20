@@ -835,7 +835,9 @@ See [read aloud](tts.md) for installation and configuration.
   An account may file 10 requests in 24 hours, cancelled ones included, and
   the merge page lists the 50 newest closed requests.
   Sign-in credentials stay with the source: its password, two-step
-  verification, API tokens and hosting-portal link. Administrators can also merge directly
+  verification, API tokens and hosting-portal link (which ends with the merge:
+  the target keeps only its own link, so the portal account of the source
+  can connect another account on its next sign-in). Administrators can also merge directly
   (`/admin/users/merge`). The source is then deleted, or kept locked: renamed
   `merged_<name>`, made a plain user with an unknown password, signed out,
   its API tokens revoked and suspended so that only an administrator can
@@ -1065,4 +1067,8 @@ account, account status pages for suspended, pending and denied accounts,
 forced password change, the administrator's first-run wizard, an introduction
 and a guided tour for new members (the tour illustrates what each role can do;
 it never changes what the account can see), and sign-in with the hosting
-portal on hosted wikis.
+portal on hosted wikis. There, administrators choose whether members sign in
+with wiki accounts, hosting accounts or both (**Admin → Site settings →
+Sign-in**, or the host's `BW_PLATFORM_SIGNIN_MODE`); with hosting accounts
+only, administrators keep `/login/recovery` (see
+[Security](security.md#sign-in-modes)).

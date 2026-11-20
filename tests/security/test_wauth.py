@@ -192,7 +192,8 @@ def test_w1_6_an_unconfirmed_request_does_not_block_the_other_account(app, make_
     assert db.scalar("SELECT status FROM account_merge_requests WHERE id = ?", (stranger_id,)) == "pending"
 
 
-# W1-7: a merge does not move the source's hosting-portal sign-in to the target
+# W1-7: a merge does not move the source's hosting-portal sign-in to the target (a locked source loses it too,
+# so the portal account can connect another wiki account: see tests/hosting/test_wiki_signin_modes.py)
 
 
 def _merge_linked_account(app, make_user, db, name, *, delete_source):
@@ -208,10 +209,11 @@ def _merge_linked_account(app, make_user, db, name, *, delete_source):
     return source, target
 
 
-def test_w1_7_merge_keeps_the_portal_link_with_the_source(app, make_user, db):
+def test_w1_7_merge_never_moves_the_portal_link_to_the_target(app, make_user, db):
     source, target = _merge_linked_account(app, make_user, db, "locked", delete_source=False)
-    assert db.scalar("SELECT user_id FROM platform_oauth_links WHERE account_id = 'portal-locked'") == source["id"]
-    assert db.scalar("SELECT COUNT(*) FROM platform_oauth_links WHERE user_id = ?", (target["id"],)) == 0
+    assert db.scalar("SELECT COUNT(*) FROM platform_oauth_links WHERE account_id = 'portal-locked'") == 0
+    assert db.scalar("SELECT COUNT(*) FROM platform_oauth_links WHERE user_id IN (?, ?)",
+                     (source["id"], target["id"])) == 0
 
     _source, target = _merge_linked_account(app, make_user, db, "deleted", delete_source=True)
     assert db.scalar("SELECT COUNT(*) FROM platform_oauth_links WHERE account_id = 'portal-deleted'") == 0

@@ -59,6 +59,8 @@ log = logging.getLogger("bananawiki.platform_oauth")
 
 STATE_KEY = "_platform_oauth_states"
 PENDING_KEY = "_platform_oauth_pending"
+# An invite code from a /signup link while new accounts come through the portal: the connect page offers it.
+INVITE_KEY = "_platform_oauth_invite"
 STATE_TTL_SECONDS = 600
 MAX_STATES = 5
 MAX_RESPONSE_BYTES = 256 * 1024
@@ -347,12 +349,17 @@ def link(user: dict[str, Any], account_id: str, portal_username: str) -> None:
     _store_link(user, account_id, portal_username)
 
 
+def portal_unlink(account_id: str, user_id: str) -> None:
+    """Ask the portal to drop its link of *account_id* to wiki account *user_id* (the local row is the caller's)."""
+    # The wiki account too: after a merge on the portal its link there names another account.
+    _portal_post("unlink_url", {"account_id": account_id, "wiki_user_id": user_id})
+
+
 def unlink(user: dict[str, Any]) -> None:
     existing = link_of(user["id"])
     if existing is None:
         return
-    # The wiki account too: after a merge on the portal its link there names another account.
-    _portal_post("unlink_url", {"account_id": existing["account_id"], "wiki_user_id": user["id"]})
+    portal_unlink(existing["account_id"], user["id"])
     db.execute("DELETE FROM platform_oauth_links WHERE user_id = ?", (user["id"],))
 
 

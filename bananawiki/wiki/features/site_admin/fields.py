@@ -40,6 +40,10 @@ class Field:
     ``reveal`` is ``(field name, values)``: the form shows the control only
     while that field has one of the space-separated values (admin.js), so a
     page lists only what applies; the value is still sent and stored.
+    ``check`` returns a translation key refusing a value that parsed, or None
+    (rules that depend on more than the value, such as who is saving).
+    ``optional`` fields left out of a form keep their value (fields added after
+    the one-page form of 1.7, which scripts may still post).
     """
 
     name: str
@@ -54,6 +58,8 @@ class Field:
     empty: Any = None
     choices: Callable[[], tuple[str, ...]] | None = field(default=None, compare=False)
     reveal: tuple[str, str] | None = None
+    check: Callable[[Any], str | None] | None = field(default=None, compare=False)
+    optional: bool = False
 
     @property
     def label(self) -> str:
@@ -87,7 +93,11 @@ class Field:
         if self.depends_on is not None and not flags.get(self.depends_on):
             return self.empty
         parser = getattr(self, f"_parse_{self.kind}")
-        return parser(form, (raw or "").strip() if isinstance(raw, str) else "")
+        value = parser(form, (raw or "").strip() if isinstance(raw, str) else "")
+        refusal = self.check(value) if self.check else None
+        if refusal:
+            raise FieldError(refusal)
+        return value
 
     # Parsers
 
@@ -149,7 +159,8 @@ class Field:
 
 def parse_form(fields: list[Field], form: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, FieldError]]:
     """Read every unlocked, visible field; return ``(values, errors)``."""
-    active = [f for f in fields if f.shown() and not f.lock_reason()]
+    active = [f for f in fields
+              if f.shown() and not f.lock_reason() and (not f.optional or f.name in form)]
     flags = {f.name: f.parse(form, {}) for f in active if f.kind == "flag"}
     values: dict[str, Any] = dict(flags)
     errors: dict[str, FieldError] = {}

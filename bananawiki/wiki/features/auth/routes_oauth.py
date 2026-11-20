@@ -5,7 +5,8 @@ first sign-in: create an account or connect an existing one),
 /platform-oauth/signup (create), /platform-oauth/merge (connect, then the
 two-step code), /platform-oauth/link-callback,
 /settings/link-platform-account, /settings/unlink-platform-account.
-Every route answers 404 while single sign-on is not configured.
+Every route answers 404 while single sign-on is not configured, and while
+the wiki takes its own accounts only (:mod:`.signin_modes`).
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from ....core.web import allow_form_action, client_network, safe_next
 from ... import accounts, auth, settings
 from ...db import db
 from ...i18n import t
-from . import invites, routes_signup, signin, signup, two_step
+from . import invites, routes_signup, signin, signin_modes, signup, two_step
 from . import platform_oauth as oauth
 from .blueprint import SIGN_IN_GATES, bp
 
@@ -37,7 +38,7 @@ MERGE_CODE_KEY = "_platform_oauth_merge_code"
 def _configured(view):
     @wraps(view)
     def wrapper(*args: Any, **kwargs: Any):
-        if oauth.config() is None:
+        if not signin_modes.platform_allowed():
             abort(404)
         if request.method == "POST" or request.endpoint.endswith("callback"):
             if not SqlLimiter(db.session).hit(client_network(), "platform_oauth:ip", MAX_PER_IP, WINDOW_SECONDS):
@@ -63,6 +64,7 @@ def _pending() -> dict[str, Any] | None:
 
 def _finish(user: dict[str, Any], next_url: str, account_id: str):
     session.pop(oauth.PENDING_KEY, None)
+    session.pop(oauth.INVITE_KEY, None)
     return signin.finish(user, remember=False, next_url=next_url, method="platform_oauth",
                          platform_account=account_id)
 
@@ -143,7 +145,7 @@ def _connect_page(pending: dict[str, Any], *, status: int = 200, create_error: s
         "name_problem": problem, "same_name_exists": local is not None, "same_name_free": same_name_free,
         "username": username if username is not None else (oauth.suggest_username(portal_name) if available
                                                             else portal_name),
-        "invite": invite, "create_error": create_error, "existing_error": existing_error,
+        "invite": invite or invites.normalize(session.get(oauth.INVITE_KEY)), "create_error": create_error, "existing_error": existing_error,
         "existing_username": existing_username if existing_username is not None else (
             local["username"] if same_name_free else ""),
     }

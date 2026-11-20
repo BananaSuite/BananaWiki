@@ -42,6 +42,7 @@ import hmac
 import math
 import re
 import time
+from collections.abc import Callable
 from typing import Any
 
 from flask import current_app, redirect, session, url_for
@@ -147,7 +148,8 @@ def _upgrade_hash(user: dict[str, Any], password: str) -> dict[str, Any]:
 SIGN_IN_NAME = re.compile(r"[A-Za-z0-9_-]{1,50}")
 
 
-def verify(username: str, password: str, *, admin_only: bool = False) -> dict[str, Any]:
+def verify(username: str, password: str, *, admin_only: bool = False,
+           eligible: Callable[[dict[str, Any]], bool] | None = None) -> dict[str, Any]:
     """Return the account for these credentials or raise :class:`Refused`.
 
     The per-account limits are keyed on the account that was found (or, for
@@ -155,6 +157,11 @@ def verify(username: str, password: str, *, admin_only: bool = False) -> dict[st
     the spelling typed: a name that cannot belong to any account (such as one
     padded with whitespace) is not looked up at all, so no spelling of an
     account's name has a budget of its own.
+
+    An account that fails *eligible* is answered like a wrong password (its
+    password is not even compared, and the attempt counts as a failure), so
+    a page open to some accounts only does not tell who exists or which
+    password is right.
     """
     ip = client_ip()
     network = client_network()
@@ -185,9 +192,10 @@ def verify(username: str, password: str, *, admin_only: bool = False) -> dict[st
                 raise Refused("auth.error.too_many_attempts", 429)
             reservations.append(reservation)
     method = current_app.config["BW"].password_hash_method
-    if user is None:
+    refused = user is None or (eligible is not None and not eligible(user))
+    if refused:
         passwords.burn_time(password, method)
-    if user is None or not passwords.verify_password(user["password"], password):
+    if refused or not passwords.verify_password(user["password"], password):
         # An unknown name is often a password typed into the wrong field, so it is not recorded.
         current_app.logger.info("Failed sign-in for %s from %s", f"{username!r}" if user else "an unknown account", ip)
         raise Refused("auth.error.invalid_credentials", 401)

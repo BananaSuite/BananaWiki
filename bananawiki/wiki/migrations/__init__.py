@@ -40,6 +40,8 @@ Version history
 19   Amounts in the shared rate-limit counters (``rate_limit_hits.amount``),
      for the daily Kanban and canvas storage budgets. See
      :mod:`.v19_stored_amounts`.
+20   How members sign in (``site_settings.signin_mode``: the wiki's own
+     accounts, the hosting portal's or both). See :mod:`.v20_signin_mode`.
 
 A 1.4 database at version 3 upgrades in place. New databases are created from
 ``baseline_v3.sql`` followed by every later migration, so fresh and upgraded
@@ -70,6 +72,7 @@ from . import (
     v17_builtin_doc_pages,
     v18_canvas_page_slugs,
     v19_stored_amounts,
+    v20_signin_mode,
 )
 
 APPLICATION_ID = 0x42574B49  # "BWKI", unchanged from 1.4
@@ -91,6 +94,7 @@ MIGRATIONS = (
     v17_builtin_doc_pages.upgrade,  # 16 -> 17
     v18_canvas_page_slugs.upgrade,  # 17 -> 18
     v19_stored_amounts.upgrade,  # 18 -> 19
+    v20_signin_mode.upgrade,  # 19 -> 20
 )
 LATEST = BASELINE + len(MIGRATIONS)
 

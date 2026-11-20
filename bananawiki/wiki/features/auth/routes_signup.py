@@ -1,15 +1,20 @@
-"""Route: /signup (invite codes, open sign-up, approval, bot protection, per-address limit)."""
+"""Route: /signup (invite codes, open sign-up, approval, bot protection, per-address limit).
+
+While the wiki takes hosting accounts only, /signup leads to the portal's
+sign-in instead: the connect page of the first sign-in creates the account
+under the same policy (and is offered the invite code of the link).
+"""
 
 from __future__ import annotations
 
-from flask import redirect, render_template, request, url_for
+from flask import redirect, render_template, request, session, url_for
 
 from ....core.ratelimit import SqlLimiter
 from ....core.web import client_network
 from ... import accounts, auth, settings
 from ...db import db
 from ...i18n import t
-from . import bot_protection, invites, signup
+from . import bot_protection, invites, platform_oauth, signin_modes, signup
 from .blueprint import bp
 
 WINDOW_SECONDS = 3600
@@ -37,6 +42,11 @@ def signup_page():
         return redirect("/")
     if not signup.signup_available():
         return redirect(url_for("auth.maintenance") if settings.maintenance_active() else url_for("auth.login"))
+    if not signin_modes.password_allowed():
+        code = invites.normalize(request.values.get("code") or request.values.get("invite_code"))
+        if code:
+            session[platform_oauth.INVITE_KEY] = code
+        return redirect(url_for("auth.platform_oauth_login"))
     if request.method == "GET":
         return _render()
 

@@ -119,6 +119,8 @@
   "audit.action.bm_mode.feature_shown": "Funktion im BM-Modus verfügbar gemacht",
   "audit.action.bm_mode.account_changed": "BM-Modus für ein Konto geändert",
   "audit.action.bm_mode.everyone_changed": "BM-Modus für Konten nach Rolle geändert",
+  "audit.action.user.recovery_sign_in": "Über die Notfall-Anmeldung für Administratoren angemeldet",
+  "audit.action.user.recovery_sign_in_failed": "Bei der Notfall-Anmeldung für Administratoren abgewiesen",
   "audit.col.action": "Aktion",
   "audit.col.actor": "Von",
   "audit.col.details": "Details",

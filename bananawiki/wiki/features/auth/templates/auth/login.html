@@ -6,11 +6,15 @@
   {#- Sent here from a page that needs an account: say why, so it does not look like a plain sign-in. -#}
   {% if next_url and next_url != '/' and request.method == 'GET' %}<div class="alert" role="status"><div class="alert__body">{{ t('auth.error.login_required') }}</div></div>{% endif %}
   {% if site().maintenance_mode %}<div class="alert alert--warning"><div class="alert__body"><p>{{ t('auth.login.maintenance_notice') }}</p>{% if site().maintenance_message %}<p>{{ site().maintenance_message }}</p>{% endif %}</div></div>{% endif %}
+  {% if password_sign_in %}
   {% with action=url_for('auth.login'), submit_label=t('auth.login.submit'), show_remember=true %}
     {% include "auth/_login_form.html" %}
   {% endwith %}
+  {% endif %}
   {{ slot('auth.login.below_form', next_url=next_url) }}
-  {% if signup_available %}
+  {% if not password_sign_in %}
+  <p class="small muted">{{ t('auth.signin_mode.platform_only_notice') }}</p>
+  {% elif signup_available %}
   <p class="small">{{ t('auth.login.no_account') }} <a href="{{ url_for('auth.signup') }}">{{ t('auth.signup.link') }}</a></p>
   {% endif %}
 </div>

@@ -147,6 +147,7 @@
   "site_admin.locked.owners_only": "Only owners and superusers can change this setting.",
   "site_admin.locked.platform": "Managed by the hosting platform.",
   "site_admin.locked.public_mode": "The hosting platform does not allow public access to this wiki.",
+  "site_admin.locked.signin_mode": "Set by your hosting provider. Ask them to change it.",
   "site_admin.locked.two_step_yours_first": "Turn on two-step verification for your own account first (Settings → Two-step verification).",
   "site_admin.log.empty": "Nothing to show.",
   "site_admin.log.empty_errors": "No errors in the recent log.",
@@ -208,6 +209,9 @@
   "site_admin.nav.migration": "Site migration",
   "site_admin.nav.server": "Server",
   "site_admin.nav.settings": "Site settings",
+  "site_admin.option.signin_mode.both": "Wiki accounts and hosting accounts",
+  "site_admin.option.signin_mode.local": "Wiki accounts only",
+  "site_admin.option.signin_mode.platform": "Hosting accounts only",
   "site_admin.option.upload_mode.allow_all": "All types (except blocked by the host)",
   "site_admin.option.upload_mode.blacklist": "Everything except the blocked extensions",
   "site_admin.option.upload_mode.whitelist": "Only the allowed extensions",
@@ -300,5 +304,8 @@
   "site_admin.settings.upload_whitelist": "Allowed extensions",
   "site_admin.settings.upload_whitelist.hint": "Separate with commas, for example: pdf, png.",
   "site_admin.settings.features_hint": "Optional features, such as the visual page builder, are turned on and off under Plugins.",
-  "site_admin.settings.features_link": "Open Plugins"
+  "site_admin.settings.features_link": "Open Plugins",
+  "site_admin.settings.signin_mode": "How members sign in",
+  "site_admin.settings.signin_mode.hint": "With hosting accounts only, the sign-in page offers only the hosting portal, and new members create their account through it (sign-up rules and approval still apply). Members connect their existing account once with its password. Link your own account first.",
+  "site_admin.settings.signin_mode.recovery": "If the hosting portal is unavailable, administrators can still sign in with their wiki password at {url}. The page is not linked from the sign-in page, and every attempt is recorded in the audit log."
 }

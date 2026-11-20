@@ -147,6 +147,7 @@
   "site_admin.locked.owners_only": "Nur Eigentümer und Superuser können diese Einstellung ändern.",
   "site_admin.locked.platform": "Wird von der Hosting-Plattform verwaltet.",
   "site_admin.locked.public_mode": "Die Hosting-Plattform erlaubt keinen öffentlichen Zugang zu diesem Wiki.",
+  "site_admin.locked.signin_mode": "Von deinem Hosting-Anbieter festgelegt. Bitte ihn, es zu ändern.",
   "site_admin.locked.two_step_yours_first": "Schalte zuerst für dein eigenes Konto die Bestätigung in zwei Schritten ein (Einstellungen → Bestätigung in zwei Schritten).",
   "site_admin.log.empty": "Nichts anzuzeigen.",
   "site_admin.log.empty_errors": "Keine Fehler im aktuellen Protokoll.",
@@ -208,6 +209,9 @@
   "site_admin.nav.migration": "Website-Umzug",
   "site_admin.nav.server": "Server",
   "site_admin.nav.settings": "Website-Einstellungen",
+  "site_admin.option.signin_mode.both": "Wiki-Konten und Hosting-Konten",
+  "site_admin.option.signin_mode.local": "Nur Wiki-Konten",
+  "site_admin.option.signin_mode.platform": "Nur Hosting-Konten",
   "site_admin.option.upload_mode.allow_all": "Alle Typen (außer den vom Hosting blockierten)",
   "site_admin.option.upload_mode.blacklist": "Alles außer den blockierten Dateiendungen",
   "site_admin.option.upload_mode.whitelist": "Nur die erlaubten Dateiendungen",
@@ -300,5 +304,8 @@
   "site_admin.settings.upload_whitelist": "Erlaubte Dateiendungen",
   "site_admin.settings.upload_whitelist.hint": "Mit Kommas trennen, zum Beispiel: pdf, png.",
   "site_admin.settings.features_hint": "Optionale Funktionen wie den visuellen Seitenbaukasten schaltest du unter „Plugins“ ein und aus.",
-  "site_admin.settings.features_link": "Plugins öffnen"
+  "site_admin.settings.features_link": "Plugins öffnen",
+  "site_admin.settings.signin_mode": "Wie sich Mitglieder anmelden",
+  "site_admin.settings.signin_mode.hint": "Mit „Nur Hosting-Konten“ bietet die Anmeldeseite nur das Hosting-Portal an, und neue Mitglieder erstellen ihr Konto darüber (Registrierungsregeln und Freigabe gelten weiter). Mitglieder verbinden ihr bestehendes Konto einmal mit seinem Passwort. Verknüpfe zuerst dein eigenes Konto.",
+  "site_admin.settings.signin_mode.recovery": "Ist das Hosting-Portal nicht erreichbar, können sich Administratoren unter {url} weiterhin mit ihrem Wiki-Passwort anmelden. Die Seite ist nicht von der Anmeldeseite verlinkt, und jeder Versuch wird im Audit-Protokoll festgehalten."
 }

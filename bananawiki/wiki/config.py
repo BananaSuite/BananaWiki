@@ -117,6 +117,8 @@ class Config:
     allow_site_import: bool
     # Platform OAuth (sign in with the hosting portal)
     platform_oauth: dict[str, str] = field(default_factory=dict, repr=False)
+    # How members sign in, chosen by the host (BW_PLATFORM_SIGNIN_MODE); "" lets the wiki decide.
+    platform_signin_mode: str = ""
     # Database tuning
     db_busy_timeout_ms: int = 5000
     db_cache_kib: int = 4096
@@ -223,6 +225,24 @@ def _allow_external_plugins(env: Env, managed: bool) -> bool | None:
     return env.bool("BW_ALLOW_EXTERNAL_PLUGINS")
 
 
+SIGNIN_MODES = ("local", "both", "platform")
+
+
+def _platform_signin_mode(env: Env) -> str:
+    """``BW_PLATFORM_SIGNIN_MODE``: one of :data:`SIGNIN_MODES`, or "" (unset, empty or unknown).
+
+    The hosting portal sets it in a tenant's environment. A value this release
+    does not know is ignored with a warning rather than refused: a wiki must
+    not stop starting because its host is newer than it.
+    """
+    value = env.str("BW_PLATFORM_SIGNIN_MODE").lower()
+    if value and value not in SIGNIN_MODES:
+        log.warning("BW_PLATFORM_SIGNIN_MODE=%r is not one of %s; the wiki's own setting applies.",
+                    value, ", ".join(SIGNIN_MODES))
+        return ""
+    return value
+
+
 def load_config(environ: dict[str, str] | None = None, **overrides: object) -> Config:
     """Build the configuration from the environment (plus test overrides)."""
     env = Env(environ)
@@ -323,6 +343,7 @@ def load_config(environ: dict[str, str] | None = None, **overrides: object) -> C
         maintenance_file=env.str("BW_MAINTENANCE_FILE", "", "BANANA_MAINTENANCE_FILE"),
         allow_site_import=env.bool("BW_ALLOW_SITE_IMPORT", not managed),
         platform_oauth=platform_oauth,
+        platform_signin_mode=_platform_signin_mode(env),
         db_busy_timeout_ms=env.int("BW_DB_BUSY_TIMEOUT_MS", 5000, minimum=100, maximum=30000),
         db_cache_kib=env.int("BW_DB_CACHE_KIB", 4096, minimum=256, maximum=65536),
         db_synchronous=env.choice("BW_DB_SYNCHRONOUS", "full", frozenset({"full", "normal"})).upper(),

@@ -126,6 +126,7 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
     `bananawiki reset-two-step NAME` resets any account from the server. On a
     hosted wiki, the portal's **Reset admin password** also turns it off and
     records that in the wiki's audit log.
+* **Sign-in modes:** see [below](#sign-in-modes).
 * **Sign-up:** invite codes, open sign-up (optionally until a date), and
   administrator approval, which is enforced everywhere: pending and denied
   accounts can only see their status page. Bot protection adds a honeypot
@@ -163,6 +164,56 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   minutes, shared by all workers; in production a `BW_SETUP_TOKEN` shorter
   than 20 characters is refused (the server still starts, so an upgraded
   wiki whose setup is done is not affected).
+
+### Sign-in modes
+
+A wiki with sign-in through the hosting portal (`BW_PLATFORM_OAUTH_*`)
+chooses how members sign in, under **Admin → Site settings → Sign-in**:
+
+| Mode | Sign-in page | Notes |
+|---|---|---|
+| Wiki accounts only (`local`) | password form | Every `/platform-oauth/*` page and the account link in the settings answer 404. Links made earlier stay in the database, unused. |
+| Wiki and hosting accounts (`both`) | password form and the portal's button | The default. |
+| Hosting accounts only (`platform`) | the portal's button | See below. |
+
+Without platform sign-in configuration the mode is always `local`. The
+hosting provider can decide instead with `BW_PLATFORM_SIGNIN_MODE`, which wins
+and locks the setting. `bananawiki signin-mode` shows the stored mode and the
+mode in force, and `bananawiki signin-mode both` resets it from the server.
+
+With hosting accounts only:
+
+* Passwords are refused at `/login`, `/admin/sign-in` (and the 1.4 `POST /admin`)
+  and `/session-conflict/force` (403). `/signup` leads to the portal, keeping
+  the invite code of the link. New accounts are only created by the first
+  platform sign-in, under the wiki's sign-up policy (invite codes, approval,
+  user name rules).
+* Accounts are found by the portal's stable account id only. A wiki account
+  with the portal account's name is never linked because of its name: it is
+  connected only with its password (and its two-step code when it uses one),
+  or when the portal already knows a link that 1.4 made. An account linked to
+  another hosting account cannot be connected. This is how existing members
+  move to hosting accounts, and it keeps working in this mode.
+* Passwords are still used to confirm changes in the settings, to connect
+  an account and at the recovery page. API tokens and the userbot key are
+  not affected.
+* **Lock-out guard:** an administrator can only choose this mode once their
+  own account is linked to a hosting account.
+* **Recovery:** administrators (the `admin` and `owner` roles) can still sign
+  in with their wiki password, and their two-step code, at `/login/recovery`.
+  The page is not linked from the sign-in page; the site settings mention it.
+  Other accounts get the same answer as a wrong password, from the same
+  check, so the page tells nobody which accounts exist or which password is
+  right. It allows 10 attempts per hour from one client network, on top of
+  the sign-in limits. Every attempt, accepted
+  (`user.recovery_sign_in`) or refused (`user.recovery_sign_in_failed`, with
+  the reason), is recorded in the audit log, even while the audit log is
+  switched off. The account name is recorded only when an account has it.
+  In the other modes the page redirects to `/login`.
+* **Account merges** never move a hosting-portal link: the target keeps its
+  own, and the source's ends with the source (a locked source loses it, and
+  the portal is asked to drop it after the merge), so its hosting account can
+  connect another account on its next sign-in.
 
 ## Access control
 

@@ -280,6 +280,12 @@
   "auth.two_step.too_many_today": "Für dieses Konto wurden heute zu viele falsche Codes eingegeben. Versuche es morgen erneut.",
   "auth.two_step.verify": "Bestätigen",
   "auth.two_step.wait": "Zu viele falsche Codes. Warte {minutes} Min., bevor du es erneut versuchst.",
+  "auth.recovery.intro": "Für Administratoren, solange dieses Wiki nur Hosting-Konten zulässt: Melde dich mit deinem Wiki-Passwort an, wenn das Hosting-Portal nicht erreichbar ist. Jeder Versuch wird im Audit-Protokoll festgehalten.",
+  "auth.recovery.title": "Notfall-Anmeldung für Administratoren",
+  "auth.signin_mode.error.link_yours_first": "Verknüpfe zuerst dein eigenes Konto mit einem Hosting-Konto (Einstellungen → Sicherheit → Konto im Hosting-Portal), sonst könntest du dich nicht mehr anmelden. Solange das Wiki nur eigene Konten verwendet, wähle zuerst „Wiki-Konten und Hosting-Konten“.",
+  "auth.signin_mode.error.not_configured": "Die Anmeldung über das Hosting-Portal ist für dieses Wiki nicht eingerichtet.",
+  "auth.signin_mode.password_closed": "In diesem Wiki ist nur die Anmeldung über das Hosting-Portal möglich.",
+  "auth.signin_mode.platform_only_notice": "Dieses Wiki verwendet Konten des Hosting-Portals. Bist du neu hier, wird dein Konto in diesem Wiki bei der ersten Anmeldung erstellt.",
   "feature.auth.description": "Konten, Anmeldung und Ersteinrichtung.",
   "feature.auth.name": "Anmeldung"
 }

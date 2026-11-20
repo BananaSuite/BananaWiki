@@ -147,6 +147,7 @@
   "site_admin.locked.owners_only": "Solo i proprietari e i superutenti possono modificare questa impostazione.",
   "site_admin.locked.platform": "Gestita dalla piattaforma di hosting.",
   "site_admin.locked.public_mode": "La piattaforma di hosting non consente l'accesso pubblico a questa wiki.",
+  "site_admin.locked.signin_mode": "Stabilito dal tuo fornitore di hosting. Chiedigli di cambiarlo.",
   "site_admin.locked.two_step_yours_first": "Attiva prima la verifica in due passaggi per il tuo account (Impostazioni → Verifica in due passaggi).",
   "site_admin.log.empty": "Niente da mostrare.",
   "site_admin.log.empty_errors": "Nessun errore nella parte recente del log.",
@@ -208,6 +209,9 @@
   "site_admin.nav.migration": "Migrazione del sito",
   "site_admin.nav.server": "Server",
   "site_admin.nav.settings": "Impostazioni del sito",
+  "site_admin.option.signin_mode.both": "Account della wiki e account di hosting",
+  "site_admin.option.signin_mode.local": "Solo account della wiki",
+  "site_admin.option.signin_mode.platform": "Solo account di hosting",
   "site_admin.option.upload_mode.allow_all": "Tutti, tranne i tipi bloccati dall'host",
   "site_admin.option.upload_mode.blacklist": "Tutto tranne le estensioni bloccate",
   "site_admin.option.upload_mode.whitelist": "Solo le estensioni consentite",
@@ -300,5 +304,8 @@
   "site_admin.settings.upload_whitelist": "Estensioni consentite",
   "site_admin.settings.upload_whitelist.hint": "Separale con virgole, per esempio: pdf, png.",
   "site_admin.settings.features_hint": "Le funzioni facoltative, come l'editor visuale delle pagine, si attivano e disattivano in Plugin.",
-  "site_admin.settings.features_link": "Apri Plugin"
+  "site_admin.settings.features_link": "Apri Plugin",
+  "site_admin.settings.signin_mode": "Come accedono i membri",
+  "site_admin.settings.signin_mode.hint": "Con «Solo account di hosting» la pagina di accesso offre solo il portale di hosting e i nuovi membri creano lì il loro account (le regole di registrazione e l'approvazione restano valide). I membri collegano una volta il loro account esistente con la sua password. Collega prima il tuo account.",
+  "site_admin.settings.signin_mode.recovery": "Se il portale di hosting non è raggiungibile, gli amministratori possono comunque accedere con la password della wiki su {url}. La pagina non è collegata dalla pagina di accesso e ogni tentativo viene registrato nel registro di controllo."
 }

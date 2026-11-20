@@ -36,8 +36,8 @@ from .files import (
 from .manager import FAILED_CONVERGENCE, PROXY_ROLLBACK, Manager, tenant_names
 from .system import TenantStorageUnsupported
 
-APP_COMMANDS = ("create-admin", "reset-password", "reset-two-step", "db", "jobs", "config", "setup-token",
-                "hosting-admin")
+APP_COMMANDS = ("create-admin", "reset-password", "reset-two-step", "signin-mode", "db", "jobs", "config",
+                "setup-token", "hosting-admin")
 FAILED_OUTCOMES = {"failed", "paused", "rolled_back"}
 
 

@@ -280,6 +280,12 @@
   "auth.two_step.too_many_today": "Too many wrong codes for this account today. Try again tomorrow.",
   "auth.two_step.verify": "Verify",
   "auth.two_step.wait": "Too many wrong codes. Wait {minutes} min before the next try.",
+  "auth.recovery.intro": "For administrators while this wiki only accepts hosting accounts: sign in with your wiki password if the hosting portal is unavailable. Every attempt is recorded in the audit log.",
+  "auth.recovery.title": "Administrator recovery sign-in",
+  "auth.signin_mode.error.link_yours_first": "Link your own account to a hosting account first (Settings → Security → Hosting portal account), or you could no longer sign in. While the wiki uses only its own accounts, choose “Wiki accounts and hosting accounts” first.",
+  "auth.signin_mode.error.not_configured": "Sign-in with the hosting portal is not set up for this wiki.",
+  "auth.signin_mode.password_closed": "This wiki only accepts sign-in with the hosting portal.",
+  "auth.signin_mode.platform_only_notice": "This wiki uses hosting portal accounts. If you are new here, your account on this wiki is created the first time you sign in.",
   "feature.auth.description": "Accounts, sign-in and first-run setup.",
   "feature.auth.name": "Sign-in"
 }

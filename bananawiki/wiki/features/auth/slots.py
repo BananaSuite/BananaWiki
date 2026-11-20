@@ -7,14 +7,16 @@ from typing import Any
 from flask import render_template
 
 from ... import auth
-from . import platform_oauth, two_step
+from . import signin_modes, two_step
 
 
 def login_below_form(next_url: str = "") -> str:
-    """``auth.login.below_form``: the "sign in with the hosting portal" button."""
-    if platform_oauth.config() is None:
+    """``auth.login.below_form``: the "sign in with the hosting portal" button (the only way in when
+    the wiki takes hosting accounts only)."""
+    mode = signin_modes.current()
+    if mode == signin_modes.LOCAL:
         return ""
-    return render_template("auth/_oauth_button.html", next_url=next_url)
+    return render_template("auth/_oauth_button.html", next_url=next_url, primary=mode == signin_modes.PLATFORM)
 
 
 def account_settings_sections() -> str:
@@ -25,7 +27,7 @@ def account_settings_sections() -> str:
     impersonating = auth.is_impersonating()
     return render_template(
         "auth/_settings_section.html",
-        oauth_enabled=platform_oauth.config() is not None and not impersonating,
+        oauth_enabled=signin_modes.platform_allowed() and not impersonating,
         two_step_state=two_step.state(user["id"]), impersonating=impersonating,
     )
 

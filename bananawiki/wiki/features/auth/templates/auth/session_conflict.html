@@ -8,9 +8,13 @@
     <p>{{ t('auth.session_conflict.line2') }}</p>
   </div></div>
   <p>{{ t('auth.session_conflict.instructions') }}</p>
+  {% if password_sign_in %}
   {% with action=url_for('auth.session_conflict_force'), submit_label=t('auth.session_conflict.submit'), show_remember=false %}
     {% include "auth/_login_form.html" %}
   {% endwith %}
+  {% else %}
+  {{ slot('auth.login.below_form', next_url=next_url) }}
+  {% endif %}
   <p class="small"><a href="{{ url_for('auth.login') }}">{{ t('auth.session_conflict.back') }}</a></p>
 </div>
 {% endblock %}

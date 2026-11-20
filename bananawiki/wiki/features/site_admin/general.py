@@ -17,6 +17,7 @@ from flask import abort, current_app, redirect, render_template, request, url_fo
 from ... import auth, registry, settings
 from ...i18n import t
 from ..audit import record
+from ..auth import signin_modes
 from .blueprint import bp
 from .fields import Field, parse_form
 
@@ -49,6 +50,17 @@ def _two_step_requirement_locked() -> str | None:
     if not top or auth.is_impersonating():
         return "site_admin.locked.owners_only"
     return None if two_step.enabled(user["id"]) else "site_admin.locked.two_step_yours_first"  # type: ignore[index]
+
+
+def _signin_mode_locked() -> str | None:
+    return "site_admin.locked.signin_mode" if signin_modes.override() else None
+
+
+def _signin_mode_check(value: str) -> str | None:
+    """Hosting accounts only: not before the administrator's own account is linked (lock-out guard)."""
+    if value != signin_modes.PLATFORM or signin_modes.stored() == signin_modes.PLATFORM:
+        return None
+    return signin_modes.platform_refusal(auth.current_user())
 
 
 @lru_cache(maxsize=1)
@@ -87,6 +99,8 @@ SECTIONS: list[tuple[str, list[Field]]] = [
         Field("two_step_required_for_admins", "flag", locked=_two_step_requirement_locked),
     ]),
     ("signin", [
+        Field("signin_mode", "choice", options=signin_modes.MODES, locked=_signin_mode_locked,
+              visible=signin_modes.configured, check=_signin_mode_check, optional=True),
         Field("login_app_selector", "flag"),
         Field("new_user_intro_enabled", "flag"),
         Field("onboarding_replay_disabled", "flag"),
@@ -138,6 +152,8 @@ def _current_values() -> dict[str, Any]:
     for flag, until in (("public_mode", "public_mode_until"), ("open_signup", "open_signup_until")):
         if values.get(flag) and stored.get(until) and not active[flag]:
             values[flag], values[until] = 0, None
+    if signin_modes.override():
+        values["signin_mode"] = signin_modes.override()
     return values
 
 
@@ -164,6 +180,8 @@ def _render(section: str, values: dict[str, Any], errors: dict[str, Any], status
         "site_admin/general.html",
         sections=SECTIONS, section=section, fields=section_fields(section), values=values, errors=errors,
         platform_blacklist=_platform_blacklist(), role_options=ROLES,
+        signin_recovery_url=url_for("auth.login_recovery", _external=True)
+        if section == "signin" and signin_modes.configured() else None,
     ), status
 
 
