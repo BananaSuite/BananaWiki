@@ -39,6 +39,7 @@
 * A settings page has one Save button, at the top right of the page, and it stays in view while the page scrolls. This applies to Site settings, the Appearance, Notifications and Profile tabs of your own settings, and the admin pages for Appearance, BM mode, Notifications, Chats, Canvas, Page builder, Page governance, Sessions and the REST API. **Admin → Notifications** saves the notification choices and the mail server together.
 * A single switch applies as soon as you change it, without a Save button: your language, **Use BM mode** and the Easter eggs.
 * Buttons and form fields are a little smaller (32 pixels high instead of 36).
+* On touch screens, buttons and form fields are 40 pixels high and small buttons 34, instead of every button growing to 44. The account button in the top bar is as high as the buttons next to it, and **New page** in the sidebar no longer grows in a narrow window on a desktop.
 * **My drafts** in your settings is on the Account tab instead of Privacy.
 * In the administration menu, Announcements and Assessments come first under Content, and the bulk tools stay last.
 * Site settings → Content showed a raw text key instead of the link to Plugins. The link is back.

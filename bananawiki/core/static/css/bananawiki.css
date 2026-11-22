@@ -153,7 +153,9 @@ body > .shell { flex: 1 0 auto; min-height: 0; }
   body.sidebar-collapsed .shell { grid-template-columns: minmax(0, 1fr); }
   body.sidebar-collapsed .sidebar { display: none; }
 }
-.topbar .menu > summary { gap: .5rem; padding-right: .5rem; }
+/* The account button has the height of the buttons next to it: the avatar fills it instead of padding it. */
+.topbar .menu > summary { gap: .5rem; padding-block: 0; padding-inline: .2rem .5rem; }
+.topbar .avatar { width: 28px; height: 28px; }
 .topbar__username { font-size: var(--font-size-ui); font-weight: 550; max-width: 12rem; overflow: hidden; text-overflow: ellipsis; }
 .icon { display: block; flex: 0 0 auto; }
 .bare-brand { display: flex; justify-content: center; margin: 1rem 0 1.5rem; }
@@ -801,10 +803,11 @@ label.btn:has(> input.visually-hidden:focus-visible), .btn:has(> input.visually-
 
 /* Responsive control sizing. */
 @media (pointer: coarse) {
-  .btn, .nav-list a, .nav-tree summary, .disclosure > summary, .menu__panel a, .menu__panel button { min-height: 2.75rem; }
-  /* A short label ("Save") stays a wide button, not a square, at that height. */
-  .btn:not(.btn--icon):not(.btn--ghost) { padding-inline: 1.1rem; }
-  .sidebar__section-title .btn { min-height: 2.75rem; padding-inline: .6rem; }
+  /* Buttons and fields grow together: a button keeps the height of the field next to it, a small button
+     stays smaller than a regular one and an icon button stays square. */
+  :root { --control-height: 2.5rem; --control-height-sm: 2.125rem; }
+  .nav-list a, .nav-tree summary, .disclosure > summary, .menu__panel a, .menu__panel button { min-height: 2.75rem; }
+  .sidebar__section-title .btn { min-height: var(--control-height-sm); padding-inline: .6rem; }
   .topbar__brand { min-height: 2.75rem; }
   /* Small text links get a finger-sized tap area without moving anything: an inline link's padding
      does not change the height of its line. */

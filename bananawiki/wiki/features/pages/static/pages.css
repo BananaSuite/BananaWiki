@@ -196,8 +196,10 @@
   .wiki-page__aside { border-top: 1px solid var(--border); padding-top: 1rem; }
   .wiki-page__aside--contents-only, .wiki-page__aside .toc-card { display: none; }
 }
-@media (max-width: 600px) { .bw-nav .sidebar__section-title .nav-create, .nav-manage a { min-height: 2.75rem; display: inline-flex; align-items: center; } }
 @media (pointer: coarse) {
+  /* Finger-sized on touch screens, not in a narrow window on a desktop. */
+  .bw-nav .sidebar__section-title .nav-create { min-height: var(--control-height-sm); }
+  .nav-manage a { min-height: 2.75rem; display: inline-flex; align-items: center; }
   .toc-list a { padding-block: .6rem; }
   .search-result__title, .page-edit-info a { padding-block: .7rem; }
 }

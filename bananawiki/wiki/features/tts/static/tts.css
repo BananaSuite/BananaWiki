@@ -8,7 +8,6 @@
 /* The speed select has the height of the small button beside it. */
 .tts-panel .tts-panel__speed select:not([multiple]):not([size]) { width: auto; height: var(--control-height-sm);
   min-height: var(--control-height-sm); padding-block: .15rem; font-size: var(--font-size-sm); }
-@media (pointer: coarse) { .tts-panel .tts-panel__speed select:not([multiple]):not([size]) { height: 2.75rem; min-height: 2.75rem; } }
 .tts-panel__status[data-kind="failed"] { color: var(--danger); }
 .tts-panel__controls, .tts-panel__actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
 .tts-panel__speed { display: inline-flex; align-items: center; gap: .4rem; }
