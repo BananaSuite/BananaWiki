@@ -2,6 +2,12 @@
 {% import "hosting/_macros.html" as ui with context %}
 {% set s = settings %}
 {% block title %}{{ t('hosting.admin.nav.settings') }}{% endblock %}
+{% block head %}
+{#- The easter egg editor previews through banana-eggs.js, which every page loads while the eggs are on. -#}
+{% if not easter_egg_config() %}<script src="{{ asset_url('eggs/banana-eggs.js') }}" defer></script>
+<link rel="stylesheet" href="{{ asset_url('eggs/banana-eggs.css') }}">{% endif %}
+<script src="{{ asset_url('eggs/banana-eggs-admin.js') }}" defer></script>
+{% endblock %}
 {% block content %}
 {#- The settings are one form with one Save, in the page header: it is the form's first submit button, so
     Enter in a field saves too. Every other button in the form names what it does instead (`action`, or its
@@ -151,6 +157,11 @@
 {{ ui.check('oauth_apps_enabled', t('hosting.settings.oauth_apps_enabled'), s.oauth_apps_enabled, hint=t('hosting.settings.oauth_apps_enabled_hint')) }}
 {{ ui.field('oauth_apps_per_account', t('hosting.settings.oauth_apps_per_account'), value=s.oauth_apps_per_account, type='number', attrs={'min': 0, 'max': 100, 'class': 'hosting-num hosting-num--sm'}, hint=t('hosting.settings.oauth_apps_per_account_hint')) }}{% endcall %}
 {% call section('save_api', t('hosting.settings.api')) %}{{ ui.check('api_enabled', t('hosting.settings.api_enabled'), s.api_enabled) }}{% endcall %}
+{#- The top bar's "Go to" menu lists these apps beside the main wikis; an empty address leaves an app out. -#}
+{% call section('save_apps', t('hosting.goto.settings'), t('hosting.goto.settings_hint')) %}
+  {{ ui.field('goto_chat_url', t('hosting.goto.chat_url'), goto_apps.chat, type='url', attrs={'placeholder': 'https://', 'maxlength': 300}, hint=t('hosting.goto.url_hint')) }}
+  {{ ui.field('goto_git_url', t('hosting.goto.git_url'), goto_apps.git, type='url', attrs={'placeholder': 'https://', 'maxlength': 300}, hint=t('hosting.goto.url_hint')) }}
+{% endcall %}
 {#- Everything about Google Drive in one section: its settings, then the credentials it needs, then running it. -#}
 {% macro gdrive_tools() %}
   {#- A credentials file chosen here is stored by the page's Save as well. -#}
@@ -174,6 +185,14 @@
 <h2 class="settings-group__title" id="settings-platform">{{ t('hosting.settings.group.platform') }}</h2>
 {% call section('save_easter_eggs', t('hosting.settings.easter_eggs'), t('hosting.settings.easter_eggs_hint')) %}
   {% for egg in ('shades', 'konami', 'peek') %}{{ ui.check('easter_' ~ egg, t('hosting.settings.easter.' ~ egg), eggs_on[egg]) }}{% endfor %}
+  {#- The key-sequence eggs: banana-eggs-admin.js turns the list into one card per egg and keeps the hidden
+      field up to date; the page's Save sends it and the server cleans it again (core/eggs.py). -#}
+  <h3>{{ t('hosting.easter.list_title') }}</h3>
+  <p class="hint">{{ t('hosting.easter.list_hint') }}</p>
+  <input type="hidden" id="easter-egg-list" name="easter_egg_configs" value="{{ egg_list }}">
+  <div class="banana-eggs-editor" data-banana-eggs-editor data-input="easter-egg-list">
+    <script type="application/json" data-banana-eggs-editor-options>{{ egg_editor }}</script>
+  </div>
 {% endcall %}
 </section>
 </form>

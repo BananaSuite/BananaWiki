@@ -144,6 +144,7 @@ EXPORTED: tuple[Rows, ...] = (
     Rows("badge_notifications", "SELECT id, badge_type_id, notified, created_at FROM badge_notifications "
                                 "WHERE user_id = ? ORDER BY id"),
     Rows("badge_reading_time", "SELECT seconds, updated_at FROM badge_reading_time WHERE user_id = ?"),
+    Rows("easter_egg_finds", "SELECT egg_id, found_at FROM easter_egg_finds WHERE user_id = ? ORDER BY found_at, egg_id"),
     Rows("profile_group_badges", "SELECT group_id, visible, updated_at FROM profile_group_badges WHERE user_id = ?"),
     Rows("announcement_audience_users", "SELECT announcement_id FROM announcement_audience_users WHERE user_id = ?"),
     Rows("assessment_attempts", "SELECT id, assessment_id, attempt_number, total_points, max_points, submitted_at "

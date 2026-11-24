@@ -4,7 +4,19 @@
 
 ### Upgrading
 
-* Wiki databases move to schema 20 (`site_settings.signin_mode`) and the hosting portal's database to schema 12; 1.8.0 cannot open them afterwards, so back up first if you may want to go back. Read [UPGRADING.md](UPGRADING.md#upgrading-from-180-to-unreleased) first.
+* Wiki databases move to schema 21 (`site_settings.signin_mode`, then the easter eggs) and the hosting portal's database to schema 13; 1.8.0 cannot open them afterwards, so back up first if you may want to go back. Read [UPGRADING.md](UPGRADING.md#upgrading-from-180-to-unreleased) first.
+
+### Easter eggs
+
+* The customisable easter eggs of BananaWiki 1.4 are back, in the format the whole BananaSuite shares (`banana-eggs/v1`, `bananawiki/core/eggs.py` and `core/static/eggs/`). Administrators design up to ten key-sequence eggs under **Admin → Appearance**: the keys (recorded by pressing them), the emoji or the mascot that falls, how many, how fast, and what happens afterwards (the easter egg page, a message, or nothing), with a preview. An egg can award a badge, and badges have an **Easter eggs found** trigger again.
+* The Konami code is now the default egg, and the mascot's **Konami code** switch became **Key sequences**, the switch for every egg. Everyone can find eggs, signed in or not; keys typed in a field, held down or pressed with Ctrl/Alt/Cmd never count, and reduced motion shows one still item instead of a shower.
+* Finds of signed-in members are kept (`POST /easter-eggs/<id>/found`, 10 a minute per account) and listed on `/easter-egg`, the address 1.4 used. They are in the personal data export, and administrators can remove an account's finds under **Admin → Users**. Visitors' finds stay in their browser.
+* Upgrading from 1.4 imports its eggs (the list, or the older single-egg settings) as `legacy-1`, `legacy-2`, … and every account that had found the egg keeps a find.
+* The hosting portal has the same eggs under **Settings → Easter eggs** (no badges), with its own easter egg page that also lists what a visitor found in this browser.
+
+### Hosting portal: Go to
+
+* The portal's top bar has a **Go to** menu listing the platform's main wikis that are online, and BananaChat and BananaGit once an administrator gives their https addresses under **Settings → Other apps**. The BananaGit entry says that signing in works only for accounts an administrator gave access. The menu works without scripts and with the keyboard (Escape closes it), and is hidden when it would be empty.
 
 ### Sign-in
 

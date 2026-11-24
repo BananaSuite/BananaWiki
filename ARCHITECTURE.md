@@ -231,6 +231,7 @@ Return `Markup` (or a string of already-escaped HTML); render with
 
 | Slot | Where | Context |
 |---|---|---|
+| `page.head` | `<head>` of every page, before any page content (data a script must trust, such as the easter eggs' `#banana-eggs`) | — |
 | `topbar.actions` | top bar | — |
 | `topbar.brand` | top bar, in place of the logo before the site name (the logo is shown when it is empty) | — |
 | `sidebar.top`, `sidebar.navigation`, `sidebar.bottom` | sidebar | — |

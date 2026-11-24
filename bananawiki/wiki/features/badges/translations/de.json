@@ -58,7 +58,7 @@
   "badges.field.multiple": "Kann mehrmals verliehen werden",
   "badges.field.multiple_hint": "Nur bei manueller Verleihung.",
   "badges.field.threshold": "Schwellenwert",
-  "badges.field.threshold_hint": "Bearbeitungen, Kategorien, Seiten, Tage oder Minuten, je nach Kriterium.",
+  "badges.field.threshold_hint": "Bearbeitungen, Kategorien, Seiten, Tage, Minuten oder Ostereier, je nach Kriterium.",
   "badges.field.trigger": "Kriterium",
   "badges.flash.awarded": "Abzeichen an {user} verliehen.",
   "badges.flash.created": "Abzeichen „{name}“ erstellt.",
@@ -83,5 +83,6 @@
   "badges.trigger.member_days": "Tage als Mitglied",
   "badges.trigger.reading_time": "Lesezeit in Minuten",
   "feature.badges.description": "Abzeichen im Profil, von Administratoren verliehen oder automatisch erhalten.",
-  "feature.badges.name": "Abzeichen"
+  "feature.badges.name": "Abzeichen",
+  "badges.trigger.easter_egg": "Gefundene Ostereier"
 }

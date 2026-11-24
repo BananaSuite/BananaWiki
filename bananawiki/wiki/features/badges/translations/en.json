@@ -58,7 +58,7 @@
   "badges.field.multiple": "Can be awarded more than once",
   "badges.field.multiple_hint": "Only for manual awards.",
   "badges.field.threshold": "Threshold",
-  "badges.field.threshold_hint": "Edits, categories, pages, days or minutes, depending on the trigger.",
+  "badges.field.threshold_hint": "Edits, categories, pages, days, minutes or easter eggs, depending on the trigger.",
   "badges.field.trigger": "Earned by",
   "badges.flash.awarded": "Badge awarded to {user}.",
   "badges.flash.created": "Badge “{name}” created.",
@@ -83,5 +83,6 @@
   "badges.trigger.member_days": "Days of membership",
   "badges.trigger.reading_time": "Minutes spent reading",
   "feature.badges.description": "Awards on profiles, given by administrators or earned automatically.",
-  "feature.badges.name": "Badges"
+  "feature.badges.name": "Badges",
+  "badges.trigger.easter_egg": "Easter eggs found"
 }

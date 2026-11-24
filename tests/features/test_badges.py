@@ -24,7 +24,7 @@ def test_admin_creates_edits_and_deletes(admin_client, db):
 
 def test_badge_validation(admin_client, db):
     assert admin_client.post("/admin/badges/create", data={**BADGE, "color": "red"}).status_code == 400
-    assert admin_client.post("/admin/badges/create", data={**BADGE, "trigger_type": "easter_egg"}).status_code == 400
+    assert admin_client.post("/admin/badges/create", data={**BADGE, "trigger_type": "secret_handshake"}).status_code == 400
     assert admin_client.post("/admin/badges/create", data={**BADGE, "auto_trigger": "1"}).status_code == 400
     _create(admin_client, db)
     assert admin_client.post("/admin/badges/create", data=BADGE).status_code == 400

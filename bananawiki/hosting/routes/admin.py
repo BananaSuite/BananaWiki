@@ -26,8 +26,9 @@ from flask import (
     send_file,
     url_for,
 )
+from markupsafe import Markup
 
-from ...core import downloads
+from ...core import downloads, eggs
 from ...core.timeutil import now_sql, sql_in
 from ...core.web import one_line
 from .. import (
@@ -37,6 +38,7 @@ from .. import (
     banners,
     collaborators,
     domains,
+    easter,
     events,
     features,
     instances,
@@ -1465,7 +1467,7 @@ SETTINGS_SECTIONS = (
     "save_signups", "save_email", "save_notices", "save_notifications", "save_admin_mfa", "save_bot_protection",
     "save_limits", "save_lifetime", "save_expired_wiki_permissions", "save_instance_url_suffix",
     "save_custom_domains", "save_wiki_features", "save_wiki_upload_policy", "save_tour", "save_tts_policy",
-    "save_tts_gpu", "save_oauth", "save_api", "gdrive_save", "save_easter_eggs",
+    "save_tts_gpu", "save_oauth", "save_api", "save_apps", "gdrive_save", "save_easter_eggs",
 )
 
 
@@ -1512,6 +1514,16 @@ def _save_settings(action: str) -> str:
             instances.sync_routes()  # domains of wikis that gained or lost the permission answer, or stop, at once
     elif action == "save_easter_eggs":
         settings.update(**{column: _checked(f"easter_{egg}") for egg, column in settings.EASTER_EGGS.items()})
+        if "easter_egg_configs" in request.form:  # the editor's list (scripts, or the form as rendered)
+            _save_egg_list(request.form.get("easter_egg_configs", ""))
+    elif action == "save_apps":
+        values = {}
+        for app, column in settings.GOTO_APPS.items():
+            try:
+                values[column] = settings.clean_app_url(request.form.get(column, ""))
+            except ValueError:
+                raise ServiceError("hosting.goto.invalid_url", app=t(f"hosting.goto.{app}")) from None
+        settings.update(**values)
     elif action == "save_notifications":
         notify = (request.form.get("approval_notify_email") or "").strip()
         if notify and (len(notify) > 254 or not accounts.EMAIL.match(notify)):
@@ -1608,6 +1620,19 @@ def _save_settings(action: str) -> str:
     return "hosting.admin.settings_saved"
 
 
+def _save_egg_list(raw: str) -> None:
+    """Store the key-sequence eggs, or refuse naming each problem as the editor labels it."""
+    try:
+        easter.save(raw)
+    except eggs.EggError as error:
+        problems = []
+        for index, field, code in error.errors:
+            where = t("hosting.easter.list") if index is None else t("hosting.easter.editor.title", n=index + 1)
+            problems.append(t("hosting.easter.error_line", where=where, field=t(f"hosting.easter.field.{field}", field),
+                              problem=t(f"hosting.easter.problem.{code}", code)))
+        raise ServiceError("hosting.easter.list_invalid", problems="; ".join(problems)) from None
+
+
 class _ConfirmPending(Exception):
     """Leaving approval while accounts wait: the administrator says what happens to them first."""
 
@@ -1681,8 +1706,29 @@ def _settings_context() -> dict[str, Any]:
         "attention_emailed": {source.id: notifications.attention_source_emailed(source.id)
                               for source in attention.SOURCES},
         "eggs_on": settings.easter_eggs(),
+        "egg_list": eggs.dumps(settings.egg_config()), "egg_editor": _egg_editor_options(),
+        "goto_apps": settings.goto_apps(),
         "custom_domains": _custom_domain_readiness(),
     }
+
+
+# The editor's labels (SPEC.md of banana-eggs/v1), translated as hosting.easter.editor.<name>.
+EGG_EDITOR_STRINGS = ("title", "add", "remove", "preview", "reset", "record", "stop", "konami", "keys", "keys_hint",
+                      "keys_empty", "key_space", "id", "enabled", "sprite", "sprite_emoji", "sprite_mascot", "emoji",
+                      "emoji_pick", "count", "speed_min", "speed_max", "delay", "unlock", "unlock_page",
+                      "unlock_toast", "unlock_none", "unlock_delay", "record_find", "badge", "badge_none", "message",
+                      "limit")
+
+
+def _egg_editor_options() -> Markup:
+    """The editor's options (no badges on the portal); "Add" starts from a banana shower with a message."""
+    new = {**eggs.default_egg(), "keys": [], "sprite": {"type": "emoji", "value": eggs.BANANA}, "count": 30,
+           "speed_min": 1.5, "speed_max": 3.5, "unlock": {"action": "toast", "delay": 2500}}
+    return Markup(eggs.script_json({
+        "strings": {name: t(f"hosting.easter.editor.{name}", n="{n}", s="{s}") for name in EGG_EDITOR_STRINGS},
+        "emojis": eggs.EMOJIS, "badges": [], "mascot": True, "egg": new,
+        "reset": eggs.default_config()["eggs"], "buttonClass": "btn btn--small",
+    }))
 
 
 def _custom_domain_readiness() -> dict[str, Any]:

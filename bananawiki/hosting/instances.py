@@ -385,6 +385,26 @@ def main_wikis() -> list[dict[str, Any]]:
         "ORDER BY a.is_admin DESC, i.subdomain COLLATE NOCASE, i.id")
 
 
+def serving_main_wikis() -> list[dict[str, Any]]:
+    """The main wikis visitors can open now, ``{"name", "url"}``, administrators' own (the platform's) first.
+
+    Only running, ready wikis that may be served (:func:`.domains.may_serve`: the owner's account in good
+    standing, the wiki not expired) and have an address: never a suspended, stopped or terminated one.
+    """
+    from . import domains
+
+    rows = db.all(
+        "SELECT i.* FROM instances i JOIN accounts a ON a.id = i.account_id WHERE i.is_main = 1 "
+        "AND i.status = 'running' AND i.provisioning_state = 'ready' "
+        "ORDER BY a.is_admin DESC, i.subdomain COLLATE NOCASE, i.id")
+    listed = []
+    for row in rows:
+        url = urls.instance_url(row)
+        if url and domains.may_serve(row["id"]):
+            listed.append({"name": row["subdomain"], "url": url})
+    return listed
+
+
 def owns_main_wiki(account_id: str) -> str | None:
     """The name of a main wiki *account_id* owns, if any."""
     return db.scalar("SELECT subdomain FROM instances WHERE account_id = ? AND is_main = 1 "

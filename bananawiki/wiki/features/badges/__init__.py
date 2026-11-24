@@ -1,7 +1,7 @@
 """Badges: awards shown on profiles, given by administrators or earned automatically.
 
 Automatic triggers (first edit, edit count, categories, pages created, days
-of membership, minutes spent reading) are evaluated by the ``badges.evaluate``
+of membership, minutes spent reading, easter eggs found) are evaluated by the ``badges.evaluate``
 job and, for the author, when a page is saved or they sign in.
 """
 

@@ -1004,9 +1004,14 @@ register theirs there too, or with `bananawiki hosting-admin app create`.
   [custom domains](#custom-domains) (who may use them, whether the server is
   ready), URL suffix, default
   limits, the shared GPU speech server, MFA requirements, the REST API
-  switch, Google Drive backups and **easter eggs** (the mascot's sunglasses,
-  the Konami code's banana shower and its peek into "page not found", each on
-  by default);
+  switch, Google Drive backups, **other apps** (the https addresses of the
+  platform's BananaChat and BananaGit for the **Go to** menu, empty by
+  default) and **easter eggs** (the mascot's sunglasses, the key-sequence eggs
+  and its peek into "page not found", each on by default, and the editor of
+  the key-sequence eggs as in the wiki, without badges: see
+  [Mascot](features.md#key-sequence-easter-eggs)). Signed-in accounts' finds
+  are kept (`account_egg_finds`) and listed on `/easter-egg`; visitors' finds
+  stay in their browser and the page lists them from there;
 * **main wikis**: see [Main wikis](#main-wikis);
 * **platform export and restore**: an encrypted archive of `hosting.db`, the
   portal key, every tenant directory and the wikis' plugin quarantines, and
@@ -1040,6 +1045,20 @@ collaborators, the REST API and personal data exports do not show it, and an
 owner who tries to terminate or reset it is told to ask an administrator.
 Taking the mark away (recorded in the moderation history, like setting it)
 leaves the wiki without an end date until an administrator sets one.
+
+### Go to
+
+The top bar's **Go to** menu, for everyone (signed in or not), lists the main
+wikis that are online (running and ready, not expired, their owner's account
+in good standing; never a stopped, suspended or terminated one) by name with
+their address, then BananaChat and BananaGit when an administrator gave their
+https addresses under **Admin → Settings → Other apps** (`goto_chat_url`,
+`goto_git_url`; empty leaves an app out). BananaChat is marked "Sign in with
+your hosting account"; BananaGit says that this works only for accounts an
+administrator gave access, as BananaGit only lets in accounts it allows. The
+menu is a `<details>` disclosure, so it works without scripts; `hosting.js`
+adds `aria-expanded`, Escape and the arrow keys. With nothing to list it is
+not shown.
 
 ## Backups
 

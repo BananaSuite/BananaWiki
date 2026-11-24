@@ -1,0 +1,12 @@
+{% import "macros/forms.html" as forms with context %}
+<section class="card" id="mascot-finds" aria-labelledby="mascot-finds-heading">
+  <h2 id="mascot-finds-heading">{{ t('mascot.eggs.user.title') }}</h2>
+  <p>{{ tn('mascot.eggs.user.count', count) }}</p>
+  {% if not impersonating %}
+  <form class="inline" method="post" action="{{ url_for('mascot.revoke_finds', user_id=target.id) }}"
+        data-confirm="{{ t('mascot.eggs.user.confirm', username=target.username) }}">
+    {{ forms.csrf() }}
+    <button type="submit" class="btn btn--danger-quiet">{{ t('mascot.eggs.user.revoke') }}</button>
+  </form>
+  {% endif %}
+</section>

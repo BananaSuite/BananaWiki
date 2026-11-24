@@ -15,7 +15,8 @@ from typing import Any
 from ....core.timeutil import now_sql, parse, utcnow
 from ...db import db
 
-TRIGGERS = ("first_edit", "contribution_count", "category_count", "article_count", "member_days", "reading_time")
+TRIGGERS = ("first_edit", "contribution_count", "category_count", "article_count", "member_days", "reading_time",
+            "easter_egg")
 MAX_NAME = 100
 MAX_DESCRIPTION = 500
 MAX_ICON = 10
@@ -265,6 +266,9 @@ _STAT_SQL = {
     "member_days": ("SELECT id, CAST(julianday('now') - julianday(created_at) AS INTEGER) FROM users "
                     "WHERE 1{scope}", "id"),
     "reading_time": ("SELECT user_id, seconds / 60 FROM badge_reading_time WHERE 1{scope}", "user_id"),
+    # Easter eggs found (the mascot's key-sequence eggs, see features/mascot/easter.py).
+    "easter_egg": ("SELECT user_id, COUNT(DISTINCT egg_id) FROM easter_egg_finds WHERE 1{scope} GROUP BY user_id",
+                   "user_id"),
 }
 
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import urlsplit
 
 from flask import current_app, g, has_request_context
 
@@ -20,8 +21,12 @@ from .db import db
 SIGNUP_MODES = ("open", "invite", "approval", "closed")
 # Whether an address is asked for: at sign-up (signup_email) and of accounts without one (existing_email).
 EMAIL_POLICIES = ("required", "optional", "off")
-# The portal's easter eggs: key -> settings column (all on unless an administrator turns one off).
+# The portal's easter eggs: key -> settings column (all on unless an administrator turns one off). "konami" is
+# the switch for every key-sequence egg (easter_egg_configs, see egg_config).
 EASTER_EGGS = {"shades": "easter_shades", "konami": "easter_konami", "peek": "easter_peek"}
+# The other BananaSuite apps of the platform in the top bar's "Go to" menu: key -> settings column.
+GOTO_APPS = {"chat": "goto_chat_url", "git": "goto_git_url"}
+GOTO_URL_MAX = 300
 APPROVAL_NOTIFY_MODES = ("immediate", "digest", "daily")
 NOTIFY_INTERVAL_MINUTES = (5, 4320)
 TTS_MODES = ("all", "whitelist", "blacklist")
@@ -46,7 +51,8 @@ WRITABLE = frozenset({
     "api_enabled", "gdrive_backup_enabled", "gdrive_credentials_path", "gdrive_folder_id",
     "gdrive_retention_days", "gdrive_backup_time", "admin_mfa_required", "owner_renewal_enabled",
     "signup_email", "existing_email", "email_shared", "email_paused", "email_paused_at", "email_paused_held",
-    "email_notices", "attention_email_sources", *EASTER_EGGS.values(),
+    "email_notices", "attention_email_sources", *EASTER_EGGS.values(), "easter_egg_configs",
+    "goto_chat_url", "goto_git_url",
 })
 
 
@@ -200,6 +206,43 @@ def custom_domains_policy() -> str:
 def easter_eggs() -> dict[str, bool]:
     """``{"shades", "konami", "peek"} -> on`` for the portal's own pages."""
     return {egg: flag(column, True) for egg, column in EASTER_EGGS.items()}
+
+
+def egg_config() -> dict[str, Any]:
+    """The portal's key-sequence eggs, cleaned, or the default egg when nothing was ever saved."""
+    from ..core import eggs
+
+    raw = get("easter_egg_configs")
+    return eggs.default_config() if raw is None else eggs.clean(raw)
+
+
+def clean_app_url(value: str) -> str:
+    """An app address for the "Go to" menu: '' (the app is left out) or an https URL; ValueError otherwise."""
+    value = (value or "").strip()
+    if not value:
+        return ""
+    if len(value) > GOTO_URL_MAX or any(ch.isspace() or ord(ch) < 32 for ch in value):
+        raise ValueError(value)
+    try:
+        parts = urlsplit(value)
+        parts.port  # noqa: B018 - raises on a port that is not a number
+    except ValueError as error:
+        raise ValueError(value) from error
+    host = parts.hostname or ""
+    if parts.scheme != "https" or not host or parts.username or parts.password or "." not in host.strip("."):
+        raise ValueError(value)
+    return value
+
+
+def goto_apps() -> dict[str, str]:
+    """``{"chat", "git"} -> address`` of the apps an administrator listed ('' for the others)."""
+    found = {}
+    for app, column in GOTO_APPS.items():
+        try:
+            found[app] = clean_app_url(str(get(column, "") or ""))
+        except ValueError:
+            found[app] = ""
+    return found
 
 
 def verification_cooldown() -> int:

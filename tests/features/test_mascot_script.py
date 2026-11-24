@@ -1,4 +1,5 @@
-"""Mascot script: settings only from the top bar, the sunglasses on and off, the Konami code.
+"""Mascot script: settings only from the top bar, the sunglasses on and off. Key sequences such as the Konami
+code are banana-eggs.js's (test_banana_eggs_script.py), not the mascot's.
 
 The markup and the script source are checked everywhere; the script's behaviour
 runs under node with a small stand-in for the page, where node is installed.
@@ -125,13 +126,11 @@ const button = {
 // The element an id lookup for "mascot-config" finds: page content holding JSON.
 const byId = scenario.byId === null ? null : { textContent: JSON.stringify(scenario.byId) };
 const body = element();
-const showers = () => body.children.filter((child) => child.className === "mascot-shower");
 const document = {
   documentElement: { getAttribute: (name) => (name === "data-reduce-motion" ? scenario.reduceSwitch : null) },
   body,
   createElement: () => element(),
-  querySelector: (selector) => (selector === "[data-mascot]" ? button
-                                : selector === ".mascot-shower" ? showers()[0] || null : null),
+  querySelector: (selector) => (selector === "[data-mascot]" ? button : null),
   getElementById: (id) => (id === "mascot-config" ? byId : null),
   addEventListener: (type, fn) => { if (type === "keydown") onKey = fn; },
 };
@@ -164,8 +163,6 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
     if (step === "click") { if (onClick) onClick({}); await flush(); }
     else if (step === "look") snapshots.push(button.classList.contains("mascot--hop"));
     else if (step === "eager") snapshots.push(button.classList.contains("mascot--eager"));
-    else if (step === "lean") snapshots.push(button.classList.contains("mascot--lean"));
-    else if (step === "shower") snapshots.push(showers().map((layer) => layer.children.length));
     else if (typeof step === "object") {
       const target = { tagName: step.tag || "BODY", isContentEditable: !!step.editable };
       if (onKey) onKey({ key: step.key, target, ctrlKey: !!step.ctrl, metaKey: false, altKey: false,
@@ -228,3 +225,13 @@ def test_switched_off_the_sunglasses_never_touch_the_browser_storage(tmp_path):
     result = _run(tmp_path, _clicks(22), attributes=local, stored=worn)
     assert not result["shades"], "a pair kept in the browser stays off while the egg is off"
     assert result["stored"] == worn and result["posts"] == [] and result["toasts"] == []
+
+
+@needs_node
+def test_the_mascot_leaves_key_sequences_to_the_easter_eggs(tmp_path):
+    konami = [{"key": key} for key in ("ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "ArrowRight",
+                                       "ArrowLeft", "ArrowRight", "b", "a")]
+    result = _run(tmp_path, [*konami, 3000, "look"])
+    assert result["snapshots"] == [False] and result["posts"] == [] and result["toasts"] == []
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "keydown" not in source and "data-mascot-konami" not in source

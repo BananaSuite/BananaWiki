@@ -2,20 +2,15 @@
  * again take them off. Where to save them and how many clicks it takes are data attributes on the button itself,
  * which the top bar renders before any page content, so nothing a page contains can stand in for them. With
  * data-mascot-store="local" (no account) the sunglasses are kept in this browser instead.
- * The Konami code anywhere on the page sends a short shower of small bananas.
  *
- * Each easter egg can be switched off on the button itself (wiki: Admin -> Appearance; portal: settings):
- * no data-mascot-clicks, or "0", turns the sunglasses off (clicks only hop, nothing is saved), and
- * data-mascot-konami="off" turns the Konami code off. */
+ * The sunglasses can be switched off on the button itself (wiki: Admin -> Appearance; portal: settings):
+ * no data-mascot-clicks, or "0", turns them off (clicks only hop, nothing is saved). Key sequences such as
+ * the Konami code are the BananaSuite easter eggs' (core/static/eggs/banana-eggs.js), not this script's. */
 (function () {
   "use strict";
 
   var SHADES_PATH = /\/mascot\/shades$/;
   var STORE_KEY = "bananawiki.mascot.shades";
-  var KONAMI = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight",
-                "b", "a"];
-  var SHOWER_SIZE = 10;
-  var SHOWER_MS = 3000;
   var SVG_NS = "http://www.w3.org/2000/svg";
 
   // Only this wiki's own sunglasses endpoint; anything else leaves the mascot hopping and nothing more.
@@ -34,7 +29,6 @@
   var url = local ? null : shadesUrl(button.getAttribute("data-mascot-url"));
   var needed = parseInt(button.getAttribute("data-mascot-clicks"), 10);
   var shadesEgg = needed > 0; // false for a missing, empty or "0" count
-  var konamiEgg = button.getAttribute("data-mascot-konami") !== "off";
   var clicks = 0;
   var saving = false;
   var timers = {};
@@ -49,11 +43,6 @@
 
   function hasShades() {
     return sprite.classList.contains("mascot-sprite--shades");
-  }
-
-  function stillMotion() {
-    return document.documentElement.getAttribute("data-reduce-motion") === "true"
-      || !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   }
 
   function remembered() {
@@ -116,51 +105,5 @@
       button.classList.remove("mascot--eager");
       saving = false;
     });
-  });
-
-  function typing(target) {
-    return !!target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName || ""));
-  }
-
-  function shower() {
-    if (document.querySelector(".mascot-shower")) return;
-    var layer = document.createElement("div");
-    layer.className = "mascot-shower";
-    layer.setAttribute("aria-hidden", "true");
-    for (var i = 0; i < SHOWER_SIZE; i += 1) {
-      var banana = document.createElement("span");
-      banana.className = "mascot-shower__banana" + (i % 3 === 0 ? " mascot-shower__banana--big" : "");
-      var copy = sprite.cloneNode(true);
-      copy.classList.remove("mascot-sprite--shades");
-      banana.appendChild(copy);
-      banana.style.left = (4 + (i + Math.random()) * 92 / SHOWER_SIZE).toFixed(1) + "%";
-      banana.style.animationDelay = Math.round(Math.random() * 800) + "ms";
-      banana.style.animationDuration = 1600 + Math.round(Math.random() * 500) + "ms";
-      layer.appendChild(banana);
-    }
-    document.body.appendChild(layer);
-    window.setTimeout(function () { layer.parentNode.removeChild(layer); }, SHOWER_MS);
-  }
-
-  if (!konamiEgg) return;
-
-  var progress = 0;
-  document.addEventListener("keydown", function (event) {
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) {
-      progress = 0;
-      return;
-    }
-    var key = event.key && event.key.length === 1 ? event.key.toLowerCase() : event.key;
-    if (key === KONAMI[progress]) progress += 1;
-    else if (key === KONAMI[0]) progress = progress === 2 ? 2 : 1;
-    else progress = 0;
-    if (progress < KONAMI.length) return;
-    progress = 0;
-    if (stillMotion()) {
-      replay("mascot--lean", 600);
-    } else {
-      replay("mascot--hop", 450);
-      shower();
-    }
   });
 })();

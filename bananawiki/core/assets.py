@@ -1,8 +1,8 @@
 """Static assets shared by the wiki and hosting portal.
 
-The design system and the mascot's script and stylesheet have one source in
-``core/static``, served at ``/static/css/bananawiki.css`` and
-``/static/mascot/``; application and plugin assets keep their own static
+The design system, the mascot's script and stylesheet and the BananaSuite
+easter eggs have one source in ``core/static``, served at
+``/static/css/bananawiki.css``, ``/static/mascot/`` and ``/static/eggs/``; application and plugin assets keep their own static
 folders and Flask endpoints.
 """
 
@@ -17,7 +17,8 @@ from flask import Flask, Response, current_app, send_from_directory, url_for
 from .. import __version__
 
 SHARED_STATIC_ROOT = Path(__file__).parent / "static"
-SHARED_FILENAMES = frozenset({"css/bananawiki.css", "mascot/mascot.css", "mascot/mascot.js"})
+SHARED_FILENAMES = frozenset({"css/bananawiki.css", "mascot/mascot.css", "mascot/mascot.js",
+                              "eggs/banana-eggs.js", "eggs/banana-eggs.css", "eggs/banana-eggs-admin.js"})
 
 
 class SharedAssetsFlask(Flask):

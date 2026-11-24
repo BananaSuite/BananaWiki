@@ -58,7 +58,7 @@
   "badges.field.multiple": "Può essere assegnato più volte",
   "badges.field.multiple_hint": "Solo per le assegnazioni manuali.",
   "badges.field.threshold": "Soglia",
-  "badges.field.threshold_hint": "Modifiche, categorie, pagine, giorni o minuti, secondo il criterio.",
+  "badges.field.threshold_hint": "Modifiche, categorie, pagine, giorni, minuti o easter egg, secondo il criterio.",
   "badges.field.trigger": "Ottenuto con",
   "badges.flash.awarded": "Distintivo assegnato a {user}.",
   "badges.flash.created": "Distintivo “{name}” creato.",
@@ -83,5 +83,6 @@
   "badges.trigger.member_days": "Giorni di iscrizione",
   "badges.trigger.reading_time": "Minuti di lettura",
   "feature.badges.description": "Riconoscimenti sui profili, assegnati dagli amministratori o ottenuti automaticamente.",
-  "feature.badges.name": "Distintivi"
+  "feature.badges.name": "Distintivi",
+  "badges.trigger.easter_egg": "Easter egg trovati"
 }

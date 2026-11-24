@@ -34,3 +34,27 @@
     <noscript><div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div></noscript>
   </form>
 </section>
+<section class="card mascot-settings" aria-labelledby="mascot-egg-list-heading">
+  <h2 id="mascot-egg-list-heading">{{ t('mascot.eggs.list_title') }}</h2>
+  <p class="hint hint--block">{{ t('mascot.eggs.list_hint') if eggs.konami else t('mascot.eggs.list_off') }}</p>
+  {% if egg_errors %}
+  <div class="alert alert--error" role="alert"><div class="alert__body">
+    <p>{{ t('mascot.eggs.list_invalid') }}</p>
+    <ul>{% for message in egg_errors %}<li>{{ message }}</li>{% endfor %}</ul>
+  </div></div>
+  {% endif %}
+  {#- banana-eggs-admin.js turns the list into one card per egg and keeps the hidden field up to date; the
+      server cleans it again (core/eggs.py). Without scripts the list is saved as it was. -#}
+  <form method="post" action="{{ url_for('mascot.easter_egg_list') }}" class="form">
+    {{ forms.csrf() }}
+    <input type="hidden" id="mascot-egg-list" name="easter_egg_configs" value="{{ egg_list }}">
+    <div class="banana-eggs-editor" data-banana-eggs-editor data-input="mascot-egg-list">
+      <script type="application/json" data-banana-eggs-editor-options>{{ editor }}</script>
+    </div>
+    <div class="btn-row"><button class="btn btn--primary form-save" type="submit">{{ t('mascot.eggs.list_save') }}</button></div>
+  </form>
+  <link rel="stylesheet" href="{{ asset_url('eggs/banana-eggs.css') }}">
+  {#- The editor previews through banana-eggs.js, which every page already loads while the eggs are on. -#}
+  {% if not eggs.konami %}<script src="{{ asset_url('eggs/banana-eggs.js') }}" defer></script>{% endif %}
+  <script src="{{ asset_url('eggs/banana-eggs-admin.js') }}" defer></script>
+</section>

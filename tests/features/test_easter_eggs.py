@@ -44,6 +44,7 @@ def test_every_easter_egg_is_on_by_default(app, admin_client):
     assert 'data-mascot-clicks="11"' in button and 'data-mascot-url="/mascot/shades"' in button
     assert "data-mascot-konami" not in button
     assert _peeks(admin_client)
+    assert "Key sequences" in admin_client.get("/admin/appearance").get_data(as_text=True)
     page = admin_client.get("/admin/appearance").get_data(as_text=True)
     assert 'id="mascot-eggs-heading"' in page
     for egg in ALL_ON:
@@ -51,11 +52,14 @@ def test_every_easter_egg_is_on_by_default(app, admin_client):
     assert "11 clicks in a row on the mascot" in page
 
 
-def test_switching_the_konami_code_off_marks_the_button(app, admin_client):
+def test_switching_the_key_sequences_off_takes_every_key_sequence_egg_off_the_pages(app, admin_client):
+    assert 'id="banana-eggs"' in _home(admin_client)
     assert _save(admin_client, "sunglasses", "peek").status_code == 302
     assert _eggs(app) == {**ALL_ON, "konami": False}
-    button = _button(_home(admin_client))
-    assert 'data-mascot-konami="off"' in button and 'data-mascot-clicks="11"' in button
+    html = _home(admin_client)
+    button = _button(html)
+    assert 'data-mascot-clicks="11"' in button and "data-mascot-konami" not in button
+    assert 'id="banana-eggs"' not in html and "banana-eggs.js" not in html
     assert 'name="egg_konami" value="1">' in admin_client.get("/admin/appearance").get_data(as_text=True)
 
 

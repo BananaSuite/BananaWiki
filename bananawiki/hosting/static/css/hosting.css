@@ -222,6 +222,24 @@ form.inline { display: inline-flex; margin: 0; }
 .hosting-nav__links > a[aria-current="page"] { background: var(--nav-current-bg); color: var(--heading);
   box-shadow: inset 0 -2px 0 var(--accent); }
 .hosting-nav__links > a:focus-visible { outline-offset: -2px; }
+/* "Go to": the platform's main wikis and its other apps, a disclosure in the navigation strip. */
+.goto-menu { position: relative; border-left: 1px solid var(--nav-border); }
+.goto-menu__toggle { display: inline-flex; align-items: center; gap: .35rem; padding: .5rem .75rem; cursor: pointer;
+  color: var(--nav-text); list-style: none; }
+.goto-menu__toggle::-webkit-details-marker { display: none; }
+.goto-menu__toggle::after { content: ""; width: .4em; height: .4em; border: solid currentColor; border-width: 0 2px 2px 0;
+  transform: translateY(-.15em) rotate(45deg); }
+.goto-menu[open] > .goto-menu__toggle::after { transform: translateY(.1em) rotate(-135deg); }
+.goto-menu__toggle:hover { background: var(--nav-hover-bg); color: var(--link-hover); }
+.goto-menu__toggle:focus-visible { outline-offset: -2px; }
+.goto-menu__list { position: absolute; z-index: 50; top: 100%; left: 0; min-width: 16rem; max-width: min(22rem, calc(100vw - 2rem));
+  margin: .25rem 0 0; padding: .35rem 0; list-style: none; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius, .5rem); box-shadow: 0 .5rem 1.25rem rgba(0, 0, 0, .18); }
+.goto-menu__item > a { display: block; padding: .45rem .9rem; color: var(--link); text-decoration: none; overflow-wrap: anywhere; }
+.goto-menu__item > a:hover, .goto-menu__item > a:focus-visible { background: var(--nav-hover-bg); color: var(--link-hover); }
+.goto-menu__item > a:focus-visible { outline-offset: -2px; }
+.goto-menu__item--chat, .goto-menu__item--wiki + .goto-menu__item--git { border-top: 1px solid var(--border); }
+.goto-menu__note { margin: -.2rem 0 .35rem; padding: 0 .9rem; font-size: var(--font-size-sm); color: var(--muted); }
 .hosting-lang { width: auto; min-height: 0; padding: .1rem .2rem; font-size: var(--font-size-sm); }
 .nav-attention .attention-dot { position: static; }
 
@@ -662,6 +680,10 @@ pre.card { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--font
   .hosting-nav__links > a + a { border-left: 0; border-top: 1px solid var(--nav-border); }
   .hosting-nav__links > a[aria-current="page"] { box-shadow: inset 3px 0 0 var(--accent); }
   .hosting-nav__tools { padding: .5rem .9rem; border-top: 1px solid var(--nav-border); }
+  .goto-menu { border-left: 0; border-top: 1px solid var(--nav-border); }
+  .goto-menu__toggle { display: flex; padding: .6rem .9rem; }
+  .goto-menu__list { position: static; max-width: none; margin: 0; border: 0; border-radius: 0; box-shadow: none;
+    background: transparent; padding: 0 0 .35rem 1rem; }
   .admin-layout, .account-layout { grid-template-columns: minmax(0, 1fr); }
   .account-index { position: static; }
   .side-nav ul, .account-index { display: flex; flex-wrap: wrap; }

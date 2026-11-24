@@ -1,4 +1,4 @@
-"""Public pages: the landing redirect, help centre, legal links, language and theme."""
+"""Public pages: the landing redirect, help centre, legal links, language and theme, and the easter eggs."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from flask import (
     abort,
     current_app,
     g,
+    jsonify,
     make_response,
     redirect,
     render_template,
@@ -19,8 +20,8 @@ from flask import (
 
 from ...core.ratelimit import MemoryLimiter
 from ...core.web import is_safe_redirect
-from .. import accounts, auth, domains, help
-from ..i18n import LANGUAGES, current_language
+from .. import accounts, auth, domains, easter, events, help, limits
+from ..i18n import LANGUAGES, current_language, t
 from ..limits import rate_limit
 
 log = logging.getLogger("bananawiki.hosting.public")
@@ -165,3 +166,42 @@ def authorize_certificate():
     if not allowed and _denials.hit(name[:100], 1, 60):
         log.info("Certificate refused for %s", ascii(name[:100]))
     return "", 200 if allowed else 403, {"Cache-Control": "no-store"}
+
+
+# Key-sequence easter eggs (banana-eggs.js)
+
+EGG_FINDS_PER_MINUTE = 10
+
+
+@bp.post("/easter-eggs/<string:egg_id>/found")
+def egg_found(egg_id: str):
+    """Called by banana-eggs.js when a signed-in account finishes an egg's sequence: answers {ok, new}."""
+    account = auth.current_account()
+    if account is None:
+        abort(401)
+    if auth.impersonating():
+        abort(403)  # a find belongs to the person at the keyboard
+    if not limits.hit("hosting_egg_found", EGG_FINDS_PER_MINUTE, 60, key=account["id"]):
+        return jsonify({"error": t("hosting.error.429.body")}), 429
+    found = easter.egg(egg_id)
+    if found is None:  # unknown, switched off, not recorded, or every key-sequence egg off
+        abort(404)
+    new = easter.record_find(account["id"], found)
+    if new:
+        events.record("account", account["id"], "easter_egg.found", account["id"], found["id"])
+    return jsonify({"ok": True, "new": new})
+
+
+@bp.get("/easter-egg")
+@auth.public
+@auth.exempt(*auth.GATES)
+def easter_egg_page():
+    """Every egg there is to find: found ones with the date, the others as "?". Visitors' finds are kept in
+    their browser, so a small script (easter-egg.js) marks those."""
+    if not easter.master_on():
+        abort(404)
+    account = auth.current_account()
+    listed = easter.recorded()
+    found = easter.finds(account["id"]) if account and not auth.impersonating() else {}
+    return render_template("hosting/easter_egg.html", egg_items=listed, found=found,
+                           found_count=sum(1 for item in listed if item["id"] in found))

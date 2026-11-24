@@ -12,7 +12,12 @@ Easter eggs
 Administrators switch each easter egg off or on again under Admin ->
 Appearance (``site_settings.easter_eggs``, JSON of egg id -> 0/1; an egg it
 does not name is on). While the sunglasses are off nobody's show, but each
-account keeps its choice for when they are on again.
+account keeps its choice for when they are on again. ``konami`` is the switch
+for every key-sequence egg (:mod:`.easter`).
+
+BananaWiki 1.4 kept its own eggs in the same column as a JSON *list*. Such a
+list reads as "every switch on" and is never overwritten before schema
+version 21 has imported it into ``easter_egg_configs``.
 """
 
 from __future__ import annotations
@@ -25,7 +30,8 @@ from ...db import db
 from ..users import preferences
 
 # Every easter egg, in the order the settings list them: the sunglasses after enough clicks on the mascot,
-# the Konami code's shower of bananas and the mascot peeking into the "page not found" card.
+# the key-sequence eggs (the Konami code and those administrators add, see .easter) and the mascot peeking
+# into the "page not found" card.
 EGGS = ("sunglasses", "konami", "peek")
 
 # Administrator actions: what each one writes on every account.
@@ -45,12 +51,21 @@ def _flag(saved: dict[str, Any], key: str) -> int:
     return value if value in (0, 1) else default
 
 
-def _saved_eggs() -> dict[str, Any]:
+def _stored_eggs() -> Any:
     try:
-        saved = json.loads(settings.get("easter_eggs", "") or "{}")
+        return json.loads(settings.get("easter_eggs", "") or "{}")
     except ValueError:
-        return {}
+        return None
+
+
+def _saved_eggs() -> dict[str, Any]:
+    saved = _stored_eggs()
     return saved if isinstance(saved, dict) else {}
+
+
+def _legacy_list_pending() -> bool:
+    """Whether ``easter_eggs`` still holds 1.4's list of eggs that has not been imported yet."""
+    return isinstance(_stored_eggs(), list) and settings.get("easter_egg_configs") is None
 
 
 def _egg_on(value: Any) -> bool:
@@ -68,6 +83,8 @@ def save_eggs(chosen: dict[str, bool]) -> dict[str, bool]:
     """Switch the eggs named in *chosen* on or off; returns the ones that changed, with their new state."""
     current = eggs()
     changed = {egg: bool(on) for egg, on in chosen.items() if egg in EGGS and bool(on) != current[egg]}
+    if changed and _legacy_list_pending():
+        return {}  # 1.4's eggs would be lost: they are imported first (schema version 21)
     if changed:
         # Ids a later version added stay as stored, so going back and forth between versions loses nothing.
         stored = {**_saved_eggs(), **{egg: int(on) for egg, on in {**current, **changed}.items()}}

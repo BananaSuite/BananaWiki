@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ t('mascot.page.title') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset_url('mascot/mascot.css') }}">{% endblock %}
+{% block content %}
+<header class="page-header"><h1>{{ t('mascot.page.title') }}</h1></header>
+<section class="card mascot-eggs-page" aria-labelledby="mascot-eggs-count">
+  <p id="mascot-eggs-count"><strong>{{ t('mascot.page.count', found=found_count, total=eggs|length) }}</strong></p>
+  {% if eggs %}
+  <ul class="mascot-eggs-page__list">
+    {% for egg in eggs %}
+    {#- The runtime opens this page at #egg-<id> after a find. -#}
+    <li id="egg-{{ egg.id }}" class="mascot-eggs-page__egg{% if egg.id in found %} mascot-eggs-page__egg--found{% endif %}">
+      {% if egg.id in found %}
+      <span class="mascot-eggs-page__sprite" aria-hidden="true">{{ '🍌' if egg.sprite.type == 'mascot' else egg.sprite.value }}</span>
+      <span>{{ t('mascot.page.found', name=egg.id) }} <span class="muted small">{{ found[egg.id]|datetime }}</span></span>
+      {% else %}
+      <span class="mascot-eggs-page__sprite" aria-hidden="true">?</span>
+      <span>{{ t('mascot.page.hidden') }}</span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="hint">{{ t('mascot.page.none') }}</p>
+  {% endif %}
+  {% if not current_user %}<p class="hint">{{ t('mascot.page.sign_in') }} <a href="{{ url_for('auth.login', next=request.path) }}">{{ t('mascot.page.sign_in_link') }}</a></p>{% endif %}
+</section>
+{% endblock %}

@@ -870,10 +870,10 @@ Eleven clicks on the same page put sunglasses on it for that account, and
 eleven more take them off. **Appearance** takes them off too;
 **Admin → Appearance** puts them on or takes them off for every account, and
 records it in the audit log. Switch the plugin off (or deny it with
-`BW_MANAGED_PLUGIN_DENYLIST`) to show the logo for everyone. While it is on, the
-Konami code sends a short shower of small bananas, and the mascot peeks into
+`BW_MANAGED_PLUGIN_DENYLIST`) to show the logo for everyone. While it is on,
+key sequences play the wiki's easter eggs (below), and the mascot peeks into
 the "page not found" card.
-Each easter egg (the sunglasses, the Konami code and the peek into "page not
+Each easter egg (the sunglasses, the key sequences and the peek into "page not
 found") can be switched off for the whole wiki under **Admin → Appearance →
 Easter eggs** (recorded in the audit log). With the sunglasses off nobody wears
 them; each account's choice is kept for when they are on again. Switching the
@@ -881,6 +881,43 @@ mascot plugin off removes them all.
 The hosting portal's top bar shows the same mascot to everyone; there the
 sunglasses are kept in the browser, and the platform's administrators switch
 the same three easter eggs under **Settings → Easter eggs**.
+
+### Key-sequence easter eggs
+
+The BananaSuite easter eggs (format `banana-eggs/v1`, shared with the hosting
+portal, BananaChat and BananaGit: `bananawiki/core/eggs.py` and
+`bananawiki/core/static/eggs/`). Typing an egg's keys anywhere on a page, but
+not in a field, with Ctrl, Alt or Cmd held or by holding a key down, drops its
+emoji or the mascot down the page; Shift alone does not count, so `B` counts as
+`b`. With reduced motion (the system's or the account's setting) one still
+item appears instead. Afterwards the egg opens the easter egg page, shows a
+message or does nothing; with unsaved changes on the page, the page becomes a
+message with a link. Without anything saved, the egg is the Konami code
+(↑ ↑ ↓ ↓ ← → ← → B A) with a short shower of mascots.
+
+* **Editor.** **Admin → Appearance → Key-sequence easter eggs**: up to ten
+  eggs (8 KB), each with a name, its keys (press **Record keys**, type 2 to 32
+  keys, **Stop**), what falls, how many and how fast, what happens afterwards,
+  whether finds are kept, a badge and a message, and a **Preview** that plays
+  it without recording it. The server checks the whole list again and names
+  each problem; saving is recorded in the audit log. Administrators only, not
+  while impersonating.
+* **Finds.** The page carries the enabled eggs in
+  `<script type="application/json" id="banana-eggs">` in `<head>` (never their
+  badges). A signed-in person's find is sent to `POST /easter-eggs/<id>/found`
+  (CSRF header, 10 a minute per account; 404 for an unknown, switched off or
+  unrecorded egg) and kept once per account and egg (`easter_egg_finds`); the
+  first find is recorded in the audit log, awards the egg's badge and counts
+  for the badges' **Easter eggs found** trigger. Visitors' finds stay in their
+  browser. Finds are easily forged, so they only ever earn cosmetic rewards.
+* **Easter egg page.** `/easter-egg` (the 1.4 address) lists every egg to find:
+  found ones with their date, the others as "?", and "N of M found". It needs
+  an account unless the wiki is public.
+* **Data.** Finds are in the personal data export; administrators remove an
+  account's finds under **Admin → Users → the account** (audit log).
+* **From 1.4.** The 1.4 eggs (the JSON list in `site_settings.easter_eggs`, or
+  the older `easter_egg_*` columns) are imported once as `legacy-1`, … and
+  `users.easter_egg_found` becomes a find of `legacy-1`.
 
 ## Personal data export
 

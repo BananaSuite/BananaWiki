@@ -1,5 +1,5 @@
-/* Portal behaviours: mobile menu, theme label, remembered sections, dismissible banners, resumable archive uploads
-   and the custom domain checklist. No inline handlers. */
+/* Portal behaviours: mobile menu, the "Go to" menu, theme label, remembered sections, dismissible banners,
+   resumable archive uploads and the custom domain checklist. No inline handlers. */
 (function () {
   "use strict";
   var BW = window.BW;
@@ -25,6 +25,42 @@
           nav.classList.remove("is-open");
           navToggle.setAttribute("aria-expanded", "false");
         }
+      });
+    }
+
+    // The "Go to" menu: a <details> disclosure that works without scripts. Here its toggle says whether it is
+    // open (aria-expanded) and which list it controls; Escape closes it and returns to the toggle, a click
+    // elsewhere closes it, and the arrow keys move between its links.
+    var goto = document.querySelector("details[data-goto-menu]");
+    var gotoToggle = goto && goto.querySelector("summary");
+    var gotoList = goto && goto.querySelector("ul.goto-menu__list");
+    if (gotoToggle && gotoList) {
+      var gotoLinks = function () { return Array.prototype.slice.call(gotoList.querySelectorAll("a")); };
+      var gotoSync = function () { gotoToggle.setAttribute("aria-expanded", goto.open ? "true" : "false"); };
+      gotoToggle.setAttribute("aria-controls", gotoList.id);
+      gotoSync();
+      goto.addEventListener("toggle", gotoSync);
+      goto.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && goto.open) {
+          event.preventDefault();
+          event.stopPropagation();
+          goto.open = false;
+          gotoSync();
+          gotoToggle.focus();
+          return;
+        }
+        if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+        var links = gotoLinks();
+        if (!links.length) return;
+        event.preventDefault();
+        if (!goto.open) { goto.open = true; gotoSync(); }
+        var index = links.indexOf(document.activeElement);
+        var next = event.key === "ArrowDown" ? (index + 1) % links.length
+          : (index <= 0 ? links.length - 1 : index - 1);
+        links[next].focus();
+      });
+      document.addEventListener("click", function (event) {
+        if (goto.open && !goto.contains(event.target)) { goto.open = false; gotoSync(); }
       });
     }
 

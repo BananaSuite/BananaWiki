@@ -42,6 +42,9 @@ Version history
      :mod:`.v19_stored_amounts`.
 20   How members sign in (``site_settings.signin_mode``: the wiki's own
      accounts, the hosting portal's or both). See :mod:`.v20_signin_mode`.
+21   Easter eggs administrators design (``site_settings.easter_egg_configs``)
+     and who found them (``easter_egg_finds``), with the 1.4 eggs and finds
+     imported. See :mod:`.v21_easter_egg_configs`.
 
 A 1.4 database at version 3 upgrades in place. New databases are created from
 ``baseline_v3.sql`` followed by every later migration, so fresh and upgraded
@@ -73,6 +76,7 @@ from . import (
     v18_canvas_page_slugs,
     v19_stored_amounts,
     v20_signin_mode,
+    v21_easter_egg_configs,
 )
 
 APPLICATION_ID = 0x42574B49  # "BWKI", unchanged from 1.4
@@ -95,6 +99,7 @@ MIGRATIONS = (
     v18_canvas_page_slugs.upgrade,  # 17 -> 18
     v19_stored_amounts.upgrade,  # 18 -> 19
     v20_signin_mode.upgrade,  # 19 -> 20
+    v21_easter_egg_configs.upgrade,  # 20 -> 21
 )
 LATEST = BASELINE + len(MIGRATIONS)
 

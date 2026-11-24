@@ -16,15 +16,24 @@
   <link rel="apple-touch-icon" href="{{ asset_url('apple-touch-icon.png') }}">
   <link rel="stylesheet" href="{{ asset_url('css/hosting.css') }}">
   <link rel="stylesheet" href="{{ asset_url('mascot/mascot.css') }}">
+  {#- The key-sequence easter eggs (Settings → Easter eggs): banana-eggs.js reads only this element, in <head>
+      before any page content. Nothing at all while they are off. -#}
+  {% set egg_config = easter_egg_config() %}
+  {% if egg_config %}
+  <script type="application/json" id="banana-eggs">{{ egg_config }}</script>
+  <link rel="stylesheet" href="{{ asset_url('eggs/banana-eggs.css') }}">
+  <script src="{{ asset_url('eggs/banana-eggs.js') }}" defer></script>
+  {% endif %}
+  {% block head %}{% endblock %}
 </head>
 <body>
   <a class="skip-link" href="#main">{{ t('hosting.skip_to_main') }}</a>
   <div class="board">
   <header class="topbar board-header">
-    {#- The sunglasses are kept in this browser only (mascot.js, data-mascot-store="local"). An easter egg
-        switched off under Settings → Easter eggs: no clicks put the sunglasses on (0), no banana shower. -#}
+    {#- The sunglasses are kept in this browser only (mascot.js, data-mascot-store="local"). Switched off under
+        Settings → Easter eggs, no clicks put them on (0). -#}
     {% set eggs = easter_eggs() %}
-    <button type="button" class="mascot" data-mascot data-mascot-store="local" data-mascot-clicks="{{ mascot.CLICKS_FOR_SHADES if eggs.shades else 0 }}"{% if not eggs.konami %} data-mascot-konami="off"{% endif %}
+    <button type="button" class="mascot" data-mascot data-mascot-store="local" data-mascot-clicks="{{ mascot.CLICKS_FOR_SHADES if eggs.shades else 0 }}"
             aria-label="{{ t('js.mascot.label') }}" title="{{ t('js.mascot.label') }}"><span class="mascot__body">{{ mascot.svg('normal') }}</span></button>
     <a class="topbar__brand" href="{{ url_for('public.index') }}"><span>{{ service_name }}</span></a>
     {% if current_account %}<p class="board-header__user">{{ t('hosting.nav.signed_in_as') }} <strong>{{ current_account.username }}</strong></p>{% endif %}
@@ -47,6 +56,22 @@
     {% endif %}
     <a href="{{ url_for('public.help_index') }}" {% if request.endpoint and request.endpoint.startswith('public.help') %}aria-current="page"{% endif %}>{{ t('hosting.nav.help') }}</a>
     {% if not current_account %}<a href="{{ url_for('auth.login') }}" {% if request.endpoint == 'auth.login' %}aria-current="page"{% endif %}>{{ t('hosting.nav.login') }}</a>{% endif %}
+    {#- The platform's main wikis and its other apps. A disclosure that works without scripts; hosting.js adds
+        aria-expanded, Escape and the arrow keys. Hidden when there is nothing to list. -#}
+    {% set goto = goto_menu() %}
+    {% if goto %}
+    <details class="goto-menu" data-goto-menu>
+      <summary class="goto-menu__toggle">{{ t('hosting.goto.title') }}</summary>
+      <ul class="goto-menu__list" id="goto-menu-list" aria-label="{{ t('hosting.goto.title') }}">
+        {% for item in goto %}
+        <li class="goto-menu__item goto-menu__item--{{ item.kind }}">
+          <a href="{{ item.url }}" rel="noopener"{% if item.note %} aria-describedby="goto-note-{{ item.kind }}"{% endif %}>{{ item.label }}</a>
+          {% if item.note %}<p class="goto-menu__note" id="goto-note-{{ item.kind }}">{{ item.note }}</p>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
     </span>
     <span class="hosting-nav__tools">
       {% if current_account %}

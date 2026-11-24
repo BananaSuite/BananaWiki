@@ -16,10 +16,11 @@ section, then the 1.7.0 to 1.7.1, 1.7.1 to 1.7.2, 1.7.2 to 1.7.3, 1.7.3 to
 
 ## Upgrading from 1.8.0 to unreleased
 
-The first start migrates the wiki database from schema 19 to 20 (and the hosting
-portal's from 11 to 12, see below): how members
+The first start migrates the wiki database from schema 19 to 21 (and the hosting
+portal's from 11 to 13, see below): how members
 sign in (`site_settings.signin_mode`, `both` on every existing wiki, which is
-the behaviour of 1.8.0). Afterwards 1.8.0 cannot open the database, so back up
+the behaviour of 1.8.0), then the easter eggs (`site_settings.easter_egg_configs`
+and `easter_egg_finds`). Afterwards 1.8.0 cannot open the database, so back up
 first (`sudo bananawiki backup` on a managed server) if you may want to go back.
 Behaviour that changes:
 
@@ -40,6 +41,22 @@ Behaviour that changes:
   cannot open the portal database, so back it up first.
 * **Account → Wiki sign-ins** is now **Connected wikis and apps**, and its
   address `/account/wikis` is unchanged.
+* **Easter eggs.** The Konami code now drops ten mascots (a banana for
+  visitors, who now find eggs too) and nothing more; the mascot's switch for it
+  is now **Key sequences** and covers every egg designed under
+  **Admin → Appearance**. A wiki that came from 1.4 gets its old eggs back as
+  `legacy-1`, … (they open `/easter-egg` again, switched off if the 1.4
+  `easter_egg` plugin was) and each account that had found the egg keeps a
+  find of `legacy-1`. The 1.4 values stay in `site_settings`. Badges that 1.4
+  awarded with its `easter_egg` trigger became manual badges in 1.6 and stay
+  so; pick the trigger again under **Admin → Badges** to count eggs found.
+* **Hosting portal, schema 12 to 13** (portal operators). The first start adds
+  the portal's easter egg list (`hosting_settings.easter_egg_configs`), the
+  finds of accounts (`account_egg_finds`) and the addresses of the platform's
+  BananaChat and BananaGit for the new **Go to** menu
+  (`goto_chat_url`, `goto_git_url`, empty). Set them under
+  **Admin → Settings → Other apps**; until then the menu lists only the main
+  wikis that are online (and is hidden when there are none).
 
 ## Upgrading from 1.7.6 to 1.8.0
 

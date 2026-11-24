@@ -1,0 +1,5 @@
+{#- The key-sequence easter eggs (core/static/eggs/banana-eggs.js reads only this element, in <head>, before
+    any page content). The config is already safe inside <script> (core/eggs.py script_json). -#}
+<script type="application/json" id="banana-eggs">{{ config }}</script>
+<link rel="stylesheet" href="{{ asset_url('eggs/banana-eggs.css') }}">
+<script src="{{ asset_url('eggs/banana-eggs.js') }}" defer></script>

@@ -1,4 +1,4 @@
-{#- Page shell. Blocks: title, head, body_class, topbar_actions, sidebar, sidebar_label, main_class, content, scripts. -#}
+{#- Page shell. Slots in <head>: page.head (before any page content). Blocks: title, head, body_class, topbar_actions, sidebar, sidebar_label, main_class, content, scripts. -#}
 {%- set prefs = accessibility_prefs() -%}
 {#- BM mode's simplifications applying to this person, for scripts and stylesheets (data-bm). -#}
 {%- set bm_ids = bm_applied() -%}
@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="{{ asset_url('css/content.css') }}">
   <link rel="stylesheet" href="{{ asset_url('css/pygments.css') }}">
   <style nonce="{{ csp_nonce() }}">{{ theme_css() }}{{ bm_css() }}</style>
+  {{ slot('page.head') }}
   {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">

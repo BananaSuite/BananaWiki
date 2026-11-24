@@ -6,11 +6,11 @@ import json
 import re
 from typing import Any
 
-from flask import Flask, current_app, g, request, session
+from flask import Flask, current_app, g, request, session, url_for
 from markupsafe import Markup, escape
 
 from .. import __version__
-from ..core import mascot, web
+from ..core import eggs, mascot, web
 from ..core.assets import asset_url
 from ..core.i18n import _PLACEHOLDER
 from ..core.timeutil import is_past, parse, utcnow
@@ -147,6 +147,48 @@ def easter_eggs() -> dict[str, bool]:
         return settings.easter_eggs()
     except Exception:  # noqa: BLE001 - an error page must render even when the database does not answer
         return dict.fromkeys(settings.EASTER_EGGS, True)
+
+
+def easter_egg_config() -> Markup | str:
+    """The key-sequence eggs for banana-eggs.js (``#banana-eggs`` in <head>), or '' when none plays."""
+    from . import easter
+
+    try:
+        playable = easter.playable()
+    except Exception:  # noqa: BLE001 - an error page must render even when the database does not answer
+        return ""
+    if not playable:
+        return ""
+    account = auth.current_account()
+    signed_in = account is not None and not auth.impersonating()
+    found_url = url_for("public.egg_found", egg_id="EGG").replace("/EGG/", "/{id}/")
+    config = eggs.client_config(
+        {"eggs": playable}, found_url=found_url if signed_in else None, page_url=url_for("public.easter_egg_page"),
+        signed_in=signed_in, csrf_header=web.CSRF_HEADERS[0] if signed_in else None,
+        csrf_token=web.csrf_token() if signed_in else "",
+        strings={"found": i18n.t("hosting.easter.found"), "open_page": i18n.t("hosting.easter.open_page")})
+    # script_json escapes <, > and & so the JSON cannot end the element early.
+    return Markup(eggs.script_json(config))
+
+
+def goto_menu() -> list[dict[str, str]]:
+    """The top bar's "Go to" menu: the main wikis serving now, then BananaChat and BananaGit when an
+    administrator gave their addresses. ``{"kind", "label", "url", "note"}``; empty hides the menu."""
+    if "_goto_menu" in g:
+        return g._goto_menu
+    from . import instances
+
+    try:
+        wikis, apps = instances.serving_main_wikis(), settings.goto_apps()
+    except Exception:  # noqa: BLE001 - an error page must render even when the database does not answer
+        wikis, apps = [], {}
+    items = [{"kind": "wiki", "label": wiki["name"], "url": wiki["url"], "note": ""} for wiki in wikis]
+    for app in ("chat", "git"):
+        if apps.get(app):
+            items.append({"kind": app, "label": i18n.t(f"hosting.goto.{app}"), "url": apps[app],
+                          "note": i18n.t(f"hosting.goto.{app}_note")})
+    g._goto_menu = items
+    return items
 
 
 def wbr_settings(text: Any) -> Markup:
@@ -399,4 +441,5 @@ def install(app: Flask) -> None:
             "inline_error": inline_error, "gate_allows": gate_allows, "wiki_open_url": wiki_open_url,
             "email_ready": notifications.configured, "mascot": mascot,
             "email_paused": settings.email_paused, "easter_eggs": easter_eggs,
+            "easter_egg_config": easter_egg_config, "goto_menu": goto_menu,
         }

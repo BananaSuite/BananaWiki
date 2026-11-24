@@ -1,0 +1,32 @@
+{% extends "hosting/base.html" %}
+{% block title %}{{ t('hosting.easter.page_title') }}{% endblock %}
+{% block content %}
+<header class="page-header"><h1>{{ t('hosting.easter.page_title') }}</h1></header>
+{#- Signed out, finds are kept in this browser: easter-egg.js marks them and counts them again. -#}
+<section class="card mascot-eggs-page" data-easter-egg-page{% if not current_account %} data-local-finds{% endif %}
+         data-count-template="{{ t('hosting.easter.count', found='{found}', total='{total}') }}"
+         data-found-template="{{ t('hosting.easter.found_on_this_browser', name='{name}') }}">
+  <p><strong data-easter-egg-count>{{ t('hosting.easter.count', found=found_count, total=egg_items|length) }}</strong></p>
+  {% if egg_items %}
+  <ul class="mascot-eggs-page__list">
+    {% for egg in egg_items %}
+    {#- The runtime opens this page at #egg-<id> after a find. -#}
+    <li id="egg-{{ egg.id }}" class="mascot-eggs-page__egg" data-egg-id="{{ egg.id }}"
+        data-egg-sprite="{{ '🍌' if egg.sprite.type == 'mascot' else egg.sprite.value }}">
+      {% if egg.id in found %}
+      <span class="mascot-eggs-page__sprite" aria-hidden="true">{{ '🍌' if egg.sprite.type == 'mascot' else egg.sprite.value }}</span>
+      <span>{{ t('hosting.easter.found_name', name=egg.id) }} <span class="muted small">{{ found[egg.id]|datetime }}</span></span>
+      {% else %}
+      <span class="mascot-eggs-page__sprite" aria-hidden="true" data-egg-mark>?</span>
+      <span data-egg-text>{{ t('hosting.easter.hidden') }}</span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="hint">{{ t('hosting.easter.none') }}</p>
+  {% endif %}
+  {% if not current_account %}<p class="hint">{{ t('hosting.easter.sign_in') }} <a href="{{ url_for('auth.login') }}">{{ t('hosting.nav.login') }}</a></p>{% endif %}
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ asset_url('js/easter-egg.js') }}" defer></script>{% endblock %}
