@@ -829,8 +829,13 @@ platforms.
 
 * **Consent**: the portal asks once per wiki and remembers the answer. A
   wiki's owner is not asked. Collaborators are asked, since they are added
-  without accepting anything. A wiki can ask again with `prompt=consent`;
-  without asking, one account gets at most 20 sign-in codes a minute.
+  without accepting anything. A wiki can ask again with `prompt=consent`.
+* **Every sign-in needs a click**: once consent was given (and on the owner's
+  own wikis), the portal still shows a short page, **Continue as *name***,
+  like other "sign in with" buttons, so nobody is signed in to a wiki without
+  seeing which account it gets. **Use another account** on that page and on
+  the consent page signs out of the portal and returns to the wiki's request
+  after the next sign-in. No sign-in code is issued without the click.
 * **First sign-in on a wiki** opens a connect page with two choices: create a
   new wiki account (the portal user name is suggested; when somebody else
   already has it, the page says so and suggests a free one such as `alex2`),
@@ -950,7 +955,8 @@ register theirs there too, or with `bananawiki hosting-admin app create`.
   whether an account is an administrator, and they cannot call the wiki-only
   endpoints (link, link status, unlink, sign-outs).
 * **Consent** is asked once per app and again when it asks for more than was
-  allowed. **Your account → Connected wikis and apps** lists what each app
+  allowed. Every later sign-in still shows the **Continue as *name*** page
+  (see [Platform sign-in](#platform-sign-in)). **Your account → Connected wikis and apps** lists what each app
   gets and takes access away (which revokes its tokens). Signing out everywhere
   and a password change revoke app tokens too. Deleting an account deletes its
   apps; a merge moves them to the account that remains and keeps the widest

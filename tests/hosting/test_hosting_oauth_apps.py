@@ -335,17 +335,22 @@ def test_consent_page_names_the_app_its_owner_and_what_it_gets(web, make_app, ma
     assert "username and your account ID" in html
 
 
-def test_consent_is_asked_once_then_remembered_per_scope(web, make_app, make_account, login):
+def test_consent_is_asked_once_per_scope_then_each_sign_in_is_confirmed(web, make_app, make_account, login):
     app = make_app(make_account(admin=True))
     login(web, make_account())
-    assert web.get(_authorize_url(app)).status_code == 200
+
+    def page(**extra):
+        response = web.get(_authorize_url(app, **extra))
+        assert response.status_code == 200, "never a code without a click"
+        return "Continue as" in response.get_data(as_text=True)
+
+    assert not page(), "the first time: the consent page"
     assert "code" in _allow(web, app)
-    again = web.get(_authorize_url(app))  # remembered: the code comes straight back
-    assert again.status_code == 302 and "code=" in again.headers["Location"]
-    assert web.get(_authorize_url(app, scope="profile email")).status_code == 200  # more than allowed: asks again
+    assert page(), "remembered: one click to continue as the signed-in account"
+    assert not page(scope="profile email"), "more than allowed: asks again"
     assert "code" in _allow(web, app, scope="profile email")
-    assert web.get(_authorize_url(app, scope="profile email")).status_code == 302
-    assert web.get(_authorize_url(app, prompt="consent")).status_code == 200
+    assert page(scope="profile email")
+    assert not page(prompt="consent")
 
 
 def test_denying_returns_access_denied_with_the_state(web, make_app, make_account, login):

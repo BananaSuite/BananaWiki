@@ -1,4 +1,5 @@
-"""One portal account across the platform's wikis: remembered consent, wiki sign-ins and single sign-out."""
+"""One portal account across the platform's wikis: consent and confirmed sign-ins, wiki sign-ins and single
+sign-out."""
 
 from __future__ import annotations
 
@@ -59,31 +60,42 @@ def _code_in(response):
     return parse_qs(urlparse(response.headers["Location"]).query).get("code", [None])[0]
 
 
+def _asks_to_continue(response):
+    """The short page shown once consent was given: one click, and the account it signs in as."""
+    html = response.get_data(as_text=True)
+    return response.status_code == 200 and "Continue as" in html and "Use another account" in html
+
+
 def _signouts(client, wiki, after=0):
     return client.get(f"/oauth/signouts?after={after}", headers=wiki["auth"])
 
 
-# Remembered consent
+# Consent, then a confirmed sign-in every time
 
 
-def test_consent_is_asked_once_per_wiki(portal, web, make_account, login, wiki, query):
+def test_consent_is_asked_once_then_each_sign_in_is_confirmed(portal, web, make_account, login, wiki, query):
     member = make_account()
     login(web, member)
-    assert _authorize_get(web, wiki).status_code == 200, "the first time: the consent page"
+    first = _authorize_get(web, wiki)
+    assert first.status_code == 200 and not _asks_to_continue(first), "the first time: the consent page"
     code = _allow(web, wiki)
     assert _token(web, wiki, code).status_code == 200
     grant = query("SELECT * FROM hosting_oauth_grants WHERE account_id = ?", (member["id"],), one=True)
     assert grant["instance_id"] == wiki["inst"]["id"] and grant["last_used_at"]
     again = _authorize_get(web, wiki)
-    assert _code_in(again), "later sign-ins go straight back to the wiki"
-    assert parse_qs(urlparse(again.headers["Location"]).query)["state"] == ["s1"]
-    assert _token(web, wiki, _code_in(again)).status_code == 200
-    assert _authorize_get(web, wiki, prompt="consent").status_code == 200, "the wiki may ask again"
+    assert _asks_to_continue(again), "later sign-ins: one click on the portal, never straight back to the wiki"
+    assert member["username"] in again.get_data(as_text=True)
+    allowed = web.post("/oauth/authorize?" + urlencode(_params(wiki)), data={"action": "allow"})
+    assert parse_qs(urlparse(allowed.headers["Location"]).query)["state"] == ["s1"]
+    assert _token(web, wiki, _code_in(allowed)).status_code == 200
+    asked = _authorize_get(web, wiki, prompt="consent")
+    assert asked.status_code == 200 and not _asks_to_continue(asked), "the wiki may ask for consent again"
 
 
-def test_the_owner_is_never_asked_on_their_own_wiki(web, owner, login, wiki, query):
+def test_the_owner_only_confirms_on_their_own_wiki(web, owner, login, wiki, query):
     login(web, owner)
-    assert _code_in(_authorize_get(web, wiki))
+    assert _asks_to_continue(_authorize_get(web, wiki)), "no consent page, but still a click"
+    assert _code_in(web.post("/oauth/authorize?" + urlencode(_params(wiki)), data={"action": "allow"}))
     assert query("SELECT account_id FROM hosting_oauth_grants") == [{"account_id": owner["id"]}]
 
 
@@ -106,14 +118,30 @@ def test_denying_remembers_nothing(web, make_account, login, wiki, query):
     assert _authorize_get(web, wiki).status_code == 200
 
 
-def test_codes_without_a_click_are_limited_per_account(web, make_account, login, wiki):
+def test_no_code_without_a_click(web, make_account, login, wiki, query):
     login(web, make_account())
     _allow(web, wiki)
-    from bananawiki.hosting import oauth
+    for _ in range(5):
+        assert _asks_to_continue(_authorize_get(web, wiki))
+    assert len(query("SELECT * FROM hosting_oauth_authorization_codes")) == 1, "only the one that was clicked"
 
-    for _ in range(oauth.AUTO_CODES_PER_MINUTE):
-        assert _code_in(_authorize_get(web, wiki))
-    assert _authorize_get(web, wiki).status_code == 200, "then the consent page again, which needs a click"
+
+def test_use_another_account_signs_out_of_the_portal_and_comes_back(web, make_account, login, wiki, query):
+    first, second = make_account(), make_account()
+    login(web, first)
+    _allow(web, wiki)
+    url = "/oauth/authorize?" + urlencode(_params(wiki))
+    switched = web.post(url, data={"action": "switch"})
+    location = urlparse(switched.headers["Location"])
+    assert switched.status_code == 302 and location.path == "/login"
+    assert parse_qs(location.query)["next"][0].startswith("/oauth/authorize?")
+    assert "code=" not in switched.headers["Location"]
+    assert urlparse(web.get(url).headers["Location"]).path == "/login", "signed out of the portal"
+    login(web, second)
+    page = web.get(url)
+    assert page.status_code == 200 and not _asks_to_continue(page), "the other account is asked for its consent"
+    assert second["username"] in page.get_data(as_text=True)
+    assert len(query("SELECT * FROM hosting_oauth_authorization_codes")) == 1
 
 
 def test_impersonation_never_gets_a_code(portal, web, make_account, login, wiki):
@@ -152,7 +180,7 @@ def test_the_wiki_sign_ins_page_lists_and_signs_out(web, make_account, login, wi
     assert [(event["account_id"], event["reason"]) for event in events] == [(member["id"], "signed_out")]
     assert query("SELECT * FROM hosting_oauth_access_tokens WHERE account_id = ?", (member["id"],)) == []
     assert query("SELECT 1 FROM hosting_oauth_grants WHERE account_id = ?", (member["id"],)), "consent stays"
-    assert _code_in(_authorize_get(web, wiki))
+    assert _asks_to_continue(_authorize_get(web, wiki))
 
 
 def test_removing_access_asks_for_consent_again(web, make_account, login, wiki, query):
@@ -292,7 +320,7 @@ def test_a_merge_signs_the_source_out_and_hands_its_consent_on(portal, web, make
     assert _events(web, wiki) == [(source["id"], f"w-{source['username']}", "merged")]
     assert query("SELECT account_id FROM hosting_oauth_grants") == [{"account_id": target["id"]}]
     login(web, target)
-    assert _code_in(_authorize_get(web, wiki)), "the target already allowed what the source allowed"
+    assert _asks_to_continue(_authorize_get(web, wiki)), "the target already allowed what the source allowed"
 
 
 def test_old_signouts_are_pruned(portal, web, make_account, login, wiki, query):

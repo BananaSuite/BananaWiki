@@ -11,11 +11,12 @@ session): ``/oauth/token``, ``/oauth/userinfo`` (alias ``/oauth/me``),
 ``/oauth/verify``, ``/oauth/link``, ``/oauth/unlink``, ``/oauth/link-status``
 and ``/oauth/signouts``.
 
-Consent is asked once per wiki (never on the owner's own wikis): once given,
-``/oauth/authorize`` answers a GET with the code straight away, unless the
-wiki asks with ``prompt=consent`` or the account requested more than
-:data:`~bananawiki.hosting.oauth.AUTO_CODES_PER_MINUTE` codes that way in a
-minute.
+Every sign-in needs a click on the portal, like other "Sign in with" pages:
+the first time (on the owner's own wikis too) the consent page says what the
+wiki or app gets; once allowed, a short page asks to continue as the signed-in
+account (``prompt=consent`` asks for the full consent again). Both offer
+"Use another account", which signs out of the portal and comes back here after
+the next sign-in. No code is ever issued for a GET.
 
 Wiki authentication for ``token``, ``link``, ``unlink`` and ``link-status``:
 HTTP Basic ``client_id:client_secret`` (preferred), or ``client_id`` and
@@ -190,22 +191,25 @@ def authorize():
                                                 "S256" if challenge else "", scope)})
 
     if request.method == "POST":
-        if request.form.get("action") != "allow":
+        action = request.form.get("action")
+        if action == "switch":
+            # "Use another account": the login page brings the next account back to this request.
+            auth.end_session()
+            return redirect(url_for("auth.login", next=request.full_path))
+        if action != "allow":
             return answer({"error": "access_denied"})
         return issue()
-    remembered = (oauth_apps.consent_covers(current["id"], app["id"], scope) if app is not None
-                  else oauth.consent_remembered(current, inst))  # type: ignore[arg-type]
-    if (args.get("prompt") != "consent" and remembered
-            and limits.hit("oauth_auto_code", oauth.AUTO_CODES_PER_MINUTE, 60, key=current["id"])):
-        return issue()
-    # The consent form is answered with a redirect to the wiki or app checked above.
+    remembered = args.get("prompt") != "consent" and (
+        oauth_apps.consent_covers(current["id"], app["id"], scope) if app is not None
+        else oauth.consent_remembered(current, inst))  # type: ignore[arg-type]
+    # The page is answered with a redirect to the wiki or app checked above.
     allow_form_action(redirect_uri)
     if app is not None:
         owner = accounts.get(app["account_id"])
         return render_template("hosting/oauth_consent.html", instance=None, app=app, scopes=scope.split(),
-                               owner_name=owner["username"] if owner else "",
+                               owner_name=owner["username"] if owner else "", remembered=remembered,
                                email_shared=bool("email" in scope.split() and oauth_apps.verified_email(current)))
-    return render_template("hosting/oauth_consent.html", instance=inst, app=None)
+    return render_template("hosting/oauth_consent.html", instance=inst, app=None, remembered=remembered)
 
 
 @bp.post("/oauth/token")

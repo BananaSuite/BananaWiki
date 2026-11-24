@@ -43,9 +43,6 @@ from .runtime import OAuthClient
 CODE_SECONDS = 300
 TOKEN_SECONDS = 3600
 SCOPE = "openid profile"
-# Codes issued without a click (remembered consent) per account and minute: a page that loads the
-# authorize URL in a loop gets the consent page instead of filling the code table.
-AUTO_CODES_PER_MINUTE = 20
 
 
 def enabled() -> bool:

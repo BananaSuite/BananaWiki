@@ -71,12 +71,15 @@ def _wiki_sql(platform, sql: str, params: tuple = ()) -> list[dict]:
 
 
 def _open_wiki(platform, browser, wiki):
-    """"Open wiki" from the portal: returns the wiki's answer to the callback, or the portal's consent page."""
+    """"Open wiki" from the portal: once consent was given, clicks "Continue as" and returns (the wiki's answer to
+    the callback, the portal's page); the first time returns (None, the portal's consent page)."""
     start = wiki.get("/platform-oauth/login", base_url=platform["url"])
     authorize = urlsplit(start.headers["Location"])
-    answer = browser.get(f"{authorize.path}?{authorize.query}")
-    if answer.status_code == 200:
-        return None, answer
+    page = browser.get(f"{authorize.path}?{authorize.query}")
+    assert page.status_code == 200, "every sign-in shows a page on the portal"
+    if "Continue as" not in page.get_data(as_text=True):
+        return None, page
+    answer = browser.post(f"{authorize.path}?{authorize.query}", data={"action": "allow"})
     callback = urlsplit(answer.headers["Location"])
     assert parse_qs(callback.query).get("code"), answer.headers["Location"]
     return wiki.get(f"{callback.path}?{callback.query}", base_url=platform["url"]), answer

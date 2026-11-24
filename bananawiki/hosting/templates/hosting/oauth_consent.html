@@ -11,17 +11,27 @@
   {% if app.status == 'pending' %}<div class="alert alert--warning" role="status"><div class="alert__body">{{ t('hosting.apps.consent.pending') }}</div></div>{% endif %}
   <p class="small muted">{{ t('hosting.apps.consent.shared_email') if email_shared else t('hosting.apps.consent.shared') }}</p>
   {% if 'email' in scopes and not email_shared %}<p class="small muted">{{ t('hosting.apps.consent.no_email') }}</p>{% endif %}
-  <p class="small muted">{{ t('hosting.apps.consent.remembered') }}</p>
+  {% if not remembered %}<p class="small muted">{{ t('hosting.apps.consent.remembered') }}</p>{% endif %}
   {% else %}
   <h1>{{ t('hosting.oauth.title') }}</h1>
   <p>{{ tm('hosting.oauth.body', wiki=strong(instance.subdomain), username=strong(current_account.username)) }}</p>
   {% set address = instance_url(instance) %}{% if address %}<p class="small"><span class="muted">{{ t('hosting.instance.url') }}:</span> <span class="mono">{{ address }}</span></p>{% endif %}
   <p class="small muted">{{ t('hosting.oauth.shared') }}</p>
-  <p class="small muted">{{ t('hosting.oauth.remembered') }}</p>
+  {% if not remembered %}<p class="small muted">{{ t('hosting.oauth.remembered') }}</p>{% endif %}
   {% endif %}
-  <form method="post" class="btn-row">{{ ui.csrf() }}
-    <button class="btn btn--primary" type="submit" name="action" value="allow">{{ t('hosting.oauth.allow') }}</button>
-    <button class="btn" type="submit" name="action" value="deny">{{ t('hosting.oauth.deny') }}</button>
+  {# Asked on every sign-in, so nobody is signed in to a wiki or an app without seeing which account it gets. #}
+  <form method="post">{{ ui.csrf() }}
+    <div class="btn-row">
+      {% if remembered %}
+      <button class="btn btn--primary" type="submit" name="action" value="allow" autofocus>{{ t('hosting.oauth.continue', username=current_account.username) }}</button>
+      <button class="btn" type="submit" name="action" value="deny">{{ t('common.cancel') }}</button>
+      {% else %}
+      <button class="btn btn--primary" type="submit" name="action" value="allow">{{ t('hosting.oauth.allow') }}</button>
+      <button class="btn" type="submit" name="action" value="deny">{{ t('hosting.oauth.deny') }}</button>
+      {% endif %}
+    </div>
+    <p class="small muted">{{ t('hosting.oauth.not_you', username=current_account.username) }}
+      <button class="btn btn--ghost btn--small" type="submit" name="action" value="switch">{{ t('hosting.oauth.switch') }}</button></p>
   </form>
 </div>
 {% endblock %}
