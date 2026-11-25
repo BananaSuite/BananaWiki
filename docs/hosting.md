@@ -840,13 +840,14 @@ platforms.
   seeing which account it gets. **Use another account** on that page and on
   the consent page signs out of the portal and returns to the wiki's request
   after the next sign-in. No sign-in code is issued without the click.
-* **First sign-in on a wiki** opens a connect page with two choices: create a
-  new wiki account (the portal user name is suggested; when somebody else
-  already has it, the page says so and suggests a free one such as `alex2`),
-  or connect an existing wiki account of any name with its password and, when
-  it uses two-step verification, its code (counted like a sign-in's). The
-  page offers **I already have an account here** first, then **Create a new
-  account**, and keeps what was typed when it refuses. A wiki account linked
+* **First sign-in on a wiki** opens one page: create the wiki account (the
+  portal user name is suggested; when somebody else already has it, the page
+  says so and suggests a free one such as `alex2`; the invite code is asked
+  unless the wiki has open sign-up). Under the form, the button **I already
+  have an account here** opens the form that connects an existing wiki
+  account of any name with its password and, when it uses two-step
+  verification, its code (counted like a sign-in's). The page keeps what was
+  typed when it refuses. A wiki account linked
   to another portal account is never taken over. New accounts follow the
   wiki's own sign-up policy; they have no password of their own until their
   owner sets one under **Settings → Security → Sign-in methods**. Later
@@ -915,17 +916,17 @@ platforms.
 
 **Admin → an account → Act as this user** shows the portal as that account
 sees it. It needs your password (or, with two-step sign-in on, a current
-code) and a reason, never applies to administrators, ends by itself after
+code), never applies to administrators, ends by itself after
 `admin_act_minutes` (30; **Settings → Acting as an account**), and every start
-and end is in the moderation log with the reason. `admin_act_notify` (off)
+and end is in the moderation log. `admin_act_notify` (off)
 emails the account when it starts.
 
 With **Administrators may sign in to wikis and apps while acting as an
-account** (`admin_app_signin`, off) the acting administrator can also open the
+account** (`admin_app_signin`, on) the acting administrator can also open the
 account's wikis and apps as it: `/oauth/authorize` issues the code for the
 account after a click (the consent page is skipped and nothing is recorded as
 the account's consent), the moderation log records the sign-in with the
-reason, and the token response and userinfo add
+wiki or app, and the token response and userinfo add
 `"act": {"sub": "<administrator id>", "preferred_username": "<administrator>"}`
 and `"act_expires_at"` (Unix seconds). Such tokens end with the acting, with
 the setting, and when the administrator loses the role; a fresh sign-in
@@ -986,7 +987,7 @@ provider.
 | --- | --- |
 | `local` | Wiki accounts only. |
 | `both` | Wiki accounts and "Sign in with the hosting portal". |
-| `platform` | Hosting accounts only, plus "Create an account" while the portal takes new accounts (see [Sign-up from an app](#sign-up-from-an-app)). New members come in through the connect page, which applies the wiki's sign-up policy. |
+| `platform` | Hosting accounts only. New members come in through the connect page, which applies the wiki's sign-up policy. |
 
 * Hosting accounts only is refused while nobody has linked a wiki account to a
   hosting account on that wiki (`--force` on the command line skips this): the
@@ -1024,11 +1025,12 @@ app, signed in.
   `prompt_values_supported` while sign-up is not closed and says
   `"signup": "open" | "invite" | "closed"` (approval does not change it). It is
   cacheable for five minutes.
-* **Clients** (wikis in `platform` mode, BananaChat in `hosting` mode): the
-  sign-in page's "Create an account" starts authorize with `prompt=create`,
-  shown only while the metadata says `open` or `invite` (asked at most every
-  five minutes; no answer hides it). In `both` mode the client's own sign-up
-  stays and nothing is added. The state remembers the flow was a sign-up: on
+* **Clients** (wikis in `platform` mode, BananaChat in `hosting` mode):
+  `/platform-oauth/login?create=1` (BananaChat: `/login/hosting/start?create=1`)
+  starts authorize with `prompt=create`. Their sign-in pages do not link to
+  it: with the portal's button on the page there is no "Create an account",
+  and whoever has no hosting account yet signs up from the portal's sign-in
+  page. The state remembers the flow was a sign-up: on
   the way back an unknown `sub` gets its local account at once, named like
   the hosting account, under the client's own sign-up policy (closed, invite,
   approval). When that is not possible (the name is taken, an invite is
@@ -1093,8 +1095,8 @@ register theirs there too, or with `bananawiki hosting-admin app create`.
 
 `/admin` on the portal (platform administrators):
 
-* accounts: approve, deny, suspend, delete, act as the account (with a reason,
-  [time-limited](#acting-as-an-account)), promote, flag email,
+* accounts: approve, deny, suspend, delete, act as the account
+  ([time-limited](#acting-as-an-account)), promote, flag email,
   remove the email address (while addresses are not required);
 * wikis: every lifecycle action above plus suspend (the expiry clock stops),
   extend, set storage limits and upload policy, move between owners,

@@ -10,31 +10,34 @@
   {% if refresh %}<noscript><meta http-equiv="refresh" content="10"></noscript>{% endif %}
   <title>{{ t('hosting.wiki_status.' ~ state ~ '.title') }} · {{ host }}</title>
   <style>
-    /* The portal's board in miniature: a bordered box with a glossy title bar, in the portal's default dark theme. */
-    :root { --page: #0f151c; --card: #18202a; --text: #dde5ed; --muted: #a3b2c2; --line: #34465a; --soft: #202a37;
-            --link: #9cc4f5; --link-hover: #ffc56e; --bar: linear-gradient(#3a5c82, #31517a 49%, #284669 51%, #213c5c); }
+    /* The portal's card in miniature, in its default dark theme: the wiki's default colours, worked out here
+       because this page loads no stylesheet. */
+    :root { --page: #141414; --card: #1b1b1b; --text: #ededed; --heading: #f1f1f1; --muted: #b6b6b6; --line: #363636;
+            --soft: #2a2a2a; --link: #cda624; }
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; padding: 3rem 1rem; background: var(--page); color: var(--text);
-           font: .8125rem/1.5 Verdana, Tahoma, "DejaVu Sans", sans-serif; }
+           font: .875rem/1.55 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif; }
     main { max-width: 32rem; margin: 0 auto; overflow: hidden; background: var(--card); border: 1px solid var(--line);
-           border-radius: 6px; box-shadow: 0 8px 26px rgba(0, 0, 0, .3); overflow-wrap: anywhere; }
-    h1 { margin: 0; padding: .4rem .75rem; background: var(--bar); color: #fff; font-size: .8125rem; line-height: 1.4;
-         text-shadow: 0 1px 0 rgba(0, 0, 0, .3); }
-    main > p, main > dl { margin: .75rem; }
-    .host { font-family: "Lucida Console", "DejaVu Sans Mono", monospace; word-break: break-all; }
-    .muted { color: var(--muted); font-size: .75rem; }
-    dl { padding: .4rem .6rem; border: 1px solid var(--line); background: var(--soft); }
-    dt { font-weight: bold; font-size: .75rem; }
+           border-radius: 6px; overflow-wrap: anywhere; }
+    h1 { margin: 0; padding: 1.1rem 1.25rem 0; color: var(--heading); font-size: 1.25rem; font-weight: 600; line-height: 1.25;
+         letter-spacing: -.015em; }
+    main > p, main > dl { margin: .75rem 1.25rem; }
+    main > :last-child:not(footer) { margin-bottom: 1.25rem; }
+    .host { font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; color: var(--muted);
+            word-break: break-all; }
+    .muted { color: var(--muted); font-size: .8125rem; }
+    dl { padding: .6rem .8rem; border: 1px solid var(--line); border-radius: 4px; background: var(--soft); }
+    dt { color: var(--muted); font-weight: 500; font-size: .8125rem; }
     dd { margin: 0 0 .4rem; }
     dd:last-child { margin-bottom: 0; }
-    a { color: var(--link); }
-    a:hover { color: var(--link-hover); }
+    a { color: var(--link); text-underline-offset: .2em; }
+    a:hover { text-decoration-thickness: 2px; }
     a:focus-visible, .link:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
-    footer { display: grid; gap: .35rem; padding: .5rem .75rem; border-top: 1px solid var(--line); background: var(--soft); }
+    footer { display: grid; gap: .35rem; margin-top: 1rem; padding: .75rem 1.25rem; border-top: 1px solid var(--line); }
     footer p { margin: 0; }
-    .brand { font-weight: bold; color: var(--text); }
+    .brand { font-weight: 600; color: var(--text); }
     .link { font: inherit; color: var(--link); background: none; border: 0; padding: 0; text-decoration: underline;
-            cursor: pointer; }
+            text-underline-offset: .2em; cursor: pointer; }
   </style>
 </head>
 <body>

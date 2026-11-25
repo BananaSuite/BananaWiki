@@ -268,7 +268,7 @@ def toggle_admin(account_id: str):
 @auth.admin_required
 @rate_limit(10)
 def impersonate(account_id: str):
-    """Act as an account: the administrator's password (or two-step code) again and a reason (see :mod:`..acting`)."""
+    """Act as an account: the administrator's password (or two-step code) again (see :mod:`..acting`)."""
     target = _account_or_404(account_id)
     if auth.impersonating():
         flash(t("hosting.admin.already_impersonating"), "error")
@@ -277,15 +277,10 @@ def impersonate(account_id: str):
     if not acting.may_act_as(admin, target):
         flash(t("hosting.admin.cannot_impersonate"), "error")
         return _dashboard()
-    reason = " ".join((request.form.get("reason") or "").split())
-    back_here = redirect(url_for("admin.account_page", account_id=account_id) + "#act")
-    if not 5 <= len(reason) <= acting.REASON_MAX:
-        flash(t("hosting.admin.act_reason_needed", max=acting.REASON_MAX), "error")
-        return back_here
     if not acting.confirm(admin, request.form.get("current_password") or "", request.form.get("code") or ""):
         flash(t("hosting.admin.act_confirm_wrong"), "error")
-        return back_here
-    auth.start_impersonation(target, reason)
+        return redirect(url_for("admin.account_page", account_id=account_id) + "#act")
+    auth.start_impersonation(target)
     _done("hosting.admin.impersonating", username=target["username"])
     return redirect(url_for("dashboard.dashboard"))
 
@@ -332,6 +327,8 @@ def delete_account(account_id: str):
     except ServiceError as error:
         flash_error(error)
         return redirect(url_for("admin.delete_account", account_id=account_id))
+    # The emptied row goes at once unless a terminated wiki still needs its owner (maintenance does the rest).
+    accounts.purge_tombstones()
     if address and request.form.get("notify_user"):
         notifications.send(address, "account_deleted", username=username)
     _done("hosting.admin.account_deleted", username=username)
@@ -358,6 +355,7 @@ def bulk_delete_accounts():
         except Exception:  # noqa: BLE001 - one account must not abort the others
             log.exception("Bulk deletion of account %s failed", one_line(account_id))
             failed += 1
+    accounts.purge_tombstones()
     _done("hosting.admin.accounts_deleted", count=done)
     if failed:
         flash(tn("hosting.admin.accounts_not_deleted", failed), "error")

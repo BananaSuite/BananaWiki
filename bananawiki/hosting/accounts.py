@@ -766,7 +766,8 @@ def delete(account_id: str) -> None:
     """Erase an account's personal data and credentials, keeping a tombstone row.
 
     The tombstone keeps retained (terminated) wikis attributable until their
-    grace period ends; :func:`purge_tombstones` removes it afterwards. The
+    grace period ends; :func:`purge_tombstones` removes it afterwards (the
+    portal's pages call it right after a deletion, maintenance on every pass). The
     caller checks :func:`check_deletable`, then terminates or transfers the
     account's wikis first.
     """

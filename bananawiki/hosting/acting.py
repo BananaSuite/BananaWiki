@@ -1,13 +1,13 @@
 """Administrators acting as an account (impersonation): its safeguards, and signing in to wikis and apps.
 
 Starting needs the administrator's password (or, with two-step sign-in on,
-a current code of it) and a reason, both checked by the caller
-(:func:`confirm`); administrators are never acted as. Acting ends by itself
-after ``admin_act_minutes`` (30): :func:`current` ends it on the first
-request after that. Every start and end is in the moderation log with the
-reason; ``admin_act_notify`` also emails the account when it starts.
+a current code of it), checked by the caller (:func:`confirm`);
+administrators are never acted as. Acting ends by itself after
+``admin_act_minutes`` (30): :func:`current` ends it on the first request
+after that. Every start and end is in the moderation log;
+``admin_act_notify`` also emails the account when it starts.
 
-With ``admin_app_signin`` on, ``/oauth/authorize`` signs the acting
+With ``admin_app_signin`` on (as it is unless switched off), ``/oauth/authorize`` signs the acting
 administrator in to wikis and apps as the account. The sign-in code and its
 access token carry the acting (``act_account_id``, ``act_expires_at``,
 ``act_log_id``): wikis and apps receive ``act`` and ``act_expires_at`` and
@@ -30,7 +30,6 @@ from .limits import confirm_code, confirm_password
 
 DEFAULT_MINUTES = 30
 MINUTES_RANGE = (5, 480)
-REASON_MAX = 500
 
 
 def minutes() -> int:
@@ -66,14 +65,13 @@ def confirm(admin: dict[str, Any], password: str, code: str) -> bool:
     return bool(code) and confirm_code(admin, code)
 
 
-def start(admin: dict[str, Any], target: dict[str, Any], reason: str) -> int:
+def start(admin: dict[str, Any], target: dict[str, Any]) -> int:
     """Record the start of acting (log entry, moderation log, optional email); returns the log id."""
-    reason = " ".join((reason or "").split())[:REASON_MAX]
     log_id = db.insert("hosting_impersonation_logs", {
         "admin_account_id": admin["id"], "target_account_id": target["id"], "started_at": now_sql(),
-        "reason": reason, "expires_at": sql_in(minutes=minutes()),
+        "expires_at": sql_in(minutes=minutes()),
     })
-    events.record("account", target["id"], "account.impersonated", admin["id"], reason)
+    events.record("account", target["id"], "account.impersonated", admin["id"])
     if notify_enabled():
         from . import notifications
 
@@ -90,7 +88,7 @@ def log_row(log_id: Any) -> dict[str, Any] | None:
 
 def live(row: dict[str, Any] | None) -> bool:
     """Whether the acting of *row* is still going on (not ended, not past its end)."""
-    # Acting started before the time limit existed (no end recorded) is over: it starts again with a reason.
+    # Acting started before the time limit existed (no end recorded) is over: it starts again.
     return bool(row) and not row["ended_at"] and bool(row.get("expires_at")) and not is_past(row["expires_at"])
 
 

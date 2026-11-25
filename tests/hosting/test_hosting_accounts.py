@@ -339,7 +339,8 @@ def test_account_deletion_needs_the_password(web, make_account, login, query):
     web.post("/account/delete", data={"current_password": "wrong"})
     assert query("SELECT deleted_at FROM accounts WHERE id = ?", (user["id"],), one=True)["deleted_at"] is None
     web.post("/account/delete", data={"current_password": PASSWORD})
-    assert query("SELECT deleted_at FROM accounts WHERE id = ?", (user["id"],), one=True)["deleted_at"]
+    # No wiki of theirs is being kept, so the emptied row goes at once instead of waiting for maintenance.
+    assert query("SELECT deleted_at FROM accounts WHERE id = ?", (user["id"],), one=True) is None
     assert web.get("/dashboard").status_code == 302
 
 

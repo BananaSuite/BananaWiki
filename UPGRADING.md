@@ -17,7 +17,7 @@ section, then the 1.7.0 to 1.7.1, 1.7.1 to 1.7.2, 1.7.2 to 1.7.3, 1.7.3 to
 ## Upgrading from 1.8.0 to unreleased
 
 The first start migrates the wiki database from schema 19 to 26 (and the hosting
-portal's from 11 to 16, see below): how members
+portal's from 11 to 17, see below): how members
 sign in (`site_settings.signin_mode`, `both` on every existing wiki, which is
 the behaviour of 1.8.0), then the easter eggs (`site_settings.easter_egg_configs`
 and `easter_egg_finds`), then the site icon switch (retired). Afterwards 1.8.0 cannot open the database, so back up
@@ -73,6 +73,12 @@ Behaviour that changes:
   server** no longer has a "Use a remote GPU server" box: hosted wikis use
   the GPU server whenever its address is saved. Where the box was off, the
   stored address is emptied, so nothing changes.
+* **Hosting portal, schema 16 to 17** (portal operators). Administrators acting
+  as an account can sign in to its wikis and apps: **Settings → Acting as an
+  account → Administrators may sign in to wikis and apps while acting as an
+  account** is switched on by the upgrade (it started off, which refused
+  every such sign-in). Untick it to go back. Acting no longer asks for a
+  reason.
 * **Site icon** (wiki schema 22). **Admin → Appearance → Site icon** no
   longer has a separate on/off switch: the icon selected is the one browsers
   show. A wiki where the switch was off showed the yellow banana, so that

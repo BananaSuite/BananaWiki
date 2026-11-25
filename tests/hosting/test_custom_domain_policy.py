@@ -307,7 +307,7 @@ def test_an_administrator_looking_as_the_owner_changes_nothing(portal, runtime, 
                                                   "proxied": False, "dns_error": False}
     runtime.domain_results["docs.example.org"] = DomainCheck(ownership=True, routing=True)
     admin_client = _client(portal, login, admin)
-    assert admin_client.post(f"/admin/accounts/{owner['id']}/impersonate", data={"current_password": PASSWORD, "reason": "Support request"}).status_code == 302
+    assert admin_client.post(f"/admin/accounts/{owner['id']}/impersonate", data={"current_password": PASSWORD}).status_code == 302
     data = admin_client.post(f"/instances/{wiki['id']}/domain/check").get_json()
     assert data["state"] == "pending" and not data["verified"], "the checklist, never the verification"
     assert admin_client.post(f"/instances/{wiki['id']}/domain", data={"action": "remove"}).status_code == 403

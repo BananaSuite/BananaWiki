@@ -38,11 +38,10 @@
       hint=t('hosting.admin.flagged_email_hint', email=target.email_flagged_previous) if target.email_flagged_invalid and target.email_flagged_previous else '') }}
   {{ ui.field('new_password', t('hosting.field.new_password'), type='password', attrs={'autocomplete': 'new-password'}) }}{{ ui.field('confirm_password', t('hosting.field.confirm_password'), type='password', attrs={'autocomplete': 'new-password'}) }}</form></details>
 {% if can_act %}
-{#- Acting needs the administrator's password (or two-step code) again and a reason; it ends by itself. -#}
+{#- Acting needs the administrator's password (or two-step code) again; it ends by itself. -#}
 <details class="card" id="act" data-remember><summary>{{ t('hosting.admin.impersonate') }}</summary>
 <form method="post" action="{{ url_for('admin.impersonate', account_id=target.id) }}" class="form" autocomplete="off">{{ ui.csrf() }}
   <p class="small muted">{{ t('hosting.admin.act_intro', minutes=act_minutes) }}{% if act_app_signin %} {{ t('hosting.admin.act_intro_apps') }}{% endif %}</p>
-  {{ ui.textarea('reason', t('hosting.admin.act_reason'), required=true, attrs={'minlength': 5, 'maxlength': 500, 'rows': 2}, id='act-reason') }}
   {{ ui.field('current_password', t('hosting.field.current_password'), type='password', hint=t('hosting.admin.act_password_hint') if current_account.totp_enabled else '', attrs={'autocomplete': 'current-password'}, id='act-password') }}
   {% if current_account.totp_enabled %}{{ ui.field('code', t('hosting.admin.act_code'), attrs={'autocomplete': 'one-time-code', 'inputmode': 'numeric', 'maxlength': 32}, id='act-code') }}{% endif %}
   <p><button class="btn" type="submit">{{ t('hosting.admin.impersonate') }}</button></p></form></details>

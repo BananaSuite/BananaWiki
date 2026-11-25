@@ -238,7 +238,7 @@ def test_a_blocked_account_can_always_sign_out_or_delete_itself(strict, state):
         deleted = client.post("/account/delete", data={"current_password": PASSWORD})
     assert urlsplit(deleted.headers["Location"]).path == "/login"
     with strict.app_context(), connection_scope(strict.extensions["bananawiki.hosting.database"]) as db:
-        assert db.scalar("SELECT deleted_at FROM accounts WHERE id = ?", (account["id"],))
+        assert db.scalar("SELECT COUNT(*) FROM accounts WHERE id = ?", (account["id"],)) == 0
 
 
 # Credentials outside the portal: API tokens and wiki sign-in tokens

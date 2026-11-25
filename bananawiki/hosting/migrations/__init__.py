@@ -40,6 +40,8 @@ Version history
      account links made by administrators. See :mod:`.v15_signin_round3`.
 16   A saved read-aloud GPU address is the GPU switch; where the switch was
      off the address is emptied. See :mod:`.v16_gpu_address`.
+17   Administrators acting as an account can sign in to its wikis and apps
+     unless switched off. See :mod:`.v17_acting_app_signin`.
 
 A 1.4 database at version 2 upgrades in place. A new database is created from
 the baseline followed by every later migration, so fresh and upgraded
@@ -70,6 +72,7 @@ from . import (
     v14_signup_approval,
     v15_signin_round3,
     v16_gpu_address,
+    v17_acting_app_signin,
 )
 
 APPLICATION_ID = 0x42574850  # "BWHP", unchanged from 1.4
@@ -89,6 +92,7 @@ MIGRATIONS = (
     v14_signup_approval.upgrade,  # 13 -> 14
     v15_signin_round3.upgrade,  # 14 -> 15
     v16_gpu_address.upgrade,  # 15 -> 16
+    v17_acting_app_signin.upgrade,  # 16 -> 17
 )
 LATEST = BASELINE + len(MIGRATIONS)
 SIGNUP_MODES = ("open", "invite", "closed")

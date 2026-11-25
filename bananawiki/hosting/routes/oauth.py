@@ -258,7 +258,7 @@ def authorize():
         if acting_row is not None:
             # The administrator is not the one consenting: nothing is remembered for the account.
             events.record("account", current["id"], "account.acting_signin", acting_row["admin_account_id"],
-                          f"{app['name'] if app is not None else inst['subdomain']}: {acting_row['reason']}"[:2000])  # type: ignore[index]
+                          app["name"] if app is not None else inst["subdomain"])  # type: ignore[index]
         elif app is not None:
             oauth_apps.remember_consent(current["id"], app["id"], scope)
         else:

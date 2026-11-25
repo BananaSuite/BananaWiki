@@ -243,17 +243,19 @@ def test_connecting_from_settings_refuses_a_hosting_account_linked_elsewhere(oau
     assert "already connected to another account on this wiki" in page
 
 
-def test_the_first_sign_in_offers_two_clear_choices_and_keeps_what_was_typed(oauth_client, oauth_db, portal,
-                                                                             make_user):
+def test_the_first_sign_in_creates_first_and_connects_behind_a_button(oauth_client, oauth_db, portal, make_user):
     make_user("existing")
     oauth_db.execute("UPDATE site_settings SET open_signup = 1")
     _hosting_sign_in(oauth_client)
     page = oauth_client.get("/platform-oauth/connect").get_data(as_text=True)
-    assert page.index("I already have an account here") < page.index("Create a new account")
+    assert page.index("Create my account") < page.index("I already have an account here")
+    assert '<details class="connect-existing">' in page, "closed until asked for"
+    assert '<summary class="btn">I already have an account here</summary>' in page
     assert "You signed in to BananaWiki Hosting as portaluser" in page
     refused = oauth_client.post("/platform-oauth/merge", data={"username": "existing", "password": "nope"})
     body = refused.get_data(as_text=True)
     assert refused.status_code == 401 and 'value="existing"' in body and 'id="existing-error"' in body
+    assert '<details class="connect-existing" open>' in body, "a refused connection comes back open"
     taken = oauth_client.post("/platform-oauth/signup", data={"username": "existing"})
     body = taken.get_data(as_text=True)
     assert taken.status_code == 400 and 'value="existing"' in body and 'id="create-error"' in body

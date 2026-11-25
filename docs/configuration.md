@@ -388,7 +388,7 @@ stops every message at once (also `bananawiki hosting-admin settings email-pause
 on|off`). See [hosting](hosting.md#email). So is **Settings → Acting as an
 account**: how long acting lasts (`admin_act_minutes`, 30), whether the account
 is emailed when it starts (`admin_act_notify`, off) and whether acting
-administrators may sign in to wikis and apps (`admin_app_signin`, off). Each
+administrators may sign in to wikis and apps (`admin_app_signin`, on). Each
 wiki can refuse the last one under **Admin → Site settings → Security → Allow
 hosting administrators to sign in as users** (on). See
 [hosting](hosting.md#acting-as-an-account).

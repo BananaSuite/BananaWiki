@@ -159,6 +159,7 @@ def delete_account():
         accounts.check_deletable(current["id"])
         instances.terminate_all(current["id"], actor_id=current["id"])
         accounts.delete(current["id"])
+        accounts.purge_tombstones()  # at once, unless a terminated wiki still needs its owner
     except ServiceError as error:
         if error.key == "hosting.accounts.owns_main_wiki" and not current["is_admin"]:
             # Whether a wiki is a main wiki is for administrators to know; the owner only hears that it is kept.

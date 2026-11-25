@@ -155,7 +155,7 @@ def test_impersonation_acts_as_the_user_and_is_logged(web, make_account, make_wi
     admin, user = make_account(admin=True), make_account()
     wiki = make_wiki(user, "impersonated")
     login(web, admin)
-    web.post(f"/admin/accounts/{user['id']}/impersonate", data={"current_password": PASSWORD, "reason": "Support request"})
+    web.post(f"/admin/accounts/{user['id']}/impersonate", data={"current_password": PASSWORD})
     page = web.get("/dashboard").get_data(as_text=True)
     assert "impersonated" in page and user["username"] in page
     assert web.get("/admin").status_code == 403, "an impersonated session has the user's rights"
@@ -169,7 +169,7 @@ def test_impersonation_acts_as_the_user_and_is_logged(web, make_account, make_wi
 def test_admins_cannot_impersonate_other_admins(web, make_account, login):
     admin, other_admin = make_account(admin=True), make_account(admin=True)
     login(web, admin)
-    web.post(f"/admin/accounts/{other_admin['id']}/impersonate", data={"current_password": PASSWORD, "reason": "Support request"})
+    web.post(f"/admin/accounts/{other_admin['id']}/impersonate", data={"current_password": PASSWORD})
     assert web.get("/admin").status_code == 200
 
 
@@ -237,7 +237,7 @@ def test_bulk_account_deletion_reports_failures_and_goes_on(web, make_account, l
     page = web.get(response.headers["Location"]).get_data(as_text=True)
     assert "1 account deleted." in page and "1 account could not be deleted. Delete it on its own" in page
     deleted = {row["id"]: row["deleted_at"] for row in query("SELECT id, deleted_at FROM accounts")}
-    assert deleted[first["id"]] is None and deleted[second["id"]]
+    assert deleted[first["id"]] is None and second["id"] not in deleted  # deleted for good: no wiki kept its row
 
 
 def test_admin_wiki_lifecycle_and_restore(web, make_account, make_wiki, login, runtime, query):

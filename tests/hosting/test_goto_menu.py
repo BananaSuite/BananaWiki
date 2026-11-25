@@ -108,7 +108,7 @@ def test_the_menu_is_styled_for_the_header():
     rules = {selector.strip(): body for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)}
     toggle, menu_list = rules[".goto-menu__toggle"], rules[".goto-menu__list"]
     assert "var(--header-text)" in toggle
-    assert "right: 0" in menu_list and "background: var(--board-bg)" in menu_list and "z-index" in menu_list
+    assert "right: 0" in menu_list and "background: var(--surface)" in menu_list and "z-index" in menu_list
     # Every colour comes from a token the portal defines (an undefined one left the list transparent).
     defined = set(re.findall(r"(--[\w-]+)\s*:", css))
     used = {name for selector, body in rules.items() if "goto-menu" in selector

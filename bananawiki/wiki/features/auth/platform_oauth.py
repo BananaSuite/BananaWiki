@@ -43,10 +43,8 @@ Configured by ``BW_PLATFORM_OAUTH_*`` (see ``config.platform_oauth``). The rules
   ``prompt=create`` opens its sign-up form, and the state remembers that the
   account was created for this wiki, so the first sign-in creates the wiki
   account at once, named like the portal account, under the same sign-up
-  policy (the connect page takes over when that is not possible). The sign-in
-  page offers it only while the portal's metadata says sign-up is ``open`` or
-  ``invite`` (:func:`portal_signup_open`, remembered a few minutes; a portal
-  that does not answer hides it).
+  policy (the connect page takes over when that is not possible). No page
+  links to it: the sign-in page's portal button is the way in for everyone.
 * A hosting administrator acting as a portal account (the portal's ``act``)
   signs in to the wiki account linked to it, never links or creates one, and
   only while the wiki allows it (``platform_allow_acting``): see
@@ -83,11 +81,6 @@ INVITE_KEY = "_platform_oauth_invite"
 STATE_TTL_SECONDS = 600
 MAX_STATES = 5
 MAX_RESPONSE_BYTES = 256 * 1024
-# What the portal said about sign-up is remembered this long (an answer that failed: a minute).
-SIGNUP_STATE_SECONDS = 300
-SIGNUP_STATE_RETRY_SECONDS = 60
-SIGNUP_STATE_TIMEOUT = 3.0
-METADATA_PATH = "/.well-known/oauth-authorization-server"
 REQUIRED = ("client_id", "client_secret", "authorize_url", "token_url", "userinfo_url", "portal_base")
 
 
@@ -203,8 +196,7 @@ def _client_auth(cfg: dict[str, str]) -> dict[str, str]:
 
 
 def _call(method: str, url: str, *, form: dict[str, Any] | None = None, json_body: Any = None,
-          headers: dict[str, str] | None = None, client_auth: bool = False,
-          timeout: float | None = None) -> tuple[int, Any]:
+          headers: dict[str, str] | None = None, client_auth: bool = False) -> tuple[int, Any]:
     """One server-to-server call to the portal; returns (status, parsed JSON or None)."""
     cfg = config()
     assert cfg is not None
@@ -222,8 +214,7 @@ def _call(method: str, url: str, *, form: dict[str, Any] | None = None, json_bod
     schemes = _schemes(cfg["portal_base"]) if private else ("https",)
     try:
         response = http.request(method, url, headers=sent, body=body, max_bytes=MAX_RESPONSE_BYTES,
-                                allow_private=private, schemes=schemes,
-                                **({"timeout": timeout, "total_timeout": timeout * 2} if timeout else {}))
+                                allow_private=private, schemes=schemes)
     except http.HttpError as error:
         raise OAuthError("auth.oauth.error.portal", str(error)) from error
     try:
@@ -231,32 +222,6 @@ def _call(method: str, url: str, *, form: dict[str, Any] | None = None, json_bod
     except (UnicodeDecodeError, ValueError):
         data = None
     return response.status, data
-
-
-def portal_signup_open() -> bool:
-    """Whether the portal takes new accounts (its metadata's ``signup`` is ``open`` or ``invite``).
-
-    Remembered for :data:`SIGNUP_STATE_SECONDS` per process; a portal that
-    does not answer, or does not say, counts as closed for a minute.
-    """
-    cfg = config()
-    if cfg is None:
-        return False
-    cache = current_app.extensions.setdefault("bananawiki.portal_signup", {})
-    now = time.monotonic()
-    if cache.get("until", 0) > now:
-        return bool(cache.get("open"))
-    answer = None
-    try:
-        status, data = _call("GET", cfg["portal_base"].rstrip("/") + METADATA_PATH, timeout=SIGNUP_STATE_TIMEOUT)
-        if status == 200 and isinstance(data, dict):
-            answer = data.get("signup")
-    except OAuthError as error:
-        log.info("The portal's sign-up state could not be read: %s", error)
-    known = answer in ("open", "invite", "closed")
-    cache.update(open=answer in ("open", "invite"),
-                 until=now + (SIGNUP_STATE_SECONDS if known else SIGNUP_STATE_RETRY_SECONDS))
-    return bool(cache["open"])
 
 
 def exchange_code(code: str, state: str, purpose: str) -> str:

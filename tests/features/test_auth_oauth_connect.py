@@ -142,7 +142,7 @@ def test_a_hosting_account_connected_meanwhile_is_not_connected_twice(browser, p
 def test_without_open_sign_up_an_invite_is_needed_but_connecting_still_works(browser, portal, people, wiki_db):
     wiki_db.execute("UPDATE site_settings SET open_signup = 0")
     page = _arrive(browser)
-    assert "New accounts need an invite code" in page and 'name="invite_code"' in page
+    assert "This wiki is private: ask one of its administrators for a code." in page and 'name="invite_code"' in page
     refused = browser.post("/platform-oauth/signup", data={"username": "alex2"})
     assert refused.status_code == 400 and "An invite code is required" in refused.get_data(as_text=True)
     assert browser.post("/platform-oauth/merge", data={"username": "alexbanana", "password": PASSWORD}

@@ -120,7 +120,7 @@ def test_someone_who_does_not_accept_can_still_leave(strict):
     deleted = client.post("/account/delete", data={"current_password": PASSWORD})
     assert deleted.status_code == 302 and deleted.headers["Location"].endswith("/login")
     with strict.app_context(), _scope(strict) as db:
-        assert db.scalar("SELECT deleted_at FROM accounts WHERE id = ?", (account_id,))
+        assert db.scalar("SELECT COUNT(*) FROM accounts WHERE id = ?", (account_id,)) == 0
 
 
 def test_a_required_version_later_than_the_recorded_terms_refuses_to_start(tmp_path):

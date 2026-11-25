@@ -18,7 +18,6 @@ from .hosting_support import PASSWORD, REDIRECT
 
 VERIFIER = "r" * 64
 CHALLENGE = base64.urlsafe_b64encode(hashlib.sha256(VERIFIER.encode()).digest()).decode().rstrip("=")
-REASON = "Support ticket 42: cannot find a page"
 
 
 @pytest.fixture
@@ -180,21 +179,22 @@ def test_metadata_lists_the_new_parameters_and_claims(web, wiki):
 
 def _act(client, target, **data):
     return client.post(f"/admin/accounts/{target['id']}/impersonate",
-                       data={"current_password": PASSWORD, "reason": REASON, **data})
+                       data={"current_password": PASSWORD, **data})
 
 
-def test_acting_needs_the_password_again_and_a_reason(web, make_account, login, query):
+def test_acting_needs_the_password_again_and_no_reason(web, make_account, login, query):
     admin, user = make_account(admin=True), make_account()
     login(web, admin)
-    _act(web, user, reason="")
+    page = web.get(f"/admin/accounts/{user['id']}").get_data(as_text=True)
+    assert 'id="act-password"' in page and 'id="act-reason"' not in page
     _act(web, user, current_password="wrong")
-    assert web.get("/admin").status_code == 200, "neither started acting"
+    assert web.get("/admin").status_code == 200, "did not start acting"
     _act(web, user)
     assert web.get("/admin").status_code == 403
     log = query("SELECT * FROM hosting_impersonation_logs", one=True)
-    assert log["reason"] == REASON and log["expires_at"] > log["started_at"]
-    events = query("SELECT action, reason, actor_id FROM hosting_events WHERE action LIKE 'account.imperson%'")
-    assert events == [{"action": "account.impersonated", "reason": REASON, "actor_id": admin["id"]}]
+    assert log["reason"] == "" and log["expires_at"] > log["started_at"]
+    events = query("SELECT action, actor_id FROM hosting_events WHERE action LIKE 'account.imperson%'")
+    assert events == [{"action": "account.impersonated", "actor_id": admin["id"]}]
     assert "This ends at" in web.get("/dashboard").get_data(as_text=True)
 
 
@@ -244,10 +244,11 @@ def test_the_account_can_be_told(web, make_account, login, query):
     assert admin["username"] in sent[0].text and "15 minutes" in sent[0].text
 
 
-def test_acting_reaches_wikis_only_with_the_setting(web, make_account, login, wiki, query):
+def test_acting_reaches_wikis_unless_switched_off(web, make_account, login, wiki, query):
     admin, user = make_account(admin=True), make_account()
     login(web, admin)
     _act(web, user)
+    query("UPDATE hosting_settings SET admin_app_signin = 0 WHERE id = 1")
     assert web.get(_url(wiki)).status_code == 403
     query("UPDATE hosting_settings SET admin_app_signin = 1 WHERE id = 1")
     page = web.get(_url(wiki)).get_data(as_text=True)
@@ -261,7 +262,7 @@ def test_acting_reaches_wikis_only_with_the_setting(web, make_account, login, wi
     assert info["act_expires_at"] == token["act_expires_at"] and log["expires_at"]
     assert query("SELECT COUNT(*) AS n FROM hosting_oauth_grants", one=True)["n"] == 0, "no consent recorded"
     signin = query("SELECT * FROM hosting_events WHERE action = 'account.acting_signin'", one=True)
-    assert signin["subject_id"] == user["id"] and signin["actor_id"] == admin["id"] and REASON in signin["reason"]
+    assert signin["subject_id"] == user["id"] and signin["actor_id"] == admin["id"] and signin["reason"] == wiki["inst"]["subdomain"]
     # Stopping ends what the sign-in gave.
     web.post("/admin/stop-impersonating")
     assert _userinfo(web, token["access_token"]).status_code == 401
@@ -310,7 +311,19 @@ def test_the_settings_page_saves_the_acting_settings(web, make_account, login, q
 
 def test_defaults(query):
     row = query("SELECT admin_act_minutes, admin_act_notify, admin_app_signin FROM hosting_settings", one=True)
-    assert row == {"admin_act_minutes": 30, "admin_act_notify": 0, "admin_app_signin": 0}
+    assert row == {"admin_act_minutes": 30, "admin_act_notify": 0, "admin_app_signin": 1}
+
+
+def test_version_17_turns_app_sign_in_on_once():
+    import sqlite3
+
+    from bananawiki.hosting.migrations import v17_acting_app_signin
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE hosting_settings (id INTEGER PRIMARY KEY, admin_app_signin INTEGER NOT NULL DEFAULT 0)")
+    conn.execute("INSERT INTO hosting_settings (id) VALUES (1)")
+    v17_acting_app_signin.upgrade(conn)
+    assert conn.execute("SELECT admin_app_signin FROM hosting_settings").fetchone() == (1,)
 
 
 # A3: account lookup

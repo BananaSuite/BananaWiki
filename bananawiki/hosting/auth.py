@@ -299,14 +299,14 @@ def clear_history(account_id: str) -> int:
 # Impersonation
 
 
-def start_impersonation(target: dict[str, Any], reason: str) -> None:
-    """Act as *target* (see :mod:`.acting`: the caller checked the confirmation and the reason)."""
+def start_impersonation(target: dict[str, Any]) -> None:
+    """Act as *target* (see :mod:`.acting`: the caller checked the confirmation)."""
     from . import acting
 
     admin = real_account()
     if admin is None:
         abort(403)
-    log_id = acting.start(admin, target, reason)
+    log_id = acting.start(admin, target)
     session[IMPERSONATOR_KEY] = admin["id"]
     session[IMPERSONATION_LOG_KEY] = log_id
     session[ACCOUNT_KEY] = target["id"]

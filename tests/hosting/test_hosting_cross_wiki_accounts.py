@@ -146,13 +146,15 @@ def test_use_another_account_signs_out_of_the_portal_and_comes_back(web, make_ac
     assert len(query("SELECT * FROM hosting_oauth_authorization_codes")) == 1
 
 
-def test_impersonation_never_gets_a_code(portal, web, make_account, login, wiki):
+def test_impersonation_gets_no_code_once_app_sign_in_is_switched_off(portal, web, make_account, login, wiki, query):
     admin, member = make_account(admin=True), make_account()
     member_browser = portal.test_client()
     login(member_browser, member)
     _allow(member_browser, wiki)
     login(web, admin)
-    web.post(f"/admin/accounts/{member['id']}/impersonate", data={"current_password": PASSWORD, "reason": "Support request"})
+    web.post(f"/admin/accounts/{member['id']}/impersonate", data={"current_password": PASSWORD})
+    assert _authorize_get(web, wiki).status_code == 200, "the short Continue page, on unless switched off"
+    query("UPDATE hosting_settings SET admin_app_signin = 0 WHERE id = 1")
     assert _authorize_get(web, wiki).status_code == 403
 
 
@@ -221,7 +223,7 @@ def test_the_wiki_sign_ins_page_is_hidden_while_platform_sign_in_is_off(web, mak
 def test_an_impersonating_administrator_cannot_sign_someone_out(portal, web, make_account, login, wiki):
     admin, member = make_account(admin=True), make_account()
     login(web, admin)
-    web.post(f"/admin/accounts/{member['id']}/impersonate", data={"current_password": PASSWORD, "reason": "Support request"})
+    web.post(f"/admin/accounts/{member['id']}/impersonate", data={"current_password": PASSWORD})
     assert web.get("/account/wikis").status_code == 200
     assert web.post(f"/account/wikis/{wiki['inst']['id']}/sign-out").status_code == 403
     assert web.post("/oauth/revoke").status_code == 403
