@@ -2,7 +2,7 @@
  *
  * A centred board with a blue header, a navigation strip, panels with blue title bars, ruled tables
  * with alternating rows and small buttons. Flat colours, one-pixel borders and small rounded corners:
- * no gradients, glows or text shadows; a shadow only under what floats (menus). Controls follow the
+ * no gradients, glows or text shadows, except the glossy header; a shadow only under what floats (menus). Controls follow the
  * wiki's states: hover changes the background, keyboard focus draws a 2px outline, disabled fades.
  * Dark (midnight blue) is the default and light the same board by day. mascot.css styles the banana.
  */
@@ -28,7 +28,8 @@
   --field-border: #7f9db9;
   --field-focus: #2f5b85;
   --field-focus-bg: #ffffe8;
-  --header-bg: #2f4b6b;
+  --header-bg: linear-gradient(#557599 0%, #3f5f83 49%, #2f4b6b 51%, #23384f 100%);
+  --gloss: linear-gradient(rgba(255, 255, 255, .18), rgba(255, 255, 255, .05) 50%, rgba(255, 255, 255, 0) 50%);
   --header-text: #ffffff;
   --nav-bg: #eef2f6;
   --nav-border: #9aabbd;
@@ -100,7 +101,8 @@
   --field-border: #546a82;
   --field-focus: #9cc4f5;
   --field-focus-bg: #1d2418;
-  --header-bg: #1d3754;
+  --header-bg: linear-gradient(#36557a 0%, #29466a 49%, #1d3754 51%, #142a42 100%);
+  --gloss: linear-gradient(rgba(255, 255, 255, .1), rgba(255, 255, 255, .03) 50%, rgba(255, 255, 255, 0) 50%);
   --nav-bg: #232e3b;
   --nav-border: #3b4d61;
   --nav-text: #dde5ed;
@@ -177,7 +179,7 @@ form.inline { display: inline-flex; margin: 0; }
 .board { max-width: var(--board-width); margin: 0 auto; overflow: clip; background: var(--board-bg);
   border: 1px solid var(--board-border); border-radius: var(--radius-board); box-shadow: var(--board-shadow); }
 .board-header { display: flex; align-items: center; gap: .5rem; min-height: 3.75rem; padding: .5rem .9rem;
-  background: var(--header-bg); color: var(--header-text); border-bottom: 1px solid #1b2c40; }
+  background: var(--gloss), var(--header-bg); color: var(--header-text); border-bottom: 1px solid #1b2c40; }
 .board-header .mascot { margin-left: -2px; }
 /* The board clips its content to its rounded corners, except while the Go to list is open: that list may reach
    below a short page. The header and footer round their own outer corners for that moment. */
@@ -185,10 +187,10 @@ form.inline { display: inline-flex; margin: 0; }
 .board-header { border-radius: calc(var(--radius-board) - 1px) calc(var(--radius-board) - 1px) 0 0; }
 .board > .site-footer { border-radius: 0 0 calc(var(--radius-board) - 1px) calc(var(--radius-board) - 1px); }
 .topbar__brand { color: var(--header-text); font-family: "Trebuchet MS", var(--font-ui); font-size: 1.375rem; font-weight: bold;
-  text-decoration: none; min-width: 0; }
+  text-decoration: none; text-shadow: 0 1px 1px rgba(0, 0, 0, .4); min-width: 0; }
 .topbar__brand:hover { color: var(--header-text); text-decoration: underline; }
 .topbar__brand span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.board-header__user { margin: 0 0 0 auto; font-size: var(--font-size-sm); color: #dce6f0;
+.board-header__user { margin: 0 0 0 auto; font-size: var(--font-size-sm); color: #dce6f0; text-shadow: 0 1px 0 rgba(0, 0, 0, .3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
 .board-header__user strong { color: #ffffff; }
 .board-header .hosting-menu-toggle { display: none; margin-left: auto; }
@@ -225,8 +227,12 @@ form.inline { display: inline-flex; margin: 0; }
 .goto-menu__list { position: absolute; z-index: 60; top: calc(100% + .45rem); right: 0; min-width: 16rem;
   max-width: min(22rem, calc(100vw - 1.5rem)); margin: 0; padding: .35rem 0; list-style: none; color: var(--text);
   background: var(--board-bg); border: 1px solid var(--line-strong); border-radius: var(--radius-box); box-shadow: var(--shadow); }
+/* A link covers its whole row, the note under it included, so a click anywhere on the row follows it. */
+.goto-menu__item { position: relative; }
 .goto-menu__item > a { display: block; padding: .45rem .9rem; color: var(--link); text-decoration: none; overflow-wrap: anywhere; }
-.goto-menu__item > a:hover, .goto-menu__item > a:focus-visible { background: var(--nav-hover-bg); color: var(--link-hover); }
+.goto-menu__item > a::after { content: ""; position: absolute; inset: 0; }
+.goto-menu__item:hover, .goto-menu__item:focus-within { background: var(--nav-hover-bg); }
+.goto-menu__item:hover > a, .goto-menu__item > a:focus-visible { color: var(--link-hover); }
 .goto-menu__item > a:focus-visible { outline-offset: -2px; }
 .goto-menu__item--chat, .goto-menu__item--wiki + .goto-menu__item--git { border-top: 1px solid var(--line); }
 .goto-menu__note { margin: -.2rem 0 .35rem; padding: 0 .9rem; font-size: var(--font-size-sm); color: var(--muted); }
